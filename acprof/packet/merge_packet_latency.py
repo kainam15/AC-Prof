@@ -193,7 +193,8 @@ def _compute_cpu_mips(row: dict, latency_s: float) -> float:
 
 
 def _read_sidecar_groups(csv_path: str) -> list[str]:
-    sidecar_path = f"{csv_path}.sniff_groups.jsonl"
+    from acprof.artifact_layout import case_sidecar
+    sidecar_path = case_sidecar(csv_path, "sniff_groups")
     if not os.path.exists(sidecar_path):
         return []
 
@@ -217,7 +218,8 @@ def _merge_request_samples(csv_path: str, request_records: dict) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
     from acprof.artifacts import atomic_write
 
-    path = f"{csv_path}.requests.jsonl"
+    from acprof.artifact_layout import case_sidecar
+    path = case_sidecar(csv_path, "requests")
     if not os.path.exists(path):
         return  # Historical CSVs have no raw application samples.
 
@@ -250,7 +252,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     with open(lat_json, "r", encoding="utf-8") as f:
         packet_payload = json.load(f)
     request_records = _request_records(packet_payload)
-    metadata = read_static_metadata(os.path.dirname(in_csv) or ".")
+    from acprof.artifact_layout import ArtifactLayout
+    metadata = read_static_metadata(ArtifactLayout.from_csv(in_csv).root)
     static_batch_size = _to_float(metadata.get("batch_size", "nan"))
     slow_latency_threshold_s = latency_slo_threshold(metadata)
 

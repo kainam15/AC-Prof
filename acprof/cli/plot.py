@@ -8,6 +8,7 @@ import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 import sys
+from acprof.artifact_layout import ArtifactLayout
 
 
 CSV_PATH = "results/result_all.csv"
@@ -49,7 +50,7 @@ def main(argv=None):
 
     xlabel = scale_type
 
-    output_dir = os.path.dirname(csv_path) or "."
+    output_dir = str(ArtifactLayout.from_csv(csv_path).plots_dir)
 
     performance_groups = dict(plotting_data.build_plot_groups(df))
     feasibility_groups = dict(plotting_data.build_plot_groups(all_status_df))

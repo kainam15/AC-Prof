@@ -96,13 +96,16 @@ acprof run --model google-bert/bert-base-uncased \
 
 ```text
 results/first-run/google-bert--bert-base-uncased/
-├── result_all.csv          # 测量数据
-├── static_meta.json        # 模型、镜像和运行环境
-├── input_scale_plan.json   # 本次实验使用的输入
-├── matrix_plan.json        # 冻结的资源与输入尺度顺序
-├── startup_oom_pruning.json # 独立启动探测证据，不含性能结果
-├── collection_history.json # 补采或修复记录
-└── run_state.json          # 实验完成与恢复状态
+├── result_all.csv           # 测量数据
+├── static_meta.json         # 模型、镜像和运行环境
+├── capability_report.json   # 本次采集的能力与完成证据
+├── result_manifest.json     # 布局版本与产物路径索引
+├── metadata/                # 输入计划、矩阵计划、解析及补采记录
+├── raw/                     # 请求样本与 profiler 原始报告
+├── plots/                   # 图表、拟合与窗口统计
+├── logs/                    # 终端及独立验证日志
+├── debug/                   # 可选 idle 诊断
+└── .acprof/                 # 状态、锁、case 工作文件及恢复备份
 ```
 
 先检查结果是否完整，再生成有适用数据的图表：
@@ -112,8 +115,10 @@ acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complet
 acprof plot results/first-run/google-bert--bert-base-uncased/result_all.csv
 ```
 
-图表写入同一模型目录下的 `cpu/`、`gpu/`、`gpu+cpu/` 和 `latency_model/`，没有适用数据的部分会跳过。
-采集过程中先写 `result_case_*.csv`，矩阵结束后才合并出 `result_all.csv`。
+新实验的图表写入 `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 和 `plots/latency_model/`，没有适用数据的部分会跳过。
+采集过程中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵结束后才合并出 `result_all.csv`。
+没有清单的旧目录保持原路径，可继续读取、绘图及补采；不自动搬迁数据。
+目录协议与恢复边界见[Artifact Layout v2](docs/Profiling_Protocol.md#artifact-layout-v2)。
 正式分析筛选 `status=ok` 且 `warmup=0`；字段、统计与缺失值说明见[结果阅读指南](docs/Metrics.md#从结果目录开始)。
 
 ## 交互式终端界面

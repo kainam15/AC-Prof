@@ -37,6 +37,7 @@ from acprof.capabilities import (
 )
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.run_state import RunState, RunStateError, load_run_state, run_options
+from acprof.artifact_layout import ArtifactLayout
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device, selected_gpu_device
 from acprof.host.preflight import (
     require_native_linux_host,
@@ -166,9 +167,10 @@ def _start_tmux_terminal_log(
         return None
 
     os.makedirs(output_dir, exist_ok=True)
-    log_path = os.path.join(output_dir, TMUX_TERMINAL_LOG_FILENAME)
+    log_path = str(ArtifactLayout.discover(output_dir).path(TMUX_TERMINAL_LOG_FILENAME))
     partial_path = f"{log_path}.part"
     try:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         with open(partial_path, "w", encoding="utf-8") as f:
             f.write(f"$ {_format_run_command(argv)}\n")
     except OSError as exc:
@@ -516,8 +518,14 @@ def _cleanup_intermediate_results(csv_paths: list[str], output_dir: str, final_c
         print(f"[cleanup][WARN] Skip cleanup because merged CSV is empty: {final_csv}")
         return
 
+    layout = ArtifactLayout.discover(output_dir)
     targets = set()
     for csv_path in csv_paths:
+        if layout.layout_version == 2:
+            case = layout.case_from_csv(csv_path)
+            case.retain_requests()
+            targets.update(str(layout.contained(path.relative_to(layout.root))) for path in case.temporary_files())
+            continue
         targets.add(csv_path)
         targets.add(f"{csv_path}.sniff_groups.jsonl")
 
@@ -546,6 +554,12 @@ def _cleanup_intermediate_results(csv_paths: list[str], output_dir: str, final_c
             failed += 1
             print(f"[cleanup][WARN] Failed to remove {path}: {exc}")
 
+    if layout.layout_version == 2:
+        for csv_path in csv_paths:
+            try:
+                Path(csv_path).parent.rmdir()
+            except OSError:
+                pass  # Keep any unexpected file for diagnosis.
     print(f"[cleanup] Done. removed={removed}, missing={missing}, failed={failed}")
 
 
@@ -618,8 +632,9 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
 
     compute_profile_disabled = args.compute_profile_tool == "none"
     total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
-    static_meta_json = os.path.join(output_dir, "static_meta.json")
-    collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
+    layout = ArtifactLayout.discover(output_dir)
+    static_meta_json = str(layout.path("static_meta.json"))
+    collection_history_json = str(layout.path(COLLECTION_HISTORY_NAME))
     if run_state.ready:
         (task_info, image_info, planned_input_scales, compute_profile_plan_file,
          execution_profile_plan_file) = run_state.restore_runtime()
@@ -645,8 +660,6 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
             from acprof.model_contract import write_model_resolution
             write_model_resolution(task_info, output_dir)
 
-        static_meta_json = os.path.join(output_dir, "static_meta.json")
-        collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
         scaling_cfg = SCALING_DIMENSIONS.get(task_info.task_family)
         input_scale_type = scaling_cfg.param_name if scaling_cfg else ""
 
@@ -823,7 +836,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         static_meta = enrich_static_meta(static_meta, {"capability_report": capability_report.to_dict()})
         write_static_meta_json(static_meta, static_meta_json)
         from acprof.artifacts import atomic_write_json
-        atomic_write_json(Path(output_dir) / "capability_report.json", capability_report.to_dict())
+        atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
         if not capability_report.to_dict()["requested_measurements_available"]:
             print("[capability][WARN] 所请求的 profiler 尚有缺失或失败；详见 capability_report.json，不视为完整画像。")
         run_state.bind_runtime(task_info, image_info, planned_input_scales,
@@ -970,11 +983,11 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     )
     if "on" in [part.strip().lower() for part in args.gpus.split(",")]:
         pin_gpu_device(args.gpu_device)
-    _ACTIVE_RUN_STATE = RunState(output_dir, run_options(args), resume=args.resume, project_dir=PROJECT_DIR,
-                                **({"preparation_artifacts": preparation_artifacts} if preparation_artifacts else {}))
-    run_state = _ACTIVE_RUN_STATE
+    run_state = RunState(output_dir, run_options(args), resume=args.resume, project_dir=PROJECT_DIR,
+                         **({"preparation_artifacts": preparation_artifacts} if preparation_artifacts else {}))
+    _ACTIVE_RUN_STATE = run_state
     if run_state.complete:
-        print(f"[resume] 实验已经完成：{os.path.join(output_dir, 'result_all.csv')}")
+        print(f"[resume] 实验已经完成：{run_state.layout.result_csv}")
         return
     _ACTIVE_TMUX_TERMINAL_LOG = _start_tmux_terminal_log(output_dir, sys.argv)
 
@@ -996,8 +1009,9 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     execution_profile_plan_file = prepared.execution_profile_plan_file
     capability_report = prepared.capability_report
     input_scales_arg = serialize_input_scales(planned_input_scales.scales)
-    static_meta_json = os.path.join(output_dir, "static_meta.json")
-    collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
+    layout = run_state.layout
+    static_meta_json = str(layout.path("static_meta.json"))
+    collection_history_json = str(layout.path(COLLECTION_HISTORY_NAME))
     total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
 
     n_scales = len(planned_input_scales.scales)
@@ -1074,7 +1088,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
 
     # ── Step 5: Merge all CSVs ──
     if csv_paths:
-        final_csv = os.path.join(output_dir, "result_all.csv")
+        final_csv = str(layout.result_csv)
         merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
         with open(final_csv, newline="", encoding="utf-8") as stream:
             collected_rows = list(csv.DictReader(stream))
@@ -1082,7 +1096,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         from acprof.artifacts import atomic_write_json
         # static_meta is the immutable pre-matrix snapshot used by resume.
         # Publish final measurement evidence in its dedicated sidecar.
-        atomic_write_json(Path(output_dir) / "capability_report.json", capability_report.to_dict())
+        atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
         missing = missing_required_measurements(capability_report, collected_rows)
         if missing:
             print(f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"
@@ -1098,11 +1112,11 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
             print("  [WARN] 请求指标存在缺失；能力报告保留具体状态，结果不标记为完整画像。")
         print(f"  Static meta:      {static_meta_json}")
         print(f"  Collection log:   {collection_history_json}")
-        print(f"  Frozen matrix:    {os.path.join(output_dir, 'matrix_plan.json')}")
+        print(f"  Frozen matrix:    {layout.path('matrix_plan.json')}")
         if args.prune_startup_oom:
             print(
                 "  Startup evidence: "
-                f"{os.path.join(output_dir, 'startup_oom_pruning.json')}"
+                f"{layout.path('startup_oom_pruning.json')}"
             )
         print(f"  Merged results:   {final_csv}")
         print(f"  Total elapsed:    {elapsed}")

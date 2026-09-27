@@ -197,8 +197,12 @@ python run.py --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
 results/smoke/google-bert--bert-base-uncased/
 ├── result_all.csv
 ├── static_meta.json
-├── collection_history.json
-└── input_scale_plan.json
+├── capability_report.json
+├── result_manifest.json
+├── metadata/
+│   ├── collection_history.json
+│   └── input_scale_plan.json
+└── .acprof/run_state.json
 ```
 
 ### 无 Torch 的 ONNX Runtime CPU 示例

@@ -964,7 +964,9 @@ def collect_execution_profile_plan(
     normalized_nsys_repeat = max(1, int(nsys_repeat))
     output_dir = os.path.abspath(os.fspath(output_dir))
     os.makedirs(output_dir, exist_ok=True)
-    profile_root = os.path.join(output_dir, EXECUTION_PROFILE_DIRNAME)
+    from acprof.artifact_layout import ArtifactLayout
+    layout = ArtifactLayout.discover(output_dir)
+    profile_root = str(layout.path(EXECUTION_PROFILE_DIRNAME))
 
     collect_massif = (
         normalized_tool_mode in {"both", MASSIF_TOOL}
@@ -1257,7 +1259,7 @@ def collect_execution_profile_plan(
         "static_metadata": static_metadata,
         "profiles": profiles,
     }
-    plan_path = os.path.join(output_dir, EXECUTION_PROFILE_PLAN_NAME)
+    plan_path = str(layout.path(EXECUTION_PROFILE_PLAN_NAME))
 
     if not keep_profiles and enabled_tools:
         _strip_artifact_paths(profiles)

@@ -176,7 +176,8 @@ def prepare_df(
 
 def read_static_meta(csv_path: str) -> dict[str, object]:
     from acprof.artifacts import read_static_metadata
-    return read_static_metadata(os.path.dirname(csv_path) or ".")
+    from acprof.artifact_layout import ArtifactLayout
+    return read_static_metadata(ArtifactLayout.from_csv(csv_path).root)
 
 
 def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -> pd.DataFrame:

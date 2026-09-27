@@ -253,7 +253,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--gpus` | `off,on` | GPU mode 列表。`on` 只向容器暴露选定的物理 GPU。 |
 | `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`probe.py` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |
 | `--prune-startup-oom` / `--no-prune-startup-oom` | enabled | 正式矩阵前，用最低选中 CPU、内存升序执行独立 startup probe，只启动并等待 `/ready`，不产生性能结果。仅 Docker 确认启动 OOM 的连续低内存前缀用于剪枝；遇到 ready、timeout、CUDA OOM 或普通错误即停止扩展。所有被剪枝 case 标为 `inferred_not_measured`。禁用后逐格正式尝试。 |
-| `--matrix-order` | `seeded` | `seeded` 用版本化的确定性 hash 排序资源 case，并用每个 case 的独立派生 seed 排列 input scale；`declared` 保持资源参数与物化输入尺度的顺序。probe 完成后将实际顺序冻结到 `matrix_plan.json`。 |
+| `--matrix-order` | `seeded` | `seeded` 用版本化的确定性 hash 排序资源 case，并用每个 case 的独立派生 seed 排列 input scale；`declared` 保持资源参数与物化输入尺度的顺序。probe 完成后将实际顺序冻结到 `metadata/matrix_plan.json`。 |
 | `--matrix-seed` | `0` | 整数 seed；相同实验身份、probe 结论、算法版本和 seed 生成相同计划。resume 校验并复用已冻结顺序，不重新排序；不能在原目录改变 seed 或 order。 |
 | `--dram-energy` | `auto` | `full` 中独立采集可用的 DRAM RAPL 域；缺失或不可读时保持 `nan`，不因此使 full 失败。`off` 不采集，`required` 要求所有选中 package 的 DRAM 都可用且取得有效测量；不能与 `basic` 同用。DRAM 不加入 container-attributed energy。 |
 
@@ -270,7 +270,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--sample-hz` | `20.0` | GPU power sampling rate，单位 Hz；CPU workload 和 matched control window 期间也用它控制 RAPL、container cgroup、CPU frequency 和 GPU/resource usage 的采样间隔，以估计 average/peak power、vCPU share、CPU utilization 和 CPU cycles。perf MIPS 使用独立的 `perf stat` 窗口，不受该采样率影响。 |
 | `--idle-seconds` | `20.0` | 每个 workload window 前 matched control window 的目标时长。CPU、GPU、resource usage 以及启用时的 perf MIPS monitor 会按与 workload 相同的 `start()` / `stop()` 生命周期同时运行，但 control window 内不发送 `/predict` 请求。CPU baseline 为整段 RAPL 能耗 / 实际 duration；GPU baseline 为 NVML samples 的时间加权平均功率。case 结束后会复查该 case CSV 中所有有效 CPU/GPU baseline 的相对极差，达到或超过 5% 会输出 warning，实验继续运行。 |
 | `--idle-cooldown-seconds` | `5.0` | 每个 workload window 采集 idle baseline 前的统一冷却等待时间。CPU-only 和 GPU+CPU case 都使用同一个值，避免上一轮推理刚结束后的短时热状态、Docker/server 收尾或 GPU clock/power 瞬态直接进入 idle baseline。 |
-| `--idle-debug` | false | 开启 baseline 调试输出。主 CSV 会填充 GPU 的 `gpu_idle_measured_at` / `gpu_idle_rel_range_so_far` 和 CPU 的 `cpu_idle_measured_at` / `cpu_idle_rel_range_so_far`，并写出 `debug_idle_diag/result_case_*.csv.idle_diag.jsonl`。诊断文件记录 matched control window 的 GPU NVML trace、CPU RAPL 子窗口、host/container CPU delta，以及 control 结束后的 `nvidia-smi`、loadavg、top CPU processes、Docker 容器和 `docker stats` 快照。为避免诊断本身污染 baseline，逐进程 `/proc` 快照移到 control window 外，不再归入 RAPL control 能量。 |
+| `--idle-debug` | false | 开启 baseline 调试输出。主 CSV 会填充 GPU 的 `gpu_idle_measured_at` / `gpu_idle_rel_range_so_far` 和 CPU 的 `cpu_idle_measured_at` / `cpu_idle_rel_range_so_far`，并写出 `debug/idle/<case-id>.jsonl`。诊断文件记录 matched control window 的 GPU NVML trace、CPU RAPL 子窗口、host/container CPU delta，以及 control 结束后的 `nvidia-smi`、loadavg、top CPU processes、Docker 容器和 `docker stats` 快照。为避免诊断本身污染 baseline，逐进程 `/proc` 快照移到 control window 外，不再归入 RAPL control 能量。 |
 
 #### 输入
 
@@ -291,7 +291,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--ncu-repeat` | `1` | NCU GPU probe 的推理重复次数；FLOP、kernel 数和 kernel 时间最终都除回单 request。 |
 | `--compute-profile-cpus` | host logical CPUs | 临时 compute profiler container 的 CPU core cap。 |
 | `--compute-profile-mem` | 75% host memory | 临时 compute profiler container 的 memory cap，单位 GB。 |
-| `--keep-compute-profiles` | true | 保留 raw profiler artifacts；这是默认行为。artifact 位于模型结果目录的 `compute_profiles/`，路径不写入结果行。 |
+| `--keep-compute-profiles` | true | 保留 raw profiler artifacts；这是默认行为。artifact 位于模型结果目录的 `raw/compute_profiles/`，路径不写入结果行。 |
 | `--discard-compute-profiles` | false | 汇总完成后删除 raw profiler artifacts。 |
 
 #### 执行分析器
@@ -306,7 +306,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--nsys-reference-cpu` / `--nsys-reference-mem` | 最大选中值 | Nsys 缩减采样的代表资源；`per-cpu-scale` 只使用代表内存，`per-scale` 同时使用两者。 |
 | `--nsys-repeat` | `1` | 每个 Nsight Systems `acprof_compute` NVTX range 内的 inference 次数；time、count 和 bytes 汇总会除回单 request。 |
 | `--nsys-root` | auto | Host Nsight Systems install root 或 `nsys` executable；显式值优先于自动检测。 |
-| `--keep-execution-profiles` | true | 保留 `execution_profiles/` 下的 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；这是默认行为。stats 导出的 `.sqlite` 缓存会自动删除。 |
+| `--keep-execution-profiles` | true | 保留 `raw/execution_profiles/` 下的 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；这是默认行为。stats 导出的 `.sqlite` 缓存会自动删除。 |
 | `--discard-execution-profiles` | false | 汇总成功后删除 raw execution-profiler artifacts，保留 plan、CSV 数值与错误诊断。 |
 
 #### 输出与运行环境
@@ -455,7 +455,7 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 `audit.py <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
 用于验收新实验。`stats.py <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
 `--confidence`、`--resamples`、`--seed`、`--block-size` 和新的 `--output` 文件；定义见[结果分析](Metrics.md)。
-TUI“统计报告”页的“计算统计”使用 `stats.py` 默认参数，并在源 CSV 旁的 `analysis/` 保存唯一命名的 JSON。
+TUI“统计报告”页的“计算统计”使用 `stats.py` 默认参数，并在 v2 结果目录的 `plots/analysis/`（旧目录为 `analysis/`）保存唯一命名的 JSON。
 `/stats [csv/dir]` 与按钮等价；`/report [json]` 或“查看报告”读取已有窗口统计、监测开销或 CLI/TUI 对照报告。
 这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](TUI.md#统计报告)。
 `/images` 打开“镜像管理”页并自动读取数据，空闲时每轮读取完成后 5 秒更新；离开页面或运行任务时暂停。

@@ -75,7 +75,7 @@ Nsys 的 `per-cpu-scale` 只使用代表内存，`per-scale` 同时使用代表 
 ## 补采已有结果
 
 完成主矩阵后，结果目录需同时具有 `result_all.csv`、`static_meta.json` 和
-`input_scale_plan.json`。先检查计划，再执行补采：
+`metadata/input_scale_plan.json`（flat 目录仍在根部）。先检查计划，再执行补采：
 
 ```bash
 python profile.py results/google-bert--bert-base-uncased --dry-run
@@ -96,10 +96,10 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。完整成功的已有 plan 也可复用。
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
 
-写入前把旧文件备份到 `posthoc_backups/<timestamp>/`，验证临时文件后原子替换
-`result_all.csv`、`static_meta.json` 和 `collection_history.json`，失败时从备份恢复。
+写入前把旧文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证临时文件后原子替换
+`result_all.csv`、`static_meta.json` 和 `metadata/collection_history.json`，失败时从备份恢复。
 操作记录追加到 `posthoc_profile_history`，原始实验命令和非 profiler 字段保持原样。
-仅接受当前产物协议，不迁移旧静态元数据中的历史记录；报告与补采 plan 位于 `posthoc_profiles/`。
+仅接受当前产物协议，不迁移旧静态元数据中的历史记录；报告与补采 plan 位于 `raw/posthoc_profiles/`；没有结果清单的 flat 目录沿用原位置。
 同一结果目录若仍被采集或分析进程使用，补采会拒绝启动。
 
 ## 从已有计划生成派生 CSV
@@ -109,7 +109,7 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 ```bash
 python -m acprof.cli.backfill_compute \
   results/google-bert--bert-base-uncased/result_all.csv \
-  results/google-bert--bert-base-uncased/compute_profile_plan.json \
+  results/google-bert--bert-base-uncased/metadata/compute_profile_plan.json \
   --output results/google-bert--bert-base-uncased/result_all.with_compute.csv
 ```
 

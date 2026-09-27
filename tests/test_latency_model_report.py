@@ -19,6 +19,29 @@ from acprof.cli import plot
 
 
 class LatencyModelReportTests(unittest.TestCase):
+    def test_v2_plot_cli_writes_reports_and_figures_below_plots(self):
+        from contextlib import ExitStack
+        from pathlib import Path
+        from acprof.artifact_layout import ArtifactLayout
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ArtifactLayout.for_new_run(root).initialize()
+            csv_path = self._write_fixture(temporary, self._rows(gpu_modes=("off",)))
+            with ExitStack() as stack:
+                # Exercise the real CLI and report writer; raster rendering has its own tests.
+                renderers = []
+                for module in (plotting_metrics, plot.plotting_diagnostics, plotting_latency):
+                    for name in dir(module):
+                        if name.startswith("plot_") and callable(getattr(module, name)):
+                            renderers.append(stack.enter_context(patch.object(module, name)))
+                plot.main([csv_path])
+            self.assertTrue((root / "plots/latency_model/latency_model_report.json").is_file())
+            self.assertFalse((root / "latency_model").exists())
+            outputs = [Path(call.kwargs["out_png"]) for renderer in renderers for call in renderer.call_args_list
+                       if call.kwargs.get("out_png")]
+            self.assertTrue(outputs)
+            self.assertTrue(all(path.is_relative_to(root / "plots") for path in outputs))
+
     FIELDNAMES = [
         "cpu_cores",
         "mem_cap_gb",

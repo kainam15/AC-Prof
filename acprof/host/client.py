@@ -16,6 +16,8 @@ import time
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
+from acprof.artifact_layout import ArtifactLayout, case_sidecar
+
 
 def _ensure_local_proxy_bypass() -> None:
     local_hosts = ("localhost", "127.0.0.1", "::1")
@@ -177,7 +179,7 @@ def _is_file_empty(path: str) -> bool:
 
 
 def _sniff_groups_path(csv_path: str) -> str:
-    return SNIFF_GROUPS_PATH or f"{csv_path}.sniff_groups.jsonl"
+    return SNIFF_GROUPS_PATH or str(case_sidecar(csv_path, "sniff_groups"))
 
 
 def _idle_diag_path(csv_path: str) -> str:
@@ -985,7 +987,7 @@ def main() -> None:
     from acprof.artifacts import read_static_metadata
     from acprof.latency_slo import latency_slo_threshold
     slow_latency_threshold_s = latency_slo_threshold(
-        read_static_metadata(os.path.dirname(OUT_CSV) or ".")
+        read_static_metadata(ArtifactLayout.from_csv(OUT_CSV).root)
     )
     global input_scale_entries
     if not input_scale_entries:
@@ -1031,7 +1033,7 @@ def main() -> None:
         sidecar_mode,
         encoding="utf-8",
     ) as sidecar_f, open(
-        f"{OUT_CSV}.requests.jsonl", sidecar_mode, encoding="utf-8"
+        case_sidecar(OUT_CSV, "requests"), sidecar_mode, encoding="utf-8"
     ) as requests_f, diag_context as diag_f:
         writer = csv.DictWriter(
             f,

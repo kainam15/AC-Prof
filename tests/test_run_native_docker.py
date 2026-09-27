@@ -823,7 +823,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         )
         self.assertEqual(
             write_collection_history_json.call_args.args[1],
-            os.path.join(tmp_dir, "dummy-model", "collection_history.json"),
+            os.path.join(tmp_dir, "dummy-model", "metadata", "collection_history.json"),
         )
         self.assertEqual(
             write_collection_history_json.call_args.args[0]["schema_version"],

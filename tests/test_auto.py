@@ -34,16 +34,17 @@ class AutoTests(unittest.TestCase):
             automatic.path.write_bytes(original)
             state = RunState(automatic.root, {}, resume=False, project_dir=directory, preparation_artifacts=fingerprints)
             state.close()
-            self.assertTrue((automatic.root / "run_state.json").is_file())
+            self.assertTrue((automatic.root / ".acprof/run_state.json").is_file())
 
     def test_partial_collection_cannot_be_reported_as_automatic_success(self):
         from argparse import Namespace
         from acprof.host.automation import AutomaticRun
         with tempfile.TemporaryDirectory() as directory:
-            run = AutomaticRun(Namespace(model="example/model", output_dir=directory, profiling_mode="full"))
+            run = AutomaticRun(Namespace(model="example/model", output_dir=directory, profiling_mode="full", resume=False))
             run.started = True
-            run.root.mkdir()
-            (run.root / "run_state.json").write_text(json.dumps({"status": "complete", "outcome": "ok"}))
+            run.layout.initialize()
+            (run.root / ".acprof").mkdir(exist_ok=True)
+            (run.root / ".acprof/run_state.json").write_text(json.dumps({"status": "complete", "outcome": "ok"}))
             (run.root / "capability_report.json").write_text(json.dumps({"collection_succeeded": True,
                                                                         "requested_measurements_complete": False}))
             self.assertEqual(run.finish(), 2)
@@ -59,7 +60,7 @@ class AutoTests(unittest.TestCase):
             self.assertEqual(args.profiling_mode, "basic")
             self.assertEqual(kwargs["prepared_task"].model_revision, "a" * 40)
             output = Path(directory, "example--model")
-            (output / "run_state.json").write_text(json.dumps({"status": "complete", "outcome": "ok"}))
+            (output / ".acprof/run_state.json").write_text(json.dumps({"status": "complete", "outcome": "ok"}))
             (output / "capability_report.json").write_text(json.dumps({"requested_measurements_complete": True,
                                                                        "collection_succeeded": True}))
             return 0
@@ -77,7 +78,7 @@ class AutoTests(unittest.TestCase):
     def test_auto_mode_selects_basic_and_records_requested_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(self.invoke(directory), (0, 1))
-            report = json.loads(Path(directory, "example--model/auto_report.json").read_text())
+            report = json.loads(Path(directory, "example--model/metadata/auto_report.json").read_text())
             self.assertEqual(report["requested_profiling_mode"], "auto")
             self.assertEqual(report["profiling_mode"], "basic")
             self.assertEqual(report["status"], "succeeded")
@@ -93,7 +94,7 @@ class AutoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             code, calls = self.invoke(directory, task=task)
             self.assertEqual((code, calls), (2, 0))
-            self.assertTrue(Path(directory, "example--model/model_resolution.json").is_file())
+            self.assertTrue(Path(directory, "example--model/metadata/model_resolution.json").is_file())
 
     def test_host_failure_never_becomes_basic_success(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -108,7 +109,7 @@ class AutoTests(unittest.TestCase):
             response = httpx.Response(403, request=httpx.Request("GET", "https://huggingface.co/api/models/example/model"))
             code, calls = self.invoke(directory, access_error=GatedRepoError("sensitive-provider-detail", response=response))
             self.assertEqual((code, calls), (2, 0))
-            data = Path(directory, "example--model/auto_report.json").read_text()
+            data = Path(directory, "example--model/metadata/auto_report.json").read_text()
             self.assertIn("GatedRepoError", data)
             self.assertNotIn("sensitive-provider-detail", data)
 

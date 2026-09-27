@@ -180,8 +180,8 @@ def apply_model_contract(task_info, read_text: Callable[[str], str], *, override
 
 def write_model_resolution(task_info, output_dir: str | Path) -> Path:
     """Export provenance atomically; unresolved drafts never become executable files."""
-    root = Path(output_dir)
-    path = root / "model_resolution.json"
+    from acprof.artifact_layout import ArtifactLayout
+    path = ArtifactLayout.discover(output_dir).path("model_resolution.json")
     atomic_write_json(path, task_info.model_resolution)
     return path
 

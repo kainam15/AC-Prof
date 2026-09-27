@@ -123,40 +123,98 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 输出目录为 `<output-dir>/<model-dir>/`；模型 ID 中的 `/` 替换为 `--`。
 下表列出可能生成的文件；probe、补采、调试与绘图产物仅在执行对应操作时出现。
 
+### Artifact Layout v2
+
+新主实验由 `ArtifactLayout` 创建以下布局；根目录的四个文件分别是正式结果、静态描述、
+能力报告和 `result_manifest.json`。子目录按需创建，文件缺失不能据此推断实验成功或失败。
+
+```text
+<model-dir>/
+├── result_all.csv
+├── static_meta.json
+├── capability_report.json
+├── result_manifest.json
+├── metadata/                # 解析、输入/矩阵/profiler 计划和 collection_history
+├── raw/
+│   ├── requests/<case-id>.jsonl
+│   ├── compute_profiles/
+│   ├── execution_profiles/
+│   ├── posthoc_profiles/
+│   └── probes/
+├── plots/                   # cpu/、gpu/、gpu+cpu/、latency_model/、analysis/
+├── logs/                    # terminal.log、runtime_validation_<device>.log
+├── debug/idle/<case-id>.jsonl
+└── .acprof/
+    ├── run_state.json
+    ├── result.lock
+    ├── work/cases/<case-id>/
+    │   ├── result.csv
+    │   ├── requests.jsonl
+    │   ├── sniff_groups.jsonl
+    │   ├── packet_latency.json
+    │   ├── sniff.pcap
+    │   └── client_error.json
+    └── recovery/            # interrupted_cases/、posthoc_backups/
+```
+
+`<case-id>` 为 `CPUc_MEMORYg_GPU`，例如 `4c_16g_on`。case 中间产物从创建起即位于
+隐藏工作目录；校验完成后原子移动请求样本到 `raw/requests/`，再记录 case 完成。
+中断恢复会保存工作文件、已移动但尚未确认完成的请求样本和 idle 诊断，备份保留来源相对路径，
+避免不同目录下的同名文件互相覆盖；合并完成后只清理
+本次 case 的已知中间文件，未知文件留下供诊断。`.acprof/` 包含恢复依据，不能当作缓存删除。
+
+清单的 `schema_version=1`、`layout_version=2` 与 CSV、输入计划及状态文件的 schema 独立。
+`primary` 指向三个主要结果文件；`metadata/raw/plots/logs/debug/internal` 给出目录；
+`artifacts` 列出已声明文件及目录的映射，`case_work` 和 `request_samples` 给出含 `{case_id}` 的模板。
+所有路径相对于模型结果根目录，清单是固定路径契约，包含尚未生成的可选产物，
+不记录文件计数、内容 hash 或成功状态。完成与来源判断仍读状态、计划及实际产物。
+清单在准备阶段原子发布，读取与路径路由不在请求窗口内递归扫描目录。
+未知版本、损坏清单、被改写的路径映射和越界/符号链接路径明确拒绝，不回退猜测。
+
+没有清单的历史目录按 flat layout 读取，绘图和补采继续写入该目录原有位置，不自动迁移。
+旧目录的独立 probe 产物可保留，首次主实验仍可创建 v2；已有正式产物则拒绝重新初始化。
+目录布局兼容不放宽现有产物 schema、源码身份或恢复校验；升级前中断的实验仍受源码指纹约束。
+运行期间不要移动文件或删除清单。以下路径表使用 v2；旧目录沿用原文件名和位置。
+
 | 文件 | 说明 |
 | --- | --- |
-| `result_case_*.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
-| `result_case_*.csv.requests.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
+| `result_manifest.json` | Artifact Layout v2 的路径契约，不代表文件已生成或测量成功。 |
+| `capability_report.json` | 本次采集的能力状态及实际完整性，和静态元数据中的准备阶段快照分开。 |
+| `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
+| `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
+| `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
 | `result_all.csv` | 动态测量结果。每一行对应一个 resource config、一个 input scale、一次 warmup/repeat iteration，并记录归一化指标、PCAP 网络字节、cold-start phases，以及该窗口的 cgroup memory/stat/PID、swap、块 I/O 与压力/事件。 |
-| `run_state.json` | 主实验状态 schema v1，记录实验 ID、参数、主机与源码/依赖指纹、绑定的镜像和输入计划、case 完成状态与 CSV SHA256、启动/恢复记录、最终完成状态。 |
-| `interrupted_cases/` | 恢复时保存中断 case 的原始 CSV、PCAP 与关联 sidecar；备份完成后才开始该 case 的新测量。 |
+| `.acprof/run_state.json` | 主实验状态 schema v1，记录实验 ID、参数、主机与源码/依赖指纹、绑定的镜像和输入计划、case 完成状态与 CSV SHA256、启动/恢复记录、最终完成状态。 |
+| `.acprof/recovery/interrupted_cases/` | 恢复时保存中断 case 的原始 CSV、PCAP 与关联 sidecar；备份完成后才开始该 case 的新测量。 |
 | `static_meta.json` | 单个 JSON object 的静态元数据。记录模型版本、参数/精度/量化/许可证、输入输出格式、per-scale 静态逻辑 FLOPs、推理后端、镜像、GPU/主机 RAM、主机 swap、Docker 存储和环境信息。 |
-| `model_resolution.json` | 运行准备阶段写入的解析报告，包含候选、字段来源、语义和独立运行验证引用；失败 draft 也可独立导出。与可执行 `acprof_model.json` 分离，静态裁决不是推理／测量成功证据。 |
-| `auto_report.json` | `acprof auto` 的预检与收尾报告，保存请求／实际采集模式及静态决策身份；验证与实际采集结果独立引用，不作为 CSV 的替代证据。 |
-| `collection_history.json` | schema v1 的采集/修复 provenance。分别记录 post-hoc profiler 补采、timeout retry、quality retry 和静态元数据回填历史；最新一次状态由对应 history 的最后一项得到。 |
-| `input_scale_plan.json` | 所有任务族共用的 input scale/payload 计划。schema v2 额外记录 workload provenance、per-scale 输入元数据和模型约束；读取端要求 schema v2，拒绝缺少版本或 v1 计划。主采集和 compute profiler 复用同一份 payload。 |
-| `startup_oom_pruning.json` | 独立 startup probe 证据 schema v2；记录最低 CPU、逐次启动结果、Docker State、错误、时间与连续 confirmed OOM 前缀，不含性能测量。 |
-| `matrix_plan.json` | probe 完成后冻结的正式计划 schema v1；含实际资源与 input scale 执行顺序、算法版本、seed、剪枝来源与内容 hash。resume 原样复用。 |
-| `compute_profile_plan.json` | per-scale FLOP profiling 结果。每个 CPU/GPU scale 可同时记录独立的 `torch_profiler_eager` 与 `ncu` profile；NCU 只存在于 GPU profile。失败信息按工具保存，只读取当前按 profiler 分层的 plan 结构。 |
-| `execution_profile_plan.json` | 显式 execution profiling 的采样与 per-resource-config/per-scale 汇总。Massif 条目对应 `gpu_mode=off`，Nsight Systems 条目对应 `gpu_mode=on`；复用 entry 记录实际 source resource 与 sampling strategy，失败按工具记录且不阻断主实验。 |
-| `compute_profiles/` | 默认保留的原始 compute profiler artifacts；`--discard-compute-profiles` 可在汇总后删除。 |
-| `posthoc_profiles/` | `profile.py` 生成的补采 plan、原始报告与可恢复 checkpoint。 |
-| `posthoc_backups/<timestamp>/` | 成功补采替换文件前保留的原始 CSV、静态元数据与已有历史记录备份。 |
-| `probes/largest_scale_<timestamp>_<pid>/` | `probe.py` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
-| `execution_profiles/` | 默认保留 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；stats 导出的 `.sqlite` 缓存会自动删除。传入 `--discard-execution-profiles` 时 raw artifacts 也会在汇总后删除。 |
-| `tmux_all.log` | 在 tmux pane 内运行 `run.py` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |
-| `latency_model/latency_model_report.json` | `plot.py` 生成的 latency 拟合报告。包含分 CPU/GPU 的正值模型、整配置留一与最大尺度外推指标、质量门槛、系数和训练范围。 |
-| `latency_model/latency_model_residuals.csv` | `plot.py` 生成的 case-level residual。每个 `GPU mode × CPU × memory × input scale` 聚合 case 一行，包含重复数/离散度、full-fit、resource-config OOF 和最大尺度 holdout 预测。 |
-| `latency_model/latency_model_fit_curves.png` | `plot.py` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |
-| `latency_model/latency_model_residuals.png` | `plot.py` 在 residual CSV 有有效数据时生成的模型诊断图，包含 OOF 实际值/预测值、相对残差分布及残差随预测延迟和输入尺度的变化。 |
-| `debug_idle_diag/result_case_*.csv.idle_diag.jsonl` | 仅 `--idle-debug` 时生成。每行对应一个 workload window 的 idle 诊断记录，包含 GPU NVML idle power trace、`nvidia-smi` GPU/process 快照、CPU idle window 内 RAPL 子窗口功率、host/container CPU delta、top proc CPU delta，以及 after-idle 快照，用于定位 `gpu_idle_power_w` / `cpu_idle_power_w` case 内波动来源。 |
-| `cpu/*.png` | `plot.py` 生成的 CPU-only 图表。 |
-| `gpu/*.png` | `plot.py` 生成的 GPU-only 图表。 |
-| `gpu+cpu/*.png` | `plot.py` 生成的 GPU/CPU 对比图表。 |
+| `metadata/model_resolution.json` | 运行准备阶段写入的解析报告，包含候选、字段来源、语义和独立运行验证引用；失败 draft 也可独立导出。与可执行 `acprof_model.json` 分离，静态裁决不是推理／测量成功证据。 |
+| `metadata/auto_report.json` | `acprof auto` 的预检与收尾报告，保存请求／实际采集模式及静态决策身份；验证与实际采集结果独立引用，不作为 CSV 的替代证据。 |
+| `metadata/collection_history.json` | schema v1 的采集/修复 provenance。分别记录 post-hoc profiler 补采、timeout retry、quality retry 和静态元数据回填历史；最新一次状态由对应 history 的最后一项得到。 |
+| `metadata/input_scale_plan.json` | 所有任务族共用的 input scale/payload 计划。schema v2 额外记录 workload provenance、per-scale 输入元数据和模型约束；读取端要求 schema v2，拒绝缺少版本或 v1 计划。主采集和 compute profiler 复用同一份 payload。 |
+| `metadata/startup_oom_pruning.json` | 独立 startup probe 证据 schema v2；记录最低 CPU、逐次启动结果、Docker State、错误、时间与连续 confirmed OOM 前缀，不含性能测量。 |
+| `metadata/matrix_plan.json` | probe 完成后冻结的正式计划 schema v1；含实际资源与 input scale 执行顺序、算法版本、seed、剪枝来源与内容 hash。resume 原样复用。 |
+| `metadata/compute_profile_plan.json` | per-scale FLOP profiling 结果。每个 CPU/GPU scale 可同时记录独立的 `torch_profiler_eager` 与 `ncu` profile；NCU 只存在于 GPU profile。失败信息按工具保存，只读取当前按 profiler 分层的 plan 结构。 |
+| `metadata/execution_profile_plan.json` | 显式 execution profiling 的采样与 per-resource-config/per-scale 汇总。Massif 条目对应 `gpu_mode=off`，Nsight Systems 条目对应 `gpu_mode=on`；复用 entry 记录实际 source resource 与 sampling strategy，失败按工具记录且不阻断主实验。 |
+| `raw/compute_profiles/` | 默认保留的原始 compute profiler artifacts；`--discard-compute-profiles` 可在汇总后删除。 |
+| `raw/posthoc_profiles/` | `profile.py` 生成的补采 plan、原始报告与可恢复 checkpoint。 |
+| `.acprof/recovery/posthoc_backups/<timestamp>/` | 成功补采替换文件前保留的原始 CSV、静态元数据与已有历史记录备份。 |
+| `raw/probes/largest_scale_<timestamp>_<pid>/` | `probe.py` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
+| `raw/execution_profiles/` | 默认保留 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；stats 导出的 `.sqlite` 缓存会自动删除。传入 `--discard-execution-profiles` 时 raw artifacts 也会在汇总后删除。 |
+| `logs/terminal.log` | 在 tmux pane 内运行 `run.py` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |
+| `plots/latency_model/latency_model_report.json` | `plot.py` 生成的 latency 拟合报告。包含分 CPU/GPU 的正值模型、整配置留一与最大尺度外推指标、质量门槛、系数和训练范围。 |
+| `plots/latency_model/latency_model_residuals.csv` | `plot.py` 生成的 case-level residual。每个 `GPU mode × CPU × memory × input scale` 聚合 case 一行，包含重复数/离散度、full-fit、resource-config OOF 和最大尺度 holdout 预测。 |
+| `plots/latency_model/latency_model_fit_curves.png` | `plot.py` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |
+| `plots/latency_model/latency_model_residuals.png` | `plot.py` 在 residual CSV 有有效数据时生成的模型诊断图，包含 OOF 实际值/预测值、相对残差分布及残差随预测延迟和输入尺度的变化。 |
+| `debug/idle/<case-id>.jsonl` | 仅 `--idle-debug` 时生成。每行对应一个 workload window 的 idle 诊断记录，包含 GPU NVML idle power trace、`nvidia-smi` GPU/process 快照、CPU idle window 内 RAPL 子窗口功率、host/container CPU delta、top proc CPU delta，以及 after-idle 快照，用于定位 `gpu_idle_power_w` / `cpu_idle_power_w` case 内波动来源。 |
+| `plots/cpu/*.png` | `plot.py` 生成的 CPU-only 图表。 |
+| `plots/gpu/*.png` | `plot.py` 生成的 GPU-only 图表。 |
+| `plots/gpu+cpu/*.png` | `plot.py` 生成的 GPU/CPU 对比图表。 |
 
-中间文件 `result_case_*.csv`、`result_case_*.csv.sniff_groups.jsonl`、`lat_case_*.json`、`sniff_case_*.pcap` 会在 `result_all.csv` 成功 merge 后自动清理。若运行被中断，这些中间文件可能保留。
+`.acprof/work/cases/` 下本次已完成 case 的中间文件会在 `result_all.csv` 成功 merge、完成状态持久化后清理。
+旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
+若运行被中断，中间文件保留用于恢复。
 
-`*.requests.jsonl` 保留 schema v1、`sniff_group_id`、`input_scale`、`warmup`、`repeat_idx`、
+`raw/requests/*.jsonl`（旧布局为 `*.requests.jsonl`）保留 schema v1、`sniff_group_id`、`input_scale`、`warmup`、`repeat_idx`、
 `source=client_http`、`latency_app_s` 数组及请求阶段 `status`。数组下标 `i` 对应请求 ID
 `<sniff_group_id>:<i>`，数值单位为秒，保留原始浮点精度；只包含成功返回的请求，失败尝试另记
 `failed_request_id` 和 `error`。超时中止时仍写出此前成功的请求，自动预热不进入该文件。
@@ -200,7 +258,8 @@ OOM pruning 继续按原有参考 CPU/内存顺序重建证据，复用与推断
 完成状态先持久化，再清理中间文件。`status=complete` 表示计划已执行并完成合并，
 `outcome=partial` 表示其中包含错误行，两者不能等同于全部测量成功。
 
-`.acprof-result.lock` 是采集和补采共享的目录锁；进程退出自动释放锁，锁文件本身可以保留。
+`.acprof/result.lock` 是 v2 采集和补采共享的目录锁；旧布局仍使用 `.acprof-result.lock`。
+进程退出自动释放锁，锁文件本身可以保留。
 固定位置 `/tmp/acprof-measurement-<uid>.lock` 还会串行化本机同一用户发起的实验，不受
 `TMPDIR` 影响。它防止不同输出目录争用固定端口和主机计数器，不协调其它用户或外部负载。
 容器名称增加每次启动独有的后缀，case 文件名和测量唯一键保持稳定；清理只接受本次启动

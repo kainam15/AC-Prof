@@ -40,7 +40,9 @@ class AutomaticRun:
         self.args = args
         args.output_dir = str(Path(args.output_dir).expanduser().resolve())
         self.root = Path(args.output_dir).expanduser().resolve() / args.model.replace("/", "--")
-        self.path = self.root / "auto_report.json"
+        from acprof.artifact_layout import ArtifactLayout
+        self.layout = ArtifactLayout.discover(self.root) if args.resume else ArtifactLayout.for_new_run(self.root)
+        self.path = self.layout.path("auto_report.json")
         self.data = {"schema_version": 1, "model_id": args.model,
                      "requested_profiling_mode": args.profiling_mode,
                      "status": "preparing", "stage": "preflight", "attempts": [],
@@ -54,15 +56,14 @@ class AutomaticRun:
     def prepare(self):
         from acprof.host.detect import TaskInfo, detect_task
         from acprof.host.doctor import collect_checks
-        from acprof.host.run_state import RESULT_LOCK_NAME, file_sha256, load_run_state
+        from acprof.host.run_state import file_sha256, load_run_state
         from acprof.host.task_support import require_task_support
         from acprof.model_contract import write_model_resolution
         from acprof.model_spec import task_model_spec
 
         args = self.args
-        occupied = self.root.exists() and any(path.name not in {RESULT_LOCK_NAME, "probes"} for path in self.root.iterdir())
-        if occupied and not args.resume:
-            raise ValueError("output already contains an experiment; use a new --output-dir or --resume")
+        if not args.resume:
+            self.layout.initialize()
         saved = load_run_state(self.root) if args.resume else {}
         if args.resume:
             previous = json.loads(self.path.read_text())
@@ -109,7 +110,7 @@ class AutomaticRun:
         self.data.update(profiling_mode=actual, mode_selection_reasons=reasons, stage="collection", status="running")
         write_model_resolution(task, self.root)
         self.save()
-        self.preparation_artifacts = {name: file_sha256(self.root / name)
+        self.preparation_artifacts = {str(self.layout.path(name).relative_to(self.root)): file_sha256(self.layout.path(name))
                                       for name in ("auto_report.json", "model_resolution.json")}
         return task
 
@@ -117,7 +118,7 @@ class AutomaticRun:
         if not self.started:
             return 2
         for name in ("runtime_validation", "capability_report", "run_state"):
-            path = self.root / f"{name}.json"
+            path = self.layout.path(f"{name}.json")
             if path.is_file():
                 try:
                     value = json.loads(path.read_text())

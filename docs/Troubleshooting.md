@@ -168,7 +168,7 @@ cat /proc/sys/kernel/perf_event_paranoid
 
 ### 运行中还没有 `result_all.csv`
 
-这是正常的：矩阵执行期间先写 `result_case_*.csv`，全部 case 完成后才合并为 `result_all.csv`。如果在 tmux 中运行，采集期间查看对应终端；`tmux_all.log` 在命令结束或报错退出时落盘。
+这是正常的：矩阵执行期间先写 `.acprof/work/cases/<case-id>/result.csv`（旧目录为 `result_case_*.csv`），全部 case 完成后才合并为 `result_all.csv`。如果在 tmux 中运行，采集期间查看对应终端；`logs/terminal.log`（旧目录为 `tmux_all.log`）在命令结束或报错退出时落盘。
 
 ### `--skip-build` 后接口报错
 

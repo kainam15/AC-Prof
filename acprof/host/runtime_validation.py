@@ -53,6 +53,8 @@ def validate_runtime(
     }
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
+    from acprof.artifact_layout import ArtifactLayout
+    layout = ArtifactLayout.discover(root)
     failure = None
     with tempfile.TemporaryDirectory(prefix="acprof-runtime-validation-") as temporary:
         payload = Path(temporary) / "payload.json"
@@ -118,7 +120,9 @@ def validate_runtime(
                 device_result = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
             finally:
                 subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True)
-            (root / f"runtime_validation_{device_mode}.log").write_text(log)
+            log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(log)
             report["devices"][device_mode] = device_result
             if device_result["status"] == "error":
                 failure = f"{device_mode}: {device_result.get('error', 'runtime validation failed')}"
@@ -128,11 +132,11 @@ def validate_runtime(
         "ok" if all(item["status"] == "ok" for item in report["devices"].values()) else "resource_limited"
     )
     from acprof.artifacts import atomic_write_json
-    atomic_write_json(root / "runtime_validation.json", report)
+    atomic_write_json(layout.path("runtime_validation.json"), report)
     if getattr(task_info, "model_resolution", {}):
         from acprof.model_contract import record_runtime_validation, write_model_resolution
         record_runtime_validation(task_info, report)
         write_model_resolution(task_info, root)
     if failure:
-        raise RuntimeError(f"运行环境验证失败，未进入资源矩阵。{failure}\n完整日志：{root / 'runtime_validation.json'}")
+        raise RuntimeError(f"运行环境验证失败，未进入资源矩阵。{failure}\n完整日志：{layout.path('runtime_validation.json')}")
     return report

@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from acprof.artifact_layout import ArtifactLayout
+
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
@@ -19,7 +21,6 @@ from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
-    IDLE_DIAG_DIRNAME,
 )
 from acprof.host.detect import TaskInfo
 from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
@@ -294,15 +295,13 @@ def run_single_case(
     container_name = case_name
 
     host_port = _host_port(cpu, mem)
-    out_csv = os.path.join(output_dir, f"result_{case_name}.csv")
-    idle_diag_path = os.path.join(
-        output_dir,
-        IDLE_DIAG_DIRNAME,
-        f"{os.path.basename(out_csv)}.idle_diag.jsonl",
-    )
-    pcap_file = os.path.join(output_dir, f"sniff_{case_name}.pcap")
-    lat_json = os.path.join(output_dir, f"lat_{case_name}.json")
-    client_error_path = f"{out_csv}.client_error.json"
+    case = ArtifactLayout.discover(output_dir).case(task_info.model_id, cpu, mem, gpu)
+    case.csv.parent.mkdir(parents=True, exist_ok=True)
+    out_csv = str(case.csv)
+    idle_diag_path = str(case.idle)
+    pcap_file = str(case.pcap)
+    lat_json = str(case.latency)
+    client_error_path = str(case.sidecar("client_error"))
 
     print(f"\n{'='*60}")
     print(f"[case] {case_name}")
@@ -858,9 +857,9 @@ def _write_startup_oom_pruned_case_csv(
     repeat_in_window: int,
     input_scales: Optional[str],
 ) -> str:
-    model_tag = _sanitize_model_id(task_info.model_id)
-    case_name = f"case_{model_tag}_{cpu}c_{mem}g_{gpu}"
-    out_csv = os.path.join(output_dir, f"result_{case_name}.csv")
+    case = ArtifactLayout.discover(output_dir).case(task_info.model_id, cpu, mem, gpu)
+    case.csv.parent.mkdir(parents=True, exist_ok=True)
+    out_csv = str(case.csv)
     error = (
         "not_measured_after_startup_oom_pruning: "
         "planned_request_attempted=false; measurement_row_completed=false; "
@@ -918,7 +917,6 @@ def run_matrix(
     dram_energy: str = "auto",
 ) -> List[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
-    from pathlib import Path
     from acprof.host.matrix_plan import MATRIX_PLAN_NAME, matrix_identity, load_matrix_plan, freeze_matrix_plan
     from acprof.host.startup_probe import PROBE_NAME, run_startup_probes, startup_oom_prefixes
 
@@ -931,11 +929,12 @@ def run_matrix(
     identity = matrix_identity(task_info, image_info, cpu_list, mem_list, gpu_list, scales,
                                order=matrix_order, seed=matrix_seed, prune=prune_startup_oom,
                                input_plan_file=input_scale_plan_file)
-    plan_path = Path(output_dir) / MATRIX_PLAN_NAME
+    layout = ArtifactLayout.discover(output_dir)
+    plan_path = layout.path(MATRIX_PLAN_NAME)
     if plan_path.exists():
         plan = load_matrix_plan(plan_path, identity)
         if prune_startup_oom:
-            evidence = json.loads((Path(output_dir) / PROBE_NAME).read_text())
+            evidence = json.loads(layout.path(PROBE_NAME).read_text())
             if (evidence.get("schema_version") != 2 or evidence.get("status") != "complete"
                     or evidence.get("identity") != identity
                     or startup_oom_prefixes(evidence) != plan["startup_oom_prefixes"]):

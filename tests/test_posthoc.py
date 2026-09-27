@@ -19,6 +19,30 @@ from acprof.host.compute_profile_plan import TORCH_LOGICAL_MFLOP_FIELD
 
 
 class PosthocProfileTests(unittest.TestCase):
+    def test_v2_reuses_metadata_plans_and_preserves_backups_under_internal_directory(self):
+        from acprof.artifact_layout import ArtifactLayout
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            layout = ArtifactLayout.for_new_run(root)
+            layout.initialize()
+            self._write_fixture(root)
+            # Relocate only this test fixture into the v2 contract.
+            (root / "input_scale_plan.json").rename(root / "metadata/input_scale_plan.json")
+            layout.path("compute_profile_plan.json").write_text(json.dumps(self._compute_plan()))
+            layout.path("execution_profile_plan.json").write_text(json.dumps(self._execution_plan()))
+            original = (root / "result_all.csv").read_bytes()
+            with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
+                "acprof.host.posthoc.service._validate_profiler_runtime", side_effect=AssertionError("should reuse")):
+                summary = posthoc.run_posthoc(root)
+            self.assertEqual(set(summary.reused_tools), {"ncu", "nsys", "massif"})
+            backup = Path(summary.backup_dir)
+            self.assertTrue(backup.is_relative_to(root / ".acprof/recovery/posthoc_backups"))
+            self.assertEqual((backup / "result_all.csv").read_bytes(), original)
+            self.assertTrue((root / "raw/posthoc_profiles/compute_profile_plan.json").is_file())
+            self.assertTrue((root / "metadata/collection_history.json").is_file())
+            self.assertFalse((root / "posthoc_profiles").exists())
+            self.assertFalse((root / "collection_history.json").exists())
+
     def setUp(self):
         selection = patch('acprof.host.posthoc.service.pin_gpu_device')
         self.pin_gpu = selection.start()

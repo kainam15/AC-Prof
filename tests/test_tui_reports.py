@@ -15,6 +15,21 @@ from acprof.tui.progress import ProgressSnapshot
 
 
 class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_v2_statistics_use_plots_directory(self):
+        from acprof.artifact_layout import ArtifactLayout
+        root = self.directory / "v2"
+        ArtifactLayout.for_new_run(root).initialize()
+        csv_path = root / "result_all.csv"
+        csv_path.write_bytes(self.csv_path.read_bytes())
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.open_tab(app, pilot)
+            with patch.object(app, "_launch") as launch:
+                app._launch_stats(str(csv_path))
+            launch.assert_called_once()
+            self.assertEqual(app._stats_report_path.parent, root / "plots/analysis")
+            self.assertFalse((root / "analysis").exists())
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

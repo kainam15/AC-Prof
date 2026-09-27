@@ -11,6 +11,7 @@ from pathlib import Path
 from acprof.capabilities import collection_outcomes
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
+from acprof.artifact_layout import ArtifactLayout
 
 
 MISSING = {"", "nan", "none", "null", "n/a"}
@@ -106,10 +107,10 @@ def audit_result(source: str | Path) -> dict:
             report["valid"] = False
 
     def read_json(name):
-        artifact = path.parent / name
-        if not artifact.exists():
-            return {}
         try:
+            artifact = layout.path(name)
+            if not artifact.exists():
+                return {}
             payload = json.loads(artifact.read_text())
             if not isinstance(payload, dict):
                 raise ValueError("JSON 顶层应为对象")
@@ -118,6 +119,12 @@ def audit_result(source: str | Path) -> dict:
             issue("invalid_metadata", f"{name}: {error}")
             return {}
 
+    try:
+        layout = ArtifactLayout.from_csv(path)
+    except (ValueError, OSError) as error:
+        issue("invalid_layout", error)
+        return report
+    report["layout_version"] = layout.layout_version
     metadata = read_json("static_meta.json")
     state = read_json("run_state.json")
     if state:
@@ -139,9 +146,12 @@ def audit_result(source: str | Path) -> dict:
     report["missing_columns"] = [name for name in METRICS if name not in fields]
     expected_hash = metadata.get("input_scale_plan_sha256")
     if expected_hash and str(expected_hash).lower() not in MISSING:
-        plan = path.parent / "input_scale_plan.json"
-        if not plan.is_file() or hashlib.sha256(plan.read_bytes()).hexdigest() != expected_hash:
-            issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
+        try:
+            plan = layout.path("input_scale_plan.json")
+            if not plan.is_file() or hashlib.sha256(plan.read_bytes()).hexdigest() != expected_hash:
+                issue("input_plan_hash", "输入计划与 static_meta.json 中的 SHA256 不一致")
+        except (OSError, ValueError) as error:
+            issue("input_plan_hash", error)
     if state.get("runtime"):
         try:
             options = state["options"]

@@ -18,6 +18,48 @@ from acprof.host.static_metadata import StaticMeta
 
 
 class RunRecoveryTests(unittest.TestCase):
+    def test_resume_archives_promoted_samples_and_idle_without_name_collisions(self):
+        def interrupted(**kwargs):
+            path = self.write_case(**kwargs)
+            if kwargs["cpu"] == 2:
+                raw = self.directory / "raw/requests/2c_4g_off.jsonl"
+                raw.parent.mkdir(parents=True, exist_ok=True)
+                raw.write_text('{"previous_attempt":true}\n')
+                idle = self.directory / "debug/idle/2c_4g_off.jsonl"
+                idle.parent.mkdir(parents=True, exist_ok=True)
+                idle.write_text('{"idle_diagnostic":true}\n')
+                raise KeyboardInterrupt()
+            return path
+        with self.assertRaises(KeyboardInterrupt):
+            self.invoke(case=interrupted)
+        self.calls.clear()
+        self.invoke("--resume")
+        self.assertEqual(self.calls, [2])
+        backups = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("2c_4g_off.jsonl"))
+        self.assertEqual(len(backups), 2)
+        self.assertEqual({p.relative_to(p.parents[2]).as_posix(): json.loads(p.read_text()) for p in backups},
+                         {"raw/requests/2c_4g_off.jsonl": {"previous_attempt": True},
+                          "debug/idle/2c_4g_off.jsonl": {"idle_diagnostic": True}})
+
+    def test_completed_v2_result_keeps_only_primary_files_and_retains_request_samples(self):
+        def with_samples(**kwargs):
+            path = Path(self.write_case(**kwargs))
+            path.with_name("requests.jsonl").write_text('{"schema_version":1,"latency_app_s":[0.1]}\n')
+            path.with_name("sniff_groups.jsonl").write_text('{"sniff_group_id":"fixture"}\n')
+            return str(path)
+        self.invoke(case=with_samples)
+        self.assertEqual({p.name for p in self.directory.iterdir() if p.is_file()},
+                         {"result_all.csv", "static_meta.json", "capability_report.json", "result_manifest.json"})
+        for cpu in (1, 2):
+            sample = self.directory / f"raw/requests/{cpu}c_4g_off.jsonl"
+            self.assertEqual(json.loads(sample.read_text())["latency_app_s"], [0.1])
+        self.assertEqual(list(self.directory.glob(".acprof/work/cases/*")), [])
+        from acprof.analysis.audit import audit_result
+        report = audit_result(self.directory)
+        self.assertTrue(report["valid"], report["issues"])
+        self.assertEqual(report["completion"], "complete")
+        self.assertEqual(report["coverage"]["missing"], 0)
+
     def test_seeded_resume_reuses_frozen_order_without_plan_generation(self):
         seen = []
         def interrupted(**kwargs):
@@ -27,7 +69,7 @@ class RunRecoveryTests(unittest.TestCase):
             return self.write_case(**kwargs)
         with self.assertRaises(KeyboardInterrupt):
             self.invoke('--matrix-order', 'seeded', '--matrix-seed', '37', case=interrupted)
-        path = self.directory / 'matrix_plan.json'
+        path = self.directory / 'metadata/matrix_plan.json'
         original = path.read_bytes()
         plan = json.loads(original)
         self.assertEqual(seen, [c['cpu_cores'] for c in plan['cases']])
@@ -38,7 +80,7 @@ class RunRecoveryTests(unittest.TestCase):
 
     def test_resume_rejects_tampered_frozen_plan(self):
         self.invoke()
-        path = self.directory / 'matrix_plan.json'
+        path = self.directory / 'metadata/matrix_plan.json'
         path.write_text(path.read_text() + ' ')
         with self.assertRaises(SystemExit):
             self.invoke('--resume')
@@ -55,7 +97,7 @@ class RunRecoveryTests(unittest.TestCase):
 
     def write_case(self, **kwargs):
         self.calls.append(kwargs["cpu"])
-        path = self.directory / f'result_case_org--model_{kwargs["cpu"]}c_4g_off.csv'
+        path = self.directory / f'.acprof/work/cases/{kwargs["cpu"]}c_4g_off/result.csv'
         row = dict.fromkeys(CSV_FIELDS, "nan")
         row.update(cpu_cores=str(kwargs["cpu"]), mem_cap_gb="4", gpu_mode="off",
                    input_scale="64", warmup="0", repeat_idx="0", status="ok", error="",
@@ -70,7 +112,7 @@ class RunRecoveryTests(unittest.TestCase):
         return str(path)
 
     def prepare_plan(self, **kwargs):
-        path = Path(kwargs["output_dir"]) / "input_scale_plan.json"
+        path = Path(kwargs["output_dir"]) / "metadata/input_scale_plan.json"
         path.write_text(json.dumps({"schema_version": 2, "entries": [
             {"input_scale": 64, "payload": {"text": "test input"}}
         ]}))
@@ -140,8 +182,8 @@ class RunRecoveryTests(unittest.TestCase):
         self.assertEqual(report["measurement"]["container_memory"]["status"], "unavailable")
         self.assertFalse(report["full_profile_complete"])
         self.assertTrue((self.directory / "result_all.csv").is_file())
-        self.assertEqual(len(list(self.directory.glob("result_case_*.csv"))), 2)
-        state = json.loads((self.directory / "run_state.json").read_text())
+        self.assertEqual(len(list(self.directory.glob(".acprof/work/cases/*/result.csv"))), 2)
+        state = json.loads((self.directory / ".acprof/run_state.json").read_text())
         self.assertEqual(state["status"], "failed")
         self.assertEqual(state["artifacts"]["static_meta.json"], hashlib.sha256((self.directory / "static_meta.json").read_bytes()).hexdigest())
 
@@ -155,7 +197,7 @@ class RunRecoveryTests(unittest.TestCase):
         def interrupted(**kwargs):
             path = self.write_case(**kwargs)
             if kwargs["cpu"] == 2:
-                Path(str(path) + ".requests.jsonl").write_text('{"partial":true}\n')
+                Path(path).with_name("requests.jsonl").write_text('{"partial":true}\n')
                 raise KeyboardInterrupt()
             return path
         with self.assertRaises(KeyboardInterrupt):
@@ -167,8 +209,8 @@ class RunRecoveryTests(unittest.TestCase):
         self.assertEqual((self.directory / "static_meta.json").read_bytes(), original_meta)
         with (self.directory / "result_all.csv").open() as stream:
             self.assertEqual([row["cpu_cores"] for row in csv.DictReader(stream)], ["1", "2"])
-        self.assertTrue(list((self.directory / "interrupted_cases").rglob("*.csv")))
-        archived_samples = list((self.directory / "interrupted_cases").rglob("*.requests.jsonl"))
+        self.assertTrue(list((self.directory / ".acprof/recovery/interrupted_cases").rglob("*.csv")))
+        archived_samples = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("requests.jsonl"))
         self.assertEqual(len(archived_samples), 1)
         self.assertEqual(archived_samples[0].read_text(), '{"partial":true}\n')
 
@@ -183,15 +225,15 @@ class RunRecoveryTests(unittest.TestCase):
 
     def test_resume_rejects_changed_measurement_parameters(self):
         self.interrupt_after_first()
-        before = (self.directory / "run_state.json").read_bytes()
+        before = (self.directory / ".acprof/run_state.json").read_bytes()
         with self.assertRaises(SystemExit):
             self.invoke("--resume", "--repeat", "2")
         self.assertEqual(self.calls, [])
-        self.assertEqual((self.directory / "run_state.json").read_bytes(), before)
+        self.assertEqual((self.directory / ".acprof/run_state.json").read_bytes(), before)
 
     def test_resume_rejects_changed_input_plan_without_overwriting_it(self):
         self.interrupt_after_first()
-        path = self.directory / "input_scale_plan.json"
+        path = self.directory / "metadata/input_scale_plan.json"
         path.write_text('{"changed":true}')
         with self.assertRaises(SystemExit):
             self.invoke("--resume")
@@ -209,7 +251,7 @@ class RunRecoveryTests(unittest.TestCase):
 
     def test_changed_completed_case_is_rejected(self):
         self.interrupt_after_first()
-        source = self.directory / "result_case_org--model_1c_4g_off.csv"
+        source = self.directory / ".acprof/work/cases/1c_4g_off/result.csv"
         source.write_bytes(source.read_bytes() + b"corrupt,row\n")
         before = source.read_bytes()
         with self.assertRaises(SystemExit):

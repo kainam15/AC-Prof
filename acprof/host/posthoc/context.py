@@ -281,10 +281,15 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
     if not directory.is_dir():
         raise PosthocError(f"result directory does not exist: {directory}")
 
-    result_csv = directory / RESULT_CSV_NAME
-    static_meta_path = directory / STATIC_META_NAME
-    collection_history_path = directory / COLLECTION_HISTORY_NAME
-    input_scale_plan_path = directory / INPUT_SCALE_PLAN_NAME
+    from acprof.artifact_layout import ArtifactLayout
+    try:
+        layout = ArtifactLayout.discover(directory)
+        result_csv = layout.path(RESULT_CSV_NAME)
+        static_meta_path = layout.path(STATIC_META_NAME)
+        collection_history_path = layout.path(COLLECTION_HISTORY_NAME)
+        input_scale_plan_path = layout.path(INPUT_SCALE_PLAN_NAME)
+    except (OSError, ValueError) as exc:
+        raise PosthocError(str(exc)) from exc
     fieldnames, rows, encoding = _load_result_csv(result_csv)
     from acprof.artifacts import read_static_metadata, require_schema_version
     try:

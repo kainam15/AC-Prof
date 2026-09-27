@@ -309,7 +309,8 @@ class RunConfig:
         return output_root / self.model.replace("/", "--")
 
     def result_csv(self, project_dir: Path) -> Path:
-        return self.result_dir(project_dir) / "result_all.csv"
+        from acprof.artifact_layout import ArtifactLayout
+        return ArtifactLayout.discover(self.result_dir(project_dir)).result_csv
 
 
 def build_run_command(

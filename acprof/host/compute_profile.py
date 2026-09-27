@@ -344,9 +344,15 @@ def _ncu_artifact_paths(
 
 
 def _ncu_report_reference(profile_root: str, host_csv: str) -> str:
+    from pathlib import Path
+    from acprof.artifact_layout import ArtifactLayout, MANIFEST_NAME
+    base = Path(profile_root).absolute().parent
+    if base.name == "raw" and (base.parent / MANIFEST_NAME).exists():
+        if ArtifactLayout.discover(base.parent).layout_version == 2:
+            base = base.parent
     return os.path.relpath(
         host_csv,
-        start=os.path.dirname(os.path.abspath(profile_root)),
+        start=base,
     )
 
 
@@ -1128,7 +1134,9 @@ def collect_compute_profile_plan(
             f"{', '.join(sorted(COMPUTE_PROFILE_TOOL_MODES))}, got {compute_profile_tool!r}"
         )
 
-    profile_root = os.path.join(output_dir, "compute_profiles")
+    from acprof.artifact_layout import ArtifactLayout
+    layout = ArtifactLayout.discover(output_dir)
+    profile_root = str(layout.path("compute_profiles"))
     entries = _load_input_scale_plan_entries(input_scale_plan_file)
     payload_file = input_scale_plan_file
 
@@ -1355,7 +1363,7 @@ def collect_compute_profile_plan(
         "static_metadata": static_metadata,
         "profiles": profiles,
     }
-    plan_path = os.path.join(output_dir, COMPUTE_PROFILE_PLAN_NAME)
+    plan_path = str(layout.path(COMPUTE_PROFILE_PLAN_NAME))
 
     if not keep_profiles:
         _strip_discarded_profile_paths(profiles)

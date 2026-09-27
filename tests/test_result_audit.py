@@ -10,6 +10,16 @@ from acprof.config import CSV_FIELDS
 
 
 class ResultAuditTests(unittest.TestCase):
+    def test_v2_input_plan_symlink_is_reported_as_invalid_without_reading_it(self):
+        from acprof.artifact_layout import ArtifactLayout
+        ArtifactLayout.for_new_run(self.root).initialize()
+        self.write(self.row())
+        (self.root / "static_meta.json").write_text(json.dumps({"input_scale_plan_sha256": "untrusted"}))
+        (self.root / "metadata/input_scale_plan.json").symlink_to(self.path)
+        report = audit_result(self.root)
+        self.assertFalse(report["valid"])
+        self.assertIn("input_plan_hash", {issue["code"] for issue in report["issues"]})
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

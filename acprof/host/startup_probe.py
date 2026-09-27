@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import time
 
 from acprof.artifacts import atomic_write_json
@@ -61,7 +60,8 @@ def startup_oom_prefixes(report: dict) -> dict:
 
 
 def run_startup_probes(directory, identity, task, image, *, request_timeout_seconds) -> dict:
-    path = Path(directory) / PROBE_NAME
+    from acprof.artifact_layout import ArtifactLayout
+    path = ArtifactLayout.discover(directory).path(PROBE_NAME)
     if path.exists():
         report = json.loads(path.read_text())
         if report.get("schema_version") != 2 or report.get("identity") != identity:

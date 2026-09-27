@@ -57,7 +57,8 @@ def _timestamp_token() -> str:
 
 
 def create_backup(context: ResultContext) -> Path:
-    root = context.result_dir / BACKUP_DIRNAME
+    from acprof.artifact_layout import ArtifactLayout
+    root = ArtifactLayout.discover(context.result_dir).path(BACKUP_DIRNAME)
     root.mkdir(parents=True, exist_ok=True)
     base = _timestamp_token()
     backup = root / base
@@ -117,6 +118,7 @@ def _write_csv_temporary(
 
 
 def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(
         dir=destination.parent,
         prefix=f".{destination.name}.",

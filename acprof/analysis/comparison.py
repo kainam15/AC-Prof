@@ -85,10 +85,12 @@ def _snapshot(source: str | Path) -> dict:
     issues = []
 
     def read_json(name):
-        path = directory / name
-        if not path.exists():
-            return {}
         try:
+            from acprof.artifact_layout import ArtifactLayout
+            layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
+            path = layout.path(name)
+            if not path.exists():
+                return {}
             value = json.loads(path.read_text())
             if not isinstance(value, dict):
                 raise ValueError("JSON 顶层应为对象")

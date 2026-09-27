@@ -32,6 +32,7 @@ AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运
 | `acprof/packet/` | 抓包解析及 packet latency 合并 |
 | `acprof/config.py` | 共享配置、任务尺度及 CSV/静态元数据字段协议 |
 | `acprof/artifacts.py`、`acprof/result_csv.py` | 原子产物发布、CSV 结构与测量唯一键校验；不初始化采集依赖 |
+| `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
 | `acprof/model_resolution.py`、`acprof/model_spec.py` | 静态接口候选、schema 校验与执行契约；本地／作者声明优先于自动生成 |
@@ -65,6 +66,18 @@ flowchart TD
 `run.py`、`probe.py`、`profile.py`、`plot.py`、`tui.py` 和 `acprof-tui` 仍使用原命令。
 `profile.py` 在被 Python 导入时继续代理标准库 `profile`，使 `cProfile` 正常工作。
 `acprof.host.client`、容器 server/runner 和 packet 命令的模块路径保持原样。
+
+产物路径由 `ArtifactLayout` 根据 `result_manifest.json` 统一路由。新主实验显式初始化 v2，
+无清单目录按 flat layout 只读发现；未知清单和越界路径报错。`CaseArtifacts` 统一管理 case
+CSV、请求样本、PCAP 和诊断路径，client 与 packet merge 的 sidecar 路由仅做路径计算。
+manifest 不维护实时文件清单，避免在测量窗口扫描或计算 hash；恢复校验仍由 `run_state` 负责。
+格式与旧目录边界见[Artifact Layout v2](Profiling_Protocol.md#artifact-layout-v2)。
+
+此设计参考 [Hydra 的输出分层](https://github.com/hydra-ecosystem/hydra/blob/main/hydra/core/utils.py)
+和 [pytest 的内部目录](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/cacheprovider.py)。
+两者均采用 MIT 许可，提供成熟源码可供核对；本项目借鉴分层和受限路径的思想，
+使用标准库及已有原子发布代码，没有引入框架依赖或复制其实现。
+AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语义或 `CACHEDIR.TAG`。
 
 ## 主机编排与测量
 

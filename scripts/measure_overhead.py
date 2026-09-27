@@ -216,7 +216,8 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
             # Importing the existing helper must not generate another input.
             previous_plan = os.environ.get("INPUT_SCALE_PLAN_FILE")
             try:
-                os.environ["INPUT_SCALE_PLAN_FILE"] = str(source / "input_scale_plan.json")
+                from acprof.artifact_layout import ArtifactLayout
+                os.environ["INPUT_SCALE_PLAN_FILE"] = str(ArtifactLayout.discover(source).path("input_scale_plan.json"))
                 from acprof.host import client
             finally:
                 if previous_plan is None:
@@ -298,8 +299,9 @@ def main(argv=None):
         parser.error("需要已完成且包含所选设备的新实验")
     snapshot = state["runtime"]
     task, image = TaskInfo(**snapshot["task"]), ImageInfo(**snapshot["image"])
-    plan_path = source / "input_scale_plan.json"
-    expected_hash = state["artifacts"].get("input_scale_plan.json")
+    from acprof.artifact_layout import ArtifactLayout
+    plan_path = ArtifactLayout.discover(source).path("input_scale_plan.json")
+    expected_hash = state["artifacts"].get(str(plan_path.relative_to(source)))
     if not expected_hash or file_sha256(plan_path) != expected_hash:
         parser.error("输入计划与原实验身份不一致")
     plan = json.loads(plan_path.read_text())

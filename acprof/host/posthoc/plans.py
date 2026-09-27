@@ -1,6 +1,8 @@
 """Profiler applicability, collection, and plan reuse."""
 from __future__ import annotations
 
+from acprof.artifact_layout import ArtifactLayout
+
 import copy
 import math
 import subprocess
@@ -151,7 +153,7 @@ def _compute_plan_candidates(
     tool: str,
 ) -> List[Path]:
     return [
-        context.result_dir / "compute_profile_plan.json",
+        ArtifactLayout.discover(context.result_dir).path("compute_profile_plan.json"),
         workspace / "compute_profile_plan.json",
         workspace / tool / "compute_profile_plan.json",
     ]
@@ -163,7 +165,7 @@ def _execution_plan_candidates(
     tool: str,
 ) -> List[Path]:
     return [
-        context.result_dir / "execution_profile_plan.json",
+        ArtifactLayout.discover(context.result_dir).path("execution_profile_plan.json"),
         workspace / "execution_profile_plan.json",
         workspace / tool / "execution_profile_plan.for_backfill.json",
         workspace / tool / "execution_profile_plan.json",
@@ -254,7 +256,7 @@ def _validate_profiler_runtime(
             cpu_list=sorted({case[0] for case in cases}),
             mem_list=sorted({case[1] for case in cases}),
             gpu_list=modes,
-            output_dir=str(context.result_dir / POSTHOC_DIRNAME / "runtime_validation"),
+            output_dir=str(ArtifactLayout.discover(context.result_dir).path(POSTHOC_DIRNAME) / "runtime_validation"),
         )
     except (RuntimeError, OSError, ValueError) as exc:
         raise PosthocError(f"runtime validation failed before post-hoc profiling: {exc}") from exc

@@ -1690,8 +1690,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         if csv_path.suffix.lower() != ".csv" or not csv_path.is_file():
             self._clear_report("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。")
             return
-        # A fresh sidecar for each explicit request; source CSV and old reports remain intact.
-        output = csv_path.parent / "analysis" / f"window-statistics-{uuid4().hex}.json"
+        # Route generated reports through the same manifest as collection and plotting.
+        from acprof.artifact_layout import ArtifactLayout
+        try:
+            layout = ArtifactLayout.discover(csv_path.parent)
+            output = layout.path("analysis") / f"window-statistics-{uuid4().hex}.json"
+        except (OSError, ValueError) as exc:
+            self._clear_report(str(exc))
+            return
         command = build_stats_command(csv_path, output, project_dir=PROJECT_DIR,
                                       python_executable=PYTHON_EXECUTABLE)
         self._stats_report_path = output

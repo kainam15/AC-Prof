@@ -60,7 +60,8 @@ def resolve_input_scales(task_family: str, input_scales: Optional[str] = None) -
 
 
 def _scale_plan_file_path(output_dir: str) -> str:
-    return os.path.join(output_dir, "input_scale_plan.json")
+    from acprof.artifact_layout import ArtifactLayout
+    return str(ArtifactLayout.discover(output_dir).path("input_scale_plan.json"))
 
 
 def _clear_scale_plan_file(path: str) -> None:

@@ -17,6 +17,11 @@
 
 ## 开发质量检查
 
+产物布局改动的定向入口包括 `test_artifact_layout.py`、`test_run_recovery.py`、
+`test_auto.py`、`test_posthoc.py`、`test_result_audit.py`、`test_result_comparison.py`、
+`test_latency_model_report.py` 和 `test_tui_reports.py`。覆盖新目录写入、flat 目录读取及恢复、
+中断文件保留、补采备份与分析输出路由；这些离线用例不代替真实 Docker/GPU 采集。
+
 矩阵计划或 RAPL/DRAM 协议改动的定向入口：
 
 ```bash

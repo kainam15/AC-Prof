@@ -65,7 +65,7 @@ TUI 分为“实验配置”“运行监控”“绘图工具”“统计报告�
 “统计报告”页可查看窗口置信区间、CPU/GPU 监测开销和 CLI/TUI 对照：
 
 - 采集结束后点击“当前结果”，再点“计算统计”；也可输入其他实验目录或 CSV。
-  计算调用 `stats.py`，完成后自动显示表格，并保存到 CSV 同目录的 `analysis/window-statistics-<唯一标识>.json`。
+  计算调用 `stats.py`，完成后自动显示表格，并保存到 v2 结果目录的 `plots/analysis/window-statistics-<唯一标识>.json`（旧目录继续使用 `analysis/`）。
 - 查看已生成的报告时，输入 JSON 路径后点击“查看报告”。表格支持方向键、滚动和选行查看口径；延迟以 ms 显示。
 - `/stats [csv/dir]` 计算统计，`/report [json]` 打开报告。计算和读取仅在 TUI 空闲时执行，原始 CSV 与旧报告保留。
 
@@ -252,5 +252,5 @@ Warmup 和 Repeat 分别输入，次数、Hz 和 s 放在输入框右侧。采�
 界面不会重写采集逻辑，而是启动现有 `run.py`、`probe.py`、`plot.py`、`stats.py` 和 `profile.py`。为了降低
 对能耗与延迟实验的影响，正式 workload 窗口内停止常规日志重绘，不运行实时绘图，
 也不轮询正在写入的 CSV；状态仅从已有进程输出中事件驱动更新。TUI 内运行时还会
-禁用子进程的 tmux pane 捕获，避免把全屏 ANSI 重绘写进 `tmux_all.log`。论文复现仍可
+禁用子进程的 tmux pane 捕获，避免把全屏 ANSI 重绘写进 `logs/terminal.log`（旧目录为 `tmux_all.log`）。论文复现仍可
 直接复制界面显示的完整命令，在普通 CLI 或自动化脚本中执行。

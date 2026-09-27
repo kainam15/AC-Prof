@@ -14,6 +14,7 @@ import stat
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json
+from acprof.artifact_layout import ArtifactLayout
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.runtime_settings import runtime_environment
 from acprof.source_identity import measurement_sources, source_fingerprint
@@ -89,20 +90,24 @@ def run_options(args) -> dict:
 
 
 def load_run_state(directory: str | Path) -> dict:
-    path = Path(directory) / RUN_STATE_NAME
     try:
+        layout = ArtifactLayout.discover(directory)
+        path = layout.path(RUN_STATE_NAME)
         payload = json.loads(path.read_text())
     except (OSError, ValueError) as exc:
-        raise RunStateError(f"无法读取恢复状态 {path}；历史实验请使用新输出目录") from exc
+        raise RunStateError(f"无法读取恢复状态 {directory}；历史实验请使用新输出目录：{exc}") from exc
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         raise RunStateError(f"不支持的主实验状态格式：{path}")
+    if payload.get("layout_version", 1) != layout.layout_version:
+        raise RunStateError(f"恢复状态与产物布局不一致：{path}")
     return payload
 
 
 class ResultDirectoryLock:
     """Linux advisory lock: process exit releases ownership without stale PID recovery."""
-    def __init__(self, directory: str | Path):
-        self.path = Path(directory) / RESULT_LOCK_NAME
+    def __init__(self, directory: str | Path, *, new: bool = False):
+        layout = ArtifactLayout.for_new_run(directory) if new else ArtifactLayout.discover(directory)
+        self.path = layout.path(RESULT_LOCK_NAME)
         self.stream = None
 
     def __enter__(self):
@@ -152,8 +157,9 @@ class RunState:
     def __init__(self, directory: str | Path, options: dict, *, resume: bool, project_dir: str,
                  preparation_artifacts: dict[str, str] | None = None):
         self.directory = Path(directory).resolve()
-        self.path = self.directory / RUN_STATE_NAME
-        self.lock = ResultDirectoryLock(self.directory)
+        self.layout = ArtifactLayout.discover(self.directory) if resume else ArtifactLayout.for_new_run(self.directory)
+        self.path = self.layout.path(RUN_STATE_NAME)
+        self.lock = ResultDirectoryLock(self.directory, new=not resume)
         self.measurement_lock = MeasurementLock()
         self.measurement_lock.__enter__()
         try:
@@ -169,17 +175,19 @@ class RunState:
                 self.verify_artifacts()
             else:
                 prepared = preparation_artifacts or {}
-                if set(prepared) - {"auto_report.json", "model_resolution.json"}:
+                allowed_prepared = {str(self.layout.path(name).relative_to(self.directory))
+                                    for name in ("auto_report.json", "model_resolution.json")}
+                if set(prepared) - allowed_prepared:
                     raise RunStateError("自动准备产物包含不允许的文件")
                 for name, digest in prepared.items():
-                    path = self.directory / name
+                    path = self.layout.contained(name)
                     if not path.is_file() or file_sha256(path) != digest:
                         raise RunStateError(f"自动准备产物缺失或已改变：{path}")
-                occupied = [p for p in self.directory.iterdir()
-                            if p.name not in {RESULT_LOCK_NAME, "probes", *prepared}]
-                if occupied:
-                    raise RunStateError(f"结果目录已有实验产物：{self.directory}；续跑请加 --resume，新实验请更换 --output-dir")
-                self.data = {"schema_version": 1, "run_id": uuid4().hex, "created_at": utc_now(),
+                try:
+                    self.layout.initialize(allowed_files=prepared)
+                except ValueError as exc:
+                    raise RunStateError(str(exc)) from exc
+                self.data = {"schema_version": 1, "layout_version": 2, "run_id": uuid4().hex, "created_at": utc_now(),
                              "status": "preparing", "options": options, "host": host_identity(project_dir),
                              "cases": {}, "artifacts": {}, "attempts": []}
             self.data["attempts"].append({"started_at": utc_now(), "pid": os.getpid(), "resume": resume})
@@ -202,16 +210,17 @@ class RunState:
         atomic_write_json(self.path, self.data)
 
     def artifact_path(self, relative: str) -> Path:
-        path = (self.directory / relative).resolve()
-        if not path.is_relative_to(self.directory):
-            raise RunStateError(f"恢复产物路径越出结果目录：{relative}")
-        return path
+        try:
+            return self.layout.contained(relative)
+        except ValueError as exc:
+            raise RunStateError(str(exc)) from exc
 
     def verify_artifacts(self) -> None:
         # A finalized result may subsequently be changed by documented post-hoc tools.
         if self.complete:
-            read_result_csv(self.directory / "result_all.csv", expected=self.expected())
+            read_result_csv(self.layout.result_csv, expected=self.expected())
             for name in ("matrix_plan.json", "startup_oom_pruning.json"):
+                name = str(self.layout.path(name).relative_to(self.directory))
                 if name in self.data.get("artifacts", {}):
                     path = self.artifact_path(name)
                     if not path.is_file() or file_sha256(path) != self.data["artifacts"][name]:
@@ -232,6 +241,7 @@ class RunState:
         if plan["identity"]["prune_startup_oom"]:
             names.append(PROBE_NAME)
         for name in names:
+            name = str(self.layout.path(name).relative_to(self.directory))
             checksum = file_sha256(self.artifact_path(name))
             recorded = self.data["artifacts"].get(name)
             if recorded is not None and recorded != checksum:
@@ -241,7 +251,8 @@ class RunState:
         self.save()
 
     def bind_runtime(self, task, image, planned, compute_plan: str, execution_plan: str) -> None:
-        paths = ["static_meta.json", "collection_history.json", "input_scale_plan.json"]
+        paths = [str(self.layout.path(name).relative_to(self.directory))
+                 for name in ("static_meta.json", "collection_history.json", "input_scale_plan.json")]
         for value in (compute_plan, execution_plan):
             if value:
                 paths.append(str(Path(value).resolve().relative_to(self.directory)))
@@ -286,27 +297,29 @@ class RunState:
         )
 
     def prepare_case(self, filename: str, cpu: int, mem: int, gpu: str) -> str | None:
+        path = (self.layout.case("", cpu, mem, gpu).csv if self.layout.layout_version == 2
+                else self.artifact_path(filename))
+        filename = str(path.relative_to(self.directory))
+        case = self.layout.case_from_csv(path)
         record = self.data["cases"].get(filename, {})
-        path = self.artifact_path(filename)
         if record.get("status") == "complete":
             if not path.is_file() or file_sha256(path) != record["sha256"]:
                 raise RunStateError(f"已完成 case 的 CSV 缺失或改变：{path}")
             read_result_csv(path, expected=self.expected(cpu, mem, gpu))
             return str(path)
-        case_name = filename.removeprefix("result_").removesuffix(".csv")
-        candidates = [path, Path(str(path) + ".sniff_groups.jsonl"), Path(str(path) + ".client_error.json"),
-                      Path(str(path) + ".requests.jsonl"),
-                      self.directory / f"sniff_{case_name}.pcap", self.directory / f"lat_{case_name}.json",
-                      self.directory / "debug_idle_diag" / f"{filename}.idle_diag.jsonl"]
-        existing = [candidate for candidate in candidates if candidate.exists()]
+        candidates = [*case.temporary_files(), case.retained_requests, case.idle]
+        existing = list(dict.fromkeys(candidate for candidate in candidates if candidate.exists() or candidate.is_symlink()))
         if existing:
-            backup = self.directory / "interrupted_cases" / case_name / uuid4().hex
+            backup = self.layout.path("interrupted_cases") / case.case_id / uuid4().hex
             backup.mkdir(parents=True)
             # Preserve every source before removing any file, including partial PCAPs.
             for source in existing:
+                self.artifact_path(str(source.relative_to(self.directory)))
                 if source.is_symlink() or not source.is_file():
                     raise RunStateError(f"不支持的 case 产物类型：{source}")
-                target = backup / source.name
+                # Raw samples and idle diagnostics share case IDs; retain provenance.
+                target = backup / source.relative_to(self.directory)
+                target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
                 with target.open("rb") as stream:
                     os.fsync(stream.fileno())
@@ -316,11 +329,14 @@ class RunState:
                 source.unlink()
         self.data["cases"][filename] = {"status": "running", "started_at": utc_now()}
         self.save()
+        path.parent.mkdir(parents=True, exist_ok=True)
         return None
 
     def finish_case(self, path: str, cpu: int, mem: int, gpu: str) -> None:
         _, rows = read_result_csv(path, expected=self.expected(cpu, mem, gpu))
-        self.data["cases"][Path(path).name] = {
+        case = self.layout.case_from_csv(path)
+        case.retain_requests()
+        self.data["cases"][str(Path(path).relative_to(self.directory))] = {
             "status": "complete", "completed_at": utc_now(), "sha256": file_sha256(path),
             "row_count": len(rows), "error_rows": sum(row.get("status") == "error" for row in rows),
         }

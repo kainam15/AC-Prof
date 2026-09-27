@@ -16,7 +16,7 @@ def main(argv=None) -> int:
     automatic = None
     try:
         automatic = AutomaticRun(args)
-        with MeasurementLock(), ResultDirectoryLock(automatic.root):
+        with MeasurementLock(), ResultDirectoryLock(automatic.root, new=not args.resume):
             task = automatic.prepare()
         print(f"[auto] {task.model_id}@{task.model_revision}; profiling_mode={args.profiling_mode}", flush=True)
         from acprof.cli import run

@@ -104,15 +104,18 @@ def require_result_cgroup_compatibility(
     if not result_dir.is_dir():
         return
 
+    from acprof.artifact_layout import ArtifactLayout
+    layout = ArtifactLayout.discover(result_dir)
+
     partial_results = sorted(
         path
-        for path in result_dir.glob("result_case_*.csv")
+        for path in result_dir.glob(".acprof/work/cases/*/result.csv" if layout.layout_version == 2 else "result_case_*.csv")
         if path.is_file() and path.stat().st_size > 0
     )
     if not partial_results:
         return
 
-    static_meta_path = result_dir / "static_meta.json"
+    static_meta_path = layout.path("static_meta.json")
     try:
         with static_meta_path.open("r", encoding="utf-8") as f:
             existing_meta = json.load(f)

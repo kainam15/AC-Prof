@@ -24,13 +24,15 @@
 | 阅读目的 | 入口 |
 | --- | --- |
 | 查看测量值 | `result_all.csv`；正式性能分析筛选 `status=ok` 且 `warmup=0`。 |
-| 复现实验对象和输入 | `static_meta.json` 与 `input_scale_plan.json`。 |
-| 追踪补采或修复 | `collection_history.json` 与对应 profiler plan。 |
-| 查看图表和拟合 | `cpu/`、`gpu/`、`gpu+cpu/` 与 `latency_model/`。 |
+| 查找产物 | `result_manifest.json` 的布局版本和相对路径；缺少清单的旧目录沿用 flat layout。 |
+| 复现实验对象和输入 | `static_meta.json` 与 `metadata/input_scale_plan.json`。 |
+| 追踪补采或修复 | `metadata/collection_history.json` 与对应 profiler plan。 |
+| 查看图表和拟合 | `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 与 `plots/latency_model/`。 |
 
 `latency_app_s` 是客户端应用层计时，`latency_s` 是抓包解析得到的 packet-level 计时。
 关闭 GPU 或未启用某个 profiler 时，对应字段为 `nan` 属于预期结果。
-运行中先写 `result_case_*.csv`，矩阵完成后才合并为 `result_all.csv`。
+新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后才合并为 `result_all.csv`。
+旧目录继续使用根部 case CSV 与原有元数据、绘图位置；详见[布局兼容约定](Profiling_Protocol.md#artifact-layout-v2)。
 
 可只读检查结果完整性，并按独立测量窗口估计均值区间：
 
@@ -358,7 +360,7 @@ python plot.py \
 
 图表会写回模型结果目录下的 `cpu/`、`gpu/`、`gpu+cpu/` 和 `latency_model/`；没有适用数据的分组会自动跳过。除原有指标总览外，还会按可用字段生成资源失败边界、P50/P90/P95 尾延迟、延迟–能耗 Pareto 前沿和冷启动阶段分解图。历史 CSV 缺少新字段时只跳过对应图，不影响其余图表。
 
-`plot.py` 默认读取同目录下的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。图片会写入结果目录下的三个子目录：
+`plot.py` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
 
 - `cpu/`：只使用 `gpu_mode=off` 的 CPU 数据
 - `gpu/`：只使用 `gpu_mode=on` 的 GPU 数据
@@ -410,7 +412,7 @@ Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派�
 - `latency_energy_pareto.png` 按 input scale 分面并在 log-log 坐标中标出同时最小化 latency 与 container-attributed effective energy 的非支配前沿。延迟列依次优先使用 application P95、packet P95、application mean、packet mean；同一面板不会混合不同 input scale。历史 CSV 没有 `container_attributed_energy_eff_j` 时，只在 source fields 可用的行按现有口径重建：CPU-only 使用 estimated vCPU effective energy，GPU 行使用 estimated vCPU 与 GPU effective energy 之和。
 - `cold_start_breakdown.png` 仅在五个阶段字段完整时生成，并为每个 GPU mode/CPU 数选择最大 memory cap。同一张 PNG 使用上下两个子图，共享配置横轴、独立缩放纵轴：上图堆叠 container launch、server setup、CUDA init、model load 和 ready wait，并用 `cold_start_s` 独立标记核对阶段和；下图单独展示 first-predict application latency，不计入 `/ready` 前的堆叠总量，缺少该指标时显示 `No data`。旧结果缺少阶段列时继续保留 `cold_start_bar.png`，并自动跳过分解图。
 
-延迟建模产物统一写入结果目录下的 `latency_model/`：
+延迟建模产物统一写入绘图根目录下的 `latency_model/`（v2 为 `plots/latency_model/`）：
 
 - `latency_model/latency_model_report.json`
 - `latency_model/latency_model_residuals.csv`
