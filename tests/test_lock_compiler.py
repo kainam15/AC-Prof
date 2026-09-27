@@ -3,15 +3,36 @@ import hashlib
 from io import BytesIO
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
 from runtime_fixture import copy_dependency_tree
 from scripts.compile_locks import check_catalog
+from scripts import compile_locks
 from scripts.compile_system_lock import resolve_in_container, snapshot_url
 
 
 class LockCompilerTests(unittest.TestCase):
+    @unittest.skipIf(sys.version_info < (3, 11), 'Host metadata checks require Python 3.11+')
+    def test_host_check_rejects_metadata_drift_in_each_python_branch_without_resolving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'pyproject.toml').write_text('[project]\ndependencies = ["numpy>=2,<3"]\n')
+            (root / 'requirements-host.in').write_text('numpy==2.2.6 ; python_version < "3.11"\n')
+            lock = root / 'requirements.lock'
+            lock.write_text('numpy==2.2.6 ; python_version < "3.11"\n'
+                            'numpy==2.4.4 ; python_version >= "3.11"\n')
+            with patch.object(compile_locks, 'ROOT', root), patch('subprocess.run', side_effect=AssertionError('resolver used')):
+                self.assertEqual(compile_locks.main(['--host-only', '--check']), 0)
+                lock.write_text('numpy==1.26.4 ; python_version < "3.11"\n'
+                                'numpy==2.4.4 ; python_version >= "3.11"\n')
+                with self.assertRaisesRegex(ValueError, 'numpy'):
+                    compile_locks.main(['--host-only', '--check'])
+                lock.write_text('numpy==2.2.6 ; python_version < "3.11"\n')
+                with self.assertRaisesRegex(ValueError, 'numpy'):
+                    compile_locks.main(['--host-only', '--check'])
+
     def test_check_is_read_only_and_does_not_use_docker_or_resolver(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

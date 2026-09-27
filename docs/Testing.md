@@ -120,7 +120,8 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 ### Ruff 与代码检查
 
 Ruff 版本由 [`pyproject.toml`](../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
-3.10，显式启用 `E4`、`E7`、`E9`、`F`。第一版不启用 import 排序、`E501` 或 formatter；
+3.10，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
+`B904`（异常链）。不启用 import 排序、`E501` 或 formatter；
 `line-length = 100` 本身不检查行长。Ruff hook 只检查，不自动修复；空白和末尾换行 hooks
 会修正文件并返回失败，检查 `git diff` 后重新运行。不得用扩大 `ignore` 或排除目录掩盖新问题。
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
@@ -145,7 +146,14 @@ git diff --check
 ```
 
 `scripts/compile_locks.py --check` 仍只验证既有容器锁与 profile 映射，不代替开发锁的重新解析。
+主机依赖变更还需用 Python 3.11+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
+已验证 pin 与主机 lock；重新生成方式见[运行兼容](Runtime_Compatibility.md#当前配置)。CI 的 Python 3.12 job
+运行该检查；Python 3.10 job 保留容器锁检查。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
+
+`internal-testing/`、`result-past/` 和 `results/` 都由仓库 `.gitignore` 排除。忽略规则不授权删除：
+失败或中断的 CSV、pcap、jsonl 与恢复状态应按实验保留；清理前先列出路径、占用和是否仍用于诊断或恢复。
+开发环境副本与旧构建目录可单独评估，不能仅按文件扩展名批量删除实验依据。
 
 ### 辅助开发工具
 

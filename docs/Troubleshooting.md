@@ -105,6 +105,21 @@ docker info
 结合 `DOCKER_HOST`、`DOCKER_CONTEXT` 与 CLI 报错确定实际 endpoint；只有需要切换时再调整本次命令环境，
 不要仅为诊断就改写用户默认 Docker context。正式采集的主机条件见[运行指南](Getting_Started.md#1-检查主机环境)。
 
+### 中断后残留容器或端口占用
+
+`acprof run` 的 SIGTERM 按取消处理，展开当前 case 和实验状态的清理；清理完成后恢复原信号处理器。
+SIGKILL 无法执行 Python 清理。服务容器带有 `org.acprof.container.lifecycle=1` 及主机、用户、boot ID、
+PID、进程启动时间标签；下一次启动服务前会回收同机同用户且能确认主人进程已退出的容器。
+检查与回收在冷启动计时之前完成，不进入正式测量窗口；删除目标始终使用完整容器 ID。
+
+运行中的会话、其他主机/用户、缺少归属信息的旧容器以及无法读取进程身份的容器会保留。
+旧版本容器没有这些标签，仍需用 `docker ps -a --no-trunc`、`docker inspect <完整容器ID>` 核对归属及端口，
+确认已不用后再单独处理。回收失败会阻止新服务启动并报告错误，不会改用其他端口混入原实验。
+恢复采集仍须通过原实验的参数、源码、依赖和产物身份检查；容器回收不会删除实验文件。
+
+`scripts/check_runtime.py` 会记录清理失败并使原本成功的检查失败；不会用清理错误覆盖原有非零返回码，
+也不会吞掉 `KeyboardInterrupt` 或未捕获的异常。
+
 ### `[sniff][ERROR]` 或 `latency_s` 无法合并
 
 检查 `tcpdump`、`tshark`、capability 和 bridge：

@@ -252,7 +252,7 @@ class WeComWebhookNotifier:
                 try:
                     body = response.json()
                 except (TypeError, ValueError):
-                    raise NotificationDeliveryError("企业微信响应不是有效 JSON")
+                    raise NotificationDeliveryError("企业微信响应不是有效 JSON") from None
                 if not isinstance(body, dict):
                     raise NotificationDeliveryError("企业微信响应格式无效")
 

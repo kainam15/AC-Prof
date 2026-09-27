@@ -193,7 +193,7 @@ class PerfMIPSTests(unittest.TestCase):
         self.assertAlmostEqual(result.dtlb_load_miss_rate_pct, 1.0)
 
     def test_monitor_does_not_start_when_pid_attach_is_denied(self):
-        with patch.object(perf_mips, '_docker_container_pid', return_value=1234), patch.object(
+        with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
             perf_mips.shutil, 'which', return_value='/usr/bin/perf',
         ), patch.object(perf_mips.subprocess, 'run', return_value=SimpleNamespace(
             returncode=1, stdout='', stderr='Permission denied',
@@ -235,7 +235,7 @@ class PerfMIPSTests(unittest.TestCase):
         self.assertAlmostEqual(result.perf_elapsed_s, 0.25)
 
     def test_monitor_rejects_legacy_sudo_command_prefix(self):
-        with patch.object(perf_mips, '_docker_container_pid', return_value=1234), patch.object(
+        with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
             perf_mips.subprocess, 'Popen',
         ) as popen:
             for prefix in (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']):

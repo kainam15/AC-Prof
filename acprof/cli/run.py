@@ -14,8 +14,10 @@ from dataclasses import dataclass, replace
 import math
 import os
 import shlex
+import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1116,7 +1118,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         _record_run_completion(final_csv=None, completed_cases=0)
 
 
-def main(*, args=None, prepared_task=None, preparation_artifacts=None):
+def _run_with_cleanup(*, args=None, prepared_task=None, preparation_artifacts=None):
     """Run profiling, finalize terminal logging, then notify best-effort."""
     global _ACTIVE_TMUX_TERMINAL_LOG, _ACTIVE_RUN_NOTIFICATION, _ACTIVE_RUN_STATE
 
@@ -1163,6 +1165,24 @@ def main(*, args=None, prepared_task=None, preparation_artifacts=None):
                 print(f"[resume][ERROR] 无法保存退出状态：{exc}", file=sys.stderr)
         _deliver_run_notification(finalized_log_path)
         _ACTIVE_RUN_NOTIFICATION = None
+
+
+def main(*, args=None, prepared_task=None, preparation_artifacts=None):
+    """Translate SIGTERM to cancellation so container and result cleanup can unwind."""
+    options = dict(args=args, prepared_task=prepared_task, preparation_artifacts=preparation_artifacts)
+    if threading.current_thread() is not threading.main_thread():
+        return _run_with_cleanup(**options)
+
+    def interrupt(_signum, _frame):
+        # A second TERM must not interrupt the cleanup that the first one started.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGTERM, interrupt)
+    try:
+        return _run_with_cleanup(**options)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == "__main__":

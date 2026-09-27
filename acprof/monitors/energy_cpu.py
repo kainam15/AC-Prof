@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import math
 import os
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from acprof.monitors.common import docker_container_pid, sample_periodically
 
 from acprof.config import DEFAULT_IDLE_SECONDS
 from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
@@ -235,27 +236,6 @@ def _join_cgroup_path(root: str, relative: str, leaf: str) -> str:
     return os.path.join(root, rel, leaf) if rel else os.path.join(root, leaf)
 
 
-def _docker_container_pid(container_name: str) -> int:
-    result = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Pid}}", container_name],
-        capture_output=True,
-        text=True,
-        check=False,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"docker inspect failed for {container_name}")
-
-    try:
-        pid = int(result.stdout.strip())
-    except ValueError as exc:
-        raise RuntimeError(f"invalid container pid: {result.stdout.strip()!r}") from exc
-    if pid <= 0:
-        raise RuntimeError(f"container is not running: {container_name}")
-    return pid
-
-
 def _resolve_container_cpu_reader(
     container_name: str,
     cgroup_root: str = "/sys/fs/cgroup",
@@ -264,7 +244,7 @@ def _resolve_container_cpu_reader(
     if not container_name:
         return None
 
-    pid = _docker_container_pid(container_name)
+    pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
     with open(cgroup_file, "r", encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -564,7 +544,11 @@ class CPUEnergyMonitor:
         self._t_start = time.perf_counter()
         self._t_end = None
         self._append_sample(self._t_start)
-        self._thread = threading.Thread(target=self._sample_loop, daemon=True)
+        self._thread = threading.Thread(
+            target=sample_periodically,
+            args=(self._stop_event, self._t_start, self.dt, self._append_sample),
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> Tuple[CPUEnergyResult, str, List[CPUSample]]:
@@ -598,19 +582,6 @@ class CPUEnergyMonitor:
     def close(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             self.stop()
-
-    def _sample_loop(self) -> None:
-        next_t = (self._t_start if self._t_start is not None else time.perf_counter()) + self.dt
-        while not self._stop_event.is_set():
-            sleep_s = next_t - time.perf_counter()
-            if sleep_s > 0 and self._stop_event.wait(sleep_s):
-                break
-            if self._stop_event.is_set():
-                break
-            t = time.perf_counter()
-            if self._t_start is not None and t >= self._t_start:
-                self._append_sample(t)
-            next_t += self.dt
 
     def _read_sample(self, timestamp: float) -> CPUSample:
         energy_uj = [_read_int(domain.energy_path) for domain in self.domains]

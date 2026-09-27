@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
+
+from acprof.monitors.common import docker_container_pid, sample_periodically
 
 try:
     import pynvml
@@ -596,27 +597,6 @@ def _read_cpu_frequency_hz(
     return _mean(freqs), max(freqs)
 
 
-def _docker_container_pid(container_name: str) -> int:
-    result = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Pid}}", container_name],
-        capture_output=True,
-        text=True,
-        check=False,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"docker inspect failed for {container_name}")
-
-    try:
-        pid = int(result.stdout.strip())
-    except ValueError as exc:
-        raise RuntimeError(f"invalid container pid: {result.stdout.strip()!r}") from exc
-    if pid <= 0:
-        raise RuntimeError(f"container is not running: {container_name}")
-    return pid
-
-
 def _join_cgroup_path(root: str, relative: str, leaf: str) -> str:
     rel = relative.strip("/")
     return os.path.join(root, rel, leaf) if rel else os.path.join(root, leaf)
@@ -637,7 +617,7 @@ def _resolve_container_metric_readers(
     if not container_name:
         return _ContainerReaders()
 
-    pid = _docker_container_pid(container_name)
+    pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
     with open(cgroup_file, "r", encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -1081,7 +1061,11 @@ class ResourceUsageMonitor:
         self._t_start = time.perf_counter()
         self._t_end = None
         self._append_sample(self._t_start)
-        self._thread = threading.Thread(target=self._sample_loop, daemon=True)
+        self._thread = threading.Thread(
+            target=sample_periodically,
+            args=(self._stop_event, self._t_start, self.dt, self._append_sample),
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> Tuple[ResourceUsageResult, str, List[ResourceUsageSample]]:
@@ -1174,19 +1158,6 @@ class ResourceUsageMonitor:
             except Exception as exc:
                 self._runtime_error = str(exc)
         return snapshots
-
-    def _sample_loop(self) -> None:
-        next_t = (self._t_start if self._t_start is not None else time.perf_counter()) + self.dt
-        while not self._stop_event.is_set():
-            sleep_s = next_t - time.perf_counter()
-            if sleep_s > 0 and self._stop_event.wait(sleep_s):
-                break
-            if self._stop_event.is_set():
-                break
-            t = time.perf_counter()
-            if self._t_start is not None and t >= self._t_start:
-                self._append_sample(t)
-            next_t += self.dt
 
     def _read_sample(self, timestamp: float) -> ResourceUsageSample:
         container_cpu_s = None

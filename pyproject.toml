@@ -58,5 +58,5 @@ force-exclude = true
 extend-exclude = ["internal-testing", "results", "evidence"]
 
 [tool.ruff.lint]
-# 首次接入只检查基础错误；import 排序和全库格式化另行评估。
-select = ["E4", "E7", "E9", "F"]
+# 基础错误，以及可变默认值、finally 跳转和丢失异常来源。
+select = ["E4", "E7", "E9", "F", "B006", "B012", "B904"]

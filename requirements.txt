@@ -1,21 +1,3 @@
-# AC-Prof Universal Profiler - Host-side dependencies
-# (Docker containers have their own requirements per task family)
-
-# Core
-requests>=2.31
-huggingface_hub>=0.23.0
-socksio>=1.0.0
-
-# Interactive terminal interface
-textual>=0.58
-
-# Plotting (optional)
-numpy>=1.24
-pandas>=2.0
-matplotlib>=3.7
-
-# CV workload generation (optional, for host-side image creation)
-Pillow>=10.0
-
-# GPU energy monitoring via NVML (optional, graceful fallback if unavailable)
-nvidia-ml-py>=13.610.43
+# Compatibility installer: use the same hashed host lock as setup.sh and CI.
+# Declare runtime dependencies only in pyproject.toml.
+-r requirements.lock

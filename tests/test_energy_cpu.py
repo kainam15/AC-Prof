@@ -249,7 +249,7 @@ class CPUEnergyMonitorTests(unittest.TestCase):
                 f.write("usage_usec 1500000\n")
 
             fake_completed = SimpleNamespace(returncode=0, stdout="123\n", stderr="")
-            with patch("acprof.monitors.energy_cpu.subprocess.run", return_value=fake_completed):
+            with patch("acprof.monitors.common.subprocess.run", return_value=fake_completed):
                 reader = energy_cpu._resolve_container_cpu_reader(
                     "case_container",
                     cgroup_root=cgroup_root,

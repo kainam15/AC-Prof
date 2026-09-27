@@ -16,5 +16,7 @@ build/
 .env.local.*.tmp
 
 results/
+/result-past/
+/internal-testing/
 
 *.csv

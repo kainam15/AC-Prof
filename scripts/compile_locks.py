@@ -1,4 +1,4 @@
-"""用固定 uv 生成目标 wheel 锁；--check 只读核验平台、环境及 profile 映射。"""
+"""用固定 uv 生成锁；--check 核验容器锁，--host-only --check 核验主机声明。"""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +15,50 @@ from acprof.dependency_locks import normalized_name, package_versions, python_lo
 from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS, PROFILES, environment_id, environment_identity  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 UV_VERSION = "0.12.13"
+
+
+def check_host_lock(root):
+    """Check direct requirements and tested pins for both host marker branches offline."""
+    try:
+        import tomllib
+    except ImportError as error:
+        raise RuntimeError("主机元数据检查需要 Python 3.11+；容器 --check 仍支持 Python 3.10+") from error
+    from packaging.markers import default_environment
+    from packaging.requirements import Requirement
+
+    metadata = tomllib.loads((root / "pyproject.toml").read_text())
+    declared = [Requirement(value) for value in metadata["project"]["dependencies"]]
+
+    def requirements(path):
+        for line in path.read_text().splitlines():
+            line = line.split("#", 1)[0].strip().removesuffix("\\").strip()
+            if line and not line.startswith("--hash="):
+                yield Requirement(line)
+
+    pins = list(requirements(root / "requirements-host.in"))
+    locked = list(requirements(root / "requirements.lock"))
+    branches = ("3.10", "3.11", "3.12", "3.13", "3.14")
+    for python in branches:
+        markers = {**default_environment(), "python_version": python,
+                   "python_full_version": python + ".0", "extra": ""}
+        versions: dict[str, str] = {}
+        for requirement in locked:
+            if requirement.marker and not requirement.marker.evaluate(markers):
+                continue
+            specs = list(requirement.specifier)
+            if len(specs) != 1 or specs[0].operator != "==" or "*" in specs[0].version:
+                raise ValueError(f"主机 lock 缺少精确版本：{requirement}")
+            name = normalized_name(requirement.name)
+            if name in versions:
+                raise ValueError(f"主机 lock 存在重复版本（Python {python}）：{name}")
+            versions[name] = specs[0].version
+        for requirement in [*declared, *pins]:
+            if requirement.marker and not requirement.marker.evaluate(markers):
+                continue
+            version = versions.get(normalized_name(requirement.name), "")
+            if not version or not requirement.specifier.contains(version, prereleases=True):
+                raise ValueError(f"主机依赖与 lock 不符（Python {python}）：{requirement}, locked={version}")
+    return {"dependencies": len(declared), "python_versions": list(branches)}
 
 
 def target_markers(platform):
@@ -147,21 +191,22 @@ def main(argv=None):
     parser.add_argument("--host-only", action="store_true")
     parser.add_argument("--runtime-only", action="store_true")
     parser.add_argument("--variant", action="append", choices=PLATFORMS)
-    parser.add_argument("--check", action="store_true", help="不访问 Docker/网络、不写文件，核验容器锁及映射")
+    parser.add_argument("--check", action="store_true", help="不访问 Docker/网络、不写文件；默认核验容器锁，--host-only 核验主机声明（Python 3.11+）")
     parser.add_argument("--upgrade", action="store_true", help="显式更新环境包；平台 Torch 和安装工具仍保持锁定")
     args = parser.parse_args(argv)
     if args.host_only and args.runtime_only:
         parser.error("--host-only 与 --runtime-only 互斥")
     if args.check:
-        if args.host_only or args.upgrade:
-            parser.error("--check 不与 --host-only / --upgrade 同用")
-        print(json.dumps(check_catalog(variants=args.variant), ensure_ascii=False, indent=2))
+        if args.upgrade or (args.host_only and args.variant):
+            parser.error("--check 不与 --upgrade 同用；主机检查不接受 --variant")
+        result = check_host_lock(ROOT) if args.host_only else check_catalog(variants=args.variant)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     version = subprocess.check_output([args.uv, "--version"], text=True).split()
     if version[:2] != ["uv", UV_VERSION]:
         parser.error(f"锁生成工具必须是 uv {UV_VERSION}")
     if not args.runtime_only:
-        command = [args.uv, "pip", "compile", "requirements-host.in", "--python-version", "3.10",
+        command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements-host.in", "--python-version", "3.10",
                    "--universal", "--generate-hashes", "--no-annotate", "--no-header", "-o", "requirements.lock"]
         subprocess.run(command + (["--upgrade"] if args.upgrade else []), cwd=ROOT, check=True)
     if args.host_only:

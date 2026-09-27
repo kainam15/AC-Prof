@@ -17,14 +17,7 @@ from typing import (
 )
 
 from acprof.host.compute_profile_plan import (
-    NCU_ERROR_FIELD,
-    NCU_KERNEL_COUNT_FIELD,
-    NCU_KERNEL_TIME_FIELD,
     NCU_PROFILE_KEY,
-    NCU_SCALAR_MFLOP_FIELD,
-    NCU_TENSOR_MFLOP_FIELD,
-    NCU_TENSOR_SHARE_FIELD,
-    NCU_TOTAL_MFLOP_FIELD,
     TORCH_PROFILE_KEY,
     find_compute_profile_entry,
 )
@@ -76,32 +69,6 @@ def applicable_tools(
         else:
             skipped.append(tool)
     return tuple(applicable), tuple(skipped)
-
-
-def compute_plan_covers_ncu(
-    plan: Mapping[str, Any],
-    scales: Iterable[float],
-) -> bool:
-    if not isinstance(plan, Mapping):
-        return False
-    for scale in scales:
-        profile = find_compute_profile_entry(dict(plan), "on", scale)
-        required_fields = (
-            NCU_TOTAL_MFLOP_FIELD,
-            NCU_TENSOR_MFLOP_FIELD,
-            NCU_SCALAR_MFLOP_FIELD,
-            NCU_TENSOR_SHARE_FIELD,
-            NCU_KERNEL_COUNT_FIELD,
-            NCU_KERNEL_TIME_FIELD,
-        )
-        if not all(
-            math.isfinite(_finite_float(profile.get(field)))
-            for field in required_fields
-        ):
-            return False
-        if str(profile.get(NCU_ERROR_FIELD) or "").strip():
-            return False
-    return True
 
 
 def compute_plan_covers_tool(

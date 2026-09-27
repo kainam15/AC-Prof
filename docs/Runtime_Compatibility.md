@@ -72,21 +72,31 @@ Debian `20260912T203535Z` 和安全仓库 `20260912T113611Z` 的实际 snapshot 
 固定，并计入最终完整包集合。普通构建只下载锁中的制品，校验哈希后通过 `--no-download` 安装，
 不查询浮动 apt 仓库、不动态选择包名。
 
-主机使用 [`requirements.lock`](../requirements.lock)，支持 Python 3.10+。锁更新工具固定为
-uv 0.12.13；生成目标 wheel 锁需要 Python 3.11+ 的 `tomllib`，只读检查和运行代码支持 Python 3.10+。
+主机使用 [`requirements.lock`](../requirements.lock)，支持 Python 3.10+。依赖集合与兼容区间只在
+[`pyproject.toml`](../pyproject.toml) 声明；[`requirements-host.in`](../requirements-host.in) 是已验证版本约束，
+[`requirements.txt`](../requirements.txt) 仅转向锁文件。锁更新工具固定为 uv 0.12.13。
+生成目标 wheel 锁及检查主机 TOML 元数据需要 Python 3.11+；容器锁检查和运行代码仍支持 Python 3.10+。
+主机检查离线核对 Python 3.10–3.14 的 marker 分支、直接依赖和 pin，不代表在这些解释器上运行过测试。
 
 ```bash
 # 只读：锁格式、目标平台、源约束及 profile/环境映射；不访问 Docker 或网络
 .venv/bin/python scripts/compile_locks.py --check
+# 只读：主机声明、已验证约束与 lock 的版本一致性；需要 Python 3.11+
+.venv/bin/python scripts/compile_locks.py --host-only --check
+# 从 pyproject.toml 和已验证约束重新生成主机锁
+.venv/bin/python scripts/compile_locks.py --host-only --uv .venv/bin/uv
 # 保持当前全部包版本重新解析制品；--upgrade 才允许更新环境包
 .venv/bin/python scripts/compile_locks.py --runtime-only --variant cpu --uv /path/to/uv
 # 在固定基础容器中重新解析系统锁；只有此显式更新步骤运行 apt update
 .venv/bin/python scripts/compile_system_lock.py --snapshot 20260913T000000Z
 ```
 
-`--host-only` 只更新主机锁；`--variant` 可重复，省略时处理全部平台。迁移保留了原有全部 Python
+不带 `--check` 时，`--host-only` 只更新主机锁；`--variant` 可重复，省略时处理全部平台。迁移保留了原有全部 Python
 包版本，仅补齐基础安装工具、目标制品及其哈希。更新锁后仍需执行目标容器验证。即使依赖和
 来源完全锁定，也不宣称重建的 image ID 必然相同；复现实验和补采仍使用原始 image ID。
+
+主机输入收敛复用 [uv 的 pyproject 与 constraints 编译方式](https://github.com/astral-sh/uv/blob/main/docs/pip/compile.md)。
+沿用已有工具和锁格式，不引入新的包管理器或运行依赖；uv 提供 MIT 许可，解析仅在显式更新时运行。
 
 主机构建预检沿用驱动兼容分支，CUDA 12.4 选择固定的 Torch 2.6.0 wheel，CUDA 12.8+ 选择 2.11.0。
 `ACPROF_NLP_TORCH_INDEX_URL` 接受官方 `cu124`、`cu128` 和 `cpu` 索引；显式

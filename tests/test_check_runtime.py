@@ -13,6 +13,36 @@ from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
 class RuntimeCheckSelectionTests(unittest.TestCase):
+    def test_cleanup_failure_does_not_swallow_unexpected_exception_or_interrupt(self):
+        image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
+                                platform_image_id='sha256:' + 'b' * 64, manifest={})
+        for error in (TypeError('invalid runtime result'), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temporary, patch(
+                'scripts.check_runtime.prepare_environment_image', return_value=image,
+            ), patch('scripts.check_runtime.subprocess.run', side_effect=[
+                error, subprocess.CompletedProcess([], 1, stderr='cleanup unavailable'),
+            ]):
+                with self.assertRaises(type(error)):
+                    main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary])
+                result = json.loads((Path(temporary) / 'runtime.json').read_text())
+                self.assertFalse(result['successful'])
+                self.assertFalse(result['cleanup']['successful'])
+
+    def test_cleanup_failure_marks_successful_validation_failed(self):
+        image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
+                                platform_image_id='sha256:' + 'b' * 64, manifest={})
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.check_runtime.prepare_environment_image', return_value=image,
+        ), patch('scripts.check_runtime.subprocess.run', side_effect=[
+            subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 1, stderr='cleanup unavailable'),
+        ]):
+            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary]), 1)
+            result = json.loads((Path(temporary) / 'runtime.json').read_text())
+            self.assertFalse(result['successful'])
+            self.assertFalse(result['cleanup']['successful'])
+
     def test_onnx_environment_guard_rejects_installed_torch_or_transformers(self):
         for forbidden in ('torch', 'transformers'):
             with self.subTest(package=forbidden), patch('importlib.util.find_spec',

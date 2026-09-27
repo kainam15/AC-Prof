@@ -74,6 +74,7 @@ def main(argv=None):
               "test_patterns": [] if args.build_only else list(patterns)}
     container_name = "acprof-runtime-check-" + uuid.uuid4().hex[:12]
     container_started = False
+    code = 1
     try:
         result["environment_id"] = environment_id(profile.environment, ROOT)
         image = prepare_environment_image(profile.environment, ROOT)
@@ -84,46 +85,46 @@ def main(argv=None):
         result["environment_manifest"] = image.manifest
         if args.build_only:
             result["successful"] = True
-            return 0
-        command = [
-            "docker", "run", "--rm", "--name", container_name, "--network", "none", "--cpus", "2", "--memory", "4g",
-            "--user", f"{os.getuid()}:{os.getgid()}",
-            "-v", f"{ROOT}:/workspace:ro", "-v", f"{output}:/evidence", "-w", "/workspace",
-        ]
-        for env in ("HOME=/tmp", "USER=acprof", "LOGNAME=acprof", "HF_HOME=/tmp/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
-                    "OMP_NUM_THREADS=1", "MKL_NUM_THREADS=1", "PYTHONDONTWRITEBYTECODE=1"):
-            command += ["-e", env]
-        container_started = True
-        subprocess.run([*command, image_id, "python", "-m", "pip", "check"], check=True, timeout=args.timeout_seconds)
-        if runtime_type == "onnxruntime":
-            subprocess.run([*command, image_id, "python", "-c", ONNX_ENVIRONMENT_CHECK],
-                           check=True, timeout=args.timeout_seconds)
-        run_command = [*command, image_id, "python", "scripts/run_tests.py",
-                       "--require-no-skips", "--report", "/evidence/tests.json"]
-        for pattern in result["test_patterns"]:
-            run_command += ["--pattern", pattern]
-        code = subprocess.run(run_command, cwd=ROOT, timeout=args.timeout_seconds).returncode
-        if code == 0 and args.basic_e2e:
-            from scripts.check_onnx_basic import run_basic_e2e
-            from examples.onnxruntime.fixtures import BASIC_SCENARIOS
-            result["basic_task_e2e"] = {}
-            for scenario in BASIC_SCENARIOS:
-                directory = "basic" if scenario == "tabular" else "basic-" + scenario
-                result["basic_task_e2e"][scenario] = run_basic_e2e(
-                    image_id, output / directory, timeout_seconds=args.timeout_seconds, scenario=scenario)
-            result["basic_e2e"] = result["basic_task_e2e"]["tabular"]
-            code = 0 if all(item["successful"] for item in result["basic_task_e2e"].values()) else 1
-        result["successful"] = code == 0
-        return code
+            code = 0
+        else:
+            command = [
+                "docker", "run", "--rm", "--name", container_name, "--network", "none", "--cpus", "2", "--memory", "4g",
+                "--user", f"{os.getuid()}:{os.getgid()}",
+                "-v", f"{ROOT}:/workspace:ro", "-v", f"{output}:/evidence", "-w", "/workspace",
+            ]
+            for env in ("HOME=/tmp", "USER=acprof", "LOGNAME=acprof", "HF_HOME=/tmp/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
+                        "OMP_NUM_THREADS=1", "MKL_NUM_THREADS=1", "PYTHONDONTWRITEBYTECODE=1"):
+                command += ["-e", env]
+            container_started = True
+            subprocess.run([*command, image_id, "python", "-m", "pip", "check"], check=True, timeout=args.timeout_seconds)
+            if runtime_type == "onnxruntime":
+                subprocess.run([*command, image_id, "python", "-c", ONNX_ENVIRONMENT_CHECK],
+                               check=True, timeout=args.timeout_seconds)
+            run_command = [*command, image_id, "python", "scripts/run_tests.py",
+                           "--require-no-skips", "--report", "/evidence/tests.json"]
+            for pattern in result["test_patterns"]:
+                run_command += ["--pattern", pattern]
+            code = subprocess.run(run_command, cwd=ROOT, timeout=args.timeout_seconds).returncode
+            if code == 0 and args.basic_e2e:
+                from scripts.check_onnx_basic import run_basic_e2e
+                from examples.onnxruntime.fixtures import BASIC_SCENARIOS
+                result["basic_task_e2e"] = {}
+                for scenario in BASIC_SCENARIOS:
+                    directory = "basic" if scenario == "tabular" else "basic-" + scenario
+                    result["basic_task_e2e"][scenario] = run_basic_e2e(
+                        image_id, output / directory, timeout_seconds=args.timeout_seconds, scenario=scenario)
+                result["basic_e2e"] = result["basic_task_e2e"]["tabular"]
+                code = 0 if all(item["successful"] for item in result["basic_task_e2e"].values()) else 1
+            result["successful"] = code == 0
     except subprocess.CalledProcessError as error:
         result["error"] = str(error)
-        return error.returncode or 1
+        code = error.returncode or 1
     except subprocess.TimeoutExpired as error:
         result["error"] = f"validation timeout: {error}"
-        return 1
+        code = 1
     except (RuntimeError, ValueError, OSError) as error:
         result["error"] = str(error)
-        return 1
+        code = 1
     finally:
         cleanup_error = ""
         if container_started:
@@ -140,8 +141,7 @@ def main(argv=None):
                 result["successful"] = False
         result["duration_s"] = time.perf_counter() - started
         atomic_write_json(output / "runtime.json", result)
-        if cleanup_error:
-            return 1
+    return code or (1 if cleanup_error else 0)
 
 
 if __name__ == "__main__":

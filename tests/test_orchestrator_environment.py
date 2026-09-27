@@ -248,7 +248,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.docker_runtime._run",
             side_effect=lambda cmd, **_kwargs: (
                 commands.append(cmd)
-                or SimpleNamespace(returncode=0, stdout="b" * 64, stderr="")
+                or SimpleNamespace(returncode=0, stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "", stderr="")
             ),
         ), patch("requests.get", return_value=ready_response):
             docker_runtime._start_container_session(
@@ -307,6 +307,8 @@ class DetectEnvironmentTests(unittest.TestCase):
         def fake_run(cmd, **_kwargs):
             commands.append(cmd)
             stdout = "[server] Loading model\n" if cmd[:2] == ["docker", "logs"] else "b" * 64
+            if cmd[:2] == ["docker", "ps"]:
+                stdout = ""
             return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
         container_state = {

@@ -1,5 +1,8 @@
 from contextlib import redirect_stdout
 import io
+import hashlib
+import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -40,6 +43,51 @@ class ContainerOwnershipTests(unittest.TestCase):
         self.assertNotEqual(first.name, second.name)
         removed = [args for args in self.commands if args[:2] in (["docker", "rm"], ["docker", "stop"])]
         self.assertEqual([args[-1] for args in removed], [self.identifier, self.identifier])
+
+    def test_launched_container_records_process_ownership_for_crash_recovery(self):
+        response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})
+        with patch.object(docker, '_run', side_effect=self.command), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
+            self.start()
+        command = next(args for args in self.commands if args[:2] == ['docker', 'run'])
+        labels = dict(command[i + 1].split('=', 1) for i, arg in enumerate(command) if arg == '--label')
+        self.assertEqual(labels.get('org.acprof.container.lifecycle'), '1')
+        for key in ('host', 'uid', 'boot', 'pid', 'start'):
+            self.assertTrue(labels.get('org.acprof.owner.' + key))
+
+    def test_only_proven_abandoned_local_containers_are_reclaimed_before_launch(self):
+        stat = Path(f'/proc/{os.getpid()}/stat').read_text().rsplit(')', 1)[1].split()
+        labels = {'org.acprof.container.lifecycle': '1',
+                  'org.acprof.owner.host': hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest(),
+                  'org.acprof.owner.uid': str(os.getuid()),
+                  'org.acprof.owner.boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                  'org.acprof.owner.pid': str(os.getpid()),
+                  'org.acprof.owner.start': stat[19]}
+        snapshots = {}
+        for index, overrides in enumerate((
+            {'org.acprof.owner.start': str(int(stat[19]) - 1)},  # reused PID
+            {},  # live owner
+            {'org.acprof.owner.host': 'another-host'},
+            {'org.acprof.owner.uid': str(os.getuid() + 1)},
+            {'org.acprof.owner.start': ''},  # incomplete identity
+        )):
+            identifier = str(index + 1) * 64
+            snapshots[identifier] = {'Id': identifier, 'Config': {'Labels': {**labels, **overrides}}}
+
+        def execute(args, **kwargs):
+            self.commands.append(args)
+            if args[:2] == ['docker', 'ps']:
+                return SimpleNamespace(returncode=0, stdout='\n'.join(snapshots), stderr='')
+            if args[:2] == ['docker', 'inspect']:
+                return SimpleNamespace(returncode=0, stdout=json.dumps([snapshots[args[-1]]]), stderr='')
+            return SimpleNamespace(returncode=0, stdout=self.identifier if args[:2] == ['docker', 'run'] else '', stderr='')
+
+        response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})
+        with patch.object(docker, '_run', side_effect=execute), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
+            self.start()
+        removed = [args[-1] for args in self.commands if args[:2] == ['docker', 'rm']]
+        self.assertEqual(removed, ['1' * 64])
+        self.assertLess(next(i for i, c in enumerate(self.commands) if c[:2] == ['docker', 'rm']),
+                        next(i for i, c in enumerate(self.commands) if c[:2] == ['docker', 'run']))
 
     def test_startup_failure_removes_only_the_created_id(self):
         state = {"Running": False, "Restarting": False, "OOMKilled": True, "ExitCode": 137}

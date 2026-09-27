@@ -156,12 +156,12 @@ prepare_basic_scenario(os.environ['ACPROF_BASIC_SCENARIO'], Path('/evidence'))
                 if ready.get("status") != "ok":
                     raise ValueError(f"service is not ready: {ready}")
                 break
-            except requests.RequestException:
+            except requests.RequestException as error:
                 if time.monotonic() >= ready_deadline:
-                    raise TimeoutError("ONNX service did not become ready within 40 seconds")
+                    raise TimeoutError("ONNX service did not become ready within 40 seconds") from error
                 state = run(["docker", "inspect", "--format", "{{.State.Running}}", name]).stdout.strip()
                 if state != "true":
-                    raise RuntimeError("ONNX service exited before readiness")
+                    raise RuntimeError("ONNX service exited before readiness") from error
                 time.sleep(0.1)
         atomic_write_json(output / "ready.json", ready)
         response = session.post(base_url + "/predict", json=payload, timeout=10)

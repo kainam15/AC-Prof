@@ -12,6 +12,7 @@ from rich.cells import cell_len
 from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Input, Static, TabbedContent, TabPane, Tree
 
 from acprof.tui.app import AcprofTui, PendingLaunch
+from acprof.tui.image_actions import ImageActions
 from acprof.tui.commands import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
@@ -995,7 +996,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await self.load_images(app, pilot)
             await pilot.click("#image-toggle")
             await pilot.pause()
-            with patch("acprof.tui.app.list_images", side_effect=ImageManagementError("无法执行 Docker", "permission denied")):
+            with patch("acprof.tui.image_actions.list_images", side_effect=ImageManagementError("无法执行 Docker", "permission denied")):
                 app.refresh_images()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
@@ -1026,7 +1027,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 loop.call_soon_threadsafe(refreshed.set)
                 return inventory
 
-            with patch("acprof.tui.app.list_images", side_effect=read):
+            with patch("acprof.tui.image_actions.list_images", side_effect=read):
                 app._image_refresh_timer.reset()
                 await asyncio.wait_for(refreshed.wait(), timeout=3)
                 await app.workers.wait_for_complete()
@@ -1069,7 +1070,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#image-toggle")
             app.action_show_settings()
             await pilot.pause()
-            with patch("acprof.tui.app.list_images") as read:
+            with patch("acprof.tui.image_actions.list_images") as read:
                 app.refresh_images()
                 await pilot.pause()
                 read.assert_not_called()
@@ -1080,7 +1081,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await pilot.click("#image-delete")
             await pilot.pause()
-            with patch("acprof.tui.app.list_images") as read:
+            with patch("acprof.tui.image_actions.list_images") as read:
                 app.refresh_images()
                 await pilot.pause()
                 read.assert_not_called()
@@ -1108,7 +1109,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             offset = table.scroll_offset
             # 清单在读取期间变化时，搜索/勾选等交互仍可使用。
             self.docker.images[RUNTIME]["Size"] += 1
-            with patch.object(app, "_execute_image_refresh") as read:
+            with patch.object(ImageActions, "_execute_image_refresh") as read:
                 app.refresh_images()
                 app.refresh_images()
                 await pilot.pause()
@@ -1196,7 +1197,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 loop.call_soon_threadsafe(refreshed.set)
                 return inventory
 
-            with patch("acprof.tui.app.list_images", side_effect=read):
+            with patch("acprof.tui.image_actions.list_images", side_effect=read):
                 app._process_finished("run", 1, None, "test failure")
                 await asyncio.wait_for(refreshed.wait(), timeout=3)
                 await app.workers.wait_for_complete()
@@ -1223,7 +1224,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             app._process_kind = ""
             app._latest_snapshot = ProgressSnapshot()
             app._set_busy(False)
-            with patch.object(app, "_execute_image_refresh") as read, patch.object(app, "_execute_command") as execute:
+            with patch.object(ImageActions, "_execute_image_refresh") as read, patch.object(app, "_execute_command") as execute:
                 app.refresh_images()
                 self.assertTrue(app._is_busy())
                 app._launch(PendingLaunch(("must-not-start",), "run"))

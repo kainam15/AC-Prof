@@ -9,5 +9,6 @@ build
 .codex
 internal-testing
 results*
+result-past
 **/__pycache__
 **/*.pyc

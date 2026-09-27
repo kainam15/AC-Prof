@@ -25,6 +25,7 @@ from acprof.config import (
     READY_TIMEOUT_S,
 )
 from acprof.host.detect import TaskInfo
+from acprof.host.container_lifecycle import container_owner_labels, recover_abandoned_containers
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.runtime_settings import runtime_docker_env_args
@@ -419,9 +420,14 @@ def _start_container_session(
         gpu_flag = gpu_docker_args(gpu_device)
         use_gpu = 1
 
+    owner = container_owner_labels()
+    recover_abandoned_containers(owner, _run)
+    labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
+
     docker_cmd = [
         "docker", "run", "-d",
         "--name", container_name,
+        *labels,
         f"--cpus={cpu}",
         f"--memory={mem}g",
         *gpu_flag,

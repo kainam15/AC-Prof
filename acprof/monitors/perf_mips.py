@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, List, Mapping, Optional
 
+from acprof.monitors import common
 
 MIPS_EXIT_CODE = 8
 PERF_EVENT = "instructions"
@@ -27,7 +28,6 @@ PERF_EVENTS = (PERF_EVENT, *PERF_OPTIONAL_EVENTS)
 PERF_TIMEOUT_MS = 86_400_000
 PERF_PROBE_TIMEOUT_S = 5.0
 PERF_STOP_TIMEOUT_S = 5.0
-_RESOLVED_COMMAND_PREFIX: Optional[List[str]] = None
 
 
 class MIPSProfilingError(RuntimeError):
@@ -324,13 +324,6 @@ def resolve_perf_command_prefix(
     raise MIPSProfilingError(f"perf: {detail}; see docs/Getting_Started.md#最小权限安装")
 
 
-def get_perf_command_prefix() -> List[str]:
-    global _RESOLVED_COMMAND_PREFIX
-    if _RESOLVED_COMMAND_PREFIX is None:
-        _RESOLVED_COMMAND_PREFIX = resolve_perf_command_prefix()
-    return list(_RESOLVED_COMMAND_PREFIX)
-
-
 def resolve_perf_command_prefix_for_pid(pid: int) -> List[str]:
     perf_path = shutil.which("perf")
     if not perf_path:
@@ -375,29 +368,6 @@ def require_mips_prerequisites() -> None:
         raise SystemExit(1) from None
 
 
-def _docker_container_pid(container_name: str) -> int:
-    result = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.Pid}}", container_name],
-        capture_output=True,
-        text=True,
-        check=False,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise MIPSProfilingError(
-            result.stderr.strip() or f"docker inspect failed for {container_name}"
-        )
-
-    try:
-        pid = int(result.stdout.strip())
-    except ValueError as exc:
-        raise MIPSProfilingError(f"invalid container pid: {result.stdout.strip()!r}") from exc
-    if pid <= 0:
-        raise MIPSProfilingError(f"container is not running: {container_name}")
-    return pid
-
-
 def _per_request(total: float, repeat: int) -> float:
     return (
         float(total) / float(repeat)
@@ -436,7 +406,7 @@ class PerfMIPSMonitor:
         if not self.container_name:
             raise MIPSProfilingError("CONTAINER_NAME is required for MIPS profiling")
 
-        pid = _docker_container_pid(self.container_name)
+        pid = common.docker_container_pid(self.container_name, error_type=MIPSProfilingError)
         prefix = list(self.command_prefix or resolve_perf_command_prefix_for_pid(pid))
         if len(prefix) != 1 or os.path.basename(prefix[0]) != "perf":
             raise MIPSProfilingError("Only a direct perf executable is supported; configure cap_perfmon first")
