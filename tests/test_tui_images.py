@@ -226,6 +226,28 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.query_one("#image-delete", Button).disabled)
             self.assertTrue(self.docker.commands)
 
+    async def test_storage_button_opens_modal_without_changing_image_selection(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot)
+            await pilot.click("#image-toggle")
+            selected = set(app._selected_image_ids)
+            buttons = app.query("#image-storage")
+            self.assertTrue(buttons, "镜像管理右上角应提供存储空间入口")
+            button = buttons.first(Button)
+            self.assertEqual(str(button.label), "存储空间")
+            self.assertGreater(button.region.x, 40)
+            self.assertLess(button.region.y, app.query_one("#image-panel").region.y)
+            self.assertTrue(await pilot.click("#image-storage"))
+            await pilot.pause()
+            self.assertEqual(app.screen.query_one("#storage-dialog").border_title, "存储空间")
+            self.assertTrue(await pilot.click("#storage-close"))
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertEqual(len(app.screen_stack), 1)
+            self.assertEqual(app._selected_image_ids, selected)
+            self.assertFalse(self.docker.removals)
+
     async def test_detail_summary_separates_packages_and_diagnostics_with_interactive_folds(self):
         dependency_images(self.docker, profile="nlp-cu128")
         app = self.make_app()

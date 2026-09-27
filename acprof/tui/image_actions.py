@@ -8,7 +8,10 @@ from textual import on, work
 from textual.message_pump import MessagePump
 from textual.widgets import Button, ContentSwitcher, DataTable, Select, Static, TabbedContent, Tree
 
-from acprof.host.image_management import ImageInventory, ImageLayer, ImageRemoval, ManagedImage, delete_images, list_images
+from acprof.host.image_graph import reclaimable_image_bytes
+from acprof.host.image_management import (
+    DockerStorage, ImageInventory, ImageLayer, ImageRemoval, ManagedImage, delete_images, list_images, read_storage,
+)
 from acprof.tui.i18n import join_messages, message
 from acprof.tui.images import (
     IMAGE_KINDS, ImageDeleteScreen, ImageDetailPanel, ImageTree, deletion_message,
@@ -17,6 +20,7 @@ from acprof.tui.images import (
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import CALCULATING, UNKNOWN
+from acprof.tui.storage import StorageSpaceScreen
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -34,6 +38,8 @@ class ImageActions(MessagePump):
     _visible_images: tuple[ManagedImage, ...]
     _visible_image_layers: tuple[ImageLayer, ...]
     _image_refresh_error: str
+    _storage_screen: StorageSpaceScreen | None
+    _storage_loading: bool
 
     def action_show_images(self: AcprofTui) -> None:
         self._activate_tab("images-tab")
@@ -74,6 +80,7 @@ class ImageActions(MessagePump):
     def _update_image_controls(self: AcprofTui) -> None:
         busy = self._images_unavailable(allow_refresh=True)
         current = self._current_image()
+        self.query_one("#image-storage", Button).disabled = self._images_unavailable()
         self.query_one("#image-toggle", Button).disabled = busy or current is None or bool(current.containers)
         self.query_one("#image-model", Button).disabled = busy or current is None or not current.model_key or not current.acprof
         self.query_one("#image-clear", Button).disabled = busy or not self._selected_image_ids
@@ -311,6 +318,69 @@ class ImageActions(MessagePump):
             self._render_images(preserve_scroll=previous is not None)
         else:
             self._image_selection_status()
+        self._set_busy(self._is_busy())
+
+    @on(Button.Pressed, "#image-storage")
+    def open_storage(self: AcprofTui) -> None:
+        if self._images_unavailable() or len(self.screen_stack) != 1:
+            return
+        self._begin_image_operation("storage", "正在读取存储空间……")
+        self._storage_screen = StorageSpaceScreen(self.refresh_storage, len(self._selected_image_ids))
+        self.push_screen(self._storage_screen, self._storage_closed)
+
+    def refresh_storage(self: AcprofTui) -> None:
+        screen = self._storage_screen
+        if (screen is None or self._storage_loading or self._image_operation != "storage"
+                or self._latest_snapshot.measurement_active or self._check_running):
+            return
+        self._storage_loading = True
+        screen.show_loading()
+        self._execute_storage_refresh(self._image_inventory, tuple(sorted(self._selected_image_ids)))
+
+    @work(thread=True, group="storage", exclusive=True, exit_on_error=False)
+    def _execute_storage_refresh(self: AcprofTui, inventory: ImageInventory | None, ids: tuple[str, ...]) -> None:
+        storage, estimate, error = None, None, ""
+        try:
+            storage = read_storage(inventory.connection if inventory else None,
+                                   daemon_id=inventory.daemon_id if inventory else "")
+            if ids and inventory:
+                # 手动刷新时重新核验层和引用；弹窗期间不会覆盖页面勾选或滚动位置。
+                current = list_images(storage.connection)
+                previous = {item.image_id: item for item in inventory.images}
+                available = {item.image_id for item in current.images if not item.containers
+                             and item.image_id in previous and item.tags == previous[item.image_id].tags}
+                if current.daemon_id == storage.daemon_id and set(ids) <= available:
+                    estimate = reclaimable_image_bytes(current, ids)
+                else:
+                    error = message("所选镜像或引用已改变，请关闭弹窗并重新选择。")
+            else:
+                estimate = 0
+        except Exception as exc:
+            error = image_error(exc)
+        try:
+            self.call_from_thread(self._show_storage, storage, estimate, error)
+        except RuntimeError:
+            pass  # App may have exited while the bounded Docker query was finishing.
+
+    def _show_storage(self: AcprofTui, storage: DockerStorage | None, estimate: int | None, error: str) -> None:
+        if not self.is_running or not self._form_ready:
+            return
+        self._storage_loading = False
+        if self._storage_screen is not None and self._storage_screen.is_mounted:
+            self._storage_screen.show_storage(storage, estimate, error)
+        else:
+            self._storage_closed()
+
+    def _storage_closed(self: AcprofTui, _result: None = None) -> None:
+        self._storage_screen = None
+        if not self.is_running or not self._form_ready:
+            return
+        if self._storage_loading:
+            # 关闭弹窗不会终止正在执行的 subprocess；结束前继续阻止正式采集。
+            self._set_text(self.query_one("#image-status", Static), "存储统计仍在读取，请稍候……")
+            return
+        self._image_operation = ""
+        self._image_selection_status()
         self._set_busy(self._is_busy())
 
     @on(Button.Pressed, "#image-delete")

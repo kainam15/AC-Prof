@@ -100,6 +100,43 @@ class ImageRemoval:
     detail: str
 
 
+@dataclass(frozen=True)
+class DiskSpace:
+    total: int
+    used: int
+    available: int
+
+
+@dataclass(frozen=True)
+class StorageUsage:
+    kind: str
+    size_bytes: int | None = None
+    reclaimable_bytes: int | None = None
+
+
+STORAGE_KINDS = ("Images", "Containers", "Local Volumes", "Build Cache")
+
+
+@dataclass(frozen=True)
+class DockerStorage:
+    connection: DockerConnection
+    daemon_id: str
+    root_dir: str
+    disk: DiskSpace | None
+    usage: tuple[StorageUsage, ...]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def total_bytes(self) -> int | None:
+        values = [item.size_bytes for item in self.usage if item.size_bytes is not None]
+        return sum(values) if len(values) == len(STORAGE_KINDS) else None
+
+    @property
+    def reclaimable_bytes(self) -> int | None:
+        values = [item.reclaimable_bytes for item in self.usage if item.reclaimable_bytes is not None]
+        return sum(values) if len(values) == len(STORAGE_KINDS) else None
+
+
 def _run(arguments: tuple[str, ...] | list[str], *, timeout: int = 30) -> str:
     # 不使用输出命令的 host._run，避免破坏 TUI；Docker CLI 沿用其凭据和连接配置。
     try:
@@ -243,6 +280,62 @@ def _size_bytes(value: object) -> int | None:
     if not match:
         return None
     return round(float(match[1]) * {"B": 1, "kB": 1000, "MB": 10**6, "GB": 10**9, "TB": 10**12}[match[2]])
+
+
+def read_storage(connection: DockerConnection | None = None, *, daemon_id: str = "") -> DockerStorage:
+    """按需读取 Docker 汇总及数据目录所在文件系统；不扫描目录或执行清理。"""
+    connection = connection or _connection()
+    template = ('{"ID":{{json .ID}},"DockerRootDir":{{json .DockerRootDir}},'
+                '"Name":{{json .Name}},"OperatingSystem":{{json .OperatingSystem}}}')
+    try:
+        info = json.loads(_run((*connection.arguments, "info", "--format", template)))
+        if not isinstance(info, dict) or not info.get("ID") or not isinstance(info.get("DockerRootDir"), str):
+            raise ValueError("invalid Docker info")
+    except (ValueError, TypeError) as exc:
+        raise ImageManagementError("Docker 返回了无效的存储信息") from exc
+    if daemon_id and info["ID"] != daemon_id:
+        raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
+    root_dir = info["DockerRootDir"]
+    disk = None
+    warnings = []
+    try:
+        if connection.arguments[:1] == ("--host",):
+            endpoint = connection.arguments[1]
+        else:
+            endpoint = _run((*connection.arguments, "context", "inspect", connection.name,
+                             "--format", "{{.Endpoints.docker.Host}}"))
+        local = (endpoint.startswith("unix://") and info.get("Name") == os.uname().nodename
+                 and "docker desktop" not in str(info.get("OperatingSystem", "")).lower())
+        if local and os.path.isabs(root_dir):
+            stat = os.statvfs(root_dir)
+            disk = DiskSpace(stat.f_blocks * stat.f_frsize, (stat.f_blocks - stat.f_bfree) * stat.f_frsize,
+                             stat.f_bavail * stat.f_frsize)
+            if stat.f_bfree > stat.f_bavail:
+                warnings.append("可用空间不含文件系统预留块。")
+        else:
+            warnings.append("远程或虚拟机 Docker 的磁盘空间无法在本机核验。")
+    except (OSError, ImageManagementError):
+        warnings.append("无法读取 Docker 数据目录所在磁盘的空间。")
+
+    usage = tuple(StorageUsage(kind) for kind in STORAGE_KINDS)
+    try:
+        # Docker CLI 的汇总已经处理镜像共享层；不能累加每个镜像的虚拟大小。
+        output = _run((*connection.arguments, "system", "df", "--format", "{{json .}}"), timeout=60)
+        rows = [json.loads(line) for line in output.splitlines() if line.strip()]
+        if any(not isinstance(row, dict) for row in rows):
+            raise ValueError("invalid disk usage")
+        categories = []
+        for kind in STORAGE_KINDS:
+            matches = [row for row in rows if row.get("Type") == kind]
+            row = matches[0] if len(matches) == 1 else {}
+            categories.append(StorageUsage(kind, _size_bytes(row.get("Size")),
+                                           _size_bytes(str(row.get("Reclaimable", "")).partition(" (")[0])))
+        usage = tuple(categories)
+        if any(item.size_bytes is None or item.reclaimable_bytes is None for item in usage):
+            warnings.append("部分 Docker 空间统计不可用，缺失值显示未知。")
+    except (ImageManagementError, ValueError, TypeError):
+        warnings.append("Docker 空间统计读取失败，请刷新重试。")
+    return DockerStorage(connection, info["ID"], root_dir, disk, usage, tuple(warnings))
 
 
 def _read_space(inventory: ImageInventory) -> ImageInventory:

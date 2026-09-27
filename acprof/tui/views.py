@@ -583,9 +583,11 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
     )
 
     with TabPane("镜像管理", id="images-tab"):
-        with Vertical(id="image-header", classes="page-header"):
-            yield app._localized_widget(Static("镜像管理", classes="page-title"))
-            yield app._localized_widget(Static(IMAGE_HINT, id="image-status", classes="page-summary", markup=False))
+        with Horizontal(id="image-header", classes="page-header"):
+            with Vertical(id="image-heading"):
+                yield app._localized_widget(Static("镜像管理", classes="page-title"))
+                yield app._localized_widget(Static(IMAGE_HINT, id="image-status", classes="page-summary", markup=False))
+            yield app._localized_widget(Button("存储空间", id="image-storage", classes="image-control"))
         with Vertical(id="image-panel"):
             with Horizontal(id="image-filters"):
                 yield app._localized_select(

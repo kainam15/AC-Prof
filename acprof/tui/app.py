@@ -206,6 +206,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._image_operation = ""
         self._image_refresh_timer = None
         self._image_refresh_error = ""
+        self._storage_screen = None
+        self._storage_loading = False
         self._selected_image_ids: set[str] = set()
         self._visible_images: tuple[ManagedImage, ...] = ()
         self._visible_image_layers: tuple[ImageLayer, ...] = ()
