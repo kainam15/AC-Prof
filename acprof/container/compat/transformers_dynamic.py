@@ -1,30 +1,20 @@
-"""Prepare local Pipeline dependencies before Transformers imports custom code.
+"""Recursive-cache shim for runtimes lacking reviewed native loader capabilities.
 
 Transformers 4.57.6 copies only direct relative imports for local snapshots.
 Reuse its resolver and cache layout while preparing the recursive closure, as
 newer upstream loaders do (Transformers dynamic_module_utils, Apache-2.0).
+Retirement criteria: docs/Runtime_Compatibility.md, dynamic-module lifecycle.
 """
 from __future__ import annotations
 
 import filecmp
 import importlib
-import json
 from pathlib import Path
 import shutil
 
-from acprof.model_spec import custom_code_files
 
-
-def load_local_pipeline_class(model_source: str, pipeline_name: str) -> type:
-    """Import a declared local Pipeline without loading weights or changing its snapshot."""
-    root = Path(model_source).absolute()
-    if not root.is_dir():
-        raise ValueError("custom pipeline requires a baked local model snapshot")
-    config = json.loads((root / "config.json").read_text())
-    entry = config["custom_pipelines"][pipeline_name]
-    module_file, = custom_code_files({"custom_pipelines": {pipeline_name: entry}})
-    class_name = entry["impl"].rsplit(".", 1)[1]
-
+def load_pipeline_class_compat(root: Path, module_file: str, class_name: str) -> type:
+    """Prepare missing transitive cache files, then let Transformers import the class."""
     from transformers.dynamic_module_utils import (
         HF_MODULES_CACHE, get_cached_module_file, get_class_in_module, get_relative_import_files,
     )

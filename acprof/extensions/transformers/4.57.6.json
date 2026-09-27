@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
   "version": "4.57.6",
+  "capabilities": {
+    "local_dynamic_transitive_imports": false,
+    "local_dynamic_symlink_safe": false
+  },
   "source": "https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/auto/modeling_auto.py",
   "source_sha256": "6e4fa67c88e02a8b84d46d7b1719e760f197073b7b233bcf30eeb596f5a5f07a",
   "mappings": {

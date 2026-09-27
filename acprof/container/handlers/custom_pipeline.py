@@ -9,7 +9,7 @@ import inspect
 from collections.abc import Mapping
 from pathlib import Path
 
-from acprof.container.dynamic_modules import load_local_pipeline_class
+from acprof.container.local_pipeline import load_local_pipeline_class
 from acprof.model_spec import pipeline_task
 from acprof.model_transforms import transform_inputs
 

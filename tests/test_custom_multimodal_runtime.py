@@ -204,7 +204,7 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             "        raise AssertionError('basic probe must not postprocess')\n")
 
     @staticmethod
-    def probe(root: Path, cache: Path):
+    def probe(root: Path, cache: Path, *, native: bool = False):
         from acprof.model_spec import encode_model_spec
 
         spec = pipeline_spec()
@@ -213,9 +213,18 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
                        "MODEL_LOCAL_PATH": str(root), "MODEL_ID": "fixture/import-only",
                        "TASK_TYPE": "audio-text-to-text", "HF_MODULES_CACHE": str(cache),
                        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
-        return subprocess.run([sys.executable, "-c",
-            "import json; from acprof.container.model_probe import validate_basic; "
-            "print(json.dumps(validate_basic({})))"],
+        script = "import json; from acprof.container.model_probe import validate_basic; "
+        if native:
+            # Acceptance of a candidate happens before publishing capability=true.
+            # Only the declaration is replaced; the installed upstream loader runs
+            # unmodified, and importing the AC-Prof copy shim is forbidden.
+            script += (
+                "import sys; from unittest.mock import patch; "
+                "patch.dict(sys.modules, {'acprof.container.compat.transformers_dynamic': None}).start(); "
+                "patch('acprof.container.local_pipeline.transformers_capabilities', return_value={"
+                "'local_dynamic_transitive_imports': True, 'local_dynamic_symlink_safe': True}).start(); "
+            )
+        return subprocess.run([sys.executable, "-c", script + "print(json.dumps(validate_basic({})))"],
             env=environment, capture_output=True, text=True, timeout=60)
 
     def test_basic_probe_loads_transitive_imports_from_empty_cache(self):

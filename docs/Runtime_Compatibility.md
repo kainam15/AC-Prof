@@ -181,7 +181,10 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 不轮流尝试加载模型类。原生架构的候选资格不再由音频模型名称名单决定。
 
 更新版本时，用 [`export_transformers_support.py`](../scripts/export_transformers_support.py) 对固定 tag 的
-`src/transformers/models/auto/modeling_auto.py` 执行受限 AST 解析，记录源码 URL/SHA256：
+`src/transformers/models/auto/modeling_auto.py` 执行受限 AST 解析，记录源码 URL/SHA256。
+新导出的 dynamic-module capabilities 初始为 `null`（unknown），不能从 Auto 注册表推断。
+仅重新导出相同 schema、version、source URL 和 SHA256 时保留已有 capability 评审；来源变化后重新验收。
+`source_sha256` 仍只表示 Auto 注册表来源，不是 dynamic loader 的验证证明。
 
 ```bash
 .venv/bin/python scripts/export_transformers_support.py \
@@ -304,13 +307,10 @@ load → preprocess → predict → postprocess → 输出验证。两者默认 
 生成动态模块缓存使用 `/tmp/hf-modules`。同一用户的采集锁防止独立 Probe 与正式实验同时运行。
 
 basic Probe 与自定义多模态 Pipeline 加载共用
-[`load_local_pipeline_class`](../acprof/container/dynamic_modules.py)：先从固定 snapshot 读取入口及其递归相对依赖，
-再复用 Transformers 的缓存路径和类导入接口。这样可以补足 4.57.6 本地加载器仅复制直接依赖的行为，
-避免 `Pipeline → Model/Processor → Config` 在干净缓存中缺少间接依赖。处理保留 snapshot 的文件名和
-指向 Hub blobs 的符号链接语义，仅向动态模块缓存复制所需代码，不修改模型目录、不下载文件或读取权重。
-源文件缺失会在导入前报告原始 snapshot 路径；实际导入异常继续向上传递。准备工作位于加载阶段，
-不进入正式推理测量窗口。实现参考 [Transformers 后续版本的递归缓存处理](https://github.com/huggingface/transformers/blob/main/src/transformers/dynamic_module_utils.py)
-（Apache-2.0），保留现有依赖锁且不增加运行依赖。
+[`load_local_pipeline_class`](../acprof/container/local_pipeline.py)：按实际安装的 Transformers 精确版本读取
+capability 表，选择原生 loader 或隔离的 recursive-cache shim；规则与退出条件见
+[dynamic-module 兼容生命周期](#transformers-dynamic-module-兼容生命周期)。两条路径都使用固定 snapshot
+和 `local_files_only=True`，不下载文件或读取权重，准备工作位于加载阶段，不进入正式推理测量窗口。
 
 Probe 写入 `contract_probe_input.json`、`runtime_validation.json` 和设备日志，并更新
 `model_resolution.contract.runtime_validation` 的 mode、image ID、build fingerprint、payload hash 与设备证据。
@@ -352,6 +352,62 @@ TUI 的 Probe 交给现有子进程管理器，支持停止；复查时若主模
 依赖规划另参考 [Hugging Face snapshot 下载器](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/_snapshot_download.py)
 （Apache-2.0）的固定 revision 与文件过滤；TUI 使用 [Textual Workers](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)
 （MIT）的后台任务边界。均复用现有依赖，不复制上游 loader；DSL 是有界 JSON 解释，不引入模板执行引擎。
+
+### Transformers dynamic-module 兼容生命周期
+
+[`extensions/transformers`](../acprof/extensions/transformers) 的每个精确版本维护两个 capability：
+
+| 字段 | 原生 loader 必须满足的能力 |
+| --- | --- |
+| `local_dynamic_transitive_imports` | 空缓存、离线时递归准备 `A → B → C` 的本地相对依赖 |
+| `local_dynamic_symlink_safe` | snapshot 文件指向 Hub blobs 时，仍按 snapshot 名称发现和加载相对依赖 |
+
+4.57.6 和 5.6.0 的两项声明目前均为 `false`，继续使用
+[`compat/transformers_dynamic.py`](../acprof/container/compat/transformers_dynamic.py)。该 shim 保留已有行为：
+复用 Transformers 的依赖发现、缓存路径和类导入，只补齐递归缓存文件，不修改 snapshot 或 blobs；
+缺失源文件在执行入口前报告原 snapshot 路径，实际导入异常继续上传。
+`false` 表示当前不能依靠完整的原生加载路径通过该项验收，不表示每个 symlink 场景均会失败。
+
+只有两项都明确为 JSON 布尔值 `true`，公共入口才直接调用 Transformers
+`get_class_from_dynamic_module()`；该分支不导入 shim，也不执行 AC-Prof 的依赖遍历或手工复制。
+任一已评审能力为 `false` 时走 compat。未登记版本、目录版本不一致、字段缺失、`null` 或非布尔值
+均 fail-closed，在导入自定义模型代码前报错；不使用 `version >= x`、最近版本或异常后回退来猜测。
+版本别名及带本地构建后缀的版本也须独立登记。旧 `acprof.container.dynamic_modules` 入口已移除，
+调用者统一使用 `acprof.container.local_pipeline`。
+
+新增 runtime 的固定验收顺序为：**固定 tag/commit 上游源码确认 → transitive import test →
+snapshot→blobs symlink test → offline + clean-cache test → 代表性模型 basic/full Probe → 标记 capability=true**。
+同时保留 circular import 终止、missing dependency 原路径诊断与 import exception 传播检查。
+验收须保存精确包版本、源码 commit/SHA256、运行环境及测试/Probe 产物；不能仅凭新版号或某个 PR 已合并改表。
+
+[`test_local_pipeline.py`](../tests/test_local_pipeline.py) 验证两条路由和未知声明；
+[`test_local_pipeline_native_runtime.py`](../tests/test_local_pipeline_native_runtime.py) 复用已有五项依赖回归，
+执行实际安装的上游 loader，同时禁止导入 shim。已登记 native runtime 自动执行该组；评审候选版本时，
+在隔离的候选容器中设置仅供测试使用的 `ACPROF_TEST_NATIVE_TRANSFORMERS=<精确版本>`，并运行：
+
+```bash
+ACPROF_TEST_NATIVE_TRANSFORMERS=<精确版本> python scripts/run_tests.py \
+  --pattern test_local_pipeline_native_runtime.py --require-no-skips \
+  --report /evidence/native-dynamic-modules.json
+```
+
+测试只在子进程中临时替换 capability 声明，不替换上游 loader；实际安装版本不符会失败。
+正式 loader 不读取这个测试开关。候选依赖需提前准备，执行回归时容器断网、snapshot 只读，
+`HF_MODULES_CACHE` 指向新的可写临时目录。该组通过只证明动态加载契约，仍需在目标环境执行
+Ultravox 等代表性 checkpoint 的 basic/full Probe；不据此宣称 GPU、profiler 或完整模型推理已通过。
+代表性 Probe 使用隔离候选 checkout／镜像中的临时能力声明，所有验收通过后才更新正式支持表。
+
+shim 只有同时满足以下条件才能删除：
+
+- 所有正式支持的 Transformers runtime 都原生支持 transitive relative imports。
+- snapshot→blobs symlink、clean-cache + offline、circular 和 missing dependency 回归全部通过。
+- 不再支持任何仍需 workaround 的旧 runtime。
+- Ultravox 等代表性模型的 basic/full Probe 与相关实际推理验证通过。
+
+参考上游 [递归复制 PR #46022](https://github.com/huggingface/transformers/pull/46022)、
+[symlink 修复讨论 PR #46611](https://github.com/huggingface/transformers/pull/46611) 和
+[Transformers 5.13.0 loader 源码](https://github.com/huggingface/transformers/blob/v5.13.0/src/transformers/dynamic_module_utils.py)
+（Apache-2.0）。复用已维护的原生接口，不复制整套 loader，也不新增生产依赖；正式支持版本和锁不会因候选回归而升级。
 
 ### 本地模型声明与自定义 pipeline
 

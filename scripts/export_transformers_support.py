@@ -40,6 +40,7 @@ def export_support(source: bytes, version: str) -> dict:
     if not mappings.get("MODEL_MAPPING_NAMES") or not mappings.get("MODEL_FOR_CAUSAL_LM_MAPPING_NAMES"):
         raise ValueError("upstream Auto registry layout is unsupported; no partial catalog is published")
     return {"schema_version": 1, "version": version,
+            "capabilities": {"local_dynamic_transitive_imports": None, "local_dynamic_symlink_safe": None},
             "source": f"https://github.com/huggingface/transformers/blob/v{version}/src/transformers/models/auto/modeling_auto.py",
             "source_sha256": hashlib.sha256(source).hexdigest(), "mappings": mappings}
 
@@ -51,6 +52,12 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     data = export_support(args.source.read_bytes(), args.version)
+    if args.output.is_file():
+        previous = json.loads(args.output.read_text(encoding="utf-8"))
+        # Auto-registry extraction cannot review dynamic loader behavior. Preserve
+        # a manual review only when re-exporting the exact same source and version.
+        if all(previous.get(key) == data[key] for key in ("schema_version", "version", "source", "source_sha256")):
+            data["capabilities"] = previous.get("capabilities", data["capabilities"])
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 

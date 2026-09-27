@@ -33,15 +33,35 @@ _TASK_MAPPINGS = {
 }
 
 
-@lru_cache(maxsize=None)
-def transformers_support(version: str) -> dict:
+def _transformers_support_catalog(version: str) -> dict:
     path = Path(__file__).parent / "extensions" / "transformers" / f"{version}.json"
     if not path.is_file():
-        raise ValueError(f"No static Auto registry for locked transformers=={version}")
+        raise ValueError(f"No reviewed support catalog for transformers=={version}; register and validate this runtime first")
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 1 or data.get("version") != version:
         raise ValueError(f"Invalid Transformers support catalog: {path}")
-    return data["mappings"]
+    return data
+
+
+@lru_cache(maxsize=None)
+def transformers_support(version: str) -> dict:
+    return _transformers_support_catalog(version)["mappings"]
+
+
+def transformers_capabilities(version: str) -> dict[str, bool]:
+    """Read explicitly reviewed local-loader capabilities; missing/unknown is an error."""
+    capabilities = _transformers_support_catalog(version).get("capabilities")
+    required = ("local_dynamic_transitive_imports", "local_dynamic_symlink_safe")
+    reviewed = {}
+    for name in required:
+        value = capabilities.get(name) if isinstance(capabilities, dict) else None
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"Unreviewed Transformers capability {name} for transformers=={version}; "
+                "complete the dynamic-module runtime acceptance before loading custom code"
+            )
+        reviewed[name] = value
+    return reviewed
 
 
 def audio_text_loader(version: str, config: dict) -> tuple[str, str | None] | None:
