@@ -9,6 +9,7 @@ import inspect
 from collections.abc import Mapping
 from pathlib import Path
 
+from acprof.container.dynamic_modules import load_local_pipeline_class
 from acprof.model_spec import pipeline_task
 from acprof.model_transforms import transform_inputs
 
@@ -19,8 +20,10 @@ def load_custom_pipeline(model_source, task_type, device, dtype, spec, attention
     if not Path(model_source).is_dir():
         raise ValueError("custom multimodal pipeline requires a baked local snapshot")
     name = pipeline_task(model_source, task_type)
+    pipeline_class = load_local_pipeline_class(model_source, name)
     pipe = transformers.pipeline(
         task=name, model=model_source, trust_remote_code=True,
+        pipeline_class=pipeline_class,
         device_map="cpu" if device == "cpu" else "auto", torch_dtype=dtype,
         model_kwargs={"local_files_only": True, **attention_options.get("model_kwargs", {})},
     )

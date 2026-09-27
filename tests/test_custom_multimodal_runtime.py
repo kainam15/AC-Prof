@@ -3,6 +3,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -68,7 +70,7 @@ class AudioPipeline(Pipeline):
                      "requires the custom multimodal container")
 class CustomMultimodalRuntimeTests(unittest.TestCase):
     @staticmethod
-    def snapshot(root):
+    def snapshot(root: Path):
         import torch
         from transformers import BertConfig, BertForSequenceClassification, BertTokenizerFast
 
@@ -88,6 +90,30 @@ class CustomMultimodalRuntimeTests(unittest.TestCase):
         (root / "config.json").write_text(json.dumps(data))
         (root / "custom_model.py").write_text(CUSTOM_MODEL)
         (root / "custom_pipeline.py").write_text(CUSTOM_PIPELINE)
+
+    def test_full_pipeline_loads_transitive_imports_before_inference(self):
+        from acprof.container.runtime_validate import validate
+        from acprof.model_spec import encode_model_spec
+
+        with tempfile.TemporaryDirectory(prefix="acprof_nested_pipeline_") as directory:
+            root = Path(directory)
+            self.snapshot(root)
+            (root / "pipeline_base.py").write_text(CUSTOM_PIPELINE)
+            (root / "pipeline_bridge.py").write_text("from .pipeline_base import AudioPipeline\n")
+            (root / "custom_pipeline.py").write_text("from .pipeline_bridge import AudioPipeline\n")
+            spec = pipeline_spec()
+            spec.pop("dependencies")
+            environment = {"ACPROF_MODEL_SPEC_B64": encode_model_spec(spec), "MODEL_LOCAL_PATH": directory,
+                           "MODEL_ID": "fixture/nested", "MODEL_REVISION": "a" * 40,
+                           "TASK_TYPE": "audio-text-to-text", "TASK_FAMILY": "multimodal",
+                           "RUNTIME_BACKEND": "transformers_pipeline", "USE_GPU": "0", "TORCH_NUM_THREADS": "1",
+                           "ACPROF_MODEL_ADAPTER": "family-default", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+            with patch.dict(os.environ, environment):
+                result = validate({"samples": [{"text": "What is said?", "audio_base64": audio_payload(),
+                                               "sampling_rate": 16000}], "params": {"max_new_tokens": 1}})
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["validation"]["task"]["status"], "verified")
+            self.assertIn("limit 1", result["response"]["texts"][0])
 
     def test_modalities_match_official_pipeline_and_runtime_validation(self):
         import torch
@@ -155,6 +181,109 @@ class CustomMultimodalRuntimeTests(unittest.TestCase):
                     self.assertEqual(report["status"], "ok")
                     self.assertEqual(report["validation"]["task"]["status"], "verified")
                     self.assertTrue(all(stage["status"] == "verified" for stage in report["stages"]))
+
+
+@unittest.skipUnless(importlib.util.find_spec("transformers"), "requires the custom multimodal container")
+class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
+    @staticmethod
+    def snapshot(root: Path):
+        root.mkdir()
+        (root / "config.json").write_text(json.dumps({"custom_pipelines": {"listen-and-answer": {
+            "impl": "entry.FixturePipeline", "pt": ["AutoModel"], "type": "multimodal"}}}))
+        (root / "entry.py").write_text("from .bridge import FixturePipeline\n")
+        (root / "bridge.py").write_text("from .leaf import FixturePipeline\n")
+        (root / "leaf.py").write_text(
+            "class FixturePipeline:\n"
+            "    def __init__(self, *args, **kwargs):\n"
+            "        raise AssertionError('basic probe must not instantiate a pipeline')\n"
+            "    def preprocess(self, inputs):\n"
+            "        raise AssertionError('basic probe must not preprocess')\n"
+            "    def _forward(self, inputs, limit, temperature):\n"
+            "        raise AssertionError('basic probe must not infer')\n"
+            "    def postprocess(self, outputs):\n"
+            "        raise AssertionError('basic probe must not postprocess')\n")
+
+    @staticmethod
+    def probe(root: Path, cache: Path):
+        from acprof.model_spec import encode_model_spec
+
+        spec = pipeline_spec()
+        spec.pop("dependencies")
+        environment = {**os.environ, "ACPROF_MODEL_SPEC_B64": encode_model_spec(spec),
+                       "MODEL_LOCAL_PATH": str(root), "MODEL_ID": "fixture/import-only",
+                       "TASK_TYPE": "audio-text-to-text", "HF_MODULES_CACHE": str(cache),
+                       "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+        return subprocess.run([sys.executable, "-c",
+            "import json; from acprof.container.model_probe import validate_basic; "
+            "print(json.dumps(validate_basic({})))"],
+            env=environment, capture_output=True, text=True, timeout=60)
+
+    def test_basic_probe_loads_transitive_imports_from_empty_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, cache = Path(directory) / "model-snapshot", Path(directory) / "cache"
+            self.snapshot(root)
+            result = self.probe(root, cache)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["inference"], "not_run")
+            self.assertEqual(report["preprocess"], "not_run")
+            self.assertEqual({item["stage"] for item in report["stages"]}, {"import", "signature"})
+            self.assertEqual(list(root.glob("__pycache__")), [])
+
+    def test_missing_transitive_import_fails_at_snapshot_before_entry_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, cache = Path(directory) / "model-snapshot", Path(directory) / "cache"
+            self.snapshot(root)
+            (root / "leaf.py").unlink()
+            marker = Path(directory) / "executed"
+            (root / "entry.py").write_text(
+                f"from pathlib import Path\nPath({str(marker)!r}).touch()\nfrom .bridge import FixturePipeline\n")
+            result = self.probe(root, cache)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FileNotFoundError", result.stderr)
+            self.assertIn(str(root / "leaf.py"), result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_snapshot_symlinks_keep_relative_names_and_original_contents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root, cache = base / "pinned-snapshot", base / "cache"
+            self.snapshot(root)
+            blobs = base / "blobs"
+            blobs.mkdir()
+            originals = {}
+            for index, source in enumerate(sorted(root.glob("*.py"))):
+                blob = blobs / str(index)
+                source.rename(blob)
+                originals[blob] = blob.read_bytes()
+                source.symlink_to(blob)
+            alias = base / "model-snapshot"
+            alias.symlink_to(root, target_is_directory=True)
+            result = self.probe(alias, cache)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+            self.assertTrue(all(path.is_symlink() for path in root.glob("*.py")))
+
+    def test_circular_relative_imports_terminate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, cache = Path(directory) / "model-snapshot", Path(directory) / "cache"
+            self.snapshot(root)
+            (root / "bridge.py").write_text("READY = True\nfrom .leaf import FixturePipeline\n")
+            leaf = root / "leaf.py"
+            leaf.write_text("from .bridge import READY\nassert READY\n" + leaf.read_text())
+            result = self.probe(root, cache)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_import_exception_is_not_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, cache = Path(directory) / "model-snapshot", Path(directory) / "cache"
+            self.snapshot(root)
+            leaf = root / "leaf.py"
+            leaf.write_text("raise RuntimeError('fixture dependency import failed')\n" + leaf.read_text())
+            result = self.probe(root, cache)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("RuntimeError: fixture dependency import failed", result.stderr)
 
 
 if __name__ == "__main__":

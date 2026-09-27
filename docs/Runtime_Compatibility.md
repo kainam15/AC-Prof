@@ -292,6 +292,15 @@ load → preprocess → predict → postprocess → 输出验证。两者默认 
 移除 capabilities 和禁止提升权限；不挂载主机项目、凭据或 Docker socket，只挂载只读请求。
 生成动态模块缓存使用 `/tmp/hf-modules`。同一用户的采集锁防止独立 Probe 与正式实验同时运行。
 
+basic Probe 与自定义多模态 Pipeline 加载共用
+[`load_local_pipeline_class`](../acprof/container/dynamic_modules.py)：先从固定 snapshot 读取入口及其递归相对依赖，
+再复用 Transformers 的缓存路径和类导入接口。这样可以补足 4.57.6 本地加载器仅复制直接依赖的行为，
+避免 `Pipeline → Model/Processor → Config` 在干净缓存中缺少间接依赖。处理保留 snapshot 的文件名和
+指向 Hub blobs 的符号链接语义，仅向动态模块缓存复制所需代码，不修改模型目录、不下载文件或读取权重。
+源文件缺失会在导入前报告原始 snapshot 路径；实际导入异常继续向上传递。准备工作位于加载阶段，
+不进入正式推理测量窗口。实现参考 [Transformers 后续版本的递归缓存处理](https://github.com/huggingface/transformers/blob/main/src/transformers/dynamic_module_utils.py)
+（Apache-2.0），保留现有依赖锁且不增加运行依赖。
+
 Probe 写入 `contract_probe_input.json`、`runtime_validation.json` 和设备日志，并更新
 `model_resolution.contract.runtime_validation` 的 mode、image ID、build fingerprint、payload hash 与设备证据。
 basic 成功为 `basic_verified`，full 成功为 `verified`；失败／OOM 保留错误或资源限制，不产生正式 CSV。
