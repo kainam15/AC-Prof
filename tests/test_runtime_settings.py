@@ -104,7 +104,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
             with self.subTest(timeout=timeout, override=override), patch.dict(os.environ, environment, clear=True), patch(
                 'acprof.host.docker_runtime._run', side_effect=lambda command, **kwargs:
-                commands.append(command) or SimpleNamespace(returncode=0, stdout='', stderr=''),
+                commands.append(command) or SimpleNamespace(returncode=0, stdout='b' * 64, stderr=''),
             ), patch('requests.get', return_value=SimpleNamespace(status_code=200, json=lambda: {'status': 'ok'})):
                 _start_container_session(task, 1, 1, 'off', ImageInfo(tag='fixture'), 'test-deadline', '[test]',
                                          request_timeout_seconds=timeout)

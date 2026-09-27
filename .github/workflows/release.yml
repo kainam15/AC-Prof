@@ -3,13 +3,17 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'pyproject.toml', 'hatch_build.py', 'packaging/**', 'scripts/check_distribution.py', '.github/workflows/release.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'pyproject.toml', 'hatch_build.py', 'packaging/**', 'scripts/check_distribution.py', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  verify:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 25
@@ -48,20 +52,59 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: build
+    needs: [build, verify]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-dist
           path: dist/
+      - name: 关联当前提交的验证范围与硬件验收
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/hardware.yml/runs" \
+            -f head_sha="$GITHUB_SHA" -f status=success -f per_page=1 > hardware-runs.json
+          HARDWARE_RUN_ID=$(python3 -c 'import json; runs=json.load(open("hardware-runs.json"))["workflow_runs"]; print(runs[0]["id"] if runs else "")')
+          if [ -n "$HARDWARE_RUN_ID" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${HARDWARE_RUN_ID}/artifacts" > hardware-artifacts.json
+          else
+            echo '{"artifacts": []}' > hardware-artifacts.json
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          sha = os.environ['GITHUB_SHA']
+          runs = json.loads(Path('hardware-runs.json').read_text())['workflow_runs']
+          artifacts = json.loads(Path('hardware-artifacts.json').read_text())['artifacts']
+          run = next((run for run in runs if run['head_sha'] == sha and run['conclusion'] == 'success'), None)
+          artifact = next((item for item in artifacts if item['name'] == 'hardware' and not item['expired']), None)
+          hardware = {'status': 'not_verified', 'reason': 'No successful same-commit hardware run with retained evidence.'}
+          if run and artifact:
+              hardware = {'status': 'workflow_passed', 'commit': sha, 'run_url': run['html_url'],
+                          'artifact_url': run['html_url'] + '/artifacts/' + str(artifact['id']),
+                          'scope': 'Only the devices, model and profilers recorded by this hardware artifact.'}
+          evidence = {'schema_version': 1, 'commit': sha,
+                      'ci': {'status': 'passed', 'required_jobs': ['lint', 'host', 'onnx-cpu', 'runtime', 'build'],
+                             'run_url': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY']
+                                        + '/actions/runs/' + os.environ['GITHUB_RUN_ID']},
+                      'hardware': hardware}
+          Path('dist/verification.json').write_text(json.dumps(evidence, indent=2) + '\n')
+          note = 'Hardware evidence: ' + hardware.get('artifact_url', 'not verified for this commit.')
+          Path('verification-notes.md').write_text('Validation scope is recorded in verification.json.\n\n' + note + '\n')
+          PY
+          cd dist
+          sha256sum verification.json >> SHA256SUMS
       - name: 核对 tag 版本并发布 Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python3 -c 'import os; from acprof import __version__; assert os.environ["RELEASE_TAG"] == "v" + __version__, "tag and package version differ"'
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --notes-file verification-notes.md

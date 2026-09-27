@@ -10,6 +10,9 @@ import shutil
 import subprocess
 import sys
 import time
+import tempfile
+import uuid
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -48,14 +51,17 @@ class RunningContainer:
     cold_start_model_load_s: float = float("nan")
     cold_start_ready_wait_s: float = float("nan")
     gpu_device: Dict[str, Any] = field(default_factory=dict)
+    container_id: str = ""
 
 
 class ContainerStartupError(RuntimeError):
     """Typed evidence captured before removing a container that never reached /ready."""
 
-    def __init__(self, message: str, *, state=None, timed_out=False):
+    def __init__(self, message: str, *, state=None, timed_out=False, container_name="", container_id=""):
         super().__init__(message)
         self.state = state
+        self.container_name = container_name
+        self.container_id = container_id
         confirmed = (isinstance(state, dict) and state.get("OOMKilled") is True
                      and state.get("Running") is False and state.get("Restarting") is not True)
         # A timeout boundary is ambiguous even if a later inspect observes OOM.
@@ -364,6 +370,25 @@ def require_image_identity(image: str, runtime_environment: Dict[str, Any]) -> N
         raise RuntimeError("补采镜像的运行环境与原实验不一致")
 
 
+def _launch_container(command: List[str]) -> str:
+    """Track ownership even if Docker creates a container but fails to start it."""
+    with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
+        cidfile = Path(directory) / "container.cid"
+        try:
+            result = _run([*command[:3], "--cidfile", str(cidfile), *command[3:]], check=False)
+            if result.returncode != 0:
+                raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
+            identifier = result.stdout.strip()
+            if not re.fullmatch(r"[0-9a-f]{64}", identifier):
+                raise RuntimeError("docker run did not return an immutable container ID")
+            return identifier
+        except BaseException:
+            identifier = cidfile.read_text().strip() if cidfile.is_file() else ""
+            if re.fullmatch(r"[0-9a-f]{64}", identifier):
+                _run(["docker", "rm", "-f", identifier], check=False)
+            raise
+
+
 def _start_container_session(
     task_info: TaskInfo,
     cpu: int,
@@ -384,7 +409,7 @@ def _start_container_session(
     completion_timeout = "none" if request_timeout_seconds is None else f"{request_timeout_seconds:g}"
     host_port = _host_port(cpu, mem)
 
-    _run(["docker", "rm", "-f", container_name], check=False)
+    container_name = f"{container_name}-{uuid.uuid4().hex[:12]}"
 
     gpu_flag = []
     gpu_device = {}
@@ -415,96 +440,103 @@ def _start_container_session(
 
     t0_wall = time.time()
     t0 = time.perf_counter()
-    result = _run(docker_cmd, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
+    container_id = _launch_container(docker_cmd)
 
     base_url = f"http://127.0.0.1:{host_port}"
     deadline = time.perf_counter() + READY_TIMEOUT_S
 
     def fail_startup(reason: str, *, timed_out: bool = False) -> None:
-        state = _inspect_container_state(container_name)
-        logs = _run(["docker", "logs", container_name, "--tail", "200"], check=False)
+        state = _inspect_container_state(container_id)
+        logs = _run(["docker", "logs", container_id, "--tail", "200"], check=False)
         diagnostic = ((logs.stdout or "") + "\n" + (logs.stderr or "")).strip()
         if diagnostic:
             print(diagnostic[-8000:], file=sys.stderr)
-        _run(["docker", "rm", "-f", container_name], check=False)
         raise ContainerStartupError(
             reason + ("; container_log_tail=" + diagnostic[-4000:] if diagnostic else ""),
-            state=state, timed_out=timed_out)
+            state=state, timed_out=timed_out, container_name=container_name, container_id=container_id)
 
-    while time.perf_counter() < deadline:
-        try:
-            response = requests.get(
-                f"{base_url}/ready",
-                timeout=2,
-                headers={"Connection": "close"},
-            )
-            if response.status_code == 200:
-                ready_received_at = time.time()
-                try:
-                    body = response.json()
-                except Exception:
-                    body = None
+    try:
+        while time.perf_counter() < deadline:
+            try:
+                response = requests.get(
+                    f"{base_url}/ready",
+                    timeout=2,
+                    headers={"Connection": "close"},
+                )
+                if response.status_code == 200:
+                    ready_received_at = time.time()
+                    try:
+                        body = response.json()
+                    except Exception:
+                        body = None
 
-                if isinstance(body, dict) and body.get("status") == "ok":
-                    cold_start_s = time.perf_counter() - t0
-                    breakdown = _cold_start_breakdown(
-                        body,
-                        t0_wall,
-                        ready_received_at,
-                    )
-                    print(
-                        f"{log_prefix} Model: {body.get('model_id')}, "
-                        f"device: {body.get('device')}, load: {body.get('load_time_s')}s"
-                    )
-                    print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
-                    return RunningContainer(
-                        name=container_name,
-                        base_url=base_url,
-                        host_port=host_port,
-                        cold_start_s=cold_start_s,
-                        gpu_device=gpu_device,
-                        **breakdown,
-                    )
+                    if isinstance(body, dict) and body.get("status") == "ok":
+                        cold_start_s = time.perf_counter() - t0
+                        breakdown = _cold_start_breakdown(
+                            body,
+                            t0_wall,
+                            ready_received_at,
+                        )
+                        print(
+                            f"{log_prefix} Model: {body.get('model_id')}, "
+                            f"device: {body.get('device')}, load: {body.get('load_time_s')}s"
+                        )
+                        print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
+                        return RunningContainer(
+                            name=container_name,
+                            container_id=container_id,
+                            base_url=base_url,
+                            host_port=host_port,
+                            cold_start_s=cold_start_s,
+                            gpu_device=gpu_device,
+                            **breakdown,
+                        )
 
-                if response.text.strip() == "ok":
-                    cold_start_s = time.perf_counter() - t0
-                    breakdown = _cold_start_breakdown(
-                        None,
-                        t0_wall,
-                        ready_received_at,
-                    )
-                    print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
-                    return RunningContainer(
-                        name=container_name,
-                        base_url=base_url,
-                        host_port=host_port,
-                        cold_start_s=cold_start_s,
-                        gpu_device=gpu_device,
-                        **breakdown,
-                    )
-        except Exception:
-            pass
+                    if response.text.strip() == "ok":
+                        cold_start_s = time.perf_counter() - t0
+                        breakdown = _cold_start_breakdown(
+                            None,
+                            t0_wall,
+                            ready_received_at,
+                        )
+                        print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
+                        return RunningContainer(
+                            name=container_name,
+                            container_id=container_id,
+                            base_url=base_url,
+                            host_port=host_port,
+                            cold_start_s=cold_start_s,
+                            gpu_device=gpu_device,
+                            **breakdown,
+                        )
+            except Exception:
+                pass
 
+            startup_exit_error = _container_startup_exit_error(container_name, mem)
+            if startup_exit_error:
+                print(f"{log_prefix} Container exited before server became ready: {startup_exit_error}")
+                fail_startup(startup_exit_error)
+            time.sleep(READY_POLL_INTERVAL_S)
+
+        cold_start_s = time.perf_counter() - t0
+        print(f"{log_prefix} Server not ready after {READY_TIMEOUT_S}s. cold_start={cold_start_s:.3f}s")
         startup_exit_error = _container_startup_exit_error(container_name, mem)
-        if startup_exit_error:
-            print(f"{log_prefix} Container exited before server became ready: {startup_exit_error}")
-            fail_startup(startup_exit_error)
-        time.sleep(READY_POLL_INTERVAL_S)
-
-    cold_start_s = time.perf_counter() - t0
-    print(f"{log_prefix} Server not ready after {READY_TIMEOUT_S}s. cold_start={cold_start_s:.3f}s")
-    startup_exit_error = _container_startup_exit_error(container_name, mem)
-    fail_startup(
-        startup_exit_error
-        or f"server not ready after {READY_TIMEOUT_S}s for container {container_name}",
-        timed_out=True,
-    )
+        fail_startup(
+            startup_exit_error
+            or f"server not ready after {READY_TIMEOUT_S}s for container {container_name}",
+            timed_out=True,
+        )
+    except BaseException:
+        _run(["docker", "rm", "-f", container_id], check=False)
+        raise
 
 
-def _stop_container_session(container_name: str, log_prefix: Optional[str] = None) -> None:
+def _stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
+    if not re.fullmatch(r"[0-9a-f]{64}", session.container_id):
+        raise ValueError("refusing to remove a container without its owned immutable ID")
     if log_prefix:
         print(f"{log_prefix} Stopping container...")
-    _run(["docker", "stop", container_name], check=False)
-    _run(["docker", "rm", container_name], check=False)
+    try:
+        _run(["docker", "stop", session.container_id], check=False)
+    finally:
+        _run(["docker", "rm", "-f", session.container_id], check=False)

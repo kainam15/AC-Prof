@@ -479,7 +479,7 @@ def _assert_manual_nlp_scales_legal(
             raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
     finally:
         if session is not None:
-            _stop_container_session(session.name, log_prefix="[probe]")
+            _stop_container_session(session, log_prefix="[probe]")
 
     print(f"[scale] Using manual input scales: {serialize_input_scales(scales)}")
     return scales
@@ -538,7 +538,7 @@ def _plan_manual_nlp_scales(
             raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
     finally:
         if session is not None:
-            _stop_container_session(session.name, log_prefix="[probe]")
+            _stop_container_session(session, log_prefix="[probe]")
 
     plan_file = _scale_plan_file_path(output_dir)
     workload_metadata = workload_gen.plan_metadata()
@@ -689,7 +689,7 @@ def _plan_nlp_auto_scales(
         )
     finally:
         if session is not None:
-            _stop_container_session(session.name, log_prefix="[probe]")
+            _stop_container_session(session, log_prefix="[probe]")
 
 
 def _default_family_max_scale(task_info: TaskInfo, batch_size: int) -> float:
@@ -800,7 +800,7 @@ def _plan_audio_scales(
                 )
     finally:
         if session is not None:
-            _stop_container_session(session.name, log_prefix="[probe]")
+            _stop_container_session(session, log_prefix="[probe]")
 
     print(
         f"[scale] Using {source} audio scales: "
@@ -829,7 +829,7 @@ def _plan_timeseries_scales(
     try:
         constraints = _request_scale_meta(session, generator.generate(1))
     finally:
-        _stop_container_session(session.name, log_prefix="[probe]")
+        _stop_container_session(session, log_prefix="[probe]")
     limit = constraints.get("max_effective_input_scale")
     if (isinstance(limit, bool) or not isinstance(limit, (float, int))
             or not math.isfinite(limit) or limit < 1 or int(limit) != limit):

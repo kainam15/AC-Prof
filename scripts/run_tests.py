@@ -8,8 +8,10 @@ import importlib.metadata
 from pathlib import Path
 import platform
 import sys
+import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -93,7 +95,12 @@ def main(argv=None):
     selected = tests[args.shard_index::args.shard_count]
     suite = unittest.TestSuite(selected)
     started = time.perf_counter()
-    result = unittest.TextTestRunner(verbosity=2, resultclass=EvidenceResult).run(suite)
+    # Offline shards must not acquire the real host measurement lock. The production
+    # lock deliberately ignores TMPDIR; injection remains local to this test process.
+    with tempfile.TemporaryDirectory(prefix="acprof-test-lock-") as lock_directory, patch(
+        "acprof.host.run_state.MEASUREMENT_LOCK_ROOT", Path(lock_directory)
+    ):
+        result = unittest.TextTestRunner(verbosity=2, resultclass=EvidenceResult).run(suite)
     successful = bool(result.testsRun) and result.wasSuccessful() and all(discovery_counts.values())
     if args.require_no_skips and (result.skipped or result.expectedFailures):
         successful = False

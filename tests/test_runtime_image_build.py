@@ -39,6 +39,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
         self.images = {}
         self.manifests = {}
         self.contexts = {}
+        self.service_context_files = set()
         self.failed_dockerfile = None
         for mocked in (
             patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True),
@@ -65,6 +66,11 @@ class RuntimeImageBuildTests(unittest.TestCase):
                       "org.acprof.platform-build-fingerprint": arguments.get("PLATFORM_BUILD_FINGERPRINT", ""),
                       "org.acprof.environment-build-fingerprint": arguments.get("ENVIRONMENT_BUILD_FINGERPRINT", "")}
             self.images[identifier] = {"image_id": identifier, "labels": labels}
+            if recipe == "runtime-final.Dockerfile":
+                context = Path(command[-1])
+                self.service_context_files = {p.relative_to(context).as_posix()
+                                              for p in [*context.iterdir(), *(context / "acprof").rglob("*")]
+                                              if p.is_file()}
             if recipe in {"platform.Dockerfile", "runtime.Dockerfile"}:
                 context = Path(command[-1])
                 expected = json.loads((context / "expectation.json").read_text())
@@ -96,6 +102,14 @@ class RuntimeImageBuildTests(unittest.TestCase):
 
     def build_commands(self):
         return [command for command in self.commands if command[:2] == ["docker", "build"]]
+
+    def test_service_build_context_contains_only_runtime_sources_and_licenses(self):
+        runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        self.assertIn("acprof/container/server.py", self.service_context_files)
+        self.assertIn("acprof/extensions/builtin/manifest.json", self.service_context_files)
+        self.assertIn("LICENSE", self.service_context_files)
+        self.assertFalse(any(name.startswith(("acprof/tui/", "acprof/host/", ".env", "tests/", ".git/"))
+                             for name in self.service_context_files))
 
     def test_endpoint_policy_reaches_build_and_invalidates_only_model_and_service(self):
         runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))

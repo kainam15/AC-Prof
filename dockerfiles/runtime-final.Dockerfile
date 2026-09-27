@@ -18,6 +18,8 @@ LABEL org.acprof.build-fingerprint=${BUILD_FINGERPRINT} \
       org.acprof.request-fingerprint=${REQUEST_FINGERPRINT} \
       org.acprof.runtime-profile=${RUNTIME_PROFILE} org.acprof.model-adapter=${MODEL_ADAPTER} \
       org.acprof.image-kind="model"
+# runtime_images stages exactly source_identity.service_context_files before build.
+# This package contains shared modules, container/, workloads/ and extensions/.
 COPY acprof/ /app/acprof/
 COPY LICENSE NOTICE /usr/share/licenses/acprof/
 COPY licenses/ /usr/share/licenses/acprof/third-party/

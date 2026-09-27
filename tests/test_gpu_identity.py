@@ -57,7 +57,7 @@ class GPUIdentityTests(unittest.TestCase):
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
         with patch.object(docker_runtime, "resolve_gpu_device", return_value=DEVICE, create=True), patch.object(
             docker_runtime, "_run", side_effect=lambda cmd, **kw: (
-                commands.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr="")
+                commands.append(cmd) or SimpleNamespace(returncode=0, stdout="b" * 64, stderr="")
             )
         ), patch("requests.get", return_value=response):
             session = docker_runtime._start_container_session(

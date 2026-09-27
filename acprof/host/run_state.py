@@ -10,16 +10,20 @@ import os
 from pathlib import Path
 import platform
 import shutil
-import tempfile
+import stat
 from uuid import uuid4
 
 from acprof.artifacts import atomic_write_json
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.runtime_settings import runtime_environment
+from acprof.source_identity import measurement_sources, source_fingerprint
 
 
 RUN_STATE_NAME = "run_state.json"
 RESULT_LOCK_NAME = ".acprof-result.lock"
+# Native Linux only. Never derive this machine-wide per-user namespace from TMPDIR.
+# Test runners inject an isolated directory in-process, not via a production env option.
+MEASUREMENT_LOCK_ROOT = Path("/tmp")
 
 
 class RunStateError(RuntimeError):
@@ -39,18 +43,15 @@ def file_sha256(path: str | Path) -> str:
 
 
 def host_identity(project_dir: str | Path) -> dict:
-    digest = hashlib.sha256()
-    root = Path(project_dir) / "acprof"
-    for path in sorted(root.rglob("*.py")):
-        digest.update(str(path.relative_to(root)).encode())
-        digest.update(path.read_bytes())
+    source_hash = source_fingerprint(project_dir, measurement_sources(project_dir),
+                                     scope="measurement-source-v2")
     packages = sorted((dist.metadata.get("Name", ""), dist.version)
                       for dist in importlib.metadata.distributions())
     machine_id = Path("/etc/machine-id")
     return {
         "machine": platform.machine(), "kernel": platform.release(), "hostname": platform.node(),
         "machine_id_sha256": file_sha256(machine_id) if machine_id.is_file() else None,
-        "python": platform.python_version(), "source_sha256": digest.hexdigest(),
+        "python": platform.python_version(), "source_sha256": source_hash,
         "packages_sha256": hashlib.sha256(json.dumps(packages).encode()).hexdigest(),
     }
 
@@ -125,14 +126,26 @@ class ResultDirectoryLock:
 class MeasurementLock(ResultDirectoryLock):
     """同机同用户的实验串行化，防止跨结果目录共享端口及采样资源。"""
     def __init__(self):
-        self.path = Path(tempfile.gettempdir()) / f"acprof-measurement-{os.getuid()}.lock"
+        self.path = MEASUREMENT_LOCK_ROOT / f"acprof-measurement-{os.getuid()}.lock"
         self.stream = None
 
     def __enter__(self):
+        import fcntl
+
         try:
-            return super().__enter__()
-        except RunStateError as error:
-            raise RunStateError("本机已有同一用户的 AC-Prof 采集或补采在运行，请待其结束后重试") from error
+            descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            self.stream = os.fdopen(descriptor, "a+")
+            info = os.fstat(self.stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+                raise OSError("measurement lock is not a regular file owned by this user")
+            fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            self.__exit__()
+            raise RunStateError(
+                "无法取得本机测量锁；同一用户可能已有 AC-Prof 采集或补采运行，"
+                f"或锁文件不可用：{self.path} ({error})"
+            ) from error
+        return self
 
 
 class RunState:

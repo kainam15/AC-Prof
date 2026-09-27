@@ -18,6 +18,12 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from acprof.host.detect import TaskInfo
+    from acprof.host.docker_runtime import ImageInfo
+    from acprof.host.input_plan import PlannedInputScales
 
 from acprof.config import SCALING_DIMENSIONS
 from acprof.installation import cli_command, resource_root
@@ -541,6 +547,291 @@ def _cleanup_intermediate_results(csv_paths: list[str], output_dir: str, final_c
     print(f"[cleanup] Done. removed={removed}, missing={missing}, failed={failed}")
 
 
+@dataclass
+class _PreparedRuntime:
+    task_info: TaskInfo
+    image_info: ImageInfo
+    planned_input_scales: PlannedInputScales
+    compute_profile_plan_file: str
+    execution_profile_plan_file: str
+    capability_report: CapabilityReport
+
+
+def _resource_matrix(args, parser):
+    """Validate resource selection before building the runtime."""
+    cpu_list = _parse_int_list(args.cpus)
+    mem_list = _parse_int_list(args.mems)
+    gpu_list = [mode.lower() for mode in _parse_str_list(args.gpus)]
+    if args.warmup < 0 or args.repeat <= 0:
+        parser.error("--warmup must be >= 0 and --repeat must be > 0")
+    if (not cpu_list or not mem_list or not gpu_list
+            or any(value <= 0 for value in cpu_list + mem_list)
+            or any(mode not in ("off", "on") for mode in gpu_list)):
+        parser.error("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
+    if any(len(values) != len(set(values)) for values in (cpu_list, mem_list, gpu_list)):
+        parser.error("resource lists must not contain duplicate cases")
+    massif_selected = args.execution_profile_tool in {"massif", "both"}
+    nsys_selected = args.execution_profile_tool in {"nsys", "both"}
+    reference_checks = []
+    if massif_selected and args.massif_sampling == "per-scale":
+        reference_checks.extend(
+            [
+                ("--massif-reference-cpu", args.massif_reference_cpu, cpu_list),
+                ("--massif-reference-mem", args.massif_reference_mem, mem_list),
+            ]
+        )
+    if nsys_selected and args.nsys_sampling != "full":
+        reference_checks.append(
+            ("--nsys-reference-mem", args.nsys_reference_mem, mem_list)
+        )
+    if nsys_selected and args.nsys_sampling == "per-scale":
+        reference_checks.append(
+            ("--nsys-reference-cpu", args.nsys_reference_cpu, cpu_list)
+        )
+    for option, value, resources in reference_checks:
+        if value is not None and value not in resources:
+            parser.error(
+                f"{option}={value} must be present in the selected resource "
+                f"matrix {resources}"
+            )
+
+    return cpu_list, mem_list, gpu_list
+
+
+def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_list,
+                     gpu_list, run_command, cgroup_version, cgroup_collection_mode,
+                     rapl_topology, preflight_measurements, latency_slo,
+                     require_full_validation=False) -> _PreparedRuntime:
+    """Build or restore the runtime and persist evidence before the matrix."""
+    from acprof.host.docker_runtime import prepare_image
+    from acprof.host.input_plan import plan_input_scales
+    from acprof.host.static_metadata import (
+        collect_static_meta,
+        enrich_static_meta,
+        enrich_static_meta_from_input_plan,
+        enrich_static_meta_from_compute_plan,
+        enrich_static_meta_from_execution_plan,
+        write_static_meta_json,
+    )
+
+    compute_profile_disabled = args.compute_profile_tool == "none"
+    total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
+    static_meta_json = os.path.join(output_dir, "static_meta.json")
+    collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
+    if run_state.ready:
+        (task_info, image_info, planned_input_scales, compute_profile_plan_file,
+         execution_profile_plan_file) = run_state.restore_runtime()
+        _update_run_notification_plan(model_id=task_info.model_id, output_dir=output_dir,
+                                      total_cases=total_cases)
+        print(f"[resume] 恢复实验 {run_state.data['run_id']}，复用原镜像和输入计划")
+        saved_meta = json.loads(Path(static_meta_json).read_text())
+        capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
+            "profiling_mode": args.profiling_mode,
+        }))
+    else:
+        task_info.model_download_policy = args.model_download_policy
+        try:
+            image_info = prepare_image(
+                task_info, PROJECT_DIR, reuse_existing=args.skip_build,
+            )
+        except (RuntimeError, OSError) as exc:
+            print(f"\n[build][ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        os.makedirs(output_dir, exist_ok=True)
+        if task_info.model_resolution:
+            from acprof.model_contract import write_model_resolution
+            write_model_resolution(task_info, output_dir)
+
+        static_meta_json = os.path.join(output_dir, "static_meta.json")
+        collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
+        scaling_cfg = SCALING_DIMENSIONS.get(task_info.task_family)
+        input_scale_type = scaling_cfg.param_name if scaling_cfg else ""
+
+        static_meta = collect_static_meta(
+            task_info=task_info,
+            image_info=image_info,
+            batch_size=args.batch_size,
+            input_scale_type=input_scale_type,
+            run_command=run_command,
+            cgroup_version=cgroup_version,
+            cgroup_collection_mode=cgroup_collection_mode,
+            compute_profile_enabled=not compute_profile_disabled,
+            execution_profile_enabled=args.execution_profile_tool != "none",
+            profiling_mode=args.profiling_mode,
+            gpu_device=selected_gpu_device(),
+        )
+        capability_report = measurement_report(
+            args.profiling_mode, gpu_modes=gpu_list, compute_tool=args.compute_profile_tool,
+            execution_tool=args.execution_profile_tool,
+            dram_energy=args.dram_energy, rapl_topology=rapl_topology,
+        )
+        capability_report.measurement.update({name: item for name, item in preflight_measurements.items() if isinstance(item, Capability)})
+        from acprof.extensions import select_extension
+        apply_extension(capability_report, select_extension(task_info))
+        static_meta = enrich_static_meta(static_meta, {
+            "capability_report": capability_report.to_dict(), "latency_slo": latency_slo,
+        })
+        write_static_meta_json(static_meta, static_meta_json)
+        write_collection_history_json(
+            empty_collection_history(),
+            collection_history_json,
+        )
+
+        # ── Step 4: Run profiling matrix ──
+        try:
+            planned_input_scales = plan_input_scales(
+                task_info=task_info,
+                image_info=image_info,
+                cpu_list=cpu_list,
+                mem_list=mem_list,
+                gpu_list=gpu_list,
+                batch_size=args.batch_size,
+                output_dir=output_dir,
+                input_scales=args.input_scales,
+                workload_spec_path=args.workload_spec,
+            )
+        except Exception as exc:
+            print(f"\n[scale][ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        static_meta = enrich_static_meta_from_input_plan(
+            static_meta,
+            planned_input_scales,
+        )
+        write_static_meta_json(static_meta, static_meta_json)
+        compute_profile_plan_file = ""
+        from acprof.host.runtime_validation import validate_runtime
+        from acprof.host.static_metadata import enrich_static_meta
+        try:
+            validation = validate_runtime(
+                task_info=task_info, image_info=image_info, planned=planned_input_scales,
+                cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
+                timeout_seconds=args.request_timeout_seconds,
+            )
+            apply_runtime_validation(
+                capability_report, validation,
+                environment_id=image_info.runtime_environment.get("environment_id", ""),
+            )
+            static_meta = enrich_static_meta(static_meta, {"runtime_validation": validation,
+                                                         "model_resolution": task_info.model_resolution})
+            write_static_meta_json(static_meta, static_meta_json)
+            if require_full_validation and validation.get("status") != "ok":
+                raise RuntimeError("automatic collection requires successful full validation on every requested device")
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"[runtime-check][ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+        total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
+        _update_run_notification_plan(
+            model_id=task_info.model_id,
+            output_dir=output_dir,
+            total_cases=total_cases,
+        )
+        if compute_profile_disabled:
+            reason = "--compute-profile-tool none"
+            print(f"[compute] Compute profiling disabled by {reason}")
+        else:
+            try:
+                from acprof.host.compute_profile import collect_compute_profile_plan
+
+                compute_profile_plan_file = collect_compute_profile_plan(
+                    task_info=task_info,
+                    image_tag=image_info.tag,
+                    cpu_list=cpu_list,
+                    mem_list=mem_list,
+                    gpu_list=gpu_list,
+                    output_dir=output_dir,
+                    input_scale_plan_file=planned_input_scales.plan_file,
+                    advisor_root=args.advisor_root,
+                    ncu_root=args.ncu_root,
+                    advisor_repeat=args.advisor_repeat,
+                    torch_profiler_repeat=args.torch_profiler_repeat,
+                    ncu_repeat=args.ncu_repeat,
+                    keep_profiles=args.keep_compute_profiles,
+                    compute_profile_cpus=args.compute_profile_cpus,
+                    compute_profile_mem=args.compute_profile_mem,
+                    compute_profile_tool=args.compute_profile_tool,
+                    progress_callback=(
+                        _notify_profiler_completion
+                        if _ACTIVE_RUN_NOTIFICATION is not None
+                        else None
+                    ),
+                )
+                static_meta = enrich_static_meta_from_compute_plan(
+                    static_meta,
+                    compute_profile_plan_file,
+                )
+                write_static_meta_json(static_meta, static_meta_json)
+            except Exception as exc:
+                print(f"[compute][WARN] Compute profiling unavailable: {exc}")
+
+        execution_profile_plan_file = ""
+        if args.execution_profile_tool == "none":
+            print(
+                "[execution-profile] Massif/Nsight Systems profiling disabled "
+                "(enable with --execution-profile-tool)"
+            )
+        else:
+            try:
+                from acprof.host.execution_profile import (
+                    collect_execution_profile_plan,
+                )
+
+                execution_profile_plan_file = collect_execution_profile_plan(
+                    task_info=task_info,
+                    image_tag=image_info.tag,
+                    cpu_list=cpu_list,
+                    mem_list=mem_list,
+                    gpu_list=gpu_list,
+                    output_dir=output_dir,
+                    input_scale_plan_file=planned_input_scales.plan_file,
+                    project_dir=PROJECT_DIR,
+                    tool_mode=args.execution_profile_tool,
+                    massif_sampling=args.massif_sampling,
+                    massif_reference_cpu=args.massif_reference_cpu,
+                    massif_reference_mem=args.massif_reference_mem,
+                    massif_repeat=args.massif_repeat,
+                    nsys_sampling=args.nsys_sampling,
+                    nsys_reference_cpu=args.nsys_reference_cpu,
+                    nsys_reference_mem=args.nsys_reference_mem,
+                    nsys_repeat=args.nsys_repeat,
+                    nsys_root=args.nsys_root,
+                    keep_profiles=args.keep_execution_profiles,
+                    progress_callback=(
+                        _notify_profiler_completion
+                        if _ACTIVE_RUN_NOTIFICATION is not None
+                        else None
+                    ),
+                )
+                static_meta = enrich_static_meta_from_execution_plan(
+                    static_meta,
+                    execution_profile_plan_file,
+                )
+                write_static_meta_json(static_meta, static_meta_json)
+            except Exception as exc:
+                print(
+                    "[execution-profile][WARN] Execution profiling unavailable: "
+                    f"{exc}"
+                )
+
+        for plan_path, source in ((compute_profile_plan_file, "compute_profile_plan"),
+                                  (execution_profile_plan_file, "execution_profile_plan")):
+            if plan_path and Path(plan_path).is_file():
+                apply_profiler_plan(capability_report, json.loads(Path(plan_path).read_text()), source=source)
+        static_meta = enrich_static_meta(static_meta, {"capability_report": capability_report.to_dict()})
+        write_static_meta_json(static_meta, static_meta_json)
+        from acprof.artifacts import atomic_write_json
+        atomic_write_json(Path(output_dir) / "capability_report.json", capability_report.to_dict())
+        if not capability_report.to_dict()["requested_measurements_available"]:
+            print("[capability][WARN] 所请求的 profiler 尚有缺失或失败；详见 capability_report.json，不视为完整画像。")
+        run_state.bind_runtime(task_info, image_info, planned_input_scales,
+                               compute_profile_plan_file, execution_profile_plan_file)
+
+    return _PreparedRuntime(task_info, image_info, planned_input_scales,
+                            compute_profile_plan_file, execution_profile_plan_file,
+                            capability_report)
+
+
 @gpu_device_scope()
 def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     global _ACTIVE_TMUX_TERMINAL_LOG, _ACTIVE_RUN_STATE
@@ -563,7 +854,6 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     except ValueError as exc:
         parser.error(str(exc))
     run_command = _format_run_command(sys.argv)
-    compute_profile_disabled = args.compute_profile_tool == "none"
     if args.repeat_in_window < 0:
         parser.error("--repeat-in-window must be >= 0")
     if args.repeat_window_seconds <= 0.0:
@@ -686,286 +976,27 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         return
     _ACTIVE_TMUX_TERMINAL_LOG = _start_tmux_terminal_log(output_dir, sys.argv)
 
-    # ── Step 2: Build Docker image ──
-    from acprof.host.docker_runtime import prepare_image
-    from acprof.host.input_plan import plan_input_scales, serialize_input_scales
+    from acprof.host.input_plan import serialize_input_scales
     from acprof.host.orchestrator import merge_all_csvs, run_matrix
-    from acprof.host.static_metadata import (
-        collect_static_meta,
-        enrich_static_meta,
-        enrich_static_meta_from_input_plan,
-        enrich_static_meta_from_compute_plan,
-        enrich_static_meta_from_execution_plan,
-        write_static_meta_json,
+
+    cpu_list, mem_list, gpu_list = _resource_matrix(args, parser)
+    prepared = _prepare_runtime(
+        args, run_state=run_state, task_info=task_info, output_dir=output_dir,
+        cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
+        run_command=run_command, cgroup_version=cgroup_version,
+        cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
+        preflight_measurements=preflight_measurements, latency_slo=latency_slo,
+        require_full_validation=prepared_task is not None,
     )
-
-    # ── Step 3: Collect static metadata ──
-    cpu_list = _parse_int_list(args.cpus)
-    mem_list = _parse_int_list(args.mems)
-    gpu_list = [mode.lower() for mode in _parse_str_list(args.gpus)]
-    if args.warmup < 0 or args.repeat <= 0:
-        parser.error("--warmup must be >= 0 and --repeat must be > 0")
-    if (not cpu_list or not mem_list or not gpu_list
-            or any(value <= 0 for value in cpu_list + mem_list)
-            or any(mode not in ("off", "on") for mode in gpu_list)):
-        parser.error("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
-    if any(len(values) != len(set(values)) for values in (cpu_list, mem_list, gpu_list)):
-        parser.error("resource lists must not contain duplicate cases")
-    if args.prune_startup_oom:
-        if not cpu_list or not mem_list or not gpu_list:
-            parser.error("--prune-startup-oom requires non-empty resource lists")
-        if len(set(cpu_list)) != len(cpu_list):
-            parser.error("--prune-startup-oom requires unique --cpus values")
-        if len(set(mem_list)) != len(mem_list):
-            parser.error("--prune-startup-oom requires unique --mems values")
-        normalized_gpu_modes = [
-            "on" if str(gpu).lower() == "on" else "off"
-            for gpu in gpu_list
-        ]
-        if len(set(normalized_gpu_modes)) != len(normalized_gpu_modes):
-            parser.error("--prune-startup-oom requires unique --gpus modes")
-        if any(cpu <= 0 for cpu in cpu_list):
-            parser.error("--prune-startup-oom requires positive --cpus values")
-        if any(mem <= 0 for mem in mem_list):
-            parser.error("--prune-startup-oom requires positive --mems values")
-    massif_selected = args.execution_profile_tool in {"massif", "both"}
-    nsys_selected = args.execution_profile_tool in {"nsys", "both"}
-    reference_checks = []
-    if massif_selected and args.massif_sampling == "per-scale":
-        reference_checks.extend(
-            [
-                ("--massif-reference-cpu", args.massif_reference_cpu, cpu_list),
-                ("--massif-reference-mem", args.massif_reference_mem, mem_list),
-            ]
-        )
-    if nsys_selected and args.nsys_sampling != "full":
-        reference_checks.append(
-            ("--nsys-reference-mem", args.nsys_reference_mem, mem_list)
-        )
-    if nsys_selected and args.nsys_sampling == "per-scale":
-        reference_checks.append(
-            ("--nsys-reference-cpu", args.nsys_reference_cpu, cpu_list)
-        )
-    for option, value, resources in reference_checks:
-        if value is not None and value not in resources:
-            parser.error(
-                f"{option}={value} must be present in the selected resource "
-                f"matrix {resources}"
-            )
-
-    total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
+    task_info, image_info = prepared.task_info, prepared.image_info
+    planned_input_scales = prepared.planned_input_scales
+    compute_profile_plan_file = prepared.compute_profile_plan_file
+    execution_profile_plan_file = prepared.execution_profile_plan_file
+    capability_report = prepared.capability_report
+    input_scales_arg = serialize_input_scales(planned_input_scales.scales)
     static_meta_json = os.path.join(output_dir, "static_meta.json")
     collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
-    if run_state.ready:
-        (task_info, image_info, planned_input_scales, compute_profile_plan_file,
-         execution_profile_plan_file) = run_state.restore_runtime()
-        input_scales_arg = serialize_input_scales(planned_input_scales.scales)
-        _update_run_notification_plan(model_id=task_info.model_id, output_dir=output_dir,
-                                      total_cases=total_cases)
-        print(f"[resume] 恢复实验 {run_state.data['run_id']}，复用原镜像和输入计划")
-        saved_meta = json.loads(Path(static_meta_json).read_text())
-        capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
-            "profiling_mode": args.profiling_mode,
-        }))
-    else:
-        task_info.model_download_policy = args.model_download_policy
-        try:
-            image_info = prepare_image(
-                task_info, PROJECT_DIR, reuse_existing=args.skip_build,
-            )
-        except (RuntimeError, OSError) as exc:
-            print(f"\n[build][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-
-        os.makedirs(output_dir, exist_ok=True)
-        if task_info.model_resolution:
-            from acprof.model_contract import write_model_resolution
-            write_model_resolution(task_info, output_dir)
-
-        static_meta_json = os.path.join(output_dir, "static_meta.json")
-        collection_history_json = os.path.join(output_dir, COLLECTION_HISTORY_NAME)
-        scaling_cfg = SCALING_DIMENSIONS.get(task_info.task_family)
-        input_scale_type = scaling_cfg.param_name if scaling_cfg else ""
-
-        static_meta = collect_static_meta(
-            task_info=task_info,
-            image_info=image_info,
-            batch_size=args.batch_size,
-            input_scale_type=input_scale_type,
-            run_command=run_command,
-            cgroup_version=cgroup_version,
-            cgroup_collection_mode=cgroup_collection_mode,
-            compute_profile_enabled=not compute_profile_disabled,
-            execution_profile_enabled=args.execution_profile_tool != "none",
-            profiling_mode=args.profiling_mode,
-            gpu_device=selected_gpu_device(),
-        )
-        capability_report = measurement_report(
-            args.profiling_mode, gpu_modes=gpu_list, compute_tool=args.compute_profile_tool,
-            execution_tool=args.execution_profile_tool,
-            dram_energy=args.dram_energy, rapl_topology=rapl_topology,
-        )
-        capability_report.measurement.update({name: item for name, item in preflight_measurements.items() if isinstance(item, Capability)})
-        from acprof.extensions import select_extension
-        apply_extension(capability_report, select_extension(task_info))
-        static_meta = enrich_static_meta(static_meta, {
-            "capability_report": capability_report.to_dict(), "latency_slo": latency_slo,
-        })
-        write_static_meta_json(static_meta, static_meta_json)
-        write_collection_history_json(
-            empty_collection_history(),
-            collection_history_json,
-        )
-
-        # ── Step 4: Run profiling matrix ──
-        try:
-            planned_input_scales = plan_input_scales(
-                task_info=task_info,
-                image_info=image_info,
-                cpu_list=cpu_list,
-                mem_list=mem_list,
-                gpu_list=gpu_list,
-                batch_size=args.batch_size,
-                output_dir=output_dir,
-                input_scales=args.input_scales,
-                workload_spec_path=args.workload_spec,
-            )
-        except Exception as exc:
-            print(f"\n[scale][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-
-        input_scales_arg = serialize_input_scales(planned_input_scales.scales)
-        static_meta = enrich_static_meta_from_input_plan(
-            static_meta,
-            planned_input_scales,
-        )
-        write_static_meta_json(static_meta, static_meta_json)
-        compute_profile_plan_file = ""
-        from acprof.host.runtime_validation import validate_runtime
-        from acprof.host.static_metadata import enrich_static_meta
-        try:
-            validation = validate_runtime(
-                task_info=task_info, image_info=image_info, planned=planned_input_scales,
-                cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
-                timeout_seconds=args.request_timeout_seconds,
-            )
-            apply_runtime_validation(
-                capability_report, validation,
-                environment_id=image_info.runtime_environment.get("environment_id", ""),
-            )
-            static_meta = enrich_static_meta(static_meta, {"runtime_validation": validation,
-                                                         "model_resolution": task_info.model_resolution})
-            write_static_meta_json(static_meta, static_meta_json)
-            if prepared_task is not None and validation.get("status") != "ok":
-                raise RuntimeError("automatic collection requires successful full validation on every requested device")
-        except (RuntimeError, OSError, ValueError) as exc:
-            print(f"[runtime-check][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-        total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
-        _update_run_notification_plan(
-            model_id=task_info.model_id,
-            output_dir=output_dir,
-            total_cases=total_cases,
-        )
-        if compute_profile_disabled:
-            reason = "--compute-profile-tool none"
-            print(f"[compute] Compute profiling disabled by {reason}")
-        else:
-            try:
-                from acprof.host.compute_profile import collect_compute_profile_plan
-
-                compute_profile_plan_file = collect_compute_profile_plan(
-                    task_info=task_info,
-                    image_tag=image_info.tag,
-                    cpu_list=cpu_list,
-                    mem_list=mem_list,
-                    gpu_list=gpu_list,
-                    output_dir=output_dir,
-                    input_scale_plan_file=planned_input_scales.plan_file,
-                    advisor_root=args.advisor_root,
-                    ncu_root=args.ncu_root,
-                    advisor_repeat=args.advisor_repeat,
-                    torch_profiler_repeat=args.torch_profiler_repeat,
-                    ncu_repeat=args.ncu_repeat,
-                    keep_profiles=args.keep_compute_profiles,
-                    compute_profile_cpus=args.compute_profile_cpus,
-                    compute_profile_mem=args.compute_profile_mem,
-                    compute_profile_tool=args.compute_profile_tool,
-                    progress_callback=(
-                        _notify_profiler_completion
-                        if _ACTIVE_RUN_NOTIFICATION is not None
-                        else None
-                    ),
-                )
-                static_meta = enrich_static_meta_from_compute_plan(
-                    static_meta,
-                    compute_profile_plan_file,
-                )
-                write_static_meta_json(static_meta, static_meta_json)
-            except Exception as exc:
-                print(f"[compute][WARN] Compute profiling unavailable: {exc}")
-
-        execution_profile_plan_file = ""
-        if args.execution_profile_tool == "none":
-            print(
-                "[execution-profile] Massif/Nsight Systems profiling disabled "
-                "(enable with --execution-profile-tool)"
-            )
-        else:
-            try:
-                from acprof.host.execution_profile import (
-                    collect_execution_profile_plan,
-                )
-
-                execution_profile_plan_file = collect_execution_profile_plan(
-                    task_info=task_info,
-                    image_tag=image_info.tag,
-                    cpu_list=cpu_list,
-                    mem_list=mem_list,
-                    gpu_list=gpu_list,
-                    output_dir=output_dir,
-                    input_scale_plan_file=planned_input_scales.plan_file,
-                    project_dir=PROJECT_DIR,
-                    tool_mode=args.execution_profile_tool,
-                    massif_sampling=args.massif_sampling,
-                    massif_reference_cpu=args.massif_reference_cpu,
-                    massif_reference_mem=args.massif_reference_mem,
-                    massif_repeat=args.massif_repeat,
-                    nsys_sampling=args.nsys_sampling,
-                    nsys_reference_cpu=args.nsys_reference_cpu,
-                    nsys_reference_mem=args.nsys_reference_mem,
-                    nsys_repeat=args.nsys_repeat,
-                    nsys_root=args.nsys_root,
-                    keep_profiles=args.keep_execution_profiles,
-                    progress_callback=(
-                        _notify_profiler_completion
-                        if _ACTIVE_RUN_NOTIFICATION is not None
-                        else None
-                    ),
-                )
-                static_meta = enrich_static_meta_from_execution_plan(
-                    static_meta,
-                    execution_profile_plan_file,
-                )
-                write_static_meta_json(static_meta, static_meta_json)
-            except Exception as exc:
-                print(
-                    "[execution-profile][WARN] Execution profiling unavailable: "
-                    f"{exc}"
-                )
-
-        for plan_path, source in ((compute_profile_plan_file, "compute_profile_plan"),
-                                  (execution_profile_plan_file, "execution_profile_plan")):
-            if plan_path and Path(plan_path).is_file():
-                apply_profiler_plan(capability_report, json.loads(Path(plan_path).read_text()), source=source)
-        static_meta = enrich_static_meta(static_meta, {"capability_report": capability_report.to_dict()})
-        write_static_meta_json(static_meta, static_meta_json)
-        from acprof.artifacts import atomic_write_json
-        atomic_write_json(Path(output_dir) / "capability_report.json", capability_report.to_dict())
-        if not capability_report.to_dict()["requested_measurements_available"]:
-            print("[capability][WARN] 所请求的 profiler 尚有缺失或失败；详见 capability_report.json，不视为完整画像。")
-        run_state.bind_runtime(task_info, image_info, planned_input_scales,
-                               compute_profile_plan_file, execution_profile_plan_file)
+    total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
 
     n_scales = len(planned_input_scales.scales)
     total_iters = total_cases * n_scales * (args.warmup + args.repeat)

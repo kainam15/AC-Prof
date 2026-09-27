@@ -12,6 +12,23 @@ from acprof.runtime_profiles import select_runtime_profile
 
 
 class ImageLayerIdentityTests(unittest.TestCase):
+    def test_host_and_ui_changes_preserve_service_identity(self):
+        task = TaskInfo("example/model", "fill-mask", "nlp", "transformers_pipeline",
+                        "transformers", "a" * 40, "test")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            copy_dependency_tree(root)
+            for name in ("host/client.py", "tui/i18n.py", "container/server.py"):
+                path = root / "acprof" / name
+                path.parent.mkdir(exist_ok=True)
+                path.write_text("original = 1\n")
+            original = request_fingerprint(task, root)
+            for name in ("host/client.py", "tui/i18n.py"):
+                (root / "acprof" / name).write_text("changed = 2\n")
+                self.assertEqual(original, request_fingerprint(task, root))
+            (root / "acprof/container/server.py").write_text("changed = 2\n")
+            self.assertNotEqual(original, request_fingerprint(task, root))
+
     def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(self):
         task = TaskInfo(model_id="example/bert", model_revision="a" * 40, pipeline_tag="fill-mask",
                         task_family="nlp", runtime_backend="transformers_pipeline", library_name="transformers",

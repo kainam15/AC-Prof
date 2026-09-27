@@ -18,6 +18,7 @@ from acprof.host.dependency_images import (
 )
 from acprof.runtime_profiles import RuntimeProfile, environment_id, environment_identity, select_runtime_profile
 from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
+from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
 
 
 from acprof.installation import resource_root
@@ -67,7 +68,7 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
     logical_profile = profile.to_dict()
     logical_profile["environment"] = environment_id(profile.environment, root)
     digest = hashlib.sha256(json.dumps({
-        "schema_version": 1, "model_id": task_info.model_id,
+        "schema_version": 2, "model_id": task_info.model_id,
         "model_revision": task_info.model_revision,
         "task": task_info.pipeline_tag, "backend": task_info.runtime_backend,
         "profile": logical_profile,
@@ -78,13 +79,8 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
         "model_spec": task_model_spec(task_info),
         "resolution_identity": getattr(task_info, "model_resolution", {}).get("provenance", {}).get("identity_sha256"),
     }, sort_keys=True).encode())
-    paths = sorted((root / "acprof").rglob("*.py"))
-    paths += sorted((root / "acprof" / "extensions").rglob("*.json"))
-    paths += [root / "dockerfiles" / name for name in ("runtime-model.Dockerfile", "runtime-final.Dockerfile")]
-    paths += [root / "LICENSE", root / "NOTICE", *sorted((root / "licenses").rglob("*.txt"))]
-    for path in paths:
-        digest.update(str(path.relative_to(root)).encode())
-        digest.update(path.read_bytes())
+    paths = [*service_context_files(root), root / "dockerfiles/runtime-model.Dockerfile"]
+    digest.update(source_fingerprint(root, paths, scope="service-source-v2").encode())
     return digest.hexdigest()
 
 
@@ -251,13 +247,20 @@ def build_runtime_image(task_info: Any, project_dir: str):
     def build(dockerfile: str, args: dict[str, str], parent: tuple[str, str]) -> str:
         with tempfile.TemporaryDirectory(prefix="acprof-model-build-") as directory:
             iidfile = Path(directory) / "image-id"
+            context = root
+            if dockerfile == "runtime-final.Dockerfile":
+                context = Path(directory) / "context"
+                expected = source_fingerprint(root, service_context_files(root), scope="service-context-v1")
+                stage_service_context(root, context)
+                if source_fingerprint(context, service_context_files(context), scope="service-context-v1") != expected:
+                    raise RuntimeError("服务构建上下文与源码指纹不一致，尚未构建镜像")
             command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
-                       "-f", str(root / "dockerfiles" / dockerfile)]
+                       "-f", str(context / "dockerfiles" / dockerfile)]
             for key, value in args.items():
                 command += ["--build-arg", f"{key}={value}"]
             if dockerfile == "runtime-model.Dockerfile" and (os.environ.get("HF_TOKEN") or "").strip():
                 command += ["--secret", "id=hf_token,env=HF_TOKEN"]
-            command.append(str(root))
+            command.append(str(context))
             require_image_source(*parent)
             if request_fingerprint(task_info, root) != fingerprint:
                 raise RuntimeError("构建期间代码或依赖配置发生变化，尚未发布镜像标签")

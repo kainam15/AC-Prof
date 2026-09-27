@@ -132,9 +132,16 @@ Release 的平台范围分发。wheel/standalone 的 smoke 验证不能替代真
 
 维护者更新 `acprof.__version__`，验证后推送对应 `v<version>` tag：
 
-- `release.yml` 构建 sdist、wheel、standalone 与 SHA256 清单；完成隔离安装和 worker 验证后发布 GitHub Release。
+- `release.yml` 构建 sdist、wheel、standalone 与 SHA256 清单；tag 发布还必须等待同一提交调用的
+  `ci.yml` 完成 lint、全部主机分片、ONNX CPU 和 runtime 容器测试，以及隔离安装/worker 验证。
 - `runtime-images.yml` 先构建/核验 4 个平台，再让 24 个环境 job 拉取已发布平台，构建、核验并发布环境。
 - 手动运行 Release workflow 只构建并保存 Actions artifacts；手动运行 GHCR workflow 会发布镜像。
+
+Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据范围。硬件报告仅关联同一 SHA
+上成功的 `hardware.yml` run，且 `hardware` artifact 尚未过期；否则明确标为 `not_verified`。
+这不是硬件强制门禁，也不代表所有设备或 profiler 均已验收，具体范围以对应 artifact 为准。
+复用工作流遵循 [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)，
+本地相对路径保证执行同一提交；普通 CI 处理分支 push，tag 的 CI 由 release 调用，避免重复运行。
 
 工作流文件存在不代表远端资产已发布。实际发布需要仓库中的 Actions 正常完成，以及 GitHub 的
 `contents: write` / `packages: write` 权限。GHCR package 首次发布后，维护者需在 package 设置中

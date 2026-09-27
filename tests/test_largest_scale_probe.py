@@ -153,7 +153,7 @@ class LargestScaleProbeTests(unittest.TestCase):
         self.assertIsNone(saved["timing"]["request_timeout_s"])
         self.assertNotIn("NaN", saved_text)
         stop_container.assert_called_once_with(
-            "probe-container",
+            start_container.return_value,
             log_prefix="[largest-probe]",
         )
 
@@ -210,15 +210,11 @@ class LargestScaleProbeTests(unittest.TestCase):
         start_container: Mock,
         stop_container: Mock,
     ) -> None:
-        start_container.side_effect = [
-            RuntimeError("container_oom_killed during startup"),
-            RunningContainer(
-                name="probe-4gb",
-                base_url="http://127.0.0.1:8002",
-                host_port=8002,
-                cold_start_s=7.0,
-            ),
-        ]
+        owned_session = RunningContainer(
+            name="probe-4gb", base_url="http://127.0.0.1:8002",
+            host_port=8002, cold_start_s=7.0,
+        )
+        start_container.side_effect = [RuntimeError("container_oom_killed during startup"), owned_session]
         response = Mock(status_code=200, text="")
         response.json.return_value = {"effective_input_scale": 512}
         post.return_value = response
@@ -255,7 +251,7 @@ class LargestScaleProbeTests(unittest.TestCase):
         )
         self.assertEqual(post.call_count, 1)
         stop_container.assert_called_once_with(
-            "probe-4gb",
+            owned_session,
             log_prefix="[largest-probe]",
         )
 

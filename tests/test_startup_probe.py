@@ -14,13 +14,14 @@ class StartupProbeTests(unittest.TestCase):
     def setUp(self):
         self.task = TaskInfo('org/model', 'fill-mask', 'nlp', 'transformers_pipeline',
                              'transformers', 'a' * 40, 'manual')
+        self.session = docker.RunningContainer('probe-owned', 'http://localhost', 1234, 0.1, container_id='b' * 64)
         self.image = docker.ImageInfo('sha256:' + 'b' * 64)
         self.identity = matrix_identity(self.task, self.image, [2, 1], [8, 2, 4], ['off'],
                                         [64.], order='declared', seed=0, prune=True)
 
     def test_probe_only_starts_waits_and_cleans_up(self):
         with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(docker, '_start_container_session'), \
+             patch.object(docker, '_start_container_session', return_value=self.session), \
              patch.object(docker, '_inspect_container_state', return_value={'Running': True}), \
              patch.object(docker, '_stop_container_session') as stop, \
              patch.object(orchestrator, 'run_single_case', side_effect=AssertionError('formal collection')):
@@ -60,6 +61,7 @@ class StartupProbeTests(unittest.TestCase):
             self.assertEqual(list(Path(directory).glob('result*.csv')), [])
             if kwargs['mem'] == 2:
                 raise docker.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})
+            return self.session
 
         def formal(**kwargs):
             self.assertTrue((Path(directory) / 'matrix_plan.json').is_file())
@@ -96,7 +98,7 @@ class StartupProbeTests(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
                                                      request_timeout_seconds=45)
-            with patch.object(docker, '_start_container_session') as start:
+            with patch.object(docker, '_start_container_session', return_value=self.session) as start:
                 report = startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
                                                           request_timeout_seconds=45)
                 self.assertEqual(start.call_args.kwargs['mem'], 4)

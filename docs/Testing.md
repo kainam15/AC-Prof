@@ -345,6 +345,8 @@ git diff --check
 
 `run_tests.py` 保留 unittest 输出，并将每项测试的结果、失败/跳过原因、版本及耗时写入 JSON。
 本地可用 `--shard-index 0 --shard-count 4` 重现一个 CI 分片；省略参数执行完整测试集。
+runner 在进程内为测量锁注入独立临时目录，分片测试互不争用生产锁；生产入口仍固定使用
+`/tmp` 的同用户锁，设置 `TMPDIR` 不能绕过它。直接调用 unittest/pytest 不经过此注入。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
 汇总时须确认同一 Python 版本的分片齐全且测试集摘要相同，所有 test ID 无重复，
 总执行数等于完整发现数；单片通过不代表主机回归完成。
@@ -352,6 +354,11 @@ git diff --check
 普通主机测试允许缺少推理依赖时跳过，报告明确列出范围。`check_runtime.py` 的目录必须为空；
 `runtime.json` 另记录逻辑 profile、环境 ID、平台/环境 image ID、完整运行清单和退出结果，不覆盖旧验证。
 `--build-only` 仅证明依赖构建和清单核验；`--family` / `--profile` 共用主构建的环境准备入口。
+
+可靠性回归包括 `test_run_identity.py`（跨 TMPDIR 的进程互斥、声明/资源变化拒绝续跑）、
+`test_monitor_cleanup.py`（实际 client 循环的清理失败与请求证据）、`test_container_ownership.py`
+（独立名称、失败/取消时按完整 ID 回收）和 `test_release_gate.py`（同提交的发布前置依赖）。
+服务上下文及 host/TUI 变化不重建服务的约束由镜像构建测试覆盖。mock 测试不代替实际 Docker 采集。
 普通接口测试固定使用 CPU，即使选择 CUDA wheel；GPU 和自定义 MOSS adapter 由完整服务镜像的
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。
 

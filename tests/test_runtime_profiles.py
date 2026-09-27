@@ -149,7 +149,7 @@ class RuntimeProfileRegressionTests(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             stderr = "ValueError: custom code is required" if command[:2] == ["docker", "logs"] else ""
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr=stderr)
+            return subprocess.CompletedProcess(command, 0, stdout="b" * 64 if command[:2] == ["docker", "run"] else "", stderr=stderr)
 
         with patch.object(docker_runtime, "_run", side_effect=fake_run), patch.object(
             docker_runtime, "_inspect_container_state", return_value={

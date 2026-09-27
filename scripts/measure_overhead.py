@@ -322,6 +322,7 @@ def main(argv=None):
         with MeasurementLock(), source_runtime_environment(recorded_environment):
             require_image_identity(image.tag, image.runtime_environment)
             session = _start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]")
+            name = session.name
             try:
                 measure_window(session.base_url, entry["payload"], count=5, monitors=[], token="warmup")
                 rng = random.Random(args.seed)
@@ -357,7 +358,7 @@ def main(argv=None):
                 report["comparisons"] = summarize_overhead(report["rounds"], seed=args.seed)
                 report["successful"] = True
             finally:
-                _stop_container_session(name, "[overhead]")
+                _stop_container_session(session, "[overhead]")
     except Exception as error:
         report["error"] = str(error)
         raise

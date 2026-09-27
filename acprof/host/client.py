@@ -54,6 +54,7 @@ from acprof.host.execution_profile_plan import (  # noqa: E402 -- 代理绕过�
 )
 
 from acprof.host import client_metrics as _client_metrics  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
+from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup  # noqa: E402
 from acprof.workloads.contract import summarize_workload_contracts  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
 from acprof.host.client_metrics import (  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
@@ -594,68 +595,35 @@ def _run_matched_control_window(
     mips_monitor: Any,
 ) -> None:
     """Run a blank window with the same monitor lifecycle as the workload."""
-    gpu_started = False
-    cpu_started = False
-    resource_started = False
-    mips_started = False
-    gpu_result = None
-    gpu_samples = []
-    cpu_result = None
-    cpu_samples = []
-    primary_error: Optional[Exception] = None
-    stop_error: Optional[Exception] = None
-
+    group = MonitorGroup(close=False)
+    for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
+                          ("resource", resource_usage_monitor), ("mips", mips_monitor)):
+        group.add(name, monitor)
+    primary_error = None
     try:
-        if gpu_monitor is not None:
-            gpu_monitor.start()
-            gpu_started = True
-        if cpu_monitor is not None:
-            cpu_monitor.start()
-            cpu_started = True
-        if resource_usage_monitor is not None:
-            resource_usage_monitor.start()
-            resource_started = True
-        if mips_monitor is not None:
-            mips_monitor.start()
-            mips_started = True
+        group.start()
         if IDLE_SECONDS > 0.0:
             time.sleep(IDLE_SECONDS)
-    except Exception as exc:
+    except BaseException as exc:
         primary_error = exc
     finally:
-        if mips_started:
-            try:
-                mips_monitor.stop(1, max(IDLE_SECONDS, 1e-9))
-            except Exception as exc:
-                stop_error = stop_error or exc
-        if resource_started:
-            try:
-                resource_usage_monitor.stop()
-            except Exception as exc:
-                stop_error = stop_error or exc
-        if gpu_started:
-            try:
-                gpu_result, _gpu_name, _gpu_error, gpu_samples = gpu_monitor.stop()
-            except Exception as exc:
-                stop_error = stop_error or exc
-        if cpu_started:
-            try:
-                cpu_result, _cpu_error, cpu_samples = cpu_monitor.stop()
-            except Exception as exc:
-                stop_error = stop_error or exc
+        group.finish(1, max(IDLE_SECONDS, 1e-9))
 
+    if primary_error is not None and not isinstance(primary_error, Exception):
+        raise primary_error
+    group.raise_if_failed()
     if primary_error is not None:
         raise primary_error
-    if stop_error is not None:
-        raise stop_error
 
-    if gpu_monitor is not None and gpu_result is not None:
+    if group.results.get("gpu") is not None:
+        gpu_result, _gpu_name, _gpu_error, gpu_samples = group.results["gpu"]
         gpu_monitor.apply_control_baseline(
             gpu_result,
             gpu_samples,
             trace=IDLE_DEBUG,
         )
-    if cpu_monitor is not None and cpu_result is not None:
+    if group.results.get("cpu") is not None:
+        cpu_result, _cpu_error, cpu_samples = group.results["cpu"]
         cpu_monitor.apply_control_baseline(
             cpu_result,
             cpu_samples,
@@ -959,6 +927,60 @@ def _append_row(
         _append_idle_diag(diag_f, idle_diag_record)
 
 
+def _build_result_row(values, *, metric_groups, scale_entry, resolved_input_scale,
+                      latency_app_s, compute_profile_plan, execution_profile_plan):
+    """Assemble CSV values after sampling; profile and pixel joins stay out of the window."""
+    row = {
+        "cpu_cores": CPU_CORES,
+        "mem_cap_gb": MEM_CAP_GB,
+        "gpu_mode": GPU_MODE,
+        "packet_request_wire_bytes_per_request": "nan",
+        "packet_response_wire_bytes_per_request": "nan",
+        "packet_total_wire_bytes_per_request": "nan",
+        "packet_tcp_payload_bytes_per_request": "nan",
+        "packet_protocol_overhead_bytes_per_request": "nan",
+        "packet_protocol_overhead_ratio": "nan",
+        **_cold_start_row_metrics(),
+        "result_origin": "formal_measurement",
+        **values,
+    }
+    for metrics in metric_groups:
+        row.update({name: str(value) if name == "gpu_pstate" else _fmt_float(value)
+                    for name, value in metrics.items()})
+    pixel_counts = pixel_counts_from_metadata(
+        scale_entry.get("input_metadata") if resolved_input_scale == float(scale_entry["input_scale"]) else None,
+        BATCH_SIZE,
+        task_family=TASK_FAMILY,
+        pipeline_tag=PIPELINE_TAG,
+        workload=scale_entry.get("workload"),
+    )
+    row.update({field: _fmt_float(value) for field, value in pixel_counts.items()})
+    row.update({field: _fmt_float(value) for field, value in pixel_rate_metrics(row).items()})
+    row_scale = _to_float_or_nan(row["input_scale"])
+    compute_profile = _find_compute_profile_entry(
+        compute_profile_plan,
+        GPU_MODE,
+        row_scale,
+    )
+    row.update(
+        _compute_profile_row_metrics(
+            compute_profile,
+            latency_app_s,
+        )
+    )
+    execution_profile = _find_execution_profile_entry(
+        execution_profile_plan,
+        CPU_CORES,
+        MEM_CAP_GB,
+        GPU_MODE,
+        row_scale,
+    )
+    row.update(
+        _execution_profile_row_metrics(execution_profile)
+    )
+    return row
+
+
 def main() -> None:
     from acprof.artifacts import read_static_metadata
     from acprof.latency_slo import latency_slo_threshold
@@ -1088,6 +1110,7 @@ def main() -> None:
                 gpu_idle_trace: Dict[str, Any] = {}
 
                 try:
+                    monitors = MonitorGroup()
                     gpu_monitor = None
                     cpu_monitor = None
                     resource_usage_monitor = None
@@ -1104,11 +1127,8 @@ def main() -> None:
                     output_length_values: List[float] = []
                     output_token_count_values: List[float] = []
                     workload_contracts: List[Dict[str, Any]] = []
-                    gpu_monitor_started = False
-                    cpu_monitor_started = False
-                    resource_usage_monitor_started = False
-                    mips_monitor_started = False
                     window_error = ""
+                    primary_error = None
                     pending_request_id = ""
                     try:
                         if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) and energy_mod is not None:
@@ -1118,12 +1138,14 @@ def main() -> None:
                                 device_index=DEVICE_INDEX,
                                 device_uuid=GPU_DEVICE_UUID,
                             )
+                            monitors.add("gpu", gpu_monitor)
 
                         if measurement_requested(PROFILING_MODE, "cpu_energy") and cpu_energy_mod is not None:
                             try:
                                 cpu_monitor = cpu_energy_mod.CPUEnergyMonitor(
                                     sample_hz=SAMPLE_HZ, idle_seconds=IDLE_SECONDS,
                                     container_name=CONTAINER_NAME, dram_energy=DRAM_ENERGY)
+                                monitors.add("cpu", cpu_monitor)
                             except RuntimeError as exc:
                                 if DRAM_ENERGY == "required":
                                     raise EnergyAbort(str(exc)) from exc
@@ -1139,9 +1161,11 @@ def main() -> None:
                                 device_index=DEVICE_INDEX,
                                 device_uuid=GPU_DEVICE_UUID,
                             )
+                            monitors.add("resource", resource_usage_monitor)
 
                         if measurement_requested(PROFILING_MODE, "cpu_instructions") and USE_MIPS:
                             mips_monitor = perf_mips_mod.PerfMIPSMonitor(CONTAINER_NAME)
+                            monitors.add("mips", mips_monitor)
 
                         if gpu_monitor is not None or cpu_monitor is not None:
                             _sleep_before_idle_baseline()
@@ -1169,18 +1193,7 @@ def main() -> None:
                                 if cpu_monitor is not None:
                                     idle_debug_snapshot = _collect_idle_debug_snapshot()
 
-                        if gpu_monitor is not None:
-                            gpu_monitor.start()
-                            gpu_monitor_started = True
-                        if cpu_monitor is not None:
-                            cpu_monitor.start()
-                            cpu_monitor_started = True
-                        if resource_usage_monitor is not None:
-                            resource_usage_monitor.start()
-                            resource_usage_monitor_started = True
-                        if mips_monitor is not None:
-                            mips_monitor.start()
-                            mips_monitor_started = True
+                        monitors.start()
 
                         while _should_send_window_request(
                             actual_repeat_in_window,
@@ -1217,55 +1230,35 @@ def main() -> None:
                                 scale_val,
                             )
                     except BaseException as exc:
+                        primary_error = exc
                         window_error = f"{type(exc).__name__}: {exc}"
                         raise
                     finally:
-                        mips_stop_error = None
-                        if mips_monitor is not None and mips_monitor_started:
-                            try:
-                                mips_latency_app_s = (
-                                    lat_sum / float(actual_repeat_in_window)
-                                    if actual_repeat_in_window > 0
-                                    else float("nan")
-                                )
-                                mips_result = mips_monitor.stop(
-                                    actual_repeat_in_window,
-                                    mips_latency_app_s,
-                                )
-                            except Exception as exc:
-                                mips_stop_error = exc
-                        if resource_usage_monitor is not None and resource_usage_monitor_started:
-                            resource_usage_result, _resource_usage_err, _resource_usage_samples = (
-                                resource_usage_monitor.stop()
+                        monitors.finish(actual_repeat_in_window,
+                                        lat_sum / actual_repeat_in_window if actual_repeat_in_window else float("nan"))
+                        if monitors.results.get("resource") is not None:
+                            resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
+                        if monitors.results.get("gpu") is not None:
+                            gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = monitors.results["gpu"]
+                        if monitors.results.get("cpu") is not None:
+                            cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
+                        mips_result = monitors.results.get("mips")
+                        try:
+                            _append_request_window(
+                                requests_f, sniff_group_id=sniff_group_id,
+                                input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
+                                warmup=warmup_flag, repeat_idx=repeat_idx,
+                                latencies=latency_app_values,
+                                error="; ".join(part for part in (window_error, monitors.error) if part),
+                                failed_request_id=pending_request_id,
                             )
-                        if gpu_monitor is not None:
-                            try:
-                                if gpu_monitor_started:
-                                    gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = (
-                                        gpu_monitor.stop()
-                                    )
-                            finally:
-                                gpu_monitor.close()
-                        if cpu_monitor is not None:
-                            try:
-                                if cpu_monitor_started:
-                                    cpu_result, _cpu_err, _cpu_samples = cpu_monitor.stop()
-                            finally:
-                                cpu_monitor.close()
-                        if resource_usage_monitor is not None:
-                            resource_usage_monitor.close()
-                        if mips_monitor is not None:
-                            mips_monitor.close()
-                        _append_request_window(
-                            requests_f, sniff_group_id=sniff_group_id,
-                            input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
-                            warmup=warmup_flag, repeat_idx=repeat_idx,
-                            latencies=latency_app_values,
-                            error=window_error or (str(mips_stop_error) if mips_stop_error else ""),
-                            failed_request_id=pending_request_id,
-                        )
-                        if mips_stop_error is not None:
-                            raise mips_stop_error
+                        finally:
+                            if primary_error is not None and (
+                                not isinstance(primary_error, Exception)
+                                or isinstance(primary_error, (RequestTimeoutAbort, EnergyAbort, MIPSAbort))
+                            ):
+                                raise primary_error
+                            monitors.raise_if_failed()
 
                     latency_app_s = _mean(latency_app_values)
                     request_payload_bytes = _mean_finite(
@@ -1369,6 +1362,10 @@ def main() -> None:
                     raise
                 except MIPSAbort:
                     raise
+                except MonitorCleanupError as exc:
+                    if _is_mips_error(exc):
+                        raise MIPSAbort(str(exc)) from exc
+                    raise
                 except Exception as e:
                     if _is_mips_error(e):
                         raise MIPSAbort(str(e)) from None
@@ -1394,10 +1391,7 @@ def main() -> None:
                     resource_usage_metrics["container_cpu_util_avg_pct"],
                 )
 
-                row = {
-                    "cpu_cores": CPU_CORES,
-                    "mem_cap_gb": MEM_CAP_GB,
-                    "gpu_mode": GPU_MODE,
+                row = _build_result_row({
                     "gpu_device_uuid": GPU_DEVICE_UUID if USE_ENERGY else "nan",
                     "gpu_energy_source": getattr(gpu_result, "energy_source", "unavailable") if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) else "not_requested",
                     "gpu_energy_fallback_reason": getattr(gpu_result, "energy_fallback_reason", ""),
@@ -1408,12 +1402,6 @@ def main() -> None:
                     ),
                     "input_num_samples": _fmt_float(input_num_samples),
                     "request_payload_bytes": _fmt_float(request_payload_bytes),
-                    "packet_request_wire_bytes_per_request": "nan",
-                    "packet_response_wire_bytes_per_request": "nan",
-                    "packet_total_wire_bytes_per_request": "nan",
-                    "packet_tcp_payload_bytes_per_request": "nan",
-                    "packet_protocol_overhead_bytes_per_request": "nan",
-                    "packet_protocol_overhead_ratio": "nan",
                     "task_param": (
                         executed_task_param
                         if executed_task_param is not None
@@ -1429,87 +1417,42 @@ def main() -> None:
                     "repeat_in_window": str(actual_repeat_in_window),
                     "latency_s": "nan",  # Placeholder: filled by merge_packet_latency
                     "latency_s_per_input_unit": "nan",
-                    **{field: _fmt_float(latency_packet_distribution_metrics[field]) for field in LATENCY_PACKET_DISTRIBUTION_FIELDS},
                     "latency_app_s": _fmt_float(latency_app_s),
                     "latency_app_s_per_input_unit": _fmt_float(
                         latency_app_s_per_input_unit
                     ),
-                    **{field: _fmt_float(latency_app_distribution_metrics[field]) for field in LATENCY_APP_DISTRIBUTION_FIELDS},
                     "throughput_samples_per_s": _fmt_float(throughput),
                     "throughput_samples_per_s_per_cpu_core": _fmt_float(
                         throughput_per_cpu_core
                     ),
-                    **{field: _fmt_float(gpu_metrics[field]) for field in GPU_METRIC_FIELDS},
                     "gpu_idle_measured_at": gpu_idle_measured_at if IDLE_DEBUG else "nan",
                     "gpu_idle_rel_range_so_far": (
                         _fmt_float(gpu_idle_stats["gpu_idle_rel_range_so_far"])
                         if IDLE_DEBUG
                         else "nan"
                     ),
-                    **{field: _fmt_float(cpu_metrics[field]) for field in CPU_METRIC_FIELDS},
                     "dram_energy_status": (
                         "not_requested" if PROFILING_MODE == "basic" or DRAM_ENERGY == "off" else
                         getattr(getattr(cpu_result, "dram", None), "status", "unavailable")
                     ),
                     "dram_energy_error": getattr(getattr(cpu_result, "dram", None), "error", ""),
-                    **{
-                        field: _fmt_float(efficiency_metrics[field])
-                        for field in EFFICIENCY_METRIC_FIELDS
-                    },
                     "cpu_idle_measured_at": cpu_idle_measured_at if IDLE_DEBUG else "nan",
                     "cpu_idle_rel_range_so_far": (
                         _fmt_float(idle_stats["cpu_idle_rel_range_so_far"])
                         if IDLE_DEBUG
                         else "nan"
                     ),
-                    **{field: _fmt_float(resource_usage_metrics[field]) for field in RESOURCE_USAGE_METRIC_FIELDS},
-                    **{
-                        field: (
-                            str(gpu_runtime_metrics[field])
-                            if field == "gpu_pstate"
-                            else _fmt_float(gpu_runtime_metrics[field])
-                        )
-                        for field in GPU_RUNTIME_STATE_FIELDS
-                    },
                     "cpu_cycles_est_app": _fmt_float(cpu_cycles_est_app),
                     "cpu_cycles_est_packet": "nan",
-                    **{field: _fmt_float(mips_metrics[field]) for field in MIPS_METRIC_FIELDS},
-                    **_cold_start_row_metrics(),
                     "status": status,
                     "error": err_msg,
-                    "result_origin": "formal_measurement",
-                }
-                pixel_counts = pixel_counts_from_metadata(
-                    scale_entry.get("input_metadata") if resolved_input_scale == scale_val else None,
-                    BATCH_SIZE,
-                    task_family=TASK_FAMILY,
-                    pipeline_tag=PIPELINE_TAG,
-                    workload=scale_entry.get("workload"),
-                )
-                row.update({field: _fmt_float(value) for field, value in pixel_counts.items()})
-                row.update({field: _fmt_float(value) for field, value in pixel_rate_metrics(row).items()})
-                row_scale = _to_float_or_nan(row["input_scale"])
-                compute_profile = _find_compute_profile_entry(
-                    compute_profile_plan,
-                    GPU_MODE,
-                    row_scale,
-                )
-                row.update(
-                    _compute_profile_row_metrics(
-                        compute_profile,
-                        latency_app_s,
-                    )
-                )
-                execution_profile = _find_execution_profile_entry(
-                    execution_profile_plan,
-                    CPU_CORES,
-                    MEM_CAP_GB,
-                    GPU_MODE,
-                    row_scale,
-                )
-                row.update(
-                    _execution_profile_row_metrics(execution_profile)
-                )
+                }, metric_groups=(
+                    gpu_metrics, cpu_metrics, efficiency_metrics, resource_usage_metrics,
+                    gpu_runtime_metrics, mips_metrics, latency_packet_distribution_metrics,
+                    latency_app_distribution_metrics,
+                ), scale_entry=scale_entry, resolved_input_scale=resolved_input_scale,
+                    latency_app_s=latency_app_s, compute_profile_plan=compute_profile_plan,
+                    execution_profile_plan=execution_profile_plan)
                 idle_diag_record = None
                 if IDLE_DEBUG:
                     if idle_debug_snapshot is None:
@@ -1566,6 +1509,9 @@ def run_cli() -> None:
             )
         print(f"[case][ERROR] {exc}", file=sys.stderr)
         raise SystemExit(CLIENT_REQUEST_TIMEOUT_EXIT_CODE) from None
+    except MonitorCleanupError as exc:
+        print(f"[monitor][ERROR] {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except EnergyAbort as exc:
         print(f"[energy][ERROR] {exc}", file=sys.stderr)
         raise SystemExit(1) from None

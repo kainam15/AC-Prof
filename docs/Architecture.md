@@ -86,6 +86,7 @@ flowchart TD
 | `packet_capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 | `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
+| `measurement_window` | monitor 所有权、固定启停顺序、失败后的完整清理；不导入硬件或 workload |
 | `client` | 环境与 workload 初始化、请求、对照窗口和正式窗口控制、结果写入 |
 | `client_metrics` | 已完成采样结果到指标字段的纯计算与格式化 |
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
@@ -108,6 +109,19 @@ flowchart TD
 指标模块不读取环境、不创建 workload 或 monitor。慢请求阈值由 client 在调用时显式传入；
 冷启动状态仍由 client 管理。对照窗口、monitor 启停、正式请求和停止后的统计顺序保持一致。
 界面刷新、绘图、通知与额外文件操作继续位于正式测量窗口之外。
+
+`cli.run` 将资源校验、运行准备和矩阵调度分开；准备阶段返回 `_PreparedRuntime`，汇总镜像、
+输入计划、profiler 计划与能力报告。client 的 CSV 格式化、像素指标和 profiler 关联集中于
+`_build_result_row`；monitor 生命周期由 `MonitorGroup` 管理，不改变请求窗口或 CSV 协议。
+
+`source_identity` 统一续跑身份与服务构建的文件选择。续跑包括执行声明和输入资源；服务构建
+只打包共享模块与 `container/workloads/extensions`，同一文件集合同时用于上下文复制和指纹。
+范围细节见[镜像分类与复用](Runtime_Compatibility.md#镜像分类与复用)。
+
+清理机制参考 [CPython ExitStack](https://github.com/python/cpython/blob/3.12/Lib/contextlib.py)
+的回调栈，使用现有 Python 标准库（PSF License），不增加依赖；清理错误另行聚合以保留请求证据。
+实验隔离参考 [Optimum Benchmark 的隔离改进](https://github.com/huggingface/optimum-benchmark/pull/186)
+（Apache-2.0），仅借鉴所有权与生命周期思路，不引入其调度框架或测量开销。
 
 `runtime_profiles` 使用标准库将 manifest 实例化为 `RuntimeProfile`、`PlatformSpec`、`DependencyEnvironment`；
 7 个任务族通过逻辑 profile 共享依赖环境，当前数量见[运行配置](Runtime_Compatibility.md#当前配置)。`dependency_locks` 规范化和验证

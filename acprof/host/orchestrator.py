@@ -343,6 +343,7 @@ def run_single_case(
         )
         return out_csv
 
+    container_name = session.name
     base_url = session.base_url
     tcpdump_proc = None
     case_incomplete = False
@@ -606,7 +607,7 @@ def run_single_case(
                 tcpdump_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 tcpdump_proc.kill()
-        _stop_container_session(container_name, log_prefix="[case]")
+        _stop_container_session(session, log_prefix="[case]")
 
     print(f"[case] Done. Output: {out_csv}")
     return out_csv

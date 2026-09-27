@@ -18,20 +18,25 @@ def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds) -> dic
     record = {"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": gpu,
               "container_name": name, "started_at": datetime.now(timezone.utc).isoformat(),
               "ready": False, "docker_state": None, "outcome": "error", "diagnostic": ""}
+    session = None
     try:
-        docker._start_container_session(
+        session = docker._start_container_session(
             task_info=task, cpu=cpu, mem=mem, gpu=gpu, image_info=image,
             container_name=name, log_prefix="[startup-probe]",
             request_timeout_seconds=request_timeout_seconds)
-        record.update(ready=True, outcome="startup_feasible",
-                      docker_state=docker._inspect_container_state(name))
+        record.update(ready=True, outcome="startup_feasible", container_name=session.name,
+                      container_id=session.container_id,
+                      docker_state=docker._inspect_container_state(session.container_id))
     except docker.ContainerStartupError as exc:
         record.update(outcome=exc.outcome, docker_state=exc.state, diagnostic=str(exc))
+        if exc.container_name:
+            record.update(container_name=exc.container_name, container_id=exc.container_id)
     except Exception as exc:
         # Error text (including container stderr) is never OOM evidence.
         record["diagnostic"] = f"{type(exc).__name__}: {exc}"
     finally:
-        docker._stop_container_session(name)
+        if session is not None:
+            docker._stop_container_session(session)
     record["duration_s"] = time.perf_counter() - started
     return record
 

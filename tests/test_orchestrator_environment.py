@@ -248,7 +248,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.docker_runtime._run",
             side_effect=lambda cmd, **_kwargs: (
                 commands.append(cmd)
-                or SimpleNamespace(returncode=0, stdout="", stderr="")
+                or SimpleNamespace(returncode=0, stdout="b" * 64, stderr="")
             ),
         ), patch("requests.get", return_value=ready_response):
             docker_runtime._start_container_session(
@@ -306,7 +306,7 @@ class DetectEnvironmentTests(unittest.TestCase):
 
         def fake_run(cmd, **_kwargs):
             commands.append(cmd)
-            stdout = "[server] Loading model\n" if cmd[:2] == ["docker", "logs"] else ""
+            stdout = "[server] Loading model\n" if cmd[:2] == ["docker", "logs"] else "b" * 64
             return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
         container_state = {
@@ -343,7 +343,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         self.assertIn("memory_limit=2g", message)
         self.assertIn("exit_code=137", message)
         self.assertIn(
-            ["docker", "rm", "-f", "oom-test"],
+            ["docker", "rm", "-f", "b" * 64],
             commands,
         )
 

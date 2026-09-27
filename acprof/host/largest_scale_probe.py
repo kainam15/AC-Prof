@@ -331,7 +331,7 @@ def _probe_memory_candidate(
         ) or "error"
     finally:
         if session is not None:
-            _stop_container_session(session.name, log_prefix="[largest-probe]")
+            _stop_container_session(session, log_prefix="[largest-probe]")
 
     cold_start = _cold_start_payload(session)
     request_s = _finite_or_none(request_s)
