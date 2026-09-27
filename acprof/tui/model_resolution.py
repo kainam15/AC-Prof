@@ -122,7 +122,7 @@ class ModelResolutionScreen(ModalScreen):
         if not self.task_info or self.task_info.model_resolution.get("contract", {}).get("status") != "resolved":
             return
         try:
-            root = Path(self.config.output_dir).expanduser() / self.task_info.model_id.replace("/", "--") / "model-contracts" / uuid.uuid4().hex[:12]
+            root = Path(self.config.output_dir).expanduser() / ".model-contracts" / self.task_info.model_id.replace("/", "--") / uuid.uuid4().hex[:12]
             root = root.absolute()
             spec = root / "acprof_model.json"
             atomic_write_json(spec, task_model_spec(self.task_info))

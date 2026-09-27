@@ -63,7 +63,7 @@ from acprof.host.packet_capture import (
     require_packet_latency_prerequisites,
 )
 from acprof.host.profiler_progress import ProfilerProgress
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.task_support import TaskSupportError
 from acprof.notifications import (
     NotificationConfigError,
     NotificationError,
@@ -617,10 +617,12 @@ def _resource_matrix(args, parser):
 def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_list,
                      gpu_list, run_command, cgroup_version, cgroup_collection_mode,
                      rapl_topology, preflight_measurements, latency_slo,
-                     require_full_validation=False) -> _PreparedRuntime:
+                     require_full_validation=False, workflow=None) -> _PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.docker_runtime import prepare_image
     from acprof.host.input_plan import plan_input_scales
+    from acprof.host.collection_workflow import PreparationWorkflow
+    workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
         collect_static_meta,
         enrich_static_meta,
@@ -645,11 +647,18 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
             "profiling_mode": args.profiling_mode,
         }))
+        validation_status = saved_meta.get("runtime_validation", {}).get("status", "not_run")
+        workflow.emit("runtime", "passed" if validation_status == "ok" else
+                      "not_started" if validation_status == "not_run" else "failed",
+                      detail=f"restored immutable runtime; saved validation: {validation_status}")
+        if (require_full_validation or workflow.interactive) and validation_status != "ok":
+            raise RuntimeError("saved runtime validation is not successful: " + str(validation_status)
+                               + "; start a new experiment to validate without changing frozen resume evidence")
     else:
         task_info.model_download_policy = args.model_download_policy
         try:
-            image_info = prepare_image(
-                task_info, PROJECT_DIR, reuse_existing=args.skip_build,
+            image_info = workflow.run("image", prepare_image,
+                task_info, PROJECT_DIR, reuse_existing=args.skip_build and not workflow.rebuild_environment,
             )
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
@@ -696,7 +705,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
 
         # ── Step 4: Run profiling matrix ──
         try:
-            planned_input_scales = plan_input_scales(
+            planned_input_scales = workflow.run("input", plan_input_scales,
                 task_info=task_info,
                 image_info=image_info,
                 cpu_list=cpu_list,
@@ -719,12 +728,28 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         compute_profile_plan_file = ""
         from acprof.host.runtime_validation import validate_runtime
         from acprof.host.static_metadata import enrich_static_meta
+        def validate_selected_runtime():
+            try:
+                report = validate_runtime(
+                    task_info=task_info, image_info=image_info, planned=planned_input_scales,
+                    cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
+                    timeout_seconds=args.request_timeout_seconds,
+                )
+                if (require_full_validation or workflow.interactive) and report.get("status") != "ok":
+                    raise RuntimeError("collection requires successful full validation on every requested device: "
+                                       + str(report.get("status")))
+            except Exception:
+                if workflow.interactive:
+                    from acprof.host.collection_workflow import retain_validation_failure
+                    try:
+                        retain_validation_failure(output_dir)
+                    except (OSError, ValueError) as archive_error:
+                        print(f"[runtime-check][WARN] Cannot archive validation failure: {archive_error}", file=sys.stderr)
+                raise
+            return report
+
         try:
-            validation = validate_runtime(
-                task_info=task_info, image_info=image_info, planned=planned_input_scales,
-                cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
-                timeout_seconds=args.request_timeout_seconds,
-            )
+            validation = workflow.run("runtime", validate_selected_runtime)
             apply_runtime_validation(
                 capability_report, validation,
                 environment_id=image_info.runtime_environment.get("environment_id", ""),
@@ -732,8 +757,6 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
             static_meta = enrich_static_meta(static_meta, {"runtime_validation": validation,
                                                          "model_resolution": task_info.model_resolution})
             write_static_meta_json(static_meta, static_meta_json)
-            if require_full_validation and validation.get("status") != "ok":
-                raise RuntimeError("automatic collection requires successful full validation on every requested device")
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"[runtime-check][ERROR] {exc}", file=sys.stderr)
             sys.exit(1)
@@ -917,50 +940,43 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     )
     _notify_run_started()
 
-    require_native_linux_host()
-    require_native_docker()
-    cgroup_version = require_cgroup_prerequisites()
-    cgroup_collection_mode = "strict_v2"
-
-    preflight_measurements = {}
-    rapl_topology = discover_rapl_topology()
-    if dram_enabled and args.dram_energy == "required" and rapl_topology["dram_status"] != "available":
-        parser.error(f"required DRAM RAPL unavailable: {rapl_topology['dram_status']}; "
-                     f"missing packages={rapl_topology['dram_missing_packages']}")
-    if measurement_requested(args.profiling_mode, "packet_latency"):
-        try:
-            require_packet_latency_prerequisites(sniff_iface=args.sniff_iface)
-        except PacketLatencyError as exc:
-            print(f"\n[sniff][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
-    if measurement_requested(args.profiling_mode, "cpu_energy"):
-        preflight_measurements["cpu_energy"] = require_cpu_energy_prerequisites()
-    if measurement_requested(args.profiling_mode, "cpu_instructions"):
-        preflight_measurements["cpu_instructions"] = require_mips_prerequisites()
-
     # ── Step 1: Detect task ──
     print("=" * 60)
     print("AC-Prof Universal Profiler")
     print("=" * 60)
 
-    from acprof.host.detect import detect_task
+    from acprof.host.collection_workflow import PreparationWorkflow, RebuildEnvironment
+    workflow = PreparationWorkflow.from_environment(args.output_dir)
 
     saved_run = load_run_state(terminal_output_dir) if args.resume else {}
     if saved_run.get("runtime"):
         from acprof.host.detect import TaskInfo
-        task_info = TaskInfo(**saved_run["runtime"]["task"])
-    elif prepared_task is not None:
-        task_info = prepared_task
+        initial_task = TaskInfo(**saved_run["runtime"]["task"])
     else:
-        task_info = detect_task(
-            model_id=args.model,
-            override_tag=args.task,
-            override_family=args.task_family,
-            override_backend=args.backend,
-            model_spec_path=args.model_spec,
-            **({"revision": args.revision} if args.revision else {}),
-        )
-    require_task_support(task_info, batch_size=args.batch_size)
+        initial_task = prepared_task
+    task_info = workflow.resolve(args, initial=initial_task)
+
+    def host_preflight():
+        require_native_linux_host()
+        require_native_docker()
+        version = require_cgroup_prerequisites()
+        topology = discover_rapl_topology()
+        measurements = {}
+        if dram_enabled and args.dram_energy == "required" and topology["dram_status"] != "available":
+            raise RuntimeError(f"required DRAM RAPL unavailable: {topology['dram_status']}; "
+                               f"missing packages={topology['dram_missing_packages']}")
+        if measurement_requested(args.profiling_mode, "packet_latency"):
+            require_packet_latency_prerequisites(sniff_iface=args.sniff_iface)
+        if measurement_requested(args.profiling_mode, "cpu_energy"):
+            measurements["cpu_energy"] = require_cpu_energy_prerequisites()
+        if measurement_requested(args.profiling_mode, "cpu_instructions"):
+            measurements["cpu_instructions"] = require_mips_prerequisites()
+        if "on" in [part.strip().lower() for part in args.gpus.split(",")]:
+            pin_gpu_device(args.gpu_device)
+        return version, topology, measurements
+
+    cgroup_version, rapl_topology, preflight_measurements = workflow.run("preflight", host_preflight)
+    cgroup_collection_mode = "strict_v2"
     from acprof.runtime_profiles import select_runtime_profile
     latency_slo = resolve_latency_slo(
         latency_slo_rules, pipeline_tag=task_info.pipeline_tag,
@@ -989,8 +1005,6 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         output_dir,
         cgroup_version=cgroup_version,
     )
-    if "on" in [part.strip().lower() for part in args.gpus.split(",")]:
-        pin_gpu_device(args.gpu_device)
     run_state = RunState(output_dir, run_options(args), resume=args.resume, project_dir=PROJECT_DIR,
                          **({"preparation_artifacts": preparation_artifacts} if preparation_artifacts else {}))
     _ACTIVE_RUN_STATE = run_state
@@ -1003,14 +1017,22 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     from acprof.host.orchestrator import merge_all_csvs, run_matrix
 
     cpu_list, mem_list, gpu_list = _resource_matrix(args, parser)
-    prepared = _prepare_runtime(
-        args, run_state=run_state, task_info=task_info, output_dir=output_dir,
-        cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
-        run_command=run_command, cgroup_version=cgroup_version,
-        cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
-        preflight_measurements=preflight_measurements, latency_slo=latency_slo,
-        require_full_validation=prepared_task is not None,
-    )
+    prepared = None
+    while prepared is None:
+        try:
+            prepared = _prepare_runtime(
+                args, run_state=run_state, task_info=task_info, output_dir=output_dir,
+                cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
+                run_command=run_command, cgroup_version=cgroup_version,
+                cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
+                preflight_measurements=preflight_measurements, latency_slo=latency_slo,
+                require_full_validation=prepared_task is not None,
+                workflow=workflow,
+            )
+        except RebuildEnvironment:
+            # No measurement has run. Preserve model/host decisions, invalidate
+            # all downstream evidence affected by a rebuilt immutable image.
+            continue
     task_info, image_info = prepared.task_info, prepared.image_info
     planned_input_scales = prepared.planned_input_scales
     compute_profile_plan_file = prepared.compute_profile_plan_file

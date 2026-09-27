@@ -18,10 +18,17 @@ class ProbePreparationError(RuntimeError):
 def explain_resolution(task_info, *, explain: bool = False) -> str:
     resolution = task_info.model_resolution
     contract = resolution.get("contract", {})
+    interface_status = contract.get("status", resolution.get("status", "unknown"))
+    if interface_status == "candidate":
+        interface_status = "resolved"
+    validation = resolution.get("runtime_validation", contract.get("runtime_validation"))
+    runtime_status = validation.get("status", "not_run") if isinstance(validation, dict) else "not_run"
+    runtime_status = {"error": "failed", "resource_limit": "failed", "not_run": "not_started"}.get(runtime_status, runtime_status)
     lines = [f"Model: {task_info.model_id}", f"Revision: {task_info.model_revision}",
              f"Task: {task_info.pipeline_tag}", f"Backend: {task_info.runtime_backend}",
-             f"Status: {contract.get('status', resolution.get('status', 'unknown'))}",
-             f"Runtime: {resolution.get('runtime_validation', {}).get('status', 'not_run')}"]
+             f"Adapter: {task_info.model_adapter}", f"Runtime profile: {task_info.runtime_profile_id or 'not_selected'}",
+             f"Interface Resolution: {interface_status}", f"Runtime Validation: {runtime_status}",
+             "Measurement: not_started (inspect/probe does not collect measurements)"]
     if resolution.get("semantics"):
         lines.append(f"Semantics: {resolution['semantics']['status']} ({resolution.get('benchmark_kind', 'unknown')})")
     if explain and resolution.get("provenance"):

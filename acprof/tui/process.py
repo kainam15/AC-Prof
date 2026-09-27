@@ -40,6 +40,7 @@ class ProcessLifecycle:
                 raise RuntimeError("subprocess lifecycle is closing or already occupied")
             process = subprocess.Popen(
                 command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE if env.get("ACPROF_INTERACTIVE_PREPARATION") == "1" else subprocess.DEVNULL,
                 stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                 errors="replace", bufsize=1, start_new_session=(os.name == "posix"),
             )
@@ -47,11 +48,21 @@ class ProcessLifecycle:
             self.cleanup_error = ""
             return process
 
+    def reply(self, process: subprocess.Popen[str], line: str) -> None:
+        """A reply belongs to exactly one live child, never a later launch."""
+        with self._lock:
+            if self.process is not process or process.poll() is not None or process.stdin is None:
+                raise RuntimeError("preparation process is no longer waiting")
+            process.stdin.write(line)
+            process.stdin.flush()
+
     def release(self, process: subprocess.Popen[str]) -> bool:
         """Release only the matching process, after observing its exit."""
         with self._lock:
             if self.process is not process or process.poll() is None:
                 return False
+            if process.stdin is not None:
+                process.stdin.close()
             self.process = None
             self.cleanup_error = ""
             return True

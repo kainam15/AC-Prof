@@ -223,7 +223,8 @@ resolver 版本、锁定环境的 Transformers 版本、draft、依赖候选和�
 `declared/derived/verified/ambiguous/unresolved`；静态分析只产生声明或推导，`verified` 来自实际 Probe。
 `contract.status=resolved` 表示静态契约完整，外层仍为 `candidate`；真实执行证据继续保存在
 独立 `runtime_validation`。冲突或缺口使外层成为 `ambiguous/needs_configuration`，并在构建前停止。
-`contract.status=needs_confirmation` 汇总未决字段；TUI 的“解析与验证”只编辑这些字段，已解析证据默认折叠。
+`contract.status=needs_confirmation` 汇总未决字段；TUI 正式采集只在有可裁决的未决项时暂停询问，
+回答后在原进程继续。高级“模型检查”可独立审阅这些字段，已解析证据默认折叠。
 输入映射和依赖选择写入 `reviews`，来源标为 `user.review`；多 Pipeline 选择会在同一 SHA 上重新分析。
 动态源码、任务冲突等不能由当前字段编辑器解决的问题仍要求显式声明／adapter。
 
@@ -240,6 +241,16 @@ acprof inspect fixie-ai/ultravox-v0_5-llama-3_2-1b --explain \
 进程内缓存，Hub 文件复用其内容缓存。依赖 SHA、文件选择和用户决策也参与静态身份；没有跨进程的
 解析结果缓存，也不复用旧运行验证。运行观察单独追加，不改变已经建立的静态身份。
 JSON 元数据 hash 使用 canonical JSON；Python／README hash 使用所分析的 UTF-8 文本，报告会标明前者。
+
+TUI 另有**用户确认选择缓存**，不是上述解析结果缓存：输出根目录 `.model-contracts/decisions/`
+只保存答案和模型 ID、SHA、contract cache key、provenance identity、显式配置。下次仍读取当前证据，
+身份一致才重新应用答案并校验支持性。显式 task／family／backend 不得被答案或推断替换；不兼容
+声明明确拒绝。CPU Probe、历史验证或静态 resolved 都不能代替本次所选设备的完整运行验证。
+
+采集准备阶段由 `host.collection_workflow` 连接静态解析、主机预检、镜像、输入和 runtime validation。
+失败阶段保留其上游成功结果；普通“重新验证”复用原不可变镜像和输入，“重新准备环境”则使镜像及
+下游输入／验证失效后重建。正式测量期间不询问用户、不轮询控制通道、不做阶段重试。
+具体按钮和恢复边界见 [TUI 工作流](TUI.md#模型契约解析与验证)。
 
 外部 `from_pretrained` 调用按 tokenizer、processor、metadata、weights 等角色记录候选；
 config 中的模型引用和动态表达式也会保留。明确的 repo／loader 通过 Hub 自动固定 SHA，按角色生成

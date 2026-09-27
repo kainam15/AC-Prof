@@ -208,6 +208,14 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 ## TUI 与兼容维护
 
 `app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
+`host.collection_workflow` 在原采集进程内执行准备阶段和用户裁决；`tui.preparation` 只呈现未决项／错误，
+通过有界、带请求 ID 的 stdin 回复继续同一进程。`preparation_events` 定义独立的版本化准备消息，
+不复用正式测量边界事件，不依赖日志错误字符串决定是否询问。普通 CLI 保持非交互失败行为。
+确认缓存保存于结果根目录之外的 `.model-contracts/`；静态身份变化使其失效，运行证据始终独立验证。
+重试只回到失败准备阶段；显式重建环境会连带重做输入与验证。退出和取消沿用原进程组清理机制。
+设计借鉴 [Transformers Pipeline 的唯一候选选择](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
+（Apache-2.0）和 [Textual 的弹窗结果回传](https://github.com/Textualize/textual/discussions/2559)（项目为 MIT）。
+只复用接口思路，沿用当前 Textual 与标准库，不引入依赖或复制 loader；消息只在准备阶段发送，维护和测量成本局限在现有边界内。
 七页底栏共用 `.action-bar`，内部由 `.action-secondary` 和 `.action-primary` 两个 `Horizontal`
 分别承载左侧次要／导航动作与右侧主操作；间距由容器分配，按钮宽度随标签变化。
 `commands` 定义唯一的 `RunConfig` 及命令构造，`progress` 解析运行日志，

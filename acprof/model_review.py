@@ -36,17 +36,29 @@ def review_questions(task_info) -> list[dict]:
             questions.append({"path": name, "value": None, "reason": fields[name]["reason"],
                               "options": sorted(config.get("custom_pipelines", {}))})
         elif name in {"dependencies", "multimodal.forward_kwargs"}:
+            editable = True
+            blocked = False
             if name == "dependencies":
                 value = []
+                editable = False
                 for candidate in report.get("dependency_candidates", []):
                     if candidate.get("activation") == "inactive" or candidate.get("dependency_kind") == "main_model":
                         continue
                     choice = {"repo_id": candidate["repo_id"], "role": candidate["role"], "required": True}
                     if choice not in value:
                         value.append(choice)
+                    undecided = (not candidate.get("repo_id") or candidate.get("role") == "unknown"
+                                 or candidate.get("activation", "active") != "active" or "conditional" in candidate)
+                    editable |= undecided
+                    blocked |= not undecided and candidate.get("resolution", {}).get("status") != "pinned"
             else:
                 value = draft.get("multimodal", {}).get("forward_kwargs", {})
-            questions.append({"path": name, "value": value, "reason": fields[name].get("reason", name)})
+            question = {"path": name, "value": value, "reason": fields[name].get("reason", name)}
+            if name == "dependencies" and (not editable or blocked):
+                # An identified dependency with a failed lookup/file selection
+                # needs repair, not permission to silently omit that dependency.
+                question["read_only"] = True
+            questions.append(question)
         else:
             # Arbitrary source/control-flow failures cannot be fixed by accepting
             # a checkbox. They require an explicit adapter/declaration.
@@ -54,7 +66,7 @@ def review_questions(task_info) -> list[dict]:
     return questions
 
 
-def apply_review(task_info, answers: dict):
+def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
     from acprof.model_resolution import discover_model_candidates
     from acprof.host.task_support import require_task_support
@@ -74,7 +86,7 @@ def apply_review(task_info, answers: dict):
         previous = task.model_resolution["contract"]
         task.model_resolution = discover_model_candidates(task)
         apply_model_contract(task, lambda name: read_model_source(task.model_id, name, task.model_revision),
-                             resolve_repository=dependency_metadata, selected_pipeline=answers["pipeline_task"])
+                             resolve_repository=resolve_repository or dependency_metadata, selected_pipeline=answers["pipeline_task"])
         task.model_resolution["contract"]["reviews"] = [*previous.get("reviews", []),
             {"revision": task.model_revision, "answers": answers, "previous_cache_key": previous["cache_key"]}]
         if task.model_resolution["contract"]["status"] == "resolved":
@@ -107,7 +119,7 @@ def apply_review(task_info, answers: dict):
                                    "activation": "active", "dependency_kind": "external", "loader": candidate.get("loader"),
                                    "requested_revision": candidate.get("requested_revision", "main")}
                                   for candidate in original)
-            value, errors = resolve_dependencies(candidates, dependency_metadata)
+            value, errors = resolve_dependencies(candidates, resolve_repository or dependency_metadata)
             if errors:
                 raise ValueError("; ".join(errors))
             report["reviewed_dependency_candidates"] = candidates

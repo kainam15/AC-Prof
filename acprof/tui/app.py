@@ -193,6 +193,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._resolution_open = False
         self._environment_open = False
         self._last_resolution = None
+        self._preparation_screen = None
+        self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self._form_ready = False
         self._applying_config = False
         self._preview_timer = None
@@ -1007,6 +1009,7 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     @work(thread=True, group="process", exclusive=True, exit_on_error=False)
     def _execute_command(self, command: list[str], kind: str) -> None:
+        from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
         tracker = RunProgressTracker(structured=(kind == "run")) if kind in {"run", "probe"} else None
         suppressed_lines = 0
         deferred_important_lines: list[str] = []
@@ -1019,6 +1022,9 @@ class AcprofTui(ImageActions, BarCursorApp):
             child_env["PYTHONUNBUFFERED"] = "1"
             child_env["MPLBACKEND"] = "Agg"
             child_env["ACPROF_TUI"] = "1"
+            child_env.pop("ACPROF_INTERACTIVE_PREPARATION", None)
+            if kind == "run":
+                child_env["ACPROF_INTERACTIVE_PREPARATION"] = "1"
             # run.py otherwise captures the entire full-screen pane, including
             # ANSI redraws, when the TUI itself is launched inside tmux.
             child_env.pop("TMUX", None)
@@ -1076,10 +1082,13 @@ class AcprofTui(ImageActions, BarCursorApp):
                         suppressed_lines = 0
                 self.call_from_thread(
                     self._consume_process_line,
-                    "" if line.startswith("ACPROF_EVENT ") else line,
+                    "" if line.startswith(("ACPROF_EVENT ", PREFIX)) else line,
                     snapshot,
                     state_changed,
                 )
+                preparation = parse_preparation_event(line)
+                if preparation is not None:
+                    self.call_from_thread(self._preparation_event, preparation)
             returncode = process.wait()
             process.stdout.close()
         except Exception as exc:  # process errors must become visible in the UI
@@ -1188,6 +1197,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def _render_snapshot(self, snapshot: ProgressSnapshot) -> None:
+        from acprof.tui.preparation import phase_summary
+        self._set_text(self.query_one("#status-preparation", Static), phase_summary(snapshot))
         elapsed = (
             self._format_elapsed(time.monotonic() - self._started_monotonic)
             if self._started_monotonic
@@ -1219,6 +1230,13 @@ class AcprofTui(ImageActions, BarCursorApp):
         snapshot: ProgressSnapshot | None,
         launch_error: str,
     ) -> None:
+        self._preparation_request = None
+        if self._preparation_screen is not None:
+            self._preparation_screen.dismiss(None)
+            self._preparation_screen = None
+        if snapshot is not None and snapshot.measurement_status == "running":
+            snapshot = replace(snapshot, measurement_status=(
+                "cancelled" if self._stop_requested else "failed" if returncode else "passed"))
         # Stop the elapsed-time ticker.
         if self._elapsed_timer is not None:
             self._elapsed_timer.stop()
@@ -1387,6 +1405,40 @@ class AcprofTui(ImageActions, BarCursorApp):
     @on(Button.Pressed, "#quick-check")
     def quick_check_button(self) -> None:
         self.action_quick_check()
+
+    def _preparation_event(self, event: dict) -> None:
+        from acprof.tui.preparation import PreparationScreen, phase_summary
+        request = event.get("request")
+        if not isinstance(request, dict) or not request or self._stop_requested:
+            return
+        if self._latest_snapshot.measurement_active or self._preparation_request is not None:
+            raise RuntimeError("unexpected preparation request")
+        process = self._lifecycle.process
+        if process is None or process.poll() is not None:
+            return
+        if request["kind"] == "error":
+            self._write_log(f"[preparation][ERROR] {event['stage']}: {request.get('detail', '')}")
+        self._preparation_request = (process, request["id"])
+        self._preparation_screen = PreparationScreen(event, phase_summary(self._latest_snapshot))
+        self.push_screen(self._preparation_screen, self._preparation_answered)
+
+    def _preparation_answered(self, result) -> None:
+        from acprof.preparation_events import encode_reply
+        pending = self._preparation_request
+        self._preparation_request = None
+        self._preparation_screen = None
+        if pending is None:
+            return
+        process, request_id = pending
+        result = result or {"action": "cancel"}
+        if result["action"] == "cancel":
+            self._stop_requested = True
+        try:
+            self._lifecycle.reply(process, encode_reply(request_id, **result))
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.notify(str(exc), severity="error")
+            self._stop_requested = True
+            self._stop_process_gracefully()
 
     @on(Button.Pressed, "#inspect-model")
     def inspect_model(self) -> None:

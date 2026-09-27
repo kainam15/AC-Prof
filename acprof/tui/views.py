@@ -171,8 +171,9 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     ))
 
-                    yield app._localized_widget(Label("模型契约"))
-                    yield app._localized_widget(Button("解析与验证", id="inspect-model"))
+                    yield app._localized_widget(Label("高级诊断"))
+                    yield app._localized_widget(Button("模型检查", id="inspect-model",
+                                                       tooltip="可选诊断；开始采集会自动解析和验证。"))
 
                     yield app._localized_widget(Label("运行预设"))
                     yield app._localized_select(
@@ -420,6 +421,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                 yield app._localized_widget(Static("详情", classes="status-label"))
                 yield app._localized_widget(Static("尚未启动", id="status-detail", markup=False))
 
+            yield Static("", id="status-preparation", markup=False)
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):

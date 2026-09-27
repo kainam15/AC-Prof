@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 
 from acprof.tui.i18n import message
 from acprof.progress_events import parse_event
+from acprof.preparation_events import parse_event as parse_preparation_event
 from acprof.tui.presentation import UNKNOWN
 
 
@@ -82,6 +83,9 @@ class ProgressSnapshot:
     errors: int = 0
     final_csv: str = ""
     probe_summary: str = ""
+    interface_status: str = "not_started"
+    runtime_status: str = "not_started"
+    measurement_status: str = "not_started"
 
 
 class RunProgressTracker:
@@ -94,6 +98,22 @@ class RunProgressTracker:
 
     def feed(self, raw_line: str) -> ProgressSnapshot:
         line = ANSI_ESCAPE_RE.sub("", raw_line).strip()
+        preparation = parse_preparation_event(line)
+        if preparation is not None:
+            if self.snapshot.measurement_active:
+                raise ValueError("preparation request inside measurement window")
+            stage, status = preparation["stage"], preparation["status"]
+            labels = {"resolution": "接口解析", "dependencies": "解析依赖", "preflight": "环境预检", "image": "准备镜像",
+                      "input": "准备输入", "runtime": "运行验证"}
+            updates = {"stage": message(labels[stage]), "detail": preparation.get("request", {}).get("detail", "")}
+            if status == "failed":
+                updates["errors"] = self.snapshot.errors + 1
+            if stage == "resolution":
+                updates["interface_status"] = status
+            elif stage == "runtime":
+                updates["runtime_status"] = status
+            self.snapshot = replace(self.snapshot, **updates)
+            return self.snapshot
         event = parse_event(line)
         if event is not None:
             self._structured = True
@@ -302,6 +322,7 @@ class RunProgressTracker:
                 detail=message('采集与合并已完成'),
                 completed_cases=state.total_cases or state.completed_cases,
                 measurement_active=False,
+                measurement_status="passed",
             )
 
         final_match = FINAL_CSV_RE.search(line) or MERGE_CSV_RE.search(line)
@@ -329,7 +350,7 @@ class RunProgressTracker:
         elif case_id == self._case_id:
             if name == "measurement_started":
                 self.snapshot = replace(self.snapshot, stage=message('正式测量'),
-                    detail=message('采集窗口进行中；TUI 已停止常规重绘'), measurement_active=True)
+                    detail=message('采集窗口进行中；TUI 已停止常规重绘'), measurement_active=True, measurement_status="running")
             elif name == "measurement_stopped":
                 self.snapshot = replace(self.snapshot, stage=message('清理 case'), measurement_active=False)
             elif name == "case_finished":
