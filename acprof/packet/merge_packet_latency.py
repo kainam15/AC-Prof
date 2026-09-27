@@ -9,6 +9,7 @@ from typing import Sequence
 from acprof.pixel_metrics import per_megapixel
 from acprof.artifacts import read_static_metadata
 from acprof.latency_slo import latency_slo_threshold
+from acprof.metric_registry import order_csv_fields
 
 SNIFF_GROUP_FIELD = "sniff_group_id"
 NETWORK_RECORD_TO_CSV_FIELD = {
@@ -330,7 +331,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             except Exception:
                 pass
 
-    fields = [field for field in fields if field != SNIFF_GROUP_FIELD]
+    fields = order_csv_fields(field for field in fields if field != SNIFF_GROUP_FIELD)
     for r in rows:
         r.pop(SNIFF_GROUP_FIELD, None)
 

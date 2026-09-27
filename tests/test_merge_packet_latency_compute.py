@@ -14,6 +14,8 @@ class MergePacketLatencyComputeTests(unittest.TestCase):
             lat_json = os.path.join(tmp, "lat.json")
             out_csv = os.path.join(tmp, "result.merged.csv")
             fieldnames = [
+                "status",
+                "error",
                 "sniff_group_id",
                 "latency_s",
                 "model_logical_mflop_per_request_torch_profiler_eager",
@@ -22,12 +24,15 @@ class MergePacketLatencyComputeTests(unittest.TestCase):
                 "gpu_executed_mflop_per_request_ncu",
                 "gpu_executed_mflops_app_ncu",
                 "gpu_executed_mflops_packet_ncu",
+                "extension_metric",
             ]
             with open(in_csv, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerow(
                     {
+                        "status": "ok",
+                        "error": "",
                         "sniff_group_id": "case_seq1_r0",
                         "latency_s": "nan",
                         "model_logical_mflop_per_request_torch_profiler_eager": "200",
@@ -36,6 +41,7 @@ class MergePacketLatencyComputeTests(unittest.TestCase):
                         "gpu_executed_mflop_per_request_ncu": "100",
                         "gpu_executed_mflops_app_ncu": "200",
                         "gpu_executed_mflops_packet_ncu": "nan",
+                        "extension_metric": "preserved,quoted\nvalue",
                     }
                 )
             with open(lat_json, "w", encoding="utf-8") as f:
@@ -57,10 +63,17 @@ class MergePacketLatencyComputeTests(unittest.TestCase):
                 cwd=os.path.dirname(os.path.dirname(__file__)),
             )
             with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                row = next(csv.DictReader(f))
+                reader = csv.DictReader(f)
+                row = next(reader)
+                output_fields = reader.fieldnames or []
             with open(f"{in_csv}.requests.jsonl", encoding="utf-8") as f:
                 request_window = json.loads(f.readline())
 
+        self.assertEqual(output_fields[-3:], ["extension_metric", "status", "error"])
+        self.assertEqual(set(output_fields), set(fieldnames) - {"sniff_group_id"})
+        self.assertEqual(row["extension_metric"], "preserved,quoted\nvalue")
+        self.assertEqual(row["status"], "ok")
+        self.assertEqual(row["error"], "")
         self.assertEqual(request_window.get("latency_packet_s"), [0.25, None])
         self.assertEqual(request_window["latency_app_s"], [0.3, 0.4])
         self.assertEqual(

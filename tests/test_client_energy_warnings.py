@@ -39,6 +39,49 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             mocked.start()
             self.addCleanup(mocked.stop)
 
+    def test_append_respects_existing_column_order_and_rejects_invalid_headers(self):
+        reordered = ["status", "error", *[field for field in CSV_FIELDS
+                                          if field not in {"status", "error"}]]
+        for fields, valid in ((reordered, True), (reordered[:-1], False),
+                              ([*reordered[:-1], reordered[0]], False)):
+            with self.subTest(fields=fields[-2:]), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp, "result.csv")
+                original = dict.fromkeys(fields, "nan")
+                original.update(cpu_cores="1", status="ok", error="")
+                with path.open("w", newline="") as stream:
+                    writer = csv.DictWriter(stream, fieldnames=fields)
+                    writer.writeheader()
+                    writer.writerow(original)
+                before = path.read_bytes()
+                with ExitStack() as stack:
+                    for name, value in {
+                        "OUT_CSV": str(path), "CPU_CORES": "2", "GPU_MODE": "off",
+                        "USE_ENERGY": False, "USE_MIPS": False, "IDLE_DEBUG": False,
+                        "PROFILING_MODE": "full", "SNIFF_GROUPS_PATH": "",
+                        "input_scale_entries": [{"input_scale": 1.0}],
+                    }.items():
+                        stack.enter_context(patch.object(client, name, value))
+                    ready = stack.enter_context(patch.object(
+                        client.requests, "get", side_effect=RuntimeError("offline fixture")))
+                    if valid:
+                        client.main()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "CSV.*columns"):
+                            client.main()
+                        ready.assert_not_called()
+                        self.assertEqual(path.read_bytes(), before)
+                        self.assertEqual(list(Path(tmp).iterdir()), [path])
+                        continue
+                with path.open(newline="") as stream:
+                    reader = csv.DictReader(stream)
+                    rows = list(reader)
+                    self.assertEqual(reader.fieldnames, fields)
+                self.assertEqual(rows[0], original)
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(rows[1]["cpu_cores"], "2")
+                self.assertEqual(rows[1]["status"], "error")
+                self.assertIn("offline fixture", rows[1]["error"])
+
     def test_frozen_scale_order_changes_execution_without_changing_payloads(self):
         entries = [{"input_scale": scale, "payload": {"text": f"payload-{scale}"}}
                    for scale in (16, 32, 64)]
@@ -505,8 +548,8 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             self.assertIn(field, CSV_FIELDS)
         self.assertEqual(
             CSV_FIELDS[
-                CSV_FIELDS.index("cpu_perf_elapsed_s") + 1:
-                CSV_FIELDS.index("cpu_perf_elapsed_s") + 1 + len(fields)
+                CSV_FIELDS.index("cpu_perf_running_pct") + 1:
+                CSV_FIELDS.index("cpu_perf_running_pct") + 1 + len(fields)
             ],
             fields,
         )

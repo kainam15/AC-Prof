@@ -1013,6 +1013,12 @@ def main() -> None:
         EXECUTION_PROFILE_PLAN_FILE
     )
     need_header = _is_file_empty(OUT_CSV)
+    fieldnames = CSV_FIELDS
+    if not need_header:
+        with open(OUT_CSV, "r", newline="", encoding="utf-8-sig") as existing:
+            fieldnames = next(csv.reader(existing))
+        if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
+            raise RuntimeError(f"existing CSV columns do not match current fields: {OUT_CSV}; use a new output file")
     sidecar_mode = "w" if need_header else "a"
     if IDLE_DEBUG:
         diag_path = _idle_diag_path(OUT_CSV)
@@ -1029,7 +1035,7 @@ def main() -> None:
     ) as requests_f, diag_context as diag_f:
         writer = csv.DictWriter(
             f,
-            fieldnames=CSV_FIELDS,
+            fieldnames=fieldnames,
             quoting=csv.QUOTE_MINIMAL,
         )
         if need_header:

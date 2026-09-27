@@ -15,6 +15,7 @@ from typing import (
     Tuple,
 )
 
+from acprof.metric_registry import order_csv_fields
 from acprof.host.collection_history import append_collection_record
 from acprof.host.compute_profile_plan import (
     NCU_ERROR_FIELD,
@@ -188,7 +189,7 @@ def backfill_rows(
                     )
                 _backfill_execution_row(row, execution_plan, tool)
             updated[tool] += 1
-    return fieldnames, rows, updated
+    return order_csv_fields(fieldnames), rows, updated
 
 
 def _normalize_tool_metadata(value: Any) -> List[str]:

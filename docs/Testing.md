@@ -40,6 +40,8 @@ RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-
 
 指标登记表新增字段时，在 `test_metric_registry.py` 中显式列出新增字段，保留历史字段
 顺序的基准哈希；运行 `scripts/render_metric_reference.py` 更新速查文档后再执行 `--check`。
+新字段插入对应用途组，整体 `status`、`error` 保持在最后两列。列顺序调整还需验证
+旧表头的追加、case 合并、packet 回填和 profiler 补采，确保按列名保留数值及未知扩展列。
 
 Ruff、pre-commit 和锁生成工具 uv 由 [`requirements-dev.in`](../requirements-dev.in) 声明，
 完整版本与制品哈希保存在 [`requirements-dev.lock`](../requirements-dev.lock)。开发锁以主机锁

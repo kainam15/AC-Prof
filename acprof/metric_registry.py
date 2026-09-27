@@ -1,6 +1,7 @@
 """CSV 指标的唯一登记表；标准库声明，不初始化任何采集器。"""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from types import MappingProxyType
 
@@ -22,9 +23,11 @@ class Metric:
 
 # 顺序就是 CSV 协议顺序；单位和窗口在此显式声明，消费者不得按列名猜测。
 _DECLARATIONS = (
+    # 资源配置、输入、输出与网络。
     Metric('cpu_cores', 'core', 'protocol', 'case'),
     Metric('mem_cap_gb', 'GiB', 'protocol', 'case'),
     Metric('gpu_mode', 'text', 'protocol', 'case', applicability='gpu', kind='text'),
+    Metric('gpu_device_uuid', 'text', 'docker_device_request', 'case', applicability='gpu', kind='text'),
     Metric('input_scale', 'input_scale_type', 'protocol', 'row'),
     Metric('input_units_per_request', 'input_unit/request', 'input_plan', 'materialized_request'),
     Metric('input_num_samples', 'sample/request', 'input_plan', 'materialized_request', applicability='audio'),
@@ -43,6 +46,7 @@ _DECLARATIONS = (
     Metric('repeat_idx', 'index', 'protocol', 'row'),
     Metric('warmup', '0|1', 'protocol', 'row'),
     Metric('repeat_in_window', 'request/window', 'protocol', 'row'),
+    # 请求窗口的延迟分布与吞吐。
     Metric('latency_s', 's', 'pcap', 'request_window'),
     Metric('latency_s_per_input_unit', 's/input_unit', 'pcap', 'request_window'),
     Metric('latency_s_per_input_megapixel', 's/Mpixel', 'pcap', 'request_window', applicability='pixel_geometry'),
@@ -73,6 +77,7 @@ _DECLARATIONS = (
     Metric('latency_app_slow_ratio', 'ratio', 'client_http', 'request_window'),
     Metric('throughput_samples_per_s', 'sample/s', 'derived', 'request_window'),
     Metric('throughput_samples_per_s_per_cpu_core', 'sample/s/core', 'derived', 'request_window'),
+    # 独立 Profiler；各工具的诊断紧随对应指标。
     Metric('model_logical_mflop_per_request_torch_profiler_eager', 'MFLOP/request', 'torch', 'independent_profiler', tool='torch', posthoc=True),
     Metric('model_logical_mflops_app_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch'),
     Metric('model_logical_mflops_packet_torch_profiler_eager', 'MFLOP/s', 'torch', 'independent_profiler', tool='torch'),
@@ -101,9 +106,11 @@ _DECLARATIONS = (
     Metric('gpu_memcpy_count_per_request_nsys', 'count/request', 'nsys', 'independent_profiler', applicability='gpu', tool='nsys', posthoc=True),
     Metric('gpu_memcpy_bytes_per_request_nsys', 'byte/request', 'nsys', 'independent_profiler', applicability='gpu', tool='nsys', posthoc=True),
     Metric('compute_profile_error_nsys', 'text', 'nsys', 'independent_profiler', applicability='gpu', kind='text', tool='nsys', posthoc=True),
+    # GPU 功率与能耗，包括采样来源和回退原因。
     Metric('gpu_idle_power_w', 'W', 'nvml_selected_device', 'matched_control', applicability='gpu'),
     Metric('gpu_idle_measured_at', 'ISO-8601', 'nvml_selected_device', 'matched_control', applicability='gpu_idle_debug', kind='text'),
     Metric('gpu_idle_rel_range_so_far', 'ratio', 'nvml_selected_device', 'case_controls_so_far', applicability='gpu_idle_debug'),
+    Metric('gpu_idle_energy_source', 'text', 'nvml_selected_device', 'matched_control', applicability='gpu', kind='text'),
     Metric('gpu_energy_iters', 'sample/window', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_avg_power_total_w', 'W', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_peak_power_total_w', 'W', 'nvml_selected_device', 'request_window', applicability='gpu'),
@@ -111,6 +118,9 @@ _DECLARATIONS = (
     Metric('gpu_avg_power_eff_w', 'W', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_peak_power_eff_w', 'W', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_energy_eff_j', 'J/request', 'nvml_selected_device', 'request_window', applicability='gpu'),
+    Metric('gpu_energy_source', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text'),
+    Metric('gpu_energy_fallback_reason', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text'),
+    # CPU package、DRAM、估算 vCPU 与容器归因能效。
     Metric('cpu_idle_power_w', 'W', 'rapl_package', 'matched_control'),
     Metric('cpu_idle_measured_at', 'ISO-8601', 'rapl_package', 'matched_control', applicability='idle_debug', kind='text'),
     Metric('cpu_idle_rel_range_so_far', 'ratio', 'rapl_package', 'case_controls_so_far', applicability='idle_debug'),
@@ -121,6 +131,16 @@ _DECLARATIONS = (
     Metric('cpu_avg_power_eff_w', 'W', 'rapl_package', 'request_window'),
     Metric('cpu_peak_power_eff_w', 'W', 'rapl_package', 'request_window'),
     Metric('cpu_energy_eff_j', 'J/request', 'rapl_package', 'request_window'),
+    Metric('dram_window_energy_j', 'J/window', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_window_duration_s', 's', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_energy_per_request_j', 'J/request', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_avg_power_w', 'W', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_peak_power_w', 'W', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_idle_power_w', 'W', 'rapl_dram', 'control_window', applicability='dram'),
+    Metric('dram_window_effective_energy_j', 'J/window', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_effective_energy_per_request_j', 'J/request', 'rapl_dram', 'request_window', applicability='dram'),
+    Metric('dram_energy_status', 'text', 'rapl_dram', 'request_window', applicability='dram', kind='text'),
+    Metric('dram_energy_error', 'text', 'rapl_dram', 'request_window', applicability='dram', kind='text'),
     Metric('vcpu_cpu_share', 'ratio', 'rapl_cgroup_attribution', 'request_window'),
     Metric('vcpu_cpu_time_s', 's/request', 'rapl_cgroup_attribution', 'request_window'),
     Metric('vcpu_avg_power_total_w', 'W', 'rapl_cgroup_attribution', 'request_window'),
@@ -137,6 +157,7 @@ _DECLARATIONS = (
     Metric('container_attributed_j_per_input_unit', 'J/input_unit', 'derived', 'request_window'),
     Metric('container_attributed_j_per_input_megapixel', 'J/Mpixel', 'derived', 'request_window', applicability='pixel_geometry'),
     Metric('container_attributed_j_per_output_megapixel', 'J/Mpixel', 'derived', 'request_window', applicability='pixel_geometry'),
+    # CPU 资源、频率与 PMU。
     Metric('resource_usage_iters', 'sample/window', 'cgroup', 'request_window'),
     Metric('container_cpu_util_avg_pct', '%', 'cgroup', 'request_window'),
     Metric('container_cpu_util_peak_pct', '%', 'cgroup', 'request_window'),
@@ -150,16 +171,21 @@ _DECLARATIONS = (
     Metric('cpu_freq_peak_hz', 'Hz', 'host_cpufreq', 'request_window'),
     Metric('cpu_cycles_est_app', 'cycle/request', 'derived', 'request_window'),
     Metric('cpu_cycles_est_packet', 'cycle/request', 'derived', 'request_window'),
+    Metric('cpu_cycles_per_request', 'cycle/request', 'perf_stat', 'request_window'),
+    Metric('cpu_ref_cycles_per_request', 'ref_cycle/request', 'perf_stat', 'request_window'),
     Metric('cpu_instructions_per_request', 'count/request', 'perf_stat', 'request_window'),
+    Metric('cpu_ipc', 'instruction/cycle', 'perf_stat', 'request_window'),
     Metric('cpu_mips_app', 'Minstruction/s', 'perf_stat', 'request_window'),
     Metric('cpu_mips_packet', 'Minstruction/s', 'perf_stat', 'request_window'),
     Metric('cpu_perf_elapsed_s', 's', 'perf_stat', 'request_window'),
+    Metric('cpu_perf_running_pct', '%', 'perf_stat', 'request_window'),
     Metric('cpu_cache_references_per_request', 'count/request', 'perf_stat', 'request_window'),
     Metric('cpu_cache_misses_per_request', 'count/request', 'perf_stat', 'request_window'),
     Metric('cpu_cache_miss_rate_pct', '%', 'perf_stat', 'request_window'),
     Metric('cpu_dtlb_loads_per_request', 'count/request', 'perf_stat', 'request_window'),
     Metric('cpu_dtlb_load_misses_per_request', 'count/request', 'perf_stat', 'request_window'),
     Metric('cpu_dtlb_load_miss_rate_pct', '%', 'perf_stat', 'request_window'),
+    # 容器内存、swap、I/O 与 PID。
     Metric('container_mem_usage_avg_bytes', 'byte', 'cgroup', 'request_window'),
     Metric('container_mem_usage_peak_bytes', 'byte', 'cgroup', 'request_window'),
     Metric('container_mem_util_avg_pct', '%', 'cgroup', 'request_window'),
@@ -189,6 +215,7 @@ _DECLARATIONS = (
     Metric('container_pids_current_end', 'count', 'cgroup', 'request_window_end'),
     Metric('container_pids_peak_cgroup', 'count', 'cgroup', 'cgroup_lifetime'),
     Metric('container_pids_max_events_delta', 'count/window', 'cgroup', 'request_window'),
+    # GPU 资源与运行状态。
     Metric('gpu_sm_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_memory_clock_mhz', 'MHz', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_pstate', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text'),
@@ -199,6 +226,7 @@ _DECLARATIONS = (
     Metric('gpu_mem_used_peak_bytes', 'byte', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_mem_util_avg_pct', '%', 'nvml_selected_device', 'request_window', applicability='gpu'),
     Metric('gpu_mem_util_peak_pct', '%', 'nvml_selected_device', 'request_window', applicability='gpu'),
+    # 容器冷启动。
     Metric('cold_start_started_at', 'ISO-8601', 'docker_and_server', 'container_startup', kind='text'),
     Metric('cold_start_ready_at', 'ISO-8601', 'docker_and_server', 'container_startup', kind='text'),
     Metric('cold_start_container_launch_s', 's', 'docker_and_server', 'container_startup'),
@@ -208,28 +236,11 @@ _DECLARATIONS = (
     Metric('cold_start_ready_wait_s', 's', 'docker_and_server', 'container_startup'),
     Metric('cold_start_first_predict_app_s', 's', 'docker_and_server', 'container_startup'),
     Metric('cold_start_s', 's', 'docker_and_server', 'container_startup'),
+    # 请求契约与结果来源；整体状态和错误固定在最后两列。
+    Metric('workload_contract', 'JSON', 'handler', 'actual_request', kind='text'),
+    Metric('result_origin', 'text', 'protocol', 'row', kind='text'),
     Metric('status', 'text', 'protocol', 'row', kind='text'),
     Metric('error', 'text', 'protocol', 'row', kind='text'),
-    Metric('workload_contract', 'JSON', 'handler', 'actual_request', kind='text'),
-    Metric('gpu_device_uuid', 'text', 'docker_device_request', 'case', applicability='gpu', kind='text'),
-    Metric('gpu_energy_source', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text'),
-    Metric('gpu_energy_fallback_reason', 'text', 'nvml_selected_device', 'request_window', applicability='gpu', kind='text'),
-    Metric('gpu_idle_energy_source', 'text', 'nvml_selected_device', 'matched_control', applicability='gpu', kind='text'),
-    Metric('cpu_cycles_per_request', 'cycle/request', 'perf_stat', 'request_window'),
-    Metric('cpu_ref_cycles_per_request', 'ref_cycle/request', 'perf_stat', 'request_window'),
-    Metric('cpu_ipc', 'instruction/cycle', 'perf_stat', 'request_window'),
-    Metric('cpu_perf_running_pct', '%', 'perf_stat', 'request_window'),
-    Metric('dram_window_energy_j', 'J/window', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_window_duration_s', 's', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_energy_per_request_j', 'J/request', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_avg_power_w', 'W', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_peak_power_w', 'W', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_idle_power_w', 'W', 'rapl_dram', 'control_window', applicability='dram'),
-    Metric('dram_window_effective_energy_j', 'J/window', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_effective_energy_per_request_j', 'J/request', 'rapl_dram', 'request_window', applicability='dram'),
-    Metric('dram_energy_status', 'text', 'rapl_dram', 'request_window', applicability='dram', kind='text'),
-    Metric('dram_energy_error', 'text', 'rapl_dram', 'request_window', applicability='dram', kind='text'),
-    Metric('result_origin', 'text', 'protocol', 'row', kind='text'),
 )
 METRICS = MappingProxyType({metric.name: metric for metric in _DECLARATIONS})
 if len(METRICS) != len(_DECLARATIONS):
@@ -237,6 +248,17 @@ if len(METRICS) != len(_DECLARATIONS):
 CSV_FIELDS = list(METRICS)
 NUMERIC_FIELDS = tuple(name for name, metric in METRICS.items() if metric.kind == "number")
 GPU_RUNTIME_STATE_FIELDS = ["gpu_sm_clock_mhz", "gpu_memory_clock_mhz", "gpu_pstate", "gpu_temp_c"]
+
+
+def order_csv_fields(fields: Iterable[str]) -> list[str]:
+    """按登记顺序排列已有列；未知扩展列保留在 status、error 之前。"""
+    fields = list(fields)
+    present = set(fields)
+    diagnostics = ("status", "error")
+    ordered = [name for name in CSV_FIELDS if name in present and name not in diagnostics]
+    ordered.extend(name for name in fields if name not in METRICS)
+    ordered.extend(name for name in diagnostics if name in present)
+    return ordered
 
 
 def tool_fields(tool: str, *, numeric_only: bool = False) -> tuple[str, ...]:

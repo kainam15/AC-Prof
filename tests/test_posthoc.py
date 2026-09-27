@@ -391,13 +391,18 @@ class PosthocProfileTests(unittest.TestCase):
             root = Path(tmp) / "example--model"
             self._write_fixture(root)
             context = host_posthoc_context.load_result_context(root)
-            _fields, rows, updated = host_posthoc_backfill.backfill_rows(
+            original_fields = set(context.fieldnames)
+            context.fieldnames = [field for field in context.fieldnames
+                                  if field not in host_posthoc_context.NCU_FIELDS]
+            fields, rows, updated = host_posthoc_backfill.backfill_rows(
                 context,
                 tools=("ncu", "nsys", "massif"),
                 compute_plan=self._compute_plan(),
                 execution_plan=self._execution_plan(),
             )
 
+        self.assertEqual(set(fields), original_fields)
+        self.assertEqual(fields[-2:], ["marker", "status"])
         cpu = next(row for row in rows if row["gpu_mode"] == "off")
         gpu = next(row for row in rows if row["gpu_mode"] == "on")
         self.assertEqual(cpu["marker"], "cpu-original")

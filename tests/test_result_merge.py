@@ -59,7 +59,8 @@ class ResultMergeTests(unittest.TestCase):
                                                 'transformers_pipeline', 'transformers', 'a' * 40, 'manual'),
                               out_csv=str(path), cpu=1, mem=4, gpu='off', warmup=0, repeat=1,
                               repeat_in_window=1, input_scales=serialized, error='injected startup failure')
-        _, rows = read_result_csv(path, expected=expected_measurements([1], [4], ['off'], [scale], 0, 1))
+        fields, rows = read_result_csv(path, expected=expected_measurements([1], [4], ['off'], [scale], 0, 1))
+        self.assertEqual(fields[-2:], ['status', 'error'])
         self.assertEqual(float(rows[0]['input_scale']), scale)
 
     def test_missing_source_rejected_before_replacing_previous_result(self):
@@ -114,12 +115,23 @@ class ResultMergeTests(unittest.TestCase):
 
     def test_success_preserves_file_permissions_and_unknown_historical_fields(self):
         source = self.source(extra_fields=("legacy_metric",))
+        fields, original_rows = read_result_csv(source)
+        original_rows[0]["legacy_metric"] = "preserved,quoted\nvalue"
+        # Older or external files may use a different column order.
+        with source.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(reversed(fields)))
+            writer.writeheader()
+            writer.writerows(original_rows)
+        original_source = source.read_bytes()
         self.destination.chmod(0o640)
         merge_all_csvs([str(source)], str(self.destination))
         with self.destination.open(newline="") as stream:
             reader = csv.DictReader(stream)
             rows = list(reader)
             self.assertIn("legacy_metric", reader.fieldnames)
+            self.assertEqual(reader.fieldnames[-3:], ["legacy_metric", "status", "error"])
+        self.assertEqual(rows, original_rows)
+        self.assertEqual(source.read_bytes(), original_source)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["input_scale"], "64")
         self.assertEqual(os.stat(self.destination).st_mode & 0o777, 0o640)

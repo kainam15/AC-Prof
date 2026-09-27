@@ -53,6 +53,19 @@
 
 字段按用途分组，列顺序、类型、单位、来源和窗口由 [metric_registry.py](../acprof/metric_registry.py) 统一登记；
 `config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](Metric_Reference.md)，绘图数值转换和补采完成条件复用登记表。
+
+`result.csv`、`result_case_*.csv` 和 `result_all.csv` 的列依次为：资源配置与输入输出／网络、
+延迟与吞吐、独立 Profiler、GPU／CPU package／DRAM／估算 vCPU 能耗与能效、
+CPU 资源与 PMU、容器内存／swap／I/O／PID、GPU 资源、冷启动、请求契约与结果来源。
+GPU UUID 紧随 `gpu_mode`，能耗来源紧邻对应 GPU 能耗组，硬件 cycles／IPC 属于 PMU 组。
+标准表头最后四列固定为 `workload_contract`、`result_origin`、`status`、`error`；
+Profiler 和 DRAM 自身的诊断保留在各自指标组末尾。
+
+合并、packet 回填和 profiler 补采写出时统一此顺序，已有未知扩展列保留在 `status`、`error`
+之前。列重排不改变字段名、数值、单位、测量窗口或缺失值含义；读取历史 CSV 按列名匹配。
+client 追加到字段集合相同的已有文件时沿用原表头，避免数值错位；字段缺失或重复时在写入前报错，
+要求使用新输出文件。已有实验文件不会因升级而自动重写。
+
 `*_per_request` 以及历史 CPU/GPU/vCPU 能量列按窗口内请求数归一化；DRAM 的
 `dram_window_energy_j` / `dram_window_effective_energy_j` 保留整段窗口能量，
 对应 `*_per_request_j` 才是 J/request。`*_delta` 若未注明归一化，则表示整个窗口的增量。

@@ -9,6 +9,7 @@ from typing import Iterable, Mapping, Sequence
 
 from acprof.artifacts import atomic_write
 from acprof.config import CSV_FIELDS
+from acprof.metric_registry import order_csv_fields
 
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
@@ -126,6 +127,7 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
                 raise ResultValidationError(f"duplicate measurement across case CSVs: {key}")
             keys.add(key)
             rows.append(row)
+    fields = order_csv_fields(fields)
     if expected is not None:
         planned = set(expected)
         if keys != planned:
