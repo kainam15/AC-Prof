@@ -1,6 +1,6 @@
 # 安装与运行指南
 
-首次使用可先按[首页的快速开始](../README.md#快速开始)，执行 `./setup.sh` 后在 TUI 跑通一个 basic CPU 实验。
+首次使用可先按[中文首页的快速开始](i18n/README_zh-CN.md#快速开始)，执行 `./setup.sh` 后在 TUI 跑通一个 basic CPU 实验。
 脚本参数、重复执行和安装路径见[Clone 后初始化](Distribution.md#clone-后初始化)。
 本文保留完整主机检查、认证配置，以及 full、GPU、ONNX 和资源矩阵示例。
 下文保留源码目录和 `.venv` 的开发方式；安装后的 `acprof` 命令可从任意工作目录执行。
@@ -164,7 +164,7 @@ HF_TOKEN=hf_xxx
 ### 3. 跑一个最小 smoke test
 
 下面使用默认 `full` 模式，只运行一个 CPU、一个内存限制、一个输入尺度和一个请求，
-并关闭独立 profiler。首次跑通流程可使用[首页的 basic 示例](../README.md#快速开始)；
+并关闭独立 profiler。首次跑通流程可使用[中文首页的 basic 示例](i18n/README_zh-CN.md#快速开始)；
 本例还要求前述 RAPL、perf 和抓包条件。
 
 ```bash

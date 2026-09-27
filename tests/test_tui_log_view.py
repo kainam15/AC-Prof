@@ -77,7 +77,13 @@ class TuiLogViewTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await pilot.click("#expand-log", offset=(3, 0)))
             await pilot.pause()
             self.assertIs(app.screen.maximized, panel)
-            self.assertGreater(log.content_region.height, normal_height + 8)
+            self.assertGreater(log.content_region.height, normal_height)
+            toolbar = app.query_one("#log-toolbar")
+            # Maximized content fills the panel above its controls; avoid a
+            # fixed height delta tied to the ordinary page's status chrome.
+            self.assertEqual(log.region.y, panel.content_region.y)
+            self.assertEqual(log.region.bottom, toolbar.region.y)
+            self.assertEqual(toolbar.region.bottom, panel.content_region.bottom)
             for button_id in ("copy-log", "follow-log", "restore-log", "stop-run"):
                 self.assert_button_reachable(app, button_id)
 

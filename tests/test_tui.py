@@ -622,7 +622,14 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
             'Recovery: configure CAP_PERFMON',
             '[case] Stopping container...',
         ]
-        script = '\n'.join(f'print({line!r}, flush=True)' for line in lines) + '\nraise SystemExit(1)'
+        script = (
+            "from acprof.progress_events import emit_event\n"
+            "emit_event('case_started', 'fixture')\n"
+            "emit_event('measurement_started', 'fixture')\n"
+            + '\n'.join(f'print({line!r}, flush=True)' for line in lines)
+            + "\nemit_event('measurement_stopped', 'fixture')\n"
+            "emit_event('case_finished', 'fixture', status='error')\nraise SystemExit(1)"
+        )
         app = AcprofTui(RunConfig.smoke('demo/model'))
         async with app.run_test(size=(120, 30)) as pilot:
             app._launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))

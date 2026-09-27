@@ -11,7 +11,7 @@ from acprof.host import docker_runtime as docker
 PROBE_NAME = "startup_oom_pruning.json"
 
 
-def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds) -> dict:
+def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds, cpuset_cpus="") -> dict:
     name = f"startup-probe-{docker._sanitize_model_id(task.model_id)}-{cpu}c-{mem}g-{gpu}"
     started = time.perf_counter()
     record = {"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": gpu,
@@ -22,7 +22,8 @@ def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds) -> dic
         session = docker._start_container_session(
             task_info=task, cpu=cpu, mem=mem, gpu=gpu, image_info=image,
             container_name=name, log_prefix="[startup-probe]",
-            request_timeout_seconds=request_timeout_seconds)
+            request_timeout_seconds=request_timeout_seconds,
+            **({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}))
         record.update(ready=True, outcome="startup_feasible", container_name=session.name,
                       container_id=session.container_id,
                       docker_state=docker._inspect_container_state(session.container_id))
@@ -79,7 +80,8 @@ def run_startup_probes(directory, identity, task, image, *, request_timeout_seco
                            and r["mem_cap_gb"] == mem), None)
             if record is None:
                 record = probe_startup(task, image, min(identity["cpus"]), mem, gpu,
-                                       request_timeout_seconds=request_timeout_seconds)
+                                       request_timeout_seconds=request_timeout_seconds,
+                                       **({"cpuset_cpus": identity["cpuset_cpus"]} if identity.get("cpuset_cpus") else {}))
                 report["attempts"].append(record)
                 atomic_write_json(path, report)
             if mem not in startup_oom_prefixes(report)[gpu]:

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.progress_events import emit_event, measurement_boundary
+from acprof.host.hardware_conditions import record_case_conditions
 
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -281,8 +283,11 @@ def run_single_case(
     profiling_mode: str = "full",
     input_scale_order: Optional[List[float]] = None,
     dram_energy: str = "auto",
+    cpuset_cpus: str = "",
 ) -> str:
     """Run one profiling case and return result CSV path."""
+    from acprof.cpu_affinity import normalize_cpu_set
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     require_profiling_mode(profiling_mode)
     request_timeout_seconds = float(request_timeout_seconds)
     if (
@@ -314,6 +319,7 @@ def run_single_case(
     except FileNotFoundError:
         pass
 
+    emit_event("case_started", case_name)
     try:
         session = _start_container_session(
             task_info=task_info,
@@ -324,6 +330,7 @@ def run_single_case(
             container_name=container_name,
             log_prefix="[case]",
             request_timeout_seconds=request_timeout_seconds,
+            cpuset_cpus=cpuset_cpus,
         )
     except RuntimeError as exc:
         error = f"container_start_failed: {exc}"
@@ -340,7 +347,11 @@ def run_single_case(
             input_scales=input_scales,
             error=error,
         )
+        emit_event("case_finished", case_name, status="error")
         return out_csv
+    except BaseException as exc:
+        emit_event("case_finished", case_name, status="cancelled" if isinstance(exc, KeyboardInterrupt) else "error")
+        raise
 
     container_name = session.name
     base_url = session.base_url
@@ -348,14 +359,13 @@ def run_single_case(
     case_incomplete = False
     completed_rows_before_failure = 0
     incomplete_case_reason = ""
+    case_status = "error"
     require_packet_latency = require_packet_latency and measurement_requested(profiling_mode, "packet_latency")
-    sniff_runtime = _resolve_packet_latency_runtime(
-        project_dir=project_dir,
-        pcap_file=pcap_file,
-        sniff_iface=sniff_iface,
-    ) if measurement_requested(profiling_mode, "packet_latency") else None
-
     try:
+        record_case_conditions(output_dir, case.case_id, session, cpuset_cpus=cpuset_cpus)
+        sniff_runtime = _resolve_packet_latency_runtime(
+            project_dir=project_dir, pcap_file=pcap_file, sniff_iface=sniff_iface,
+        ) if measurement_requested(profiling_mode, "packet_latency") else None
         if sniff_runtime is not None:
             print(f"[sniff] Starting tcpdump on {sniff_iface} via {sniff_runtime.mode}")
             try:
@@ -431,12 +441,13 @@ def run_single_case(
         # credential out of the measured subprocess environment entirely.
         client_env.pop("ACPROF_WECOM_WEBHOOK_URL", None)
 
-        client_result = _run(
-            module_command("acprof.host.client"),
-            check=False,
-            capture=False,
-            env=client_env,
-        )
+        with measurement_boundary(case_name):
+            client_result = _run(
+                module_command("acprof.host.client"),
+                check=False,
+                capture=False,
+                env=client_env,
+            )
 
         if client_result.returncode != 0:
             runtime_oom_error = _container_runtime_oom_error(
@@ -475,7 +486,7 @@ def run_single_case(
                     request_timeout_seconds,
                 )
                 error = (
-                    "client_request_timeout: triggering request exceeded "
+                    "client_request_timeout: connect/read inactivity exceeded "
                     f"{timeout_s:g}s; incomplete and later rows will be marked "
                     "individually"
                 )
@@ -506,111 +517,141 @@ def run_single_case(
                     "Review the client output above for the energy stability diagnostic."
                 )
 
-        if tcpdump_proc is not None:
-            time.sleep(1.0)
-            tcpdump_proc.terminate()
-            try:
-                tcpdump_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                tcpdump_proc.kill()
-            time.sleep(0.2)
-
-            if case_incomplete and completed_rows_before_failure == 0:
-                print(
-                    "[sniff] No completed measurements before "
-                    f"{incomplete_case_reason}; skipping packet-latency merge"
-                )
-            elif not os.path.exists(pcap_file) or os.path.getsize(pcap_file) <= 0:
-                if require_packet_latency:
-                    raise _packet_latency_error(
-                        f"pcap file is missing or empty: {pcap_file}"
-                    )
-            else:
-                print("[sniff] Parsing pcap -> packet latencies...")
-                assert sniff_runtime is not None
-                parse_result = _run(sniff_runtime.parse_cmd, check=False)
-                parse_output = parse_result.stdout.strip()
-                if parse_result.returncode != 0:
-                    raise _packet_latency_error(
-                        "pcap parsing failed",
-                        (parse_result.stderr or parse_result.stdout or "").strip(),
-                    )
-                if not parse_output:
-                    raise _packet_latency_error("pcap parser produced no output")
-                try:
-                    latency_payload = json.loads(parse_output)
-                except json.JSONDecodeError as exc:
-                    raise _packet_latency_error(
-                        "pcap parser produced invalid JSON",
-                        repr(exc),
-                    ) from exc
-                latency_records = (
-                    latency_payload.get("requests")
-                    if isinstance(latency_payload, dict)
-                    and "requests" in latency_payload
-                    else latency_payload
-                )
-                if not isinstance(latency_records, dict) or not latency_records:
-                    raise _packet_latency_error(
-                        "pcap parser did not find matching request latency records"
-                    )
-                with open(lat_json, "w", encoding="utf-8") as lf:
-                    json.dump(latency_payload, lf, ensure_ascii=True, indent=2)
-
-                if not os.path.exists(out_csv):
-                    raise _packet_latency_error(
-                        f"client did not produce result CSV: {out_csv}"
-                    )
-
-                print("[sniff] Merging packet latency into CSV...")
-                merged_csv = out_csv + ".merged"
-                merge_result = _run(
-                    [
-                        *module_command("acprof.packet.merge_packet_latency"),
-                        out_csv,
-                        lat_json,
-                        merged_csv,
-                    ],
-                    check=False,
-                )
-                if merge_result.returncode != 0:
-                    raise _packet_latency_error(
-                        "packet latency merge failed",
-                        (merge_result.stderr or merge_result.stdout or "").strip(),
-                    )
-                if not os.path.exists(merged_csv):
-                    raise _packet_latency_error(
-                        f"packet latency merge did not produce {merged_csv}"
-                    )
-                os.replace(merged_csv, out_csv)
-                if require_packet_latency:
-                    _assert_packet_latency_csv_complete(
-                        out_csv,
-                        ignore_error_rows=case_incomplete,
-                    )
-
-        if measurement_requested(profiling_mode, "cpu_energy") and (not case_incomplete or completed_rows_before_failure > 0):
-            _check_case_cpu_idle_power_stable(
-                out_csv,
-                ignore_error_rows=case_incomplete,
-            )
-            if _normalize_gpu_mode(gpu) == "on":
-                _check_case_gpu_idle_power_stable(
-                    out_csv,
-                    ignore_error_rows=case_incomplete,
-                )
+        _finalize_case(
+            tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu
+        )
+        case_status = "error" if case_incomplete else _case_result_status(out_csv)
+    except KeyboardInterrupt:
+        case_status = "cancelled"
+        raise
     finally:
-        if tcpdump_proc is not None and tcpdump_proc.poll() is None:
-            tcpdump_proc.terminate()
+        try:
             try:
-                tcpdump_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                tcpdump_proc.kill()
-        _stop_container_session(session, log_prefix="[case]")
+                if tcpdump_proc is not None and tcpdump_proc.poll() is None:
+                    _stop_capture(tcpdump_proc)
+            finally:
+                _stop_container_session(session, log_prefix="[case]")
+        except BaseException:
+            case_status = "error"
+            raise
+        finally:
+            emit_event("case_finished", case_name, status=case_status)
 
     print(f"[case] Done. Output: {out_csv}")
     return out_csv
 
+
+
+def _case_result_status(csv_path: str) -> str:
+    """A zero client exit code does not establish successful measurement rows."""
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as stream:
+            statuses = [row.get("status") for row in csv.DictReader(stream)]
+    except (OSError, UnicodeError, csv.Error):
+        return "error"
+    return "ok" if statuses and all(status in {"ok", "warn"} for status in statuses) else "error"
+
+
+def _stop_capture(process) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu) -> None:
+    """Finish capture and validate results after the client has stopped."""
+    if tcpdump_proc is not None:
+        time.sleep(1.0)
+        _stop_capture(tcpdump_proc)
+        time.sleep(0.2)
+
+        if case_incomplete and completed_rows_before_failure == 0:
+            print(
+                "[sniff] No completed measurements before "
+                f"{incomplete_case_reason}; skipping packet-latency merge"
+            )
+        elif not os.path.exists(pcap_file) or os.path.getsize(pcap_file) <= 0:
+            if require_packet_latency:
+                raise _packet_latency_error(
+                    f"pcap file is missing or empty: {pcap_file}"
+                )
+        else:
+            print("[sniff] Parsing pcap -> packet latencies...")
+            assert sniff_runtime is not None
+            parse_result = _run(sniff_runtime.parse_cmd, check=False)
+            parse_output = parse_result.stdout.strip()
+            if parse_result.returncode != 0:
+                raise _packet_latency_error(
+                    "pcap parsing failed",
+                    (parse_result.stderr or parse_result.stdout or "").strip(),
+                )
+            if not parse_output:
+                raise _packet_latency_error("pcap parser produced no output")
+            try:
+                latency_payload = json.loads(parse_output)
+            except json.JSONDecodeError as exc:
+                raise _packet_latency_error(
+                    "pcap parser produced invalid JSON",
+                    repr(exc),
+                ) from exc
+            latency_records = (
+                latency_payload.get("requests")
+                if isinstance(latency_payload, dict)
+                and "requests" in latency_payload
+                else latency_payload
+            )
+            if not isinstance(latency_records, dict) or not latency_records:
+                raise _packet_latency_error(
+                    "pcap parser did not find matching request latency records"
+                )
+            with open(lat_json, "w", encoding="utf-8") as lf:
+                json.dump(latency_payload, lf, ensure_ascii=True, indent=2)
+
+            if not os.path.exists(out_csv):
+                raise _packet_latency_error(
+                    f"client did not produce result CSV: {out_csv}"
+                )
+
+            print("[sniff] Merging packet latency into CSV...")
+            merged_csv = out_csv + ".merged"
+            merge_result = _run(
+                [
+                    *module_command("acprof.packet.merge_packet_latency"),
+                    out_csv,
+                    lat_json,
+                    merged_csv,
+                ],
+                check=False,
+            )
+            if merge_result.returncode != 0:
+                raise _packet_latency_error(
+                    "packet latency merge failed",
+                    (merge_result.stderr or merge_result.stdout or "").strip(),
+                )
+            if not os.path.exists(merged_csv):
+                raise _packet_latency_error(
+                    f"packet latency merge did not produce {merged_csv}"
+                )
+            os.replace(merged_csv, out_csv)
+            if require_packet_latency:
+                _assert_packet_latency_csv_complete(
+                    out_csv,
+                    ignore_error_rows=case_incomplete,
+                )
+
+    if measurement_requested(profiling_mode, "cpu_energy") and (not case_incomplete or completed_rows_before_failure > 0):
+        _check_case_cpu_idle_power_stable(
+            out_csv,
+            ignore_error_rows=case_incomplete,
+        )
+        if _normalize_gpu_mode(gpu) == "on":
+            _check_case_gpu_idle_power_stable(
+                out_csv,
+                ignore_error_rows=case_incomplete,
+            )
 
 def _write_case_error_csv(
     *,
@@ -915,11 +956,14 @@ def run_matrix(
     matrix_order: str = "seeded",
     matrix_seed: int = 0,
     dram_energy: str = "auto",
+    cpuset_cpus: str = "",
 ) -> List[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
     from acprof.host.matrix_plan import MATRIX_PLAN_NAME, matrix_identity, load_matrix_plan, freeze_matrix_plan
     from acprof.host.startup_probe import PROBE_NAME, run_startup_probes, startup_oom_prefixes
+    from acprof.cpu_affinity import normalize_cpu_set
 
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     request_timeout_seconds = float(request_timeout_seconds)
     require_profiling_mode(profiling_mode)
     if request_timeout_seconds <= 0 or not math.isfinite(request_timeout_seconds):
@@ -928,7 +972,7 @@ def run_matrix(
     scales = resolve_input_scales(task_info.task_family, input_scales)
     identity = matrix_identity(task_info, image_info, cpu_list, mem_list, gpu_list, scales,
                                order=matrix_order, seed=matrix_seed, prune=prune_startup_oom,
-                               input_plan_file=input_scale_plan_file)
+                               input_plan_file=input_scale_plan_file, cpuset_cpus=cpuset_cpus)
     layout = ArtifactLayout.discover(output_dir)
     plan_path = layout.path(MATRIX_PLAN_NAME)
     if plan_path.exists():
@@ -976,7 +1020,7 @@ def run_matrix(
                 idle_debug=idle_debug, sniff_iface=sniff_iface, input_scales=input_scales,
                 input_scale_plan_file=input_scale_plan_file, compute_profile_plan_file=compute_profile_plan_file,
                 execution_profile_plan_file=execution_profile_plan_file, profiling_mode=profiling_mode,
-                input_scale_order=case["input_scales"], dram_energy=dram_energy)
+                input_scale_order=case["input_scales"], dram_energy=dram_energy, cpuset_cpus=cpuset_cpus)
         if run_state is not None and csv_path and not cached_case:
             run_state.finish_case(csv_path, cpu, mem, gpu)
         if csv_path:

@@ -19,47 +19,28 @@ from typing import Any, Dict, List, Optional
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
 
 
-def _ensure_local_proxy_bypass() -> None:
-    local_hosts = ("localhost", "127.0.0.1", "::1")
-    for key in ("NO_PROXY", "no_proxy"):
-        current = os.environ.get(key, "")
-        parts = [part.strip() for part in current.split(",") if part.strip()]
-        known = {part.lower() for part in parts}
-        missing = [host for host in local_hosts if host.lower() not in known]
-        if missing:
-            os.environ[key] = ",".join(parts + missing)
+import requests
 
-
-_ensure_local_proxy_bypass()
-
-import requests  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
-
-from acprof.config import (  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
+from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
-    DEFAULT_IDLE_COOLDOWN_SECONDS,
-    DEFAULT_IDLE_SECONDS,
-    DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    DEFAULT_REPEAT_IN_WINDOW,
-    DEFAULT_REPEAT_WINDOW_SECONDS,
     GPU_RUNTIME_STATE_FIELDS,
     IDLE_DIAG_DIRNAME,
-    SCALING_DIMENSIONS,
 )
-from acprof.host.compute_profile_plan import (  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
+from acprof.host.compute_profile_plan import (
     find_compute_profile_entry as _find_compute_profile_entry,
     load_compute_profile_plan as _load_compute_profile_plan,
 )
-from acprof.host.execution_profile_plan import (  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
+from acprof.host.execution_profile_plan import (
     find_execution_profile_entry as _find_execution_profile_entry,
     load_execution_profile_plan as _load_execution_profile_plan,
 )
 
-from acprof.host import client_metrics as _client_metrics  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
-from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup  # noqa: E402
-from acprof.workloads.contract import summarize_workload_contracts  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
-from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
-from acprof.host.client_metrics import (  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
+from acprof.host import client_metrics as _client_metrics
+from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup
+from acprof.workloads.contract import summarize_workload_contracts
+from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
+from acprof.host.client_metrics import (
     CPU_METRIC_FIELDS,
     EFFICIENCY_METRIC_FIELDS,
     GPU_METRIC_FIELDS,
@@ -92,84 +73,22 @@ from acprof.host.client_metrics import (  # noqa: E402 -- 代理绕过配置必�
     _to_float_or_nan,
 )
 
-# ─────────────────────────────────────────────
-# Config from env
-# ─────────────────────────────────────────────
-MODEL_ID = os.getenv("MODEL_ID", "")
-MODEL_REVISION = os.getenv("MODEL_REVISION", "main")
-TASK_FAMILY = os.getenv("TASK_FAMILY", "nlp")
-PIPELINE_TAG = os.getenv("PIPELINE_TAG", "text-generation")
-RUNTIME_BACKEND = os.getenv("RUNTIME_BACKEND", "transformers_pipeline")
-IMAGE_TAG = os.getenv("IMAGE_TAG", "")
+from acprof.capabilities import measurement_requested
+from acprof.host.client_config import ClientConfig
 
-CPU_CORES = os.getenv("CPU_CORES", "")
-MEM_CAP_GB = os.getenv("MEM_CAP_GB", "")
-GPU_MODE = os.getenv("GPU_MODE", "off").lower()
-GPU_MODE = "on" if GPU_MODE == "on" else "off"
-
-BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1:8002").rstrip("/")
-ENDPOINT = os.getenv("ENDPOINT", "/predict")
-
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "1"))
-WARMUP = int(os.getenv("WARMUP", "2"))
-REPEAT = int(os.getenv("REPEAT", "5"))
-REPEAT_IN_WINDOW = int(os.getenv("REPEAT_IN_WINDOW", str(DEFAULT_REPEAT_IN_WINDOW)))
-REPEAT_WINDOW_SECONDS = float(os.getenv("REPEAT_WINDOW_SECONDS", str(DEFAULT_REPEAT_WINDOW_SECONDS)))
-AUTO_WARMUP_REQUESTS = int(os.getenv("AUTO_WARMUP_REQUESTS", "5"))
-REQUEST_TIMEOUT_SECONDS = float(
-    os.getenv("REQUEST_TIMEOUT_SECONDS", str(DEFAULT_REQUEST_TIMEOUT_SECONDS))
-)
-
-COLD_START_S = os.getenv("COLD_START_S", "nan")
-COLD_START_STARTED_AT = os.getenv("COLD_START_STARTED_AT", "nan")
-COLD_START_READY_AT = os.getenv("COLD_START_READY_AT", "nan")
-COLD_START_CONTAINER_LAUNCH_S = os.getenv(
-    "COLD_START_CONTAINER_LAUNCH_S",
-    "nan",
-)
-COLD_START_SERVER_SETUP_S = os.getenv("COLD_START_SERVER_SETUP_S", "nan")
-COLD_START_CUDA_INIT_S = os.getenv("COLD_START_CUDA_INIT_S", "nan")
-COLD_START_MODEL_LOAD_S = os.getenv("COLD_START_MODEL_LOAD_S", "nan")
-COLD_START_READY_WAIT_S = os.getenv("COLD_START_READY_WAIT_S", "nan")
-OUT_CSV = os.getenv("OUT_CSV", "result.csv")
-CASE_NAME = os.getenv("CASE_NAME", "").strip()
-CONTAINER_NAME = os.getenv("CONTAINER_NAME", "").strip()
-SNIFF_GROUPS_PATH = os.getenv("SNIFF_GROUPS_PATH", "").strip()
-IDLE_DEBUG = os.getenv("IDLE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-IDLE_DIAG_PATH = os.getenv("IDLE_DIAG_PATH", "").strip()
-CLIENT_ERROR_PATH = os.getenv("CLIENT_ERROR_PATH", "").strip()
-IDLE_DEBUG_TRACE_INTERVAL_S = float(os.getenv("IDLE_DEBUG_TRACE_INTERVAL_S", "0.1"))
-USE_MIPS = os.getenv("USE_MIPS", "").strip().lower() in {"1", "true", "yes", "on"}
-from acprof.capabilities import measurement_requested, require_profiling_mode  # noqa: E402 -- 代理绕过配置必须先于依赖导入。
-PROFILING_MODE = require_profiling_mode(os.getenv("PROFILING_MODE", "full"))
-DRAM_ENERGY = os.getenv("DRAM_ENERGY", "auto")
-
-_FIRST_PREDICT_APP_S = float("nan")
-
-SAMPLE_HZ = float(os.getenv("SAMPLE_HZ", "20"))
-IDLE_SECONDS = float(os.getenv("IDLE_SECONDS", str(DEFAULT_IDLE_SECONDS)))
-DEVICE_INDEX = int(os.getenv("DEVICE_INDEX", "0"))
-GPU_DEVICE_UUID = os.getenv("GPU_DEVICE_UUID", "")
-IDLE_COOLDOWN_SECONDS = float(
-    os.getenv("IDLE_COOLDOWN_SECONDS", str(DEFAULT_IDLE_COOLDOWN_SECONDS))
-)
-
-# Input scales from task family config
-INPUT_SCALES_STR = os.getenv("INPUT_SCALES", "")
-INPUT_SCALE_PLAN_FILE = os.getenv("INPUT_SCALE_PLAN_FILE", "").strip()
-COMPUTE_PROFILE_PLAN_FILE = os.getenv("COMPUTE_PROFILE_PLAN_FILE", "").strip()
-EXECUTION_PROFILE_PLAN_FILE = os.getenv(
-    "EXECUTION_PROFILE_PLAN_FILE",
-    "",
-).strip()
+def _ensure_local_proxy_bypass() -> None:
+    local_hosts = ("localhost", "127.0.0.1", "::1")
+    for key in ("NO_PROXY", "no_proxy"):
+        current = os.environ.get(key, "")
+        parts = [part.strip() for part in current.split(",") if part.strip()]
+        known = {part.lower() for part in parts}
+        missing = [host for host in local_hosts if host.lower() not in known]
+        if missing:
+            os.environ[key] = ",".join(parts + missing)
 
 
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 def _parse_float_list(s: str) -> List[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
-
 
 def _is_file_empty(path: str) -> bool:
     try:
@@ -177,48 +96,14 @@ def _is_file_empty(path: str) -> bool:
     except Exception:
         return True
 
-
-def _sniff_groups_path(csv_path: str) -> str:
-    return SNIFF_GROUPS_PATH or str(case_sidecar(csv_path, "sniff_groups"))
-
-
-def _idle_diag_path(csv_path: str) -> str:
-    if IDLE_DIAG_PATH:
-        return IDLE_DIAG_PATH
-    csv_dir = os.path.dirname(csv_path)
-    csv_name = os.path.basename(csv_path)
-    return os.path.join(
-        csv_dir,
-        IDLE_DIAG_DIRNAME,
-        f"{csv_name}.idle_diag.jsonl",
-    )
-
-
 def _now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def _cold_start_row_metrics() -> Dict[str, str]:
-    return {
-        "cold_start_started_at": COLD_START_STARTED_AT or "nan",
-        "cold_start_ready_at": COLD_START_READY_AT or "nan",
-        "cold_start_container_launch_s": COLD_START_CONTAINER_LAUNCH_S or "nan",
-        "cold_start_server_setup_s": COLD_START_SERVER_SETUP_S or "nan",
-        "cold_start_cuda_init_s": COLD_START_CUDA_INIT_S or "nan",
-        "cold_start_model_load_s": COLD_START_MODEL_LOAD_S or "nan",
-        "cold_start_ready_wait_s": COLD_START_READY_WAIT_S or "nan",
-        "cold_start_first_predict_app_s": _fmt_float(_FIRST_PREDICT_APP_S),
-        "cold_start_s": COLD_START_S or "nan",
-    }
-
 
 class EnergyAbort(RuntimeError):
     """Raised when energy measurement prerequisites are not stable enough."""
 
-
 class MIPSAbort(RuntimeError):
     """Raised when perf MIPS profiling cannot continue."""
-
 
 class RequestTimeoutAbort(RuntimeError):
     """Raised when the current resource case cannot finish inference in time."""
@@ -235,7 +120,6 @@ class RequestTimeoutAbort(RuntimeError):
         self.input_scale = input_scale
         self.request_id = request_id
         self.timeout_s = timeout_s
-
 
 def _request_phase_context(request_id: str) -> Dict[str, Any]:
     auto_match = re.search(r"_auto_warmup(?P<request_idx>\d+)$", request_id)
@@ -261,31 +145,6 @@ def _request_phase_context(request_id: str) -> Dict[str, Any]:
 
     return {"request_phase": "unknown"}
 
-
-def _write_client_error_sidecar(exc: RequestTimeoutAbort) -> None:
-    if not CLIENT_ERROR_PATH:
-        return
-
-    payload = {
-        "schema_version": 1,
-        "error_type": "client_request_timeout",
-        "message": str(exc),
-        "input_scale": exc.input_scale,
-        "request_id": exc.request_id,
-        "request_timeout_s": exc.timeout_s,
-        "measurement_completed": False,
-        **_request_phase_context(exc.request_id),
-    }
-    os.makedirs(os.path.dirname(CLIENT_ERROR_PATH) or ".", exist_ok=True)
-    tmp_path = f"{CLIENT_ERROR_PATH}.tmp-{os.getpid()}"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=True, indent=2, sort_keys=True)
-        f.write("\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, CLIENT_ERROR_PATH)
-
-
 def _canonical_task_param(payload: Optional[Dict[str, Any]]) -> str:
     """Serialize the parameters that the server actually receives."""
     params: Any = {}
@@ -307,14 +166,12 @@ def _canonical_task_param(payload: Optional[Dict[str, Any]]) -> str:
         separators=(",", ":"),
     )
 
-
 def _latency_distribution_metrics(
     prefix: str, latencies: List[float], *, slow_latency_threshold_s: float | None = None,
 ) -> Dict[str, float]:
     return _client_metrics._latency_distribution_metrics(
         prefix, latencies, slow_latency_threshold_s=slow_latency_threshold_s,
     )
-
 
 def _parse_effective_input_scale(resp: Dict[str, Any]) -> Optional[float]:
     if not isinstance(resp, dict):
@@ -326,7 +183,6 @@ def _parse_effective_input_scale(resp: Dict[str, Any]) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
 
 def _merge_effective_input_scale(
     current: Optional[float],
@@ -343,295 +199,13 @@ def _merge_effective_input_scale(
         )
     return current
 
-
-def _prepare_repeat_window(
-    scale_value: float,
-    scale_label: str,
-    payload_override: Optional[Dict[str, Any]],
-) -> int:
-    if REPEAT_IN_WINDOW > 0:
-        return REPEAT_IN_WINDOW
-    if REPEAT_WINDOW_SECONDS <= 0.0:
-        raise EnergyAbort(
-            f"invalid REPEAT_WINDOW_SECONDS={REPEAT_WINDOW_SECONDS!r}; expected a positive value"
-        )
-    if AUTO_WARMUP_REQUESTS < 0:
-        raise EnergyAbort(
-            "invalid AUTO_WARMUP_REQUESTS="
-            f"{AUTO_WARMUP_REQUESTS!r}; expected >= 0"
-        )
-
-    for idx in range(AUTO_WARMUP_REQUESTS):
-        req_id = f"{CASE_NAME}_{scale_label}_auto_warmup{idx}"
-        _one_request(scale_value, req_id=req_id, payload_override=payload_override)
-
-    print(
-        "[client] auto repeat-window "
-        f"scale={scale_value:g} warmup_requests={AUTO_WARMUP_REQUESTS} "
-        f"target_window_s={REPEAT_WINDOW_SECONDS:.3f}",
-        flush=True,
-    )
-    return 1
-
-
-def _should_send_window_request(
-    completed_requests: int,
-    latency_sum_s: float,
-    repeat_request_limit: int,
-) -> bool:
-    if REPEAT_IN_WINDOW > 0:
-        return completed_requests < repeat_request_limit
-    if completed_requests <= 0:
-        return True
-    return latency_sum_s < REPEAT_WINDOW_SECONDS
-
-
-# ─────────────────────────────────────────────
-# Determine input scales
-# ─────────────────────────────────────────────
-if INPUT_SCALES_STR:
-    input_scales = sorted(set(_parse_float_list(INPUT_SCALES_STR)))
-else:
-    scaling_cfg = SCALING_DIMENSIONS.get(TASK_FAMILY)
-    if scaling_cfg:
-        input_scales = scaling_cfg.values
-    else:
-        input_scales = [1.0]
-
-print(f"[client] PIPELINE_TAG={PIPELINE_TAG}", flush=True)
-
-
-# ─────────────────────────────────────────────
-# Workload generator
-# ─────────────────────────────────────────────
-from acprof.workloads import get_generator  # noqa: E402
-
-workload_gen = (
-    None
-    if INPUT_SCALE_PLAN_FILE
-    else get_generator(TASK_FAMILY, MODEL_ID, PIPELINE_TAG, BATCH_SIZE)
-)
-
-
 def _generic_scale_label(scale_value: float) -> str:
     return f"scale{float(scale_value):g}"
-
-
-def _one_request(scale_value: float, req_id: str, payload_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    global _FIRST_PREDICT_APP_S
-    if payload_override is not None:
-        payload = payload_override
-    else:
-        if workload_gen is None:
-            raise RuntimeError(
-                "input scale plan entry has no payload; the plan must be self-contained"
-            )
-        payload = workload_gen.generate(scale_value)
-
-    headers = {
-        "Connection": "close",
-        "X-Req-Id": req_id,
-    }
-
-    t0 = time.perf_counter()
-    try:
-        r = requests.post(
-            BASE_URL + ENDPOINT,
-            json=payload,
-            headers=headers,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-    except requests.exceptions.Timeout as exc:
-        raise RequestTimeoutAbort(
-            "inference request timed out after "
-            f"{REQUEST_TIMEOUT_SECONDS:g}s "
-            f"(input_scale={scale_value:g}, req_id={req_id})",
-            input_scale=float(scale_value),
-            request_id=req_id,
-            timeout_s=float(REQUEST_TIMEOUT_SECONDS),
-        ) from exc
-    t1 = time.perf_counter()
-    if r.status_code >= 400:
-        try:
-            detail = r.json().get("error", "")
-        except Exception:
-            detail = r.text[:500]
-        raise RuntimeError(f"HTTP {r.status_code}: {detail or r.reason}")
-    resp = r.json()
-    request_latency_s = t1 - t0
-    if not math.isfinite(_FIRST_PREDICT_APP_S):
-        _FIRST_PREDICT_APP_S = request_latency_s
-    return {
-        "latency_app_s": request_latency_s,
-        "resp": resp,
-        "effective_input_scale": _parse_effective_input_scale(resp),
-        "request_payload_bytes": _prepared_body_size_bytes(r),
-        "output_length": _to_float_or_nan(resp.get("output_length")),
-        "output_token_count": _to_float_or_nan(resp.get("output_token_count")),
-        "task_param": _canonical_task_param(payload),
-        "workload_contract": resp.get("workload_contract"),
-    }
-
-
-def _load_input_scale_entries() -> List[Dict[str, Any]]:
-    if INPUT_SCALE_PLAN_FILE:
-        with open(INPUT_SCALE_PLAN_FILE, "r", encoding="utf-8") as f:
-            plan = json.load(f)
-
-        from acprof.artifacts import require_schema_version
-        require_schema_version(plan, 2, "input_scale_plan.json")
-
-        entries = plan.get("entries")
-        if not isinstance(entries, list) or not entries:
-            raise RuntimeError(f"invalid input scale plan file: {INPUT_SCALE_PLAN_FILE}")
-
-        loaded_entries: List[Dict[str, Any]] = []
-        for idx, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                raise RuntimeError(
-                    f"invalid input scale plan entry at index {idx}: {entry!r}"
-                )
-
-            raw_scale = entry.get("input_scale")
-            payload = entry.get("payload")
-            if raw_scale is None or not isinstance(payload, dict):
-                raise RuntimeError(
-                    f"input scale plan entry missing input_scale/payload at index {idx}"
-                )
-
-            scale_value = float(raw_scale)
-            scale_label = str(
-                entry.get("scale_label") or _generic_scale_label(scale_value)
-            )
-            input_metadata = entry.get("input_metadata", {})
-            if not isinstance(input_metadata, dict):
-                raise ValueError(f"invalid input_metadata at input scale plan entry {idx}")
-            loaded_entries.append({
-                "input_scale": scale_value,
-                "scale_label": scale_label,
-                "payload": payload,
-                "input_metadata": input_metadata,
-                "workload": plan.get("workload", {}),
-            })
-
-        scale_order = os.environ.get("INPUT_SCALE_ORDER", "")
-        if scale_order:
-            order = json.loads(scale_order)
-            available = {entry["input_scale"]: entry for entry in loaded_entries}
-            if (not isinstance(order, list) or len(order) != len(available)
-                    or len(set(order)) != len(order) or set(order) != set(available)):
-                raise ValueError("frozen matrix input-scale order does not match input plan")
-            loaded_entries = [available[scale] for scale in order]
-        return loaded_entries
-
-    raise ValueError("INPUT_SCALE_PLAN_FILE is required; generate a schema v2 input plan first")
-
-
-input_scale_entries: List[Dict[str, Any]] = []
-
-
-# ─────────────────────────────────────────────
-# Optional NVML energy
-# ─────────────────────────────────────────────
-USE_ENERGY = (GPU_MODE == "on")
-energy_mod = None
-if USE_ENERGY:
-    try:
-        from acprof.monitors import energy_nvml as energy_mod
-    except Exception as _e:
-        energy_mod = None
-        print(f"[WARN] GPU energy monitoring unavailable: {_e.__class__.__name__}: {_e}",
-              file=__import__('sys').stderr)
-        print("[WARN] Install NVML bindings: pip install nvidia-ml-py", file=__import__('sys').stderr)
-
-cpu_energy_mod = None
-try:
-    from acprof.monitors import energy_cpu as cpu_energy_mod
-except Exception as _e:
-    cpu_energy_mod = None
-    print(f"[WARN] CPU energy monitoring unavailable: {_e.__class__.__name__}: {_e}",
-          file=__import__('sys').stderr)
-
-resource_usage_mod = None
-try:
-    from acprof.monitors import resource_usage as resource_usage_mod
-except Exception as _e:
-    resource_usage_mod = None
-    print(f"[WARN] Resource usage monitoring unavailable: {_e.__class__.__name__}: {_e}",
-          file=__import__('sys').stderr)
-
-perf_mips_mod = None
-try:
-    from acprof.monitors import perf_mips as perf_mips_mod
-except Exception as _e:
-    perf_mips_mod = None
-    if USE_MIPS:
-        print(f"[WARN] MIPS monitoring unavailable: {_e.__class__.__name__}: {_e}",
-              file=__import__('sys').stderr)
-
-
-def _is_mips_error(exc: Exception) -> bool:
-    if isinstance(exc, MIPSAbort):
-        return True
-    if perf_mips_mod is None:
-        return False
-    mips_error_cls = getattr(perf_mips_mod, "MIPSProfilingError", None)
-    return bool(mips_error_cls is not None and isinstance(exc, mips_error_cls))
-
 
 def _append_sniff_group(sidecar_f, sniff_group_id: str) -> None:
     sidecar_f.write(json.dumps({"sniff_group_id": sniff_group_id}, ensure_ascii=True) + "\n")
     sidecar_f.flush()
     os.fsync(sidecar_f.fileno())
-
-
-def _sleep_before_idle_baseline() -> None:
-    if IDLE_COOLDOWN_SECONDS > 0.0:
-        time.sleep(IDLE_COOLDOWN_SECONDS)
-
-
-def _run_matched_control_window(
-    gpu_monitor: Any,
-    cpu_monitor: Any,
-    resource_usage_monitor: Any,
-    mips_monitor: Any,
-) -> None:
-    """Run a blank window with the same monitor lifecycle as the workload."""
-    group = MonitorGroup(close=False)
-    for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
-                          ("resource", resource_usage_monitor), ("mips", mips_monitor)):
-        group.add(name, monitor)
-    primary_error = None
-    try:
-        group.start()
-        if IDLE_SECONDS > 0.0:
-            time.sleep(IDLE_SECONDS)
-    except BaseException as exc:
-        primary_error = exc
-    finally:
-        group.finish(1, max(IDLE_SECONDS, 1e-9))
-
-    if primary_error is not None and not isinstance(primary_error, Exception):
-        raise primary_error
-    group.raise_if_failed()
-    if primary_error is not None:
-        raise primary_error
-
-    if group.results.get("gpu") is not None:
-        gpu_result, _gpu_name, _gpu_error, gpu_samples = group.results["gpu"]
-        gpu_monitor.apply_control_baseline(
-            gpu_result,
-            gpu_samples,
-            trace=IDLE_DEBUG,
-        )
-    if group.results.get("cpu") is not None:
-        cpu_result, _cpu_error, cpu_samples = group.results["cpu"]
-        cpu_monitor.apply_control_baseline(
-            cpu_result,
-            cpu_samples,
-            trace=IDLE_DEBUG,
-        )
-
 
 def _json_safe(value: Any) -> Any:
     if isinstance(value, float):
@@ -641,7 +215,6 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     return value
-
 
 def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]]:
     result = subprocess.run(
@@ -661,7 +234,6 @@ def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]
         if line:
             rows.append(json.loads(line))
     return rows
-
 
 def _collect_top_cpu_processes(limit: int = 10) -> List[Dict[str, Any]]:
     result = subprocess.run(
@@ -700,7 +272,6 @@ def _collect_top_cpu_processes(limit: int = 10) -> List[Dict[str, Any]]:
             break
     return processes
 
-
 def _run_text(cmd: List[str], timeout: float = 2.0) -> str:
     result = subprocess.run(
         cmd,
@@ -715,18 +286,15 @@ def _run_text(cmd: List[str], timeout: float = 2.0) -> str:
         raise RuntimeError((result.stderr or result.stdout or "").strip())
     return result.stdout
 
-
 def _float_or_none(value: str) -> Optional[float]:
     number = _to_float_or_nan(value.strip())
     return number if math.isfinite(number) else None
-
 
 def _int_or_none(value: str) -> Optional[int]:
     try:
         return int(value.strip())
     except (TypeError, ValueError):
         return None
-
 
 def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> Dict[str, Any]:
     query_fields = [
@@ -773,7 +341,6 @@ def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> Dict[str, Any]:
         "memory_total_mib": _float_or_none(values[13]),
     }
 
-
 def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> List[Dict[str, Any]]:
     output = _run_text([
         "nvidia-smi",
@@ -795,7 +362,6 @@ def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> List[Dict[str, An
             "used_memory_mib": _float_or_none(parts[2]),
         })
     return apps
-
 
 def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
     output = _run_text(["nvidia-smi", "pmon", "-c", "1", "-i", str(device_index)])
@@ -821,27 +387,6 @@ def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
             "command": " ".join(command),
         })
     return rows
-
-
-def _collect_gpu_idle_debug_snapshot(device_index: int = DEVICE_INDEX) -> Dict[str, Any]:
-    snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
-    try:
-        snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
-    except Exception as exc:
-        snapshot["nvidia_smi_gpu_error"] = repr(exc)
-
-    try:
-        snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(device_index)
-    except Exception as exc:
-        snapshot["nvidia_smi_pmon_error"] = repr(exc)
-
-    try:
-        snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(device_index)
-    except Exception as exc:
-        snapshot["nvidia_smi_compute_apps_error"] = repr(exc)
-
-    return snapshot
-
 
 def _collect_idle_debug_snapshot() -> Dict[str, Any]:
     snapshot: Dict[str, Any] = {"snapshot_scope": "after_idle"}
@@ -878,12 +423,10 @@ def _collect_idle_debug_snapshot() -> Dict[str, Any]:
 
     return snapshot
 
-
 def _append_idle_diag(diag_f, record: Dict[str, Any]) -> None:
     diag_f.write(json.dumps(_json_safe(record), ensure_ascii=True, sort_keys=True) + "\n")
     diag_f.flush()
     os.fsync(diag_f.fileno())
-
 
 def _append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat_idx,
                            latencies, error="", failed_request_id="") -> None:
@@ -905,7 +448,6 @@ def _append_request_window(stream, *, sniff_group_id, input_scale, warmup, repea
     stream.write(json.dumps(_json_safe(record), separators=(",", ":"), allow_nan=False) + "\n")
     stream.flush()
     os.fsync(stream.fileno())
-
 
 def _append_row(
     writer: csv.DictWriter,
@@ -929,609 +471,910 @@ def _append_row(
         _append_idle_diag(diag_f, idle_diag_record)
 
 
-def _build_result_row(values, *, metric_groups, scale_entry, resolved_input_scale,
-                      latency_app_s, compute_profile_plan, execution_profile_plan):
-    """Assemble CSV values after sampling; profile and pixel joins stay out of the window."""
-    row = {
-        "cpu_cores": CPU_CORES,
-        "mem_cap_gb": MEM_CAP_GB,
-        "gpu_mode": GPU_MODE,
-        "packet_request_wire_bytes_per_request": "nan",
-        "packet_response_wire_bytes_per_request": "nan",
-        "packet_total_wire_bytes_per_request": "nan",
-        "packet_tcp_payload_bytes_per_request": "nan",
-        "packet_protocol_overhead_bytes_per_request": "nan",
-        "packet_protocol_overhead_ratio": "nan",
-        **_cold_start_row_metrics(),
-        "result_origin": "formal_measurement",
-        **values,
-    }
-    for metrics in metric_groups:
-        row.update({name: str(value) if name == "gpu_pstate" else _fmt_float(value)
-                    for name, value in metrics.items()})
-    pixel_counts = pixel_counts_from_metadata(
-        scale_entry.get("input_metadata") if resolved_input_scale == float(scale_entry["input_scale"]) else None,
-        BATCH_SIZE,
-        task_family=TASK_FAMILY,
-        pipeline_tag=PIPELINE_TAG,
-        workload=scale_entry.get("workload"),
-    )
-    row.update({field: _fmt_float(value) for field, value in pixel_counts.items()})
-    row.update({field: _fmt_float(value) for field, value in pixel_rate_metrics(row).items()})
-    row_scale = _to_float_or_nan(row["input_scale"])
-    compute_profile = _find_compute_profile_entry(
-        compute_profile_plan,
-        GPU_MODE,
-        row_scale,
-    )
-    row.update(
-        _compute_profile_row_metrics(
-            compute_profile,
-            latency_app_s,
-        )
-    )
-    execution_profile = _find_execution_profile_entry(
-        execution_profile_plan,
-        CPU_CORES,
-        MEM_CAP_GB,
-        GPU_MODE,
-        row_scale,
-    )
-    row.update(
-        _execution_profile_row_metrics(execution_profile)
-    )
-    return row
+class ClientRunner:
+    """Own one configuration, request state and monitor dependencies per execution."""
 
+    def __init__(self, config: ClientConfig):
+        self.config = config
+        self.first_predict_app_s = float("nan")
+        self.input_scale_entries: List[Dict[str, Any]] = []
+        self.use_energy = config.gpu_mode == "on"
+        self.energy_mod = self._monitor_module("energy_nvml") if self.use_energy else None
+        self.cpu_energy_mod = self._monitor_module("energy_cpu")
+        self.resource_usage_mod = self._monitor_module("resource_usage")
+        self.perf_mips_mod = self._monitor_module("perf_mips")
 
-def main() -> None:
-    from acprof.artifacts import read_static_metadata
-    from acprof.latency_slo import latency_slo_threshold
-    slow_latency_threshold_s = latency_slo_threshold(
-        read_static_metadata(ArtifactLayout.from_csv(OUT_CSV).root)
-    )
-    global input_scale_entries
-    if not input_scale_entries:
-        input_scale_entries = _load_input_scale_entries()
-    global _FIRST_PREDICT_APP_S
-    _FIRST_PREDICT_APP_S = float("nan")
-
-    if PROFILING_MODE == "basic" and resource_usage_mod is None:
-        raise RuntimeError("basic profiling requires the container CPU and memory collector")
-    if GPU_MODE == "on" and not GPU_DEVICE_UUID:
-        raise RuntimeError("GPU_DEVICE_UUID is required: launch the client through the AC-Prof orchestrator")
-
-    if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) and energy_mod is None:
-        raise EnergyAbort(
-            "GPU energy monitoring is required for gpu_mode=on but NVML/pynvml is unavailable. "
-            "Install nvidia-ml-py, verify NVIDIA driver access, or rerun with --gpus off."
-        )
-    if measurement_requested(PROFILING_MODE, "cpu_instructions") and USE_MIPS and perf_mips_mod is None:
-        raise MIPSAbort(
-            "MIPS profiling is enabled but perf_mips.py could not be imported."
-        )
-
-    compute_profile_plan = _load_compute_profile_plan(COMPUTE_PROFILE_PLAN_FILE)
-    execution_profile_plan = _load_execution_profile_plan(
-        EXECUTION_PROFILE_PLAN_FILE
-    )
-    need_header = _is_file_empty(OUT_CSV)
-    fieldnames = CSV_FIELDS
-    if not need_header:
-        with open(OUT_CSV, "r", newline="", encoding="utf-8-sig") as existing:
-            fieldnames = next(csv.reader(existing))
-        if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
-            raise RuntimeError(f"existing CSV columns do not match current fields: {OUT_CSV}; use a new output file")
-    sidecar_mode = "w" if need_header else "a"
-    if IDLE_DEBUG:
-        diag_path = _idle_diag_path(OUT_CSV)
-        os.makedirs(os.path.dirname(diag_path) or ".", exist_ok=True)
-        diag_context = open(diag_path, sidecar_mode, encoding="utf-8")
-    else:
-        diag_context = nullcontext(None)
-    with open(OUT_CSV, "a", newline="", encoding="utf-8") as f, open(
-        _sniff_groups_path(OUT_CSV),
-        sidecar_mode,
-        encoding="utf-8",
-    ) as sidecar_f, open(
-        case_sidecar(OUT_CSV, "requests"), sidecar_mode, encoding="utf-8"
-    ) as requests_f, diag_context as diag_f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=fieldnames,
-            quoting=csv.QUOTE_MINIMAL,
-        )
-        if need_header:
-            writer.writeheader()
-            f.flush()
-            os.fsync(f.fileno())
-
-        # /ready check
+    @staticmethod
+    def _monitor_module(name):
+        from importlib import import_module
         try:
-            rr = requests.get(BASE_URL + "/ready", timeout=60, headers={"Connection": "close"})
-            if rr.status_code >= 400:
-                raise RuntimeError(f"/ready HTTP {rr.status_code}: {rr.text[:200]}")
-        except Exception as e:
-            row = {k: "nan" for k in CSV_FIELDS}
-            row.update({
-                "cpu_cores": CPU_CORES,
-                "mem_cap_gb": MEM_CAP_GB,
-                "gpu_mode": GPU_MODE,
-                **_cold_start_row_metrics(),
-                "status": "error",
-                "error": f"ready_failed: {repr(e)}",
-            })
-            _append_row(writer, row, f, sidecar_f, "")
+            return import_module(f"acprof.monitors.{name}")
+        except ImportError as exc:
+            print(f"[WARN] monitor {name} unavailable: {exc}", file=sys.stderr)
+            return None
+
+    def _sniff_groups_path(self, csv_path: str) -> str:
+        return self.config.sniff_groups_path or str(case_sidecar(csv_path, "sniff_groups"))
+
+    def _idle_diag_path(self, csv_path: str) -> str:
+        if self.config.idle_diag_path:
+            return self.config.idle_diag_path
+        csv_dir = os.path.dirname(csv_path)
+        csv_name = os.path.basename(csv_path)
+        return os.path.join(
+            csv_dir,
+            IDLE_DIAG_DIRNAME,
+            f"{csv_name}.idle_diag.jsonl",
+        )
+
+    def _cold_start_row_metrics(self) -> Dict[str, str]:
+        return {
+            "cold_start_started_at": self.config.cold_start_started_at or "nan",
+            "cold_start_ready_at": self.config.cold_start_ready_at or "nan",
+            "cold_start_container_launch_s": self.config.cold_start_container_launch_s or "nan",
+            "cold_start_server_setup_s": self.config.cold_start_server_setup_s or "nan",
+            "cold_start_cuda_init_s": self.config.cold_start_cuda_init_s or "nan",
+            "cold_start_model_load_s": self.config.cold_start_model_load_s or "nan",
+            "cold_start_ready_wait_s": self.config.cold_start_ready_wait_s or "nan",
+            "cold_start_first_predict_app_s": _fmt_float(self.first_predict_app_s),
+            "cold_start_s": self.config.cold_start_s or "nan",
+        }
+
+    def _write_client_error_sidecar(self, exc: RequestTimeoutAbort) -> None:
+        if not self.config.client_error_path:
             return
 
-        cpu_idle_values_so_far: List[float] = []
-        gpu_idle_values_so_far: List[float] = []
-        for scale_entry in input_scale_entries:
-            scale_val = float(scale_entry["input_scale"])
-            payload_override = scale_entry.get("payload")
-            input_num_samples = _input_num_samples(
-                scale_entry.get("input_metadata")
+        payload = {
+            "schema_version": 1,
+            "error_type": "client_request_timeout",
+            "message": str(exc),
+            "input_scale": exc.input_scale,
+            "request_id": exc.request_id,
+            "request_timeout_s": exc.timeout_s,
+            "measurement_completed": False,
+            "timeout_semantics": "connect_or_read_inactivity",
+            **_request_phase_context(exc.request_id),
+        }
+        os.makedirs(os.path.dirname(self.config.client_error_path) or ".", exist_ok=True)
+        tmp_path = f"{self.config.client_error_path}.tmp-{os.getpid()}"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=True, indent=2, sort_keys=True)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, self.config.client_error_path)
+
+    def _prepare_repeat_window(self,
+        scale_value: float,
+        scale_label: str,
+        payload_override: Optional[Dict[str, Any]],
+    ) -> int:
+        if self.config.repeat_in_window > 0:
+            return self.config.repeat_in_window
+        if self.config.repeat_window_seconds <= 0.0:
+            raise EnergyAbort(
+                f"invalid REPEAT_WINDOW_SECONDS={self.config.repeat_window_seconds!r}; expected a positive value"
             )
-            repeat_request_limit = _prepare_repeat_window(
-                scale_val,
-                str(scale_entry["scale_label"]),
-                payload_override,
+        if self.config.auto_warmup_requests < 0:
+            raise EnergyAbort(
+                "invalid AUTO_WARMUP_REQUESTS="
+                f"{self.config.auto_warmup_requests!r}; expected >= 0"
             )
-            for idx in range(WARMUP + REPEAT):
-                warmup_flag = 1 if idx < WARMUP else 0
-                repeat_idx = idx if warmup_flag else (idx - WARMUP)
 
-                scale_label = str(scale_entry["scale_label"])
-                phase = "w" if warmup_flag else "r"
-                sniff_group_id = f"{CASE_NAME}_{scale_label}_{phase}{repeat_idx}"
+        for idx in range(self.config.auto_warmup_requests):
+            req_id = f"{self.config.case_name}_{scale_label}_auto_warmup{idx}"
+            self._one_request(scale_value, req_id=req_id, payload_override=payload_override)
 
-                latency_app_s = float("nan")
-                resolved_input_scale = scale_val
-                input_units_per_request = _input_units_per_request(
-                    resolved_input_scale,
-                    BATCH_SIZE,
-                )
-                latency_app_s_per_input_unit = float("nan")
-                throughput_per_cpu_core = float("nan")
-                request_payload_bytes = float("nan")
-                output_length_avg = float("nan")
-                output_token_count_avg = float("nan")
-                executed_task_param: Optional[str] = None
-                status = "ok"
-                err_msg = ""
-                gpu_metrics = _nan_metrics(GPU_METRIC_FIELDS)
-                cpu_metrics = _nan_metrics(CPU_METRIC_FIELDS)
-                efficiency_metrics = _nan_metrics(EFFICIENCY_METRIC_FIELDS)
-                resource_usage_metrics = _nan_metrics(RESOURCE_USAGE_METRIC_FIELDS)
-                gpu_runtime_metrics: Dict[str, Any] = _nan_metrics(
-                    GPU_RUNTIME_STATE_FIELDS
-                )
-                gpu_runtime_metrics["gpu_pstate"] = "nan"
-                mips_metrics = _nan_metrics(MIPS_METRIC_FIELDS)
-                latency_packet_distribution_metrics = _nan_metrics(LATENCY_PACKET_DISTRIBUTION_FIELDS)
-                latency_app_distribution_metrics = _nan_metrics(LATENCY_APP_DISTRIBUTION_FIELDS)
-                effective_input_scale: Optional[float] = None
-                cpu_idle_measured_at = "nan"
-                gpu_idle_measured_at = "nan"
-                idle_debug_snapshot: Optional[Dict[str, Any]] = None
-                gpu_idle_debug_snapshot: Optional[Dict[str, Any]] = None
-                idle_trace: Dict[str, Any] = {}
-                gpu_idle_trace: Dict[str, Any] = {}
+        print(
+            "[client] auto repeat-window "
+            f"scale={scale_value:g} warmup_requests={self.config.auto_warmup_requests} "
+            f"target_window_s={self.config.repeat_window_seconds:.3f}",
+            flush=True,
+        )
+        return 1
 
-                try:
-                    monitors = MonitorGroup()
-                    gpu_monitor = None
-                    cpu_monitor = None
-                    resource_usage_monitor = None
-                    mips_monitor = None
-                    gpu_result = None
-                    _gpu_samples = []
-                    cpu_result = None
-                    resource_usage_result = None
-                    mips_result = None
-                    actual_repeat_in_window = 0
-                    lat_sum = 0.0
-                    latency_app_values: List[float] = []
-                    request_payload_bytes_values: List[float] = []
-                    output_length_values: List[float] = []
-                    output_token_count_values: List[float] = []
-                    workload_contracts: List[Dict[str, Any]] = []
-                    window_error = ""
-                    primary_error = None
-                    pending_request_id = ""
-                    try:
-                        if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) and energy_mod is not None:
-                            gpu_monitor = energy_mod.GPUEnergyMonitor(
-                                sample_hz=SAMPLE_HZ,
-                                idle_seconds=IDLE_SECONDS,
-                                device_index=DEVICE_INDEX,
-                                device_uuid=GPU_DEVICE_UUID,
-                            )
-                            monitors.add("gpu", gpu_monitor)
+    def _should_send_window_request(self,
+        completed_requests: int,
+        latency_sum_s: float,
+        repeat_request_limit: int,
+    ) -> bool:
+        if self.config.repeat_in_window > 0:
+            return completed_requests < repeat_request_limit
+        if completed_requests <= 0:
+            return True
+        return latency_sum_s < self.config.repeat_window_seconds
 
-                        if measurement_requested(PROFILING_MODE, "cpu_energy") and cpu_energy_mod is not None:
-                            try:
-                                cpu_monitor = cpu_energy_mod.CPUEnergyMonitor(
-                                    sample_hz=SAMPLE_HZ, idle_seconds=IDLE_SECONDS,
-                                    container_name=CONTAINER_NAME, dram_energy=DRAM_ENERGY)
-                                monitors.add("cpu", cpu_monitor)
-                            except RuntimeError as exc:
-                                if DRAM_ENERGY == "required":
-                                    raise EnergyAbort(str(exc)) from exc
-                                raise
+    def _one_request(self, scale_value: float, req_id: str, payload_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if payload_override is None:
+            raise RuntimeError("input scale plan entry has no payload; the plan must be self-contained")
+        payload = payload_override
 
-                        if resource_usage_mod is not None:
-                            resource_usage_monitor = resource_usage_mod.ResourceUsageMonitor(
-                                sample_hz=SAMPLE_HZ,
-                                container_name=CONTAINER_NAME,
-                                cpu_cores=_to_float_or_nan(CPU_CORES),
-                                mem_cap_gb=_to_float_or_nan(MEM_CAP_GB),
-                                use_gpu=USE_ENERGY,
-                                device_index=DEVICE_INDEX,
-                                device_uuid=GPU_DEVICE_UUID,
-                            )
-                            monitors.add("resource", resource_usage_monitor)
+        headers = {
+            "Connection": "close",
+            "X-Req-Id": req_id,
+        }
 
-                        if measurement_requested(PROFILING_MODE, "cpu_instructions") and USE_MIPS:
-                            mips_monitor = perf_mips_mod.PerfMIPSMonitor(CONTAINER_NAME)
-                            monitors.add("mips", mips_monitor)
-
-                        if gpu_monitor is not None or cpu_monitor is not None:
-                            _sleep_before_idle_baseline()
-                            _run_matched_control_window(
-                                gpu_monitor,
-                                cpu_monitor,
-                                resource_usage_monitor,
-                                mips_monitor,
-                            )
-                            measured_at = _now_iso()
-                            if gpu_monitor is not None:
-                                gpu_idle_measured_at = measured_at
-                                gpu_idle_trace = dict(
-                                    getattr(gpu_monitor, "idle_trace", {}) or {}
-                                )
-                            if cpu_monitor is not None:
-                                cpu_idle_measured_at = measured_at
-                                idle_trace = dict(
-                                    getattr(cpu_monitor, "idle_trace", {}) or {}
-                                )
-
-                            if IDLE_DEBUG:
-                                if gpu_monitor is not None:
-                                    gpu_idle_debug_snapshot = _collect_gpu_idle_debug_snapshot()
-                                if cpu_monitor is not None:
-                                    idle_debug_snapshot = _collect_idle_debug_snapshot()
-
-                        monitors.start()
-
-                        while _should_send_window_request(
-                            actual_repeat_in_window,
-                            lat_sum,
-                            repeat_request_limit,
-                        ):
-                            req_id = f"{sniff_group_id}:{actual_repeat_in_window}"
-                            pending_request_id = req_id
-                            out = _one_request(scale_val, req_id=req_id, payload_override=payload_override)
-                            pending_request_id = ""
-                            request_latency_app_s = float(out["latency_app_s"])
-                            lat_sum += request_latency_app_s
-                            latency_app_values.append(request_latency_app_s)
-                            request_payload_bytes_values.append(
-                                _to_float_or_nan(out.get("request_payload_bytes"))
-                            )
-                            output_length_values.append(
-                                _to_float_or_nan(out.get("output_length"))
-                            )
-                            output_token_count_values.append(
-                                _to_float_or_nan(out.get("output_token_count"))
-                            )
-                            workload_contracts.append(out.get("workload_contract"))
-                            request_task_param = out.get("task_param")
-                            if (
-                                request_task_param is not None
-                                and executed_task_param is None
-                            ):
-                                executed_task_param = str(request_task_param)
-                            actual_repeat_in_window += 1
-                            effective_input_scale = _merge_effective_input_scale(
-                                effective_input_scale,
-                                out.get("effective_input_scale"),
-                                scale_val,
-                            )
-                    except BaseException as exc:
-                        primary_error = exc
-                        window_error = f"{type(exc).__name__}: {exc}"
-                        raise
-                    finally:
-                        monitors.finish(actual_repeat_in_window,
-                                        lat_sum / actual_repeat_in_window if actual_repeat_in_window else float("nan"))
-                        if monitors.results.get("resource") is not None:
-                            resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
-                        if monitors.results.get("gpu") is not None:
-                            gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = monitors.results["gpu"]
-                        if monitors.results.get("cpu") is not None:
-                            cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
-                        mips_result = monitors.results.get("mips")
-                        try:
-                            _append_request_window(
-                                requests_f, sniff_group_id=sniff_group_id,
-                                input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
-                                warmup=warmup_flag, repeat_idx=repeat_idx,
-                                latencies=latency_app_values,
-                                error="; ".join(part for part in (window_error, monitors.error) if part),
-                                failed_request_id=pending_request_id,
-                            )
-                        finally:
-                            if primary_error is not None and (
-                                not isinstance(primary_error, Exception)
-                                or isinstance(primary_error, (RequestTimeoutAbort, EnergyAbort, MIPSAbort))
-                            ):
-                                raise primary_error
-                            monitors.raise_if_failed()
-
-                    latency_app_s = _mean(latency_app_values)
-                    request_payload_bytes = _mean_finite(
-                        request_payload_bytes_values
-                    )
-                    output_length_avg = _mean_finite(output_length_values)
-                    output_token_count_avg = _mean_finite(
-                        output_token_count_values
-                    )
-                    latency_app_distribution_metrics = _latency_distribution_metrics(
-                        "latency_app",
-                        latency_app_values,
-                        slow_latency_threshold_s=slow_latency_threshold_s,
-                    )
-
-                    if gpu_result is not None:
-                        gpu_metrics = _gpu_metrics_from_result(
-                            gpu_result,
-                            actual_repeat_in_window,
-                        )
-                    if cpu_result is not None:
-                        cpu_metrics = _cpu_metrics_from_result(
-                            cpu_result,
-                            actual_repeat_in_window,
-                        )
-                    if DRAM_ENERGY == "required" and not all(math.isfinite(cpu_metrics[field]) for field in (
-                        "dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"
-                    )):
-                        raise EnergyAbort("required DRAM RAPL measurement unavailable or incomplete")
-                    if resource_usage_result is not None:
-                        if PROFILING_MODE == "basic":
-                            if _resource_usage_err:
-                                raise RuntimeError(f"required CPU/memory measurement failed: {_resource_usage_err}")
-                            if not all(math.isfinite(value) for value in (
-                                resource_usage_result.container_cpu_util_avg_pct,
-                                resource_usage_result.container_mem_usage_avg_bytes,
-                            )):
-                                raise RuntimeError("required CPU/memory measurement unavailable")
-                        resource_usage_metrics = _resource_usage_metrics_from_result(
-                            resource_usage_result,
-                            actual_repeat_in_window,
-                        )
-                    resolved_input_scale = (
-                        effective_input_scale
-                        if effective_input_scale is not None
-                        else scale_val
-                    )
-                    input_units_per_request = _input_units_per_request(
-                        resolved_input_scale,
-                        BATCH_SIZE,
-                    )
-                    efficiency_metrics = _derived_efficiency_metrics(
-                        gpu_mode=GPU_MODE,
-                        batch_size=BATCH_SIZE,
-                        latency_app_s=latency_app_s,
-                        output_token_count_avg=output_token_count_avg,
-                        gpu_energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
-                        vcpu_energy_eff_j=cpu_metrics["vcpu_energy_eff_j"],
-                        input_units_per_request=input_units_per_request,
-                    )
-                    gpu_runtime_metrics = _gpu_runtime_metrics_from_result(
-                        resource_usage_result
-                    )
-                    if mips_result is not None:
-                        mips_metrics = _mips_metrics_from_result(mips_result)
-
-                    warnings = []
-                    warnings.extend(_eff_negative_warnings(
-                        avg_power_eff_w=gpu_metrics["gpu_avg_power_eff_w"],
-                        peak_power_eff_w=gpu_metrics["gpu_peak_power_eff_w"],
-                        energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
-                    ))
-                    warnings.extend(_named_negative_warnings({
-                        "cpu_avg_power_eff_w": cpu_metrics["cpu_avg_power_eff_w"],
-                        "cpu_peak_power_eff_w": cpu_metrics["cpu_peak_power_eff_w"],
-                        "cpu_energy_eff_j": cpu_metrics["cpu_energy_eff_j"],
-                        "vcpu_avg_power_eff_w": cpu_metrics["vcpu_avg_power_eff_w"],
-                        "vcpu_peak_power_eff_w": cpu_metrics["vcpu_peak_power_eff_w"],
-                        "vcpu_energy_eff_j": cpu_metrics["vcpu_energy_eff_j"],
-                    }))
-                    if warnings:
-                        status = "warn"
-                        err_msg = "; ".join(warnings)
-
-                    if latency_app_s == latency_app_s and latency_app_s > 0:
-                        throughput = float(BATCH_SIZE) / float(latency_app_s)
-                    else:
-                        throughput = float("nan")
-                    latency_app_s_per_input_unit = _per_positive_denominator(
-                        latency_app_s,
-                        input_units_per_request,
-                    )
-                    throughput_per_cpu_core = _per_positive_denominator(
-                        throughput,
-                        CPU_CORES,
-                    )
-
-                except RequestTimeoutAbort:
-                    raise
-                except EnergyAbort:
-                    raise
-                except MIPSAbort:
-                    raise
-                except MonitorCleanupError as exc:
-                    if _is_mips_error(exc):
-                        raise MIPSAbort(str(exc)) from exc
-                    raise
-                except Exception as e:
-                    if _is_mips_error(e):
-                        raise MIPSAbort(str(e)) from None
-                    status = "error"
-                    err_msg = repr(e)
-                    throughput = float("nan")
-                    throughput_per_cpu_core = float("nan")
-
-                gpu_idle_stats = _idle_power_debug_stats(gpu_idle_values_so_far, "gpu")
-                if IDLE_DEBUG and _finite_positive(gpu_metrics["gpu_idle_power_w"]):
-                    gpu_idle_values_so_far.append(_to_float_or_nan(gpu_metrics["gpu_idle_power_w"]))
-                    gpu_idle_stats = _idle_power_debug_stats(gpu_idle_values_so_far, "gpu")
-
-                idle_stats = _idle_debug_stats(cpu_idle_values_so_far)
-                if IDLE_DEBUG and _finite_positive(cpu_metrics["cpu_idle_power_w"]):
-                    cpu_idle_values_so_far.append(_to_float_or_nan(cpu_metrics["cpu_idle_power_w"]))
-                    idle_stats = _idle_debug_stats(cpu_idle_values_so_far)
-
-                cpu_cycles_est_app = _estimate_cpu_cycles(
-                    latency_app_s,
-                    resource_usage_metrics["cpu_freq_avg_hz"],
-                    _to_float_or_nan(CPU_CORES),
-                    resource_usage_metrics["container_cpu_util_avg_pct"],
-                )
-
-                row = _build_result_row({
-                    "gpu_device_uuid": GPU_DEVICE_UUID if USE_ENERGY else "nan",
-                    "gpu_energy_source": getattr(gpu_result, "energy_source", "unavailable") if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) else "not_requested",
-                    "gpu_energy_fallback_reason": getattr(gpu_result, "energy_fallback_reason", ""),
-                    "gpu_idle_energy_source": getattr(gpu_monitor, "idle_energy_source", "unavailable") if measurement_requested(PROFILING_MODE, "gpu_power", gpu=USE_ENERGY) else "not_requested",
-                    "input_scale": str(resolved_input_scale),
-                    "input_units_per_request": _fmt_float(
-                        input_units_per_request
-                    ),
-                    "input_num_samples": _fmt_float(input_num_samples),
-                    "request_payload_bytes": _fmt_float(request_payload_bytes),
-                    "task_param": (
-                        executed_task_param
-                        if executed_task_param is not None
-                        else _canonical_task_param(payload_override)
-                    ),
-                    "workload_contract": json.dumps(summarize_workload_contracts(workload_contracts), ensure_ascii=False, allow_nan=False, separators=(",", ":")),
-                    "output_length_avg": _fmt_float(output_length_avg),
-                    "output_token_count_avg": _fmt_float(
-                        output_token_count_avg
-                    ),
-                    "repeat_idx": str(repeat_idx),
-                    "warmup": str(warmup_flag),
-                    "repeat_in_window": str(actual_repeat_in_window),
-                    "latency_s": "nan",  # Placeholder: filled by merge_packet_latency
-                    "latency_s_per_input_unit": "nan",
-                    "latency_app_s": _fmt_float(latency_app_s),
-                    "latency_app_s_per_input_unit": _fmt_float(
-                        latency_app_s_per_input_unit
-                    ),
-                    "throughput_samples_per_s": _fmt_float(throughput),
-                    "throughput_samples_per_s_per_cpu_core": _fmt_float(
-                        throughput_per_cpu_core
-                    ),
-                    "gpu_idle_measured_at": gpu_idle_measured_at if IDLE_DEBUG else "nan",
-                    "gpu_idle_rel_range_so_far": (
-                        _fmt_float(gpu_idle_stats["gpu_idle_rel_range_so_far"])
-                        if IDLE_DEBUG
-                        else "nan"
-                    ),
-                    "dram_energy_status": (
-                        "not_requested" if PROFILING_MODE == "basic" or DRAM_ENERGY == "off" else
-                        getattr(getattr(cpu_result, "dram", None), "status", "unavailable")
-                    ),
-                    "dram_energy_error": getattr(getattr(cpu_result, "dram", None), "error", ""),
-                    "cpu_idle_measured_at": cpu_idle_measured_at if IDLE_DEBUG else "nan",
-                    "cpu_idle_rel_range_so_far": (
-                        _fmt_float(idle_stats["cpu_idle_rel_range_so_far"])
-                        if IDLE_DEBUG
-                        else "nan"
-                    ),
-                    "cpu_cycles_est_app": _fmt_float(cpu_cycles_est_app),
-                    "cpu_cycles_est_packet": "nan",
-                    "status": status,
-                    "error": err_msg,
-                }, metric_groups=(
-                    gpu_metrics, cpu_metrics, efficiency_metrics, resource_usage_metrics,
-                    gpu_runtime_metrics, mips_metrics, latency_packet_distribution_metrics,
-                    latency_app_distribution_metrics,
-                ), scale_entry=scale_entry, resolved_input_scale=resolved_input_scale,
-                    latency_app_s=latency_app_s, compute_profile_plan=compute_profile_plan,
-                    execution_profile_plan=execution_profile_plan)
-                idle_diag_record = None
-                if IDLE_DEBUG:
-                    if idle_debug_snapshot is None:
-                        idle_debug_snapshot = _collect_idle_debug_snapshot()
-                    idle_diag_record = {
-                        "case_name": CASE_NAME,
-                        "gpu_mode": GPU_MODE,
-                        "cpu_cores": CPU_CORES,
-                        "mem_cap_gb": MEM_CAP_GB,
-                        "input_scale": row["input_scale"],
-                        "warmup": row["warmup"],
-                        "repeat_idx": row["repeat_idx"],
-                        "repeat_in_window": row["repeat_in_window"],
-                        "sniff_group_id": sniff_group_id,
-                        "gpu_idle_measured_at": row["gpu_idle_measured_at"],
-                        "gpu_device_uuid": row["gpu_device_uuid"],
-                        "gpu_energy_source": row["gpu_energy_source"],
-                        "gpu_energy_counter_start_mj": getattr(gpu_result, "counter_start_mj", None),
-                        "gpu_energy_counter_end_mj": getattr(gpu_result, "counter_end_mj", None),
-                        "gpu_energy_duration_s": getattr(gpu_result, "measurement_duration_s", None),
-                        "gpu_power_samples": [[t - _gpu_samples[0][0], p] for t, p in _gpu_samples],
-                        "gpu_idle_power_w": _to_float_or_nan(row["gpu_idle_power_w"]),
-                        **gpu_idle_stats,
-                        **gpu_idle_trace,
-                        **(gpu_idle_debug_snapshot or {}),
-                        "cpu_idle_measured_at": row["cpu_idle_measured_at"],
-                        "cpu_idle_power_w": _to_float_or_nan(row["cpu_idle_power_w"]),
-                        **idle_stats,
-                        **idle_trace,
-                        **idle_debug_snapshot,
-                    }
-                _append_row(
-                    writer,
-                    row,
-                    f,
-                    sidecar_f,
-                    sniff_group_id,
-                    diag_f=diag_f,
-                    idle_diag_record=idle_diag_record,
-                )
-
-
-def run_cli() -> None:
-    try:
-        main()
-    except RequestTimeoutAbort as exc:
+        t0 = time.perf_counter()
         try:
-            _write_client_error_sidecar(exc)
-        except OSError as sidecar_exc:
-            print(
-                "[case][WARN] failed to persist structured timeout context: "
-                f"{sidecar_exc}",
-                file=sys.stderr,
+            r = requests.post(
+                self.config.base_url + self.config.endpoint,
+                json=payload,
+                headers=headers,
+                timeout=(self.config.request_timeout_seconds, self.config.request_timeout_seconds),
             )
-        print(f"[case][ERROR] {exc}", file=sys.stderr)
-        raise SystemExit(CLIENT_REQUEST_TIMEOUT_EXIT_CODE) from None
-    except MonitorCleanupError as exc:
-        print(f"[monitor][ERROR] {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except EnergyAbort as exc:
-        print(f"[energy][ERROR] {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except MIPSAbort as exc:
-        message = str(exc)
-        if message.startswith("[mips][ERROR]"):
-            print(message, file=sys.stderr)
+        except requests.exceptions.Timeout as exc:
+            raise RequestTimeoutAbort(
+                "inference request connect/read inactivity timeout: "
+                f"{self.config.request_timeout_seconds:g}s per phase (not a total deadline) "
+                f"(input_scale={scale_value:g}, req_id={req_id})",
+                input_scale=float(scale_value),
+                request_id=req_id,
+                timeout_s=float(self.config.request_timeout_seconds),
+            ) from exc
+        t1 = time.perf_counter()
+        if r.status_code >= 400:
+            try:
+                detail = r.json().get("error", "")
+            except Exception:
+                detail = r.text[:500]
+            raise RuntimeError(f"HTTP {r.status_code}: {detail or r.reason}")
+        resp = r.json()
+        request_latency_s = t1 - t0
+        if not math.isfinite(self.first_predict_app_s):
+            self.first_predict_app_s = request_latency_s
+        return {
+            "latency_app_s": request_latency_s,
+            "resp": resp,
+            "effective_input_scale": _parse_effective_input_scale(resp),
+            "request_payload_bytes": _prepared_body_size_bytes(r),
+            "output_length": _to_float_or_nan(resp.get("output_length")),
+            "output_token_count": _to_float_or_nan(resp.get("output_token_count")),
+            "task_param": _canonical_task_param(payload),
+            "workload_contract": resp.get("workload_contract"),
+        }
+
+    def _load_input_scale_entries(self) -> List[Dict[str, Any]]:
+        if self.config.input_scale_plan_file:
+            with open(self.config.input_scale_plan_file, "r", encoding="utf-8") as f:
+                plan = json.load(f)
+
+            from acprof.artifacts import require_schema_version
+            require_schema_version(plan, 2, "input_scale_plan.json")
+
+            entries = plan.get("entries")
+            if not isinstance(entries, list) or not entries:
+                raise RuntimeError(f"invalid input scale plan file: {self.config.input_scale_plan_file}")
+
+            loaded_entries: List[Dict[str, Any]] = []
+            for idx, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    raise RuntimeError(
+                        f"invalid input scale plan entry at index {idx}: {entry!r}"
+                    )
+
+                raw_scale = entry.get("input_scale")
+                payload = entry.get("payload")
+                if raw_scale is None or not isinstance(payload, dict):
+                    raise RuntimeError(
+                        f"input scale plan entry missing input_scale/payload at index {idx}"
+                    )
+
+                scale_value = float(raw_scale)
+                scale_label = str(
+                    entry.get("scale_label") or _generic_scale_label(scale_value)
+                )
+                input_metadata = entry.get("input_metadata", {})
+                if not isinstance(input_metadata, dict):
+                    raise ValueError(f"invalid input_metadata at input scale plan entry {idx}")
+                loaded_entries.append({
+                    "input_scale": scale_value,
+                    "scale_label": scale_label,
+                    "payload": payload,
+                    "input_metadata": input_metadata,
+                    "workload": plan.get("workload", {}),
+                })
+
+            scale_order = self.config.input_scale_order
+            if scale_order:
+                order = json.loads(scale_order)
+                available = {entry["input_scale"]: entry for entry in loaded_entries}
+                if (not isinstance(order, list) or len(order) != len(available)
+                        or len(set(order)) != len(order) or set(order) != set(available)):
+                    raise ValueError("frozen matrix input-scale order does not match input plan")
+                loaded_entries = [available[scale] for scale in order]
+            return loaded_entries
+
+        raise ValueError("INPUT_SCALE_PLAN_FILE is required; generate a schema v2 input plan first")
+
+    def _is_mips_error(self, exc: Exception) -> bool:
+        if isinstance(exc, MIPSAbort):
+            return True
+        if self.perf_mips_mod is None:
+            return False
+        mips_error_cls = getattr(self.perf_mips_mod, "MIPSProfilingError", None)
+        return bool(mips_error_cls is not None and isinstance(exc, mips_error_cls))
+
+    def _sleep_before_idle_baseline(self) -> None:
+        if self.config.idle_cooldown_seconds > 0.0:
+            time.sleep(self.config.idle_cooldown_seconds)
+
+    def _run_matched_control_window(self,
+        gpu_monitor: Any,
+        cpu_monitor: Any,
+        resource_usage_monitor: Any,
+        mips_monitor: Any,
+    ) -> None:
+        """Run a blank window with the same monitor lifecycle as the workload."""
+        group = MonitorGroup(close=False)
+        for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
+                              ("resource", resource_usage_monitor), ("mips", mips_monitor)):
+            group.add(name, monitor)
+        primary_error = None
+        try:
+            group.start()
+            if self.config.idle_seconds > 0.0:
+                time.sleep(self.config.idle_seconds)
+        except BaseException as exc:
+            primary_error = exc
+        finally:
+            group.finish(1, max(self.config.idle_seconds, 1e-9))
+
+        if primary_error is not None and not isinstance(primary_error, Exception):
+            raise primary_error
+        group.raise_if_failed()
+        if primary_error is not None:
+            raise primary_error
+
+        if group.results.get("gpu") is not None:
+            gpu_result, _gpu_name, _gpu_error, gpu_samples = group.results["gpu"]
+            gpu_monitor.apply_control_baseline(
+                gpu_result,
+                gpu_samples,
+                trace=self.config.idle_debug,
+            )
+        if group.results.get("cpu") is not None:
+            cpu_result, _cpu_error, cpu_samples = group.results["cpu"]
+            cpu_monitor.apply_control_baseline(
+                cpu_result,
+                cpu_samples,
+                trace=self.config.idle_debug,
+            )
+
+    def _collect_gpu_idle_debug_snapshot(self, device_index: int | None = None) -> Dict[str, Any]:
+        device_index = self.config.device_index if device_index is None else device_index
+        snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
+        try:
+            snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
+        except Exception as exc:
+            snapshot["nvidia_smi_gpu_error"] = repr(exc)
+
+        try:
+            snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(device_index)
+        except Exception as exc:
+            snapshot["nvidia_smi_pmon_error"] = repr(exc)
+
+        try:
+            snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(device_index)
+        except Exception as exc:
+            snapshot["nvidia_smi_compute_apps_error"] = repr(exc)
+
+        return snapshot
+
+    def _build_result_row(self, values, *, metric_groups, scale_entry, resolved_input_scale,
+                          latency_app_s, compute_profile_plan, execution_profile_plan):
+        """Assemble CSV values after sampling; profile and pixel joins stay out of the window."""
+        row = {
+            "cpu_cores": self.config.cpu_cores,
+            "mem_cap_gb": self.config.mem_cap_gb,
+            "gpu_mode": self.config.gpu_mode,
+            "packet_request_wire_bytes_per_request": "nan",
+            "packet_response_wire_bytes_per_request": "nan",
+            "packet_total_wire_bytes_per_request": "nan",
+            "packet_tcp_payload_bytes_per_request": "nan",
+            "packet_protocol_overhead_bytes_per_request": "nan",
+            "packet_protocol_overhead_ratio": "nan",
+            **self._cold_start_row_metrics(),
+            "result_origin": "formal_measurement",
+            **values,
+        }
+        for metrics in metric_groups:
+            row.update({name: str(value) if name == "gpu_pstate" else _fmt_float(value)
+                        for name, value in metrics.items()})
+        pixel_counts = pixel_counts_from_metadata(
+            scale_entry.get("input_metadata") if resolved_input_scale == float(scale_entry["input_scale"]) else None,
+            self.config.batch_size,
+            task_family=self.config.task_family,
+            pipeline_tag=self.config.pipeline_tag,
+            workload=scale_entry.get("workload"),
+        )
+        row.update({field: _fmt_float(value) for field, value in pixel_counts.items()})
+        row.update({field: _fmt_float(value) for field, value in pixel_rate_metrics(row).items()})
+        row_scale = _to_float_or_nan(row["input_scale"])
+        compute_profile = _find_compute_profile_entry(
+            compute_profile_plan,
+            self.config.gpu_mode,
+            row_scale,
+        )
+        row.update(
+            _compute_profile_row_metrics(
+                compute_profile,
+                latency_app_s,
+            )
+        )
+        execution_profile = _find_execution_profile_entry(
+            execution_profile_plan,
+            self.config.cpu_cores,
+            self.config.mem_cap_gb,
+            self.config.gpu_mode,
+            row_scale,
+        )
+        row.update(
+            _execution_profile_row_metrics(execution_profile)
+        )
+        return row
+
+    def _execute_window(self, scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f, cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s, compute_profile_plan, execution_profile_plan):
+        """Sample one window, then assemble its result; publication belongs to main."""
+        scale_val = float(scale_entry["input_scale"])
+        payload_override = scale_entry.get("payload")
+        input_num_samples = _input_num_samples(scale_entry.get("input_metadata"))
+        scale_label = str(scale_entry["scale_label"])
+        phase = "w" if warmup_flag else "r"
+        sniff_group_id = f"{self.config.case_name}_{scale_label}_{phase}{repeat_idx}"
+
+        latency_app_s = float("nan")
+        resolved_input_scale = scale_val
+        input_units_per_request = _input_units_per_request(
+            resolved_input_scale,
+            self.config.batch_size,
+        )
+        latency_app_s_per_input_unit = float("nan")
+        request_payload_bytes = float("nan")
+        output_length_avg = float("nan")
+        output_token_count_avg = float("nan")
+        executed_task_param: Optional[str] = None
+        status = "ok"
+        err_msg = ""
+        gpu_metrics = _nan_metrics(GPU_METRIC_FIELDS)
+        cpu_metrics = _nan_metrics(CPU_METRIC_FIELDS)
+        efficiency_metrics = _nan_metrics(EFFICIENCY_METRIC_FIELDS)
+        resource_usage_metrics = _nan_metrics(RESOURCE_USAGE_METRIC_FIELDS)
+        gpu_runtime_metrics: Dict[str, Any] = _nan_metrics(
+            GPU_RUNTIME_STATE_FIELDS
+        )
+        gpu_runtime_metrics["gpu_pstate"] = "nan"
+        mips_metrics = _nan_metrics(MIPS_METRIC_FIELDS)
+        latency_packet_distribution_metrics = _nan_metrics(LATENCY_PACKET_DISTRIBUTION_FIELDS)
+        latency_app_distribution_metrics = _nan_metrics(LATENCY_APP_DISTRIBUTION_FIELDS)
+        effective_input_scale: Optional[float] = None
+        cpu_idle_measured_at = "nan"
+        gpu_idle_measured_at = "nan"
+        idle_debug_snapshot: Optional[Dict[str, Any]] = None
+        gpu_idle_debug_snapshot: Optional[Dict[str, Any]] = None
+        idle_trace: Dict[str, Any] = {}
+        gpu_idle_trace: Dict[str, Any] = {}
+
+        monitors = MonitorGroup()
+        gpu_monitor = None
+        cpu_monitor = None
+        resource_usage_monitor = None
+        mips_monitor = None
+        gpu_result = None
+        _gpu_samples = []
+        cpu_result = None
+        resource_usage_result = None
+        actual_repeat_in_window = 0
+        lat_sum = 0.0
+        latency_app_values: List[float] = []
+        request_payload_bytes_values: List[float] = []
+        output_length_values: List[float] = []
+        output_token_count_values: List[float] = []
+        workload_contracts: List[Dict[str, Any]] = []
+        window_error = ""
+        primary_error = None
+        pending_request_id = ""
+        _resource_usage_err = ""
+        try:
+            try:
+                if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is not None:
+                    gpu_monitor = self.energy_mod.GPUEnergyMonitor(
+                        sample_hz=self.config.sample_hz,
+                        idle_seconds=self.config.idle_seconds,
+                        device_index=self.config.device_index,
+                        device_uuid=self.config.gpu_device_uuid,
+                    )
+                    monitors.add("gpu", gpu_monitor)
+
+                if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.cpu_energy_mod is not None:
+                    try:
+                        cpu_monitor = self.cpu_energy_mod.CPUEnergyMonitor(
+                            sample_hz=self.config.sample_hz, idle_seconds=self.config.idle_seconds,
+                            container_name=self.config.container_name, dram_energy=self.config.dram_energy)
+                        monitors.add("cpu", cpu_monitor)
+                    except RuntimeError as exc:
+                        if self.config.dram_energy == "required":
+                            raise EnergyAbort(str(exc)) from exc
+                        raise
+
+                if self.resource_usage_mod is not None:
+                    resource_usage_monitor = self.resource_usage_mod.ResourceUsageMonitor(
+                        sample_hz=self.config.sample_hz,
+                        container_name=self.config.container_name,
+                        cpu_cores=_to_float_or_nan(self.config.cpu_cores),
+                        mem_cap_gb=_to_float_or_nan(self.config.mem_cap_gb),
+                        use_gpu=self.use_energy,
+                        device_index=self.config.device_index,
+                        device_uuid=self.config.gpu_device_uuid,
+                    )
+                    monitors.add("resource", resource_usage_monitor)
+
+                if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips:
+                    mips_monitor = self.perf_mips_mod.PerfMIPSMonitor(self.config.container_name)
+                    monitors.add("mips", mips_monitor)
+
+                if gpu_monitor is not None or cpu_monitor is not None:
+                    self._sleep_before_idle_baseline()
+                    self._run_matched_control_window(
+                        gpu_monitor,
+                        cpu_monitor,
+                        resource_usage_monitor,
+                        mips_monitor,
+                    )
+                    measured_at = _now_iso()
+                    if gpu_monitor is not None:
+                        gpu_idle_measured_at = measured_at
+                        gpu_idle_trace = dict(
+                            getattr(gpu_monitor, "idle_trace", {}) or {}
+                        )
+                    if cpu_monitor is not None:
+                        cpu_idle_measured_at = measured_at
+                        idle_trace = dict(
+                            getattr(cpu_monitor, "idle_trace", {}) or {}
+                        )
+
+                    if self.config.idle_debug:
+                        if gpu_monitor is not None:
+                            gpu_idle_debug_snapshot = self._collect_gpu_idle_debug_snapshot()
+                        if cpu_monitor is not None:
+                            idle_debug_snapshot = _collect_idle_debug_snapshot()
+
+                monitors.start()
+
+                while self._should_send_window_request(
+                    actual_repeat_in_window,
+                    lat_sum,
+                    repeat_request_limit,
+                ):
+                    req_id = f"{sniff_group_id}:{actual_repeat_in_window}"
+                    pending_request_id = req_id
+                    out = self._one_request(scale_val, req_id=req_id, payload_override=payload_override)
+                    pending_request_id = ""
+                    request_latency_app_s = float(out["latency_app_s"])
+                    lat_sum += request_latency_app_s
+                    latency_app_values.append(request_latency_app_s)
+                    request_payload_bytes_values.append(
+                        _to_float_or_nan(out.get("request_payload_bytes"))
+                    )
+                    output_length_values.append(
+                        _to_float_or_nan(out.get("output_length"))
+                    )
+                    output_token_count_values.append(
+                        _to_float_or_nan(out.get("output_token_count"))
+                    )
+                    workload_contracts.append(out.get("workload_contract"))
+                    request_task_param = out.get("task_param")
+                    if (
+                        request_task_param is not None
+                        and executed_task_param is None
+                    ):
+                        executed_task_param = str(request_task_param)
+                    actual_repeat_in_window += 1
+                    effective_input_scale = _merge_effective_input_scale(
+                        effective_input_scale,
+                        out.get("effective_input_scale"),
+                        scale_val,
+                    )
+            except BaseException as exc:
+                primary_error = exc
+                window_error = f"{type(exc).__name__}: {exc}"
+                raise
+            finally:
+                monitors.finish(actual_repeat_in_window,
+                                lat_sum / actual_repeat_in_window if actual_repeat_in_window else float("nan"))
+                if monitors.results.get("resource") is not None:
+                    resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
+                if monitors.results.get("gpu") is not None:
+                    gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = monitors.results["gpu"]
+                if monitors.results.get("cpu") is not None:
+                    cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
+                mips_result = monitors.results.get("mips")
+                try:
+                    _append_request_window(
+                        requests_f, sniff_group_id=sniff_group_id,
+                        input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
+                        warmup=warmup_flag, repeat_idx=repeat_idx,
+                        latencies=latency_app_values,
+                        error="; ".join(part for part in (window_error, monitors.error) if part),
+                        failed_request_id=pending_request_id,
+                    )
+                finally:
+                    if primary_error is not None and (
+                        not isinstance(primary_error, Exception)
+                        or isinstance(primary_error, (RequestTimeoutAbort, EnergyAbort, MIPSAbort))
+                    ):
+                        raise primary_error
+                    monitors.raise_if_failed()
+
+            latency_app_s = _mean(latency_app_values)
+            request_payload_bytes = _mean_finite(
+                request_payload_bytes_values
+            )
+            output_length_avg = _mean_finite(output_length_values)
+            output_token_count_avg = _mean_finite(
+                output_token_count_values
+            )
+            latency_app_distribution_metrics = _latency_distribution_metrics(
+                "latency_app",
+                latency_app_values,
+                slow_latency_threshold_s=slow_latency_threshold_s,
+            )
+
+            if gpu_result is not None:
+                gpu_metrics = _gpu_metrics_from_result(
+                    gpu_result,
+                    actual_repeat_in_window,
+                )
+            if cpu_result is not None:
+                cpu_metrics = _cpu_metrics_from_result(
+                    cpu_result,
+                    actual_repeat_in_window,
+                )
+            if self.config.dram_energy == "required" and not all(math.isfinite(cpu_metrics[field]) for field in (
+                "dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"
+            )):
+                raise EnergyAbort("required DRAM RAPL measurement unavailable or incomplete")
+            if resource_usage_result is not None:
+                if self.config.profiling_mode == "basic":
+                    if _resource_usage_err:
+                        raise RuntimeError(f"required CPU/memory measurement failed: {_resource_usage_err}")
+                    if not all(math.isfinite(value) for value in (
+                        resource_usage_result.container_cpu_util_avg_pct,
+                        resource_usage_result.container_mem_usage_avg_bytes,
+                    )):
+                        raise RuntimeError("required CPU/memory measurement unavailable")
+                resource_usage_metrics = _resource_usage_metrics_from_result(
+                    resource_usage_result,
+                    actual_repeat_in_window,
+                )
+            resolved_input_scale = (
+                effective_input_scale
+                if effective_input_scale is not None
+                else scale_val
+            )
+            input_units_per_request = _input_units_per_request(
+                resolved_input_scale,
+                self.config.batch_size,
+            )
+            efficiency_metrics = _derived_efficiency_metrics(
+                gpu_mode=self.config.gpu_mode,
+                batch_size=self.config.batch_size,
+                latency_app_s=latency_app_s,
+                output_token_count_avg=output_token_count_avg,
+                gpu_energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
+                vcpu_energy_eff_j=cpu_metrics["vcpu_energy_eff_j"],
+                input_units_per_request=input_units_per_request,
+            )
+            gpu_runtime_metrics = _gpu_runtime_metrics_from_result(
+                resource_usage_result
+            )
+            if mips_result is not None:
+                mips_metrics = _mips_metrics_from_result(mips_result)
+
+            warnings = []
+            warnings.extend(_eff_negative_warnings(
+                avg_power_eff_w=gpu_metrics["gpu_avg_power_eff_w"],
+                peak_power_eff_w=gpu_metrics["gpu_peak_power_eff_w"],
+                energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
+            ))
+            warnings.extend(_named_negative_warnings({
+                "cpu_avg_power_eff_w": cpu_metrics["cpu_avg_power_eff_w"],
+                "cpu_peak_power_eff_w": cpu_metrics["cpu_peak_power_eff_w"],
+                "cpu_energy_eff_j": cpu_metrics["cpu_energy_eff_j"],
+                "vcpu_avg_power_eff_w": cpu_metrics["vcpu_avg_power_eff_w"],
+                "vcpu_peak_power_eff_w": cpu_metrics["vcpu_peak_power_eff_w"],
+                "vcpu_energy_eff_j": cpu_metrics["vcpu_energy_eff_j"],
+            }))
+            if warnings:
+                status = "warn"
+                err_msg = "; ".join(warnings)
+
+            if latency_app_s == latency_app_s and latency_app_s > 0:
+                throughput = float(self.config.batch_size) / float(latency_app_s)
+            else:
+                throughput = float("nan")
+            latency_app_s_per_input_unit = _per_positive_denominator(
+                latency_app_s,
+                input_units_per_request,
+            )
+            throughput_per_cpu_core = _per_positive_denominator(
+                throughput,
+                self.config.cpu_cores,
+            )
+
+        except RequestTimeoutAbort:
+            raise
+        except EnergyAbort:
+            raise
+        except MIPSAbort:
+            raise
+        except MonitorCleanupError as exc:
+            if self._is_mips_error(exc):
+                raise MIPSAbort(str(exc)) from exc
+            raise
+        except Exception as e:
+            if self._is_mips_error(e):
+                raise MIPSAbort(str(e)) from None
+            status = "error"
+            err_msg = repr(e)
+            throughput = float("nan")
+            throughput_per_cpu_core = float("nan")
+
+        gpu_idle_stats = _idle_power_debug_stats(gpu_idle_values_so_far, "gpu")
+        if self.config.idle_debug and _finite_positive(gpu_metrics["gpu_idle_power_w"]):
+            gpu_idle_values_so_far.append(_to_float_or_nan(gpu_metrics["gpu_idle_power_w"]))
+            gpu_idle_stats = _idle_power_debug_stats(gpu_idle_values_so_far, "gpu")
+
+        idle_stats = _idle_debug_stats(cpu_idle_values_so_far)
+        if self.config.idle_debug and _finite_positive(cpu_metrics["cpu_idle_power_w"]):
+            cpu_idle_values_so_far.append(_to_float_or_nan(cpu_metrics["cpu_idle_power_w"]))
+            idle_stats = _idle_debug_stats(cpu_idle_values_so_far)
+
+        cpu_cycles_est_app = _estimate_cpu_cycles(
+            latency_app_s,
+            resource_usage_metrics["cpu_freq_avg_hz"],
+            _to_float_or_nan(self.config.cpu_cores),
+            resource_usage_metrics["container_cpu_util_avg_pct"],
+        )
+
+        row = self._build_result_row({
+            "gpu_device_uuid": self.config.gpu_device_uuid if self.use_energy else "nan",
+            "gpu_energy_source": getattr(gpu_result, "energy_source", "unavailable") if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) else "not_requested",
+            "gpu_energy_fallback_reason": getattr(gpu_result, "energy_fallback_reason", ""),
+            "gpu_idle_energy_source": getattr(gpu_monitor, "idle_energy_source", "unavailable") if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) else "not_requested",
+            "input_scale": str(resolved_input_scale),
+            "input_units_per_request": _fmt_float(
+                input_units_per_request
+            ),
+            "input_num_samples": _fmt_float(input_num_samples),
+            "request_payload_bytes": _fmt_float(request_payload_bytes),
+            "task_param": (
+                executed_task_param
+                if executed_task_param is not None
+                else _canonical_task_param(payload_override)
+            ),
+            "workload_contract": json.dumps(summarize_workload_contracts(workload_contracts), ensure_ascii=False, allow_nan=False, separators=(",", ":")),
+            "output_length_avg": _fmt_float(output_length_avg),
+            "output_token_count_avg": _fmt_float(
+                output_token_count_avg
+            ),
+            "repeat_idx": str(repeat_idx),
+            "warmup": str(warmup_flag),
+            "repeat_in_window": str(actual_repeat_in_window),
+            "latency_s": "nan",  # Placeholder: filled by merge_packet_latency
+            "latency_s_per_input_unit": "nan",
+            "latency_app_s": _fmt_float(latency_app_s),
+            "latency_app_s_per_input_unit": _fmt_float(
+                latency_app_s_per_input_unit
+            ),
+            "throughput_samples_per_s": _fmt_float(throughput),
+            "throughput_samples_per_s_per_cpu_core": _fmt_float(
+                throughput_per_cpu_core
+            ),
+            "gpu_idle_measured_at": gpu_idle_measured_at if self.config.idle_debug else "nan",
+            "gpu_idle_rel_range_so_far": (
+                _fmt_float(gpu_idle_stats["gpu_idle_rel_range_so_far"])
+                if self.config.idle_debug
+                else "nan"
+            ),
+            "dram_energy_status": (
+                "not_requested" if self.config.profiling_mode == "basic" or self.config.dram_energy == "off" else
+                getattr(getattr(cpu_result, "dram", None), "status", "unavailable")
+            ),
+            "dram_energy_error": getattr(getattr(cpu_result, "dram", None), "error", ""),
+            "cpu_idle_measured_at": cpu_idle_measured_at if self.config.idle_debug else "nan",
+            "cpu_idle_rel_range_so_far": (
+                _fmt_float(idle_stats["cpu_idle_rel_range_so_far"])
+                if self.config.idle_debug
+                else "nan"
+            ),
+            "cpu_cycles_est_app": _fmt_float(cpu_cycles_est_app),
+            "cpu_cycles_est_packet": "nan",
+            "status": status,
+            "error": err_msg,
+        }, metric_groups=(
+            gpu_metrics, cpu_metrics, efficiency_metrics, resource_usage_metrics,
+            gpu_runtime_metrics, mips_metrics, latency_packet_distribution_metrics,
+            latency_app_distribution_metrics,
+        ), scale_entry=scale_entry, resolved_input_scale=resolved_input_scale,
+            latency_app_s=latency_app_s, compute_profile_plan=compute_profile_plan,
+            execution_profile_plan=execution_profile_plan)
+        idle_diag_record = None
+        if self.config.idle_debug:
+            if idle_debug_snapshot is None:
+                idle_debug_snapshot = _collect_idle_debug_snapshot()
+            idle_diag_record = {
+                "case_name": self.config.case_name,
+                "gpu_mode": self.config.gpu_mode,
+                "cpu_cores": self.config.cpu_cores,
+                "mem_cap_gb": self.config.mem_cap_gb,
+                "input_scale": row["input_scale"],
+                "warmup": row["warmup"],
+                "repeat_idx": row["repeat_idx"],
+                "repeat_in_window": row["repeat_in_window"],
+                "sniff_group_id": sniff_group_id,
+                "gpu_idle_measured_at": row["gpu_idle_measured_at"],
+                "gpu_device_uuid": row["gpu_device_uuid"],
+                "gpu_energy_source": row["gpu_energy_source"],
+                "gpu_energy_counter_start_mj": getattr(gpu_result, "counter_start_mj", None),
+                "gpu_energy_counter_end_mj": getattr(gpu_result, "counter_end_mj", None),
+                "gpu_energy_duration_s": getattr(gpu_result, "measurement_duration_s", None),
+                "gpu_power_samples": [[t - _gpu_samples[0][0], p] for t, p in _gpu_samples],
+                "gpu_idle_power_w": _to_float_or_nan(row["gpu_idle_power_w"]),
+                **gpu_idle_stats,
+                **gpu_idle_trace,
+                **(gpu_idle_debug_snapshot or {}),
+                "cpu_idle_measured_at": row["cpu_idle_measured_at"],
+                "cpu_idle_power_w": _to_float_or_nan(row["cpu_idle_power_w"]),
+                **idle_stats,
+                **idle_trace,
+                **idle_debug_snapshot,
+            }
+        return row, idle_diag_record, sniff_group_id
+
+    def main(self) -> None:
+        from acprof.artifacts import read_static_metadata
+        from acprof.latency_slo import latency_slo_threshold
+        slow_latency_threshold_s = latency_slo_threshold(
+            read_static_metadata(ArtifactLayout.from_csv(self.config.out_csv).root)
+        )
+        if not self.input_scale_entries:
+            self.input_scale_entries = self._load_input_scale_entries()
+        self.first_predict_app_s = float("nan")
+
+        if self.config.profiling_mode == "basic" and self.resource_usage_mod is None:
+            raise RuntimeError("basic profiling requires the container CPU and memory collector")
+        if self.config.gpu_mode == "on" and not self.config.gpu_device_uuid:
+            raise RuntimeError("GPU_DEVICE_UUID is required: launch the client through the AC-Prof orchestrator")
+
+        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is None:
+            raise EnergyAbort(
+                "GPU energy monitoring is required for gpu_mode=on but NVML/pynvml is unavailable. "
+                "Install nvidia-ml-py, verify NVIDIA driver access, or rerun with --gpus off."
+            )
+        if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips and self.perf_mips_mod is None:
+            raise MIPSAbort(
+                "MIPS profiling is enabled but perf_mips.py could not be imported."
+            )
+
+        compute_profile_plan = _load_compute_profile_plan(self.config.compute_profile_plan_file)
+        execution_profile_plan = _load_execution_profile_plan(
+            self.config.execution_profile_plan_file
+        )
+        need_header = _is_file_empty(self.config.out_csv)
+        fieldnames = CSV_FIELDS
+        if not need_header:
+            with open(self.config.out_csv, "r", newline="", encoding="utf-8-sig") as existing:
+                fieldnames = next(csv.reader(existing))
+            if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
+                raise RuntimeError(f"existing CSV columns do not match current fields: {self.config.out_csv}; use a new output file")
+        sidecar_mode = "w" if need_header else "a"
+        if self.config.idle_debug:
+            diag_path = self._idle_diag_path(self.config.out_csv)
+            os.makedirs(os.path.dirname(diag_path) or ".", exist_ok=True)
+            diag_context = open(diag_path, sidecar_mode, encoding="utf-8")
         else:
-            print(f"[mips][ERROR] {message}", file=sys.stderr)
-        exit_code = getattr(perf_mips_mod, "MIPS_EXIT_CODE", 8) if perf_mips_mod else 8
-        raise SystemExit(exit_code) from None
+            diag_context = nullcontext(None)
+        with open(self.config.out_csv, "a", newline="", encoding="utf-8") as f, open(
+            self._sniff_groups_path(self.config.out_csv),
+            sidecar_mode,
+            encoding="utf-8",
+        ) as sidecar_f, open(
+            case_sidecar(self.config.out_csv, "requests"), sidecar_mode, encoding="utf-8"
+        ) as requests_f, diag_context as diag_f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=fieldnames,
+                quoting=csv.QUOTE_MINIMAL,
+            )
+            if need_header:
+                writer.writeheader()
+                f.flush()
+                os.fsync(f.fileno())
+
+            # /ready check
+            try:
+                rr = requests.get(self.config.base_url + "/ready", timeout=60, headers={"Connection": "close"})
+                if rr.status_code >= 400:
+                    raise RuntimeError(f"/ready HTTP {rr.status_code}: {rr.text[:200]}")
+            except Exception as e:
+                row = {k: "nan" for k in CSV_FIELDS}
+                row.update({
+                    "cpu_cores": self.config.cpu_cores,
+                    "mem_cap_gb": self.config.mem_cap_gb,
+                    "gpu_mode": self.config.gpu_mode,
+                    **self._cold_start_row_metrics(),
+                    "status": "error",
+                    "error": f"ready_failed: {repr(e)}",
+                })
+                _append_row(writer, row, f, sidecar_f, "")
+                return
+
+            cpu_idle_values_so_far: List[float] = []
+            gpu_idle_values_so_far: List[float] = []
+            for scale_entry in self.input_scale_entries:
+                scale_val = float(scale_entry["input_scale"])
+                payload_override = scale_entry.get("payload")
+                repeat_request_limit = self._prepare_repeat_window(
+                    scale_val,
+                    str(scale_entry["scale_label"]),
+                    payload_override,
+                )
+                for idx in range(self.config.warmup + self.config.repeat):
+                    warmup_flag = 1 if idx < self.config.warmup else 0
+                    repeat_idx = idx if warmup_flag else (idx - self.config.warmup)
+
+                    row, idle_diag_record, sniff_group_id = self._execute_window(
+                        scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f,
+                        cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s,
+                        compute_profile_plan, execution_profile_plan,
+                    )
+                    _append_row(
+                        writer,
+                        row,
+                        f,
+                        sidecar_f,
+                        sniff_group_id,
+                        diag_f=diag_f,
+                        idle_diag_record=idle_diag_record,
+                    )
+
+    def run_cli(self) -> None:
+        try:
+            self.main()
+        except RequestTimeoutAbort as exc:
+            try:
+                self._write_client_error_sidecar(exc)
+            except OSError as sidecar_exc:
+                print(
+                    "[case][WARN] failed to persist structured timeout context: "
+                    f"{sidecar_exc}",
+                    file=sys.stderr,
+                )
+            print(f"[case][ERROR] {exc}", file=sys.stderr)
+            raise SystemExit(CLIENT_REQUEST_TIMEOUT_EXIT_CODE) from None
+        except MonitorCleanupError as exc:
+            print(f"[monitor][ERROR] {exc}", file=sys.stderr)
+            raise SystemExit(1) from None
+        except EnergyAbort as exc:
+            print(f"[energy][ERROR] {exc}", file=sys.stderr)
+            raise SystemExit(1) from None
+        except MIPSAbort as exc:
+            message = str(exc)
+            if message.startswith("[mips][ERROR]"):
+                print(message, file=sys.stderr)
+            else:
+                print(f"[mips][ERROR] {message}", file=sys.stderr)
+            exit_code = getattr(self.perf_mips_mod, "MIPS_EXIT_CODE", 8) if self.perf_mips_mod else 8
+            raise SystemExit(exit_code) from None
+
+
+def main(config: ClientConfig | None = None) -> None:
+    config = ClientConfig.from_env() if config is None else config
+    config.validate()
+    _ensure_local_proxy_bypass()
+    print(f"[client] PIPELINE_TAG={config.pipeline_tag}", flush=True)
+    ClientRunner(config).run_cli()
 
 
 if __name__ == "__main__":
-    run_cli()
+    main()

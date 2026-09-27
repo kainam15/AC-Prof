@@ -1,3 +1,6 @@
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from client_fixtures import patch_client, patch_client_settings
 import acprof.plotting.config as plotting_config
 import acprof.plotting.data as plotting_data
 import acprof.plotting.metrics as plotting_metrics
@@ -22,6 +25,9 @@ from acprof.packet import merge_packet_latency
 
 
 class PixelNormalizationTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = ClientRunner(ClientConfig())
+
     def write_result(self, root, *, family="diffusion", scale_type="resolution_px",
                      batch=2, entries=None, rows=None, workload=None):
         root = Path(root)
@@ -232,15 +238,14 @@ class PixelNormalizationTests(unittest.TestCase):
             path = str(Path(tmp) / "result.csv")
             entry = {"input_scale": 128.0, "scale_label": "res128px", "payload": {},
                      "input_metadata": {"output_pixel_count_per_image": 16384}}
-            with patch.multiple(client, OUT_CSV=path, WARMUP=0, REPEAT=1,
+            with patch_client_settings(self.runner, OUT_CSV=path, WARMUP=0, REPEAT=1,
                     REPEAT_IN_WINDOW=2, BATCH_SIZE=2, TASK_FAMILY="diffusion",
                     USE_ENERGY=False, USE_MIPS=False, energy_mod=None,
                     cpu_energy_mod=None, resource_usage_mod=None,
                     input_scale_entries=[entry]), patch.object(client.requests, "get",
-                    return_value=SimpleNamespace(status_code=200, text="ok")), patch.object(
-                    client, "_one_request", return_value={"latency_app_s": 0.065536,
+                    return_value=SimpleNamespace(status_code=200, text="ok")), patch_client(self.runner, "_one_request", return_value={"latency_app_s": 0.065536,
                     "effective_input_scale": 128.0}):
-                client.main()
+                self.runner.main()
             with open(path) as f:
                 row = next(csv.DictReader(f))
         self.assertIn("output_pixels_per_request", row)

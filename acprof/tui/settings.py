@@ -30,7 +30,7 @@ class UnsupportedSettingsError(ValueError):
 
 @dataclass(frozen=True)
 class UiPreferences:
-    theme: str = "acprof-dark"
+    theme: str = "acprof-graphite"
     log_wrap: bool = True
     log_max_lines: int = 3000
     show_command_bar: bool = True

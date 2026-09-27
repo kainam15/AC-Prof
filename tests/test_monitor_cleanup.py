@@ -1,4 +1,7 @@
 """Exercise the real client loop with failures at its external monitor boundary."""
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from client_fixtures import patch_client
 from contextlib import ExitStack, redirect_stdout
 import io
 import json
@@ -14,10 +17,13 @@ from acprof.monitors import energy_cpu, resource_usage
 
 
 class MonitorCleanupTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = ClientRunner(ClientConfig())
+
     def run_failure(self, fault, *, request_error=None, journal_error=None):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             if journal_error is not None:
-                stack.enter_context(patch.object(client, "_append_request_window", side_effect=journal_error))
+                stack.enter_context(patch_client(self.runner, "_append_request_window", side_effect=journal_error))
             path = Path(temporary) / "case.csv"
             cpu = Mock()
             cpu.idle_trace = {}
@@ -38,18 +44,18 @@ class MonitorCleanupTests(unittest.TestCase):
                 "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
             }
             for key, value in settings.items():
-                stack.enter_context(patch.object(client, key, value))
+                stack.enter_context(patch_client(self.runner, key, value))
             stack.enter_context(patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200, text="ok")))
-            stack.enter_context(patch.object(client, "_run_matched_control_window"))
-            stack.enter_context(patch.object(client, "_sleep_before_idle_baseline"))
-            request = stack.enter_context(patch.object(client, "_one_request", side_effect=request_error,
+            stack.enter_context(patch_client(self.runner, "_run_matched_control_window"))
+            stack.enter_context(patch_client(self.runner, "_sleep_before_idle_baseline"))
+            request = stack.enter_context(patch_client(self.runner, "_one_request", side_effect=request_error,
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0,
                               "workload_contract": {"schema_version": 1, "actual_rows": 1}}))
             expected_error = (self.assertRaises(type(request_error))
                               if request_error is not None and not isinstance(request_error, Exception)
                               else self.assertRaisesRegex(RuntimeError, "cleanup"))
             with redirect_stdout(io.StringIO()), expected_error:
-                client.main()
+                self.runner.main()
             self.assertEqual(request.call_count, 1, "cleanup failure must stop later windows")
             cpu.stop.assert_called_once()
             cpu.close.assert_called_once()

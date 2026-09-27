@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, replace
 
 from acprof.tui.i18n import message
+from acprof.progress_events import parse_event
 from acprof.tui.presentation import UNKNOWN
 
 
@@ -86,11 +87,17 @@ class ProgressSnapshot:
 class RunProgressTracker:
     """Translate stable run.py log markers into low-frequency UI state."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, structured: bool = False) -> None:
+        self._structured = structured
+        self._case_id = ""
         self.snapshot = ProgressSnapshot()
 
     def feed(self, raw_line: str) -> ProgressSnapshot:
         line = ANSI_ESCAPE_RE.sub("", raw_line).strip()
+        event = parse_event(line)
+        if event is not None:
+            self._structured = True
+            return self._feed_event(event)
         state = self.snapshot
         updates: dict[str, object] = {}
 
@@ -301,6 +308,34 @@ class RunProgressTracker:
         if final_match:
             updates["final_csv"] = final_match.group("path").strip()
 
+        if self._structured:
+            updates.pop("measurement_active", None)
+            # Ordinary logs may enrich diagnostics, but cannot end a live case.
+            if state.measurement_active:
+                updates.pop("stage", None)
+                updates.pop("detail", None)
+                updates.pop("completed_cases", None)
         if updates:
             self.snapshot = replace(state, **updates)
+        return self.snapshot
+
+    def _feed_event(self, event: dict) -> ProgressSnapshot:
+        name, case_id = event["event"], event["case_id"]
+        if name == "case_started":
+            if self.snapshot.measurement_active:
+                raise ValueError("case_started while measurement is still active")
+            self._case_id = case_id
+            self.snapshot = replace(self.snapshot, stage=message('启动容器'), measurement_active=False)
+        elif case_id == self._case_id:
+            if name == "measurement_started":
+                self.snapshot = replace(self.snapshot, stage=message('正式测量'),
+                    detail=message('采集窗口进行中；TUI 已停止常规重绘'), measurement_active=True)
+            elif name == "measurement_stopped":
+                self.snapshot = replace(self.snapshot, stage=message('清理 case'), measurement_active=False)
+            elif name == "case_finished":
+                self.snapshot = replace(self.snapshot,
+                    stage=message('case 完成') if event["status"] == "ok" else message('失败'),
+                    completed_cases=max(self.snapshot.completed_cases, self.snapshot.current_case),
+                    measurement_active=False)
+                self._case_id = ""
         return self.snapshot

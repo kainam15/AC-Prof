@@ -159,7 +159,7 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(model.cursor_position, 2)
             self.assertEqual(app.query_one("#run-preset", Select).value, preset)
             self.assertEqual(app.query_one("#gpus", Select).value, "on,off")
-            self.assertEqual(app.query_one("#ui-theme SelectCurrent #label", Static).content, "Ocean blue · Dark")
+            self.assertEqual(app.query_one("#ui-theme SelectCurrent #label", Static).content, "Graphite · Dark (Default)")
             self.assertEqual(build_run_command(app._collect_config(), project_dir=PROJECT_DIR), command)
             self.assertEqual(app.query_one("#command-preview", Static).content, preview)
             self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
@@ -274,8 +274,6 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
                                     self.assertLessEqual(cell_len(widget.label.plain), widget.content_region.width, widget_id)
                                     self.assertLessEqual(region.right, widget.parent.content_region.right, widget_id)
                                     self.assertGreaterEqual(region.x, widget.parent.content_region.x, widget_id)
-                            if tab == "monitor-tab" and language == "en":
-                                self.assertGreaterEqual(app.query_one("#log-title").content_region.width, 3)
                         if language == "en":
                             for (widget, attribute), source in app._localized_text.items():
                                 rendered = widget.content if attribute == "content" else getattr(widget, attribute)

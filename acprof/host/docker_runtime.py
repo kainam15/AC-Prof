@@ -399,6 +399,7 @@ def _start_container_session(
     container_name: str,
     log_prefix: str,
     request_timeout_seconds: float | None = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    cpuset_cpus: str = "",
 ) -> RunningContainer:
     import requests
 
@@ -407,6 +408,8 @@ def _start_container_session(
         request_timeout_seconds = float(request_timeout_seconds)
         if not math.isfinite(request_timeout_seconds) or request_timeout_seconds <= 0:
             raise ValueError("request_timeout_seconds must be finite and positive, or None")
+    from acprof.cpu_affinity import normalize_cpu_set
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     completion_timeout = "none" if request_timeout_seconds is None else f"{request_timeout_seconds:g}"
     host_port = _host_port(cpu, mem)
 
@@ -429,6 +432,7 @@ def _start_container_session(
         "--name", container_name,
         *labels,
         f"--cpus={cpu}",
+        *([f"--cpuset-cpus={cpuset_cpus}"] if cpuset_cpus else []),
         f"--memory={mem}g",
         *gpu_flag,
         "-e", f"MODEL_ID={task_info.model_id}",
@@ -440,7 +444,7 @@ def _start_container_session(
         *hf_offline_docker_env_args(),
         "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
         *runtime_docker_env_args(),
-        "-p", f"{host_port}:{SERVER_PORT}",
+        "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",
         image_info.tag,
     ]
 

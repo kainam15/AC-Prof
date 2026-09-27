@@ -295,11 +295,21 @@ cycles / ref-cycles 为可选 PMU 事件，不改变 instructions 的必需性�
 资源设置、已记录的有效线程数、测量口径、质量约束和 actual workload。它允许预期中的 backend、
 环境、镜像、模型与制品身份差异，不要求整份输入计划或配置 hash 相同。`run_id`、续跑身份和
 恢复锁仍按原规则严格匹配，运行后 actual 不进入执行前身份。
-旧结果缺条件时返回 unknown；目前没有统一质量阈值配置，只有输入计划显式记录了可选
-`quality_constraints` 才能比较这一项。条件相同不证明质量达标，也不证明机器、CPU affinity
-或独立 probe 之后的全部运行状态等价；这些限制一并写入报告。
-线程比较仅在恢复记录包含显式正整数线程请求、且独立验证记录了实际生效值时成立。
-默认值或运行时自行选择的线程数记为 unknown，避免把独立验证的 quota 派生默认值当作正式服务事实。
+比较报告 schema v2 使用 `--comparison-purpose same-hardware`（默认）检查同机 CPU/GPU、
+实际 affinity、线程数、驱动与功耗策略；`cross-hardware` 将已知硬件差异记录为
+`expected_difference`，继续检查输入、线程与测量协议。示例：
+
+```bash
+.venv/bin/python audit.py results/left --compare results/right \
+  --comparison-purpose cross-hardware --require-comparable --json
+```
+
+硬件证据来自每个正式 case 开始前的 `hardware_conditions.json`，字段、范围与未知值见
+[硬件条件证据](Profiling_Protocol.md#硬件条件证据)。缺失值始终为 `unknown`；
+跨硬件模式不会把未记录条件视为预期差异。实际正式服务的线程数优先于独立 probe 近似值；
+只有旧 probe 证据时仍需显式正整数线程请求，并保留硬件证据未知的限制。
+`quality_constraints` 必须由输入计划显式记录；条件一致不证明模型质量达标，也不保证
+整个运行期间独占硬件或热状态不变。比较不修改 run identity，不改变恢复校验。
 actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repeat_in_window` 时还需一致；
 显式失败案例的终态与成功状态分别显示，不将 OOM/timeout 归为未开始或成功。
 

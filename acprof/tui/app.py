@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import csv
 import os
-import signal
 import subprocess
 import sys
-import threading
+import asyncio
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -76,6 +75,7 @@ from acprof.tui.table import ResizableDataTable
 
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.process import ProcessLifecycle, StopResult
 from acprof.tui.reports import ReportView, read_report
 from acprof.tui.rendering import CjkScreen
 from acprof.host.image_management import (
@@ -181,9 +181,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
         self.theme = self.ui_preferences.theme
-        self._process: subprocess.Popen[str] | None = None
+        self._lifecycle = ProcessLifecycle()
         self._process_kind = ""
-        self._process_lock = threading.Lock()
         self._pending_launch: PendingLaunch | None = None
         self._active_run_config: RunConfig | None = None
         self._active_command: tuple[str, ...] = ()
@@ -600,6 +599,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             task_family=self._select("task-family"),
             backend=self._input("backend"),
             cpus=self._input("cpus"),
+            cpuset_cpus=self._input("cpuset-cpus"),
             mems=self._input("mems"),
             gpus=self._select("gpus"),
             input_scales=self._input("input-scales"),
@@ -640,6 +640,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             "task": config.task,
             "backend": config.backend,
             "cpus": config.cpus,
+            "cpuset-cpus": config.cpuset_cpus,
             "mems": config.mems,
             "input-scales": config.input_scales,
             "workload-spec": config.workload_spec,
@@ -749,9 +750,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         return True
 
     def _is_busy(self) -> bool:
-        with self._process_lock:
-            return (self._process is not None or bool(self._process_kind) or self._report_loading
-                    or bool(self._image_operation) or self._resolution_open or self._environment_open)
+        return (self._lifecycle.process is not None or bool(self._process_kind) or self._report_loading
+                or bool(self._image_operation) or self._resolution_open or self._environment_open)
 
     def _set_busy(self, busy: bool) -> None:
         # Configuration changes during a run can queue preview redraws and
@@ -991,6 +991,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         "找到最低可用内存": "stage-success",
         "case 完成": "stage-success",
         "失败": "stage-error",
+        "清理未完成": "stage-error",
         "探测失败": "stage-error",
         "任务不支持": "stage-error",
         "已终止": "stage-error",
@@ -1004,7 +1005,7 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     @work(thread=True, group="process", exclusive=True, exit_on_error=False)
     def _execute_command(self, command: list[str], kind: str) -> None:
-        tracker = RunProgressTracker() if kind in {"run", "probe"} else None
+        tracker = RunProgressTracker(structured=(kind == "run")) if kind in {"run", "probe"} else None
         suppressed_lines = 0
         deferred_important_lines: list[str] = []
         process: subprocess.Popen[str] | None = None
@@ -1020,20 +1021,9 @@ class AcprofTui(ImageActions, BarCursorApp):
             # ANSI redraws, when the TUI itself is launched inside tmux.
             child_env.pop("TMUX", None)
             child_env.pop("TMUX_PANE", None)
-            process = subprocess.Popen(
-                command,
-                cwd=PROJECT_DIR,
-                env=child_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                start_new_session=(os.name == "posix"),
-            )
-            with self._process_lock:
-                self._process = process
+            process = self._lifecycle.start(command, cwd=PROJECT_DIR, env=child_env)
+            if self._stop_requested:
+                self._lifecycle.stop()
             self.call_from_thread(self._process_started, process.pid, kind)
             assert process.stdout is not None
             for raw_line in process.stdout:
@@ -1084,7 +1074,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                         suppressed_lines = 0
                 self.call_from_thread(
                     self._consume_process_line,
-                    line,
+                    "" if line.startswith("ACPROF_EVENT ") else line,
                     snapshot,
                     state_changed,
                 )
@@ -1092,36 +1082,61 @@ class AcprofTui(ImageActions, BarCursorApp):
             process.stdout.close()
         except Exception as exc:  # process errors must become visible in the UI
             launch_error = f"{type(exc).__name__}: {exc}"
-            if process is not None and process.poll() is None:
-                try:
-                    if os.name == "posix":
-                        os.killpg(process.pid, signal.SIGTERM)
-                    else:  # pragma: no cover
-                        process.terminate()
-                    process.wait(timeout=5)
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
+            if process is not None:
+                result = self._lifecycle.stop()
+                if not result.complete:
+                    self._safe_process_callback(self._process_cleanup_incomplete, result)
         finally:
-            if process is not None and process.stdout is not None:
-                process.stdout.close()
-            if suppressed_lines:
-                self.call_from_thread(self._show_suppressed_count, suppressed_lines)
-            if deferred_important_lines:
-                self.call_from_thread(
-                    self._show_deferred_lines,
-                    tuple(deferred_important_lines),
-                )
             final_snapshot = tracker.snapshot if tracker is not None else None
-            with self._process_lock:
-                if self._process is process:
-                    self._process = None
-            self.call_from_thread(
-                self._process_finished,
-                kind,
-                returncode,
-                final_snapshot,
-                launch_error,
+            if process is not None and process.poll() is None:
+                # Keep both ownership and the output reader until exit. A failed
+                # UI callback must not orphan a collector or block its pipe.
+                self._watch_failed_process(process, kind, final_snapshot, launch_error)
+            else:
+                if process is not None:
+                    if process.stdout is not None:
+                        process.stdout.close()
+                    self._lifecycle.release(process)
+                    returncode = process.returncode
+                if suppressed_lines:
+                    self._safe_process_callback(self._show_suppressed_count, suppressed_lines)
+                if deferred_important_lines:
+                    self._safe_process_callback(self._show_deferred_lines, tuple(deferred_important_lines))
+                self._safe_process_callback(
+                    self._process_finished, kind, returncode, final_snapshot, launch_error,
+                )
+
+    def _safe_process_callback(self, callback, *args) -> None:
+        try:
+            self.call_from_thread(callback, *args)
+        except Exception as exc:
+            # Widgets may already have been pruned during shutdown. Process
+            # cleanup and ownership must not depend on their availability.
+            print(f"[TUI] callback failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    @work(thread=True, group="process-reap", exit_on_error=False)
+    def _watch_failed_process(self, process, kind, snapshot, error) -> None:
+        try:
+            if process.stdout is not None:
+                for _ in process.stdout:
+                    pass
+        except (OSError, ValueError):
+            pass
+        process.wait()
+        if process.stdout is not None:
+            process.stdout.close()
+        if self._lifecycle.release(process):
+            self._safe_process_callback(
+                self._process_finished, kind, process.returncode, snapshot, error,
             )
+
+    def _process_cleanup_incomplete(self, result: StopResult) -> None:
+        detail = message('PID {0} 仍未确认退出：{1}；可再次停止。', result.pid, result.error)
+        self._latest_snapshot = replace(self._latest_snapshot, stage="清理未完成", detail=detail)
+        self._render_snapshot(self._latest_snapshot)
+        self._write_log(detail)
+        self._set_busy(True)
+        self.notify(detail, severity="error", timeout=10)
 
     def _process_started(self, pid: int, kind: str) -> None:
         self.query_one("#run-log", SelectableLog).write(
@@ -1362,38 +1377,10 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     @work(thread=True, group="stop", exclusive=True, exit_on_error=False)
     def _stop_process_gracefully(self) -> None:
-        with self._process_lock:
-            process = self._process
-        if process is None or process.poll() is not None:
-            return
-        self.call_from_thread(
-            self._write_log,
-            "[TUI] 正在请求采集进程安全停止……",
-        )
-        try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGINT)
-            else:  # pragma: no cover - formal collection is Linux only
-                process.send_signal(signal.SIGINT)
-            # run_single_case may need to stop tcpdump, monitors, and Docker;
-            # allow that cleanup to finish before escalating the signal.
-            process.wait(timeout=30)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-        except ProcessLookupError:
-            return
-        self.call_from_thread(
-            self._write_log,
-            "[TUI] SIGINT 超时，升级为 SIGTERM。",
-        )
-        try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:  # pragma: no cover
-                process.terminate()
-        except ProcessLookupError:
-            return
+        self._safe_process_callback(self._write_log, "[TUI] 正在请求采集进程安全停止……")
+        result = self._lifecycle.stop()
+        if not result.complete:
+            self._safe_process_callback(self._process_cleanup_incomplete, result)
 
     @on(Button.Pressed, "#quick-check")
     def quick_check_button(self) -> None:
@@ -1900,20 +1887,12 @@ class AcprofTui(ImageActions, BarCursorApp):
             return
         self.exit()
 
-    def on_unmount(self) -> None:
-        """Best-effort guard against leaving collectors behind on normal exit."""
+    async def on_unmount(self) -> None:
+        """Use the same bounded cleanup policy even after widgets are gone."""
         self._form_ready = False
         self._cancel_preview_timer()
         if self._image_refresh_timer is not None:
             self._image_refresh_timer.stop()
-        with self._process_lock:
-            process = self._process
-        if process is None or process.poll() is not None:
-            return
-        try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:  # pragma: no cover
-                process.terminate()
-        except ProcessLookupError:
-            pass
+        result = await asyncio.to_thread(self._lifecycle.stop, closing=True)
+        if not result.complete:
+            print(f"[TUI] cleanup incomplete: PID={result.pid}; {result.error}", file=sys.stderr)

@@ -68,6 +68,12 @@ def run_options(args) -> dict:
         options["gpu_device"] = device["uuid"]
     elif options.get("gpu_device") is None:
         options.pop("gpu_device", None)
+    from acprof.cpu_affinity import normalize_cpu_set
+    cpuset = normalize_cpu_set(options.get("cpuset_cpus", ""))
+    if cpuset:
+        options["cpuset_cpus"] = cpuset
+    else:
+        options.pop("cpuset_cpus", None)
     for name in ("cpus", "mems", "gpus"):
         options[name] = ",".join(part.strip().lower() for part in options[name].split(",") if part.strip())
     inherited = ("AUTO_WARMUP_REQUESTS", "SLOW_LATENCY_THRESHOLD_S", "IDLE_DEBUG_TRACE_INTERVAL_S",

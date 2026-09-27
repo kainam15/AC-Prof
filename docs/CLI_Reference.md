@@ -75,8 +75,9 @@ TUI 保存实际使用的绝对路径，相对输入以启动时的工作目录�
 
 ### TUI 终端颜色
 
-TUI 默认使用 `--color-system truecolor`，直接输出主题中的 RGB 颜色。默认“深海蓝”沿用
-VS Code 中的外观：背景 `#15232d`、输入框与面板 `#1c2e3b`、强调色 `#66b8c4`、文字 `#e2ebef`。
+TUI 默认使用 `--color-system truecolor`，直接输出主题中的 RGB 颜色。默认主题为“石墨灰 · 深色”
+（`acprof-graphite`）：背景 `#202126`、输入框表面 `#292b32`、面板 `#383b45`、强调色 `#66b8c4`、文字 `#eceef3`。
+首次启动、设置中缺少主题或“恢复界面默认”时使用此主题；已保存的有效主题选择优先于默认值。
 全部主题均使用明确颜色，控件不依赖终端可重定义的 ANSI 基础色；原有主题选择及保存格式不变。
 主题控制背景与层次，操作颜色保持固定语义：青色为选择和主要操作、白色为普通操作、黄色为可恢复的风险操作、
 红色为删除或终止、灰色为禁用、绿色为成功或 Ready。浅色主题使用深色普通文字和较深的同色系颜色；
@@ -249,6 +250,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](Runtime_Compatibility.md#本地模型声明与自定义-pipeline)。 |
 | `--profiling-mode` | `full` | `full` 保留 RAPL、perf 和 packet latency 必需条件；`basic` 仅要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包。两者均要求原生 Linux、本机 Docker 和 cgroup v2。 |
 | `--cpus` | `1,2,4,8` | CPU core 限制列表。 |
+| `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
 | `--mems` | `2,4,8,16` | Memory cap GB 列表。 |
 | `--gpus` | `off,on` | GPU mode 列表。`on` 只向容器暴露选定的物理 GPU。 |
 | `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`probe.py` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |
@@ -266,7 +268,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--repeat` | `5` | 每个资源配置、每个 input scale 的正式测量行数。 |
 | `--repeat-in-window` | `0` | 每一行内部连续发送的 `/predict` request 数量。`0` 表示 auto 模式：每行至少发送 1 个请求，并持续到累计 `latency_app_s` 达到 `--repeat-window-seconds`。 |
 | `--repeat-window-seconds` | `10.0` | `--repeat-in-window 0` 时的目标 workload window 秒数。auto 模式不再额外跑一个 10 秒校准窗口。 |
-| `--request-timeout-seconds` | `300.0` | 正式矩阵中每个 `/predict` 请求的最大等待秒数，必须是大于 0 的有限值；它适用于 warmup、auto-window warmup 和正式请求，不限制整行、整个 case 或整条命令的总运行时间。超时后保留已完成行，并将触发请求及后续未测计划行分别写成可诊断的 error 占位。 |
+| `--request-timeout-seconds` | `300.0` | 正式矩阵中每个 `/predict` 请求的连接等待和读取无进展上限（分别应用），必须是大于 0 的有限值；它适用于 warmup、auto-window warmup 和正式请求，不是请求的严格总截止时间，也不限制整行、整个 case 或整条命令的总运行时间；持续有数据到达可使总耗时超过此值，不自动重试。超时后保留已完成行，并将触发请求及后续未测计划行分别写成可诊断的 error 占位。 |
 | `--sample-hz` | `20.0` | GPU power sampling rate，单位 Hz；CPU workload 和 matched control window 期间也用它控制 RAPL、container cgroup、CPU frequency 和 GPU/resource usage 的采样间隔，以估计 average/peak power、vCPU share、CPU utilization 和 CPU cycles。perf MIPS 使用独立的 `perf stat` 窗口，不受该采样率影响。 |
 | `--idle-seconds` | `20.0` | 每个 workload window 前 matched control window 的目标时长。CPU、GPU、resource usage 以及启用时的 perf MIPS monitor 会按与 workload 相同的 `start()` / `stop()` 生命周期同时运行，但 control window 内不发送 `/predict` 请求。CPU baseline 为整段 RAPL 能耗 / 实际 duration；GPU baseline 为 NVML samples 的时间加权平均功率。case 结束后会复查该 case CSV 中所有有效 CPU/GPU baseline 的相对极差，达到或超过 5% 会输出 warning，实验继续运行。 |
 | `--idle-cooldown-seconds` | `5.0` | 每个 workload window 采集 idle baseline 前的统一冷却等待时间。CPU-only 和 GPU+CPU case 都使用同一个值，避免上一轮推理刚结束后的短时热状态、Docker/server 收尾或 GPU clock/power 瞬态直接进入 idle baseline。 |

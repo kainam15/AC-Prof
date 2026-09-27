@@ -67,6 +67,11 @@ class ResultComparisonTests(unittest.TestCase):
             }}}},
             "cgroup_version": "2", "cgroup_collection_mode": "v2",
         })
+        self.write_json(directory, "hardware_conditions.json", {"schema_version": 1, "cases": {
+            "1c_4g_off": {"host_id": "fixture-host", "cpu_model": ["fixture CPU"],
+                         "cpu_affinity": ["0-3"], "cpu_policy": {"governor": "performance", "boost": "0"},
+                         "gpu": "not_applicable", "runtime_threads": 1}
+        }})
         self.write_rows(directory, self.contract)
 
     def write_rows(self, directory, contract, *, count=3):
@@ -90,6 +95,12 @@ class ResultComparisonTests(unittest.TestCase):
         self.assertIn("runtime_backend", report["expected_differences"])
         self.assertIn("image_id", report["expected_differences"])
         self.assertNotEqual(report["experiments"]["left"]["run_id"], report["experiments"]["right"]["run_id"])
+
+    def test_malformed_hardware_case_is_reported_without_crashing(self):
+        self.change_json(self.right, "hardware_conditions.json", lambda data: data["cases"].update({"1c_4g_off": []}))
+        report = self.compare()
+        self.assertFalse(report["valid"])
+        self.assertTrue(report["experiments"]["right"]["issues"])
 
     def test_input_order_change_is_detected_without_requiring_whole_plan_hash(self):
         self.change_json(self.right, "input_scale_plan.json", lambda plan: plan["entries"][0]["payload"]["features"].reverse())
@@ -148,15 +159,22 @@ class ResultComparisonTests(unittest.TestCase):
         self.assertEqual(report["conditions"]["resources"]["status"], "incompatible")
 
     def test_effective_threads_are_compared_instead_of_backend_variable_names(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "hardware_conditions.json",
+                             lambda data: data["cases"]["1c_4g_off"].pop("runtime_threads"))
         self.change_json(self.left, "run_state.json", lambda state: state["options"]["measurement_environment"].pop("ACPROF_RUNTIME_THREADS"))
         self.change_json(self.left, "run_state.json", lambda state: state["options"]["measurement_environment"].update(TORCH_NUM_THREADS="1"))
         self.change_json(self.right, "run_state.json", lambda state: state["options"]["measurement_environment"].update(ACPROF_RUNTIME_THREADS="1"))
         report = self.compare()
-        self.assertEqual(report["status"], "compatible")
+        self.assertEqual(report["conditions"]["runtime_threads"]["status"], "compatible")
+        self.assertEqual(report["status"], "unknown")
         self.change_json(self.right, "static_meta.json", lambda metadata: metadata["runtime_validation"]["devices"]["off"]["runtime_parameters"]["effective"].update(threads=2))
         self.assertEqual(self.compare()["conditions"]["runtime_threads"]["status"], "incompatible")
 
     def test_probe_threads_do_not_establish_default_server_threads(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "hardware_conditions.json",
+                             lambda data: data["cases"]["1c_4g_off"].pop("runtime_threads"))
         for directory in (self.left, self.right):
             self.change_json(directory, "run_state.json", lambda state: state["options"]["measurement_environment"].pop("ACPROF_RUNTIME_THREADS"))
         # Independent validation injects a quota-derived thread count. The
@@ -164,14 +182,23 @@ class ResultComparisonTests(unittest.TestCase):
         self.assertEqual(self.compare()["conditions"]["runtime_threads"]["status"], "unknown")
 
     def test_zero_thread_request_retains_unknown_runtime_default(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "hardware_conditions.json",
+                             lambda data: data["cases"]["1c_4g_off"].pop("runtime_threads"))
         self.change_json(self.left, "run_state.json", lambda state: state["options"]["measurement_environment"].update(ACPROF_RUNTIME_THREADS="0"))
         self.assertEqual(self.compare()["conditions"]["runtime_threads"]["status"], "unknown")
 
     def test_invalid_effective_thread_value_is_not_comparable(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "hardware_conditions.json",
+                             lambda data: data["cases"]["1c_4g_off"].pop("runtime_threads"))
         self.change_json(self.right, "static_meta.json", lambda metadata: metadata["runtime_validation"]["devices"]["off"]["runtime_parameters"]["effective"].update(threads=True))
         self.assertEqual(self.compare()["conditions"]["runtime_threads"]["status"], "unknown")
 
     def test_missing_effective_threads_are_unknown_even_if_request_was_recorded(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "hardware_conditions.json",
+                             lambda data: data["cases"]["1c_4g_off"].pop("runtime_threads"))
         self.change_json(self.right, "static_meta.json", lambda metadata: metadata.pop("runtime_validation"))
         self.assertEqual(self.compare()["conditions"]["runtime_threads"]["status"], "unknown")
 

@@ -59,13 +59,13 @@ MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限
 
 | 任务 | 入口 |
 | --- | --- |
-| 安装、运行、参数 | [快速开始](README.md#快速开始)、[CLI 与设置](docs/CLI_Reference.md) |
+| 安装、运行、参数 | [快速开始](docs/i18n/README_zh-CN.md#快速开始)、[CLI 与设置](docs/CLI_Reference.md) |
 | 架构或模块重构 | [代码架构](docs/Architecture.md) |
 | 协议、冷启动、字段变更 | [采集协议](docs/Profiling_Protocol.md)、[指标](docs/Metrics.md) → [变更流程](.agents/skills/acprof-schema-change/SKILL.md) |
 | 能耗、OOM、cgroup、结果异常 | [能耗](docs/Energy_Measurement.md)、[排障](docs/Troubleshooting.md) → [审计流程](.agents/skills/acprof-result-audit/SKILL.md) |
 | 模型/backend、依赖、镜像 | [运行兼容](docs/Runtime_Compatibility.md) → [适配流程](.agents/skills/acprof-model-adaptation/SKILL.md) |
 | profiling、benchmark、GPU profiler | [实验流程](.agents/skills/acprof-profiling-workflow/SKILL.md)、[分析器](docs/Profilers.md) |
-| TUI、焦点、日志、设置 | [交互说明](README.md#交互式终端界面) → [回归流程](.agents/skills/acprof-textual-regression/SKILL.md) |
+| TUI、焦点、日志、设置 | [交互说明](docs/i18n/README_zh-CN.md#交互式终端界面) → [回归流程](.agents/skills/acprof-textual-regression/SKILL.md) |
 | 绘图、测试、文档维护 | [结果分析](docs/Metrics.md#图表与延迟拟合产物)、[测试指南](docs/Testing.md)、[文档分工](docs/README.md) |
 
 ## 常用验证

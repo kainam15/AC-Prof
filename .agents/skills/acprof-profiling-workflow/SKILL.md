@@ -7,7 +7,7 @@ description: 在用户要求运行 AC-Prof profiling 或 benchmark 实验时，�
 
 ## 按需读取
 
-初次运行查[快速开始](../../../README.md#快速开始)；规划矩阵查[采集协议与时间预算](../../../docs/Profiling_Protocol.md#结果行数和时间成本估算)。
+初次运行查[快速开始](../../../docs/i18n/README_zh-CN.md#快速开始)；规划矩阵查[采集协议与时间预算](../../../docs/Profiling_Protocol.md#结果行数和时间成本估算)。
 仅当选用 profiler 时读[分析器](../../../docs/Profilers.md)；模型支持和镜像复用查[运行兼容](../../../docs/Runtime_Compatibility.md)。
 
 ## 执行流程

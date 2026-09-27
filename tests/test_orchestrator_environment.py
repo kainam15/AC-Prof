@@ -62,6 +62,9 @@ def _write_cpu_case_csv(path: str, idle_power_values: list[float], gpu_mode: str
 
 class DetectEnvironmentTests(unittest.TestCase):
     def setUp(self):
+        conditions = patch("acprof.host.orchestrator.record_case_conditions")
+        conditions.start()
+        self.addCleanup(conditions.stop)
         output = tempfile.TemporaryDirectory()
         self.addCleanup(output.cleanup)
         self.output_dir = output.name
@@ -262,6 +265,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             )
 
         docker_run = next(cmd for cmd in commands if cmd[:3] == ["docker", "run", "-d"])
+        self.assertEqual(docker_run[docker_run.index("-p") + 1], "127.0.0.1:8104:8002")
         self.assertIn("HF_HUB_OFFLINE=1", docker_run)
         self.assertIn("TRANSFORMERS_OFFLINE=1", docker_run)
         self.assertIn("MODEL_LOCAL_PATH=/models/model-snapshot", docker_run)

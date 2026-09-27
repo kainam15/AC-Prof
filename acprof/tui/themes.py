@@ -40,7 +40,7 @@ THEME_CATALOG = (
         foreground="#e2ebef",
     ),
     ThemePalette(
-        name="acprof-graphite", label="石墨灰 · 深色",
+        name="acprof-graphite", label="石墨灰 · 深色（默认）",
         secondary="#999fb0",
         background="#202126", surface="#292b32", panel="#383b45",
         foreground="#eceef3",

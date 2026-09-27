@@ -32,17 +32,17 @@ class TuiColorTests(unittest.TestCase):
                     os.environ["COLORTERM"] = colorterm
                 original_environment = dict(os.environ)
                 app = AcprofTui(settings_path=self.settings_path)
-                self.assertIn("\x1b[48;2;28;46;59m", self.render_surface(app))
+                self.assertIn("\x1b[48;2;41;43;50m", self.render_surface(app))
                 self.assertEqual(dict(os.environ), original_environment)
 
     def test_256_color_mode_uses_extended_palette_even_in_truecolor_terminal(self):
         with patch.dict(os.environ, {"TERM": "xterm-256color", "COLORTERM": "truecolor"}, clear=True):
             app = AcprofTui(settings_path=self.settings_path, color_system="256")
-            self.assertIn("\x1b[48;5;17m", self.render_surface(app))
+            self.assertIn("\x1b[48;5;235m", self.render_surface(app))
             self.assertNotIn("48;2;", self.render_surface(app))
 
     def test_auto_mode_retains_terminal_capability_detection(self):
-        for colorterm, expected in (("", "\x1b[48;5;17m"), ("truecolor", "\x1b[48;2;28;46;59m")):
+        for colorterm, expected in (("", "\x1b[48;5;235m"), ("truecolor", "\x1b[48;2;41;43;50m")):
             with self.subTest(colorterm=colorterm), patch.dict(
                 os.environ, {"TERM": "xterm-256color", "COLORTERM": colorterm}, clear=True,
             ):
@@ -50,7 +50,7 @@ class TuiColorTests(unittest.TestCase):
                 self.assertIn(expected, self.render_surface(app))
 
     def test_cli_color_mode_applies_before_rendering(self):
-        for mode, expected in (("truecolor", "\x1b[48;2;28;46;59m"), ("256", "\x1b[48;5;17m")):
+        for mode, expected in (("truecolor", "\x1b[48;2;41;43;50m"), ("256", "\x1b[48;5;235m")):
             with self.subTest(mode=mode), patch.dict(
                 os.environ, {"TERM": "xterm-256color"}, clear=True,
             ), patch("acprof.tui.app.default_settings_path", return_value=self.settings_path), patch.object(

@@ -193,7 +193,6 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #status-detail { height: 1; text-overflow: ellipsis; }
 #log-panel { width: 100%; height: 1fr; min-height: 5; padding: 0; }
 #log-toolbar { height: 4; background: transparent; }
-#log-title { width: auto; height: 3; content-align: left middle; text-style: bold; color: $accent; }
 #log-toolbar Button {
     min-width: 12;
     padding: 0;
@@ -287,7 +286,7 @@ AcprofTui.narrow .form-grid { grid-size: 2; grid-columns: 18 1fr; }
 AcprofTui.narrow #preset-hint, AcprofTui.narrow #preset-hint-label { display: none; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
-AcprofTui.narrow #status-grid { grid-columns: 9 1fr 9 1fr; }
+AcprofTui.narrow #status-grid { grid-columns: 11 1fr 9 1fr; }
 AcprofTui.narrow Tab { padding: 0 1; }
 AcprofTui.short #bottom-panel { height: 3; }
 AcprofTui.short #slash-command-bar { height: 3; padding: 0 2; }

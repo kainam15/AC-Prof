@@ -58,6 +58,12 @@ def translate(source: str, language: str) -> str:
 
 
 ENGLISH: dict[str, str] = {
+    "固定 CPU 集合": "Fixed CPU set",
+    "可选；如 0-3,8；用于正式采集": "Optional; e.g. 0-3,8; for formal collection",
+    "连接/读取超时": "Connect/read timeout",
+    "CPU 集合格式无效；示例：0-3,8": "Invalid CPU set; example: 0-3,8",
+    "清理未完成": "Cleanup incomplete",
+    "PID {0} 仍未确认退出：{1}；可再次停止。": "PID {0} has not exited: {1}; stop can be retried.",
     "环境检查完成：{0} 项失败；详细结果见下方。": "Environment check finished: {0} failures. See details below.",
     "缺少抓包权限；请在设置 → 连接与权限中配置 CAP_NET_RAW。": "Capture access missing; configure CAP_NET_RAW in Settings > Connections and permissions.",
     "无法检查抓包权限；请确认 getcap 可用。": "Could not check capture access; verify that getcap is available.",
@@ -381,7 +387,6 @@ ENGLISH: dict[str, str] = {
     "警告 / 错误": "Warn/Err",
     "详情": "Details",
     "尚未启动": "Not started",
-    "日志": "Log",
     "复制选区": "Copy text",
     "回到最新": "Follow log",
     "返回监控": "Restore log",
@@ -617,7 +622,7 @@ ENGLISH: dict[str, str] = {
     "无法读取本地设置，已使用默认值：{0}": "Cannot read local settings; using defaults: {0}",
     "设置必须是 TuiSettings": "Settings must be TuiSettings",
     "深海蓝 · 深色": "Ocean blue · Dark",
-    "石墨灰 · 深色": "Graphite · Dark",
+    "石墨灰 · 深色（默认）": "Graphite · Dark (Default)",
     "松林绿 · 深色": "Pine green · Dark",
     "暮紫 · 深色": "Dusk purple · Dark",
     "琥珀 · 深色": "Amber · Dark",

@@ -48,6 +48,7 @@ Examples:
 
     # Resource matrix
     parser.add_argument("--cpus", default="1,2,4,8", help="CPU core counts (comma-separated)")
+    parser.add_argument("--cpuset-cpus", default="", help="Optional fixed CPU IDs for formal/startup containers, e.g. 0-3,8")
     parser.add_argument("--mems", default="2,4,8,16", help="Memory caps in GB (comma-separated)")
     parser.add_argument("--gpus", default="off,on", help="GPU modes (comma-separated: off,on)")
     parser.add_argument("--matrix-order", choices=("seeded", "declared"), default="seeded",
@@ -101,7 +102,7 @@ Examples:
         "--request-timeout-seconds",
         type=float,
         default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
-        help="Timeout for each formal /predict request",
+        help="Connect and read-inactivity timeout per /predict (not a total deadline; no retries)",
     )
     parser.add_argument(
         "--latency-slo", action="append", default=[], metavar="SELECTOR=SECONDS",

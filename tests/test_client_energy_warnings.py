@@ -1,3 +1,6 @@
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from client_fixtures import patch_client
 import csv
 import io
 import json
@@ -31,11 +34,12 @@ REMOVED_LEGACY_COMPUTE_FIELDS = (
 
 class EffectiveEnergyWarningTests(unittest.TestCase):
     def setUp(self):
-        gpu_uuid = patch.object(client, "GPU_DEVICE_UUID", "GPU-fixture")
+        self.runner = ClientRunner(ClientConfig())
+        gpu_uuid = patch_client(self.runner, "GPU_DEVICE_UUID", "GPU-fixture")
         gpu_uuid.start()
         self.addCleanup(gpu_uuid.stop)
         for name in ("IDLE_SECONDS", "IDLE_COOLDOWN_SECONDS"):
-            mocked = patch.object(client, name, 0.0)
+            mocked = patch_client(self.runner, name, 0.0)
             mocked.start()
             self.addCleanup(mocked.stop)
 
@@ -60,14 +64,14 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                         "PROFILING_MODE": "full", "SNIFF_GROUPS_PATH": "",
                         "input_scale_entries": [{"input_scale": 1.0}],
                     }.items():
-                        stack.enter_context(patch.object(client, name, value))
+                        stack.enter_context(patch_client(self.runner, name, value))
                     ready = stack.enter_context(patch.object(
                         client.requests, "get", side_effect=RuntimeError("offline fixture")))
                     if valid:
-                        client.main()
+                        self.runner.main()
                     else:
                         with self.assertRaisesRegex(RuntimeError, "CSV.*columns"):
-                            client.main()
+                            self.runner.main()
                         ready.assert_not_called()
                         self.assertEqual(path.read_bytes(), before)
                         self.assertEqual(list(Path(tmp).iterdir()), [path])
@@ -89,18 +93,16 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             path = Path(tmp, "input_scale_plan.json")
             path.write_text(json.dumps({"schema_version": 2, "entries": entries}))
             original = path.read_bytes()
-            with patch.object(client, "INPUT_SCALE_PLAN_FILE", str(path)), patch.dict(
-                os.environ, {"INPUT_SCALE_ORDER": "[64,16,32]"}
-            ):
-                loaded = client._load_input_scale_entries()
+            with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)), patch.object(self.runner.config, "input_scale_order", "[64,16,32]"):
+                loaded = self.runner._load_input_scale_entries()
                 self.assertEqual([e["input_scale"] for e in loaded], [64, 16, 32])
                 self.assertEqual([e["payload"]["text"] for e in loaded],
                                  ["payload-64", "payload-16", "payload-32"])
                 self.assertEqual(path.read_bytes(), original)
                 for invalid in ("[16,32]", "[16,32,32]", "[16,32,128]"):
-                    with self.subTest(order=invalid), patch.dict(os.environ, {"INPUT_SCALE_ORDER": invalid}):
+                    with self.subTest(order=invalid), patch.object(self.runner.config, "input_scale_order", invalid):
                         with self.assertRaisesRegex(ValueError, "frozen matrix input-scale"):
-                            client._load_input_scale_entries()
+                            self.runner._load_input_scale_entries()
 
     def test_full_client_dram_policy_and_separate_window_request_units(self):
         for policy, available in (("auto", False), ("required", False), ("required", True)):
@@ -127,16 +129,16 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                     "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
                 }
                 for name, value in settings.items():
-                    stack.enter_context(patch.object(client, name, value))
+                    stack.enter_context(patch_client(self.runner, name, value))
                 stack.enter_context(patch.object(client.requests, "get",
                     return_value=SimpleNamespace(status_code=200, text="ok")))
-                stack.enter_context(patch.object(client, "_one_request",
+                stack.enter_context(patch_client(self.runner, "_one_request",
                     return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0}))
                 if policy == "required" and not available:
                     with self.assertRaisesRegex(client.EnergyAbort, "required DRAM"):
-                        client.main()
+                        self.runner.main()
                     continue
-                client.main()
+                self.runner.main()
                 with path.open() as stream:
                     row = next(csv.DictReader(stream))
                 self.assertEqual(row["status"], "ok", row["error"])
@@ -164,9 +166,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 )
 
     def test_default_idle_diag_path_uses_dedicated_debug_directory(self) -> None:
-        with patch.object(client, "IDLE_DIAG_PATH", ""):
+        with patch_client(self.runner, "IDLE_DIAG_PATH", ""):
             self.assertEqual(
-                client._idle_diag_path("results/model/result_case.csv"),
+                self.runner._idle_diag_path("results/model/result_case.csv"),
                 os.path.join(
                     "results",
                     "model",
@@ -216,14 +218,13 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         gpu_monitor = FakeEnergyMonitor("gpu", "avg_power_total_w")
         cpu_monitor = FakeEnergyMonitor("cpu", "cpu_avg_power_total_w")
 
-        with patch.object(client, "IDLE_SECONDS", 2.0), patch.object(
-            client, "IDLE_DEBUG", True
+        with patch_client(self.runner, "IDLE_SECONDS", 2.0), patch_client(self.runner, "IDLE_DEBUG", True
         ), patch.object(
             client.time,
             "sleep",
             side_effect=lambda seconds: events.append(f"sleep:{seconds}"),
         ):
-            client._run_matched_control_window(
+            self.runner._run_matched_control_window(
                 gpu_monitor,
                 cpu_monitor,
                 FakeResourceMonitor(),
@@ -324,10 +325,8 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                     path = os.path.join(tmp_dir, "input_scale_plan.json")
                     with open(path, "w", encoding="utf-8") as f:
                         json.dump(plan, f)
-                    with patch.object(
-                        client, "INPUT_SCALE_PLAN_FILE", path
-                    ), patch.object(client, "workload_gen", None):
-                        entries = client._load_input_scale_entries()
+                    with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", path):
+                        entries = self.runner._load_input_scale_entries()
 
                 self.assertEqual(entries[0]["input_metadata"], expected_metadata)
 
@@ -351,9 +350,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             client.time,
             "perf_counter",
             side_effect=[10.0, 10.25],
-        ), patch.object(client, "_FIRST_PREDICT_APP_S", float("nan")):
-            result = client._one_request(3.0, "req", payload_override=payload)
-            first_predict_app_s = client._FIRST_PREDICT_APP_S
+        ), patch_client(self.runner, "_FIRST_PREDICT_APP_S", float("nan")):
+            result = self.runner._one_request(3.0, "req", payload_override=payload)
+            first_predict_app_s = self.runner.first_predict_app_s
 
         self.assertEqual(result["request_payload_bytes"], 14.0)
         self.assertEqual(result["output_length"], 12.0)
@@ -397,18 +396,12 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = os.path.join(tmp_dir, "result.csv")
-            with patch.object(client, "OUT_CSV", out_csv), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(client, "REPEAT", 1), patch.object(
-                client, "REPEAT_IN_WINDOW", 2
-            ), patch.object(client, "BATCH_SIZE", 2), patch.object(
-                client, "CPU_CORES", "2"
-            ), patch.object(client, "USE_ENERGY", False), patch.object(
-                client, "USE_MIPS", False
-            ), patch.object(client, "energy_mod", None), patch.object(
-                client, "cpu_energy_mod", None
-            ), patch.object(client, "resource_usage_mod", None), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1), patch_client(self.runner, "REPEAT_IN_WINDOW", 2
+            ), patch_client(self.runner, "BATCH_SIZE", 2), patch_client(self.runner, "CPU_CORES", "2"
+            ), patch_client(self.runner, "USE_ENERGY", False), patch_client(self.runner, "USE_MIPS", False
+            ), patch_client(self.runner, "energy_mod", None), patch_client(self.runner, "cpu_energy_mod", None
+            ), patch_client(self.runner, "resource_usage_mod", None), patch_client(self.runner,
                 "input_scale_entries",
                 [
                     {
@@ -422,8 +415,8 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(client, "_one_request", side_effect=lambda *args, **kwargs: next(responses)):
-                client.main()
+            ), patch_client(self.runner, "_one_request", side_effect=lambda *args, **kwargs: next(responses)):
+                self.runner.main()
 
             with open(out_csv, "r", encoding="utf-8", newline="") as f:
                 row = next(csv.DictReader(f))
@@ -667,22 +660,17 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 "effective_input_scale": float(scale_value),
             }
 
-        with patch.object(
-            client, "CASE_NAME", "case"
-        ), patch.object(
-            client, "REPEAT_IN_WINDOW", 0
-        ), patch.object(
-            client, "REPEAT_WINDOW_SECONDS", 0.05, create=True
-        ), patch.object(
-            client, "AUTO_WARMUP_REQUESTS", 2, create=True
-        ), patch.object(
-            client,
+        with patch_client(self.runner, "CASE_NAME", "case"
+        ), patch_client(self.runner, "REPEAT_IN_WINDOW", 0
+        ), patch_client(self.runner, "REPEAT_WINDOW_SECONDS", 0.05, create=True
+        ), patch_client(self.runner, "AUTO_WARMUP_REQUESTS", 2, create=True
+        ), patch_client(self.runner,
             "_one_request",
             side_effect=fake_one_request,
         ):
             repeat_counts = [
-                client._prepare_repeat_window(1.0, "seq1", {}),
-                client._prepare_repeat_window(2.0, "seq2", {}),
+                self.runner._prepare_repeat_window(1.0, "seq1", {}),
+                self.runner._prepare_repeat_window(2.0, "seq2", {}),
             ]
 
         self.assertEqual(
@@ -713,46 +701,33 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 0
-            ), patch.object(
-                client, "REPEAT_WINDOW_SECONDS", 1.0, create=True
-            ), patch.object(
-                client, "AUTO_WARMUP_REQUESTS", 0, create=True
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 0
+            ), patch_client(self.runner, "REPEAT_WINDOW_SECONDS", 1.0, create=True
+            ), patch_client(self.runner, "AUTO_WARMUP_REQUESTS", 0, create=True
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 side_effect=fake_one_request,
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -783,44 +758,33 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 "schema_version": 7,
                 "latency_slo": {"threshold_s": 0.2, "source": "task:fill-mask"},
             }), encoding="utf-8")
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 5
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 5
             ), patch.dict(
                 os.environ, {"SLOW_LATENCY_THRESHOLD_S": "0.001"}
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 side_effect=fake_one_request,
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -889,44 +853,35 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         )
 
     def test_cold_start_row_metrics_include_phases_and_first_predict(self) -> None:
-        with patch.object(
-            client,
+        with patch_client(self.runner,
             "COLD_START_STARTED_AT",
             "2026-08-23T10:00:00.000+08:00",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_READY_AT",
             "2026-08-23T10:00:01.000+08:00",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_CONTAINER_LAUNCH_S",
             "0.1",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_SERVER_SETUP_S",
             "0.2",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_CUDA_INIT_S",
             "0.05",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_MODEL_LOAD_S",
             "0.55",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_READY_WAIT_S",
             "0.1",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "COLD_START_S",
             "1.0",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "_FIRST_PREDICT_APP_S",
             0.25,
         ):
-            metrics = client._cold_start_row_metrics()
+            metrics = self.runner._cold_start_row_metrics()
 
         self.assertEqual(metrics["cold_start_container_launch_s"], "0.1")
         self.assertEqual(metrics["cold_start_cuda_init_s"], "0.05")
@@ -944,42 +899,31 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 20
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 20
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 side_effect=fake_one_request,
             ) as one_request:
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -1031,36 +975,25 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 2
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", True
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 2
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", True
+            ), patch_client(self.runner,
                 "energy_mod",
                 SimpleNamespace(GPUEnergyMonitor=FakeGpuMonitor),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "IDLE_COOLDOWN_SECONDS",
                 2.5,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
@@ -1071,12 +1004,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 side_effect=fake_one_request,
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     reader = csv.DictReader(f)
                     fieldnames = reader.fieldnames or []
@@ -1143,37 +1075,26 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 2
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 2
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner,
                 "IDLE_COOLDOWN_SECONDS",
                 2.5,
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 SimpleNamespace(CPUEnergyMonitor=lambda **kwargs: FakeCPUMonitor(**kwargs)),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
@@ -1184,32 +1105,29 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 side_effect=fake_one_request,
             ):
-                client.main()
+                self.runner.main()
 
         self.assertEqual(FakeCPUMonitor.apply_control_calls, 2)
         self.assertEqual(sleep_calls, [2.5, 2.5])
 
     def test_client_entrypoint_prints_friendly_energy_abort_without_traceback(self) -> None:
         stderr = io.StringIO()
-        with patch.object(
-            client,
+        with patch_client(self.runner,
             "main",
             side_effect=client.EnergyAbort("gpu_idle_power_w failed"),
         ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
-            client.run_cli()
+            self.runner.run_cli()
 
         self.assertEqual(raised.exception.code, 1)
         self.assertIn("[energy][ERROR] gpu_idle_power_w failed", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_one_request_converts_http_timeout_to_case_abort(self) -> None:
-        with patch.object(
-            client,
+        with patch_client(self.runner,
             "REQUEST_TIMEOUT_SECONDS",
             0.25,
         ), patch.object(
@@ -1217,14 +1135,14 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "post",
             side_effect=client.requests.exceptions.ReadTimeout("slow inference"),
         ), self.assertRaises(client.RequestTimeoutAbort) as raised:
-            client._one_request(
+            self.runner._one_request(
                 10.0,
                 req_id="case_dur10_auto_warmup0",
                 payload_override={},
             )
 
         message = str(raised.exception)
-        self.assertIn("timed out after 0.25s", message)
+        self.assertIn("inactivity timeout: 0.25s", message)
         self.assertIn("input_scale=10", message)
         self.assertIn("req_id=case_dur10_auto_warmup0", message)
         self.assertEqual(raised.exception.input_scale, 10.0)
@@ -1232,61 +1150,49 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         self.assertEqual(raised.exception.timeout_s, 0.25)
 
     def test_measurement_timeout_escapes_row_level_error_handling(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir, patch.object(
-            client,
+        with tempfile.TemporaryDirectory() as tmp_dir, patch_client(self.runner,
             "OUT_CSV",
             f"{tmp_dir}/result.csv",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "CASE_NAME",
             "case",
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "WARMUP",
             0,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "REPEAT",
             1,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "REPEAT_IN_WINDOW",
             2,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "USE_ENERGY",
             False,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "USE_MIPS",
             False,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "energy_mod",
             None,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "cpu_energy_mod",
             None,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "resource_usage_mod",
             None,
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "input_scale_entries",
             [{"input_scale": 10.0, "scale_label": "dur10", "payload": {}}],
         ), patch.object(
             client.requests,
             "get",
             return_value=SimpleNamespace(status_code=200, text="ok"),
-        ), patch.object(
-            client,
+        ), patch_client(self.runner,
             "_one_request",
             side_effect=[{"latency_app_s": 0.25, "effective_input_scale": 10.0}, client.RequestTimeoutAbort("slow inference")],
         ):
             with self.assertRaises(client.RequestTimeoutAbort):
-                client.main()
+                self.runner.main()
             with open(f"{tmp_dir}/result.csv.requests.jsonl", encoding="utf-8") as f:
                 window = json.loads(f.readline())
             self.assertEqual(window["status"], "error")
@@ -1295,12 +1201,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
     def test_client_entrypoint_uses_dedicated_timeout_exit_code(self) -> None:
         stderr = io.StringIO()
-        with patch.object(
-            client,
+        with patch_client(self.runner,
             "main",
             side_effect=client.RequestTimeoutAbort("slow inference"),
         ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
-            client.run_cli()
+            self.runner.run_cli()
 
         self.assertEqual(
             raised.exception.code,
@@ -1319,16 +1224,14 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 request_id="case_dur30_auto_warmup0",
                 timeout_s=300.0,
             )
-            with patch.object(
-                client,
+            with patch_client(self.runner,
                 "CLIENT_ERROR_PATH",
                 sidecar_path,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "main",
                 side_effect=exc,
             ), self.assertRaises(SystemExit), redirect_stderr(stderr):
-                client.run_cli()
+                self.runner.run_cli()
 
             with open(sidecar_path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
@@ -1342,42 +1245,31 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
     def test_sniff_group_id_is_hidden_from_csv_but_kept_for_packet_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     reader = csv.DictReader(f)
                     rows = list(reader)
@@ -1424,36 +1316,27 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 SimpleNamespace(CPUEnergyMonitor=lambda **kwargs: FakeUnavailableCPUMonitor()),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -1518,50 +1401,34 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 "debug_idle_diag",
                 "result.csv.idle_diag.jsonl",
             )
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "CPU_CORES", "1"
-            ), patch.object(
-                client, "MEM_CAP_GB", "2"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 2
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "IDLE_DEBUG", True, create=True
-            ), patch.object(
-                client, "IDLE_DIAG_PATH", "", create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "CPU_CORES", "1"
+            ), patch_client(self.runner, "MEM_CAP_GB", "2"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 2
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "IDLE_DEBUG", True, create=True
+            ), patch_client(self.runner, "IDLE_DIAG_PATH", "", create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 SimpleNamespace(CPUEnergyMonitor=lambda **kwargs: FakeCPUMonitor(**kwargs)),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_collect_idle_debug_snapshot",
                 return_value={
                     "snapshot_scope": "after_idle",
@@ -1571,8 +1438,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                     "docker_stats": [{"name": "case", "cpu_perc": "0.1%"}],
                 },
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_now_iso",
                 side_effect=[
                     "2026-05-02T10:00:00+08:00",
@@ -1580,7 +1446,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 ],
                 create=True,
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
                 with open(diag_path, "r", encoding="utf-8") as f:
@@ -1651,48 +1517,34 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
             diag_path = f"{out_csv}.idle_diag.jsonl"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CASE_NAME", "case"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 2
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", True
-            ), patch.object(
-                client, "IDLE_DEBUG", True, create=True
-            ), patch.object(
-                client, "IDLE_DIAG_PATH", diag_path, create=True
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CASE_NAME", "case"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 2
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", True
+            ), patch_client(self.runner, "IDLE_DEBUG", True, create=True
+            ), patch_client(self.runner, "IDLE_DIAG_PATH", diag_path, create=True
+            ), patch_client(self.runner,
                 "energy_mod",
                 SimpleNamespace(GPUEnergyMonitor=lambda **kwargs: FakeGpuMonitor(**kwargs)),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "seq1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_collect_gpu_idle_debug_snapshot",
                 return_value={
                     "gpu_snapshot_scope": "after_gpu_idle",
@@ -1700,8 +1552,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                     "nvidia_smi_pmon": [{"pid": 123, "type": "G", "command": "Xorg"}],
                 },
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_now_iso",
                 side_effect=[
                     "2026-05-02T10:00:00+08:00",
@@ -1709,7 +1560,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 ],
                 create=True,
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
                 with open(diag_path, "r", encoding="utf-8") as f:
@@ -1735,44 +1586,32 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
             diag_path = f"{out_csv}.idle_diag.jsonl"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "IDLE_DEBUG", False, create=True
-            ), patch.object(
-                client, "IDLE_DIAG_PATH", diag_path, create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "IDLE_DEBUG", False, create=True
+            ), patch_client(self.runner, "IDLE_DIAG_PATH", diag_path, create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -1850,43 +1689,32 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "CPU_CORES", "1"
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 2
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "CPU_CORES", "1"
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 2
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 SimpleNamespace(ResourceUsageMonitor=lambda **kwargs: FakeResourceUsageMonitor(**kwargs)),
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -1992,47 +1820,35 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 2
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "USE_MIPS", True, create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 2
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "USE_MIPS", True, create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "perf_mips_mod",
                 SimpleNamespace(PerfMIPSMonitor=lambda container_name: FakeMIPSMonitor()),
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.25, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -2088,41 +1904,31 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 SimpleNamespace(ResourceUsageMonitor=lambda **kwargs: FakeUnavailableResourceUsageMonitor()),
                 create=True,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -2161,44 +1967,32 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             with open(plan_path, "w", encoding="utf-8") as f:
                 json.dump(plan, f)
 
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "GPU_MODE", "off"
-            ), patch.object(
-                client, "COMPUTE_PROFILE_PLAN_FILE", plan_path, create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "GPU_MODE", "off"
+            ), patch_client(self.runner, "COMPUTE_PROFILE_PLAN_FILE", plan_path, create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
@@ -2253,40 +2047,28 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             with open(plan_path, "w", encoding="utf-8") as f:
                 json.dump(plan, f)
 
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "GPU_MODE", "on"
-            ), patch.object(
-                client, "COMPUTE_PROFILE_PLAN_FILE", plan_path, create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client, "cpu_energy_mod", None
-            ), patch.object(
-                client, "resource_usage_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "GPU_MODE", "on"
+            ), patch_client(self.runner, "COMPUTE_PROFILE_PLAN_FILE", plan_path, create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner, "cpu_energy_mod", None
+            ), patch_client(self.runner, "resource_usage_mod", None
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     row = next(csv.DictReader(f))
 
@@ -2354,44 +2136,32 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             out_csv = f"{tmp_dir}/result.csv"
             missing_plan_path = f"{tmp_dir}/missing_compute_profile_plan.json"
 
-            with patch.object(
-                client, "OUT_CSV", out_csv
-            ), patch.object(
-                client, "WARMUP", 0
-            ), patch.object(
-                client, "REPEAT", 1
-            ), patch.object(
-                client, "REPEAT_IN_WINDOW", 1
-            ), patch.object(
-                client, "USE_ENERGY", False
-            ), patch.object(
-                client, "GPU_MODE", "off"
-            ), patch.object(
-                client, "COMPUTE_PROFILE_PLAN_FILE", missing_plan_path, create=True
-            ), patch.object(
-                client, "energy_mod", None
-            ), patch.object(
-                client,
+            with patch_client(self.runner, "OUT_CSV", out_csv
+            ), patch_client(self.runner, "WARMUP", 0
+            ), patch_client(self.runner, "REPEAT", 1
+            ), patch_client(self.runner, "REPEAT_IN_WINDOW", 1
+            ), patch_client(self.runner, "USE_ENERGY", False
+            ), patch_client(self.runner, "GPU_MODE", "off"
+            ), patch_client(self.runner, "COMPUTE_PROFILE_PLAN_FILE", missing_plan_path, create=True
+            ), patch_client(self.runner, "energy_mod", None
+            ), patch_client(self.runner,
                 "cpu_energy_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "resource_usage_mod",
                 None,
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "input_scale_entries",
                 [{"input_scale": 1.0, "scale_label": "1", "payload": {}}],
             ), patch.object(
                 client.requests,
                 "get",
                 return_value=SimpleNamespace(status_code=200, text="ok"),
-            ), patch.object(
-                client,
+            ), patch_client(self.runner,
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
-                client.main()
+                self.runner.main()
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from acprof.analysis.audit import audit_result
 from acprof.result_csv import measurement_key, read_result_csv
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
+from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
 
 
 MEASUREMENT_OPTIONS = (
@@ -102,6 +103,17 @@ def _snapshot(source: str | Path) -> dict:
     state = read_json("run_state.json")
     metadata = read_json("static_meta.json")
     plan = read_json("input_scale_plan.json")
+    from acprof.artifact_layout import ArtifactLayout
+    layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
+    hardware_payload = read_json(str(conditions_path(layout).relative_to(layout.root)))
+    hardware_cases = hardware_payload.get("cases", {})
+    if hardware_payload and (hardware_payload.get("schema_version") != 1 or not isinstance(hardware_cases, dict)):
+        issues.append("hardware_conditions.json: unsupported schema")
+        hardware_cases = {}
+    for case_id, record in list(hardware_cases.items()):
+        if not isinstance(record, dict):
+            issues.append(f"hardware_conditions.json: invalid case {case_id}")
+            hardware_cases[case_id] = {}
 
     def object_field(parent, name):
         value = parent.get(name, {})
@@ -145,9 +157,13 @@ def _snapshot(source: str | Path) -> dict:
         observed = effective.get("threads")
         threads[device] = (observed if explicit_threads and result.get("status") == "ok"
                            and type(observed) is int and observed > 0 else None)
+    case_ids = set()
     try:
         _, rows = read_result_csv(directory / "result_all.csv" if source.is_dir() else source)
         actual = _actual_workload(rows)
+        case_ids = {f"{int(float(row['cpu_cores']))}c_{int(float(row['mem_cap_gb']))}g_{row['gpu_mode']}"
+                    for row in rows if row.get("status") in {"ok", "warn"}}
+
     except (OSError, ValueError, TypeError, AttributeError) as error:
         actual = None
         issues.append(f"actual workload: {error}")
@@ -169,6 +185,10 @@ def _snapshot(source: str | Path) -> dict:
             "quality_constraints": plan.get("quality_constraints"),
             "actual_workload": actual,
         },
+        "hardware": {
+            name: {case_id: hardware_cases.get(case_id, {}).get(name) for case_id in sorted(case_ids)} or None
+            for name in HARDWARE_FIELDS
+        },
         "identity": {**{key: metadata.get(key) for key in (
             "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment")},
             "runtime_requested_environment": runtime_environment,
@@ -176,26 +196,40 @@ def _snapshot(source: str | Path) -> dict:
     }
 
 
-def compare_results(left: str | Path, right: str | Path) -> dict:
+def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same-hardware") -> dict:
     """Return compatible/incompatible/unknown for recorded comparison conditions.
 
     Quality constraints describe a shared target, not proof that either model
     meets it. Missing legacy evidence is unknown and never reconstructed.
     """
+    if purpose not in {"same-hardware", "cross-hardware"}:
+        raise ValueError("comparison purpose must be same-hardware or cross-hardware")
     snapshots = {"left": _snapshot(left), "right": _snapshot(right)}
     lhs, rhs = snapshots.values()
     conditions = {name: _condition(value, rhs["conditions"][name])
                   for name, value in lhs["conditions"].items()}
+    for name in HARDWARE_FIELDS:
+        left_value, right_value = lhs["hardware"].get(name), rhs["hardware"].get(name)
+        item = _condition(left_value, right_value)
+        if purpose == "cross-hardware" and name != "runtime_threads":
+            # A known model difference cannot turn an unknown power policy into
+            # verified evidence. Complete but different CPU-ID maps are expected.
+            item["status"] = ("unknown" if _unknown(left_value) or _unknown(right_value)
+                              else "compatible" if left_value == right_value else "expected_difference")
+        conditions[f"hardware_{name}"] = item
+    # Observed formal-server threads supersede independent-probe approximations.
+    if not _unknown(lhs["hardware"].get("runtime_threads")) and not _unknown(rhs["hardware"].get("runtime_threads")):
+        conditions["runtime_threads"] = conditions["hardware_runtime_threads"]
     statuses = {item["status"] for item in conditions.values()}
     valid = lhs["valid"] and rhs["valid"]
     status = ("incompatible" if not valid or "incompatible" in statuses
               else "unknown" if "unknown" in statuses else "compatible")
     differences = {name: {"left": value, "right": rhs["identity"][name]}
                    for name, value in lhs["identity"].items() if value != rhs["identity"][name]}
-    return {"schema_version": 1, "status": status, "valid": valid,
+    return {"schema_version": 2, "purpose": purpose, "status": status, "valid": valid,
             "scope": "recorded_comparison_conditions_not_model_quality_or_resume_identity",
-            "limitations": ["hardware equivalence and CPU affinity are not verified",
-                            "thread counts require an explicit positive request and independent runtime probe evidence; defaults remain unknown",
+            "limitations": ["hardware conditions are boundary observations, not proof of continuous isolation or identical thermal state",
+                            "missing hardware or effective thread evidence remains unknown; affinity does not prove exclusive CPU use",
                             "matching quality constraints do not prove either model meets them"],
             "conditions": conditions, "expected_differences": differences,
             "experiments": {side: {key: snapshot[key] for key in ("run_id", "result_csv", "valid", "issues")}

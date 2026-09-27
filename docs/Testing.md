@@ -165,8 +165,8 @@ git diff --check
 ### 辅助开发工具
 
 下列工具用于按需调试和补充验证；使用前检查实际环境，已有可用入口时直接复用。
-它们目前未列入 `requirements-dev.in` / `requirements-dev.lock`，安装开发锁或新建 clone
-不保证具备这些工具；本机安装状态也不代表 CI 已提供对应依赖。
+`textual-dev` 和 Hypothesis 未列入开发锁，使用前核对本机环境。快照插件使用独立
+`requirements-tui-snapshot.lock`，由 CI 的 `tui-snapshots` job 安装；主 unittest job 保持原 runner。
 
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
@@ -223,12 +223,28 @@ Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/ru
 新增依赖这些工具的常规测试时，先补齐相应开发依赖与 CI 环境，不能仅依赖本机安装。
 
 快照用例使用 `snap_compare` fixture，显式指定 `terminal_size`，固定语言、主题和输入，
-隔离真实设置与 Docker/采集边界。将下例路径替换为本次选定的快照用例后执行：
+仓库的 `tests/visual/test_snapshots.py` 固定七个场景：中文窄终端、英文常规尺寸、宽终端、
+弹窗覆盖、实际拖动表格之后、测量中和清理未完成；覆盖 `80×24`、`120×30`、`150×45`。
+基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
+独立环境使用 Python 3.12、Textual 8.2.8、pytest 8.4.2、pytest-textual-snapshot 1.1.0 和 syrupy 4.8.0：
 
 ```bash
-acprof-snapshot-test /path/to/test_snapshot.py -q \
-  --snapshot-report internal-testing/tui-snapshot-report.html
+# 新建专用环境时安装；已有 acprof-snapshot-test 环境符合锁时直接复用。
+python3.12 -m venv /path/to/tui-snapshot-env
+/path/to/tui-snapshot-env/bin/python -m pip install --require-hashes \
+  -r requirements.lock -r requirements-tui-snapshot.lock
+acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snapshot-report.html
 ```
+
+更新快照工具锁：
+
+```bash
+.venv/bin/uv pip compile requirements-tui-snapshot.in --python-version 3.12 \
+  --generate-hashes --no-annotate --no-header --output-file requirements-tui-snapshot.lock
+```
+
+快照用例固定主题、语言、路径与颜色模式，规范化 SVG 行末空白以兼容仓库格式检查；
+截取前检查目标页面已经激活，避免把错误场景保存成基线。
 
 先查看失败报告的 HTML / SVG 差异，再在预期变更或首次建立基线时对选定用例追加
 `--snapshot-update`；普通验证不更新基线。快照补充现有 unittest / evidence runner，
@@ -260,7 +276,7 @@ PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 测试用例使用 `unittest`；GitHub Actions 的 host job 执行 `scripts/run_tests.py`，
 以 unittest runner 生成 evidence JSON。本地 PyCharm Run Configuration 可以用已安装的 pytest
 运行同一批 unittest 用例，这不代表 CI 已迁移为 pytest。pytest 是可选本地 runner，
-不在当前项目开发锁中；解释器未安装时选择 unittest 配置或本页的 `scripts/run_tests.py` 入口。
+主机开发锁不安装 pytest；独立 UI job 的 pytest 仅用于 SVG 快照。主机解释器未安装 pytest 时选择 unittest 配置或本页的 `scripts/run_tests.py` 入口。
 本地 pytest 输出不能代替项目要求的 evidence JSON。执行证据必须包含实际输出和退出码。
 `build_project` 若提示无法收集构建诊断，不能替代 Python 编译和相关测试；
 依赖查询返回空列表也不能证明 Python 环境没有安装依赖。
@@ -373,6 +389,9 @@ runner 在进程内为测量锁注入独立临时目录，分片测试互不争�
 可靠性回归包括 `test_run_identity.py`（跨 TMPDIR 的进程互斥、声明/资源变化拒绝续跑）、
 `test_monitor_cleanup.py`（实际 client 循环的清理失败与请求证据）、`test_container_ownership.py`
 （独立名称、失败/取消时按完整 ID 回收）和 `test_release_gate.py`（同提交的发布前置依赖）。
+`test_tui_process_lifecycle.py` 补充回调异常、忽略信号的真实子进程、锁释放及清理状态；
+`test_progress_events.py` 检查控制事件不受日志措辞影响，`test_hardware_conditions.py` 与
+`test_result_comparison.py` 检查 affinity、比较目的和未知证据，`test_run_recovery.py` 检查 CPU 集合续跑身份。
 服务上下文及 host/TUI 变化不重建服务的约束由镜像构建测试覆盖。mock 测试不代替实际 Docker 采集。
 普通接口测试固定使用 CPU，即使选择 CUDA wheel；GPU 和自定义 MOSS adapter 由完整服务镜像的
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。

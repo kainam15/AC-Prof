@@ -19,7 +19,7 @@ def digest(value) -> str:
 
 
 def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
-                    prune, input_plan_file=None) -> dict:
+                    prune, input_plan_file=None, cpuset_cpus="") -> dict:
     if order not in {"seeded", "declared"} or type(seed) is not int:
         raise ValueError("matrix order must be seeded/declared and seed must be an integer")
     if any(not values or len(set(values)) != len(values) for values in (cpus, mems, gpus, scales)):
@@ -30,7 +30,10 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
         raise ValueError("matrix GPU modes must be off/on")
     if any(not math.isfinite(scale) or scale <= 0 for scale in scales):
         raise ValueError("matrix input scales must be finite and positive")
-    return {"model_id": task.model_id, "model_revision": task.model_revision,
+    from acprof.cpu_affinity import normalize_cpu_set
+    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
+    return {**({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}),
+            "model_id": task.model_id, "model_revision": task.model_revision,
             "image_id": image.tag, "cpus": list(cpus), "mems": list(mems),
             "gpus": list(gpus), "input_scales": list(scales), "order": order,
             "seed": seed, "prune_startup_oom": prune,

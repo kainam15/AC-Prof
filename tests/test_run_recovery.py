@@ -18,6 +18,18 @@ from acprof.host.static_metadata import StaticMeta
 
 
 class RunRecoveryTests(unittest.TestCase):
+    def test_cpu_set_reaches_cases_and_changed_set_refuses_resume(self):
+        seen = []
+        def capture(**kwargs):
+            seen.append(kwargs["cpuset_cpus"])
+            return self.write_case(**kwargs)
+        with patch("acprof.cli.run.os.sched_getaffinity", return_value={0, 1, 2}):
+            self.invoke("--cpuset-cpus", "2,0-1", case=capture)
+            self.assertEqual(seen, ["0-2", "0-2"])
+            self.invoke("--cpuset-cpus", "0-2", "--resume")
+            with self.assertRaises(SystemExit):
+                self.invoke("--cpuset-cpus", "0-1", "--resume")
+
     def test_resume_archives_promoted_samples_and_idle_without_name_collisions(self):
         def interrupted(**kwargs):
             path = self.write_case(**kwargs)

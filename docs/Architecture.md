@@ -7,7 +7,7 @@ AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运
 `installation.py` 区分只读构建资源和用户工作目录，并生成 Python/standalone 子进程命令。
 资源、安装与发布边界见[发行包说明](Distribution.md)。
 
-修改模块边界、依赖方向或兼容入口时查阅本文。操作说明见 [README](../README.md#项目结构与开发)，
+修改模块边界、依赖方向或兼容入口时查阅本文。操作说明见 [中文 README](i18n/README_zh-CN.md#项目结构与开发)，
 字段与测量口径见 [指标与结果分析](Metrics.md#result_allcsv-字段解释)，运行环境扩展见[模型运行环境与适配器](Runtime_Compatibility.md)。
 
 - [目录与职责](#目录与职责)：先定位实现模块。
@@ -127,7 +127,10 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 
 `cli.run` 将资源校验、运行准备和矩阵调度分开；准备阶段返回 `_PreparedRuntime`，汇总镜像、
 输入计划、profiler 计划与能力报告。client 的 CSV 格式化、像素指标和 profiler 关联集中于
-`_build_result_row`；monitor 生命周期由 `MonitorGroup` 管理，不改变请求窗口或 CSV 协议。
+`ClientRunner._build_result_row`；`ClientConfig.from_env()` 仅在入口读取并验证配置，
+导入 client 不修改代理环境、不读取实验参数、不创建 workload。每次执行持有独立状态；
+`_execute_window` 复用 `MonitorGroup` 保持采样顺序，`main` 负责窗口调度与结果发布。
+`orchestrator._finalize_case` 负责采集后的抓包合并和结果校验，清理故障仍会执行容器回收。
 
 `source_identity` 统一续跑身份与服务构建的文件选择。续跑包括执行声明和输入资源；服务构建
 只打包共享模块与 `container/workloads/extensions`，同一文件集合同时用于上下文复制和指纹。
@@ -204,7 +207,7 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`app` 保留事件、状态和进程生命周期；`views` 使用页面构建函数输出 TabPane 子树。
+`app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
 七页底栏共用 `.action-bar`，内部由 `.action-secondary` 和 `.action-primary` 两个 `Horizontal`
 分别承载左侧次要／导航动作与右侧主操作；间距由容器分配，按钮宽度随标签变化。
 `commands` 定义唯一的 `RunConfig` 及命令构造，`progress` 解析运行日志，
@@ -214,7 +217,7 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 统计页通过 `commands.build_stats_command` 启动既有 `stats.py`，沿用 App 的进程互斥、停止和日志流程；
 完成后在后台读取一次报告并更新表格。读取期间锁定启动入口，不定时扫描 CSV 或自动运行开销实验。
 `images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_actions.ImageActions` 收纳镜像页事件、渲染及 Docker worker。
-`ImageActions` 继承 Textual 的 `MessagePump`，通过原生事件继承和 `@work` 保留调度；`AcprofTui` 持有状态、计时器和进程生命周期，配置模块仍不提前加载 Textual。
+`ImageActions` 继承 Textual 的 `MessagePump`，通过原生事件继承和 `@work` 保留调度；`AcprofTui` 持有状态、计时器和进程管理器，配置模块仍不提前加载 Textual。
 `ImageWorkspace` 按可用空间分配列表和详情高度；`ImageDetailResizeHandle` 使用 Textual 鼠标捕获和屏幕坐标处理上下拖动，也支持聚焦后按键调整。
 两侧各保留至少三行，手动高度仅存于控件的本次会话，窗口缩小不覆盖偏好。拖动只触发布局更新；禁用、隐藏、窗口缩放、失去捕获或按 `Esc` 时释放鼠标，沿用镜像控件的任务互斥，不增加后台扫描或定时器。
 `table.ResizableDataTable` 为统计报告和镜像管理的表格提供统一表头边界拖动，按稳定 column key 在控件内保留本次会话的手动列宽。
@@ -260,3 +263,13 @@ TUI 应用从 `acprof.tui.app` 导入，配置和命令从 `acprof.tui.commands`
 Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要求重建，不派生兼容镜像。
 未知 backend、丢失的显式本地快照和无法查询的 NCU counters 都明确报错。
 驱动分支、任务专用 handler 和 `profile.py` 的标准库代理具有独立用途，继续保留。
+
+### 可靠性设计参考
+
+子进程采用 Python 3.10+ 标准库（PSF License），遵循 [CPython 等待/超时语义](https://github.com/python/cpython/blob/3.10/Lib/subprocess.py)；
+硬件观测借鉴 [pyperf 元数据采集](https://github.com/psf/pyperf/blob/main/pyperf/_collect_metadata.py)（MIT），
+不引入 benchmark 调度依赖。Requests（Apache-2.0）的超时边界依据 [overall timeout Issue](https://github.com/psf/requests/issues/3099)，
+保留既有 Requests 和串行短连接协议。视觉回归复用 [Textual 官方插件](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
+固定 Python/Textual/插件依赖，运行环境独立；不将其依赖或事件轮询带入测量窗口。
+依赖升级通过锁文件和独立回归验收；硬件查询仅在 case 开始边界执行，不增加窗口内采样器。
+这些改动复用当前架构中的 `MonitorGroup`、artifact layout 与 evidence runner，不复制第三方框架。

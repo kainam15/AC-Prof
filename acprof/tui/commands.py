@@ -96,6 +96,7 @@ class RunConfig:
     task_family: str = ""
     backend: str = ""
     cpus: str = "1,2,4,8"
+    cpuset_cpus: str = ""
     mems: str = "2,4,8,16"
     gpus: str = "off,on"
     input_scales: str = ""
@@ -152,6 +153,12 @@ class RunConfig:
     def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
         """Normalize form values and reject invalid or misleading runs."""
         errors: list[str] = []
+        from acprof.cpu_affinity import normalize_cpu_set
+        try:
+            cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
+        except ValueError:
+            cpuset_cpus = ""
+            errors.append(message("CPU 集合格式无效；示例：0-3,8"))
         model = self.model.strip()
         if not model:
             errors.append(message('模型 ID 不能为空'))
@@ -284,6 +291,7 @@ class RunConfig:
             task_family=task_family,
             backend=self.backend.strip(),
             cpus=",".join(str(value) for value in cpus),
+            cpuset_cpus=cpuset_cpus,
             mems=",".join(str(value) for value in mems),
             gpus=",".join(gpus),
             input_scales=",".join(_csv_values(self.input_scales)),
@@ -363,6 +371,7 @@ def build_run_command(
         config.notify,
     ]
     for option, value in (
+        ("--cpuset-cpus", config.cpuset_cpus),
         ("--task", config.task),
         ("--task-family", config.task_family),
         ("--backend", config.backend),

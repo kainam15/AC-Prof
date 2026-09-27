@@ -679,7 +679,8 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         capability_report = measurement_report(
             args.profiling_mode, gpu_modes=gpu_list, compute_tool=args.compute_profile_tool,
             execution_tool=args.execution_profile_tool,
-            dram_energy=args.dram_energy, rapl_topology=rapl_topology,
+            dram_energy=args.dram_energy,
+            rapl_topology=rapl_topology,
         )
         capability_report.measurement.update({name: item for name, item in preflight_measurements.items() if isinstance(item, Capability)})
         from acprof.extensions import select_extension
@@ -868,6 +869,13 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
     except ValueError as exc:
         parser.error(str(exc))
+    from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
+    try:
+        args.cpuset_cpus = normalize_cpu_set(args.cpuset_cpus)
+        if args.cpuset_cpus and not parse_cpu_set(args.cpuset_cpus) <= set(os.sched_getaffinity(0)):
+            raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
     run_command = _format_run_command(sys.argv)
     if args.repeat_in_window < 0:
         parser.error("--repeat-in-window must be >= 0")
@@ -1035,7 +1043,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     else:
         repeat_desc = f"auto target {args.repeat_window_seconds:.1f}s"
     print(f"  Requests per iteration: {repeat_desc}")
-    print(f"  Request timeout: {args.request_timeout_seconds:g}s per /predict")
+    print(f"  Request timeout: {args.request_timeout_seconds:g}s connect/read inactivity per /predict (not total deadline)")
     print(f"  Total iterations: {total_iters}")
     print(f"  Output: {output_dir}")
     print()
@@ -1073,6 +1081,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
             matrix_order=args.matrix_order,
             matrix_seed=args.matrix_seed,
             dram_energy=args.dram_energy,
+            cpuset_cpus=args.cpuset_cpus,
             run_state=run_state,
             profiling_mode=args.profiling_mode,
         )

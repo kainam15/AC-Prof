@@ -239,7 +239,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     for label, field, unit in (
                         ("Warmup", "warmup", "次"), ("Repeat", "repeat", "次"),
                         ("采样频率", "sample_hz", "Hz"), ("Idle 基线", "idle_seconds", "s"),
-                        ("冷却时间", "idle_cooldown_seconds", "s"), ("请求超时", "request_timeout_seconds", "s"),
+                        ("冷却时间", "idle_cooldown_seconds", "s"), ("连接/读取超时", "request_timeout_seconds", "s"),
                         ("Batch size", "batch_size", ""), ("窗口请求数", "repeat_in_window", "次"),
                         ("自动窗口", "repeat_window_seconds", "s"),
                     ):
@@ -281,6 +281,11 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )
 
+                    yield app._localized_widget(Label("固定 CPU 集合"))
+                    yield app._localized_widget(Input(
+                        value=app.initial_config.cpuset_cpus, id="cpuset-cpus",
+                        placeholder="可选；如 0-3,8；用于正式采集", classes="config-control",
+                    ))
                     yield app._localized_widget(Label("抓包网卡"))
                     yield app._localized_widget(Input(
                         value=app.initial_config.sniff_iface,
@@ -418,7 +423,6 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):
-                        yield app._localized_widget(Static("日志", id="log-title", markup=False))
                         yield app._localized_widget(Button("复制选区", id="copy-log", classes="log-tool"))
                         yield app._localized_widget(Button("回到最新", id="follow-log", classes="log-tool"))
                         yield app._localized_widget(Button("放大日志", id="expand-log", classes="log-tool"))

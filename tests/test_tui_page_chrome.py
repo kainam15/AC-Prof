@@ -57,7 +57,7 @@ class TuiPageChromeTests(unittest.IsolatedAsyncioTestCase):
                     app._apply_ui_preferences()
                     for page, primary, secondary in (
                         ("run-tab", "start-run", ("open-run-settings", "quick-check", "probe-largest")),
-                        ("monitor-tab", "stop-run", ("log-title", "copy-log", "follow-log", "expand-log", "clear-log")),
+                        ("monitor-tab", "stop-run", ("copy-log", "follow-log", "expand-log", "clear-log")),
                         ("plot-tab", "plot-results", ("summarize-results",)),
                         ("reports-tab", "report-calculate", ("report-current", "report-open")),
                         ("profile-tab", "profile-run", ("profile-dry-run",)),

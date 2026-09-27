@@ -15,6 +15,48 @@
 独立接口验证与 startup probe 可能预热宿主机文件缓存。冷启动描述全新容器的进程和模型初始化，
 不承诺磁盘冷缓存；`cold_start_first_predict_app_s` 不计入 `/ready` 前的分段和，也不新增推理请求。
 
+### 进程与界面边界
+
+TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：向独立进程组发送 SIGINT，
+等待 30 秒，再发送 SIGTERM 并等待 5 秒。只有观察到子进程退出才释放引用。超时保留 PID、
+错误、管道读取和后续停止能力；不自动 SIGKILL，以免跳过编排器的容器清理。
+`清理未完成` 仍是忙碌状态。若终端已关闭，PID 和清理错误写入 stderr；强行结束 TUI
+进程不能保证清理完成，后续仍须核查容器与测量锁。
+
+正式矩阵向 TUI 输出 `ACPROF_EVENT ` 前缀的 JSON 控制记录，`version=1`，
+`event` 为 `case_started`、`measurement_started`、`measurement_stopped` 或 `case_finished`，
+携带 `case_id`；结束事件另含 `status=ok|error|cancelled`。未知版本或损坏控制记录明确报错。
+收到结构化事件后，普通日志不再控制 `measurement_active`；其他 case 的迟到事件不改变当前窗口。
+事件只在 case/client 边界输出，不逐请求发送、不在窗口内追加控制文件。
+这里保护的是整个 client 生命周期（包含其多个采样窗口）；管道通知没有同步 ACK，
+不承诺 TUI 绘制完成与第一轮采样之间存在严格的时序屏障。独立最大尺度 probe 暂沿用自己的日志进度。
+
+### 网络与请求超时
+
+推理端口固定发布到宿主机 `127.0.0.1`，容器内服务继续监听原地址。
+本机 `/ready`、`/meta`、`/predict` 和 Docker bridge 抓包沿用原路径。
+`--request-timeout-seconds` 分别作用于 Requests 的连接等待和读取无进展等待，
+不是整个请求的严格 wall-clock 截止时间；持续收到数据时，总耗时可以超过该值。
+请求继续串行执行，每次 `Connection: close`，不自动重试。
+超时仍先停止全部 monitor，再由编排器清理容器；错误 sidecar 的 `timeout_semantics`
+记录为 `connect_or_read_inactivity`。不把客户端停止等待当作模型已经停止推理。
+
+### 硬件条件证据
+
+每个正式 case 在启动抓包和 client 前观测一次 CPU 型号、宿主机身份哈希、容器所有可见
+进程线程的实际 CPU affinity、对应 governor/boost、所选 GPU 的型号/UUID/驱动/功耗上限/
+persistence mode，以及 `/meta` 的有效线程数。证据原子写入
+`metadata/hardware_conditions.json`（flat 目录为根目录同名文件），schema v1，按资源 case ID
+保存到 `cases`。缺失或不可读取字段为 `null`，诊断保存在 `errors`；无 GPU case 为
+`gpu=not_applicable`。这是开始边界快照，不证明整个测量期间独占 CPU、温度不变或线程策略不变。
+
+`--cpuset-cpus 0-3,8` 是可选的正式采集/startup probe 容器条件；留空维持原有 `--cpus` 配额。
+规范化后的 CPU 集合进入 run options、矩阵和 startup probe 身份，改变集合会拒绝恢复。
+正式采集前必须观察到所有容器线程的 affinity 都位于所要求的 CPU 集合内；运行时可以进一步绑定子集。
+无法核验或发现越界时保留证据并停止该 case。
+独立 runtime validation、额外 profiler 和最大尺度诊断 probe 不继承此选项，其结果继续标识各自范围。
+已有实验缺少该文件时比较为 `unknown`，不重写旧产物或补造历史硬件条件。
+
 ## 协议不变量
 
 - CPU package、估算 vCPU、GPU device 与 container-attributed 数据分别命名和解释，整机测量不能静默替换容器归因。

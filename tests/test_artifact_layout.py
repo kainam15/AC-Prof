@@ -1,4 +1,7 @@
 """Result layout contracts, including interrupted and historical experiments."""
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from client_fixtures import patch_client
 import json
 import csv
 from contextlib import ExitStack, redirect_stdout
@@ -14,6 +17,9 @@ from acprof.artifact_layout import ArtifactLayout, case_sidecar
 
 
 class ArtifactLayoutTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = ClientRunner(ClientConfig())
+
     def test_client_uses_the_experiment_slo_from_nested_case_directory(self):
         from acprof.host import client
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
@@ -35,15 +41,15 @@ class ArtifactLayoutTests(unittest.TestCase):
                 "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
             }
             for name, value in settings.items():
-                stack.enter_context(patch.object(client, name, value))
+                stack.enter_context(patch_client(self.runner, name, value))
             stack.enter_context(patch.object(client.requests, "get",
                 return_value=SimpleNamespace(status_code=200, text="ok")))
-            stack.enter_context(patch.object(client, "_one_request", side_effect=[
+            stack.enter_context(patch_client(self.runner, "_one_request", side_effect=[
                 {"latency_app_s": 0.1, "effective_input_scale": 1.0},
                 {"latency_app_s": 0.4, "effective_input_scale": 1.0},
             ]))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            client.main()
+            self.runner.main()
             with case.csv.open() as stream:
                 row = next(csv.DictReader(stream))
             self.assertEqual(float(row["latency_app_slow_ratio"]), 0.5)

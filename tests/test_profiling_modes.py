@@ -1,3 +1,6 @@
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from client_fixtures import patch_client
 import csv
 import io
 import json
@@ -15,12 +18,14 @@ from acprof.host.docker_runtime import RunningContainer
 
 
 class ProfilingModeTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = ClientRunner(ClientConfig())
+
     def test_basic_refuses_missing_required_resource_collector(self):
-        with tempfile.TemporaryDirectory() as root, patch.object(client, "OUT_CSV", str(Path(root) / "result.csv")), patch.object(client, "PROFILING_MODE", "basic"), patch.object(client, "resource_usage_mod", None), patch.object(
-            client, "input_scale_entries", [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
+        with tempfile.TemporaryDirectory() as root, patch_client(self.runner, "OUT_CSV", str(Path(root) / "result.csv")), patch_client(self.runner, "PROFILING_MODE", "basic"), patch_client(self.runner, "resource_usage_mod", None), patch_client(self.runner, "input_scale_entries", [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
         ), patch.object(client.requests, "get", side_effect=AssertionError("must fail before server request")):
             with self.assertRaisesRegex(RuntimeError, "CPU.*memory"):
-                client.main()
+                self.runner.main()
 
     def test_basic_matrix_preserves_resource_sweep_and_skips_capture(self):
         task = TaskInfo("test/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "main", "unit")
@@ -83,14 +88,14 @@ class ProfilingModeTests(unittest.TestCase):
                 "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
             }
             for name, value in settings.items():
-                stack.enter_context(patch.object(client, name, value, create=True))
+                stack.enter_context(patch_client(self.runner, name, value, create=True))
             stack.enter_context(patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200, text="ok")))
-            stack.enter_context(patch.object(client, "_one_request", return_value={
+            stack.enter_context(patch_client(self.runner, "_one_request", return_value={
                 "latency_app_s": 0.5, "effective_input_scale": 1.0,
                 "workload_contract": {"schema_version": 1, "actual_rows": 1},
             }))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            client.main()
+            self.runner.main()
             with path.open() as stream:
                 row = next(csv.DictReader(stream))
         self.assertEqual(row["status"], "ok", row["error"])
