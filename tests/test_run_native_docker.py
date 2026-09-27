@@ -101,6 +101,15 @@ class TmuxTerminalLogTests(unittest.TestCase):
 
 class NativeDockerGuardTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.resolved_task = TaskInfo(
+            model_id="dummy-model",
+            pipeline_tag="fill-mask",
+            task_family="nlp",
+            runtime_backend="transformers_pipeline",
+            library_name="transformers",
+            model_revision="1" * 40,
+            detection_method="unit",
+        )
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={
             'uuid': 'GPU-fixture', 'index': 1, 'name': 'Fixture', 'memory_total_bytes': 8 * 1024 ** 3,
             'pci_bus_id': '00000000:02:00.0',
@@ -295,7 +304,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ):
             run.require_cpu_energy_prerequisites()
 
-    def test_main_runs_cpu_energy_preflight_before_task_detection(self) -> None:
+    def test_main_runs_cpu_energy_preflight_before_runtime_preparation(self) -> None:
         with patch.object(
             sys,
             "argv",
@@ -317,15 +326,19 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.require_mips_prerequisites",
         ), patch(
             "acprof.host.detect.detect_task",
-            side_effect=AssertionError("detect_task should not run before CPU energy preflight"),
+            return_value=self.resolved_task,
+        ) as detect, patch(
+            "acprof.cli.run._prepare_runtime",
+            side_effect=AssertionError("runtime preparation must not run before CPU energy preflight"),
         ):
             with self.assertRaises(SystemExit) as raised:
                 run.main()
 
         self.assertEqual(raised.exception.code, 3)
+        detect.assert_called_once()
         preflight.assert_called_once_with()
 
-    def test_main_runs_mips_preflight_before_task_detection(self) -> None:
+    def test_main_runs_mips_preflight_before_runtime_preparation(self) -> None:
         with patch.object(
             sys,
             "argv",
@@ -347,12 +360,16 @@ class NativeDockerGuardTests(unittest.TestCase):
             side_effect=SystemExit(4),
         ) as preflight, patch(
             "acprof.host.detect.detect_task",
-            side_effect=AssertionError("detect_task should not run before MIPS preflight"),
+            return_value=self.resolved_task,
+        ) as detect, patch(
+            "acprof.cli.run._prepare_runtime",
+            side_effect=AssertionError("runtime preparation must not run before MIPS preflight"),
         ):
             with self.assertRaises(SystemExit) as raised:
                 run.main()
 
         self.assertEqual(raised.exception.code, 4)
+        detect.assert_called_once()
         preflight.assert_called_once_with()
 
     def test_docker_desktop_context_exits_before_docker_info(self) -> None:
@@ -477,9 +494,12 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.cli.run.require_native_docker",
             side_effect=AssertionError("Docker guard must run after host guard"),
-        ):
+        ), patch(
+            "acprof.host.detect.detect_task", return_value=self.resolved_task,
+        ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
             with self.assertRaisesRegex(RuntimeError, "host guard called"):
                 run.main()
+        detect.assert_called_once()
 
     def test_main_invokes_native_docker_guard_after_host_guard(self) -> None:
         with patch.object(
@@ -491,11 +511,14 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.cli.run.require_native_docker",
             side_effect=RuntimeError("guard called"),
-        ):
+        ), patch(
+            "acprof.host.detect.detect_task", return_value=self.resolved_task,
+        ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
             with self.assertRaisesRegex(RuntimeError, "guard called"):
                 run.main()
+        detect.assert_called_once()
 
-    def test_main_runs_packet_latency_preflight_before_task_detection(self) -> None:
+    def test_main_runs_packet_latency_preflight_before_runtime_preparation(self) -> None:
         with patch.object(sys, "argv", ["acprof.cli.run.py", "--model", "dummy-model"]), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
@@ -511,12 +534,16 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.require_cpu_energy_prerequisites",
         ), patch(
             "acprof.host.detect.detect_task",
-            side_effect=AssertionError("detect_task should not run before preflight"),
+            return_value=self.resolved_task,
+        ) as detect, patch(
+            "acprof.cli.run._prepare_runtime",
+            side_effect=AssertionError("runtime preparation must not run before packet latency preflight"),
         ):
             with self.assertRaises(SystemExit) as raised:
                 run.main()
 
         self.assertEqual(raised.exception.code, 2)
+        detect.assert_called_once()
         preflight.assert_called_once_with(sniff_iface="docker0")
 
     def test_main_defaults_to_auto_window_and_compute_profiler_disabled(self) -> None:

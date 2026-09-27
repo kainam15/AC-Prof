@@ -111,7 +111,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         self.assertGreaterEqual(event.elapsed_seconds, 0.0)
         self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION.event)
 
-    def test_run_main_sends_start_before_native_preflight(self) -> None:
+    def test_run_main_sends_start_before_resolution_and_native_preflight(self) -> None:
         argv = [
             "run.py",
             "--model",
@@ -124,6 +124,14 @@ class RunNotificationLifecycleTests(unittest.TestCase):
 
         def activate(**kwargs):
             order.append(("activate", kwargs["run_command"]))
+
+        def resolve(**kwargs):
+            order.append(("resolution", kwargs["model_id"]))
+            return TaskInfo(
+                model_id=kwargs["model_id"], pipeline_tag="fill-mask", task_family="nlp",
+                runtime_backend="transformers_pipeline", library_name="transformers",
+                model_revision="1" * 40, detection_method="unit",
+            )
 
         def preflight():
             order.append(("preflight", None))
@@ -141,6 +149,9 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             "acprof.cli.run._notify_run_started",
             side_effect=lambda: order.append(("started", None)),
         ), patch(
+            "acprof.host.detect.detect_task",
+            side_effect=resolve,
+        ), patch(
             "acprof.cli.run.require_native_linux_host",
             side_effect=preflight,
         ):
@@ -152,6 +163,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             [
                 ("activate", expected_command),
                 ("started", None),
+                ("resolution", "org/model with space"),
                 ("preflight", None),
             ],
         )

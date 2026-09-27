@@ -46,6 +46,7 @@ class TuiLogViewTests(unittest.IsolatedAsyncioTestCase):
                     app._render_snapshot(ProgressSnapshot(
                         stage="正式测量", current_case=1, total_cases=32,
                         measurement_active=True,
+                        interface_status="passed", runtime_status="passed", measurement_status="running",
                     ))
                     await pilot.pause()
                     self.assertEqual(len(app.query("#case-progress, #matrix-board, #matrix-table")), 0)
@@ -53,10 +54,14 @@ class TuiLogViewTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(app.query_one("#status-case", Static).content, "当前 1 · 已完成 0/32")
                     log = app.query_one("#run-log", SelectableLog)
                     self.assertGreaterEqual(log.content_region.height, 5)
+                    preparation = app.query_one("#status-preparation", Static)
+                    self.assertEqual(preparation.content, "接口解析：通过　运行验证：通过　测量：进行中")
+                    self.assertGreater(preparation.region.height, 0)
                     self.assertEqual(
-                        log.region.y,
+                        preparation.region.y,
                         app.query_one("#status-grid").region.bottom,
                     )
+                    self.assertEqual(log.region.y, preparation.region.bottom)
                     if size[1] >= 30:
                         self.assertGreaterEqual(log.content_region.height, 10)
                     self.assertLessEqual(log.region.bottom, app.query_one("#bottom-panel").region.y)

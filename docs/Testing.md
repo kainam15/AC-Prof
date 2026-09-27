@@ -245,6 +245,8 @@ acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snap
 
 快照用例固定主题、语言、路径与颜色模式，规范化 SVG 行末空白以兼容仓库格式检查；
 截取前检查目标页面已经激活，避免把错误场景保存成基线。
+正式测量场景须显式设置接口解析与运行验证为 `passed`、测量为 `running`；
+不能只设置 `measurement_active=True` 而让阶段状态保留 `not_started`。
 
 先查看失败报告的 HTML / SVG 差异，再在预期变更或首次建立基线时对选定用例追加
 `--snapshot-update`；普通验证不更新基线。快照补充现有 unittest / evidence runner，
@@ -340,6 +342,12 @@ git diff --check
 主机失败与模式选择、原生模型 Probe、冻结覆盖率分母及人工语义参考。已有模型／契约／镜像／
 恢复测试继续保护协议。滚动模型检查使用 [coverage 命令](CLI_Reference.md#acprof-coverage)，
 其静态、容器 full Probe 与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
+
+采集准备与重试使用 `test_collection_workflow.py`、`test_run_native_docker.py`、
+`test_run_notifications.py` 和 `test_tui_collection_workflow.py`。当前顺序为开始通知、模型解析、
+主机预检、运行环境准备和验证、正式测量；预检失败必须阻止后续准备。预检和通知测试在
+`acprof.host.detect.detect_task` 边界提供静态 fixture，避免假模型 ID 访问真实 Hub。
+监控布局测试同时检查状态网格、准备状态行和日志的衔接，以及各尺寸下日志和按钮的可用空间。
 
 ## CI 与环境测试
 

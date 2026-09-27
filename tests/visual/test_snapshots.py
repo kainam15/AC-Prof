@@ -67,6 +67,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             snapshot = ProgressSnapshot(
                 stage="正式测量", detail="Fixed measurement window",
                 current_case=1, total_cases=4, cpu="2", mem="4", gpu="off", measurement_active=True,
+                interface_status="passed", runtime_status="passed", measurement_status="running",
             )
             app._set_busy(True)
             await pilot.pause()
