@@ -456,8 +456,12 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 `plot.py` 接收结果 CSV 路径，`tui.py` 可用 `--model` 预填模型、用 `--preset` 选择预设。
 `audit.py <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
 用于验收新实验。`stats.py <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
-`--confidence`、`--resamples`、`--seed`、`--block-size` 和新的 `--output` 文件；定义见[结果分析](Metrics.md)。
-TUI“统计报告”页的“计算统计”使用 `stats.py` 默认参数，并在 v2 结果目录的 `plots/analysis/`（旧目录为 `analysis/`）保存唯一命名的 JSON。
+`--confidence`、`--resamples`、`--seed`、`--block-size`；定义见[结果分析](Metrics.md)。
+省略输出选项时向 stdout 输出报告 JSON。`--output FILE` 保存到指定新文件，禁止覆盖；
+`--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
+`window-statistics-YYYYMMDD-HHMMSS-ffffff.json` 保存。两个输出选项互斥。
+目录模式向 stdout 输出一行 `ACPROF_STATS {"report_path": "绝对路径", "reused": false}`；复用时 `reused` 为 `true`。
+TUI“统计报告”页的“计算统计”使用目录模式和默认统计参数，报告位于 v2 结果目录的 `plots/analysis/`（旧目录为 `analysis/`），复用时提示已有报告并显示其内容。
 `/stats [csv/dir]` 与按钮等价；`/report [json]` 或“查看报告”读取已有窗口统计、监测开销或 CLI/TUI 对照报告。
 这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](TUI.md#统计报告)。
 `/images` 打开“镜像管理”页并自动读取数据，空闲时每轮读取完成后 5 秒更新；离开页面或运行任务时暂停。

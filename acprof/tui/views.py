@@ -487,7 +487,6 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
             ))
         with Horizontal(id="report-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
-                yield app._localized_widget(Button("当前结果", id="report-current", classes="report-control"))
                 yield app._localized_widget(Button("查看报告", id="report-open", classes="report-control"))
             with Horizontal(classes="action-primary"):
                 yield app._localized_widget(Button("计算统计", id="report-calculate", classes="report-control", variant="primary"))
@@ -529,7 +528,7 @@ def compose_profile_tab(app: AcprofTui) -> ComposeResult:
 
 
 def compose_settings_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("设置", id="settings-tab"):
+    with TabPane("全局设置", id="settings-tab"):
         with Vertical(classes="page-header"):
             yield app._localized_widget(Static("显示与日志", classes="page-title"))
             yield app._localized_widget(Static(

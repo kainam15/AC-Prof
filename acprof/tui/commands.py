@@ -444,13 +444,13 @@ def build_plot_command(
 
 def build_stats_command(
     result_csv: str | Path,
-    output: str | Path,
+    output_dir: str | Path,
     *,
     project_dir: Path,
     python_executable: str | Path = sys.executable,
 ) -> list[str]:
     return [*cli_command("stats", python_executable=python_executable),
-            str(Path(result_csv).expanduser()), "--output", str(output)]
+            str(Path(result_csv).expanduser()), "--output-dir", str(output_dir)]
 
 
 def build_profile_command(

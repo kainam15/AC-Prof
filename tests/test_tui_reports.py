@@ -27,7 +27,9 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(app, "_launch") as launch:
                 app._launch_stats(str(csv_path))
             launch.assert_called_once()
-            self.assertEqual(app._stats_report_path.parent, root / "plots/analysis")
+            command = launch.call_args.args[0].command
+            self.assertIn("--output-dir", command)
+            self.assertEqual(Path(command[command.index("--output-dir") + 1]), root / "plots/analysis")
             self.assertFalse((root / "analysis").exists())
 
     def setUp(self):
@@ -88,6 +90,7 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "reports-tab")
             output = Path(app.query_one("#report-source", Input).value)
             self.assertEqual(output.suffix, ".json")
+            self.assertRegex(output.name, r"^window-statistics-\d{8}-\d{6}-\d{6}\.json$")
             data = json.loads(output.read_text())
             latency = next(row for row in data["groups"] if row["metric"] == "latency_app_s")
             self.assertEqual(latency["n_windows"], 3)
@@ -98,6 +101,39 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("20 ms", cells)
             self.assertFalse(app._is_busy())
             self.assertFalse(app.query_one("#start-run", Button).disabled)
+        self.assertEqual(self.csv_path.read_bytes(), original)
+
+    async def test_repeated_statistics_opens_existing_report_and_notifies_in_both_languages(self):
+        original = self.csv_path.read_bytes()
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.open_tab(app, pilot)
+            source = app.query_one("#report-source", Input)
+            source.value = str(self.csv_path)
+            self.assertTrue(await pilot.click("#report-calculate"))
+            await self.finish_workers(app, pilot)
+            generated = Path(str(source.value))
+            existing = generated.with_name("window-statistics-1b1047da59ca46f186c93ac5ad86f8d0.json")
+            generated.rename(existing)
+            saved = existing.read_bytes()
+            modified = existing.stat().st_mtime_ns
+            for language, expected in (("zh", "已有相同报告"), ("en", "Identical report already exists")):
+                app.ui_preferences = replace(app.ui_preferences, language=language)
+                app._apply_ui_preferences()
+                source.value = str(self.csv_path)
+                await pilot.pause()
+                with patch.object(app, "notify", wraps=app.notify) as notify:
+                    self.assertTrue(await pilot.click("#report-calculate"))
+                    await self.finish_workers(app, pilot)
+                self.assertEqual(Path(str(source.value)), existing)
+                self.assertEqual(list(existing.parent.glob("*.json")), [existing])
+                self.assertEqual(existing.read_bytes(), saved)
+                self.assertEqual(existing.stat().st_mtime_ns, modified)
+                notices = [app.tr(call.args[0]) for call in notify.call_args_list]
+                self.assertTrue(any(expected in text and str(existing) in text for text in notices), notices)
+                self.assertEqual(app.query_one("#report-table", DataTable).row_count, 3)
+                self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "reports-tab")
+                self.assertFalse(app._is_busy())
         self.assertEqual(self.csv_path.read_bytes(), original)
 
     async def test_empty_header_click_before_loading_and_after_read_failure(self):
@@ -148,7 +184,7 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(table.row_count, 1)
                     self.assertIn("+2%", [str(cell) for cell in table.get_row_at(0)])
                     self.assertIn("方向不确定", [str(cell) for cell in table.get_row_at(0)])
-                    for selector in ("#report-open", "#report-calculate", "#report-current", "#report-table"):
+                    for selector in ("#report-open", "#report-calculate", "#report-table"):
                         region = app.query_one(selector).region
                         self.assertGreater(region.height, 0)
                         self.assertLessEqual(region.bottom, size[1] - 3)
@@ -193,7 +229,7 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
             app._latest_snapshot = ProgressSnapshot(measurement_active=True)
             app._set_busy(True)
             with patch.object(app, "_execute_command") as execute:
-                for selector in ("#report-open", "#report-calculate", "#report-current", "#report-source"):
+                for selector in ("#report-open", "#report-calculate", "#report-source"):
                     self.assertTrue(app.query_one(selector).disabled)
                 for command in ("/stats", "/report"):
                     field = app.query_one("#slash-command", Input)
@@ -221,9 +257,6 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
             source.value = str(self.overhead_report())
             app._remember_last_used(result_csv=str(self.directory / "another.csv"))
             self.assertTrue(source.value.endswith("开销.json"))
-            await pilot.click("#report-current")
-            await pilot.pause()
-            self.assertEqual(source.value, str(self.directory / "another.csv"))
 
     async def test_failed_statistics_returns_to_reports_and_reenables_controls(self):
         self.csv_path.write_text("bad,csv\n1,2\n")

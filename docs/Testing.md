@@ -318,7 +318,7 @@ git diff --check
 | 日志、语言与命令 | `tests/test_tui_log_view.py`、`tests/test_tui_i18n.py`、`tests/test_tui.py` |
 | 终端色深与 RGB 输出 | `tests/test_tui_colors.py`；检查缺失/空 `COLORTERM`、真彩色、256 色与自动检测 |
 | 中文浮层缺字 | `tests/test_tui_cjk_rendering.py`；通知覆盖按钮、真实遮挡、宽字符两半的局部刷新、中英文和奇偶列宽缩放 |
-| 统计报告、异步读取与计算 | `tests/test_tui_reports.py`、`tests/test_report_views.py`、`tests/test_uncertainty.py` |
+| 统计报告、异步读取与计算 | `tests/test_tui_reports.py`、`tests/test_report_views.py`、`tests/test_uncertainty.py`、`tests/test_stats.py` |
 | Docker 镜像树、层空间、标签删除与采集互斥 | `tests/test_image_management.py`、`tests/test_tui_images.py` |
 | 表头拖动、固定列、滚动范围与鼠标释放 | `tests/test_tui_table_resize.py`、`tests/test_tui_all_tables.py`、`tests/test_tui_images.py` |
 
@@ -640,6 +640,11 @@ profiler 调研了 [NVIDIA nsight-python](https://github.com/NVIDIA/nsight-pytho
 已在项目使用的 Textual 8.2.8 中验证；不增加表格库或统计依赖。
 窗口统计调用既有 CLI，JSON 读取在后台执行；只在用户操作和任务完成时更新表格，采集期间禁止启动，
 避免给正式窗口增加轮询或统计计算。回归覆盖三种终端尺寸、中英文切换、失败恢复、原 CSV 不变及测量互斥。
+报告保存参考 [pytest-benchmark 的文件存储](https://github.com/ionelmc/pytest-benchmark/blob/master/src/pytest_benchmark/storage/file.py)
+（BSD-2-Clause）和 [Joblib 的稳定内容表示](https://github.com/joblib/joblib/blob/main/joblib/hashing.py)
+（BSD-3-Clause）；仅借鉴思路，使用标准库比较完整 JSON、Linux 目录锁与既有原子写入，不增加依赖或测量开销。
+`test_stats.py` 覆盖时间戳命名、旧 UUID 报告复用、格式无关的内容比较、参数/CSV/统计值变化、损坏文件、重名和并发发布；
+TUI 回归核对重复计算时打开已有文件、显示中英文提示及控制恢复。
 
 表头拖动复用 [Textual DataTable](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_data_table.py)
 的列元数据、渲染与鼠标捕获。沿用官方维护的 MIT 依赖，无额外包、后台轮询或测量窗口内的诊断。

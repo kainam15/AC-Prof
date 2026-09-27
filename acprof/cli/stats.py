@@ -1,13 +1,46 @@
 """将结果按独立测量窗口汇总，输出均值、标准差和 bootstrap 置信区间。"""
 import argparse
 import csv
+from datetime import datetime, timedelta
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json
 from acprof.result_csv import read_result_csv
+
+
+def _save_unique_report(directory: Path, report: dict) -> tuple[Path, bool]:
+    """Compare complete JSON content before publishing a timestamped report."""
+    import fcntl
+
+    directory = directory.resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(report, sort_keys=True, ensure_ascii=False, allow_nan=False)
+    # Lock the directory itself: concurrent statistics processes share the check
+    # and publish boundary without leaving a lock file among the reports.
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        for candidate in sorted(directory.glob("*.json")):
+            try:
+                existing = json.loads(candidate.read_text(encoding="utf-8"))
+                identical = json.dumps(existing, sort_keys=True, ensure_ascii=False, allow_nan=False) == content
+            except (FileNotFoundError, IsADirectoryError, ValueError, UnicodeError):
+                continue
+            if identical:
+                return candidate, True
+        timestamp = datetime.now()
+        destination = directory / f"window-statistics-{timestamp:%Y%m%d-%H%M%S-%f}.json"
+        while destination.exists():
+            timestamp += timedelta(microseconds=1)
+            destination = directory / f"window-statistics-{timestamp:%Y%m%d-%H%M%S-%f}.json"
+        atomic_write_json(destination, report)
+        return destination, False
+    finally:
+        os.close(descriptor)
 
 
 def main(argv=None):
@@ -18,7 +51,9 @@ def main(argv=None):
     parser.add_argument("--resamples", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--block-size", type=int, default=1, help="连续窗口的循环移动块长度")
-    parser.add_argument("--output", type=Path, help="保存 JSON；省略时输出到 stdout")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--output", type=Path, help="保存 JSON；省略输出选项时输出到 stdout")
+    output.add_argument("--output-dir", type=Path, help="按本地日期时间保存 JSON；内容相同时复用已有报告")
     args = parser.parse_args(argv)
     path = args.source / "result_all.csv" if args.source.is_dir() else args.source
     if args.output and (args.output.resolve() == path.resolve() or args.output.exists()):
@@ -34,11 +69,17 @@ def main(argv=None):
         report["result_csv"] = str(path.resolve())
     except (ValueError, OSError, csv.Error) as error:
         parser.exit(1, f"统计失败：{error}\n")
-    if args.output:
-        atomic_write_json(args.output, report)
-        print(f"已保存 {len(report['groups'])} 项窗口统计：{args.output}")
-    else:
-        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+    try:
+        if args.output_dir:
+            saved, reused = _save_unique_report(args.output_dir, report)
+            print("ACPROF_STATS " + json.dumps({"report_path": str(saved), "reused": reused}, ensure_ascii=False))
+        elif args.output:
+            atomic_write_json(args.output, report)
+            print(f"已保存 {len(report['groups'])} 项窗口统计：{args.output}")
+        else:
+            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+    except (ValueError, OSError) as error:
+        parser.exit(1, f"统计保存失败：{error}\n")
     return 0
 
 

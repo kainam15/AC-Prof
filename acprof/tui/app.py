@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import subprocess
 import sys
@@ -11,7 +12,6 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Sequence
-from uuid import uuid4
 
 try:
     from textual import events, on, work
@@ -135,7 +135,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         ("f5", "request_run", "开始采集"),
         Binding("f6", "quick_check", "环境检查", priority=True),
         ("f8", "toggle_log_view", "放大日志"),
-        ("f2", "show_settings", "设置"),
+        ("f2", "show_settings", "全局设置"),
         Binding("ctrl+x", "request_stop", "终止任务", priority=True),
         ("ctrl+l", "clear_log", "清空日志"),
         ("ctrl+q", "request_quit", "退出"),
@@ -204,6 +204,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._report_view: ReportView | None = None
         self._report_loading = False
         self._stats_report_path: Path | None = None
+        self._stats_report_reused = False
         self._image_inventory: ImageInventory | None = None
         self._image_operation = ""
         self._image_refresh_timer = None
@@ -1174,6 +1175,17 @@ class AcprofTui(ImageActions, BarCursorApp):
         snapshot: ProgressSnapshot | None,
         state_changed: bool,
     ) -> None:
+        if self._process_kind == "stats" and line.startswith("ACPROF_STATS "):
+            receipt = json.loads(line.removeprefix("ACPROF_STATS "))
+            if (not isinstance(receipt, dict) or not isinstance(receipt.get("report_path"), str)
+                    or not receipt["report_path"] or type(receipt.get("reused")) is not bool):
+                raise ValueError("统计进程返回的报告信息无效")
+            self._stats_report_path = Path(receipt["report_path"])
+            self._stats_report_reused = receipt["reused"]
+            line = self.tr(message(
+                "已有相同报告：{0}" if self._stats_report_reused else "统计报告已保存：{0}",
+                self._stats_report_path,
+            ))
         if line:
             self.query_one("#run-log", SelectableLog).write(line)
         if snapshot is not None:
@@ -1230,6 +1242,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         snapshot: ProgressSnapshot | None,
         launch_error: str,
     ) -> None:
+        if kind == "stats" and returncode == 0 and not launch_error and self._stats_report_path is None:
+            launch_error = "统计进程未返回报告路径"
         self._preparation_request = None
         if self._preparation_screen is not None:
             self._preparation_screen.dismiss(None)
@@ -1262,7 +1276,9 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
         elif returncode == 0:
             log.write(self.tr(message('[TUI] {0} 任务完成，退出码 0', kind)))
-            self.notify("任务已完成", severity="information", timeout=5)
+            notice = (message("已有相同报告：{0}", self._stats_report_path)
+                      if kind == "stats" and self._stats_report_reused else "任务已完成")
+            self.notify(notice, severity="information", timeout=8 if self._stats_report_reused else 5)
         elif self._stop_requested:
             log.write(self.tr(message('[TUI] 任务已由用户终止，退出码 {0}', returncode)))
             self.notify("任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
@@ -1361,6 +1377,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._sync_image_refresh_timer()
         if kind == "stats":
             report_path, self._stats_report_path = self._stats_report_path, None
+            self._stats_report_reused = False
             if returncode == 0 and not launch_error and report_path is not None:
                 self._open_report(str(report_path))
             else:
@@ -1633,12 +1650,6 @@ class AcprofTui(ImageActions, BarCursorApp):
         if self._form_ready and not self._is_busy():
             self._clear_report("CSV / 目录：计算统计；JSON：查看报告。采集结束后操作。")
 
-    @on(Button.Pressed, "#report-current")
-    def use_current_report_result(self) -> None:
-        if self._is_busy() or self._check_running:
-            return
-        self.query_one("#report-source", Input).value = self._input("result-csv")
-
     @on(Button.Pressed, "#report-open")
     def open_report_button(self) -> None:
         self._open_report()
@@ -1735,13 +1746,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         from acprof.artifact_layout import ArtifactLayout
         try:
             layout = ArtifactLayout.discover(csv_path.parent)
-            output = layout.path("analysis") / f"window-statistics-{uuid4().hex}.json"
+            output_dir = layout.path("analysis")
         except (OSError, ValueError) as exc:
             self._clear_report(str(exc))
             return
-        command = build_stats_command(csv_path, output, project_dir=PROJECT_DIR,
+        command = build_stats_command(csv_path, output_dir, project_dir=PROJECT_DIR,
                                       python_executable=PYTHON_EXECUTABLE)
-        self._stats_report_path = output
+        self._stats_report_path = None
+        self._stats_report_reused = False
         self._clear_report(message("{0} 正在计算窗口统计，完成后自动显示报告。", CALCULATING))
         self._launch(PendingLaunch(tuple(command), "stats", result_csv=str(csv_path)))
 
@@ -1923,7 +1935,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 "/plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · "
                 "/profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · "
                 "/stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · "
-                "/settings 设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
+                "/settings 全局设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
             )
             self._activate_tab("monitor-tab")
         elif command in {"quit", "exit"}:

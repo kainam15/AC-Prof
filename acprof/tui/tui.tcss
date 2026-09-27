@@ -40,6 +40,9 @@ TabbedContent { height: 1fr; }
 TabPane { padding: 0; }
 Tabs { background: $surface; }
 Tab { padding: 0 2; }
+/* Keep global settings at the viewport edge when labels or terminal size change. */
+#main-tabs #tabs-list-bar, #main-tabs #tabs-list { width: 1fr; }
+#main-tabs #--content-tab-settings-tab { dock: right; }
 Tab.-active { color: $accent; text-style: bold; }
 Tabs:focus Tab.-active { color: $background; background: $accent; }
 Underline { color: $accent; }
@@ -291,6 +294,8 @@ AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
 AcprofTui.narrow #status-grid { grid-columns: 11 1fr 9 1fr; }
 AcprofTui.narrow Tab { padding: 0 1; }
+/* Leave room for all seven English labels at 80 columns. */
+AcprofTui.narrow #--content-tab-settings-tab { padding-left: 0; }
 AcprofTui.short #bottom-panel { height: 3; }
 AcprofTui.short #slash-command-bar { height: 3; padding: 0 2; }
 AcprofTui.short #bottom-panel.command-hidden { height: 0; }

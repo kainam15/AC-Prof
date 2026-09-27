@@ -59,7 +59,7 @@ class TuiPageChromeTests(unittest.IsolatedAsyncioTestCase):
                         ("run-tab", "start-run", ("open-run-settings", "quick-check", "probe-largest")),
                         ("monitor-tab", "stop-run", ("copy-log", "follow-log", "expand-log", "clear-log")),
                         ("plot-tab", "plot-results", ("summarize-results",)),
-                        ("reports-tab", "report-calculate", ("report-current", "report-open")),
+                        ("reports-tab", "report-calculate", ("report-open",)),
                         ("profile-tab", "profile-run", ("profile-dry-run",)),
                         ("images-tab", "image-delete", ("image-toggle", "image-model", "image-clear")),
                         ("settings-tab", "save-ui-settings", ("restore-ui-defaults",)),
