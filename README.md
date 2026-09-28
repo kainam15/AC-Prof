@@ -1,4 +1,4 @@
-# AC-Prof
+<h1 align="center">AC-Prof</h1>
 
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
 

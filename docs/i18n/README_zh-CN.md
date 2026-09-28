@@ -1,4 +1,4 @@
-# AC-Prof
+<h1 align="center">AC-Prof</h1>
 
 [English](../../README.md) · **简体中文**
 
