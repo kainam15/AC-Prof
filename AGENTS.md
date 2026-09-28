@@ -21,6 +21,7 @@ AC-Prof 对 Docker 中的 Hugging Face 推理服务进行可复现分析，输�
 ## 全局规则
 
 - 使用简体中文回复；`AGENTS.md` 的标题与说明使用简体中文，保留技术标识。
+- 修改 `README.md` 或 `docs/i18n/README_zh-CN.md` 时，必须在同一次改动中同步另一语言版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径。
 - 不修改 `docs/Original_Project_Definition.md`；用户未明确要求时不提交 Git。
 - 功能或结构改动前先检索 GitHub，评估兼容性、许可证、维护、依赖成本与测量开销，说明复用取舍。
 - 使用已有 `.venv`、Python 3.10+；正式采集要求原生 Linux、本机 Docker Engine、cgroup v2。
