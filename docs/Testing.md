@@ -15,6 +15,29 @@
 | 模型、backend、依赖或 Dockerfile | 路由与离线加载测试、镜像构建、所声明设备的真实推理；profiler 分别验证 |
 | TUI | 受影响的交互与尺寸检查；原生终端问题还需对应终端证据 |
 
+## Python 修改工作流
+
+修改 Python 代码时优先使用 PyCharm MCP，覆盖根脚本、`acprof/`、`scripts/` 和 `tests/`。
+只使用本次任务涉及的工具；纯文档修改按[文档检查](#文档与-skill-检查)验证。
+
+| 场景 | 工具与约束 |
+| --- | --- |
+| 定位程序符号 | 使用 `search_symbol`；`rg` 用于文件、普通文本和配置检索 |
+| 分析调用或依赖 | 优先使用 `analyze_calls`，结合源码确认动态调用；不得仅凭文本搜索推断 Python 符号关系 |
+| 重命名 Python 符号 | 优先使用 `rename_refactoring`，核对引用更新和实际差异 |
+| 检查修改后的文件 | 使用 `lint_files` / `get_file_problems` 检查受影响文件的 IDE diagnostics，处理本次改动引入的问题 |
+| 执行 IDE 测试或 smoke test | 用 `get_run_configurations` 选择相关的已有 Run Configuration，通过 `execute_run_configuration` 执行 |
+| 核对最终改动 | 使用 `git_status` 并结合 diff，检查新增、被忽略文件，确认没有混入无关变更 |
+
+按[验证范围](#验证范围)运行相关 unittest / evidence runner、Ruff 及真实 workload；
+命令见[开发质量检查](#开发质量检查)与[自动化验证入口](#自动化验证入口)。
+局部修改不默认跑完整测试集；只有新改动、失败或未解决问题才扩大或重复验证。
+
+MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限制并用源码分析和项目 CLI 入口继续；
+不把空调用树当作没有依赖。pytest 是可选本地 runner，不可用时使用现有 unittest / evidence 入口，
+不宣称 pytest 通过；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](#pycharm-mcp-的验证边界)。
+真实 workload 缺少 Docker、GPU、模型等运行条件时，明确标为未验证，不用 IDE diagnostics 或 smoke test 代替。
+
 ## 开发质量检查
 
 产物布局改动的定向入口包括 `test_artifact_layout.py`、`test_run_recovery.py`、

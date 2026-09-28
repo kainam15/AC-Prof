@@ -19,7 +19,8 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 | 新增模型/backend、改依赖或镜像 | [运行兼容](Runtime_Compatibility.md)：任务目录、加载接口、环境与构建契约 |
 | 识别镜像类型、查看复用与空间释放规则 | [镜像管理与清理](Runtime_Compatibility.md#镜像管理与清理)：类型、共享层、构建缓存与删除范围 |
 | 查参数、workload 清单、通知或 TUI 设置协议 | [CLI 与设置](CLI_Reference.md)：选项、输入规模、企业微信通知、持久化和历史兼容 |
-| 配置开发检查、选择测试、做 TUI 回归、判断验证边界 | [测试指南](Testing.md)：Ruff/pre-commit、代码验证、硬件冒烟、终端证据与文档检查 |
+| 修改 Python、配置开发检查、选择测试、做 TUI 回归 | [测试指南](Testing.md)：[PyCharm MCP 工具约定](Testing.md#python-修改工作流)、Ruff/pre-commit、硬件冒烟与验证边界 |
+| 新建或修改 Skill、`AGENTS.md` | [编写规则](#skill-与-agent-文档编写)：触发条件、按需读取、完成与确认边界 |
 
 根 [README.md](../README.md) 是英文正式主文档，提供项目介绍和首次运行路线；简体中文版位于 [docs/i18n/README_zh-CN.md](i18n/README_zh-CN.md)。
 修改任一语言的 README 时，必须在同一次改动中同步另一版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径；详细专题目前以简体中文维护。完整安装与实验示例在[运行指南](Getting_Started.md)，界面操作在 [TUI 用户指南](TUI.md)。
@@ -41,6 +42,21 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 历史审计 `reviews/` 是带日期和输入指纹的证据快照，不是现行协议，也不证明当前机器状态。
 临时任务计划和验证输出放在会话或 `internal-testing/`，不要写进长期 Agent 规则。
 
+## Skill 与 Agent 文档编写
+
+新建或修改 Skill、`AGENTS.md` 时，参考
+[OpenAI：重新思考 GPT-6 Astra 的技能与提示词](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)。
+
+- 描述简短、适用场景明确；根入口只保留项目地图、全局约束、任务导航和完成标准，详细资料按需读取。
+- 规则聚焦任务或项目特有约束，避免重复指令、全量必读清单和不必要的固定流程。
+- 目录独有规则放在局部 `AGENTS.md`；跨目录规则按任务从根入口链接到权威章节，避免遗漏根脚本与测试。
+- 明确完成标准和需要确认的边界；在已授权范围内完成实现、相关验证和修复，验证范围与改动相称。
+- 移动内容时修复链接和章节锚点，并按[文档与 Skill 检查](Testing.md#文档与-skill-检查)验证。
+
+Codex 的 [AGENTS.md 发现实现](https://github.com/openai/codex/blob/1cc7e2361237ce7244430ee1d581c77f95c57ac8/codex-rs/core/src/agents_md.rs)
+会沿项目根目录到工作目录收集指令；普通 Markdown 链接不是自动全文导入。
+这里只借鉴按任务导航的组织方式，不复制上游代码，不增加依赖或测量期开销。
+
 ## 可复用流程
 
 | 任务 | Skill |
@@ -58,8 +74,7 @@ OOM 排障复用结果审计流程；benchmark 与完整 profiling 共用实验�
 兼容性审计负责评估与分层验证，适配流程负责已授权的实现修改；镜像审计不默认执行清理。
 各 Skill 的案例和报告模板按需读取，产出写到本次任务目录，协议与字段定义仍以 `docs/` 专题为准。
 
-Skill 组织参考 [OpenAI 的技能与提示词指引](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)，
-保持描述短、触发明确、入口与条件资料分离。CI 流程参考公开维护的
+CI 流程参考公开维护的
 [openai/skills gh-fix-ci](https://github.com/openai/skills/blob/main/skills/.curated/gh-fix-ci/SKILL.md)
 （Apache-2.0），只借鉴日志取证方式，复用现有 GitHub 工具与项目 runner，不复制上游代码或增加依赖。
 
