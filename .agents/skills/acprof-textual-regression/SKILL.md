@@ -26,6 +26,8 @@ description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光
 按[架构分工](../../../docs/Architecture.md#tui-与兼容维护)定位实现，再用[测试入口](../../../docs/Testing.md#自动化验证入口)选择相关测试。
 只覆盖受影响路径，遇到 API 差异时核对当前 `.venv` 中的 Textual 版本。
 
+需要复用测试场景时查[场景选择与快照验收](references/scenario-matrix.md)，优先扩展现有 fixture；交付时使用[回归记录模板](assets/regression-report.md)。按用户现象选场景，不默认执行全部尺寸、语言、主题的笛卡尔积。
+
 ## 按需选择辅助工具
 
 先按[辅助开发工具](../../../docs/Testing.md#辅助开发工具)核对入口和版本，复用已有环境；该章节维护命令、环境约定与依赖边界。
@@ -33,6 +35,8 @@ description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光
 - 调查日志、事件或交互异常时，使用项目 `.venv` 的 `textual-dev` 开发控制台辅助复现。
 - 输入解析、边界值或状态转换适合性质测试时，使用项目 `.venv` 的 Hypothesis 生成同步测试样例；每个样例隔离状态，保存最小失败输入并加入稳定回归。
 - 需要可重复的布局对比时，使用 `acprof-snapshot-test` 调用独立的 `pytest-textual-snapshot` 环境，选择本次场景、语言、主题与尺寸。先审阅差异，再更新预期基线。
+
+更新基线后再执行不带更新选项的普通比较；更新命令成功只证明基线已写入。等待测量、解析或准备状态的 fixture 必须符合实际阶段，避免快照显示互相矛盾的状态。
 
 按任务选择需要的工具，无需每次全部运行。工具缺失时说明验证缺口；行为回归继续使用现有 `unittest` / `Pilot` 和 evidence runner。截图不能代替真实客户端终端验收。
 

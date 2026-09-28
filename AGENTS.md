@@ -63,7 +63,10 @@ MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限
 | 架构或模块重构 | [代码架构](docs/Architecture.md) |
 | 协议、冷启动、字段变更 | [采集协议](docs/Profiling_Protocol.md)、[指标](docs/Metrics.md) → [变更流程](.agents/skills/acprof-schema-change/SKILL.md) |
 | 能耗、OOM、cgroup、结果异常 | [能耗](docs/Energy_Measurement.md)、[排障](docs/Troubleshooting.md) → [审计流程](.agents/skills/acprof-result-audit/SKILL.md) |
-| 模型/backend、依赖、镜像 | [运行兼容](docs/Runtime_Compatibility.md) → [适配流程](.agents/skills/acprof-model-adaptation/SKILL.md) |
+| 新增或修复模型/backend、依赖环境 | [运行兼容](docs/Runtime_Compatibility.md) → [适配流程](.agents/skills/acprof-model-adaptation/SKILL.md) |
+| 模型集或 Hub 榜单兼容性评估 | [兼容性审计](.agents/skills/acprof-compatibility-audit/SKILL.md) |
+| 镜像身份、重建原因与空间估算 | [Docker 审计](.agents/skills/acprof-docker-audit/SKILL.md) |
+| GitHub Actions 失败定位与修复 | [CI 排障](.agents/skills/acprof-ci-triage/SKILL.md) |
 | profiling、benchmark、GPU profiler | [实验流程](.agents/skills/acprof-profiling-workflow/SKILL.md)、[分析器](docs/Profilers.md) |
 | TUI、焦点、日志、设置 | [交互说明](docs/i18n/README_zh-CN.md#交互式终端界面) → [回归流程](.agents/skills/acprof-textual-regression/SKILL.md) |
 | 绘图、测试、文档维护 | [结果分析](docs/Metrics.md#图表与延迟拟合产物)、[测试指南](docs/Testing.md)、[文档分工](docs/README.md) |

@@ -25,7 +25,7 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 ## 建立证据链
 
 1. **定位本次运行。** 确认实验目录、模型 ID/revision、命令、输入计划、时间和文件修改状态，不把模型 ID 当成本地结果路径。
-2. **检查产物。** 读取 `result_all.csv`、`static_meta.json`、`input_scale_plan.json` 和已有的 `collection_history.json`；按问题读取相关 case CSV、日志、profiler 计划或报告。文件不存在时如实说明。
+2. **检查产物。** 先按 `result_manifest.json` 与[产物布局](../../../docs/Profiling_Protocol.md#artifact-layout-v2)定位文件；v2 的计划和历史在 `metadata/`、运行状态在 `.acprof/`，旧目录按当时布局读取。检查 `result_all.csv`、`static_meta.json`、输入计划与已有采集历史；按问题读取 case CSV、日志、profiler 计划或报告。文件不存在时如实说明，不因旧根路径为空就认定产物缺失。
 3. **核对计划与来源。** 检查输入计划 hash、workload 素材来源、采集工具、schema 版本、补采和重试历史；`disabled` 与 `posthoc_backfill` 可能共同描述先关闭再补采的历史。
 4. **对照运行证据。** 根据日志确定容器及请求阶段。需要时对相关容器执行定向 `docker inspect`，只输出 `.State` 等必要字段，不打印包含凭据的完整环境。
 5. **追到当前代码。** 指标公式从实际生产者及聚合逻辑确认，不能只根据列名猜测。
@@ -55,5 +55,15 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 ## 报告方式
 
 先给结论，再列出关键证据：相关文件、字段、行或容器状态；明确哪些已证实、哪些是推断、哪些还缺证据。必要时给出范围最小的后续检查。
+
+复用只读入口，完整参数见[其他 CLI 入口](../../../docs/CLI_Reference.md#其他入口)：
+
+```bash
+.venv/bin/python audit.py '用户指定的目录或CSV' --json
+```
+
+验收已结束的新实验时按目标添加 `--require-complete --require-ok`；正在运行或历史部分结果的解释不机械套用该验收条件。读取退出码、`accepted`、`completion`、`counts`、`coverage`、`issues` 和缺失指标证据，不把工具输出 JSON 视为自动通过。保存报告时写入本次独立验证目录，保留原实验不变。
+
+反复出现的空值、OOM、补采和行数问题按需查[案例与判据](references/casebook.md)；需要结构化交付时使用[审计证据模板](assets/audit-report.md)。模板用于整理实际证据，不再实现第二套 CSV 审计器。
 
 审计不更改原始文件。用户已要求数据修复时，保留备份、原子写入、记录来源并验证受影响字段；不把推导或补录值冒充当时实测数据。

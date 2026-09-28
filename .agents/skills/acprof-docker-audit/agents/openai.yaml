@@ -1,0 +1,4 @@
+interface:
+  display_name: "AC-Prof Docker 审计"
+  short_description: "核对 AC-Prof 镜像身份、构建复用与共享层，给出空间估算证据"
+  default_prompt: "请使用 $acprof-docker-audit 核对这些镜像的身份、复用关系和空间占用，并说明证据。"

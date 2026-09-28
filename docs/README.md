@@ -50,8 +50,18 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 | TUI 布局和交互验证 | [acprof-textual-regression](../.agents/skills/acprof-textual-regression/SKILL.md) |
 | 新增模型、adapter 或 backend | [acprof-model-adaptation](../.agents/skills/acprof-model-adaptation/SKILL.md) |
 | 完整 profiling 或 benchmark 实验 | [acprof-profiling-workflow](../.agents/skills/acprof-profiling-workflow/SKILL.md) |
+| 镜像身份、复用、共享层与空间估算 | [acprof-docker-audit](../.agents/skills/acprof-docker-audit/SKILL.md) |
+| GitHub Actions 失败取证与定向复现 | [acprof-ci-triage](../.agents/skills/acprof-ci-triage/SKILL.md) |
+| 指定模型集或 Hub 榜单的兼容性矩阵 | [acprof-compatibility-audit](../.agents/skills/acprof-compatibility-audit/SKILL.md) |
 
 OOM 排障复用结果审计流程；benchmark 与完整 profiling 共用实验流程，不再分别创建相近技能。
+兼容性审计负责评估与分层验证，适配流程负责已授权的实现修改；镜像审计不默认执行清理。
+各 Skill 的案例和报告模板按需读取，产出写到本次任务目录，协议与字段定义仍以 `docs/` 专题为准。
+
+Skill 组织参考 [OpenAI 的技能与提示词指引](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra)，
+保持描述短、触发明确、入口与条件资料分离。CI 流程参考公开维护的
+[openai/skills gh-fix-ci](https://github.com/openai/skills/blob/main/skills/.curated/gh-fix-ci/SKILL.md)
+（Apache-2.0），只借鉴日志取证方式，复用现有 GitHub 工具与项目 runner，不复制上游代码或增加依赖。
 
 ## Claude 与通用 Agent 指令
 

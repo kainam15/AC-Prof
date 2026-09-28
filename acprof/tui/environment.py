@@ -18,7 +18,7 @@ from acprof.tui.diagnostics import quick_preflight
 from acprof.messages import message
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
-from acprof.tui.views import ConfirmActionScreen
+from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
 
 
 FIELDS = (
@@ -73,6 +73,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     .permission-buttons { height: 3; }
     .permission-buttons Button { width: auto; margin-right: 1; }
     #environment-actions { padding: 0 1; }
+    #show-environment-secrets { margin-left: 1; }
     """
 
     def __init__(self, project_dir: Path, backup_dir: Path, *, sniff_iface: str = 'docker0'):
@@ -118,15 +119,16 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                             yield Static(tr('配置 Webhook 后采集默认发送通知；留空关闭。保存和检查不会发送消息。'),
                                          classes='environment-hint', markup=False)
                             yield from self._fields(FIELDS[7:])
-                        yield Checkbox(tr('显示敏感字段'), id='show-environment-secrets')
                         yield Static(tr('保存时备份原文件并设置为仅当前用户可读写。重新启动时，显式导出的环境变量仍优先于文件。'),
                                      classes='environment-hint', markup=False)
                 with TabPane(tr('采集权限'), id='permissions-tab'):
                     with VerticalScroll(classes='environment-scroll'):
                         yield Static(tr('full 采集需要 perf 与 tcpdump 权限。检查包括跨用户 PID 附加；实际容器仍在采集前单独验证。'),
                                      classes='environment-hint', markup=False)
-                        yield Checkbox('perf · CAP_PERFMON', value=True, id='permission-perf')
-                        yield Checkbox('tcpdump · CAP_NET_RAW', value=True, id='permission-tcpdump')
+                        yield StatusCheckbox('perf · CAP_PERFMON', value=True, id='permission-perf',
+                                             classes='option-checkbox')
+                        yield StatusCheckbox('tcpdump · CAP_NET_RAW', value=True, id='permission-tcpdump',
+                                             classes='option-checkbox')
                         with Horizontal(classes='permission-buttons'):
                             yield Button(tr('检查环境'), id='check-environment-permissions')
                             yield Button(tr('配置所选权限'), id='configure-environment-permissions', variant='primary')
@@ -136,6 +138,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             with Horizontal(id='environment-actions', classes='action-bar'):
                 with Horizontal(classes='action-secondary'):
                     yield Button(tr('关闭'), id='close-environment-settings')
+                    yield Checkbox(tr('显示敏感字段'), id='show-environment-secrets', classes='option-checkbox')
                 with Horizontal(classes='action-primary'):
                     yield Button(tr('保存配置'), id='save-environment-settings', variant='primary')
 

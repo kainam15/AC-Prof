@@ -1,0 +1,4 @@
+interface:
+  display_name: "AC-Prof CI 排障"
+  short_description: "定位 AC-Prof Actions 的真实失败，定向复现并交付验证证据"
+  default_prompt: "请使用 $acprof-ci-triage 排查这次 Actions 失败，在已授权范围内修复并验证。"

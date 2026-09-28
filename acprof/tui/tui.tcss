@@ -115,7 +115,7 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
     align-horizontal: right;
 }
 /* Transparent fill keeps the terminal cells outside rounded corners clear. */
-Button {
+Button, .action-bar Checkbox {
     min-width: 14;
     height: 3;
     padding: 0 1;
@@ -127,7 +127,7 @@ Button {
     text-style: none;
 }
 Button.-primary { text-style: bold; }
-Button:hover, Button:focus {
+Button:hover, Button:focus, .action-bar Checkbox:hover, .action-bar Checkbox:focus {
     border: round $foreground;
     color: $foreground;
     text-style: bold underline;
@@ -149,7 +149,8 @@ Button.-error, Button.-error:focus, Button.-error:hover {
     color: $error;
 }
 Button.-active { text-style: bold underline; }
-Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-active {
+Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-active,
+.action-bar Checkbox:disabled, .action-bar Checkbox:disabled:hover, .action-bar Checkbox:disabled:focus {
     border: round $ui-disabled;
     color: $ui-disabled;
     text-style: none;
@@ -167,6 +168,18 @@ Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-
 .option-checkbox:focus { border: tall $accent; }
 .option-checkbox:disabled { color: $ui-disabled; }
 .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
+.action-bar Checkbox > .toggle--label {
+    color: $foreground;
+    background: transparent;
+    text-style: none;
+}
+.action-bar Checkbox:hover > .toggle--label, .action-bar Checkbox:focus > .toggle--label {
+    text-style: bold underline;
+}
+.action-bar Checkbox:disabled > .toggle--label {
+    color: $ui-disabled;
+    text-style: none;
+}
 Input:disabled { color: $ui-disabled; border: solid $ui-disabled; }
 Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disabled; }
 #profile-tools {
@@ -176,9 +189,12 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     height: 6;
 }
 #profile-tools .option-checkbox { width: 1fr; margin-right: 0; }
-#profile-tools .option-checkbox > .toggle--button { color: $panel; }
-#profile-tools .option-checkbox.-on > .toggle--button { color: $background; }
-#profile-tools .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
+#profile-tools .option-checkbox > .toggle--button,
+#permissions-tab .option-checkbox > .toggle--button { color: $panel; }
+#profile-tools .option-checkbox.-on > .toggle--button,
+#permissions-tab .option-checkbox.-on > .toggle--button { color: $background; }
+#profile-tools .option-checkbox:disabled > .toggle--button,
+#permissions-tab .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
 .settings-options { height: auto; margin: 1 0; }
 #settings-status.stage-running { color: $accent; }
 #settings-status.stage-success { color: $success; }
