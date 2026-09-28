@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-from acprof.tui.i18n import join_messages, message
+from acprof.messages import join_messages, message
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
 
 

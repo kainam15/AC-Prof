@@ -17,7 +17,7 @@ from textual.widgets import Button, Collapsible, Input
 from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.input import BarCursorInput
 
 

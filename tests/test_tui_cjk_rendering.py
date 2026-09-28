@@ -13,7 +13,7 @@ from textual.strip import Strip
 from textual.widgets._toast import Toast
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.views import ConfirmActionScreen
 
 

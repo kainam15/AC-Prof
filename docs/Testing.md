@@ -386,8 +386,11 @@ git diff --check
 本地可用 `--shard-index 0 --shard-count 4` 重现一个 CI 分片；省略参数执行完整测试集。
 runner 在进程内为测量锁注入独立临时目录，分片测试互不争用生产锁；生产入口仍固定使用
 `/tmp` 的同用户锁，设置 `TMPDIR` 不能绕过它。直接调用 unittest/pytest 不经过此注入。
+本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --report <新报告.json>`；
+单版本验证用 `--python-versions 3.12`。缺分片、失败、计数／摘要不符或测试归属错误均使汇总失败。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
-汇总时须确认同一 Python 版本的分片齐全且测试集摘要相同，所有 test ID 无重复，
+`host-summary` job 自动下载两个 Python 版本的全部分片到各自目录；
+`scripts/aggregate_test_reports.py` 确认同一 Python 版本分片齐全且测试集摘要相同，所有 test ID 无重复，
 总执行数等于完整发现数；单片通过不代表主机回归完成。
 空测试集必定失败；容器作业带 `--require-no-skips`，跳过或 expected failure 都不算环境验证通过。
 普通主机测试允许缺少推理依赖时跳过，报告明确列出范围。`check_runtime.py` 的目录必须为空；
@@ -669,3 +672,16 @@ TUI 回归核对重复计算时打开已有文件、显示中英文提示及控�
 技能格式可用已安装 `skill-creator` 的 `scripts/quick_validate.py <skill-dir>` 检查；该工具是开发辅助，不是项目运行依赖。
 
 交付说明实际执行的命令、结果、跳过原因及未验证范围。只改文档时，不宣称完成真实 Docker/GPU 或用户终端验证。
+
+开销与负载契约测试包括 `test_overhead_contract.py`、`test_overhead_entrypoint.py`、
+`test_execution_conditions.py`、`test_load_protocol.py`；外部 Docker／硬件边界模拟，内部编排真实执行。
+负载测试使用本机临时 HTTP 服务证明并发与真实连接复用；它不等于目标模型服务支持 keep-alive。
+跨实验统计使用 `test_independent_comparison.py`；CI 完整性使用 `test_report_aggregation.py`。
+所有本地测试／真实 PCAP 复现均应避开另一个正式采集窗口，不绕过主机测量锁。
+
+本轮配置与统计设计参考 [pyperf](https://github.com/psf/pyperf)（MIT），生命周期参考
+[CPython ExitStack](https://github.com/python/cpython/blob/3.12/Lib/contextlib.py)（PSF），
+负载计划参考 [MLCommons LoadGen](https://github.com/mlcommons/inference/blob/master/loadgen/test_settings.h)
+（Apache-2.0）。仅借鉴方法，使用标准库和已有采集器，不复制框架或增加采集依赖。
+CI 复用官方 [download-artifact v4](https://github.com/actions/download-artifact/tree/v4)（MIT），
+与现有 upload-artifact v4 配对并固定 SHA；汇总离线运行，不增加采集开销。

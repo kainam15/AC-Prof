@@ -12,7 +12,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Static
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.themes import UI_THEMES
 

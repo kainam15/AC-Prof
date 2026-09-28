@@ -214,3 +214,5 @@ The project code is licensed under [Apache-2.0](LICENSE), continuing the license
 AC-Prof is part of the DOR project at JNU DISTINT. See [NOTICE](NOTICE) for original contributors and subsequent maintenance credits.
 See [project origins and evolution](docs/Project_Origin.md) for the original repository, the scope of current extensions, and how to use historical references.
 Bundled LibriSpeech audio retains its [CC-BY-4.0](licenses/CC-BY-4.0.txt) license. Model code and weights remain subject to their respective repository licenses.
+
+Independent repetitions can be compared with `acprof compare`; `acprof load` runs a separate non-streaming HTTP load protocol. See [comparison semantics](docs/Metrics.md#跨独立实验比较) and [load protocol](docs/Profiling_Protocol.md#独立非流式负载).

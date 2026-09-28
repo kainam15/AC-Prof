@@ -18,9 +18,10 @@ from acprof.capabilities import Capability, measurement_requested
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.host.packet_capture import tcpdump_capability_available
 
-from acprof.tui.commands import RunConfig, _csv_values
+from acprof.experiment import RunConfig
+from acprof.tui.commands import _csv_values
 
-from acprof.tui.i18n import message
+from acprof.messages import message
 
 
 @dataclass(frozen=True)

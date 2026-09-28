@@ -9,7 +9,7 @@ from unittest.mock import patch
 from textual.widgets import DataTable, Input, Label, Static
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig, TuiConfigError, build_run_command
+from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.tui.i18n import translate
 from acprof.tui.images import ImageTree, format_image_size, image_metadata
 from acprof.tui.progress import ProgressSnapshot
@@ -49,11 +49,11 @@ class TuiPresentationTests(unittest.IsolatedAsyncioTestCase):
             for flag, value in (("--warmup", "3"), ("--repeat", "7"), ("--sample-hz", "20.1256789")):
                 self.assertEqual(command[command.index(flag) + 1], value)
             warmup.value = "-1"
-            with self.assertRaisesRegex(TuiConfigError, "Warmup"):
+            with self.assertRaisesRegex(RunConfigError, "Warmup"):
                 app._collect_config()
             warmup.value = "3"
             repeat.value = "0"
-            with self.assertRaisesRegex(TuiConfigError, "Repeat"):
+            with self.assertRaisesRegex(RunConfigError, "Repeat"):
                 app._collect_config()
             repeat.value = "7"
             app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)

@@ -926,6 +926,15 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         if value is not None and value <= 0:
             parser.error(f"{option} must be > 0")
 
+    from dataclasses import asdict
+    from acprof.experiment import RunConfig
+    try:
+        common = RunConfig.from_namespace(args).validate(project_dir=Path.cwd())
+    except ValueError as exc:
+        parser.error(str(exc))
+    for name, value in asdict(common).items():
+        setattr(args, name, value)
+
     terminal_output_dir = os.path.join(
         os.getcwd(),
         args.output_dir,

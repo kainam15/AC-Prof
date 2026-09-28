@@ -335,6 +335,8 @@ actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repe
   添加 `--modes none,basic,full --sample-hz 20` 可比较完整采集器组合：none 无采集器，basic 仅容器
   CPU/memory，full 使用现有 PCAP、perf、RAPL、NVML 和容器资源采集器，并复用主 client 的无请求对照。
   三组使用同一常驻服务、物化 payload、请求数、源实验线程／设备设置和串行 `/predict` 完成边界；
+  共享 `ExecutionConditions` 固定源 GPU UUID、CPU 绑定及请求超时，清除调用者的设备／线程覆盖，
+  退出时恢复环境。源条件不能满足时拒绝诊断；硬件观测与恢复的条件一并保存在输出目录。
   HTTP 返回前服务端已完成 runtime completion hook。未完成或错误响应使诊断失败，不记录成功时延。
   这些是内部诊断场景，未新增正式 profiling mode，不输出正式画像 CSV；结果只比较请求窗口，
   不包含容器启动、离线合并、profiler 或 TUI 成本。full 对照要求已有抓包权限，不修改系统权限。
@@ -360,6 +362,48 @@ TUI 的“统计报告”页调用同一个 `stats.py`，默认分析应用延�
 的测量范围分别注明。未完成、失败、损坏或未知版本的报告显示错误，不保留上一份结果冒充新报告。
 读取只展示报告记录的实验，不重新测量或核验源 CSV 的当前版本；比较时须使用同一实验口径。
 操作步骤见 [TUI 使用说明](TUI.md#统计报告)。
+
+### 跨独立实验比较
+
+```bash
+acprof compare --left results/a1/model --left results/a2/model --left results/a3/model \
+  --right results/b1/model --right results/b2/model --right results/b3/model \
+  --metric latency_app_s --metric container_attributed_energy_eff_j \
+  --output internal-testing/independent-comparison.json
+```
+
+两侧分别代表同一实验定义的多次独立重启。每份源文件需要唯一 `run_id`；复制目录不能增加
+重复次数，同组中的模型／镜像／源码身份变化会阻止比较。使用现有条件审计匹配资源矩阵、
+物化输入、实际 Workload Contract、线程和硬件条件；`--purpose cross-hardware` 允许已知的硬件差异。
+不兼容或条件未知时仍输出审计、失败／缺失统计，但差值、比值与区间为 `null`。
+
+每个资源与尺度先对单个实验的正式 `status=ok,warmup=0` 窗口均值等权平均，再对各实验均值
+等权平均。`repeat_in_window` 不作为权重。差值定义为右组减左组，单位与原指标一致；
+比值为右组除左组，无单位，左组均值不大于零时不可用。95% percentile bootstrap 在左右两组
+分别重采样独立实验均值，默认 5000 次、seed=0。任一组少于三个有效独立实验时不生成区间；
+它不声称请求独立、相同热状态、连续独占硬件或模型质量合格。
+
+报告 `kind=independent_experiment_comparison`、schema v1，逐项包含有效／请求的实验数、缺失实验、
+失败与缺失窗口、各次均值、标准差、差值／比值及区间；保留完整条件检查和源文件 SHA256。
+统计期间源产物变化会拒绝结果。只对成功窗口的估计可能存在选择偏差，失败计数必须一起报告。
+该入口读取正式实验；独立的 `load.json` 不可作为 `result_all.csv` 输入混入统计。
+
+### 非流式负载报告
+
+`acprof load` 输出 `load.json`（`nonstream_load_experiment`，schema v1），内嵌
+`nonstream_load_result`。协议与命令见[独立负载协议](Profiling_Protocol.md#独立非流式负载)。
+请求时间戳均为客户端 `perf_counter` 相对实验起点的秒数：`planned_s` 是计划提交时间，
+`sent_s` 是调用 HTTP 发送前的时间，`completed_s` 是完整读取响应后的时间，均不是网卡时间戳。
+`latency_s=completed_s-sent_s`；`scheduled_latency_s=completed_s-planned_s` 包含调度与排队等待；
+`queue_delay_s=sent_s-planned_s`。各自输出均值及 P50/P95/P99，使用线性插值。
+前两种分布仅包含成功响应，排队分布包含全部已发送请求。丢弃／未发送请求时间为 `null`。
+
+计数分别记录 offered、sent、succeeded、failed、dropped、cancelled；成功率以 offered 为分母。
+发送、完成响应及成功吞吐分别除以从计划起点到全部任务收尾的时长，单位 requests/s；
+目标请求率单独保留，不能用成功吞吐替代目标到达率。HTTP 错误、JSON 错误和超时不计入成功时延。
+连接模式、并发数、调度、随机种子、超时、队列上限、请求数、预热数、抓包与源设备条件都进入身份。
+服务返回的 Workload Contract 描述单请求工作量；真实客户端调度以报告的 `protocol` 为准。
+本报告不采集能耗，不输出 token 首响应或间隔，也不与正式串行关闭连接的 CSV 合并。
 
 ### 绘图入口
 

@@ -9,7 +9,7 @@ import unittest
 import shlex
 from unittest.mock import patch
 
-from acprof.tui.commands import RunConfig, build_run_command
+from acprof.experiment import RunConfig, build_run_command
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -1,6 +1,6 @@
 """界面数值与空值显示；不改变配置、进度或结果协议。"""
 
-from acprof.tui.i18n import message
+from acprof.messages import message
 
 
 NOT_APPLICABLE = "—"

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+import math
+import time
 from typing import Any
 
 
@@ -68,3 +70,29 @@ class MonitorGroup:
                 if not isinstance(error, Exception):
                     raise error
             raise MonitorCleanupError(f"monitor cleanup failed: {self.error}") from self.failures[0][1]
+
+
+def run_matched_control_window(monitors: MonitorGroup, *, idle_seconds: float,
+                               trace: bool = False) -> None:
+    """Borrow collectors for a blank window; their owner retains close responsibility."""
+    if not math.isfinite(idle_seconds) or idle_seconds < 0:
+        raise ValueError("idle_seconds must be finite and nonnegative")
+    group = MonitorGroup(close=False)
+    for name, monitor in monitors.monitors.items():
+        group.add(name, monitor)
+    primary_error = None
+    try:
+        group.start()
+        if idle_seconds > 0:
+            time.sleep(idle_seconds)
+    except BaseException as error:
+        primary_error = error
+        raise
+    finally:
+        group.finish(1, max(idle_seconds, 1e-9))
+        if primary_error is None or isinstance(primary_error, Exception):
+            group.raise_if_failed()
+    for name in ("gpu", "cpu"):
+        values = group.results.get(name)
+        if values is not None:
+            group.monitors[name].apply_control_baseline(values[0], values[-1], trace=trace)

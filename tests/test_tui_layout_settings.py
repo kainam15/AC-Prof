@@ -17,7 +17,7 @@ from acprof.tui.views import ConfirmActionScreen
 from acprof.tui.app import PendingLaunch
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.settings import (
     TuiSettings,
     UiPreferences,

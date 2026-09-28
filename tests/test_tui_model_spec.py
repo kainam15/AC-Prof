@@ -6,7 +6,8 @@ import unittest
 from textual.widgets import ContentSwitcher, Input, Select
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig, TuiConfigError, build_probe_command, build_run_command
+from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.tui.commands import build_probe_command
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
 
@@ -44,7 +45,7 @@ class TuiModelSpecTests(unittest.IsolatedAsyncioTestCase):
     def test_missing_declaration_is_reported_before_command_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             config = RunConfig(model="example/custom", model_spec="missing.json")
-            with self.assertRaisesRegex(TuiConfigError, "missing.json"):
+            with self.assertRaisesRegex(RunConfigError, "missing.json"):
                 build_run_command(config, project_dir=Path(directory))
 
 

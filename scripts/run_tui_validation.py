@@ -8,7 +8,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.tui.app import AcprofTui, PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.tui.commands import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.experiment import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 
 def main():

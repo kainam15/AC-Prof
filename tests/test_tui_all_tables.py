@@ -11,7 +11,7 @@ from rich.cells import cell_len
 from textual.widgets import DataTable, Tree
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportRow, ReportView
 from test_image_management import DockerFixture

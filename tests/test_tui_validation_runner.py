@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -41,6 +41,38 @@ TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：�
 超时仍先停止全部 monitor，再由编排器清理容器；错误 sidecar 的 `timeout_semantics`
 记录为 `connect_or_read_inactivity`。不把客户端停止等待当作模型已经停止推理。
 
+### 独立非流式负载
+
+```bash
+acprof load results/model --gpu off --scenario concurrent --concurrency 4 \
+  --requests 100 --output-dir internal-testing/load-concurrent
+acprof load results/model --gpu off --scenario arrival-rate --concurrency 4 \
+  --rate 10 --arrival poisson --seed 7 --requests 100 --capture \
+  --output-dir internal-testing/load-arrivals
+```
+
+`load` 从已完成实验恢复固定镜像、revision、输入计划 hash、线程设置、CPU 集合、GPU UUID 和请求超时，
+启动独立容器并使用主机测量锁。默认选源矩阵最大 CPU／内存及第一个输入尺度；可用 `--cpu`、
+`--mem`、`--input-scale` 选择源实验已有配置。缺少 GPU UUID、设备不可解析或 CPU affinity 无法满足时
+明确失败；当前 shell 的 GPU／线程变量不能覆盖源条件。硬件观测保存到独立输出目录。
+
+`serial` 一次只有一个请求；`concurrent` 是完成后补发的闭环；`arrival-rate` 预先生成固定或泊松
+到达时间，不因服务变慢重新排程，首请求在起点提交。`--concurrency` 限制工作线程，
+`--max-pending`（默认 1024）限制执行中加排队请求，满额的新到达记为 dropped。
+`--warmup` 默认 5 个串行请求，排除在测量窗口之外。无自动重试，超时沿用连接／读取无进展口径。
+
+`--connections close` 为默认；`reuse` 每个工作线程复用连接，并自动要求抓包验证。
+服务必须支持 HTTP keep-alive；现有 Flask development server 会主动关闭连接，对这类源镜像
+`reuse` 明确失败，不把重新建连冒充复用。本次不替换源镜像的 HTTP server。
+PCAP 以 HTTP `request_in` 校验逐请求响应与完整 `X-Req-Id`，并检查实际出现了共享 TCP 流。
+同一流包含多个请求时，流级字节只记录一次；逐请求 wire-byte 指标标为不可分摊，避免重复归因。
+关闭连接的既有正式采集仍沿用单请求独占流的字节口径。
+
+`load.json` 保存独立 `run_id`、完整协议、源身份与新的 `identity_sha256`；连接、调度或并发不同
+即属于不同实验。失败和取消也保留报告；输出目录必须为空。该产物不生成正式能耗 CSV，
+不参与 `--resume`，也不接受作为正式窗口统计／跨实验比较的输入。字段定义见
+[负载报告](Metrics.md#非流式负载报告)。流式 token 指标需另行实现真实服务端事件。
+
 ### 硬件条件证据
 
 每个正式 case 在启动抓包和 client 前观测一次 CPU 型号、宿主机身份哈希、容器所有可见
@@ -131,7 +163,8 @@ startup pruning schema v1、损坏或被改写的计划均明确拒绝恢复，�
 
 ## Workload Contract
 
-输入计划 schema v2 增加 `scenario: {"type": "serial"}`；当前只实现串行请求，不实现并发／到达率调度。
+输入计划 schema v2 增加 `scenario: {"type": "serial"}`；正式能耗矩阵保持串行请求。
+并发／到达率使用下方独立负载协议，不重写源输入计划的场景或正式 CSV。
 资源条件仍来自矩阵 CPU/memory/GPU 字段，输入来自物化计划，场景单独声明。
 
 每次 `/predict` 响应包含 `workload_contract` schema v1，保存 task、batch、scenario、计划尺度、实际尺度，

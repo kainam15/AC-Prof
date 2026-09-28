@@ -11,7 +11,7 @@ from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 
 from acprof.host.env_utils import load_project_env
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.views import ConfirmActionScreen
 
 

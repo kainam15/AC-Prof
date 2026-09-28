@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("pytest_textual_snapshot")
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.process import StopResult
 from acprof.tui.reports import ReportRow, ReportView

@@ -99,7 +99,9 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `packet_capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 | `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
-| `measurement_window` | monitor 所有权、固定启停顺序、失败后的完整清理；不导入硬件或 workload |
+| `measurement_window` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
+| `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
+| `load_protocol` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
 | `client` | 环境与 workload 初始化、请求、对照窗口和正式窗口控制、结果写入 |
 | `client_metrics` | 已完成采样结果到指标字段的纯计算与格式化 |
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
@@ -218,7 +220,10 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 只复用接口思路，沿用当前 Textual 与标准库，不引入依赖或复制 loader；消息只在准备阶段发送，维护和测量成本局限在现有边界内。
 七页底栏共用 `.action-bar`，内部由 `.action-secondary` 和 `.action-primary` 两个 `Horizontal`
 分别承载左侧次要／导航动作与右侧主操作；间距由容器分配，按钮宽度随标签变化。
-`commands` 定义唯一的 `RunConfig` 及命令构造，`progress` 解析运行日志，
+`acprof.experiment` 定义共享 `RunConfig`、`RunConfigError`、校验与 `build_run_command`，
+CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TUI。
+`acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
+`commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
 `diagnostics` 负责提示性预检和结果摘要。TUI 提示性检查与 CLI 权威检查保留各自用途。
 `presentation` 统一数值输入格式与不适用、计算中、未知的显示标记，不改动配置、进度或结果协议。
 `reports` 用标准库校验已有统计/对照 JSON，并提供带单位和口径的表格数据；不加载 Textual 或采集依赖。
@@ -257,7 +262,8 @@ env 文件保留非目标行、原子替换和引号处理参考 BSD-3-Clause �
 不修改 Textual 全局类，不增加依赖、定时器或刷新次数；升级 Textual 时需重新核对私有 compositor API
 及 `test_tui_cjk_rendering.py` 的完整帧、局部输出和浮层交互回归。
 CSS 路径相对 App 文件明确定位；设置文件位置、版本、项目隔离算法和恢复优先级保持一致。
-TUI 应用从 `acprof.tui.app` 导入，配置和命令从 `acprof.tui.commands` 导入；旧 `acprof.cli.tui_*` 模块已删除。
+TUI 应用从 `acprof.tui.app` 导入；共享配置与运行命令从 `acprof.experiment` 导入，
+界面专用命令从 `acprof.tui.commands` 导入；旧 `acprof.cli.tui_*` 模块已删除。
 
 测试覆盖当前实现与旧入口拒绝行为；不为历史调用增加转导出或参数别名。
 测试选择、终端证据与验证范围统一见[测试指南](Testing.md)。

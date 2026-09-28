@@ -11,7 +11,7 @@ from textual.widgets.text_area import Selection
 from acprof.tui.app import AcprofTui
 from acprof.tui.views import LogPanel
 from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.log import SelectableLog
 from acprof.tui.scrollbar import SolidScrollBarRender
 

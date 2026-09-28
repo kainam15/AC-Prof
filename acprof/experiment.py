@@ -1,0 +1,398 @@
+"""Shared experiment configuration, validation and CLI command construction."""
+
+from __future__ import annotations
+
+import math
+import sys
+from dataclasses import dataclass, fields, replace
+from pathlib import Path
+from typing import Iterable
+
+from acprof.config import (
+    DEFAULT_COMPUTE_PROFILE_TOOL,
+    DEFAULT_IDLE_COOLDOWN_SECONDS,
+    DEFAULT_IDLE_SECONDS,
+    DEFAULT_REPEAT_IN_WINDOW,
+    DEFAULT_REPEAT_WINDOW_SECONDS,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+)
+
+from acprof.messages import message
+from acprof.installation import cli_command
+
+
+from acprof.extensions import CATALOG
+
+
+TASK_FAMILIES = tuple(sorted(set(CATALOG.task_families.values())))
+GPU_MODES = ("off", "on")
+COMPUTE_PROFILE_TOOLS = ("none", "both", "torch", "ncu")
+EXECUTION_PROFILE_TOOLS = ("none", "both", "massif", "nsys")
+NOTIFY_MODES = ("auto", "none", "wecom")
+
+
+class RunConfigError(ValueError):
+    """Invalid experiment options at any entry point."""
+
+    def __init__(self, errors: Iterable[str]):
+        self.errors = tuple(
+            error if isinstance(error, str) else str(error)
+            for error in errors if str(error)
+        )
+        super().__init__("；".join(self.errors))
+
+
+def _csv_values(value: str) -> list[str]:
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _positive_int_csv(value: str, label: str) -> list[int]:
+    raw_values = _csv_values(value)
+    if not raw_values:
+        raise RunConfigError([message('{0}不能为空', label)])
+    try:
+        values = [int(item) for item in raw_values]
+    except ValueError as exc:
+        raise RunConfigError([message('{0}必须是逗号分隔的整数', label)]) from exc
+    if any(item <= 0 for item in values):
+        raise RunConfigError([message('{0}必须全部大于 0', label)])
+    return values
+
+
+def _positive_float_csv(value: str, label: str) -> list[float]:
+    raw_values = _csv_values(value)
+    if not raw_values:
+        return []
+    try:
+        values = [float(item) for item in raw_values]
+    except ValueError as exc:
+        raise RunConfigError([message('{0}必须是逗号分隔的数字', label)]) from exc
+    if any(not math.isfinite(item) or item <= 0.0 for item in values):
+        raise RunConfigError([message('{0}必须全部大于 0', label)])
+    return values
+
+
+def _number(value: str | int | float, label: str, *, integer: bool) -> int | float:
+    try:
+        return int(value) if integer else float(value)
+    except (TypeError, ValueError) as exc:
+        kind = message('整数') if integer else message('数字')
+        raise RunConfigError([message('{0}必须是{1}', label, kind)]) from exc
+
+
+def _format_number(value: int | float) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return f"{value:.1f}"
+    return str(value)
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    """Common experiment options independent of presentation."""
+
+    model: str = ""
+    task: str = ""
+    task_family: str = ""
+    backend: str = ""
+    cpus: str = "1,2,4,8"
+    cpuset_cpus: str = ""
+    mems: str = "2,4,8,16"
+    gpus: str = "off,on"
+    input_scales: str = ""
+    workload_spec: str = ""
+    model_spec: str = ""
+    output_dir: str = "results"
+    batch_size: int = 1
+    warmup: int = 2
+    repeat: int = 5
+    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW
+    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS
+    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    sample_hz: float = 20.0
+    idle_seconds: float = DEFAULT_IDLE_SECONDS
+    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
+    compute_profile_tool: str = DEFAULT_COMPUTE_PROFILE_TOOL
+    profiling_mode: str = "full"
+    execution_profile_tool: str = "none"
+    sniff_iface: str = "docker0"
+    notify: str = "auto"
+    prune_startup_oom: bool = True
+    skip_build: bool = False
+    resume: bool = False
+    idle_debug: bool = False
+
+    @classmethod
+    def from_namespace(cls, args) -> "RunConfig":
+        defaults = cls()
+        return cls(**{field.name: getattr(args, field.name, getattr(defaults, field.name))
+                      if getattr(args, field.name, None) is not None else getattr(defaults, field.name)
+                      for field in fields(cls)})
+
+    @classmethod
+    def smoke(cls, model: str = "") -> "RunConfig":
+        """Return a basic CPU validation run without optional collectors or notifications."""
+        return cls(
+            model=model,
+            cpus="1",
+            mems="4",
+            gpus="off",
+            input_scales="64",
+            output_dir="results/smoke",
+            warmup=0,
+            repeat=1,
+            repeat_in_window=1,
+            profiling_mode="basic",
+            compute_profile_tool="none",
+            execution_profile_tool="none",
+            notify="none",
+        )
+
+    @classmethod
+    def main_matrix(cls, model: str = "") -> "RunConfig":
+        """Return the normal matrix with isolated profilers deferred."""
+        return cls(
+            model=model,
+            compute_profile_tool="none",
+            execution_profile_tool="none",
+        )
+
+    def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
+        """Normalize form values and reject invalid or misleading runs."""
+        errors: list[str] = []
+        from acprof.cpu_affinity import normalize_cpu_set
+        try:
+            cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
+        except ValueError:
+            cpuset_cpus = ""
+            errors.append(message("CPU 集合格式无效；示例：0-3,8"))
+        model = self.model.strip()
+        if not model:
+            errors.append(message('模型 ID 不能为空'))
+
+        try:
+            cpus = _positive_int_csv(self.cpus, message('CPU 列表'))
+        except RunConfigError as exc:
+            errors.extend(exc.errors)
+            cpus = []
+        try:
+            mems = _positive_int_csv(self.mems, message('内存列表'))
+        except RunConfigError as exc:
+            errors.extend(exc.errors)
+            mems = []
+
+        gpus = _csv_values(self.gpus.lower())
+        if not gpus:
+            errors.append(message('GPU 模式不能为空'))
+        elif any(item not in GPU_MODES for item in gpus):
+            errors.append(message('GPU 模式只能包含 off 或 on'))
+
+        if self.prune_startup_oom:
+            if len(cpus) != len(set(cpus)):
+                errors.append(message('启用启动 OOM 剪枝时 CPU 列表不能重复'))
+            if len(mems) != len(set(mems)):
+                errors.append(message('启用启动 OOM 剪枝时内存列表不能重复'))
+            if len(gpus) != len(set(gpus)):
+                errors.append(message('启用启动 OOM 剪枝时 GPU 模式不能重复'))
+
+        try:
+            _positive_float_csv(self.input_scales, message('输入规模'))
+        except RunConfigError as exc:
+            errors.extend(exc.errors)
+
+        batch_size = _number(self.batch_size, "Batch size", integer=True)
+        warmup = _number(self.warmup, "Warmup", integer=True)
+        repeat = _number(self.repeat, "Repeat", integer=True)
+        repeat_in_window = _number(
+            self.repeat_in_window,
+            message('每窗口请求数'),
+            integer=True,
+        )
+        repeat_window_seconds = _number(
+            self.repeat_window_seconds,
+            message('自动窗口秒数'),
+            integer=False,
+        )
+        request_timeout_seconds = _number(
+            self.request_timeout_seconds,
+            message('单请求超时秒数'),
+            integer=False,
+        )
+        sample_hz = _number(self.sample_hz, message('采样频率'), integer=False)
+        idle_seconds = _number(self.idle_seconds, message('Idle 秒数'), integer=False)
+        idle_cooldown_seconds = _number(
+            self.idle_cooldown_seconds,
+            message('Idle cooldown 秒数'),
+            integer=False,
+        )
+
+        if batch_size <= 0:
+            errors.append(message('Batch size 必须大于 0'))
+        if warmup < 0:
+            errors.append(message('Warmup 不能小于 0'))
+        if repeat <= 0:
+            errors.append(message('Repeat 必须大于 0'))
+        if repeat_in_window < 0:
+            errors.append(message('每窗口请求数不能小于 0'))
+        if repeat_window_seconds <= 0.0:
+            errors.append(message('自动窗口秒数必须大于 0'))
+        if not math.isfinite(float(repeat_window_seconds)):
+            errors.append(message('自动窗口秒数必须是有限数字'))
+        if (
+            not math.isfinite(float(request_timeout_seconds))
+            or request_timeout_seconds <= 0.0
+        ):
+            errors.append(message('单请求超时秒数必须是大于 0 的有限数字'))
+        if not math.isfinite(float(sample_hz)) or sample_hz <= 0.0:
+            errors.append(message('采样频率必须大于 0'))
+        if not math.isfinite(float(idle_seconds)) or idle_seconds < 0.0:
+            errors.append(message('Idle 秒数不能小于 0'))
+        if (
+            not math.isfinite(float(idle_cooldown_seconds))
+            or idle_cooldown_seconds < 0.0
+        ):
+            errors.append(message('Idle cooldown 秒数不能小于 0'))
+
+        task_family = self.task_family.strip().lower()
+        if task_family and task_family not in TASK_FAMILIES:
+            errors.append(message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured'))
+        if self.compute_profile_tool not in COMPUTE_PROFILE_TOOLS:
+            errors.append(message('无效的计算分析器'))
+        if self.profiling_mode not in {"full", "basic"}:
+            errors.append(message('无效的画像模式'))
+        if self.execution_profile_tool not in EXECUTION_PROFILE_TOOLS:
+            errors.append(message('无效的执行分析器'))
+        if self.notify not in NOTIFY_MODES:
+            errors.append(message('无效的通知模式'))
+        if not self.output_dir.strip():
+            errors.append(message('输出目录不能为空'))
+        if not self.sniff_iface.strip():
+            errors.append(message('抓包网卡不能为空'))
+
+        workload_spec = self.workload_spec.strip()
+        if workload_spec and project_dir is not None:
+            workload_path = Path(workload_spec).expanduser()
+            if not workload_path.is_absolute():
+                workload_path = project_dir / workload_path
+            if not workload_path.is_file():
+                errors.append(message('Workload manifest 不存在：{0}', workload_spec))
+
+        model_spec = self.model_spec.strip()
+        if model_spec and project_dir is not None:
+            model_path = Path(model_spec).expanduser()
+            if not model_path.is_absolute():
+                model_path = project_dir / model_path
+            try:
+                from acprof.model_spec import read_model_spec
+                read_model_spec(model_path)
+            except (OSError, ValueError) as exc:
+                errors.append(message('模型接口声明无效：{0}；{1}', model_spec, str(exc)))
+
+        if errors:
+            raise RunConfigError(errors)
+
+        return replace(
+            self,
+            model=model,
+            task=self.task.strip(),
+            task_family=task_family,
+            backend=self.backend.strip(),
+            cpus=",".join(str(value) for value in cpus),
+            cpuset_cpus=cpuset_cpus,
+            mems=",".join(str(value) for value in mems),
+            gpus=",".join(gpus),
+            input_scales=",".join(_csv_values(self.input_scales)),
+            workload_spec=workload_spec,
+            model_spec=model_spec,
+            output_dir=self.output_dir.strip(),
+            batch_size=int(batch_size),
+            warmup=int(warmup),
+            repeat=int(repeat),
+            repeat_in_window=int(repeat_in_window),
+            repeat_window_seconds=float(repeat_window_seconds),
+            request_timeout_seconds=float(request_timeout_seconds),
+            sample_hz=float(sample_hz),
+            idle_seconds=float(idle_seconds),
+            idle_cooldown_seconds=float(idle_cooldown_seconds),
+            sniff_iface=self.sniff_iface.strip(),
+        )
+
+    def result_dir(self, project_dir: Path) -> Path:
+        output_root = Path(self.output_dir).expanduser()
+        if not output_root.is_absolute():
+            output_root = project_dir / output_root
+        return output_root / self.model.replace("/", "--")
+
+    def result_csv(self, project_dir: Path) -> Path:
+        from acprof.artifact_layout import ArtifactLayout
+        return ArtifactLayout.discover(self.result_dir(project_dir)).result_csv
+
+
+def build_run_command(
+    config: RunConfig,
+    *,
+    project_dir: Path,
+    python_executable: str | Path = sys.executable,
+) -> list[str]:
+    """Build the installed CLI command without duplicating its work."""
+    config = config.validate(project_dir=project_dir)
+    command = [
+        *cli_command("run", python_executable=python_executable),
+        "--model",
+        config.model,
+        "--cpus",
+        config.cpus,
+        "--mems",
+        config.mems,
+        "--gpus",
+        config.gpus,
+        "--batch-size",
+        str(config.batch_size),
+        "--warmup",
+        str(config.warmup),
+        "--repeat",
+        str(config.repeat),
+        "--repeat-in-window",
+        str(config.repeat_in_window),
+        "--repeat-window-seconds",
+        _format_number(config.repeat_window_seconds),
+        "--request-timeout-seconds",
+        _format_number(config.request_timeout_seconds),
+        "--sample-hz",
+        _format_number(config.sample_hz),
+        "--idle-seconds",
+        _format_number(config.idle_seconds),
+        "--idle-cooldown-seconds",
+        _format_number(config.idle_cooldown_seconds),
+        "--compute-profile-tool",
+        config.compute_profile_tool,
+        "--profiling-mode",
+        config.profiling_mode,
+        "--execution-profile-tool",
+        config.execution_profile_tool,
+        "--sniff-iface",
+        config.sniff_iface,
+        "--output-dir",
+        config.output_dir,
+        "--notify",
+        config.notify,
+    ]
+    for option, value in (
+        ("--cpuset-cpus", config.cpuset_cpus),
+        ("--task", config.task),
+        ("--task-family", config.task_family),
+        ("--backend", config.backend),
+        ("--input-scales", config.input_scales),
+        ("--workload-spec", config.workload_spec),
+        ("--model-spec", config.model_spec),
+    ):
+        if value:
+            command.extend((option, value))
+    if not config.prune_startup_oom:
+        command.append("--no-prune-startup-oom")
+    if config.skip_build:
+        command.append("--skip-build")
+    if config.resume:
+        command.append("--resume")
+    if config.idle_debug:
+        command.append("--idle-debug")
+    return command

@@ -224,12 +224,12 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "sleep",
             side_effect=lambda seconds: events.append(f"sleep:{seconds}"),
         ):
-            self.runner._run_matched_control_window(
-                gpu_monitor,
-                cpu_monitor,
-                FakeResourceMonitor(),
-                FakeMIPSMonitor(),
-            )
+            from acprof.host.measurement_window import MonitorGroup, run_matched_control_window
+            monitors = MonitorGroup(close=False)
+            for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
+                                  ("resource", FakeResourceMonitor()), ("mips", FakeMIPSMonitor())):
+                monitors.add(name, monitor)
+            run_matched_control_window(monitors, idle_seconds=2.0, trace=True)
 
         self.assertEqual(
             events,

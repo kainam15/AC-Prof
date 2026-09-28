@@ -15,15 +15,8 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
 from acprof.tui.app import PendingLaunch
 from acprof.tui.diagnostics import _readable_rapl_paths, PreflightCheck, summarize_result_csv
-from acprof.tui.commands import (
-    RunConfig,
-    TuiConfigError,
-    build_probe_command,
-    build_profile_command,
-    build_run_command,
-    format_command,
-    parse_slash_command,
-)
+from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.tui.commands import build_probe_command, build_profile_command, format_command, parse_slash_command
 from acprof.tui.progress import RunProgressTracker
 from acprof.tui.log import SelectableLog
 
@@ -112,7 +105,7 @@ class TuiCoreTests(unittest.TestCase):
         self.assertIn("acprof probe", format_command(command, project_dir=PROJECT_DIR))
 
     def test_invalid_matrix_is_rejected_before_launch(self):
-        with self.assertRaises(TuiConfigError) as context:
+        with self.assertRaises(RunConfigError) as context:
             RunConfig(
                 model="demo/model",
                 cpus="1,1",
@@ -122,7 +115,7 @@ class TuiCoreTests(unittest.TestCase):
         self.assertIn("CPU 列表不能重复", str(context.exception))
 
     def test_invalid_request_timeout_is_rejected_before_launch(self):
-        with self.assertRaises(TuiConfigError) as context:
+        with self.assertRaises(RunConfigError) as context:
             RunConfig(
                 model="demo/model",
                 request_timeout_seconds=0,
@@ -380,7 +373,7 @@ class TuiCoreTests(unittest.TestCase):
         command, args = parse_slash_command('/plot "results/a b/result_all.csv"')
         self.assertEqual(command, "plot")
         self.assertEqual(args, ["results/a b/result_all.csv"])
-        with self.assertRaises(TuiConfigError):
+        with self.assertRaises(RunConfigError):
             parse_slash_command("plot result.csv")
 
 

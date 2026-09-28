@@ -16,7 +16,7 @@ from textual.widgets import Button, Collapsible, DataTable, Static, Tree
 
 from acprof.host.image_graph import reclaimable_image_bytes
 from acprof.host.image_management import ImageInventory, ImageLayer, ImageManagementError, ManagedImage
-from acprof.tui.i18n import join_messages, message
+from acprof.messages import join_messages, message
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen

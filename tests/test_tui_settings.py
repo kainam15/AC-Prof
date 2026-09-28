@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.settings import (
     SETTINGS_VERSION,
     TuiSettings,

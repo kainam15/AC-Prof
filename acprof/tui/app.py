@@ -46,27 +46,14 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
         ) from None
     raise
 
-from acprof.tui.commands import (
-    RunConfig,
-    TuiConfigError,
-    build_plot_command,
-    build_probe_command,
-    build_profile_command,
-    build_run_command,
-    build_stats_command,
-    format_command,
-    parse_slash_command,
-)
+from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.tui.commands import build_plot_command, build_probe_command, build_profile_command, build_stats_command, format_command, parse_slash_command
 
 from acprof.tui.diagnostics import PreflightCheck, quick_preflight, summarize_result_csv
 from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN, format_input_number
 
-from acprof.tui.i18n import (
-    error_message,
-    join_messages,
-    message,
-    translate,
-)
+from acprof.messages import join_messages, message
+from acprof.tui.i18n import error_message, translate
 
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
 
@@ -421,7 +408,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 run_defaults=config,
             )
             save_settings(self.settings_path, settings, PROJECT_DIR)
-        except (OSError, ValueError, TuiConfigError) as exc:
+        except (OSError, ValueError, RunConfigError) as exc:
             self.notify(error_message(exc), title="设置未保存", severity="error")
             self._set_text(self.query_one('#settings-status', Static), '保存失败 · 请检查配置或文件权限')
             self.query_one('#settings-status').set_classes('page-summary stage-error')
@@ -692,7 +679,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         if self._form_ready:
             self._refresh_command_preview(notify=False)
 
-    def _show_config_error(self, exc: TuiConfigError) -> None:
+    def _show_config_error(self, exc: RunConfigError) -> None:
         text = join_messages("\n", (message("• {0}", error) for error in exc.errors))
         self.notify(text, title="配置有误", severity="error", timeout=8)
 
@@ -707,7 +694,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 project_dir=PROJECT_DIR,
                 python_executable=PYTHON_EXECUTABLE,
             )
-        except TuiConfigError as exc:
+        except RunConfigError as exc:
             self._set_text(
                 self.query_one("#config-summary", Static),
                 message("配置待完善 · {0}", join_messages("; ", exc.errors[:2])),
@@ -836,7 +823,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 project_dir=PROJECT_DIR,
                 python_executable=PYTHON_EXECUTABLE,
             )
-        except TuiConfigError as exc:
+        except RunConfigError as exc:
             self._show_config_error(exc)
             return
 
@@ -887,7 +874,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 project_dir=PROJECT_DIR,
                 python_executable=PYTHON_EXECUTABLE,
             )
-        except TuiConfigError as exc:
+        except RunConfigError as exc:
             self._show_config_error(exc)
             return
         preview = format_command(command, project_dir=PROJECT_DIR)
@@ -938,7 +925,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             return
         try:
             save_settings(self.settings_path, settings, PROJECT_DIR)
-        except (OSError, ValueError, TuiConfigError) as exc:
+        except (OSError, ValueError, RunConfigError) as exc:
             self.notify(error_message(exc), title="自动记忆未保存", severity="warning")
             return
         self._saved_settings = settings
@@ -1799,7 +1786,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 python_executable=PYTHON_EXECUTABLE,
             )
             return command, result_path
-        except TuiConfigError as exc:
+        except RunConfigError as exc:
             self._show_config_error(exc)
             return None
 
@@ -1863,7 +1850,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         event.input.value = ""
         try:
             command, args = parse_slash_command(value)
-        except TuiConfigError as exc:
+        except RunConfigError as exc:
             self._show_config_error(exc)
             return
 

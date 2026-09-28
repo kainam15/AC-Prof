@@ -6,7 +6,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 
-from acprof.tui.i18n import message
+from acprof.messages import message
 from acprof.progress_events import parse_event
 from acprof.preparation_events import parse_event as parse_preparation_event
 from acprof.tui.presentation import UNKNOWN

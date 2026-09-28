@@ -484,3 +484,11 @@ TUI“统计报告”页的“计算统计”使用目录模式和默认统计�
 .venv/bin/python stats.py --help
 .venv/bin/python tui.py --help
 ```
+
+### 独立比较与负载
+
+`acprof compare --left <实验> --right <实验>` 支持重复指定两侧独立实验，输出差值、比值和跨实验区间；
+参数与统计假设见[跨独立实验比较](Metrics.md#跨独立实验比较)。
+`acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
+执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
+协议、连接复用前提和失败口径见[独立非流式负载](Profiling_Protocol.md#独立非流式负载)。

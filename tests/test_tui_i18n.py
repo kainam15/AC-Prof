@@ -21,8 +21,9 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
-from acprof.tui.commands import RunConfig, TuiConfigError, build_run_command
-from acprof.tui.i18n import ENGLISH, error_message, message, translate
+from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.messages import message
+from acprof.tui.i18n import ENGLISH, error_message, translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
@@ -45,7 +46,7 @@ class TranslationTests(unittest.TestCase):
             (RunConfig(model="demo/model", workload_spec="等待/{raw}"), "Workload manifest does not exist: 等待/{raw}"),
         ):
             with self.subTest(config=config):
-                with self.assertRaises(TuiConfigError) as caught:
+                with self.assertRaises(RunConfigError) as caught:
                     config.validate(project_dir=PROJECT_DIR)
                 self.assertIn(expected, translate(error_message(caught.exception), "en"))
                 self.assertRegex(str(caught.exception), r"[\u4e00-\u9fff]")

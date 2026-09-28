@@ -7,7 +7,7 @@ from typing import Sequence
 
 from acprof.tui.app import AcprofTui
 
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 
 
 def _build_parser() -> argparse.ArgumentParser:

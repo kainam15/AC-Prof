@@ -15,8 +15,9 @@ from pathlib import Path
 import tempfile
 from typing import Any, get_type_hints
 
-from acprof.tui.commands import RunConfig
-from acprof.tui.i18n import UI_LANGUAGES, error_message, message
+from acprof.experiment import RunConfig
+from acprof.messages import message
+from acprof.tui.i18n import UI_LANGUAGES, error_message
 from acprof.tui.themes import UI_THEMES
 
 

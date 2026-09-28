@@ -37,7 +37,7 @@ from acprof.host.execution_profile_plan import (
 )
 
 from acprof.host import client_metrics as _client_metrics
-from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup
+from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup, run_matched_control_window
 from acprof.workloads.contract import summarize_workload_contracts
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
 from acprof.host.client_metrics import (
@@ -698,48 +698,6 @@ class ClientRunner:
         if self.config.idle_cooldown_seconds > 0.0:
             time.sleep(self.config.idle_cooldown_seconds)
 
-    def _run_matched_control_window(self,
-        gpu_monitor: Any,
-        cpu_monitor: Any,
-        resource_usage_monitor: Any,
-        mips_monitor: Any,
-    ) -> None:
-        """Run a blank window with the same monitor lifecycle as the workload."""
-        group = MonitorGroup(close=False)
-        for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
-                              ("resource", resource_usage_monitor), ("mips", mips_monitor)):
-            group.add(name, monitor)
-        primary_error = None
-        try:
-            group.start()
-            if self.config.idle_seconds > 0.0:
-                time.sleep(self.config.idle_seconds)
-        except BaseException as exc:
-            primary_error = exc
-        finally:
-            group.finish(1, max(self.config.idle_seconds, 1e-9))
-
-        if primary_error is not None and not isinstance(primary_error, Exception):
-            raise primary_error
-        group.raise_if_failed()
-        if primary_error is not None:
-            raise primary_error
-
-        if group.results.get("gpu") is not None:
-            gpu_result, _gpu_name, _gpu_error, gpu_samples = group.results["gpu"]
-            gpu_monitor.apply_control_baseline(
-                gpu_result,
-                gpu_samples,
-                trace=self.config.idle_debug,
-            )
-        if group.results.get("cpu") is not None:
-            cpu_result, _cpu_error, cpu_samples = group.results["cpu"]
-            cpu_monitor.apply_control_baseline(
-                cpu_result,
-                cpu_samples,
-                trace=self.config.idle_debug,
-            )
-
     def _collect_gpu_idle_debug_snapshot(self, device_index: int | None = None) -> Dict[str, Any]:
         device_index = self.config.device_index if device_index is None else device_index
         snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
@@ -914,12 +872,8 @@ class ClientRunner:
 
                 if gpu_monitor is not None or cpu_monitor is not None:
                     self._sleep_before_idle_baseline()
-                    self._run_matched_control_window(
-                        gpu_monitor,
-                        cpu_monitor,
-                        resource_usage_monitor,
-                        mips_monitor,
-                    )
+                    run_matched_control_window(monitors, idle_seconds=self.config.idle_seconds,
+                                               trace=self.config.idle_debug)
                     measured_at = _now_iso()
                     if gpu_monitor is not None:
                         gpu_idle_measured_at = measured_at

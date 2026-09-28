@@ -15,7 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from acprof.host.image_management import DockerStorage, STORAGE_KINDS
-from acprof.tui.i18n import message
+from acprof.messages import message
 from acprof.tui.presentation import UNKNOWN
 from acprof.tui.rendering import CjkCompositor
 

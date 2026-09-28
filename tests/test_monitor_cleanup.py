@@ -46,7 +46,7 @@ class MonitorCleanupTests(unittest.TestCase):
             for key, value in settings.items():
                 stack.enter_context(patch_client(self.runner, key, value))
             stack.enter_context(patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200, text="ok")))
-            stack.enter_context(patch_client(self.runner, "_run_matched_control_window"))
+            stack.enter_context(patch.object(client, "run_matched_control_window"))
             stack.enter_context(patch_client(self.runner, "_sleep_before_idle_baseline"))
             request = stack.enter_context(patch_client(self.runner, "_one_request", side_effect=request_error,
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0,

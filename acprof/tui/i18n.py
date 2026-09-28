@@ -7,33 +7,12 @@ process-global locale, file loading, polling or translation dependency.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from acprof.messages import Message, join_messages
 
 
 LANGUAGE_OPTIONS = (("简体中文", "zh"), ("English", "en"))
 UI_LANGUAGES = tuple(value for _, value in LANGUAGE_OPTIONS)
 
-
-class Message(str):
-    """A source string with its unformatted template and values attached."""
-
-    template: str
-    values: tuple[object, ...]
-
-    def __new__(cls, template: str, *values: object) -> "Message":
-        instance = super().__new__(cls, template.format(*values) if values else template)
-        instance.template = template
-        instance.values = values
-        return instance
-
-
-def message(template: str, *values: object) -> Message:
-    return Message(template, *values)
-
-
-def join_messages(separator: str, values: Iterable[str]) -> Message:
-    parts = tuple(values)
-    return message(separator.join("{" + str(i) + "}" for i in range(len(parts))), *parts)
 
 
 def error_message(error: BaseException) -> str:

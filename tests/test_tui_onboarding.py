@@ -8,7 +8,7 @@ from textual.widgets import Select
 
 from acprof.cli.tui import main
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig, build_run_command
+from acprof.experiment import RunConfig, build_run_command
 from acprof.tui.settings import TuiSettings, save_settings
 
 

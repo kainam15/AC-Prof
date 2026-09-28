@@ -5,7 +5,7 @@ import unittest
 from textual.widgets import Checkbox, ContentSwitcher
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig, build_run_command
+from acprof.experiment import RunConfig, build_run_command
 
 
 class TuiResumeTests(unittest.IsolatedAsyncioTestCase):

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from textual.widgets import Button, Select, Static
 
 from acprof.tui.app import AcprofTui
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 import test_model_contract as fixture
 
 

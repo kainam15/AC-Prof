@@ -13,9 +13,9 @@ from textual.widgets import Button, Checkbox, Collapsible, Label, Static, Tabbed
 
 from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.diagnostics import quick_preflight
-from acprof.tui.i18n import message
+from acprof.messages import message
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.views import ConfirmActionScreen

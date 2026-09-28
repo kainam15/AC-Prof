@@ -9,7 +9,7 @@ from typing import Iterable
 
 _SERVICE_DIRECTORIES = {"container", "extensions", "workloads"}
 _PRESENTATION_DIRECTORIES = {"tui", "plotting", "analysis"}
-_PRESENTATION_COMMANDS = {"tui.py", "plot.py", "stats.py", "audit.py"}
+_PRESENTATION_COMMANDS = {"tui.py", "plot.py", "stats.py", "audit.py", "compare.py"}
 
 
 def _package_sources(root: Path) -> list[Path]:

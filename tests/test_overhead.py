@@ -3,6 +3,17 @@ import unittest
 from unittest.mock import Mock, patch
 
 
+from acprof.host.measurement_window import MonitorGroup
+
+
+def group(*monitors, perf=None):
+    result = MonitorGroup()
+    for name, monitor in zip(("cpu", "resource", "gpu"), monitors):
+        result.add(name, monitor)
+    result.add("mips", perf)
+    return result
+
+
 class OverheadSummaryTests(unittest.TestCase):
     def test_known_paired_increase_and_zero_change(self):
         from scripts.measure_overhead import summarize_overhead
@@ -24,17 +35,20 @@ class OverheadSummaryTests(unittest.TestCase):
             response.json.return_value = body
             with self.subTest(status=status), patch("requests.post", return_value=response):
                 with self.assertRaisesRegex(RuntimeError, "completed"):
-                    measure_window("http://example.invalid", {}, count=1, monitors=[], token="test")
+                    measure_window("http://example.invalid", {}, count=1, monitors=group(), token="test")
 
     def test_source_thread_settings_are_restored_without_inheriting_unrecorded_overrides(self):
         import os
-        import scripts.measure_overhead as overhead
-        with patch.dict(os.environ, {"ACPROF_RUNTIME_THREADS": "8", "ACPROF_ONNX_INTRA_OP_THREADS": "6"}):
-            with overhead.source_runtime_environment({"ACPROF_RUNTIME_THREADS": "1"}):
+        from acprof.host.execution_conditions import source_runtime_environment
+        with patch.dict(os.environ, {"ACPROF_RUNTIME_THREADS": "8", "ACPROF_ONNX_INTRA_OP_THREADS": "6",
+                                     "ACPROF_GPU_DEVICE": "GPU-caller"}):
+            with source_runtime_environment({"ACPROF_RUNTIME_THREADS": "1"}):
                 self.assertEqual(os.environ["ACPROF_RUNTIME_THREADS"], "1")
                 self.assertNotIn("ACPROF_ONNX_INTRA_OP_THREADS", os.environ)
+                self.assertIsNone(os.environ.get("ACPROF_GPU_DEVICE"))
             self.assertEqual(os.environ["ACPROF_RUNTIME_THREADS"], "8")
             self.assertEqual(os.environ["ACPROF_ONNX_INTRA_OP_THREADS"], "6")
+            self.assertEqual(os.environ["ACPROF_GPU_DEVICE"], "GPU-caller")
 
     def test_missing_baseline_duplicate_and_bad_values_are_rejected(self):
         from scripts.measure_overhead import summarize_overhead
@@ -54,7 +68,7 @@ class OverheadSummaryTests(unittest.TestCase):
             monitor.stop.return_value = (None, "", [1, 2])
         with patch("requests.post", side_effect=RuntimeError("request failed")):
             with self.assertRaisesRegex(RuntimeError, "request failed"):
-                measure_window("http://example.invalid", {}, count=1, monitors=monitors, token="test")
+                measure_window("http://example.invalid", {}, count=1, monitors=group(*monitors), token="test")
         for monitor in monitors:
             monitor.stop.assert_called_once()
             monitor.close.assert_called_once()
@@ -68,8 +82,8 @@ class OverheadSummaryTests(unittest.TestCase):
         response.json.return_value = {"workload_contract": {"input": {"actual_scale": 5}}}
         with patch("requests.post", return_value=response) as post:
             with self.assertRaisesRegex(RuntimeError, "instructions unavailable"):
-                measure_window("http://example.invalid", {}, count=1, monitors=[monitor],
-                               token="test", perf_monitor=perf, timeout=17)
+                measure_window("http://example.invalid", {}, count=1, monitors=group(monitor, perf=perf),
+                               token="test", timeout=17)
         self.assertEqual(post.call_args.kwargs["timeout"], 17)
         monitor.stop.assert_called_once()
         monitor.close.assert_called_once()
@@ -81,8 +95,8 @@ class OverheadSummaryTests(unittest.TestCase):
         perf = Mock()
         with patch("requests.post") as post:
             with self.assertRaisesRegex(RuntimeError, "idle failure"):
-                measure_window("http://example.invalid", {}, count=1, monitors=monitors,
-                               token="test", perf_monitor=perf,
+                measure_window("http://example.invalid", {}, count=1, monitors=group(*monitors, perf=perf),
+                               token="test",
                                control_window=Mock(side_effect=RuntimeError("idle failure")))
         post.assert_not_called()
         for monitor in [*monitors, perf]:
@@ -112,7 +126,7 @@ class OverheadSummaryTests(unittest.TestCase):
         response.json.return_value = {}
         with patch("requests.post", return_value=response):
             with self.assertRaisesRegex(RuntimeError, "stop failed"):
-                measure_window("http://example.invalid", {}, count=1, monitors=monitors, token="test")
+                measure_window("http://example.invalid", {}, count=1, monitors=group(*monitors), token="test")
         for monitor in monitors:
             monitor.stop.assert_called_once()
             monitor.close.assert_called_once()

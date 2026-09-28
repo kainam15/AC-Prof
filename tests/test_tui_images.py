@@ -13,7 +13,7 @@ from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Inp
 
 from acprof.tui.app import AcprofTui, PendingLaunch
 from acprof.tui.image_actions import ImageActions
-from acprof.tui.commands import RunConfig
+from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
 from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
 from acprof.tui.images import filtered_images, image_metadata, image_display_name, layer_image_detail

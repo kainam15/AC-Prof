@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import ExitStack
 from dataclasses import asdict
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import random
 import statistics
@@ -16,33 +15,14 @@ import subprocess
 import sys
 import time
 from uuid import uuid4
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.analysis.uncertainty import bootstrap_mean_interval  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.runtime_settings import RUNTIME_ENV_NAMES  # noqa: E402 -- 脚本先设置仓库导入路径。
-
-
-@contextmanager
-def source_runtime_environment(recorded):
-    """Use the source's thread/device settings, never accidental caller overrides."""
-    names = (*RUNTIME_ENV_NAMES, "OMP_NUM_THREADS", "MKL_NUM_THREADS", "DEVICE_INDEX", "CUDA_VISIBLE_DEVICES")
-    previous = {name: os.environ.get(name) for name in names}
-    try:
-        for name in names:
-            value = recorded.get(name)
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = str(value)
-        yield
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+from acprof.host.measurement_window import MonitorGroup, run_matched_control_window  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.host.execution_conditions import ExecutionConditions  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 
 def summarize_overhead(rows, *, seed=0):
@@ -77,27 +57,20 @@ def summarize_overhead(rows, *, seed=0):
     return result
 
 
-def measure_window(url, payload, *, count, monitors, token, perf_monitor=None,
-                   control_window=None, timeout=60):
+def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
+                   control_window=None, timeout: float = 60) -> dict[str, Any]:
     import requests
 
-    started = []
     lifecycle = time.perf_counter()
     timings = []
-    stopped = []
-    cleanup_errors = []
-    perf_started = False
-    perf_result = None
     contracts = defaultdict(int)
+    primary_error = None
     try:
+        if count < 1:
+            raise ValueError("request count must be positive")
         if control_window is not None:
             control_window()
-        for monitor in monitors:
-            monitor.start()
-            started.append(monitor)
-        if perf_monitor is not None:
-            perf_monitor.start()
-            perf_started = True
+        monitors.start()
         cpu_started = time.process_time()
         wall_started = time.perf_counter()
         for index in range(count):
@@ -115,38 +88,18 @@ def measure_window(url, payload, *, count, monitors, token, perf_monitor=None,
                 contracts[json.dumps(contract, sort_keys=True, separators=(",", ":"))] += 1
         cpu_time = time.process_time() - cpu_started
         wall_time = time.perf_counter() - wall_started
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        # 任一请求失败也停止所有线程，避免污染下一次实验。
-        if perf_monitor is not None:
-            try:
-                if perf_started:
-                    perf_result = asdict(perf_monitor.stop(len(timings), statistics.fmean(timings) if timings else math.nan))
-            except Exception as error:
-                cleanup_errors.append(str(error))
-            finally:
-                try:
-                    perf_monitor.close()
-                except Exception as error:
-                    cleanup_errors.append(str(error))
-        # Match the production client: perf, resource, GPU energy, CPU energy.
-        priority = {"ResourceUsageMonitor": 0, "GPUEnergyMonitor": 1, "CPUEnergyMonitor": 2}
-        for monitor in sorted(reversed(monitors), key=lambda item: priority.get(type(item).__name__, 3)):
-            try:
-                if monitor in started:
-                    value = monitor.stop()
-                    error = value[2] if type(monitor).__name__ == "GPUEnergyMonitor" else value[1]
-                    stopped.append({"monitor": type(monitor).__name__, "samples": len(value[-1]), "error": error})
-            except Exception as error:
-                cleanup_errors.append(str(error))
-            finally:
-                try:
-                    monitor.close()
-                except Exception as error:
-                    cleanup_errors.append(str(error))
-    if cleanup_errors:
-        raise RuntimeError(f"监测器停止失败：{cleanup_errors}")
+        monitors.finish(len(timings), statistics.fmean(timings) if timings else math.nan)
+        if primary_error is None or isinstance(primary_error, Exception):
+            monitors.raise_if_failed()
+    stopped = [{"monitor": type(monitors.monitors[name]).__name__, "samples": len(value[-1]), "error": value[-2]}
+               for name, value in monitors.results.items() if name != "mips" and value is not None]
     if any(item["error"] or item["samples"] < 2 for item in stopped):
         raise RuntimeError(f"监测器未取得有效窗口：{stopped}")
+    perf_result = asdict(monitors.results["mips"]) if monitors.results.get("mips") is not None else None
     if perf_result is not None and not (math.isfinite(perf_result["instructions_total"]) and perf_result["instructions_total"] > 0):
         raise RuntimeError("perf 未取得有效 instructions")
     return {"latency_app_s": statistics.fmean(timings), "request_count": count,
@@ -154,6 +107,23 @@ def measure_window(url, payload, *, count, monitors, token, perf_monitor=None,
             "lifecycle_wall_s": time.perf_counter() - lifecycle, "monitors": stopped,
             "perf": perf_result, "workload_contracts": [
                 {"count": n, "contract": json.loads(contract)} for contract, n in contracts.items()]}
+
+
+def stop_capture(capture):
+    """Drain capture outside request timing, then terminate and reap even on failure."""
+    try:
+        time.sleep(1.0)
+    finally:
+        try:
+            capture.terminate()
+            capture.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            capture.kill()
+            capture.wait()
+        except BaseException:
+            capture.kill()
+            capture.wait()
+            raise
 
 
 def validate_capture(command, pcap, *, token, count):
@@ -169,7 +139,7 @@ def validate_capture(command, pcap, *, token, count):
 
 
 def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, mem, gpu,
-                           token, output, source, options):
+                           token, output, options) -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
@@ -178,80 +148,54 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     from acprof.host.packet_capture import _resolve_packet_latency_runtime
 
     idle = float(options["idle_seconds"])
-    capture = capture_log = perf = None
-    monitors = []
-    gpu_monitor = cpu_monitor = resource = None
+    device = session.gpu_device
+    monitors = MonitorGroup()
     control = None
-    handed_off = False
+    primary_error = None
     try:
-        if scenario == "full":
-            # Check existing capabilities without granting permissions.
-            from acprof.host.packet_capture import _tcpdump_can_capture_without_sudo
-            import shutil
-            tcpdump = shutil.which("tcpdump")
-            if not tcpdump or not _tcpdump_can_capture_without_sudo(tcpdump):
-                raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
-            pcap = output / f"{token}.pcap"
-            runtime = _resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"])
-            if runtime is None:
-                raise RuntimeError("full 对照缺少 tcpdump/tshark")
-            capture_log = (output / f"{token}-tcpdump.log").open("w")
-            capture = subprocess.Popen(runtime.tcpdump_cmd, stdout=capture_log, stderr=capture_log)
-            time.sleep(0.2)
-            if capture.poll() is not None:
-                raise RuntimeError("tcpdump 在请求前退出")
-            if gpu == "on":
-                gpu_monitor = GPUEnergyMonitor(sample_hz=rate, device_index=int(os.environ.get("DEVICE_INDEX", "0")))
-                monitors.append(gpu_monitor)
-            cpu_monitor = CPUEnergyMonitor(sample_hz=rate, idle_seconds=idle, container_name=name)
-            monitors.append(cpu_monitor)
-            perf = PerfMIPSMonitor(name)
-        if scenario in {"basic", "full"}:
-            resource = ResourceUsageMonitor(sample_hz=rate, container_name=name, cpu_cores=cpu,
-                                           mem_cap_gb=mem, use_gpu=gpu == "on",
-                                           device_index=int(os.environ.get("DEVICE_INDEX", "0")))
-            monitors.append(resource)
-        time.sleep(float(options["idle_cooldown_seconds"]))
-        if scenario == "full":
-            # Importing the existing helper must not generate another input.
-            previous_plan = os.environ.get("INPUT_SCALE_PLAN_FILE")
-            try:
-                from acprof.artifact_layout import ArtifactLayout
-                os.environ["INPUT_SCALE_PLAN_FILE"] = str(ArtifactLayout.discover(source).path("input_scale_plan.json"))
-                from acprof.host import client
-            finally:
-                if previous_plan is None:
-                    os.environ.pop("INPUT_SCALE_PLAN_FILE", None)
-                else:
-                    os.environ["INPUT_SCALE_PLAN_FILE"] = previous_plan
-            client.IDLE_SECONDS = idle
-            client.IDLE_DEBUG = False
-
-            def control():
-                return client._run_matched_control_window(gpu_monitor, cpu_monitor, resource, perf)
-        else:
-            time.sleep(idle)
-        handed_off = True
-        result = measure_window(session.base_url, entry["payload"], count=count, monitors=monitors,
-                                token=token, perf_monitor=perf, control_window=control,
-                                timeout=float(options["request_timeout_seconds"]))
+        with ExitStack() as resources:
+            if scenario == "full":
+                from acprof.host.packet_capture import _tcpdump_can_capture_without_sudo
+                import shutil
+                tcpdump = shutil.which("tcpdump")
+                if not tcpdump or not _tcpdump_can_capture_without_sudo(tcpdump):
+                    raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
+                pcap = output / f"{token}.pcap"
+                runtime = _resolve_packet_latency_runtime(str(ROOT), str(pcap), options["sniff_iface"])
+                if runtime is None:
+                    raise RuntimeError("full 对照缺少 tcpdump/tshark")
+                capture_log = resources.enter_context((output / f"{token}-tcpdump.log").open("w"))
+                capture = subprocess.Popen(runtime.tcpdump_cmd, stdout=capture_log, stderr=capture_log)
+                resources.callback(stop_capture, capture)
+                time.sleep(0.2)
+                if capture.poll() is not None:
+                    raise RuntimeError("tcpdump 在请求前退出")
+                if gpu == "on":
+                    monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
+                                 device_index=device["index"], device_uuid=device["uuid"]))
+                monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
+                             container_name=name, dram_energy=options.get("dram_energy", "auto")))
+                monitors.add("mips", PerfMIPSMonitor(name))
+            if scenario in {"basic", "full"}:
+                monitors.add("resource", ResourceUsageMonitor(sample_hz=rate, container_name=name,
+                             cpu_cores=cpu, mem_cap_gb=mem, use_gpu=gpu == "on",
+                             device_index=device.get("index", 0), device_uuid=device.get("uuid", "")))
+            time.sleep(float(options["idle_cooldown_seconds"]))
+            if scenario == "full":
+                def control():
+                    run_matched_control_window(monitors, idle_seconds=idle)
+            else:
+                time.sleep(idle)
+            result = measure_window(session.base_url, entry["payload"], count=count, monitors=monitors,
+                                    token=token, control_window=control,
+                                    timeout=float(options["request_timeout_seconds"]))
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        if capture is not None:
-            # The production orchestrator drains libpcap before stopping tcpdump.
-            # This wait and all packet parsing are outside the request timing.
-            time.sleep(1.0)
-            capture.terminate()
-            try:
-                capture.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                capture.kill()
-                capture.wait()
-            time.sleep(0.2)
-        if capture_log is not None:
-            capture_log.close()
-        if not handed_off:
-            for monitor in [*monitors, *([perf] if perf is not None else [])]:
-                monitor.close()
+        monitors.finish(0, math.nan)
+        if primary_error is None or isinstance(primary_error, Exception):
+            monitors.raise_if_failed()
     if scenario == "full":
         if capture.returncode != 0 or pcap.stat().st_size <= 24:
             raise RuntimeError("full 对照未取得有效 PCAP")
@@ -272,7 +216,7 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
     rates = [float(value) for value in args.sample_hz.split(",")]
-    modes = args.modes.split(",") if args.modes else None
+    modes: list[str] | None = args.modes.split(",") if args.modes else None
     if modes is not None and ("none" not in modes or len(modes) < 2 or len(set(modes)) != len(modes)
                               or set(modes) - {"none", "basic", "full"} or len(rates) != 1):
         parser.error("--modes 要求 none 与 basic/full，不允许重复；采样频率须为单值")
@@ -309,24 +253,33 @@ def main(argv=None):
     cpu = max(map(int, state["options"]["cpus"].split(",")))
     mem = max(map(int, state["options"]["mems"].split(",")))
     name = "acprof-overhead-" + uuid4().hex[:12]
-    recorded_environment = state["options"]["measurement_environment"]
-    report = {"schema_version": 1, "kind": "collection_overhead_diagnostic" if modes else "monitor_overhead_diagnostic", "successful": False,
+    conditions = ExecutionConditions.from_options(state["options"], gpu=args.gpu)
+    recorded_environment = conditions.environment
+    report: dict[str, Any] = {"schema_version": 1, "kind": "collection_overhead_diagnostic" if modes else "monitor_overhead_diagnostic", "successful": False,
               "source_run_id": state["run_id"], "image_id": image.tag, "model_revision": task.model_revision,
               "gpu_mode": args.gpu, "cpu_cores": cpu, "mem_cap_gb": mem, "input_scale": entry["input_scale"],
               "input_scale_plan_sha256": expected_hash, "seed": args.seed, "rounds": [],
               "payload_sha256": hashlib.sha256(json.dumps(entry["payload"], sort_keys=True).encode()).hexdigest(),
-              "measurement_environment": recorded_environment, "host_identity": host_identity(ROOT),
+              "measurement_environment": recorded_environment, "cpuset_cpus": conditions.cpuset_cpus,
+              "gpu_device_uuid": conditions.gpu_uuid, "request_timeout_seconds": conditions.request_timeout_seconds,
+              "host_identity": host_identity(ROOT),
               "command": [sys.executable, *sys.argv],
               "scope": ("同一常驻模型、固定输入与线程的串行 /predict；none/basic/full 仅为内部采集器对照，"
                         "full 复用无请求对照与 PCAP/perf/RAPL/NVML/cgroup；不含 profiler、TUI、启动和离线合并成本，非正式画像"
                         if modes else "同一常驻模型的 HTTP 请求；比较监测线程，未开启 PCAP/perf/TUI，不是正式能耗实验")}
     try:
-        with MeasurementLock(), source_runtime_environment(recorded_environment):
+        with MeasurementLock(), conditions.activate() as device:
+            report["gpu_device"] = device
             require_image_identity(image.tag, image.runtime_environment)
-            session = _start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]")
+            session = _start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]",
+                                               **conditions.container_options)
             name = session.name
             try:
-                measure_window(session.base_url, entry["payload"], count=5, monitors=[], token="warmup")
+                from acprof.host.hardware_conditions import record_case_conditions
+                record_case_conditions(output, f"{cpu}c_{mem}g_{args.gpu}", session,
+                                       cpuset_cpus=conditions.cpuset_cpus)
+                measure_window(session.base_url, entry["payload"], count=5, monitors=MonitorGroup(), token="warmup",
+                               timeout=conditions.request_timeout_seconds)
                 rng = random.Random(args.seed)
                 for round_index in range(args.rounds):
                     scenarios = list(modes) if modes else [0.0, *rates]
@@ -338,22 +291,31 @@ def main(argv=None):
                                 session, entry, scenario=scenario, rate=rates[0], count=args.requests,
                                 name=name, cpu=cpu, mem=mem, gpu=args.gpu,
                                 token=f"overhead-{round_index}-{scenario}", output=output,
-                                source=source, options=state["options"])
+                                options=state["options"])
                             report["rounds"].append({"round": round_index, "scenario": scenario, **result})
                             atomic_write_json(output / "overhead.json", report)
                             print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                             continue
                         # 监测器初始化与文件输出均不计入请求计时。
-                        monitors = []
-                        if rate:
-                            monitors = [CPUEnergyMonitor(sample_hz=rate, container_name=name),
-                                        ResourceUsageMonitor(sample_hz=rate, container_name=name, cpu_cores=cpu,
-                                                             mem_cap_gb=mem, use_gpu=args.gpu == "on")]
-                            if args.gpu == "on":
-                                monitors.append(GPUEnergyMonitor(sample_hz=rate))
+                        monitors = MonitorGroup()
+                        try:
+                            if rate:
+                                monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, container_name=name))
+                                monitors.add("resource", ResourceUsageMonitor(
+                                    sample_hz=rate, container_name=name, cpu_cores=cpu,
+                                    mem_cap_gb=mem, use_gpu=args.gpu == "on",
+                                    device_index=session.gpu_device.get("index", 0),
+                                    device_uuid=session.gpu_device.get("uuid", "")))
+                                if args.gpu == "on":
+                                    monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate,
+                                        device_index=session.gpu_device["index"], device_uuid=session.gpu_device["uuid"]))
+                        except BaseException:
+                            monitors.finish(0, math.nan)
+                            raise
                         scenario = f"monitors-{rate:g}" if rate else "none"
                         result = measure_window(session.base_url, entry["payload"], count=args.requests,
-                                                monitors=monitors, token=f"overhead-{round_index}-{scenario}")
+                                                monitors=monitors, token=f"overhead-{round_index}-{scenario}",
+                                                timeout=conditions.request_timeout_seconds)
                         report["rounds"].append({"round": round_index, "scenario": scenario, **result})
                         atomic_write_json(output / "overhead.json", report)
                         print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
@@ -361,7 +323,8 @@ def main(argv=None):
                 report["successful"] = True
             finally:
                 _stop_container_session(session, "[overhead]")
-    except Exception as error:
+    except BaseException as error:
+        report["successful"] = False
         report["error"] = str(error)
         raise
     finally:

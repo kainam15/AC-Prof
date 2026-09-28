@@ -8,7 +8,8 @@ from textual.widgets import Button, Input, Select, Static
 
 from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.commands import RunConfig, format_command
+from acprof.experiment import RunConfig
+from acprof.tui.commands import format_command
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]

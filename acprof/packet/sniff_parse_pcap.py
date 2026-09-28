@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+from collections import Counter
 import subprocess
 import sys
 from typing import Sequence
@@ -9,8 +10,8 @@ from typing import Sequence
 #   python3 -m acprof.packet.sniff_parse_pcap <pcap> <port>
 #
 # 输出 JSON schema v2：每个请求包含时延、线上帧字节、TCP payload 和
-# L2/L3/L4 协议开销。连接由客户端显式关闭，因此一个 tcp.stream 对应
-# 一个 /predict 请求。
+# L2/L3/L4 协议开销。共享连接仅提供逐请求 HTTP 时延和一次流级字节总量，
+# 不把整个 tcp.stream 的字节重复归给每个请求。
 
 
 def run(cmd):
@@ -20,11 +21,11 @@ def run(cmd):
     return p.stdout
 
 
-def extract_group_id_from_request_lines(req_lines: str) -> str:
+def extract_request_id(req_lines: str) -> str:
     """
     req_lines 通常包含多条 request line（请求行+headers）
     例如： 'POST /predict HTTP/1.1,Host: ...,Connection: close,X-Req-Id: abc:123,...'
-    我们从中找到 X-Req-Id，并取其冒号前缀作为 group_id。
+    返回完整 X-Req-Id，保留客户端请求编号。
     """
     if not req_lines:
         return "group"
@@ -35,11 +36,12 @@ def extract_group_id_from_request_lines(req_lines: str) -> str:
         p = p.strip()
         if p.lower().startswith("x-req-id:"):
             v = p.split(":", 1)[1].strip()  # 取 header value
-            # client: "{sniff_group_id}:{k}"
-            if ":" in v:
-                return v.split(":", 1)[0].strip()
             return v.strip() or "group"
     return "group"
+
+
+def extract_group_id_from_request_lines(req_lines: str) -> str:
+    return extract_request_id(req_lines).split(":", 1)[0]
 
 
 def _parse_int_field(raw: str) -> int | None:
@@ -81,6 +83,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     req_time = {}
     req_gid = {}
     req_stream = {}
+    req_ids = {}
     for line in run(req_cmd).splitlines():
         if not line.strip():
             continue
@@ -99,6 +102,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             req_fn = int(fn)
             req_time[req_fn] = float(t)
             req_gid[req_fn] = extract_group_id_from_request_lines(req_lines)
+            req_ids[req_fn] = extract_request_id(req_lines)
             stream_id = _parse_int_field(stream)
             if stream_id is not None:
                 req_stream[req_fn] = stream_id
@@ -184,12 +188,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         stats["tcp_payload_bytes"] += tcp_payload_len
 
     requests = {}
+    stream_requests = Counter(req_stream.values())
     for request_id, latency_s in latency_by_request.items():
         req_fn = int(request_id.rsplit(":", 1)[1])
         stream_id = req_stream.get(req_fn)
         stats = stream_stats.get(stream_id) if stream_id is not None else None
-        record = {"latency_s": latency_s}
-        if stats is not None:
+        record = {"latency_s": latency_s, "request_id": req_ids[req_fn], "tcp_stream": stream_id,
+                  "wire_bytes_status": "unavailable_shared_stream" if stream_requests[stream_id] > 1 else
+                                       "available" if stats is not None else "unavailable"}
+        if stats is not None and stream_requests[stream_id] == 1:
             request_wire = int(stats.get("request_wire_bytes", 0))
             response_wire = int(stats.get("response_wire_bytes", 0))
             tcp_payload = int(stats.get("tcp_payload_bytes", 0))
@@ -207,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             })
         requests[request_id] = record
 
-    print(json.dumps({"schema_version": 2, "requests": requests}, indent=2, sort_keys=True))
+    print(json.dumps({"schema_version": 2, "requests": requests, "streams": stream_stats}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
