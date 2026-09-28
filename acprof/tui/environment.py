@@ -41,6 +41,7 @@ class PermissionReviewScreen(ConfirmActionScreen):
     """Keep approval actions reachable while the complete command plan scrolls."""
 
     CSS = ConfirmActionScreen.CSS + """
+    PermissionReviewScreen { align: center middle; }
     PermissionReviewScreen #confirm-dialog { height: 80%; }
     PermissionReviewScreen #confirm-message { height: 1fr; max-height: 100%; }
     """
