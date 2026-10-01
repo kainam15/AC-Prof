@@ -122,7 +122,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         ("f5", "request_run", "开始采集"),
         Binding("f6", "quick_check", "环境检查", priority=True),
         ("f8", "toggle_log_view", "放大日志"),
-        ("f2", "show_settings", "全局设置"),
+        ("f2", "show_settings", "应用设置"),
         Binding("ctrl+x", "request_stop", "终止任务", priority=True),
         ("ctrl+l", "clear_log", "清空日志"),
         ("ctrl+q", "request_quit", "退出"),
@@ -1922,7 +1922,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 "/plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · "
                 "/profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · "
                 "/stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · "
-                "/settings 全局设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
+                "/settings 应用设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
             )
             self._activate_tab("monitor-tab")
         elif command in {"quit", "exit"}:

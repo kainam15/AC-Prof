@@ -40,7 +40,7 @@ TabbedContent { height: 1fr; }
 TabPane { padding: 0; }
 Tabs { background: $surface; }
 Tab { padding: 0 2; }
-/* Keep global settings at the viewport edge when labels or terminal size change. */
+/* Keep application settings at the viewport edge when labels or terminal size change. */
 #main-tabs #tabs-list-bar, #main-tabs #tabs-list { width: 1fr; }
 #main-tabs #--content-tab-settings-tab { dock: right; }
 Tab.-active { color: $accent; text-style: bold; }
@@ -195,7 +195,15 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #permissions-tab .option-checkbox.-on > .toggle--button { color: $background; }
 #profile-tools .option-checkbox:disabled > .toggle--button,
 #permissions-tab .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
-.settings-options { height: auto; margin: 1 0; }
+.settings-section {
+    height: auto;
+    border: solid $panel;
+    border-title-color: $foreground;
+    border-title-style: bold;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+.settings-section .form-grid { grid-size: 2; grid-columns: 18 1fr; max-width: 76; }
 #settings-status.stage-running { color: $accent; }
 #settings-status.stage-success { color: $success; }
 #settings-status.stage-error { color: $error; }

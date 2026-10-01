@@ -25,13 +25,20 @@ class TuiEnvironmentTests(unittest.IsolatedAsyncioTestCase):
             context.start()
             self.addCleanup(context.stop)
 
+    async def open_connections(self, app, pilot):
+        # Keyboard focus scrolls the last settings section into view on short terminals.
+        button = app.query_one('#open-environment-settings', Button)
+        button.focus()
+        await pilot.pause()
+        self.assertTrue(await pilot.click(button))
+        await pilot.pause()
+
     async def test_permission_review_can_cancel_and_failed_sudo_returns_to_form(self):
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.press('f2')
             await pilot.pause()
-            await pilot.click('#open-environment-settings')
-            await pilot.pause()
+            await self.open_connections(app, pilot)
             screen = app.screen
             screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
             await pilot.pause()
@@ -88,8 +95,7 @@ class TuiEnvironmentTests(unittest.IsolatedAsyncioTestCase):
                         app._apply_ui_preferences()
                         await pilot.press('f2')
                         await pilot.pause()
-                        await pilot.click('#open-environment-settings')
-                        await pilot.pause()
+                        await self.open_connections(app, pilot)
                         for widget_id in ('close-environment-settings', 'save-environment-settings'):
                             widget = app.screen.query_one('#' + widget_id, Button)
                             self.assertTrue(widget.region.width and widget.region.height)
@@ -110,8 +116,7 @@ class TuiEnvironmentTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(len(app.query('#open-environment-settings')), 1,
                              'Settings must expose connections and system permissions')
-            await pilot.click('#open-environment-settings')
-            await pilot.pause()
+            await self.open_connections(app, pilot)
             token = app.screen.query_one('#env-hf-token', Input)
             self.assertTrue(token.password)
             token.focus()
@@ -131,8 +136,7 @@ class TuiEnvironmentTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('escape')
             await pilot.pause()
             self.assertFalse(app._is_busy())
-            await pilot.click('#open-environment-settings')
-            await pilot.pause()
+            await self.open_connections(app, pilot)
             self.assertEqual(app.screen.query_one('#env-hf-token', Input).value, 'hf_testonly')
 
     async def test_close_does_not_save_and_busy_run_blocks_configuration(self):
@@ -141,8 +145,7 @@ class TuiEnvironmentTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press('f2')
             await pilot.pause()
             self.assertEqual(len(app.query('#open-environment-settings')), 1)
-            await pilot.click('#open-environment-settings')
-            await pilot.pause()
+            await self.open_connections(app, pilot)
             app.screen.query_one('#env-hf-token', Input).value = 'hf_unsaved'
             await pilot.press('escape')
             await pilot.pause()

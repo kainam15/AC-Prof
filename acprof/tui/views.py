@@ -528,48 +528,54 @@ def compose_profile_tab(app: AcprofTui) -> ComposeResult:
 
 
 def compose_settings_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("全局设置", id="settings-tab"):
+    with TabPane("应用设置", id="settings-tab"):
         with Vertical(classes="page-header"):
-            yield app._localized_widget(Static("显示与日志", classes="page-title"))
+            yield app._localized_widget(Static("应用设置", classes="page-title"))
             yield app._localized_widget(Static(
                 "修改立即生效，点击保存后下次启动沿用。",
                 id="settings-status", classes="page-summary", markup=False,
             ))
         with VerticalScroll(id="settings-body", classes="pane-scroll"):
-            yield app._localized_widget(Button("连接与权限", id="open-environment-settings"))
-            yield app._localized_widget(Static(
-                "配置 Hugging Face、代理、企业微信通知和采集权限。",
-                classes="page-hint", markup=False,
-            ))
-            with Grid(classes="form-grid"):
-                yield app._localized_widget(Label("界面语言"))
-                yield app._localized_select(
-                    LANGUAGE_OPTIONS,
-                    value=app.ui_preferences.language, allow_blank=False,
-                    id="ui-language", classes="ui-preference",
-                )
-                yield app._localized_widget(Label("界面主题"))
-                yield app._localized_select(
-                    THEME_OPTIONS,
-                    value=app.ui_preferences.theme, allow_blank=False,
-                    id="ui-theme", classes="ui-preference",
-                )
-                yield app._localized_widget(Label("保留日志行数"))
-                yield app._localized_select(
-                    ((str(n), n) for n in (500, 1000, 3000, 10000)),
-                    value=app.ui_preferences.log_max_lines, allow_blank=False,
-                    id="ui-log-lines", classes="ui-preference",
-                )
-            with Vertical(classes="settings-options"):
-                yield app._localized_widget(StatusCheckbox(
-                    "日志自动换行", value=app.ui_preferences.log_wrap,
-                    id="ui-log-wrap", classes="ui-preference option-checkbox",
-                ))
+            with Vertical(id="settings-interface", classes="settings-section") as section:
+                app._set_text(section, "界面与交互", "border_title")
+                with Grid(classes="form-grid"):
+                    yield app._localized_widget(Label("界面语言"))
+                    yield app._localized_select(
+                        LANGUAGE_OPTIONS,
+                        value=app.ui_preferences.language, allow_blank=False,
+                        id="ui-language", classes="ui-preference",
+                    )
+                    yield app._localized_widget(Label("界面主题"))
+                    yield app._localized_select(
+                        THEME_OPTIONS,
+                        value=app.ui_preferences.theme, allow_blank=False,
+                        id="ui-theme", classes="ui-preference",
+                    )
                 yield app._localized_widget(StatusCheckbox(
                     "显示底部快捷命令框",
                     value=app.ui_preferences.show_command_bar,
                     id="ui-command-bar", classes="ui-preference option-checkbox",
                 ))
+            with Vertical(id="settings-logs", classes="settings-section") as section:
+                app._set_text(section, "日志", "border_title")
+                with Grid(classes="form-grid"):
+                    yield app._localized_widget(Label("保留日志行数"))
+                    yield app._localized_select(
+                        ((str(n), n) for n in (500, 1000, 3000, 10000)),
+                        value=app.ui_preferences.log_max_lines, allow_blank=False,
+                        id="ui-log-lines", classes="ui-preference",
+                    )
+                yield app._localized_widget(StatusCheckbox(
+                    "日志自动换行", value=app.ui_preferences.log_wrap,
+                    id="ui-log-wrap", classes="ui-preference option-checkbox",
+                ))
+            with Vertical(id="settings-connections", classes="settings-section") as section:
+                app._set_text(section, "连接与权限", "border_title")
+                yield app._localized_widget(Static(
+                    "配置 Hugging Face、代理、企业微信通知和采集权限。",
+                    classes="page-hint", markup=False,
+                ))
+                yield app._localized_widget(Button("管理连接与权限", id="open-environment-settings"))
             yield app._localized_widget(Static("", id="settings-location", classes="page-hint", markup=False))
         with Horizontal(id="settings-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
