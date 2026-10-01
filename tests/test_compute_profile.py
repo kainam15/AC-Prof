@@ -1,5 +1,3 @@
-import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
-import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
 import csv
 import json
 import os
@@ -8,11 +6,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
+import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
 from acprof.container.handlers import transformers_pipeline_load_kwargs
+from acprof.host import compute_profile, profiler_common
 from acprof.host.detect import TaskInfo
-
-from acprof.host.profilers import tool_discovery
-from acprof.host import compute_profile
+from acprof.host.profilers import advisor, compute_parsers, ncu, tool_discovery, torch
 
 
 def _write_input_scale_plan(directory: str, input_scale: float = 8.0) -> str:
@@ -139,7 +138,7 @@ class ComputeProfileTests(unittest.TestCase):
             with open(payload_file, "w", encoding="utf-8") as f:
                 f.write("{}")
 
-            cmd = compute_profile._base_docker_cmd(
+            cmd = profiler_common._base_docker_cmd(
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 cpu=1,
@@ -174,7 +173,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow({"Function": "b", "Self GFLOP": "2.25"})
 
             self.assertAlmostEqual(
-                compute_profile.parse_advisor_self_gflop_csv(report_path),
+                compute_parsers.parse_advisor_self_gflop_csv(report_path),
                 3.75,
             )
 
@@ -193,7 +192,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow({"ID": "3", "Self GFLOP": "2.25", "Module": "libtorch_cpu.so"})
 
             self.assertAlmostEqual(
-                compute_profile.parse_advisor_self_gflop_csv(report_path),
+                compute_parsers.parse_advisor_self_gflop_csv(report_path),
                 3.75,
             )
 
@@ -334,7 +333,7 @@ class ComputeProfileTests(unittest.TestCase):
                         "Metric Value": value,
                     })
 
-            parsed = compute_profile.parse_ncu_profile_csv(
+            parsed = compute_parsers.parse_ncu_profile_csv(
                 report_path,
                 repeat=2,
             )
@@ -367,7 +366,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow(["0", "kernel_a", "8.9", "24", "10", "100", "1000"])
                 writer.writerow(["1", "kernel_b", "8.9", "24", "20", "200", "3000"])
 
-            parsed = compute_profile.parse_ncu_profile_csv(
+            parsed = compute_parsers.parse_ncu_profile_csv(
                 report_path,
                 repeat=2,
             )
@@ -397,17 +396,17 @@ class ComputeProfileTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._base_docker_cmd",
+            "acprof.host.profilers.torch._base_docker_cmd",
             return_value=["docker"],
         ), patch(
-            "acprof.host.compute_profile._run",
+            "acprof.host.profilers.torch.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout=json.dumps(runner_result),
                 stderr="",
             ),
         ):
-            entry = compute_profile._run_torch_profiler_for_entry(
+            entry = torch._run_torch_profiler_for_entry(
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 cpu=1,
@@ -461,19 +460,19 @@ class ComputeProfileTests(unittest.TestCase):
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                "acprof.host.compute_profile._base_docker_cmd",
+                "acprof.host.profilers.ncu._base_docker_cmd",
                 return_value=["docker"],
             ), patch(
-                "acprof.host.compute_profile._ncu_collect_filter_args",
+                "acprof.host.profilers.ncu._ncu_collect_filter_args",
                 return_value=[],
             ), patch(
-                "acprof.host.compute_profile._ncu_section_args",
+                "acprof.host.profilers.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.compute_profile._run",
+                "acprof.host.profilers.ncu.run_command",
                 side_effect=[collect_result, import_result],
             ):
-                result = compute_profile._run_ncu_for_entry(
+                result = ncu._run_ncu_for_entry(
                     ncu_bin="/usr/bin/ncu",
                     ncu_metrics=[
                         "smsp__sass_thread_inst_executed_op_ffma_pred_on.sum",
@@ -539,19 +538,19 @@ class ComputeProfileTests(unittest.TestCase):
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                "acprof.host.compute_profile._base_docker_cmd",
+                "acprof.host.profilers.ncu._base_docker_cmd",
                 return_value=["docker"],
             ), patch(
-                "acprof.host.compute_profile._ncu_collect_filter_args",
+                "acprof.host.profilers.ncu._ncu_collect_filter_args",
                 return_value=[],
             ), patch(
-                "acprof.host.compute_profile._ncu_section_args",
+                "acprof.host.profilers.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.compute_profile._run",
+                "acprof.host.profilers.ncu.run_command",
                 side_effect=[command_result, command_result],
             ):
-                result = compute_profile._run_ncu_for_entry(
+                result = ncu._run_ncu_for_entry(
                     ncu_bin="/usr/bin/ncu",
                     ncu_metrics=["flop_count_sp"],
                     task_info=task_info,
@@ -588,7 +587,7 @@ class ComputeProfileTests(unittest.TestCase):
         ffma = "smsp__sass_thread_inst_executed_op_ffma_pred_on"
         tensor = "sm__ops_path_tensor_src_fp16_dst_fp32.sum"
 
-        metrics = compute_profile._select_ncu_flop_metrics([
+        metrics = ncu._select_ncu_flop_metrics([
             fadd,
             f"{ffma}.sum",
             "flop_count_sp",
@@ -624,8 +623,8 @@ class ComputeProfileTests(unittest.TestCase):
                 stderr="",
             )
 
-        with patch("acprof.host.compute_profile._run", side_effect=fake_run):
-            metrics, error = compute_profile._resolve_ncu_metrics("/opt/ncu")
+        with patch("acprof.host.profilers.ncu.run_command", side_effect=fake_run):
+            metrics, error = ncu._resolve_ncu_metrics("/opt/ncu")
 
         self.assertEqual(metrics, [])
         self.assertIn("ERR_NVGPUCTRPERM", error)
@@ -674,8 +673,8 @@ class ComputeProfileTests(unittest.TestCase):
                 ),
             )
 
-        with patch("acprof.host.compute_profile._run", side_effect=fake_run):
-            metrics, error = compute_profile._resolve_ncu_metrics(
+        with patch("acprof.host.profilers.ncu.run_command", side_effect=fake_run):
+            metrics, error = ncu._resolve_ncu_metrics(
                 "/opt/ncu",
                 container_base_cmd=container_base_cmd,
             )
@@ -709,13 +708,13 @@ class ComputeProfileTests(unittest.TestCase):
         def fake_resolve(ncu_bin, *, container_base_cmd=None):
             query["ncu_bin"] = ncu_bin
             query["container_base_cmd"] = container_base_cmd
-            return list(compute_profile.NCU_SASS_FLOP_WEIGHTS), ""
+            return list(compute_parsers.NCU_SASS_FLOP_WEIGHTS), ""
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._resolve_ncu_metrics",
+            "acprof.host.profilers.ncu._resolve_ncu_metrics",
             side_effect=fake_resolve,
         ), patch(
-            "acprof.host.compute_profile._run_ncu_for_entry",
+            "acprof.host.profilers.ncu._run_ncu_for_entry",
             return_value={
                 "input_scale": 8.0,
                 "tool": "ncu",
@@ -723,7 +722,7 @@ class ComputeProfileTests(unittest.TestCase):
                 "error": "",
             },
         ):
-            compute_profile._profile_gpu_entries(
+            ncu._profile_gpu_entries(
                 entries=[{"input_scale": 8.0}],
                 ncu_bin="/opt/nvidia/nsight-compute/2025.1.0/ncu",
                 ncu_root=None,
@@ -780,7 +779,7 @@ class ComputeProfileTests(unittest.TestCase):
 
             def fake_export(**kwargs):
                 self.assertTrue(kwargs["report_base"].endswith("ncu_scale_20"))
-                compute_profile._write_text_atomic(
+                ncu._write_text_atomic(
                     kwargs["host_csv"],
                     _ncu_resume_csv_text(),
                 )
@@ -791,13 +790,13 @@ class ComputeProfileTests(unittest.TestCase):
                 collected.append(scale)
                 self.assertEqual(scale, 30.0)
                 _report_base, host_csv, _host_report, _checkpoint = (
-                    compute_profile._ncu_artifact_paths(profile_root, scale)
+                    ncu._ncu_artifact_paths(profile_root, scale)
                 )
-                compute_profile._write_text_atomic(
+                ncu._write_text_atomic(
                     host_csv,
                     _ncu_resume_csv_text(),
                 )
-                return compute_profile._ncu_entry_from_csv(
+                return ncu._ncu_entry_from_csv(
                     entry=kwargs["entry"],
                     host_csv=host_csv,
                     profile_root=profile_root,
@@ -809,16 +808,16 @@ class ComputeProfileTests(unittest.TestCase):
                 )
 
             with patch(
-                "acprof.host.compute_profile._resolve_ncu_metrics",
+                "acprof.host.profilers.ncu._resolve_ncu_metrics",
                 return_value=(metrics, ""),
             ), patch(
-                "acprof.host.compute_profile._export_ncu_report",
+                "acprof.host.profilers.ncu._export_ncu_report",
                 side_effect=fake_export,
             ) as export_report, patch(
-                "acprof.host.compute_profile._run_ncu_for_entry",
+                "acprof.host.profilers.ncu._run_ncu_for_entry",
                 side_effect=fake_collect,
             ):
-                result = compute_profile._profile_gpu_entries(
+                result = ncu._profile_gpu_entries(
                     entries=[
                         {"input_scale": 1.0},
                         {"input_scale": 20.0},
@@ -843,7 +842,7 @@ class ComputeProfileTests(unittest.TestCase):
                 [1.0, 20.0, 30.0],
             )
             self.assertTrue(all(
-                compute_profile._ncu_entry_complete(entry)
+                ncu._ncu_entry_complete(entry)
                 for entry in result["entries"]
             ))
             for scale in (1, 20, 30):
@@ -866,8 +865,8 @@ class ComputeProfileTests(unittest.TestCase):
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             host_csv = os.path.join(profile_root, "ncu_scale_1.csv")
-            compute_profile._write_text_atomic(host_csv, _ncu_resume_csv_text())
-            entry = compute_profile._ncu_entry_from_csv(
+            ncu._write_text_atomic(host_csv, _ncu_resume_csv_text())
+            entry = ncu._ncu_entry_from_csv(
                 entry={"input_scale": 1.0},
                 host_csv=host_csv,
                 profile_root=profile_root,
@@ -877,20 +876,20 @@ class ComputeProfileTests(unittest.TestCase):
                 profile_root,
                 "ncu_scale_1.checkpoint.json",
             )
-            compute_profile._write_ncu_checkpoint(
+            ncu._write_ncu_checkpoint(
                 checkpoint_path=checkpoint_path,
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 input_scale=1.0,
                 repeat=1,
-                metrics=["metric", compute_profile.NCU_DURATION_METRIC],
+                metrics=["metric", compute_parsers.NCU_DURATION_METRIC],
                 host_csv=host_csv,
                 entry=entry,
             )
 
-            resumed = compute_profile._resume_ncu_for_entry(
+            resumed = ncu._resume_ncu_for_entry(
                 ncu_bin="/opt/ncu",
-                ncu_metrics=["metric", compute_profile.NCU_DURATION_METRIC],
+                ncu_metrics=["metric", compute_parsers.NCU_DURATION_METRIC],
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 base_cmd=["docker"],
@@ -916,7 +915,7 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             return_value=None,
         ), patch(
-            "acprof.host.compute_profile._run",
+            "acprof.host.compute_profile.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -976,10 +975,10 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             side_effect=AssertionError("none mode must not discover tools"),
         ), patch(
-            "acprof.host.compute_profile._profile_torch_entries",
+            "acprof.host.profilers.torch._profile_torch_entries",
             side_effect=AssertionError("none mode must not run Torch"),
         ), patch(
-            "acprof.host.compute_profile._profile_gpu_entries",
+            "acprof.host.profilers.ncu._profile_gpu_entries",
             side_effect=AssertionError("none mode must not run NCU"),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1062,13 +1061,13 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             side_effect=fake_find_executable,
         ), patch(
-            "acprof.host.compute_profile._profile_torch_entries",
+            "acprof.host.profilers.torch._profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.compute_profile._profile_cpu_entries",
+            "acprof.host.profilers.advisor._profile_cpu_entries",
             side_effect=AssertionError("vendor CPU profiler should not run in both mode"),
         ), patch(
-            "acprof.host.compute_profile._profile_gpu_entries",
+            "acprof.host.profilers.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1144,10 +1143,10 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             return_value="/usr/bin/ncu",
         ), patch(
-            "acprof.host.compute_profile._profile_torch_entries",
+            "acprof.host.profilers.torch._profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.compute_profile._profile_gpu_entries",
+            "acprof.host.profilers.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1207,7 +1206,7 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             return_value=None,
         ), patch(
-            "acprof.host.compute_profile._run",
+            "acprof.host.compute_profile.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1259,10 +1258,10 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._find_executable",
             return_value="/usr/bin/tool",
         ), patch(
-            "acprof.host.compute_profile._profile_cpu_entries",
+            "acprof.host.profilers.advisor._profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ), patch(
-            "acprof.host.compute_profile._profile_gpu_entries",
+            "acprof.host.profilers.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(
@@ -1311,7 +1310,7 @@ class ComputeProfileTests(unittest.TestCase):
             "acprof.host.compute_profile._host_memory_gb_fraction",
             return_value=48,
         ), patch(
-            "acprof.host.compute_profile._profile_cpu_entries",
+            "acprof.host.profilers.advisor._profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(
@@ -1376,7 +1375,7 @@ class ComputeProfileTests(unittest.TestCase):
                 f.write("#!/bin/sh\n")
 
             self.assertEqual(
-                compute_profile._tool_mount_roots(ncu_path, None),
+                tool_discovery._tool_mount_roots(ncu_path, None),
                 [lib_root, arch_root],
             )
 
@@ -1428,12 +1427,12 @@ class ComputeProfileProgressTests(unittest.TestCase):
     @staticmethod
     def _torch_profile(**kwargs):
         return {
-            "tool": compute_profile.TORCH_PROFILER_TOOL,
+            "tool": torch.TORCH_PROFILER_TOOL,
             "repeat": kwargs["repeat"],
             "error": "",
             "entries": [{
                 "input_scale": entry["input_scale"],
-                "tool": compute_profile.TORCH_PROFILER_TOOL,
+                "tool": torch.TORCH_PROFILER_TOOL,
                 "model_logical_mflop_per_request_torch_profiler_eager": 42.0,
                 "error": "",
             } for entry in kwargs["entries"]],
@@ -1458,12 +1457,12 @@ class ComputeProfileProgressTests(unittest.TestCase):
             elapsed[0] += 100.0
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            compute_profile, "_profile_torch_entries",
+            torch, "_profile_torch_entries",
             side_effect=lambda **kwargs: profile_stage(
                 "GPU Torch" if kwargs["use_gpu"] else "CPU Torch", kwargs,
             ),
         ), patch.object(
-            compute_profile, "_profile_gpu_entries",
+            ncu, "_profile_gpu_entries",
             side_effect=lambda **kwargs: profile_stage("NCU", kwargs),
         ), patch.object(
             compute_profile.time, "perf_counter", side_effect=lambda: elapsed[0],
@@ -1507,7 +1506,7 @@ class ComputeProfileProgressTests(unittest.TestCase):
             return self._torch_profile(**kwargs)
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            compute_profile, "_profile_torch_entries", side_effect=torch_profile,
+            torch, "_profile_torch_entries", side_effect=torch_profile,
         ):
             plan = self._collect(
                 tmp, compute_profile_tool="torch", progress_callback=completions.append,
@@ -1517,7 +1516,7 @@ class ComputeProfileProgressTests(unittest.TestCase):
         self.assertEqual([event.status for event in completions], ["failed", "success"])
         self.assertIn("CPU probe failed", completions[0].detail)
         self.assertEqual(completions[0].error_samples, 2)
-        self.assertEqual(plan["profiles"]["gpu"][compute_profile.TORCH_PROFILER_TOOL]["error"], "")
+        self.assertEqual(plan["profiles"]["gpu"][torch.TORCH_PROFILER_TOOL]["error"], "")
 
     def test_notification_failure_does_not_change_plan_or_stop_next_stage(self):
         attempted = []
@@ -1527,7 +1526,7 @@ class ComputeProfileProgressTests(unittest.TestCase):
             raise RuntimeError("notification failed")
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            compute_profile, "_profile_torch_entries", side_effect=self._torch_profile,
+            torch, "_profile_torch_entries", side_effect=self._torch_profile,
         ):
             expected = self._collect(tmp, compute_profile_tool="torch")
             actual = self._collect(
@@ -1540,21 +1539,21 @@ class ComputeProfileProgressTests(unittest.TestCase):
     def test_disabled_and_inapplicable_tools_do_not_notify(self):
         for mode, gpu_list in (("none", ["off", "on"]), ("ncu", ["off"])):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp, patch.object(
-                compute_profile, "_profile_torch_entries",
-            ) as torch, patch.object(
-                compute_profile, "_profile_gpu_entries",
-            ) as ncu, patch.object(
-                compute_profile, "_profile_cpu_entries",
-            ) as advisor:
+                torch, "_profile_torch_entries",
+            ) as torch_call, patch.object(
+                ncu, "_profile_gpu_entries",
+            ) as ncu_call, patch.object(
+                advisor, "_profile_cpu_entries",
+            ) as advisor_call:
                 completions = []
                 self._collect(
                     tmp, compute_profile_tool=mode, gpu_list=gpu_list,
                     progress_callback=completions.append,
                 )
                 self.assertEqual(completions, [])
-                torch.assert_not_called()
-                ncu.assert_not_called()
-                advisor.assert_not_called()
+                torch_call.assert_not_called()
+                ncu_call.assert_not_called()
+                advisor_call.assert_not_called()
 
 
 if __name__ == "__main__":

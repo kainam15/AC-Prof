@@ -5,8 +5,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acprof.host.detect import TaskInfo
 from acprof.host import execution_profile
+from acprof.host.detect import TaskInfo
 
 
 def _task_info() -> TaskInfo:
@@ -235,7 +235,7 @@ heap_tree=peak
             report_path = os.path.join(tmp, "report.nsys-rep")
             sqlite_path = os.path.join(tmp, "report.sqlite")
             with patch(
-                "acprof.host.execution_profile._run",
+                "acprof.host.execution_profile.run_command",
                 side_effect=fake_run,
             ):
                 outputs = execution_profile._run_nsys_stats(
@@ -271,7 +271,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.execution_profile._run",
+                "acprof.host.execution_profile.run_command",
                 side_effect=fake_run,
             ), self.assertRaisesRegex(RuntimeError, "nsys_stats_failed"):
                 execution_profile._run_nsys_stats(
@@ -370,7 +370,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.profilers.execution_environment._run",
+                "acprof.host.profilers.execution_environment.run_command",
                 side_effect=fake_run,
             ):
                 version = (
@@ -861,7 +861,7 @@ heap_tree=peak
                 "acprof.host.execution_profile._base_docker_cmd",
                 return_value=["docker", "run", "acprof-test:latest"],
             ), patch(
-                "acprof.host.execution_profile._run",
+                "acprof.host.execution_profile.run_command",
                 side_effect=fake_run,
             ), patch(
                 "acprof.host.execution_profile._run_nsys_stats",
@@ -929,7 +929,7 @@ heap_tree=peak
                 "acprof.host.execution_profile._base_docker_cmd",
                 return_value=["docker", "run", "acprof-test:latest"],
             ), patch(
-                "acprof.host.execution_profile._run",
+                "acprof.host.execution_profile.run_command",
                 side_effect=fake_run,
             ):
                 result = execution_profile._collect_nsys_entry(

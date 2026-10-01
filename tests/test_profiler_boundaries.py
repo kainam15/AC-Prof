@@ -1,15 +1,17 @@
 """验证旧解析入口及新纯模块的依赖边界。"""
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+
+from acprof.host.profilers import compute_parsers
 
 
 class ProfilerBoundaryTests(unittest.TestCase):
     def test_compatibility_parsers_have_pure_owners(self):
-        from acprof.host import compute_profile, execution_profile
-        self.assertEqual(compute_profile.parse_ncu_profile_csv.__module__, "acprof.host.profilers.compute_parsers")
+        from acprof.host import execution_profile
+        self.assertEqual(compute_parsers.parse_ncu_profile_csv.__module__, "acprof.host.profilers.compute_parsers")
         self.assertEqual(execution_profile.parse_massif_output.__module__, "acprof.host.profilers.execution_parsers")
         with tempfile.TemporaryDirectory() as directory:
             report = Path(directory) / "massif.out"

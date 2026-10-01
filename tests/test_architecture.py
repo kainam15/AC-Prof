@@ -1,15 +1,37 @@
 """Import boundaries that keep application entry points out of core code."""
 import ast
-from pathlib import Path
 import subprocess
 import sys
 import unittest
-
+from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_short_host_commands_use_the_registered_runner(self):
+        # Resolve import aliases too, so `from subprocess import run` cannot bypass it.
+        violations = []
+        for path in (PROJECT_DIR / "acprof").rglob("*.py"):
+            relative = path.relative_to(PROJECT_DIR).as_posix()
+            if relative.startswith("acprof/container/") or relative == "acprof/host/command.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            aliases = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    aliases.update((a.asname or a.name, a.name) for a in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+                    aliases.update((a.asname or a.name, f"subprocess.{a.name}") for a in node.names)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    name = ast.unparse(node.func)
+                    root, _, rest = name.partition(".")
+                    resolved = aliases.get(root, root) + ("." + rest if rest else "")
+                    if resolved in {f"subprocess.{method}" for method in ("run", "call", "check_call", "check_output", "getoutput", "getstatusoutput")}:
+                        violations.append(f"{relative}:{node.lineno}: {resolved}")
+        self.assertEqual(violations, [])
+
     def test_shared_preflight_does_not_depend_on_run_cli(self):
         for name in ("probe", "posthoc"):
             path = PROJECT_DIR / "acprof" / "cli" / f"{name}.py"

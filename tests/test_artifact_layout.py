@@ -1,19 +1,20 @@
 """Result layout contracts, including interrupted and historical experiments."""
-from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
-from client_fixtures import patch_client
-import json
 import csv
-from contextlib import ExitStack, redirect_stdout
 import io
-from pathlib import Path
+import json
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack, redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host.run_state import RunState
+from client_fixtures import patch_client
+
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from acprof.host.run_state import RunState
 
 
 class ArtifactLayoutTests(unittest.TestCase):
@@ -177,7 +178,7 @@ class ArtifactLayoutTests(unittest.TestCase):
             self.assertEqual(case_sidecar(case.csv, "requests"), case.requests)
 
     def test_ncu_report_reference_is_relative_to_the_experiment_root(self):
-        from acprof.host.compute_profile import _ncu_report_reference
+        from acprof.host.profilers.ncu import _ncu_report_reference
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()

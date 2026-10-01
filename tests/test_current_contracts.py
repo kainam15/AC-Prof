@@ -3,17 +3,17 @@ import contextlib
 import importlib
 import io
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.cli.run_args import build_parser
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
-from acprof.host.compute_profile import _resolve_ncu_metrics, _select_ncu_flop_metrics
-from acprof.host.profiler_common import _load_input_scale_plan_entries
 from acprof.host.dependency_images import runtime_fingerprint
+from acprof.host.profiler_common import _load_input_scale_plan_entries
+from acprof.host.profilers.ncu import _resolve_ncu_metrics, _select_ncu_flop_metrics
 from acprof.host.runtime_validation import validate_runtime
 from acprof.host.static_metadata import enrich_static_meta_from_input_plan
 from acprof.packet.merge_packet_latency import _request_records
@@ -65,7 +65,7 @@ class CurrentContractTests(unittest.TestCase):
 
     def test_failed_ncu_query_does_not_guess_a_metric_list(self):
         failed = SimpleNamespace(returncode=1, stdout="", stderr="query unavailable")
-        with patch("acprof.host.compute_profile._run", return_value=failed):
+        with patch("acprof.host.profilers.ncu.run_command", return_value=failed):
             metrics, error = _resolve_ncu_metrics("ncu")
         self.assertEqual(metrics, [])
         self.assertIn("query unavailable", error)

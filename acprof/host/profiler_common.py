@@ -1,9 +1,8 @@
-"""计算与执行 profiler 共用的命令、负载计划及产物写入工具。"""
+"""计算与执行 profiler 共用的容器参数、负载计划及产物写入工具。"""
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 from typing import Any, Dict, List, Sequence
 
@@ -12,21 +11,9 @@ from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
 
-
 CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
 
 
-def _run(cmd: Sequence[str], check: bool = False, **kwargs) -> subprocess.CompletedProcess:
-    print(f"  [cmd] {' '.join(str(part) for part in cmd)}")
-    return subprocess.run(
-        list(cmd),
-        capture_output=kwargs.pop("capture_output", True),
-        text=True,
-        check=check,
-        encoding="utf-8",
-        errors="replace",
-        **kwargs,
-    )
 
 
 def _format_scale_value(scale: float) -> str:

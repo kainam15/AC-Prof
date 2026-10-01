@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-from acprof.host.profiler_common import _run
+from acprof.host.command import run_command
 from acprof.host.profilers.tool_discovery import _find_nsys_importer
 
 MASSIF_TOOL = "massif"
@@ -29,7 +29,7 @@ def _command_detail(result: Any, limit: int = 2000) -> str:
 
 
 def _inspect_execution_image(image_ref: str) -> Optional[Dict[str, Any]]:
-    result = _run(
+    result = run_command(
         ["docker", "image", "inspect", image_ref, "--format", "{{json .}}"],
         check=False,
     )
@@ -73,7 +73,7 @@ def _massif_version(derived_image: Optional[str]) -> str:
     if not derived_image:
         return "unknown"
     try:
-        result = _run(
+        result = run_command(
             ["docker", "run", "--rm", derived_image, "valgrind", "--version"],
             check=False,
         )
@@ -89,7 +89,7 @@ def _nsys_version(nsys_bin: Optional[str]) -> str:
     if not nsys_bin:
         return "unknown"
     try:
-        result = _run([nsys_bin, "--version"], check=False)
+        result = run_command([nsys_bin, "--version"], check=False)
     except Exception:
         return "unknown"
     if result.returncode != 0:
@@ -113,7 +113,7 @@ def _validate_nsys_container_runtime(
             "nsys_importer_not_found:"
             f"root={os.path.abspath(os.fspath(nsys_mount_root))}"
         )
-    result = _run(
+    result = run_command(
         [
             "docker",
             "run",

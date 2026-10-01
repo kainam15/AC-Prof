@@ -16,13 +16,13 @@ import shutil
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_common import (
     _base_docker_cmd,
     _format_scale_value,
     _load_input_scale_plan_entries,
     _parse_last_json_line,
-    _run,
     _runner_args,
     _write_json_atomic,
 )
@@ -30,25 +30,20 @@ from acprof.host.profiler_progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
 )
-
-
+from acprof.host.profilers.execution_environment import (
+    _command_detail,
+    _massif_version,
+    _nsys_version,
+    _validate_nsys_container_runtime,
+    require_execution_image,
+)
 from acprof.host.profilers.execution_parsers import (
     NSYS_REPORTS,
     _finite_float,
     parse_massif_output,
     parse_nsys_stats_reports,
 )
-
 from acprof.host.profilers.tool_discovery import _find_nsys_executable, _nsys_mount_root
-
-from acprof.host.profilers.execution_environment import (
-    _command_detail,
-    require_execution_image,
-    _massif_version,
-    _nsys_version,
-    _validate_nsys_container_runtime,
-)
-
 
 EXECUTION_PROFILE_PLAN_NAME = "execution_profile_plan.json"
 EXECUTION_PROFILE_DIRNAME = "execution_profiles"
@@ -545,7 +540,7 @@ def _collect_massif_entry(
         f"--massif-out-file=/profiles/{filename}",
         *_runner_args(dict(entry), repeat, "cpu"),
     ]
-    result = _run(command, check=False)
+    result = run_command(command, check=False)
     if result.returncode != 0:
         return _massif_error_entry(
             entry,
@@ -597,7 +592,7 @@ def _run_nsys_stats(nsys_bin: str, report_path: str) -> Dict[str, str]:
             # file directly so later reports do not repeat that freshness
             # check.
             stats_input = report_path if index == 0 else sqlite_path
-            result = _run(
+            result = run_command(
                 [
                     nsys_bin,
                     "stats",
@@ -700,7 +695,7 @@ def _collect_nsys_entry(
         *_runner_args(dict(entry), repeat, "gpu"),
     ]
     try:
-        result = _run(command, check=False)
+        result = run_command(command, check=False)
     except Exception:
         _discard_nsys_raw_stream(host_raw_stream)
         raise

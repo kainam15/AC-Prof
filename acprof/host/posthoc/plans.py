@@ -1,11 +1,8 @@
 """Profiler applicability, collection, and plan reuse."""
 from __future__ import annotations
 
-from acprof.artifact_layout import ArtifactLayout
-
 import copy
 import math
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import (
@@ -18,6 +15,8 @@ from typing import (
     Tuple,
 )
 
+from acprof.artifact_layout import ArtifactLayout
+from acprof.host.command import run_command
 from acprof.host.compute_profile_plan import (
     NCU_PROFILE_KEY,
     TORCH_PROFILE_KEY,
@@ -28,12 +27,12 @@ from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
     POSTHOC_DIRNAME,
     PROJECT_DIR,
-    PosthocError,
-    ResultContext,
     SUPPORTED_TOOLS,
     TOOL_ERROR_FIELD,
     TOOL_GPU_MODES,
     TOOL_METRIC_FIELDS,
+    PosthocError,
+    ResultContext,
     _finite_float,
     _read_plan,
 )
@@ -211,8 +210,8 @@ def _validate_profiler_runtime(
 ) -> None:
     # Validate outputs in a separate container before any profiler starts;
     # whole-process profilers must not include validation allocations.
-    from acprof.host.preflight import require_native_docker, require_native_linux_host
     from acprof.host.docker_runtime import ImageInfo
+    from acprof.host.preflight import require_native_docker, require_native_linux_host
     from acprof.host.runtime_validation import validate_runtime
 
     require_native_linux_host()
@@ -225,7 +224,7 @@ def _validate_profiler_runtime(
         except RuntimeError as exc:
             raise PosthocError(str(exc)) from exc
     else:
-        result = subprocess.run(
+        result = run_command(
             ["docker", "image", "inspect", context.image_tag],
             capture_output=True,
             text=True,

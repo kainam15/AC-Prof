@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from acprof.cli.run_args import build_parser
+from acprof.host.profilers import ncu, torch
 
 
 class CapabilityTests(unittest.TestCase):
@@ -296,8 +297,8 @@ class CapabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             plan = Path(root) / "input.json"
             plan.write_text(json.dumps({"schema_version": 2, "entries": [{"input_scale": 2, "payload": {"rows": [[1, 2], [3, 4]]}}]}))
-            with patch.object(compute_profile, "_profile_torch_entries", side_effect=AssertionError("unsupported Torch must not launch")), patch.object(
-                compute_profile, "_profile_gpu_entries", side_effect=AssertionError("unsupported NCU must not launch")
+            with patch.object(torch, "_profile_torch_entries", side_effect=AssertionError("unsupported Torch must not launch")), patch.object(
+                ncu, "_profile_gpu_entries", side_effect=AssertionError("unsupported NCU must not launch")
             ), patch.object(compute_profile, "_find_executable", side_effect=AssertionError("unsupported tool must not be discovered")):
                 path = compute_profile.collect_compute_profile_plan(
                     task_info=task, image_tag="test", cpu_list=[1], mem_list=[1], gpu_list=["off", "on"],
