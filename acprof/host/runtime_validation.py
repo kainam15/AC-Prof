@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import re
 import subprocess
@@ -13,8 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from acprof.container.runtime_validate import RESULT_PREFIX
+from acprof.host.command import run_command
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
+
+_LOG = logging.getLogger(__name__)
 
 
 def validate_runtime(
@@ -33,9 +37,9 @@ def validate_runtime(
         raise ValueError("镜像缺少 runtime_environment；请使用当前版本重新构建运行环境")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_info.tag):
         raise ValueError("runtime validation requires an immutable image ID")
+    from acprof.artifacts import require_schema_version
     from acprof.host.docker_runtime import _inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
-    from acprof.artifacts import require_schema_version
 
     plan = json.loads(Path(planned.plan_file).read_text())
     require_schema_version(plan, 2, "input_scale_plan.json")
@@ -86,7 +90,7 @@ def validate_runtime(
             print(f"[runtime-check] {device_mode}: {mode} 契约验证（独立容器）", flush=True)
             log = ""
             try:
-                result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
+                result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
                 log = (result.stdout or "") + "\n" + (result.stderr or "")
                 records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines() if line.startswith(RESULT_PREFIX)]
                 state = _inspect_container_state(name) or {}
@@ -111,15 +115,17 @@ def validate_runtime(
                 else:
                     device_result = {"status": "error", "error": log[-4000:] or f"container exit {result.returncode}"}
             except subprocess.TimeoutExpired as exc:
+                _LOG.debug("runtime validation timeout: mode=%s timeout_s=%s", device_mode, timeout_seconds)
                 def decoded(value):
                     return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
 
                 log = decoded(exc.stdout) + "\n" + decoded(exc.stderr)
                 device_result = {"status": "error", "error": f"runtime_validation_timeout ({timeout_seconds:g}s)"}
             except (ValueError, OSError, TypeError, AttributeError) as exc:
+                _LOG.debug("runtime validation failed: mode=%s error_type=%s", device_mode, type(exc).__name__)
                 device_result = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
             finally:
-                subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True)
+                run_command(["docker", "rm", "-f", name], capture_output=True, text=True)
             log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_path.write_text(log)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import json
 import os
 import re
 import subprocess
+from dataclasses import dataclass, replace
+
+from acprof.host.command import run_command
 
 
 class ImageManagementError(RuntimeError):
@@ -140,7 +142,7 @@ class DockerStorage:
 def _run(arguments: tuple[str, ...] | list[str], *, timeout: int = 30) -> str:
     # 不使用输出命令的 host._run，避免破坏 TUI；Docker CLI 沿用其凭据和连接配置。
     try:
-        result = subprocess.run(
+        result = run_command(
             ["docker", *arguments], capture_output=True, text=True, check=False,
             encoding="utf-8", errors="replace", timeout=timeout,
         )
@@ -269,8 +271,8 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
     if not include_space:
         return inventory
     # 仅手动刷新需要完整空间信息；删除前的身份核验不重复扫描 history。
-    from acprof.host.image_graph import describe_inventory
     from acprof.host.image_dependencies import describe_dependencies
+    from acprof.host.image_graph import describe_inventory
     inventory = _read_space(inventory)
     return describe_dependencies(describe_inventory(inventory))
 

@@ -1,12 +1,12 @@
 """在测量窗口外解析物理 GPU；容器与主机采集器共享同一 UUID。"""
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
 import csv
 import os
-import subprocess
+from contextlib import contextmanager
+from contextvars import ContextVar
 
+from acprof.host.command import run_command
 
 _SELECTED: ContextVar[dict | None] = ContextVar("acprof_gpu_device", default=None)
 
@@ -32,7 +32,7 @@ def resolve_gpu_device(selector: str | None = None) -> dict:
                    os.environ.get("ACPROF_GPU_DEVICE", os.environ.get("DEVICE_INDEX", "0"))).strip()
     if not (selector.isdecimal() or selector.startswith("GPU-")) or any(c in selector for c in ",\n\r "):
         raise ValueError("GPU selector must be one physical GPU index or UUID; all and MIG are unsupported")
-    result = subprocess.run(
+    result = run_command(
         ["nvidia-smi", f"--id={selector}",
          "--query-gpu=uuid,index,pci.bus_id,name,memory.total,mig.mode.current",
          "--format=csv,noheader,nounits"],

@@ -1,11 +1,11 @@
 """Doctor reports independent failures without changing host configuration."""
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from contextlib import ExitStack, redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.cli import doctor as cli
@@ -82,7 +82,7 @@ class DoctorTests(unittest.TestCase):
         info = subprocess.CompletedProcess([], 0, "OperatingSystem=Ubuntu\n", "")
         with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote-lab",
                                        "DOCKER_HOST": "unix:///var/run/docker.sock"}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run", side_effect=[context, endpoint, info],
+            "acprof.host.preflight.run_command", side_effect=[context, endpoint, info],
         ):
             check = doctor._check("docker", doctor.preflight.require_native_docker, "Use native Docker")
         self.assertEqual(check.status, "unavailable")
@@ -92,7 +92,7 @@ class DoctorTests(unittest.TestCase):
         context = subprocess.CompletedProcess([], 1, "", "no context")
         info = subprocess.CompletedProcess([], 0, "OperatingSystem=Ubuntu\n", "")
         with patch.dict("os.environ", {}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run", side_effect=[context, info],
+            "acprof.host.preflight.run_command", side_effect=[context, info],
         ):
             check = doctor._check("docker", doctor.preflight.require_native_docker, "Inspect Docker context")
         self.assertEqual(check.status, "unavailable")

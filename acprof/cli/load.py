@@ -2,27 +2,33 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
-from dataclasses import asdict
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import time
-from uuid import uuid4
+from contextlib import contextmanager
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
+from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo, _start_container_session, _stop_container_session, require_image_identity
+from acprof.host.docker_runtime import (
+    ImageInfo,
+    _start_container_session,
+    _stop_container_session,
+    require_image_identity,
+)
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.load_protocol import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
-from acprof.installation import resource_root, module_command
+from acprof.installation import module_command, resource_root
 
 
 @contextmanager
@@ -53,7 +59,7 @@ def capture_packets(path, *, interface):
 
 def validate_packets(path, result):
     command = module_command("acprof.packet.sniff_parse_pcap", python_executable=sys.executable)
-    parsed = subprocess.run([*command, str(path), "8002"], capture_output=True, text=True, check=True)
+    parsed = run_command([*command, str(path), "8002"], capture_output=True, text=True, check=True)
     packets = json.loads(parsed.stdout)
     records = list(packets["requests"].values())
     identifiers = [record.get("request_id") for record in records]

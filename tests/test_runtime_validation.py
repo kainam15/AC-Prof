@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import ImageInfo
-from acprof.host.runtime_validation import validate_runtime
 from acprof.host.profiler_common import _base_docker_cmd
+from acprof.host.runtime_validation import validate_runtime
 
 
 class RuntimeValidationTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class RuntimeValidationTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.subprocess.run', side_effect=run,
+            'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
             root = Path(temporary)
             report = validate_runtime(**self.fixture(root))
@@ -79,7 +79,7 @@ class RuntimeValidationTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 1, stdout='', stderr='ImportError: wrong Transformers version')
 
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.subprocess.run', side_effect=run,
+            'acprof.host.runtime_validation.run_command', side_effect=run,
         ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
             root = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, 'wrong Transformers'):
@@ -99,7 +99,7 @@ class RuntimeValidationTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.subprocess.run', side_effect=run,
+            'acprof.host.runtime_validation.run_command', side_effect=run,
         ):
             with self.assertRaisesRegex(RuntimeError, 'timeout'):
                 validate_runtime(**self.fixture(Path(temporary)))
@@ -109,7 +109,7 @@ class RuntimeValidationTests(unittest.TestCase):
     def test_invalid_validation_response_keeps_report_and_cleans_container(self):
         result = subprocess.CompletedProcess([], 0, stdout='ACPROF_RUNTIME_VALIDATION=[]\n', stderr='')
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.subprocess.run', return_value=result,
+            'acprof.host.runtime_validation.run_command', return_value=result,
         ) as run, patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
             root = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, 'validation response'):
@@ -120,7 +120,7 @@ class RuntimeValidationTests(unittest.TestCase):
     def test_cgroup_oom_is_resource_limit_not_dependency_failure(self):
         result = subprocess.CompletedProcess([], 137, stdout='', stderr='Killed')
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.subprocess.run', return_value=result,
+            'acprof.host.runtime_validation.run_command', return_value=result,
         ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={'OOMKilled': True}):
             report = validate_runtime(**self.fixture(Path(temporary)))
         self.assertEqual(report['status'], 'resource_limited')
@@ -137,6 +137,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
     def test_cli_stops_before_matrix_when_runtime_validation_fails(self):
         import sys
+
         from acprof.cli import run
         from acprof.host.input_plan import PlannedInputScales
 

@@ -5,13 +5,14 @@ import csv
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
+from acprof.host.command import run_command
 
 HARDWARE_FIELDS = ("host_id", "cpu_model", "cpu_affinity", "cpu_policy", "gpu", "runtime_threads")
 
@@ -32,7 +33,7 @@ def _read(path) -> str | None:
 
 def _run(command) -> str | None:
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
+        result = run_command(command, capture_output=True, text=True, timeout=10, check=False)
         return result.stdout.strip() if result.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
         return None

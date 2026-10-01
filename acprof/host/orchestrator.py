@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import math
 import os
 import subprocess
@@ -12,42 +13,43 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.progress_events import emit_event, measurement_boundary
-from acprof.host.hardware_conditions import record_case_conditions
-
+from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
     DEFAULT_IDLE_COOLDOWN_SECONDS,
     DEFAULT_IDLE_SECONDS,
-    DEFAULT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
-from acprof.host.detect import TaskInfo
 from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
-from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
-from acprof.monitors.perf_mips import MIPS_EXIT_CODE
-from acprof.capabilities import measurement_requested, require_profiling_mode
-from acprof.installation import module_command
+from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
     ImageInfo,
-    _sanitize_model_id,
-    _run,
+    _cold_start_client_env,
     _container_runtime_oom_error,
+    _host_port,
     _normalize_gpu_mode,
     _parse_csv_float,
-    _cold_start_client_env,
-    _host_port,
+    _run,
+    _sanitize_model_id,
     _start_container_session,
     _stop_container_session,
 )
+from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.input_plan import (
     _format_scale_value,
-    serialize_input_scales,
     resolve_input_scales,
+    serialize_input_scales,
 )
 from acprof.host.packet_capture import _packet_latency_error, _resolve_packet_latency_runtime
+from acprof.installation import module_command
+from acprof.monitors.perf_mips import MIPS_EXIT_CODE
+from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
+from acprof.progress_events import emit_event, measurement_boundary
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -522,6 +524,7 @@ def run_single_case(
         )
         case_status = "error" if case_incomplete else _case_result_status(out_csv)
     except KeyboardInterrupt:
+        _LOG.debug("case cancelled: %s", case_name)
         case_status = "cancelled"
         raise
     finally:
@@ -531,7 +534,8 @@ def run_single_case(
                     _stop_capture(tcpdump_proc)
             finally:
                 _stop_container_session(session, log_prefix="[case]")
-        except BaseException:
+        except BaseException as exc:
+            _LOG.debug("case cleanup failed: case=%s error_type=%s", case_name, type(exc).__name__)
             case_status = "error"
             raise
         finally:
@@ -959,9 +963,14 @@ def run_matrix(
     cpuset_cpus: str = "",
 ) -> List[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
-    from acprof.host.matrix_plan import MATRIX_PLAN_NAME, matrix_identity, load_matrix_plan, freeze_matrix_plan
-    from acprof.host.startup_probe import PROBE_NAME, run_startup_probes, startup_oom_prefixes
     from acprof.cpu_affinity import normalize_cpu_set
+    from acprof.host.matrix_plan import (
+        MATRIX_PLAN_NAME,
+        freeze_matrix_plan,
+        load_matrix_plan,
+        matrix_identity,
+    )
+    from acprof.host.startup_probe import PROBE_NAME, run_startup_probes, startup_oom_prefixes
 
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     request_timeout_seconds = float(request_timeout_seconds)

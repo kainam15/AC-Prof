@@ -2,8 +2,8 @@
 
 import json
 import subprocess
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host import image_management
@@ -24,7 +24,7 @@ class DockerStorageTests(unittest.TestCase):
         ]
         self.fail_df = False
         self.commands = []
-        patcher = patch("acprof.host.image_management.subprocess.run", side_effect=self.run_docker)
+        patcher = patch("acprof.host.image_management.run_command", side_effect=self.run_docker)
         patcher.start()
         self.addCleanup(patcher.stop)
         patcher = patch("os.uname", return_value=SimpleNamespace(nodename="local-machine"))

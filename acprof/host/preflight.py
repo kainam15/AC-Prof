@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from acprof.capabilities import Capability, CapabilityStatus, capability_from_error
-
+from acprof.host.command import run_command
 
 NATIVE_DOCKER_SOCKET = "/var/run/docker.sock"
 
@@ -192,7 +192,7 @@ def _exit_docker_desktop() -> None:
 def require_native_docker() -> None:
     """Require the local native-Linux Docker daemon used by host monitors."""
     try:
-        context_result = subprocess.run(
+        context_result = run_command(
             ["docker", "context", "show"],
             capture_output=True,
             text=True,
@@ -211,7 +211,7 @@ def require_native_docker() -> None:
                        os.environ.get("DOCKER_HOST", "").strip())
         if not docker_host and context_result.returncode == 0:
             context_name = context_result.stdout.strip()
-            endpoint_result = subprocess.run(
+            endpoint_result = run_command(
                 [
                     "docker",
                     "context",
@@ -232,7 +232,7 @@ def require_native_docker() -> None:
         if not _docker_host_is_native_socket(docker_host):
             _exit_nonlocal_docker(docker_host)
 
-        result = subprocess.run(
+        result = run_command(
             [
                 "docker",
                 "info",

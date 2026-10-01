@@ -12,16 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from acprof.host.env_utils import load_project_env
-
 from acprof.capabilities import Capability, measurement_requested
-from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
-from acprof.host.packet_capture import tcpdump_capability_available
-
 from acprof.experiment import RunConfig
-from acprof.tui.commands import _csv_values
-
+from acprof.host.command import run_command
+from acprof.host.env_utils import load_project_env
+from acprof.host.packet_capture import tcpdump_capability_available
+from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.messages import message
+from acprof.tui.commands import _csv_values
 
 
 @dataclass(frozen=True)
@@ -37,7 +35,7 @@ def _completed_command(
     *,
     timeout: float = 10.0,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    return run_command(
         list(command),
         capture_output=True,
         text=True,

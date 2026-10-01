@@ -3,32 +3,36 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import math
 import os
 import re
 import shutil
 import subprocess
 import sys
-import time
 import tempfile
+import time
 import uuid
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     DOCKER_IMAGE_PREFIX,
-    SERVER_PORT,
     READY_POLL_INTERVAL_S,
     READY_TIMEOUT_S,
+    SERVER_PORT,
 )
-from acprof.host.detect import TaskInfo
+from acprof.host.command import run_command
 from acprof.host.container_lifecycle import container_owner_labels, recover_abandoned_containers
+from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.runtime_settings import runtime_docker_env_args
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -82,8 +86,7 @@ def _sanitize_model_id(model_id: str) -> str:
 
 def _run(cmd: List[str], check: bool = True, capture: bool = True, **kwargs) -> subprocess.CompletedProcess:
     """Run a subprocess with error handling."""
-    print(f"  [cmd] {' '.join(cmd)}")
-    return subprocess.run(
+    return run_command(
         cmd,
         capture_output=capture,
         text=True,
@@ -97,7 +100,7 @@ def _run(cmd: List[str], check: bool = True, capture: bool = True, **kwargs) -> 
 def _inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
     """Return Docker's runtime state without flooding readiness logs."""
     try:
-        result = subprocess.run(
+        result = run_command(
             [
                 "docker",
                 "inspect",
@@ -111,7 +114,8 @@ def _inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
             encoding="utf-8",
             errors="replace",
         )
-    except OSError:
+    except OSError as exc:
+        _LOG.debug("container inspect unavailable: error_type=%s", type(exc).__name__)
         return None
 
     if result.returncode != 0 or not result.stdout.strip():

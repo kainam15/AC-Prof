@@ -1,18 +1,18 @@
 """Bounded prerequisite checks; no installs, image pulls or permission changes."""
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import asdict, dataclass
 import io
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
-import subprocess
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Callable
 
 from acprof.host import preflight
+from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.installation import resource_root
 
@@ -37,7 +37,7 @@ def _check(name: str, action: Callable[[], str | None], remedy: str) -> DoctorCh
 
 
 def _command(arguments: list[str]) -> str:
-    result = subprocess.run(arguments, capture_output=True, text=True, encoding="utf-8",
+    result = run_command(arguments, capture_output=True, text=True, encoding="utf-8",
                             errors="replace", timeout=15, check=False)
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout).strip() or
@@ -75,7 +75,10 @@ def _capability(probe: Callable) -> str:
 
 
 def _packet(sniff_iface: str) -> str:
-    from acprof.host.packet_capture import TCPDUMP_CAPTURE_CAPABILITY, _tcpdump_can_capture_without_sudo
+    from acprof.host.packet_capture import (
+        TCPDUMP_CAPTURE_CAPABILITY,
+        _tcpdump_can_capture_without_sudo,
+    )
     for tool in ("tcpdump", "tshark"):
         if not shutil.which(tool):
             raise RuntimeError(f"未安装 {tool}")

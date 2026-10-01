@@ -1,10 +1,10 @@
 """Permission installation runs only a reviewed, fixed system-tool plan."""
-from dataclasses import replace
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.host import permissions
@@ -24,7 +24,7 @@ class PermissionSetupTests(unittest.TestCase):
             self.addCleanup(context.stop)
 
     def test_review_does_not_execute_and_grants_only_selected_capability(self):
-        with patch.object(permissions.subprocess, 'run') as run:
+        with patch.object(permissions, 'run_command') as run:
             plan = permissions.build_permission_plan(('perf',))
         run.assert_not_called()
         self.assertEqual([target.name for target in plan.targets], ['perf'])
@@ -35,7 +35,7 @@ class PermissionSetupTests(unittest.TestCase):
     def test_modified_plan_cannot_run_arbitrary_root_commands(self):
         plan = permissions.build_permission_plan(('perf',))
         forged = replace(plan, commands=((str(self.root / 'sudo'), 'sh', '-c', 'unreviewed'),))
-        with patch.object(permissions.subprocess, 'run') as run:
+        with patch.object(permissions, 'run_command') as run:
             with self.assertRaisesRegex(ValueError, 'review'):
                 permissions.execute_permission_plan(forged, backup_path=self.root / 'backup.json')
         run.assert_not_called()
@@ -50,7 +50,7 @@ class PermissionSetupTests(unittest.TestCase):
             self.assertTrue(backup.exists(), 'Save original permissions before the first mutation')
             return subprocess.CompletedProcess(command, 1)
 
-        with patch.object(permissions.subprocess, 'run', side_effect=run) as runner:
+        with patch.object(permissions, 'run_command', side_effect=run) as runner:
             with self.assertRaisesRegex(RuntimeError, 'step 1/'):
                 permissions.execute_permission_plan(plan, backup_path=backup)
         self.assertEqual(runner.call_count, 3)
@@ -61,7 +61,7 @@ class PermissionSetupTests(unittest.TestCase):
     def test_executable_replaced_after_review_requires_new_plan(self):
         plan = permissions.build_permission_plan(('perf',))
         (self.root / 'perf').write_bytes(b'\x7fELFchanged-after-review')
-        with patch.object(permissions.subprocess, 'run') as run:
+        with patch.object(permissions, 'run_command') as run:
             with self.assertRaises(ValueError):
                 permissions.execute_permission_plan(plan, backup_path=self.root / 'backup.json')
         run.assert_not_called()

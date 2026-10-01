@@ -1,13 +1,14 @@
 """Contract probes run outside measurements and publish only observed evidence."""
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-import test_runtime_validation as runtime_fixture
 import test_model_contract as contract_fixture
+import test_runtime_validation as runtime_fixture
+
 from acprof.host.runtime_validation import validate_runtime
 
 
@@ -25,7 +26,7 @@ class ModelProbeTests(unittest.TestCase):
         response = {"status": "ok", "mode": "basic", "stages": [
             {"stage": stage, "status": "verified"} for stage in ("import", "signature")], "inference": "not_run"}
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.subprocess.run", return_value=subprocess.CompletedProcess([], 0,
+            "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
                 stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr=""),
         ) as run, patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
@@ -50,7 +51,7 @@ class ModelProbeTests(unittest.TestCase):
             commands.append(command)
             return subprocess.CompletedProcess(command, 0, stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr="")
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.subprocess.run", side_effect=run,
+            "acprof.host.runtime_validation.run_command", side_effect=run,
         ), patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
@@ -68,7 +69,7 @@ class ModelProbeTests(unittest.TestCase):
 
     def test_incomplete_runtime_record_never_becomes_verified(self):
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.subprocess.run", return_value=subprocess.CompletedProcess([], 0,
+            "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
                     stdout='ACPROF_RUNTIME_VALIDATION={"status":"ok"}', stderr=""),
         ), patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()

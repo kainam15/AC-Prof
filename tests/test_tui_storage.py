@@ -1,24 +1,29 @@
 """Storage modal interaction, accounting display and measurement exclusion."""
 
 import asyncio
+import os
+import tempfile
+import unittest
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
-import os
-import tempfile
 from threading import Event
-import unittest
 from unittest.mock import patch
 
-from rich.console import Console
 from rich.cells import cell_len
+from rich.console import Console
+from test_image_management import FINAL, DockerFixture
 from textual.widgets import Button, DataTable, Static
 
-from acprof.host.image_management import DiskSpace, DockerStorage, StorageUsage, ImageManagementError
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig
-from test_image_management import DockerFixture, FINAL
+from acprof.host.image_management import (
+    DiskSpace,
+    DockerStorage,
+    ImageManagementError,
+    StorageUsage,
+)
+from acprof.tui.app import AcprofTui
+from acprof.tui.progress import ProgressSnapshot
 
 
 class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
@@ -27,7 +32,7 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.docker = DockerFixture()
-        for patcher in (patch("acprof.host.image_management.subprocess.run", side_effect=self.docker.run),
+        for patcher in (patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
                         patch.dict(os.environ, {}, clear=True),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             patcher.start()

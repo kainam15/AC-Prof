@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass, replace
 import math
 import os
 import shlex
@@ -19,40 +18,38 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from acprof.host.command import run_command
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
 
-from acprof.config import SCALING_DIMENSIONS
-from acprof.installation import cli_command, resource_root
-from acprof.latency_slo import parse_latency_slo_rules, resolve_latency_slo
-from acprof.capabilities import (
-    measurement_requested, measurement_report, apply_extension,
-    apply_runtime_validation, apply_profiler_plan, apply_collection_result,
-    Capability, CapabilityReport, missing_required_measurements,
-)
-from acprof.host.env_utils import bootstrap_project_env
-from acprof.host.run_state import RunState, RunStateError, load_run_state, run_options
 from acprof.artifact_layout import ArtifactLayout
-from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device, selected_gpu_device
-from acprof.host.preflight import (
-    require_native_linux_host,
-    require_cgroup_prerequisites,
-    require_result_cgroup_compatibility,
-    require_native_docker,
-    require_cpu_energy_prerequisites,
-    require_mips_prerequisites,
+from acprof.capabilities import (
+    Capability,
+    CapabilityReport,
+    apply_collection_result,
+    apply_extension,
+    apply_profiler_plan,
+    apply_runtime_validation,
+    measurement_report,
+    measurement_requested,
+    missing_required_measurements,
 )
 from acprof.cli.run_args import build_parser as _build_parser
+from acprof.config import SCALING_DIMENSIONS
 from acprof.host.collection_history import (
     COLLECTION_HISTORY_NAME,
     empty_collection_history,
     write_collection_history_json,
 )
+from acprof.host.env_utils import bootstrap_project_env
+from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device, selected_gpu_device
 from acprof.host.orchestrator import (
     EnergyProfilingError,
     MatrixProgress,
@@ -62,8 +59,19 @@ from acprof.host.packet_capture import (
     PacketLatencyError,
     require_packet_latency_prerequisites,
 )
+from acprof.host.preflight import (
+    require_cgroup_prerequisites,
+    require_cpu_energy_prerequisites,
+    require_mips_prerequisites,
+    require_native_docker,
+    require_native_linux_host,
+    require_result_cgroup_compatibility,
+)
 from acprof.host.profiler_progress import ProfilerProgress
+from acprof.host.run_state import RunState, RunStateError, load_run_state, run_options
 from acprof.host.task_support import TaskSupportError
+from acprof.installation import cli_command, resource_root
+from acprof.latency_slo import parse_latency_slo_rules, resolve_latency_slo
 from acprof.notifications import (
     NotificationConfigError,
     NotificationError,
@@ -133,7 +141,7 @@ def _start_tmux_terminal_log(
         return None
 
     try:
-        pipe_status = subprocess.run(
+        pipe_status = run_command(
             [
                 "tmux",
                 "display-message",
@@ -179,7 +187,7 @@ def _start_tmux_terminal_log(
 
     pipe_command = f"cat >> {shlex.quote(partial_path)}"
     try:
-        pipe_result = subprocess.run(
+        pipe_result = run_command(
             [
                 "tmux",
                 "pipe-pane",
@@ -216,7 +224,7 @@ def _stop_tmux_terminal_log(
     """Stop the pane pipe and atomically publish the completed terminal log."""
     pane_id, partial_path, log_path = terminal_log
     try:
-        close_result = subprocess.run(
+        close_result = run_command(
             ["tmux", "pipe-pane", "-t", pane_id],
             capture_output=True,
             text=True,
@@ -619,16 +627,16 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                      rapl_topology, preflight_measurements, latency_slo,
                      require_full_validation=False, workflow=None) -> _PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
+    from acprof.host.collection_workflow import PreparationWorkflow
     from acprof.host.docker_runtime import prepare_image
     from acprof.host.input_plan import plan_input_scales
-    from acprof.host.collection_workflow import PreparationWorkflow
     workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
         collect_static_meta,
         enrich_static_meta,
-        enrich_static_meta_from_input_plan,
         enrich_static_meta_from_compute_plan,
         enrich_static_meta_from_execution_plan,
+        enrich_static_meta_from_input_plan,
         write_static_meta_json,
     )
 
@@ -887,7 +895,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         )
     except ValueError as exc:
         parser.error(str(exc))
-    from acprof.monitors.rapl_topology import dram_policy, discover_rapl_topology
+    from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
     try:
         dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
     except ValueError as exc:
@@ -927,6 +935,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
             parser.error(f"{option} must be > 0")
 
     from dataclasses import asdict
+
     from acprof.experiment import RunConfig
     try:
         common = RunConfig.from_namespace(args).validate(project_dir=Path.cwd())

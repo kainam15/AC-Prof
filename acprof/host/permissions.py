@@ -1,15 +1,15 @@
 """Explicit, administrator-approved setup; never called by measurement code."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import platform
 import shutil
 import stat
-import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
+from acprof.host.command import run_command
 
 
 @dataclass(frozen=True)
@@ -102,13 +102,13 @@ def execute_permission_plan(plan: PermissionPlan, *, backup_path: Path) -> None:
         entry = {'path': target.path, 'uid': info.st_uid, 'gid': info.st_gid,
                  'mode': oct(stat.S_IMODE(info.st_mode))}
         for tool, args in (('getfacl', ['-p', '-n']), ('getcap', [])):
-            result = subprocess.run([str(system_executable(tool)), *args, target.path],
+            result = run_command([str(system_executable(tool)), *args, target.path],
                                     capture_output=True, text=True, timeout=5, check=True)
             entry[tool] = result.stdout
         entries.append(entry)
     atomic_write_json(backup_path, {'uid': plan.uid, 'targets': entries})
     for index, command in enumerate(plan.commands, start=1):
-        result = subprocess.run([plan.sudo, '--', *command], timeout=120, check=False)
+        result = run_command([plan.sudo, '--', *command], timeout=120, check=False, capture_output=False)
         if result.returncode:
             raise RuntimeError(
                 f'Permission setup stopped at step {index}/{len(plan.commands)} '

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import json
-from collections import Counter
-import subprocess
 import sys
+from collections import Counter
 from typing import Sequence
 
+from acprof.host.command import run_command
 
 # 用法：
 #   python3 -m acprof.packet.sniff_parse_pcap <pcap> <port>
@@ -15,7 +15,7 @@ from typing import Sequence
 
 
 def run(cmd):
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = run_command(cmd, capture_output=True, text=True)
     if p.returncode != 0:
         raise SystemExit(p.stderr.strip() or p.stdout.strip())
     return p.stdout

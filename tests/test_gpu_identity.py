@@ -2,10 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host import docker_runtime
+from acprof.host import docker_runtime, gpu_device
 from acprof.host.detect import TaskInfo
-from acprof.host import gpu_device
-
 
 DEVICE = {"uuid": "GPU-second", "index": 1, "pci_bus_id": "00000000:02:00.0",
           "name": "Second GPU", "memory_total_bytes": 8 * 1024 ** 3}
@@ -15,7 +13,7 @@ class GPUIdentityTests(unittest.TestCase):
     def test_resolves_index_to_uuid_and_pins_it_only_for_one_run(self):
         result = SimpleNamespace(returncode=0, stderr="", stdout=
                                  "GPU-second, 1, 00000000:02:00.0, Second GPU, 8192, N/A\n")
-        with gpu_device.gpu_device_scope(), patch.object(gpu_device.subprocess, "run", return_value=result) as run:
+        with gpu_device.gpu_device_scope(), patch.object(gpu_device, "run_command", return_value=result) as run:
             self.assertEqual(gpu_device.pin_gpu_device("1"), DEVICE)
             self.assertEqual(gpu_device.gpu_docker_args()[1], "device=GPU-second")
             run.assert_called_once()
@@ -23,12 +21,12 @@ class GPUIdentityTests(unittest.TestCase):
         self.assertEqual(gpu_device.selected_gpu_device(), {})
 
     def test_rejects_ambiguous_and_mig_device_selection(self):
-        with patch.object(gpu_device.subprocess, "run") as run:
+        with patch.object(gpu_device, "run_command") as run:
             for selector in ("all", "0,1", "MIG-GPU-abc/0/1", "-1", "GPU-one\nsecond"):
                 with self.subTest(selector=selector), self.assertRaises(ValueError):
                     gpu_device.resolve_gpu_device(selector)
             run.assert_not_called()
-        with patch.object(gpu_device.subprocess, "run", return_value=SimpleNamespace(
+        with patch.object(gpu_device, "run_command", return_value=SimpleNamespace(
             returncode=0, stderr="", stdout="GPU-second, 1, bus, GPU, 8192, Enabled\n"
         )), self.assertRaisesRegex(RuntimeError, "MIG"):
             gpu_device.resolve_gpu_device("1")

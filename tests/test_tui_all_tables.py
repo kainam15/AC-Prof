@@ -1,21 +1,21 @@
 """报告和镜像树通过鼠标边界调整列宽。"""
 
-from dataclasses import replace
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
-from textual.widgets import DataTable, Tree
-
-from acprof.tui.app import AcprofTui
-from acprof.experiment import RunConfig
-from acprof.tui.progress import ProgressSnapshot
-from acprof.tui.reports import ReportRow, ReportView
 from test_image_management import DockerFixture
 from test_tui_table_resize import drag, header_offset
+from textual.widgets import DataTable, Tree
+
+from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
+from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.reports import ReportRow, ReportView
 
 
 class AllTablesTests(unittest.IsolatedAsyncioTestCase):
@@ -25,7 +25,7 @@ class AllTablesTests(unittest.IsolatedAsyncioTestCase):
         self.directory = Path(temporary.name)
         self.docker = DockerFixture()
         for context in (patch.dict(os.environ, {}, clear=True),
-                        patch("acprof.host.image_management.subprocess.run", side_effect=self.docker.run),
+                        patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             context.start()
             self.addCleanup(context.stop)

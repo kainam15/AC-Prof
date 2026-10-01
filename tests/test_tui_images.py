@@ -1,24 +1,39 @@
 """镜像管理应提供可操作列表，并与采集和其它 Docker 操作互斥。"""
 
-from pathlib import Path
-from dataclasses import replace
 import asyncio
 import os
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
-from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Input, Static, TabbedContent, TabPane, Tree
+from test_image_management import FINAL, RUNTIME, WEIGHTS, DockerFixture, dependency_images, image
+from test_tui_table_resize import drag, header_offset
+from textual.widgets import (
+    Button,
+    Collapsible,
+    ContentSwitcher,
+    DataTable,
+    Input,
+    Static,
+    TabbedContent,
+    TabPane,
+    Tree,
+)
 
+from acprof.experiment import RunConfig
+from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
 from acprof.tui.app import AcprofTui, PendingLaunch
 from acprof.tui.image_actions import ImageActions
-from acprof.experiment import RunConfig
+from acprof.tui.images import (
+    filtered_images,
+    image_display_name,
+    image_metadata,
+    layer_image_detail,
+)
 from acprof.tui.progress import ProgressSnapshot
-from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
-from acprof.tui.images import filtered_images, image_metadata, image_display_name, layer_image_detail
-from test_image_management import DockerFixture, FINAL, RUNTIME, WEIGHTS, dependency_images, image
-from test_tui_table_resize import drag, header_offset
 
 
 class ImageDisplayNameTests(unittest.TestCase):
@@ -50,7 +65,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.docker = DockerFixture()
-        docker_patch = patch("acprof.host.image_management.subprocess.run", side_effect=self.docker.run)
+        docker_patch = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
         docker_patch.start()
         self.addCleanup(docker_patch.stop)
         environment = patch.dict(os.environ, {}, clear=True)

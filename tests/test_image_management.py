@@ -7,9 +7,8 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from acprof.host.image_management import ImageManagementError, delete_images, list_images
 from acprof.host.image_graph import reclaimable_image_bytes
-
+from acprof.host.image_management import ImageManagementError, delete_images, list_images
 
 RUNTIME = "sha256:" + "a" * 64
 WEIGHTS = "sha256:" + "b" * 64
@@ -112,6 +111,7 @@ class DockerFixture:
 
 def dependency_images(docker, profile="moss-transformers560"):
     from pathlib import Path
+
     from acprof.host.dependency_images import platform_fingerprint
     from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS, environment_id
 
@@ -149,7 +149,7 @@ def dependency_images(docker, profile="moss-transformers560"):
 class ImageManagementTests(unittest.TestCase):
     def setUp(self):
         self.docker = DockerFixture()
-        patcher = patch("acprof.host.image_management.subprocess.run", side_effect=self.docker.run)
+        patcher = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
         patcher.start()
         self.addCleanup(patcher.stop)
         environment = patch.dict(os.environ, {}, clear=True)
@@ -258,8 +258,9 @@ class ImageManagementTests(unittest.TestCase):
         self.assertIsNone(reclaimable_image_bytes(inventory, (FINAL, WEIGHTS)))
 
     def test_runtime_display_names_require_matching_environment_identity(self):
-        from acprof.runtime_profiles import ENVIRONMENTS, environment_id
         from pathlib import Path
+
+        from acprof.runtime_profiles import ENVIRONMENTS, environment_id
         root = Path(__file__).resolve().parents[1]
         self.docker.images[RUNTIME]["RepoTags"] = ["acprof-runtime-env:opaque"]
         self.docker.images[RUNTIME]["Config"]["Labels"] = {
@@ -369,10 +370,10 @@ class ImageManagementTests(unittest.TestCase):
 
     def test_timeout_and_bad_docker_output_are_errors_not_empty_inventory(self):
         for effect in (subprocess.TimeoutExpired("docker", 30), FileNotFoundError("docker")):
-            with self.subTest(effect=effect), patch("acprof.host.image_management.subprocess.run", side_effect=effect):
+            with self.subTest(effect=effect), patch("acprof.host.image_management.run_command", side_effect=effect):
                 with self.assertRaises(ImageManagementError):
                     list_images()
-        with patch("acprof.host.image_management.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "bad-json", "")):
+        with patch("acprof.host.image_management.run_command", return_value=subprocess.CompletedProcess([], 0, "bad-json", "")):
             with self.assertRaises(ImageManagementError):
                 list_images()
 

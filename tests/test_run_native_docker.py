@@ -1,4 +1,3 @@
-import acprof.host.preflight as host_preflight
 import io
 import json
 import os
@@ -9,9 +8,9 @@ from contextlib import redirect_stderr
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acprof.host import docker_runtime, input_plan
-from acprof.host import orchestrator
+import acprof.host.preflight as host_preflight
 from acprof.cli import run
+from acprof.host import docker_runtime, input_plan, orchestrator
 from acprof.host.detect import TaskInfo
 
 
@@ -21,7 +20,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             "acprof.cli.run.os.environ",
             {},
             clear=True,
-        ), patch("acprof.cli.run.subprocess.run") as mock_run:
+        ), patch("acprof.cli.run.run_command") as mock_run:
             terminal_log = run._start_tmux_terminal_log(
                 "/tmp/acprof-results",
                 ["run.py", "--model", "dummy-model"],
@@ -49,7 +48,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             },
             clear=True,
         ), patch(
-            "acprof.cli.run.subprocess.run",
+            "acprof.cli.run.run_command",
             side_effect=fake_run,
         ):
             output_dir = os.path.join(tmp, "results", "org--model")
@@ -376,7 +375,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         context = SimpleNamespace(returncode=0, stdout="desktop-linux\n", stderr="")
 
         with patch.dict("acprof.host.preflight.os.environ", {}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run",
+            "acprof.host.preflight.run_command",
             return_value=context,
         ) as mock_run, patch(
             "builtins.print"
@@ -408,7 +407,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         )
 
         with patch.dict("acprof.host.preflight.os.environ", {}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run",
+            "acprof.host.preflight.run_command",
             side_effect=[context, endpoint, completed],
         ), patch(
             "builtins.print"
@@ -440,7 +439,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         )
 
         with patch.dict("acprof.host.preflight.os.environ", {}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run",
+            "acprof.host.preflight.run_command",
             side_effect=[context, endpoint, completed],
         ):
             run.require_native_docker()
@@ -455,7 +454,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         stderr = io.StringIO()
 
         with patch.dict("acprof.host.preflight.os.environ", {}, clear=True), patch(
-            "acprof.host.preflight.subprocess.run",
+            "acprof.host.preflight.run_command",
             side_effect=[context, endpoint],
         ) as mock_run, self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_native_docker()
@@ -474,7 +473,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             {"DOCKER_HOST": "unix:///var/run/docker-native.sock"},
             clear=True,
         ), patch(
-            "acprof.host.preflight.subprocess.run",
+            "acprof.host.preflight.run_command",
             return_value=context,
         ) as mock_run, self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_native_docker()

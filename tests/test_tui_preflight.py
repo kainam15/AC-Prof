@@ -1,15 +1,15 @@
 """Quick checks must exercise the same perf access paths as formal collection."""
 
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.experiment import RunConfig
-from acprof.tui.diagnostics import quick_preflight
 from acprof.monitors.perf_mips import PERF_PROBE_TIMEOUT_S
+from acprof.tui.diagnostics import quick_preflight
 
 
 class TuiPreflightTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class TuiPreflightTests(unittest.TestCase):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     def run_check(self, responses):
-        with patch("acprof.monitors.perf_mips.subprocess.run", side_effect=responses) as run:
+        with patch("acprof.monitors.perf_mips.run_command", side_effect=responses) as run:
             checks = quick_preflight(
                 RunConfig(model="", gpus="on"), project_dir=self.project_dir,
                 command_runner=self.host_command,
@@ -84,7 +84,7 @@ class TuiPreflightTests(unittest.TestCase):
             if Path(command[0]).name == 'getcap':
                 return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
             return self.host_command(command, **kwargs)
-        with patch('acprof.monitors.perf_mips.subprocess.run', return_value=self.result()), patch(
+        with patch('acprof.monitors.perf_mips.run_command', return_value=self.result()), patch(
             'acprof.tui.diagnostics.os.geteuid', return_value=1000,
         ):
             checks = quick_preflight(RunConfig(gpus='off'), project_dir=self.project_dir,
