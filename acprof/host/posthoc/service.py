@@ -11,6 +11,7 @@ from typing import (
     Optional,
 )
 
+from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
 from acprof.host.posthoc.backfill import (
     backfill_rows,
     csv_tool_complete,
@@ -19,11 +20,11 @@ from acprof.host.posthoc.backfill import (
 )
 from acprof.host.posthoc.context import (
     POSTHOC_DIRNAME,
-    PosthocError,
-    PosthocSummary,
     STATIC_META_NAME,
     SUPPORTED_TOOLS,
     TOOL_GPU_MODES,
+    PosthocError,
+    PosthocSummary,
     _read_plan,
     load_result_context,
 )
@@ -45,7 +46,6 @@ from acprof.host.posthoc.storage import (
     create_backup,
     find_active_processes,
 )
-from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
 
 
 @gpu_device_scope()

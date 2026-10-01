@@ -1,16 +1,15 @@
 """工具入口必须可以脱离源码工作目录运行。"""
-import os
 import json
-from pathlib import Path
+import os
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
-import shlex
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.experiment import RunConfig, build_run_command
-
 
 ROOT = Path(__file__).resolve().parents[1]
 

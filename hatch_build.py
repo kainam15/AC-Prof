@@ -1,7 +1,7 @@
 """Ship a self-contained Docker context without workspace files or credentials."""
-from pathlib import Path
 import shutil
 import tempfile
+from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 

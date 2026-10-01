@@ -1,15 +1,20 @@
 import io
-from pathlib import Path
 import json
 import subprocess
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
+from acprof.container.model_files import seal_plan
 from acprof.host import docker_runtime
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import request_fingerprint, REQUEST_LABEL, FINGERPRINT_LABEL, build_fingerprint
-from acprof.container.model_files import seal_plan
+from acprof.host.runtime_images import (
+    FINGERPRINT_LABEL,
+    REQUEST_LABEL,
+    build_fingerprint,
+    request_fingerprint,
+)
 
 
 class PrepareImageTests(unittest.TestCase):
@@ -41,9 +46,9 @@ class PrepareImageTests(unittest.TestCase):
             }),
         }
 
-        from acprof.runtime_profiles import PROFILES, environment_identity
         from acprof.dependency_locks import content_digest, package_versions, system_lock_identity
         from acprof.host.dependency_images import platform_fingerprint, runtime_fingerprint
+        from acprof.runtime_profiles import PROFILES, environment_identity
         environment = PROFILES['nlp-cu128'].environment
         identity = environment_identity(environment, self.project_dir)
         self.manifest.update({

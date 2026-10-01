@@ -1,11 +1,11 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from textual.widgets import Checkbox, ContentSwitcher
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig, build_run_command
+from acprof.tui.app import AcprofTui
 
 
 class TuiResumeTests(unittest.IsolatedAsyncioTestCase):

@@ -8,7 +8,14 @@ import onnxruntime as ort
 
 from acprof.container.handlers import BaseHandler
 from acprof.container.handlers.structured import _dense_matrix, _positive_integer
-from acprof.container.onnx_session import load_session, run_session, tensor_metadata, validate_artifact, validate_inputs, validate_outputs
+from acprof.container.onnx_session import (
+    load_session,
+    run_session,
+    tensor_metadata,
+    validate_artifact,
+    validate_inputs,
+    validate_outputs,
+)
 
 
 class ONNXRuntimeHandler(BaseHandler):

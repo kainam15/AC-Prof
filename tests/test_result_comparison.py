@@ -5,9 +5,9 @@ import csv
 import importlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from acprof.cli.audit import main
 from acprof.cli.run_args import build_parser

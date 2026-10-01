@@ -16,7 +16,6 @@ from pathlib import Path
 
 import torch
 
-
 TASKS = {
     "tabular-classification": (8, 3), "tabular-regression": (8, 1),
     "reinforcement-learning": (4, 2), "robotics": (7, 7), "graph-ml": (16, 2),

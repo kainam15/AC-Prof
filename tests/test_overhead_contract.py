@@ -1,15 +1,16 @@
 """Exercise the real full diagnostic orchestration; only hardware and HTTP are fake."""
+import json
+import tempfile
+import unittest
 from contextlib import ExitStack
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import tempfile
 from types import SimpleNamespace
-import unittest
 from unittest.mock import Mock, patch
 
-from scripts import measure_overhead as overhead
 from test_overhead import group
+
+from scripts import measure_overhead as overhead
 
 
 @dataclass

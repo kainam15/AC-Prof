@@ -1,9 +1,9 @@
 """Versioned, low-frequency control records emitted outside measurement windows."""
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import os
+from contextlib import contextmanager
 
 PREFIX = "ACPROF_EVENT "
 VERSION = 1

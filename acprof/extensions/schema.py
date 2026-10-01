@@ -1,10 +1,10 @@
 """Typed, standard-library-only validation for internal extension manifests."""
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field, fields, is_dataclass
 import math
 import types
+from copy import deepcopy
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 

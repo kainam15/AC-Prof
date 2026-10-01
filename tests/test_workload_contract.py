@@ -1,9 +1,9 @@
-import unittest
 import csv
 import io
 import json
+import unittest
 
-from acprof.workloads.contract import workload_contract, summarize_workload_contracts
+from acprof.workloads.contract import summarize_workload_contracts, workload_contract
 
 
 class WorkloadContractTests(unittest.TestCase):

@@ -12,7 +12,6 @@ import math
 import os
 from typing import Any, Dict, Iterable, Mapping, Optional, Set, Tuple
 
-
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 MASSIF_TOOL_KEY = "massif"
 NSYS_TOOL_KEY = "nsys"

@@ -6,15 +6,14 @@ these tests do not measure the quality of pretrained checkpoints.
 
 import importlib.util
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
-
-from acprof.container.handlers.audio import AudioHandler
 from test_audio_handler import wav_base64
 
+from acprof.container.handlers.audio import AudioHandler
 
 _HAS_RUNTIME = all(importlib.util.find_spec(name) for name in ("torch", "transformers", "scipy"))
 
@@ -23,8 +22,12 @@ _HAS_RUNTIME = all(importlib.util.find_spec(name) for name in ("torch", "transfo
 class AudioRuntimeTests(unittest.TestCase):
     def test_wav2vec_asr_and_classification_run_offline(self):
         from transformers import (
-            Wav2Vec2Config, Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor,
-            Wav2Vec2ForCTC, Wav2Vec2ForSequenceClassification, Wav2Vec2Processor,
+            Wav2Vec2Config,
+            Wav2Vec2CTCTokenizer,
+            Wav2Vec2FeatureExtractor,
+            Wav2Vec2ForCTC,
+            Wav2Vec2ForSequenceClassification,
+            Wav2Vec2Processor,
         )
 
         handler = AudioHandler()

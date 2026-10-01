@@ -5,16 +5,15 @@ from unittest.mock import patch
 import requests
 
 from acprof.notifications import (
+    WECOM_WEBHOOK_ENV,
     NotificationConfigError,
     NotificationDeliveryError,
     NotificationEvent,
-    WECOM_WEBHOOK_ENV,
     WeComWebhookNotifier,
     redact_notification_secrets,
     render_notification_text,
     validate_wecom_webhook_url,
 )
-
 
 WEBHOOK_KEY = "00000000-1111-2222-3333-444444444444"
 WEBHOOK_URL = (

@@ -1,18 +1,18 @@
 """页面滚动、缩放和交互状态不能改变操作栏位置或颜色含义。"""
 
 import colorsys
-from dataclasses import replace
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Static
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.themes import UI_THEMES
 

@@ -2,9 +2,9 @@
 
 import math
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
@@ -13,7 +13,6 @@ from acprof.plotting.config import (
     GPU_GREEN,
     MEM_COLORED_METRICS,
 )
-
 from acprof.plotting.data import (
     aggregate_cold_start,
     aggregate_metric,
@@ -21,7 +20,6 @@ from acprof.plotting.data import (
     is_gpu_on,
     normalized_metric_spec,
 )
-
 from acprof.plotting.styles import (
     _configurations_with_colors,
     _sort_key,

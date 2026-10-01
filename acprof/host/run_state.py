@@ -1,24 +1,23 @@
 """主实验状态、目录互斥与 case 恢复；所有操作均在测量窗口之外。"""
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import stat
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
-from acprof.artifacts import atomic_write_json
 from acprof.artifact_layout import ArtifactLayout
-from acprof.result_csv import expected_measurements, read_result_csv
+from acprof.artifacts import atomic_write_json
 from acprof.host.execution_conditions import measurement_environment
+from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.source_identity import measurement_sources, source_fingerprint
-
 
 RUN_STATE_NAME = "run_state.json"
 RESULT_LOCK_NAME = ".acprof-result.lock"

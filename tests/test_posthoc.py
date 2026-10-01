@@ -1,10 +1,3 @@
-import acprof.host.collection_history as host_collection_history
-import acprof.host.compute_profile_plan as host_compute_profile_plan
-import acprof.host.execution_profile_plan as host_execution_profile_plan
-import acprof.host.posthoc.backfill as host_posthoc_backfill
-import acprof.host.posthoc.context as host_posthoc_context
-import acprof.host.posthoc.plans as host_posthoc_plans
-import acprof.host.posthoc.storage as host_posthoc_storage
 import csv
 import hashlib
 import json
@@ -14,6 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import acprof.host.collection_history as host_collection_history
+import acprof.host.compute_profile_plan as host_compute_profile_plan
+import acprof.host.execution_profile_plan as host_execution_profile_plan
+import acprof.host.posthoc.backfill as host_posthoc_backfill
+import acprof.host.posthoc.context as host_posthoc_context
+import acprof.host.posthoc.plans as host_posthoc_plans
+import acprof.host.posthoc.storage as host_posthoc_storage
 from acprof.cli import posthoc
 from acprof.host.compute_profile_plan import TORCH_LOGICAL_MFLOP_FIELD
 

@@ -11,7 +11,6 @@ from acprof.artifacts import atomic_write
 from acprof.config import CSV_FIELDS
 from acprof.metric_registry import order_csv_fields
 
-
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
 

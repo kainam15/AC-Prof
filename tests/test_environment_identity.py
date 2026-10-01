@@ -1,10 +1,10 @@
 """依赖内容身份、平台边界和完整锁的行为回归。"""
 import dataclasses
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 
 from acprof.dependency_locks import read_python_lock, require_exact_packages
 from acprof.host.dependency_images import runtime_fingerprint

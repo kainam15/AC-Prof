@@ -28,6 +28,7 @@ class ProgressEventTests(unittest.TestCase):
         from contextlib import ExitStack
         from types import SimpleNamespace
         from unittest.mock import patch
+
         from acprof.host import orchestrator
         from acprof.host.detect import TaskInfo
         from acprof.host.docker_runtime import ImageInfo, RunningContainer
@@ -46,10 +47,11 @@ class ProgressEventTests(unittest.TestCase):
 
     def test_client_error_row_cannot_emit_success_even_when_client_exits_zero(self):
         import tempfile
-        from pathlib import Path
         from contextlib import ExitStack
+        from pathlib import Path
         from types import SimpleNamespace
         from unittest.mock import patch
+
         from acprof.host import orchestrator
         from acprof.host.detect import TaskInfo
         from acprof.host.docker_runtime import ImageInfo, RunningContainer

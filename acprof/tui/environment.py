@@ -1,8 +1,8 @@
 """Project connections and explicit system-permission setup in the TUI."""
 from __future__ import annotations
 
-from pathlib import Path
 import shlex
+from pathlib import Path
 from uuid import uuid4
 
 from textual import on, work
@@ -11,15 +11,14 @@ from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Label, Static, TabbedContent, TabPane
 
+from acprof.experiment import RunConfig
 from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
-from acprof.experiment import RunConfig
-from acprof.tui.diagnostics import quick_preflight
 from acprof.messages import message
+from acprof.tui.diagnostics import quick_preflight
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
-
 
 FIELDS = (
     ('HF_TOKEN', 'Hugging Face Token', True, 'hf_…'),

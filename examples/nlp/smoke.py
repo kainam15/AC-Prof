@@ -13,9 +13,20 @@ from pathlib import Path
 import torch
 from sentence_transformers import SentenceTransformer, models
 from transformers import (
-    BertConfig, BertTokenizerFast, BertForSequenceClassification, BertForTokenClassification,
-    BertForQuestionAnswering, BertForMaskedLM, BertModel, TapasConfig, TapasTokenizer,
-    TapasForQuestionAnswering, T5Config, T5ForConditionalGeneration, GPT2Config, GPT2LMHeadModel,
+    BertConfig,
+    BertForMaskedLM,
+    BertForQuestionAnswering,
+    BertForSequenceClassification,
+    BertForTokenClassification,
+    BertModel,
+    BertTokenizerFast,
+    GPT2Config,
+    GPT2LMHeadModel,
+    T5Config,
+    T5ForConditionalGeneration,
+    TapasConfig,
+    TapasForQuestionAnswering,
+    TapasTokenizer,
 )
 
 from acprof.container.handlers.nlp import NLPHandler

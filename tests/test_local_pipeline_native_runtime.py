@@ -6,8 +6,9 @@ The override exists only in test subprocesses, never in the production loader.
 """
 import os
 
-from acprof.model_resolution import transformers_capabilities
 import test_custom_multimodal_runtime as fixtures
+
+from acprof.model_resolution import transformers_capabilities
 
 
 class NativeLocalPipelineRuntimeTests(fixtures.LocalPipelineDependencyRuntimeTests):

@@ -113,6 +113,7 @@ class ValidationContractTests(unittest.TestCase):
         from contextlib import nullcontext
         from types import SimpleNamespace
         from unittest.mock import patch
+
         from acprof.container.runtime_validate import validate
 
         for status in ('unsupported', 'unavailable', 'error'):

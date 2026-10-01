@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import fnmatch
-from pathlib import PurePosixPath
 import re
+from pathlib import PurePosixPath
 from typing import Callable
 
 from acprof.model_evidence import pinned_revision
 from acprof.model_spec import validate_dependencies
-
 
 _TOKENIZER = ("config.json", "tokenizer*.json", "special_tokens_map.json", "added_tokens.json",
               "vocab.json", "vocab.txt", "merges.txt", "*.model", "*.tiktoken", "chat_template.jinja", "chat_templates/*.jinja")

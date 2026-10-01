@@ -8,8 +8,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Label, Select, Static
 
-from acprof.tui.input import BarCursorInput as Input
 from acprof.messages import message
+from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 
 

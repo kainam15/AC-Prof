@@ -1,12 +1,11 @@
 """Versioned experiment paths. Discovery is read-only; writers initialize v2 explicitly."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
-
+from dataclasses import dataclass
+from pathlib import Path
 
 MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({

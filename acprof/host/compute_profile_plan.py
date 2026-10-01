@@ -10,7 +10,6 @@ import math
 import os
 from typing import Any, Dict, Tuple
 
-
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 TORCH_PROFILE_KEY = "torch_profiler_eager"
 NCU_PROFILE_KEY = "ncu"

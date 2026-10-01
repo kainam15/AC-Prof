@@ -1,13 +1,12 @@
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host import docker_runtime, input_plan
 from acprof.host.detect import TaskInfo
-
 
 RESAMPLING_POLICY = "scipy.signal.resample_poly_if_required_in_preprocess"
 

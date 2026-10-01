@@ -1,8 +1,8 @@
 """在 NLP 镜像中执行已有的 12 种原生小模型示例。"""
 import importlib.util
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in (
@@ -11,8 +11,9 @@ import unittest
 class NLPRuntimeTests(unittest.TestCase):
     def test_sentence_embeddings_match_native_pooling_normalization_and_prompt(self):
         import torch
-        from transformers import BertConfig, BertModel, BertTokenizerFast
         from sentence_transformers import SentenceTransformer, models
+        from transformers import BertConfig, BertModel, BertTokenizerFast
+
         from acprof.container.handlers.nlp import NLPHandler
 
         torch.set_num_threads(1)

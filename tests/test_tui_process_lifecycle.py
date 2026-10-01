@@ -1,18 +1,19 @@
-import io
 import asyncio
 import fcntl
+import io
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+from textual.widgets import Button, Static
 
 from acprof.tui.app import AcprofTui
 from acprof.tui.process import ProcessLifecycle, StopResult
-from textual.widgets import Button, Static
 
 
 class TuiProcessFailureTests(unittest.TestCase):

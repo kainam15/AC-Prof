@@ -1,16 +1,15 @@
 """Restore recorded execution conditions outside measurement windows."""
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import dataclass
 import math
 import os
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Mapping
 
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
-
 
 MEASUREMENT_ENV_NAMES = (
     "AUTO_WARMUP_REQUESTS", "SLOW_LATENCY_THRESHOLD_S", "IDLE_DEBUG_TRACE_INTERVAL_S",

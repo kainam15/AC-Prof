@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
-
 TASK_FEATURE_DIMS = {
     "tabular-classification": 8, "tabular-regression": 8,
     "reinforcement-learning": 4, "robotics": 7, "graph-ml": 16,

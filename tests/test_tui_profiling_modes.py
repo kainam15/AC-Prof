@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 from textual.widgets import ContentSwitcher, Select, TabbedContent
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig, build_run_command
+from acprof.tui.app import AcprofTui
 from acprof.tui.diagnostics import quick_preflight
 
 

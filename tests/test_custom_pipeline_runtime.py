@@ -2,9 +2,9 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -45,9 +45,10 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
                 "ACPROF_MODEL_ADAPTER": "family-default", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
 
     def test_custom_pipeline_matches_native_predictions_and_independent_validation(self):
+        from transformers import pipeline
+
         from acprof.container.handlers.nlp import NLPHandler
         from acprof.container.runtime_validate import validate
-        from transformers import pipeline
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

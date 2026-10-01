@@ -8,16 +8,15 @@ background worker or opens a connection while profiling is active.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import os
 import re
 import socket
 import time
+from dataclasses import dataclass, field
 from typing import Mapping, Optional
 from urllib.parse import parse_qs, urlparse
 
 import requests
-
 
 WECOM_WEBHOOK_ENV = "ACPROF_WECOM_WEBHOOK_URL"
 WECOM_WEBHOOK_HOST = "qyapi.weixin.qq.com"

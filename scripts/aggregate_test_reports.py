@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
 import hashlib
 import json
-from pathlib import Path
 import sys
+from collections import Counter, defaultdict
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-
 
 OUTCOMES = {"passed": "passed", "failed": "failed", "error": "errors", "skipped": "skipped",
             "expected_failure": "expected_failures", "unexpected_success": "unexpected_successes"}

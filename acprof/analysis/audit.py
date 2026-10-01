@@ -1,18 +1,17 @@
 """只读结果审计；保持历史字段和不可用原因，不回填测量值。"""
 from __future__ import annotations
 
-from collections import Counter
 import csv
 import hashlib
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
+from acprof.artifact_layout import ArtifactLayout
 from acprof.capabilities import collection_outcomes
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
-from acprof.artifact_layout import ArtifactLayout
-
 
 MISSING = {"", "nan", "none", "null", "n/a"}
 

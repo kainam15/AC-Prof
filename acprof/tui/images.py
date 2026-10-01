@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
+from rich.rule import Rule
+from rich.segment import Segment
+from rich.style import Style
+from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import var
 from textual.strip import Strip
-from rich.rule import Rule
-from rich.segment import Segment
-from rich.style import Style
-from rich.text import Text
 from textual.widgets import Button, Collapsible, DataTable, Static, Tree
 
 from acprof.host.image_graph import reclaimable_image_bytes
-from acprof.host.image_management import ImageInventory, ImageLayer, ImageManagementError, ManagedImage
+from acprof.host.image_management import (
+    ImageInventory,
+    ImageLayer,
+    ImageManagementError,
+    ManagedImage,
+)
 from acprof.messages import join_messages, message
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
-
 
 IMAGE_KINDS = {
     "base": "公共基础", "runtime": "运行依赖", "weights": "模型文件",

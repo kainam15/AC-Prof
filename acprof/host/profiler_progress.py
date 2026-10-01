@@ -6,8 +6,8 @@ containers. Callbacks run synchronously before the next measurement starts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sys
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 

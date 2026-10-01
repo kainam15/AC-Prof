@@ -15,7 +15,6 @@ from PIL import Image
 
 from acprof.container.handlers.multimodal import MultimodalHandler
 
-
 _RUNTIME_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('torch', 'transformers', 'tokenizers'))
 
 
@@ -70,7 +69,13 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
 
     def test_tiny_qwen2_vl_generates_from_image_and_video(self):
         import torch
-        from transformers import Qwen2VLConfig, Qwen2VLForConditionalGeneration, Qwen2VLImageProcessor, Qwen2VLProcessor, Qwen2VLVideoProcessor
+        from transformers import (
+            Qwen2VLConfig,
+            Qwen2VLForConditionalGeneration,
+            Qwen2VLImageProcessor,
+            Qwen2VLProcessor,
+            Qwen2VLVideoProcessor,
+        )
         torch.manual_seed(0)
         config = Qwen2VLConfig(
             text_config={'vocab_size': 32, 'hidden_size': 32, 'intermediate_size': 64, 'num_hidden_layers': 1, 'num_attention_heads': 4, 'num_key_value_heads': 2, 'rope_scaling': {'type': 'mrope', 'mrope_section': [2, 1, 1]}, 'pad_token_id': 1, 'eos_token_id': 2},
@@ -100,7 +105,12 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
 
     def test_tiny_qwen2_audio_generates_from_audio_and_text(self):
         import torch
-        from transformers import Qwen2AudioConfig, Qwen2AudioForConditionalGeneration, Qwen2AudioProcessor, WhisperFeatureExtractor
+        from transformers import (
+            Qwen2AudioConfig,
+            Qwen2AudioForConditionalGeneration,
+            Qwen2AudioProcessor,
+            WhisperFeatureExtractor,
+        )
         torch.manual_seed(0)
         config = Qwen2AudioConfig(
             audio_config={'d_model': 32, 'encoder_layers': 1, 'encoder_attention_heads': 4, 'encoder_ffn_dim': 64, 'num_mel_bins': 128, 'max_source_positions': 1500},
@@ -143,8 +153,14 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
 
     def test_real_omni_processor_retains_audio_image_and_video(self):
         from types import SimpleNamespace
+
         import torch
-        from transformers import Qwen2VLImageProcessor, Qwen2VLVideoProcessor, Qwen2_5OmniProcessor, WhisperFeatureExtractor
+        from transformers import (
+            Qwen2_5OmniProcessor,
+            Qwen2VLImageProcessor,
+            Qwen2VLVideoProcessor,
+            WhisperFeatureExtractor,
+        )
         processor = Qwen2_5OmniProcessor(
             image_processor=Qwen2VLImageProcessor(min_pixels=28*28, max_pixels=28*28),
             video_processor=Qwen2VLVideoProcessor(min_pixels=28*28, max_pixels=28*28),

@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
-
 PIXEL_COUNT_FIELDS = ("input_pixels_per_request", "output_pixels_per_request")
 PIXEL_RATE_SOURCES = {
     f"{prefix}_per_{direction}_megapixel": (source, f"{direction}_pixels_per_request")

@@ -6,20 +6,28 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from acprof.analysis.audit import audit_result  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.capabilities import apply_collection_result, apply_runtime_validation, measurement_report  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.capabilities import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    apply_collection_result,
+    apply_runtime_validation,
+    measurement_report,
+)
 from acprof.config import STATIC_META_SCHEMA_VERSION  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.result_csv import expected_measurements, merge_result_csvs, read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.result_csv import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    expected_measurements,
+    merge_result_csvs,
+    read_result_csv,
+)
 from examples.onnxruntime.fixtures import BASIC_SCENARIOS  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 

@@ -1,19 +1,24 @@
-import os
 import dataclasses
 import hashlib
 import json
-import tempfile
+import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from runtime_fixture import copy_dependency_tree
+
+from acprof.dependency_locks import (
+    content_digest,
+    package_versions,
+    read_python_lock,
+    system_lock_identity,
+)
 from acprof.host import docker_runtime, runtime_images
 from acprof.host.detect import TaskInfo
 from acprof.runtime_profiles import RuntimeProfile
-from acprof.dependency_locks import content_digest, package_versions, read_python_lock, system_lock_identity
-from runtime_fixture import copy_dependency_tree
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FAMILIES = {

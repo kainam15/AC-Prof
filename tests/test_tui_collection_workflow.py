@@ -1,21 +1,21 @@
 """User decisions return to the same subprocess without another Start click."""
-import io
 import asyncio
-from pathlib import Path
-import tempfile
+import io
 import sys
+import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Select, Static
 
+from acprof.experiment import RunConfig
 from acprof.preparation_events import encode_event
 from acprof.tui.app import AcprofTui
-from acprof.experiment import RunConfig
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.process import ProcessLifecycle
 from acprof.tui.log import SelectableLog
+from acprof.tui.process import ProcessLifecycle
+from acprof.tui.progress import RunProgressTracker
 
 
 class PreparationProgressTests(unittest.TestCase):

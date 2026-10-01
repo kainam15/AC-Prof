@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-from itertools import product
 import json
 import math
+from itertools import product
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json

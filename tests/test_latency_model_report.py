@@ -1,9 +1,3 @@
-import acprof.analysis.latency_model as analysis_latency_model
-import acprof.analysis.latency_report as analysis_latency_report
-import acprof.plotting.config as plotting_config
-import acprof.plotting.data as plotting_data
-import acprof.plotting.latency as plotting_latency
-import acprof.plotting.metrics as plotting_metrics
 import csv
 import json
 import math
@@ -15,6 +9,12 @@ from unittest.mock import patch
 
 import pandas as pd
 
+import acprof.analysis.latency_model as analysis_latency_model
+import acprof.analysis.latency_report as analysis_latency_report
+import acprof.plotting.config as plotting_config
+import acprof.plotting.data as plotting_data
+import acprof.plotting.latency as plotting_latency
+import acprof.plotting.metrics as plotting_metrics
 from acprof.cli import plot
 
 
@@ -22,6 +22,7 @@ class LatencyModelReportTests(unittest.TestCase):
     def test_v2_plot_cli_writes_reports_and_figures_below_plots(self):
         from contextlib import ExitStack
         from pathlib import Path
+
         from acprof.artifact_layout import ArtifactLayout
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

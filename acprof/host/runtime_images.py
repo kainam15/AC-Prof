@@ -13,15 +13,22 @@ from typing import Any
 from acprof.dependency_locks import content_digest
 from acprof.hf_endpoints import hf_endpoints
 from acprof.host.dependency_images import (
-    platform_fingerprint, prepare_environment_image, require_image_source, runtime_fingerprint,
-    verify_labels, verify_manifest,
+    platform_fingerprint,
+    prepare_environment_image,
+    require_image_source,
+    runtime_fingerprint,
+    verify_labels,
+    verify_manifest,
 )
-from acprof.runtime_profiles import RuntimeProfile, environment_id, environment_identity, select_runtime_profile
-from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
-from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
-
-
 from acprof.installation import resource_root
+from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
+from acprof.runtime_profiles import (
+    RuntimeProfile,
+    environment_id,
+    environment_identity,
+    select_runtime_profile,
+)
+from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
 
 PROJECT_ROOT = resource_root()
 FINGERPRINT_LABEL = "org.acprof.build-fingerprint"

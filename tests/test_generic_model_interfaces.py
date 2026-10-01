@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
+from test_nlp_handler import FakeTokenizer
 
 from acprof.container.handlers.nlp import NLPHandler
 from acprof.container.handlers.timeseries import ChronosHandler
@@ -15,7 +16,6 @@ from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.workloads import get_generator
-from test_nlp_handler import FakeTokenizer
 
 
 class ChronosInterfaceTests(unittest.TestCase):
@@ -135,8 +135,9 @@ class SentenceTransformerInterfaceTests(unittest.TestCase):
 
 class ModelDetectionInterfaceTests(unittest.TestCase):
     def test_mirror_metadata_failure_does_not_contact_undeclared_endpoint(self):
-        from acprof.host.detect import _download_metadata
         from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
+
+        from acprof.host.detect import _download_metadata
         error = LocalEntryNotFoundError("metadata request failed")
         error.__cause__ = FileMetadataError("missing X-Repo-Commit")
         with patch.dict("os.environ", {"HF_ENDPOINT": "https://mirror.example"}, clear=True), patch(
@@ -147,8 +148,9 @@ class ModelDetectionInterfaceTests(unittest.TestCase):
                                          revision="a" * 40, endpoint="https://mirror.example")
 
     def test_offline_metadata_miss_does_not_retry_another_endpoint(self):
-        from acprof.host.detect import _repository_metadata
         from huggingface_hub.errors import LocalEntryNotFoundError
+
+        from acprof.host.detect import _repository_metadata
         hub = SimpleNamespace(siblings=[SimpleNamespace(rfilename="config.json")])
         with patch("huggingface_hub.hf_hub_download", side_effect=LocalEntryNotFoundError("offline miss")) as download:
             metadata = _repository_metadata("unseen/encoder", "c" * 40, hub)

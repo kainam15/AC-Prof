@@ -1,12 +1,12 @@
 """Exercise source state -> device restoration -> launch -> requests -> saved report."""
-from contextlib import ExitStack
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from scripts import measure_overhead

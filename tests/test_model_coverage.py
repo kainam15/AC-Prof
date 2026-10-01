@@ -2,14 +2,15 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.cli.main import main
 from test_resolution_decisions import candidate
+
+from acprof.cli.main import main
 
 
 class ModelCoverageTests(unittest.TestCase):

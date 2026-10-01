@@ -6,10 +6,10 @@ import sys
 from collections import defaultdict
 from typing import Sequence
 
-from acprof.pixel_metrics import per_megapixel
 from acprof.artifacts import read_static_metadata
 from acprof.latency_slo import latency_slo_threshold
 from acprof.metric_registry import order_csv_fields
+from acprof.pixel_metrics import per_megapixel
 
 SNIFF_GROUP_FIELD = "sniff_group_id"
 NETWORK_RECORD_TO_CSV_FIELD = {
@@ -216,9 +216,8 @@ def _read_sidecar_groups(csv_path: str) -> list[str]:
 
 def _merge_request_samples(csv_path: str, request_records: dict) -> None:
     """Retain packet samples alongside app samples before PCAP cleanup."""
-    from acprof.artifacts import atomic_write
-
     from acprof.artifact_layout import case_sidecar
+    from acprof.artifacts import atomic_write
     path = case_sidecar(csv_path, "requests")
     if not os.path.exists(path):
         return  # Historical CSVs have no raw application samples.

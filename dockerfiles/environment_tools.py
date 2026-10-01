@@ -5,7 +5,6 @@ import hashlib
 import importlib.metadata
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
@@ -13,10 +12,17 @@ import sys
 import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
 from dependency_locks import (
-    content_digest, normalized_name, package_versions, python_lock_text,
-    read_python_lock, read_system_lock, require_exact_packages, require_parent_subset,
+    content_digest,
+    normalized_name,
+    package_versions,
+    python_lock_text,
+    read_python_lock,
+    read_system_lock,
+    require_exact_packages,
+    require_parent_subset,
     system_lock_identity,
 )
 

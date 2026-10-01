@@ -6,12 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host.detect import TaskInfo, detect_task
+from acprof.host.input_plan import plan_input_scales
+from acprof.host.model_schema import _model_io_formats
 from acprof.host.orchestrator import ImageInfo
 from acprof.host.static_metadata import StaticMeta, enrich_static_meta_from_input_plan
-from acprof.host.model_schema import _model_io_formats
-from acprof.host.input_plan import plan_input_scales
 from acprof.host.task_support import TaskSupportError, require_task_support
-
 
 MULTIMODAL_TASKS = ("audio-text-to-text", "image-text-to-text", "visual-question-answering", "document-question-answering", "video-text-to-text", "visual-document-retrieval", "any-to-any")
 

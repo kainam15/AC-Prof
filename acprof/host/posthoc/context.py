@@ -20,7 +20,6 @@ from typing import (
     Tuple,
 )
 
-from acprof.metric_registry import tool_fields
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.compute_profile_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
@@ -37,7 +36,7 @@ from acprof.host.compute_profile_plan import (
 from acprof.host.detect import TaskInfo
 from acprof.host.execution_profile_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
 from acprof.installation import resource_root
-
+from acprof.metric_registry import tool_fields
 
 PROJECT_DIR = resource_root()
 

@@ -3,16 +3,27 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.dependency_locks import normalized_name, package_versions, python_lock_text, read_python_lock  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS, PROFILES, environment_id, environment_identity  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.dependency_locks import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    normalized_name,
+    package_versions,
+    python_lock_text,
+    read_python_lock,
+)
+from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    ENVIRONMENTS,
+    PLATFORMS,
+    PROFILES,
+    environment_id,
+    environment_identity,
+)
 
 UV_VERSION = "0.12.13"
 

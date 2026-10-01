@@ -6,21 +6,19 @@ import math
 import os
 from types import SimpleNamespace
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from acprof.analysis.latency_model import (
     LATENCY_MODEL_FEATURES,
     _model_feature_names,
     _predict_latency,
 )
-
 from acprof.plotting.config import (
     CPU_FIXED_COLORS,
     GPU_GREEN,
 )
-
 from acprof.plotting.styles import (
     build_cpu_base_colors,
 )

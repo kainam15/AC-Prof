@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
+import sys
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from contextlib import nullcontext
 from importlib import import_module
 from inspect import isawaitable
-import sys
 
 from acprof.runtime_settings import request_timeout_s
 
@@ -51,8 +51,8 @@ def complete_prediction(runtime, model_ctx: dict, output):
 
 def configured_execution(family: str, backend: str, *, use_gpu: bool = False,
                          threads: int = 0, adapter: str = 'family-default'):
-    from acprof.extensions import get_extension
     from acprof.container.handlers import HandlerDependencyMissingError, HandlerModuleImportError
+    from acprof.extensions import get_extension
 
     declaration = get_extension(family, backend, adapter=adapter)
     device = 'cuda' if use_gpu else 'cpu'

@@ -1,10 +1,10 @@
 """Real local HTTP verifies concurrency, persistence and failed-response accounting."""
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
 import time
 import unittest
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 @contextmanager

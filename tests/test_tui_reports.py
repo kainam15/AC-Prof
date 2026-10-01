@@ -1,16 +1,16 @@
 """验证用户从 TUI 计算和查看报告，保持原始结果与测量隔离。"""
 import csv
-from dataclasses import replace
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, DataTable, Input, Static, TabbedContent, TabPane
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
 
 

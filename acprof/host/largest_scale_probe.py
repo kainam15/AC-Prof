@@ -5,9 +5,9 @@ import datetime
 import json
 import math
 import os
-from pathlib import Path
 import tempfile
 import time
+from pathlib import Path
 from typing import Any, Dict, Sequence
 
 import requests
@@ -22,7 +22,6 @@ from acprof.host.docker_runtime import (
     _stop_container_session,
 )
 from acprof.host.input_plan import PlannedInputScales
-
 
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3

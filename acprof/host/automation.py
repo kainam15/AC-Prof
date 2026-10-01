@@ -1,8 +1,8 @@
 """Preparation and final reports for the conservative automatic collection path."""
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
@@ -12,6 +12,7 @@ from acprof.model_evidence import pinned_revision
 def check_repository_access(repo_id: str) -> dict:
     """Check access without accepting terms or exposing credentials in reports."""
     from huggingface_hub import HfApi
+
     from acprof.hf_endpoints import hf_endpoints
     try:
         HfApi(endpoint=hf_endpoints()[0]).auth_check(repo_id)

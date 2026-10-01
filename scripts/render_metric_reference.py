@@ -1,7 +1,7 @@
 """由指标登记表生成字段速查；--check 用于发现文档漂移。"""
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

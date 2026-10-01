@@ -7,11 +7,14 @@ from functools import lru_cache
 from typing import Any
 
 from acprof.dependency_locks import (
-    content_digest, package_versions, read_python_lock, read_system_lock,
-    require_parent_subset, system_lock_identity,
+    content_digest,
+    package_versions,
+    read_python_lock,
+    read_system_lock,
+    require_parent_subset,
+    system_lock_identity,
 )
 from acprof.extensions import CATALOG, select_extension
-
 
 PYTHON_BASE_IMAGE = (
     "docker.m.daocloud.io/library/python:3.10-slim@sha256:"

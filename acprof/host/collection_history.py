@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
-
 COLLECTION_HISTORY_NAME = "collection_history.json"
 COLLECTION_HISTORY_SCHEMA_VERSION = 1
 COLLECTION_HISTORY_FIELDS = (

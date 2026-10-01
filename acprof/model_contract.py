@@ -15,7 +15,6 @@ from acprof.model_metadata_analysis import collect_source_evidence, collect_stru
 from acprof.model_source_analysis import analyze_pipeline
 from acprof.model_spec import MULTIMODAL_PIPELINE_INPUTS, task_model_spec, validate_model_spec
 
-
 # These are canonical protocol names, never checkpoint-specific rules. Rename
 # text to prompt only with a literal string default; structured chats need a DSL.
 _INPUT_NAMES = {"text": ("text", "prompt"), "audio": ("audio",), "sampling_rate": ("sampling_rate",),

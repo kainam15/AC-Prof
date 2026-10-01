@@ -1,15 +1,15 @@
 """Plot CLI: prepare current results and invoke plotting implementations."""
 
 import os
+import sys
+
 import acprof.analysis.latency_report as analysis_latency_report
 import acprof.plotting.config as plotting_config
 import acprof.plotting.data as plotting_data
 import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
-import sys
 from acprof.artifact_layout import ArtifactLayout
-
 
 CSV_PATH = "results/result_all.csv"
 ONLY_OK = True

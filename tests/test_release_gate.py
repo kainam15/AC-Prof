@@ -1,14 +1,13 @@
 """Release publication must be downstream of the reusable regression suite."""
-from pathlib import Path
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 

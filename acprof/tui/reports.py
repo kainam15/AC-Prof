@@ -1,9 +1,9 @@
 """将现有统计/对照 JSON 转成只读表格；不加载 Textual 或测量依赖。"""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from acprof.messages import join_messages, message

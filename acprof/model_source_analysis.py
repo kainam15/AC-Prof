@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import ast
 import copy
-from functools import lru_cache
 import json
 import re
+from functools import lru_cache
 from typing import Any
-
 
 MAX_SOURCE_BYTES = 256 * 1024
 MAX_AST_NODES = 20000

@@ -7,7 +7,6 @@ import re
 import shutil
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-
 DEFAULT_TOOL_SEARCH_ROOTS = (
     "/opt/intel/oneapi/advisor",
     "/opt/intel/oneapi",

@@ -7,10 +7,9 @@ import re
 from dataclasses import dataclass, replace
 
 from acprof.messages import message
-from acprof.progress_events import parse_event
 from acprof.preparation_events import parse_event as parse_preparation_event
+from acprof.progress_events import parse_event
 from acprof.tui.presentation import UNKNOWN
-
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 CASE_RE = re.compile(

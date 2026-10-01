@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-
 class ONNXHandlerTests(unittest.TestCase):
     def handler(self, root, *, input_shape=('N', 4)):
         self.assertIsNotNone(importlib.util.find_spec('acprof.container.handlers.onnxruntime'),

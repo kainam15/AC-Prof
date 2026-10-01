@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import os
-from pathlib import Path
 import subprocess
 import sys
+from dataclasses import asdict
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

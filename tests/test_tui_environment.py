@@ -1,17 +1,17 @@
 """Connection settings use an isolated project and never send notifications."""
 import os
-from dataclasses import replace
-from contextlib import nullcontext
-from pathlib import Path
 import tempfile
 import unittest
+from contextlib import nullcontext
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 
+from acprof.experiment import RunConfig
 from acprof.host.env_utils import load_project_env
 from acprof.tui.app import AcprofTui
-from acprof.experiment import RunConfig
 from acprof.tui.views import ConfirmActionScreen
 
 

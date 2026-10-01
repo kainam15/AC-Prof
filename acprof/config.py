@@ -1,9 +1,10 @@
 """AC-Prof Universal Profiler - Configuration & Constants."""
 
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Any, Dict
 
 from acprof.extensions import CATALOG
+
 
 # ─────────────────────────────────────────────
 # 各任务族的输入缩放维度

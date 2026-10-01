@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import filecmp
 import importlib
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 
 def load_pipeline_class_compat(root: Path, module_file: str, class_name: str) -> type:
     """Prepare missing transitive cache files, then let Transformers import the class."""
     from transformers.dynamic_module_utils import (
-        HF_MODULES_CACHE, get_cached_module_file, get_class_in_module, get_relative_import_files,
+        HF_MODULES_CACHE,
+        get_cached_module_file,
+        get_class_in_module,
+        get_relative_import_files,
     )
 
     # Keep snapshot filenames: resolving Hub symlinks would lose relative names

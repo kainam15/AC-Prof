@@ -18,7 +18,6 @@ import torch
 from acprof.container.handlers.structured import StructuredHandler
 from acprof.workloads.structured import StructuredWorkloadGenerator
 
-
 TASKS = ("tabular-classification", "tabular-regression", "reinforcement-learning", "robotics", "graph-ml")
 
 
@@ -40,8 +39,8 @@ def check_task(directory: Path, task: str, backend: str) -> None:
 
 
 def check_skops(output_dir: Path) -> None:
-    from skops import io
     from sklearn.linear_model import LinearRegression, LogisticRegression
+    from skops import io
 
     # Assign deterministic fitted-state fixtures, without running training.
     classifier = LogisticRegression()

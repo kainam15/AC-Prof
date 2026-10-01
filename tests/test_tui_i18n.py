@@ -1,9 +1,9 @@
-from dataclasses import replace
-from pathlib import Path
 import re
-from string import Formatter
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
+from string import Formatter
 from unittest.mock import patch
 
 from rich.cells import cell_len
@@ -17,14 +17,13 @@ from textual.widgets import (
 )
 from textual.widgets.text_area import Selection
 
-from acprof.tui.app import AcprofTui
-from acprof.tui.app import PROJECT_DIR
-from acprof.tui.diagnostics import PreflightCheck, ResultSummary
-from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
+from acprof.tui.app import PROJECT_DIR, AcprofTui
+from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.i18n import ENGLISH, error_message, translate
 from acprof.tui.log import SelectableLog
+from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
 

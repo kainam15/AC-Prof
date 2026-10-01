@@ -4,27 +4,26 @@ from __future__ import annotations
 
 import argparse
 import math
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 from typing import Sequence
 
-from acprof.host.preflight import (
-    require_cgroup_prerequisites,
-    require_native_docker,
-    require_native_linux_host,
-)
+from acprof.host.docker_runtime import prepare_image
 from acprof.host.env_utils import bootstrap_project_env
-from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.host.input_plan import plan_input_scales
 from acprof.host.largest_scale_probe import (
     create_probe_output_dir,
     run_largest_scale_probe,
     write_probe_summary,
 )
-from acprof.host.docker_runtime import prepare_image
-from acprof.host.input_plan import plan_input_scales
+from acprof.host.preflight import (
+    require_cgroup_prerequisites,
+    require_native_docker,
+    require_native_linux_host,
+)
+from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
-
 
 PROJECT_DIR = resource_root()
 

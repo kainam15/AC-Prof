@@ -1,16 +1,15 @@
 """验证辅助入口能挂载 TUI、执行子进程并退出，不启动真实采集。"""
-from dataclasses import asdict, replace
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from dataclasses import asdict, replace
+from pathlib import Path
 
 from acprof.experiment import RunConfig
-
 
 ROOT = Path(__file__).resolve().parents[1]
 

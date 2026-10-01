@@ -1,12 +1,12 @@
 """Declaration consumers share routing without loading runtime packages."""
 
-from dataclasses import replace
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 
 from acprof.host.detect import TaskInfo
 from acprof.host.task_support import require_task_support
@@ -44,8 +44,8 @@ class ExtensionDeclarationTests(unittest.TestCase):
         self.assertEqual(catalog.workloads["structured"], original.workload_entrypoint)
 
     def test_repeated_identical_manifest_is_idempotent(self):
-        from acprof.extensions import load_catalog
         import acprof.extensions
+        from acprof.extensions import load_catalog
         manifest = Path(acprof.extensions.__file__).parent / "builtin" / "manifest.json"
         once = load_catalog([manifest])
         repeated = load_catalog([manifest, manifest])
@@ -134,8 +134,8 @@ class ExtensionDeclarationTests(unittest.TestCase):
         self.assertEqual(second.handler_entrypoint, "acprof.container.handlers.nlp:NLPHandler")
 
     def test_new_architecture_manifest_routes_existing_protocol_without_core_edit(self):
-        from acprof.extensions import load_catalog
         import acprof.extensions
+        from acprof.extensions import load_catalog
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp, "manifest.json")

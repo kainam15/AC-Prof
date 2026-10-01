@@ -4,10 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Callable
-
 
 LIFECYCLE_LABEL = "org.acprof.container.lifecycle"
 OWNER_PREFIX = "org.acprof.owner."

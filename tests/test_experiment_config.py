@@ -6,9 +6,10 @@ import unittest
 
 class ExperimentConfigTests(unittest.TestCase):
     def test_cli_namespace_and_command_share_normalization(self):
+        from pathlib import Path
+
         from acprof.cli.run_args import build_parser
         from acprof.experiment import RunConfig, build_run_command
-        from pathlib import Path
         args = build_parser().parse_args(["--model", "demo/model", "--cpuset-cpus", "3,1-2",
                                          "--gpus", "off", "--cpus", "1"])
         config = RunConfig.from_namespace(args).validate()

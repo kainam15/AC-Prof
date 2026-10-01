@@ -3,17 +3,16 @@ import base64
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.input_plan import _get_task_generator
 from acprof.host.runtime_images import request_fingerprint
 from acprof.host.task_support import TaskSupportError, require_task_support
-
 
 REVISION = "a" * 40
 

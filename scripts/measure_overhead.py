@@ -2,27 +2,34 @@
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
-from contextlib import ExitStack
-from dataclasses import asdict
 import hashlib
 import json
 import math
-from pathlib import Path
 import random
 import statistics
 import subprocess
 import sys
 import time
-from uuid import uuid4
+from collections import defaultdict
+from contextlib import ExitStack
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.analysis.uncertainty import bootstrap_mean_interval  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.analysis.uncertainty import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    bootstrap_mean_interval,
+)
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.host.measurement_window import MonitorGroup, run_matched_control_window  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.host.execution_conditions import ExecutionConditions  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.host.execution_conditions import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    ExecutionConditions,
+)
+from acprof.host.measurement_window import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    MonitorGroup,
+    run_matched_control_window,
+)
 
 
 def summarize_overhead(rows, *, seed=0):
@@ -141,11 +148,11 @@ def validate_capture(command, pcap, *, token, count):
 def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, mem, gpu,
                            token, output, options) -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
+    from acprof.host.packet_capture import _resolve_packet_latency_runtime
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
-    from acprof.monitors.resource_usage import ResourceUsageMonitor
     from acprof.monitors.perf_mips import PerfMIPSMonitor
-    from acprof.host.packet_capture import _resolve_packet_latency_runtime
+    from acprof.monitors.resource_usage import ResourceUsageMonitor
 
     idle = float(options["idle_seconds"])
     device = session.gpu_device
@@ -155,8 +162,9 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     try:
         with ExitStack() as resources:
             if scenario == "full":
-                from acprof.host.packet_capture import _tcpdump_can_capture_without_sudo
                 import shutil
+
+                from acprof.host.packet_capture import _tcpdump_can_capture_without_sudo
                 tcpdump = shutil.which("tcpdump")
                 if not tcpdump or not _tcpdump_can_capture_without_sudo(tcpdump):
                     raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
@@ -226,14 +234,18 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         parser.error("诊断输出目录必须为空")
-    from acprof.host.run_state import MeasurementLock, file_sha256, load_run_state
     from acprof.host.detect import TaskInfo
-    from acprof.host.docker_runtime import ImageInfo, _start_container_session, _stop_container_session, require_image_identity
+    from acprof.host.docker_runtime import (
+        ImageInfo,
+        _start_container_session,
+        _stop_container_session,
+        require_image_identity,
+    )
+    from acprof.host.env_utils import bootstrap_project_env
+    from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.resource_usage import ResourceUsageMonitor
-    from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.run_state import host_identity
 
     bootstrap_project_env(ROOT)
 

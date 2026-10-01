@@ -14,8 +14,8 @@ from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
     ImageInfo,
     RunningContainer,
-    _sanitize_model_id,
     _normalize_gpu_mode,
+    _sanitize_model_id,
     _start_container_session,
     _stop_container_session,
 )
@@ -996,8 +996,8 @@ def plan_input_scales(
 
 def _get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
     """Carry the selected adapter into workload defaults, including model aliases."""
-    from acprof.workloads import get_generator
     from acprof.model_spec import task_model_spec
+    from acprof.workloads import get_generator
 
     if task_info.model_adapter != "family-default":
         kwargs["model_adapter"] = task_info.model_adapter

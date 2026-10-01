@@ -5,19 +5,16 @@ import os
 
 import pandas as pd
 
+from acprof.analysis.latency_model import (
+    GPU_MODE_OFF_VALUES,
+    GPU_MODE_ON_VALUES,
+)
 from acprof.metric_registry import NUMERIC_FIELDS
-
 from acprof.pixel_metrics import (
     PIXEL_COUNT_FIELDS,
     PIXEL_RATE_SOURCES,
     pixel_rate_metrics,
 )
-
-from acprof.analysis.latency_model import (
-    GPU_MODE_OFF_VALUES,
-    GPU_MODE_ON_VALUES,
-)
-
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
 
 
@@ -175,8 +172,8 @@ def prepare_df(
 
 
 def read_static_meta(csv_path: str) -> dict[str, object]:
-    from acprof.artifacts import read_static_metadata
     from acprof.artifact_layout import ArtifactLayout
+    from acprof.artifacts import read_static_metadata
     return read_static_metadata(ArtifactLayout.from_csv(csv_path).root)
 
 

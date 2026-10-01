@@ -1,12 +1,12 @@
 """离线接口验证可指定扩展测试，避免把任务族等同于运行时。"""
-from contextlib import redirect_stderr
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import redirect_stderr
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main

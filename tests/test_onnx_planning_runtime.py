@@ -1,16 +1,16 @@
 """Real WordPiece, HTTP /probe and host scale planning without model downloads."""
-from contextlib import ExitStack
 import importlib.util
 import json
 import os
-from pathlib import Path
 import runpy
 import string
 import sys
 import tempfile
+import unittest
+from contextlib import ExitStack
+from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 
@@ -19,12 +19,13 @@ from unittest.mock import patch
                      'requires the no-Torch ONNX Runtime CPU container')
 class ONNXWordPiecePlanningTests(unittest.TestCase):
     def setUp(self):
+        import httpx
         from tokenizers import Tokenizer, models, pre_tokenizers, processors
         from werkzeug.serving import make_server
-        from examples.onnxruntime.fixtures import create_text_fixture
-        import httpx
+
         from acprof.host import input_plan
         from acprof.host.detect import TaskInfo
+        from examples.onnxruntime.fixtures import create_text_fixture
 
         self.assertIsNone(importlib.util.find_spec('torch'))
         self.assertIsNone(importlib.util.find_spec('transformers'))

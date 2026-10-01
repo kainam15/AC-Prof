@@ -10,12 +10,27 @@ from textual.widgets import Button, ContentSwitcher, DataTable, Select, Static, 
 
 from acprof.host.image_graph import reclaimable_image_bytes
 from acprof.host.image_management import (
-    DockerStorage, ImageInventory, ImageLayer, ImageRemoval, ManagedImage, delete_images, list_images, read_storage,
+    DockerStorage,
+    ImageInventory,
+    ImageLayer,
+    ImageRemoval,
+    ManagedImage,
+    delete_images,
+    list_images,
+    read_storage,
 )
 from acprof.messages import join_messages, message
 from acprof.tui.images import (
-    IMAGE_KINDS, ImageDeleteScreen, ImageDetailPanel, ImageTree, deletion_message,
-    filtered_images, format_image_size, image_display_name, image_error, render_image_tree,
+    IMAGE_KINDS,
+    ImageDeleteScreen,
+    ImageDetailPanel,
+    ImageTree,
+    deletion_message,
+    filtered_images,
+    format_image_size,
+    image_display_name,
+    image_error,
+    render_image_tree,
 )
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog

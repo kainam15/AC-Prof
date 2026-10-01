@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.container.handlers import diffusion as diffusion_handler
+from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.workloads.diffusion import DiffusionWorkloadGenerator
 
 

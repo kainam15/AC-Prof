@@ -1,9 +1,9 @@
 import asyncio
-from pathlib import Path
 import re
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
@@ -14,11 +14,11 @@ from textual.geometry import Offset
 from textual.message_pump import MessagePump
 from textual.widgets import Button, Collapsible, Input
 
-from acprof.tui.app import AcprofTui
-from acprof.tui.views import ConfirmActionScreen
-from acprof.tui.progress import ProgressSnapshot
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
 from acprof.tui.input import BarCursorInput
+from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.views import ConfirmActionScreen
 
 
 class RecordingDriver(Driver):

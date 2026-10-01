@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from acprof.model_spec import pipeline_task
-
 import base64
 import io
 import math
@@ -16,6 +14,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
+from acprof.model_spec import pipeline_task
 
 
 class CVHandler(BaseHandler):

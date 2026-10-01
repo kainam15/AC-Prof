@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 import test_model_contract as fixture
+
 from acprof.host.detect import TaskInfo
 from acprof.model_contract import resolve_model_contract
 from acprof.model_dependencies import resolve_dependencies

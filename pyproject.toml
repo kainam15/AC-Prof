@@ -58,8 +58,11 @@ force-exclude = true
 extend-exclude = ["internal-testing", "results", "evidence"]
 
 [tool.ruff.lint]
-# 基础错误，以及可变默认值、finally 跳转和丢失异常来源。
-select = ["E4", "E7", "E9", "F", "B006", "B012", "B904"]
+# 基础错误与 import 排序。
+select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "I"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
 
 [tool.mypy]
 python_version = "3.10"

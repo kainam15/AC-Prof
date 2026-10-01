@@ -8,8 +8,8 @@ from __future__ import annotations
 import copy
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
 from acprof.model_evidence import content_digest, pinned_revision
@@ -24,6 +24,7 @@ def retain_validation_failure(output_dir: str) -> None:
     """Keep failed evidence before a retry overwrites the current report."""
     import shutil
     import uuid
+
     from acprof.artifact_layout import ArtifactLayout
     layout = ArtifactLayout.discover(output_dir)
     report = layout.path("runtime_validation.json")
@@ -151,8 +152,8 @@ class PreparationWorkflow:
 
     def resolve(self, args, *, initial=None):
         from acprof.host.detect import detect_task
-        from acprof.host.task_support import require_task_support
         from acprof.host.model_inspection import explain_resolution
+        from acprof.host.task_support import require_task_support
 
         def resolve_once():
             task = initial if initial is not None else detect_task(

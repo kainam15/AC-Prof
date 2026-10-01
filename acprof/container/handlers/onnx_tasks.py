@@ -10,7 +10,14 @@ import numpy as np
 
 from acprof.container.handlers import BaseHandler, InputLimitError
 from acprof.container.handlers.structured import _artifact_path, _positive_integer
-from acprof.container.onnx_session import load_session, run_session, tensor_metadata, validate_artifact, validate_inputs, validate_outputs
+from acprof.container.onnx_session import (
+    load_session,
+    run_session,
+    tensor_metadata,
+    validate_artifact,
+    validate_inputs,
+    validate_outputs,
+)
 
 
 def _config(value: Any, name: str, allowed: set[str]) -> dict:

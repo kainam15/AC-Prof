@@ -8,15 +8,14 @@ import sys
 import traceback
 from typing import Any
 
-
 RESULT_PREFIX = "ACPROF_RUNTIME_VALIDATION="
 
 
 def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
-    from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
     from acprof.container.execution import complete_prediction, configured_execution
-    from acprof.runtime_settings import runtime_threads
+    from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
     from acprof.extensions import get_extension
+    from acprof.runtime_settings import runtime_threads
 
     stages = [] if stages is None else stages
 

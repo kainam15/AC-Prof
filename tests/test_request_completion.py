@@ -1,11 +1,11 @@
 """Controlled async backend: protocol evidence, not a GPU benchmark."""
+import os
+import types
+import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
 from importlib import import_module
-import os
 from threading import Event
-import types
-import unittest
 from unittest.mock import patch
 
 from acprof.container.handlers import BaseHandler

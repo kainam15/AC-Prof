@@ -16,7 +16,6 @@ import numpy as np
 from acprof.container.handlers import BaseHandler, handler_declaration
 from acprof.model_spec import load_model_spec
 
-
 TASK_OUTPUT_TYPES = {
     "tabular-classification": "classification", "tabular-regression": "regression",
     "reinforcement-learning": "actions", "robotics": "actions", "graph-ml": "graph",
@@ -101,8 +100,8 @@ class StructuredHandler(BaseHandler):
 
             model = torch.jit.load(str(artifact), map_location=device).eval()
         else:
-            from skops import io as skops_io
             from sklearn import base as sklearn_base
+            from skops import io as skops_io
 
             # Never automatically trust serialized custom classes or functions.
             model = skops_io.load(str(artifact), trusted=[])

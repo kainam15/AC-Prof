@@ -5,27 +5,27 @@ Used both during Docker image build and host-side pre-warming.
 
 from __future__ import annotations
 
-import inspect
-import fnmatch
 import argparse
+import fnmatch
 import hashlib
 import importlib.metadata
 import importlib.util
+import inspect
 import json
 import os
 import time
 from pathlib import Path
-
 from typing import Sequence
 
 from huggingface_hub import snapshot_download
-from acprof.model_spec import load_model_dependencies
+
 from acprof.hf_endpoints import hf_endpoints
+from acprof.model_spec import load_model_dependencies
 
 if __package__:
-    from .model_files import ModelFilesError, PLAN_FILENAME, plan_download, seal_plan
+    from .model_files import PLAN_FILENAME, ModelFilesError, plan_download, seal_plan
 else:
-    from model_files import ModelFilesError, PLAN_FILENAME, plan_download, seal_plan
+    from model_files import PLAN_FILENAME, ModelFilesError, plan_download, seal_plan
 
 MODEL_ID = ""
 MODEL_REVISION = "main"

@@ -1,13 +1,14 @@
 """依赖和平台选择回归：构建身份必须覆盖锁与基础镜像。"""
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from acprof.host.detect import TaskInfo
-from acprof.host.dependency_images import runtime_fingerprint
-from acprof.runtime_profiles import select_runtime_profile
 from runtime_fixture import ROOT, copy_dependency_tree
+
+from acprof.host.dependency_images import runtime_fingerprint
+from acprof.host.detect import TaskInfo
+from acprof.runtime_profiles import select_runtime_profile
 
 
 class DependencyLockTests(unittest.TestCase):

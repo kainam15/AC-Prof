@@ -2,9 +2,9 @@
 
 import math
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
@@ -15,13 +15,11 @@ from acprof.plotting.config import (
     FEASIBILITY_STATE_SPECS,
     FEASIBILITY_TEXT_COLORS,
 )
-
 from acprof.plotting.data import (
     is_gpu_off,
     is_gpu_on,
     make_config_label,
 )
-
 from acprof.plotting.styles import (
     _configurations_with_colors,
     build_cpu_base_colors,

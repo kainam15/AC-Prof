@@ -6,8 +6,8 @@ import os
 
 
 def validate_basic(payload: dict) -> dict:
-    from acprof.container.local_pipeline import load_local_pipeline_class
     from acprof.container.handlers import resolve_model_source
+    from acprof.container.local_pipeline import load_local_pipeline_class
     from acprof.model_spec import load_model_spec, pipeline_task
 
     source = resolve_model_source(os.environ["MODEL_ID"])

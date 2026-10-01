@@ -1,15 +1,16 @@
 """锁检查保持只读，并拒绝与目标解释器不兼容的制品。"""
 import hashlib
+import sys
+import tempfile
+import unittest
 from io import BytesIO
 from pathlib import Path
-import tempfile
-import sys
-import unittest
 from unittest.mock import patch
 
 from runtime_fixture import copy_dependency_tree
-from scripts.compile_locks import check_catalog
+
 from scripts import compile_locks
+from scripts.compile_locks import check_catalog
 from scripts.compile_system_lock import resolve_in_container, snapshot_url
 
 

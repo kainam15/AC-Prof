@@ -1,14 +1,14 @@
 """First-run presets must reach the real command without changing saved defaults."""
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Select
 
 from acprof.cli.tui import main
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig, build_run_command
+from acprof.tui.app import AcprofTui
 from acprof.tui.settings import TuiSettings, save_settings
 
 

@@ -8,9 +8,8 @@ import numpy as np
 import onnxruntime as ort
 
 from acprof.container.handlers.structured import _artifact_path, _local_snapshot
-from acprof.runtime_settings import onnx_runtime_parameters
 from acprof.model_spec import load_model_spec
-
+from acprof.runtime_settings import onnx_runtime_parameters
 
 TENSOR_DTYPES = {
     'tensor(float)': np.dtype('float32'), 'tensor(double)': np.dtype('float64'),

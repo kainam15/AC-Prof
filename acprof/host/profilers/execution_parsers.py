@@ -7,7 +7,6 @@ import math
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-
 NSYS_REPORTS = (
     "cuda_api_sum",
     "cuda_gpu_kern_sum",

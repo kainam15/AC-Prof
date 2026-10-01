@@ -2,18 +2,20 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import test_model_contract as fixture
+
 from acprof.cli.main import main
 
 
 class ModelInspectionTests(unittest.TestCase):
     def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales(self):
         from types import SimpleNamespace
+
         from acprof.host.detect import TaskInfo
         from acprof.host.model_inspection import probe_model_contract
         for family, tag, expected_scale, field in (
@@ -34,6 +36,7 @@ class ModelInspectionTests(unittest.TestCase):
 
     def test_full_probe_accepts_native_models_and_preserves_feature_width(self):
         from types import SimpleNamespace
+
         from acprof.host.detect import TaskInfo
         from acprof.host.model_inspection import probe_model_contract
         task = TaskInfo("example/iris", "tabular-classification", "structured", "onnxruntime",

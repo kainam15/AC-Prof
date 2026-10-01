@@ -49,8 +49,8 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
         except ValueError as exc:
             reason = str(exc)
     if reason is None:
-        from acprof.runtime_profiles import select_runtime_profile
         from acprof.model_resolution import resolve_model_interface
+        from acprof.runtime_profiles import select_runtime_profile
 
         try:
             task_info.model_resolution = resolve_model_interface(task_info)

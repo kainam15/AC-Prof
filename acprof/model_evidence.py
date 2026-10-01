@@ -1,12 +1,11 @@
 """JSON-only provenance for static model contracts, separate from execution specs."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Any
-
 
 RESOLVER_VERSION = "pipeline-contract-v3"
 FIELD_STATES = {"declared", "derived", "verified", "ambiguous", "unresolved"}

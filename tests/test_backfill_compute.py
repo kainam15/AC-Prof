@@ -10,7 +10,6 @@ from acprof.cli.backfill_compute import (
 )
 from acprof.host.compute_profile_plan import find_compute_profile_entry
 
-
 REMOVED_LEGACY_COMPUTE_FIELDS = (
     "compute_profile_tool",
     "model_mflop_per_request",

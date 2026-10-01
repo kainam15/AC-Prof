@@ -1,9 +1,9 @@
 """中文浮层在最终屏幕与局部终端输出中保持完整。"""
 
-from dataclasses import replace
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.segment import Segment
@@ -12,8 +12,8 @@ from textual.geometry import Region, Size
 from textual.strip import Strip
 from textual.widgets._toast import Toast
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 
 

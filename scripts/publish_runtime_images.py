@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.host.dependency_images import (  # noqa: E402 -- 源码发布脚本先设置仓库导入路径。
-    DEFAULT_RUNTIME_REGISTRY, prepare_environment_image, prepare_platform_image, registry_reference,
+    DEFAULT_RUNTIME_REGISTRY,
+    prepare_environment_image,
+    prepare_platform_image,
+    registry_reference,
 )
 from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS  # noqa: E402 -- 同上。
 

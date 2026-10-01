@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 import os
 
-
 RUNTIME_ENV_NAMES = (
     'ACPROF_RUNTIME_THREADS', 'ACPROF_ONNX_INTRA_OP_THREADS',
     'ACPROF_ONNX_INTER_OP_THREADS', 'ACPROF_ONNX_PROVIDERS',

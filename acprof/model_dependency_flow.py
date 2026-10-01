@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import ast
 import copy
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import PurePosixPath
-import re
 
 from acprof.model_source_analysis import parse_source
 

@@ -8,7 +8,6 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-
 SPEC_ENV = "ACPROF_MODEL_SPEC_B64"
 DEPENDENCIES_ENV = "ACPROF_MODEL_DEPENDENCIES_B64"
 MAX_SPEC_BYTES = 64 * 1024

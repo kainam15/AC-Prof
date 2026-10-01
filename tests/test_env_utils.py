@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from acprof.host import env_utils
 from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
 from acprof.hf_endpoints import HF_DEFAULT_ENDPOINT, hf_endpoints
+from acprof.host import env_utils
 
 
 class BootstrapProjectEnvTests(unittest.TestCase):

@@ -1,22 +1,28 @@
 """按依赖内容准备平台和环境缓存；主构建与离线验证共用此入口。"""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
 from acprof.dependency_locks import (
-    content_digest, package_versions, python_lock_text, require_exact_packages,
+    content_digest,
+    package_versions,
+    python_lock_text,
+    require_exact_packages,
     system_lock_identity,
 )
-from acprof.runtime_profiles import (
-    DependencyEnvironment, PlatformSpec, environment_identity, platform_identity,
-)
 from acprof.installation import resource_root
+from acprof.runtime_profiles import (
+    DependencyEnvironment,
+    PlatformSpec,
+    environment_identity,
+    platform_identity,
+)
 
 PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"

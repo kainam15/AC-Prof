@@ -14,9 +14,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from acprof.monitors.common import docker_container_pid, sample_periodically
-
 from acprof.config import DEFAULT_IDLE_SECONDS
+from acprof.monitors.common import docker_container_pid, sample_periodically
 from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
 
 

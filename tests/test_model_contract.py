@@ -1,18 +1,17 @@
 """Contract synthesis must remain static, pinned, conservative and explainable."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host.detect import detect_task
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.model_spec import task_model_spec, validate_model_spec
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "custom_pipeline_audio_like"
 SOURCE = (FIXTURE / "pipeline.py").read_text()

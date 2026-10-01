@@ -1,12 +1,12 @@
 import csv
-from contextlib import ExitStack, redirect_stdout, redirect_stderr
 import hashlib
 import io
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.cli import run

@@ -2,7 +2,11 @@
 import json
 import unittest
 
-from acprof.capabilities import apply_collection_result, apply_runtime_validation, measurement_report
+from acprof.capabilities import (
+    apply_collection_result,
+    apply_runtime_validation,
+    measurement_report,
+)
 from scripts.check_onnx_basic import audit_basic_capabilities, audit_basic_rows
 
 

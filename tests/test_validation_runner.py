@@ -1,10 +1,10 @@
 """验证 CI 的退出状态和跳过证据，避免空测试/缺依赖伪装为通过。"""
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 

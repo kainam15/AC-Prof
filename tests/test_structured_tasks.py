@@ -13,7 +13,6 @@ import numpy as np
 from acprof.container.handlers.structured import StructuredHandler
 from acprof.workloads.structured import StructuredWorkloadGenerator
 
-
 TASKS = ("tabular-classification", "tabular-regression", "reinforcement-learning", "robotics", "graph-ml")
 
 

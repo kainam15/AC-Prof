@@ -14,7 +14,6 @@ from acprof.container.handlers.diffusion import (
 )
 from acprof.workloads.diffusion import DiffusionWorkloadGenerator
 
-
 _RUNTIME_AVAILABLE = all(
     importlib.util.find_spec(name) is not None
     for name in ("torch", "diffusers", "transformers")
@@ -140,9 +139,9 @@ class DiffusionRuntimeTests(unittest.TestCase):
                 self.assertEqual(context["model"].config._attn_implementation, "eager")
 
     def test_native_video_output_containers_return_frame_metadata(self):
-        from PIL import Image
         from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
         from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
+        from PIL import Image
 
         frames = [[Image.new("RGB", (64, 64), (10, 20, 30)) for _ in range(5)]]
         for output_class in (CogVideoXPipelineOutput, WanPipelineOutput):
@@ -183,12 +182,17 @@ class DiffusionRuntimeTests(unittest.TestCase):
             self.assertEqual(handler.get_scale_metadata(context, payload)["native_output_width"], 32)
 
     def test_new_native_video_and_shap_e_signatures_match_pinned_runtime(self):
-        from diffusers import (
-            CogVideoXPipeline, CogVideoXVideoToVideoPipeline,
-            StableVideoDiffusionPipeline, ShapEPipeline, ShapEImg2ImgPipeline,
-            TextToVideoSDPipeline, VideoToVideoSDPipeline,
-        )
         import types
+
+        from diffusers import (
+            CogVideoXPipeline,
+            CogVideoXVideoToVideoPipeline,
+            ShapEImg2ImgPipeline,
+            ShapEPipeline,
+            StableVideoDiffusionPipeline,
+            TextToVideoSDPipeline,
+            VideoToVideoSDPipeline,
+        )
 
         for pipeline_class, task in [
             (CogVideoXPipeline, "text-to-video"),

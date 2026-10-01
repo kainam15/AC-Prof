@@ -6,10 +6,9 @@ import json
 from pathlib import Path
 
 from acprof.analysis.audit import audit_result
+from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.result_csv import measurement_key, read_result_csv
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
-from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
-
 
 MEASUREMENT_OPTIONS = (
     "profiling_mode", "warmup", "repeat", "repeat_in_window", "repeat_window_seconds",

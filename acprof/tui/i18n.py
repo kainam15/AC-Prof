@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from acprof.messages import Message, join_messages
 
-
 LANGUAGE_OPTIONS = (("简体中文", "zh"), ("English", "en"))
 UI_LANGUAGES = tuple(value for _, value in LANGUAGE_OPTIONS)
 

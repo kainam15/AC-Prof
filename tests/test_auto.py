@@ -2,14 +2,15 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from test_resolution_decisions import candidate
 
 from acprof.cli.main import main
 from acprof.host.doctor import DoctorCheck
-from test_resolution_decisions import candidate
 
 
 class AutoTests(unittest.TestCase):
@@ -38,6 +39,7 @@ class AutoTests(unittest.TestCase):
 
     def test_partial_collection_cannot_be_reported_as_automatic_success(self):
         from argparse import Namespace
+
         from acprof.host.automation import AutomaticRun
         with tempfile.TemporaryDirectory() as directory:
             run = AutomaticRun(Namespace(model="example/model", output_dir=directory, profiling_mode="full", resume=False))
@@ -116,6 +118,7 @@ class AutoTests(unittest.TestCase):
     def test_resume_reuses_saved_revision_without_hub_queries(self):
         from argparse import Namespace
         from dataclasses import asdict
+
         from acprof.host.automation import AutomaticRun
         task = candidate(tag="text-generation")
         with tempfile.TemporaryDirectory() as directory:

@@ -9,8 +9,8 @@ import argparse
 import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -102,6 +102,7 @@ def validate(name: str, directory: Path) -> dict:
     import onnx
     import onnxruntime
     from onnx.reference import ReferenceEvaluator
+
     from acprof.container.handlers import HandlerRegistry
     from acprof.workloads import get_generator
 

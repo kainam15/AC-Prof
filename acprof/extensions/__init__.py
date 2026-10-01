@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
-from copy import deepcopy
 import json
+from copy import deepcopy
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
-
 from acprof.extensions.schema import (
-    BackendRule, ExtensionDeclaration, declaration_from_dict, merge_template,
+    BackendRule,
+    ExtensionDeclaration,
+    declaration_from_dict,
+    merge_template,
     validate_entrypoint,
 )
 

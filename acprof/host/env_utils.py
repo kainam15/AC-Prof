@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import re
 import stat
 import tempfile
@@ -11,13 +11,11 @@ from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping
 from urllib.parse import urlsplit
 
-from acprof.hf_endpoints import hf_endpoints
-
 from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
-
+from acprof.hf_endpoints import hf_endpoints
 
 CONFIGURABLE_ENV_KEYS = (
     "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS",

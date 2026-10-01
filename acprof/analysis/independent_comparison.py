@@ -1,13 +1,13 @@
 """Compare run means, resampling independent runs instead of individual requests."""
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import json
 import math
-from pathlib import Path
 import random
 import statistics
+from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from acprof.analysis.audit import number

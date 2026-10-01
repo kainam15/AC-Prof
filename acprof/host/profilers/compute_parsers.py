@@ -6,7 +6,6 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-
 NCU_FLOAT_TYPE_PATTERN = r"(?:bf\d+|fp\d+|tf\d+)"
 
 

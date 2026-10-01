@@ -9,7 +9,6 @@ from pathlib import Path
 from acprof.container.handlers.cv import CVHandler
 from acprof.workloads.cv import CVWorkloadGenerator
 
-
 _RUNTIME_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("torch", "transformers"))
 
 
@@ -40,8 +39,8 @@ class CVRuntimeTests(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("timm") is not None, "requires timm")
     def test_timm_architectures_share_transformers_loading_and_preprocessing(self):
-        import torch
         import timm
+        import torch
         from timm.models._hub import save_for_hf
         from transformers import TimmWrapperImageProcessor
 
@@ -65,7 +64,11 @@ class CVRuntimeTests(unittest.TestCase):
                 self.assertEqual(handler.postprocess(context, output)["output_type"], "classification")
 
     def test_videomae_loads_local_snapshot_and_consumes_every_frame(self):
-        from transformers import VideoMAEConfig, VideoMAEForVideoClassification, VideoMAEImageProcessor
+        from transformers import (
+            VideoMAEConfig,
+            VideoMAEForVideoClassification,
+            VideoMAEImageProcessor,
+        )
 
         model = VideoMAEForVideoClassification(VideoMAEConfig(
             image_size=32, patch_size=16, num_frames=4, tubelet_size=2,
@@ -80,7 +83,11 @@ class CVRuntimeTests(unittest.TestCase):
         self.assertTrue(all(0 <= record["score"] <= 1 for record in result["classifications"]))
 
     def test_superpoint_loads_local_snapshot_and_counts_valid_keypoints(self):
-        from transformers import SuperPointConfig, SuperPointForKeypointDetection, SuperPointImageProcessor
+        from transformers import (
+            SuperPointConfig,
+            SuperPointForKeypointDetection,
+            SuperPointImageProcessor,
+        )
 
         model = SuperPointForKeypointDetection(SuperPointConfig(
             encoder_hidden_sizes=[8, 8, 16, 16], decoder_hidden_size=16,
@@ -93,7 +100,14 @@ class CVRuntimeTests(unittest.TestCase):
         self.assertLessEqual(result["keypoint_count"], 20)
 
     def test_sam_mask_pipeline_returns_a_mask_count(self):
-        from transformers import SamConfig, SamImageProcessor, SamMaskDecoderConfig, SamModel, SamPromptEncoderConfig, SamVisionConfig
+        from transformers import (
+            SamConfig,
+            SamImageProcessor,
+            SamMaskDecoderConfig,
+            SamModel,
+            SamPromptEncoderConfig,
+            SamVisionConfig,
+        )
 
         model = SamModel(SamConfig(
             vision_config=SamVisionConfig(hidden_size=32, output_channels=32, num_hidden_layers=1,
@@ -112,7 +126,14 @@ class CVRuntimeTests(unittest.TestCase):
         self.assertIsInstance(result["n_results"], int)
 
     def test_owlvit_zero_shot_pipeline_uses_candidate_labels(self):
-        from transformers import CLIPTokenizer, OwlViTConfig, OwlViTForObjectDetection, OwlViTImageProcessor, OwlViTTextConfig, OwlViTVisionConfig
+        from transformers import (
+            CLIPTokenizer,
+            OwlViTConfig,
+            OwlViTForObjectDetection,
+            OwlViTImageProcessor,
+            OwlViTTextConfig,
+            OwlViTVisionConfig,
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -144,7 +165,12 @@ class CVRuntimeTests(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("scipy") is not None, "VitPose requires scipy")
     def test_vitpose_loads_local_snapshot_and_uses_every_coco_box(self):
-        from transformers import VitPoseBackboneConfig, VitPoseConfig, VitPoseForPoseEstimation, VitPoseImageProcessor
+        from transformers import (
+            VitPoseBackboneConfig,
+            VitPoseConfig,
+            VitPoseForPoseEstimation,
+            VitPoseImageProcessor,
+        )
 
         backbone = VitPoseBackboneConfig(
             image_size=[32, 32], patch_size=[16, 16], hidden_size=32,

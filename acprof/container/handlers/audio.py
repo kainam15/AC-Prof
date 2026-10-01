@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from acprof.model_spec import pipeline_task
-
 import base64
 import binascii
 import io
 import math
+import wave
 from pathlib import Path
 from types import SimpleNamespace
-import wave
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -20,7 +18,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
-
+from acprof.model_spec import pipeline_task
 
 _ASR_TASK_TYPES = {
     "automatic-speech-recognition",
@@ -151,8 +149,8 @@ class AudioHandler(BaseHandler):
         model_source: str, device: str, model_revision: str,
         load_options: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        import transformers
         import torch
+        import transformers
 
         revision = model_revision_kwargs(model_source, model_revision)
         config = transformers.AutoConfig.from_pretrained(model_source, **revision)

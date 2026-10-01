@@ -1,9 +1,9 @@
 """Readiness-only OOM evidence; never invokes a client, profiler or CSV writer."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import time
+from datetime import datetime, timezone
 
 from acprof.artifacts import atomic_write_json
 from acprof.host import docker_runtime as docker

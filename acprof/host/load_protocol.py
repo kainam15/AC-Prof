@@ -1,9 +1,6 @@
 """Versioned non-streaming HTTP load protocol, separate from formal energy windows."""
 from __future__ import annotations
 
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from dataclasses import asdict, dataclass
 import hashlib
 import http.client
 import json
@@ -13,8 +10,11 @@ import socket
 import statistics
 import threading
 import time
-from urllib.parse import urlsplit
+from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from dataclasses import asdict, dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)

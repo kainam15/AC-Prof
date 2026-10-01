@@ -3,17 +3,23 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.host.dependency_images import prepare_environment_image  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.runtime_profiles import DEFAULT_PROFILES, PROFILES, environment_id  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.host.dependency_images import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    prepare_environment_image,
+)
+from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    DEFAULT_PROFILES,
+    PROFILES,
+    environment_id,
+)
 
 PATTERNS = {
     "nlp": ("test_nlp_runtime.py", "test_custom_pipeline_runtime.py"),
@@ -106,8 +112,8 @@ def main(argv=None):
                 run_command += ["--pattern", pattern]
             code = subprocess.run(run_command, cwd=ROOT, timeout=args.timeout_seconds).returncode
             if code == 0 and args.basic_e2e:
-                from scripts.check_onnx_basic import run_basic_e2e
                 from examples.onnxruntime.fixtures import BASIC_SCENARIOS
+                from scripts.check_onnx_basic import run_basic_e2e
                 result["basic_task_e2e"] = {}
                 for scenario in BASIC_SCENARIOS:
                     directory = "basic" if scenario == "tabular" else "basic-" + scenario

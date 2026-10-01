@@ -7,8 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host import docker_runtime, input_plan, model_schema
-from acprof.host import detect
+from acprof.host import detect, docker_runtime, input_plan, model_schema
 from acprof.host.task_support import TaskSupportError, require_task_support
 
 

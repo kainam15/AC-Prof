@@ -1,8 +1,8 @@
 """在 timeseries 镜像中验证真实 ChronosBolt 加载与预测。"""
 import importlib.util
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in (
@@ -13,6 +13,7 @@ class TimeseriesRuntimeTests(unittest.TestCase):
         import torch
         from chronos import BaseChronosPipeline
         from chronos.chronos2 import Chronos2Model
+
         from acprof.container.handlers.timeseries import ChronosHandler
 
         torch.set_num_threads(1)

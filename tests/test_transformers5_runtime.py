@@ -10,6 +10,7 @@ import unittest
 class Transformers5RuntimeTests(unittest.TestCase):
     def test_native_vision_processor_preserves_box_and_polygon_geometry(self):
         from types import SimpleNamespace
+
         import torch
         from PIL import Image
         from transformers import AutoImageProcessor, PPDocLayoutV3ImageProcessor
@@ -36,6 +37,7 @@ class Transformers5RuntimeTests(unittest.TestCase):
         from tokenizers.models import WordLevel
         from tokenizers.pre_tokenizers import Whitespace
         from transformers import AutoModelForCausalLM, PreTrainedTokenizerFast, Qwen3_5TextConfig
+
         from acprof.container.handlers.nlp import NLPHandler
 
         torch.set_num_threads(1)

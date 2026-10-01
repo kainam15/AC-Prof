@@ -21,14 +21,11 @@ from textual.widgets import (
 from textual.widgets.button import ButtonVariant
 
 from acprof.tui.i18n import LANGUAGE_OPTIONS
-
 from acprof.tui.input import BarCursorInput as Input
-
 from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import NOT_APPLICABLE, format_input_number
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.table import ResizableDataTable
-
 from acprof.tui.themes import THEME_OPTIONS
 
 if TYPE_CHECKING:
@@ -586,7 +583,14 @@ def compose_settings_tab(app: AcprofTui) -> ComposeResult:
 
 def compose_images_tab(app: AcprofTui) -> ComposeResult:
     from acprof.tui.images import (
-        IMAGE_HINT, IMAGE_PLATFORMS, ImageDetailPanel, ImageDetailResizeHandle, ImageTable, ImageTree, ImageTreeHeader, ImageWorkspace,
+        IMAGE_HINT,
+        IMAGE_PLATFORMS,
+        ImageDetailPanel,
+        ImageDetailResizeHandle,
+        ImageTable,
+        ImageTree,
+        ImageTreeHeader,
+        ImageWorkspace,
     )
 
     with TabPane("镜像管理", id="images-tab"):

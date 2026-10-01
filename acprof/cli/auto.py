@@ -1,14 +1,14 @@
 """Resolve, preflight and collect one exact model using the existing run engine."""
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def main(argv=None) -> int:
     from acprof.cli.run_args import build_parser
-    from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.automation import AutomaticRun
+    from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     parser = build_parser(automatic=True)
     args = parser.parse_args(argv)

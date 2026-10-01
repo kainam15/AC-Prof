@@ -9,7 +9,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 RUNTIME_AVAILABLE = all(
     importlib.util.find_spec(name) is not None
     for name in ("torch", "transformers", "tokenizers")
@@ -41,9 +40,13 @@ class MultimodalRuntimeTests(unittest.TestCase):
     def test_blip_visual_qa_load_preprocess_generate_postprocess(self):
         import torch
         from transformers import (
-            BertTokenizerFast, BlipConfig, BlipForQuestionAnswering,
-            BlipImageProcessor, BlipProcessor,
+            BertTokenizerFast,
+            BlipConfig,
+            BlipForQuestionAnswering,
+            BlipImageProcessor,
+            BlipProcessor,
         )
+
         from acprof.container.handlers.multimodal import MultimodalHandler
         from acprof.workloads import get_generator
 
@@ -99,9 +102,13 @@ class MultimodalRuntimeTests(unittest.TestCase):
         from tokenizers.models import WordLevel
         from tokenizers.pre_tokenizers import Whitespace
         from transformers import (
-            ColPaliConfig, ColPaliForRetrieval, ColPaliProcessor,
-            GemmaTokenizerFast, SiglipImageProcessor,
+            ColPaliConfig,
+            ColPaliForRetrieval,
+            ColPaliProcessor,
+            GemmaTokenizerFast,
+            SiglipImageProcessor,
         )
+
         from acprof.container.handlers.multimodal import MultimodalHandler
         from acprof.workloads import get_generator
 
@@ -159,6 +166,7 @@ class MultimodalRuntimeTests(unittest.TestCase):
     def test_layoutlm_document_qa_reuses_all_chunks_without_ocr(self):
         import torch
         from transformers import LayoutLMConfig, LayoutLMForQuestionAnswering, LayoutLMTokenizerFast
+
         from acprof.container.handlers.multimodal import MultimodalHandler
         from acprof.workloads import get_generator
 

@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import argparse
-from importlib import import_module
 import os
 import runpy
 import sys
+from importlib import import_module
 
 from acprof import __version__
-
 
 COMMANDS = {
     "run": "run", "tui": "tui", "probe": "probe", "plot": "plot", "doctor": "doctor",

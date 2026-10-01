@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 
-
 BASIC_SCENARIOS = {
     'tabular': {
         'family': 'structured', 'task': 'tabular-regression', 'batch_size': 2, 'input_scale': 2,
@@ -104,6 +103,7 @@ def create_text_fixture(root, *, max_length=16, fixed_length=None):
 def _red_image_payload():
     import base64
     import io
+
     from PIL import Image
 
     stream = io.BytesIO()
@@ -116,8 +116,10 @@ def prepare_basic_scenario(name, directory):
     """Prepare and independently check fixture values before any measurement starts."""
     import hashlib
     import importlib.util
+
     import numpy as np
     import onnx
+
     from acprof.artifacts import atomic_write_json
     from acprof.container.handlers import HandlerRegistry
     from acprof.container.runtime_validate import validate

@@ -2,7 +2,6 @@
 import unittest
 from unittest.mock import Mock, patch
 
-
 from acprof.host.measurement_window import MonitorGroup
 
 
@@ -39,6 +38,7 @@ class OverheadSummaryTests(unittest.TestCase):
 
     def test_source_thread_settings_are_restored_without_inheriting_unrecorded_overrides(self):
         import os
+
         from acprof.host.execution_conditions import source_runtime_environment
         with patch.dict(os.environ, {"ACPROF_RUNTIME_THREADS": "8", "ACPROF_ONNX_INTRA_OP_THREADS": "6",
                                      "ACPROF_GPU_DEVICE": "GPU-caller"}):
@@ -103,11 +103,12 @@ class OverheadSummaryTests(unittest.TestCase):
             monitor.close.assert_called_once()
 
     def test_truncated_capture_cannot_pass_full_comparison(self):
-        import scripts.measure_overhead as overhead
+        import json
+        import tempfile
         from pathlib import Path
         from types import SimpleNamespace
-        import tempfile
-        import json
+
+        import scripts.measure_overhead as overhead
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'capture.pcap'
             result = SimpleNamespace(returncode=0, stdout=json.dumps({

@@ -1,13 +1,13 @@
 """窗口统计的日期命名、内容去重及既有 CLI 输出契约。"""
-from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
 import io
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.cli.stats import main

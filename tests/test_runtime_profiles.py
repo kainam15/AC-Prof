@@ -1,21 +1,22 @@
 import dataclasses
 import os
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from acprof.host.detect import TaskInfo
-from acprof.host import docker_runtime
+from runtime_fixture import copy_dependency_tree
+
 from acprof.container.handlers import HandlerRegistry
-from acprof.workloads import get_generator
+from acprof.host import docker_runtime
+from acprof.host.detect import TaskInfo
+from acprof.host.runtime_images import request_fingerprint
 from acprof.runtime_profiles import (
     PROFILES,
     RuntimeProfile,
     select_runtime_profile,
 )
-from acprof.host.runtime_images import request_fingerprint
-from runtime_fixture import copy_dependency_tree
+from acprof.workloads import get_generator
 
 
 def moss_task():

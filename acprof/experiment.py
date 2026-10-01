@@ -16,13 +16,9 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
-
-from acprof.messages import message
-from acprof.installation import cli_command
-
-
 from acprof.extensions import CATALOG
-
+from acprof.installation import cli_command
+from acprof.messages import message
 
 TASK_FAMILIES = tuple(sorted(set(CATALOG.task_families.values())))
 GPU_MODES = ("off", "on")

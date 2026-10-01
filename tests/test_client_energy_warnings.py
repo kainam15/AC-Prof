@@ -1,6 +1,3 @@
-from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
-from client_fixtures import patch_client
 import csv
 import io
 import json
@@ -13,15 +10,18 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acprof.host import client
-from acprof.monitors import energy_cpu
+from client_fixtures import patch_client
+
 from acprof.config import (
     CSV_FIELDS,
     GPU_RUNTIME_STATE_FIELDS,
     STATIC_META_FIELDS,
     STATIC_META_SCHEMA_VERSION,
 )
-
+from acprof.host import client
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
+from acprof.monitors import energy_cpu
 
 REMOVED_LEGACY_COMPUTE_FIELDS = (
     "compute_profile_tool",

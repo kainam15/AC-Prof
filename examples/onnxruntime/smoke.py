@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 
 def create_linear_fixture(directory: Path, *, fixed_rows: int | None = None) -> Path:
@@ -35,6 +35,7 @@ def create_linear_fixture(directory: Path, *, fixed_rows: int | None = None) -> 
 def exercise(directory: Path) -> dict:
     import numpy as np
     import onnxruntime
+
     from acprof.container.handlers import HandlerRegistry
 
     if importlib.util.find_spec('torch') is not None:

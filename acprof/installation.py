@@ -1,8 +1,8 @@
 """Locations and child commands shared by source, wheel and frozen installations."""
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def resource_root() -> Path:

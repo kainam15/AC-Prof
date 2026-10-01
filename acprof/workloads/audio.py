@@ -14,13 +14,12 @@ import hashlib
 import io
 import json
 import math
+import wave
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
-import wave
 
-from acprof.workloads import WorkloadGenerator, register_generator
 from acprof.installation import resource_root
-
+from acprof.workloads import WorkloadGenerator, register_generator
 
 PROJECT_ROOT = resource_root()
 SAMPLE_RATE = 16000

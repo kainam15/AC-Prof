@@ -1,14 +1,15 @@
 """平台可以不含 Torch，运行时声明仍受完整制品锁约束。"""
 import dataclasses
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from runtime_fixture import ROOT, copy_dependency_tree
 
 from acprof import runtime_profiles as profiles
 from acprof.dependency_locks import content_digest, python_lock_text, read_python_lock
 from acprof.host.detect import TaskInfo
-from runtime_fixture import ROOT, copy_dependency_tree
 
 
 class PlatformRuntimeTests(unittest.TestCase):

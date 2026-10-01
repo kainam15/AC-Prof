@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
-
-
 
 
 @dataclass
@@ -62,6 +60,7 @@ def _architecture_metadata(config: Any) -> dict[str, Any]:
 def _download_metadata(model_id: str, name: str, revision: str | None = None) -> str:
     from huggingface_hub import hf_hub_download
     from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
+
     from acprof.hf_endpoints import hf_endpoints
 
     kwargs = {"repo_id": model_id, "filename": name}
@@ -112,6 +111,7 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
 def dependency_metadata(repo_id: str, revision: str) -> dict:
     """Resolve dependency identity and file names only; downloads stay in image builds."""
     from huggingface_hub import HfApi
+
     from acprof.hf_endpoints import hf_endpoints
     try:
         info = HfApi(endpoint=hf_endpoints()[0]).model_info(repo_id, revision=revision, files_metadata=False)
@@ -401,6 +401,7 @@ def _detect_from_hub(
     """Level 1: Query HuggingFace Hub API."""
     try:
         from huggingface_hub import HfApi
+
         from acprof.hf_endpoints import hf_endpoints
 
         info = HfApi(endpoint=hf_endpoints()[0]).model_info(model_id, **({"revision": revision} if revision else {}))

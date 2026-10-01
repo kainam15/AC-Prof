@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 
 
 def main(argv=None) -> int:
@@ -26,8 +26,8 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout-seconds", type=float, default=300)
     parser.add_argument("--skip-build", action="store_true", help="Reuse a matching image when available")
     args = parser.parse_args(argv)
-    from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.detect import detect_task
+    from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.model_inspection import explain_resolution, probe_model_contract
     from acprof.model_contract import write_model_resolution
 

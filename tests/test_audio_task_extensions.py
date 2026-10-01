@@ -1,12 +1,12 @@
-import contextlib
 import base64
+import contextlib
 import io
-import wave
-from pathlib import Path
 import sys
 import tempfile
 import types
 import unittest
+import wave
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 

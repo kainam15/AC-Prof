@@ -8,12 +8,18 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host import docker_runtime, input_plan, model_schema, packet_capture, static_metadata
-from acprof.host import orchestrator
 from acprof.config import (
     CSV_FIELDS,
     STATIC_META_FIELDS,
     STATIC_META_SCHEMA_VERSION,
+)
+from acprof.host import (
+    docker_runtime,
+    input_plan,
+    model_schema,
+    orchestrator,
+    packet_capture,
+    static_metadata,
 )
 from acprof.host.detect import TaskInfo
 

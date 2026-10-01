@@ -2,15 +2,14 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from acprof.host.detect import TaskInfo
 from acprof.model_contract import apply_model_contract
 from acprof.model_resolution import discover_model_candidates
 from acprof.model_spec import task_model_spec
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ultravox_dependency_snapshot"
 MODEL = "fixie-ai/ultravox-v0_5-llama-3_2-1b"

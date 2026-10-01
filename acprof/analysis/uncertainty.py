@@ -1,10 +1,10 @@
 """按测量窗口聚合的不确定性；独立 profiler 与冷启动复用值不参与。"""
 from __future__ import annotations
 
-from collections import defaultdict
 import math
 import random
 import statistics
+from collections import defaultdict
 
 from acprof.metric_registry import METRICS
 from acprof.result_csv import measurement_key

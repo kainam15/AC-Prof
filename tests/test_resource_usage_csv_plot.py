@@ -1,11 +1,5 @@
-import acprof.analysis.latency_report as analysis_latency_report
-import acprof.plotting.config as plotting_config
-import acprof.plotting.data as plotting_data
-import acprof.plotting.diagnostics as plotting_diagnostics
-import acprof.plotting.metrics as plotting_metrics
-import matplotlib.pyplot as matplotlib_pyplot
-import csv
 import colorsys
+import csv
 import json
 import os
 import sys
@@ -13,9 +7,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import matplotlib.pyplot as matplotlib_pyplot
 import numpy as np
 import pandas as pd
 
+import acprof.analysis.latency_report as analysis_latency_report
+import acprof.plotting.config as plotting_config
+import acprof.plotting.data as plotting_data
+import acprof.plotting.diagnostics as plotting_diagnostics
+import acprof.plotting.metrics as plotting_metrics
 from acprof.cli import plot
 from acprof.config import CSV_FIELDS
 

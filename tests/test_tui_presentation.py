@@ -1,21 +1,20 @@
 """实验参数可独立编辑，空值与正在执行的任务有不同显示。"""
 
-from dataclasses import replace
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import DataTable, Input, Label, Static
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.host.image_management import DockerConnection, ImageInventory, ImageLayer, ManagedImage
+from acprof.tui.app import AcprofTui
 from acprof.tui.i18n import translate
 from acprof.tui.images import ImageTree, format_image_size, image_metadata
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.settings import load_settings
-from acprof.host.image_management import DockerConnection, ImageInventory, ImageLayer, ManagedImage
-
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 

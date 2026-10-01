@@ -13,7 +13,6 @@ import re
 from pathlib import PurePosixPath
 from typing import Any, Callable
 
-
 PLAN_VERSION = 1
 PLAN_FILENAME = "model_download_plan.json"
 DIFFUSION_PIPELINES = {

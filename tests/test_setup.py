@@ -1,14 +1,13 @@
 """Exercise the real bootstrap shell at its package manager and Docker boundaries."""
 import json
 import os
-from pathlib import Path
 import pty
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FAKE_TOOL = r'''

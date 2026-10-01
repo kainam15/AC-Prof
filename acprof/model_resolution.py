@@ -1,13 +1,17 @@
 """Resolve metadata and native interfaces without importing inference libraries."""
 from __future__ import annotations
 
-from functools import lru_cache
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from acprof.model_spec import FORMAT_BACKENDS, custom_code_files, task_model_spec, validate_model_spec
-
+from acprof.model_spec import (
+    FORMAT_BACKENDS,
+    custom_code_files,
+    task_model_spec,
+    validate_model_spec,
+)
 
 # Tasks select upstream operations; checkpoint names never take part in this map.
 _TASK_MAPPINGS = {

@@ -6,11 +6,11 @@ Docker cleanup. A timeout keeps ownership and permits a later stop/reap attempt.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 import signal
 import subprocess
 import threading
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

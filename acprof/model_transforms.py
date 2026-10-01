@@ -5,7 +5,6 @@ import copy
 import math
 from typing import Any
 
-
 MAX_DEPTH = 8
 MAX_NODES = 256
 

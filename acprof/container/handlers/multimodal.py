@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import base64
 import binascii
-import io
 import inspect
+import io
 import math
-from pathlib import Path
 import tempfile
 import wave
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -28,7 +28,6 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.handlers.audio import AudioHandler, _positive_int
-
 
 _TASKS = {
     "audio-text-to-text", "image-text-to-text", "visual-question-answering",

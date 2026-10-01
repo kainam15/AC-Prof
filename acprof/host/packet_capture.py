@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import os
-import shutil
 import re
+import shutil
 from dataclasses import dataclass
 from typing import List, Optional
 
 from acprof.config import SERVER_PORT
-from acprof.installation import module_command
 from acprof.host.docker_runtime import (
     _run,
 )
+from acprof.installation import module_command
 
 
 @dataclass

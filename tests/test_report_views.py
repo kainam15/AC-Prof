@@ -1,9 +1,9 @@
 """报告展示保留单位、真实零和统计边界；损坏报告不能伪装成有效结果。"""
-from copy import deepcopy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
 from acprof.tui.i18n import translate
 from acprof.tui.reports import read_report

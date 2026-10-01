@@ -75,8 +75,8 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(captured, [None])
 
     def test_profiler_keeps_unlimited_completion_unless_explicitly_requested(self):
-        from acprof.host.profiler_common import _base_docker_cmd
         from acprof.container.execution import complete_prediction
+        from acprof.host.profiler_common import _base_docker_cmd
         task = SimpleNamespace(model_id='fixture', model_revision='main', task_family='structured',
                                pipeline_tag='tabular-regression', runtime_backend='onnxruntime',
                                runtime_profile_id='onnxruntime-cpu')

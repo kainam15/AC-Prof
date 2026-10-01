@@ -1,10 +1,10 @@
 """Frozen model samples and coverage reports, independent of formal measurements."""
 from __future__ import annotations
 
-from collections import Counter
-from datetime import datetime, timezone
 import json
 import math
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
@@ -41,6 +41,7 @@ def validate_sample(sample: dict) -> None:
 
 def snapshot_sample(strata: list[str], limit: int) -> dict:
     from huggingface_hub import HfApi
+
     from acprof.hf_endpoints import hf_endpoints
     if limit <= 0:
         raise ValueError("limit must be positive")

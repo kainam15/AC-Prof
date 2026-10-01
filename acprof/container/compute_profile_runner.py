@@ -15,8 +15,8 @@ from typing import Any, Dict, Optional
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
 from acprof.container.execution import complete_prediction, configured_execution
+from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
 from acprof.runtime_settings import runtime_threads
 
 # Populated only for explicitly selected Torch/NVIDIA profiling paths.

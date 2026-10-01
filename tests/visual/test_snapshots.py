@@ -6,14 +6,15 @@ import pytest
 
 pytest.importorskip("pytest_textual_snapshot")
 
-from acprof.tui.app import AcprofTui
+from textual.widgets import TabbedContent
+
 from acprof.experiment import RunConfig
-from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.app import AcprofTui
 from acprof.tui.process import StopResult
+from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportRow, ReportView
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import ConfirmActionScreen
-from textual.widgets import TabbedContent
 
 
 @pytest.mark.parametrize("language,size,scene", [

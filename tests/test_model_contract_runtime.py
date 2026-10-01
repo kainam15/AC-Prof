@@ -2,18 +2,18 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+import test_custom_multimodal_runtime as multimodal_fixture
+from test_multimodal_handler import audio_payload
 
 from acprof.host.detect import TaskInfo
 from acprof.model_contract import apply_model_contract
 from acprof.model_resolution import discover_model_candidates
 from acprof.model_spec import encode_model_spec, task_model_spec
-import test_custom_multimodal_runtime as multimodal_fixture
-from test_multimodal_handler import audio_payload
-
 
 MODEL = '''from transformers import BertConfig, BertForSequenceClassification
 

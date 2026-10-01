@@ -1,7 +1,8 @@
 """仅由声明使用 Torch 的运行时按需加载。"""
 
-import torch
 import time
+
+import torch
 
 from acprof.runtime_settings import runtime_environment
 

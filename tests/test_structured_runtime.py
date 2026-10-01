@@ -1,8 +1,8 @@
 """在 structured 镜像中验证真实 TorchScript 和 skops 加载。"""
 import importlib.util
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in (
@@ -11,7 +11,7 @@ import unittest
 class StructuredRuntimeTests(unittest.TestCase):
     def test_torchscript_and_skops_offline(self):
         from examples.structured.export_models import export_examples
-        from examples.structured.smoke import TASKS, check_task, check_skops
+        from examples.structured.smoke import TASKS, check_skops, check_task
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             export_examples(root)

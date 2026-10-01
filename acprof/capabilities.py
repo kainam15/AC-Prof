@@ -5,9 +5,9 @@ stays a number in the existing CSV; missing measurements stay NaN/null.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
-import math
 from typing import Any, Mapping
 
 

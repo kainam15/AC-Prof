@@ -10,7 +10,6 @@ from acprof.model_evidence import ModelEvidence
 from acprof.model_source_analysis import model_card_examples, parse_source
 from acprof.model_spec import custom_code_files
 
-
 MAX_SOURCE_FILES = 32
 MAX_TOTAL_SOURCE_BYTES = 2 * 1024 * 1024
 

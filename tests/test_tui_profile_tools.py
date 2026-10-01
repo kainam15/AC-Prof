@@ -1,14 +1,14 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
 from textual.widgets import Checkbox, Input, Select
 
+from acprof.experiment import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
-from acprof.experiment import RunConfig
 
 
 class TuiProfileToolsTests(unittest.IsolatedAsyncioTestCase):

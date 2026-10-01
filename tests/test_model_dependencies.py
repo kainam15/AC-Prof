@@ -1,10 +1,11 @@
 """Dependency resolution pins role-specific files without loading repository code."""
 import copy
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import test_model_contract as fixture
+
 from acprof.model_spec import task_model_spec
 
 

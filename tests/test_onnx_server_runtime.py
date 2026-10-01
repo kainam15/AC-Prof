@@ -1,13 +1,13 @@
 """真实本地 HTTP 服务的完成边界；可控异步替身，不宣称 GPU 验证。"""
-from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import ExitStack, nullcontext
 import importlib.util
 import json
 import os
 import runpy
+import unittest
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import ExitStack, nullcontext
 from threading import Event, Thread
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -16,8 +16,9 @@ from urllib.request import ProxyHandler, Request, build_opener
 @unittest.skipUnless(importlib.util.find_spec('flask'), 'requires Flask in the runtime container')
 class ONNXServerCompletionTests(unittest.TestCase):
     def start_server(self, future):
-        from acprof.container.handlers import BaseHandler
         from werkzeug.serving import make_server
+
+        from acprof.container.handlers import BaseHandler
 
         events, entered = [], Event()
 

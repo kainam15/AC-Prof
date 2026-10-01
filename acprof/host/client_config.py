@@ -1,15 +1,18 @@
 """Client configuration is read and validated only at the execution boundary."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import os
+from dataclasses import dataclass
 from typing import Mapping
 
 from acprof.capabilities import require_profiling_mode
 from acprof.config import (
-    DEFAULT_REPEAT_IN_WINDOW, DEFAULT_REPEAT_WINDOW_SECONDS, DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    DEFAULT_IDLE_SECONDS, DEFAULT_IDLE_COOLDOWN_SECONDS,
+    DEFAULT_IDLE_COOLDOWN_SECONDS,
+    DEFAULT_IDLE_SECONDS,
+    DEFAULT_REPEAT_IN_WINDOW,
+    DEFAULT_REPEAT_WINDOW_SECONDS,
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
 
 

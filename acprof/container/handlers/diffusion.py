@@ -14,7 +14,6 @@ from acprof.container.handlers import (
     model_revision_kwargs,
 )
 
-
 DEFAULT_NUM_INFERENCE_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5
 DEFAULT_SEED = 12345

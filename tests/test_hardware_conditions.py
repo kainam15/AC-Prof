@@ -21,6 +21,7 @@ class HardwareConditionsTests(unittest.TestCase):
 
     def test_old_results_without_hardware_are_unknown(self):
         from unittest.mock import patch
+
         from acprof.analysis.comparison import compare_results
         snapshot = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
                     "conditions": {"inputs": "same"}, "identity": {}, "hardware": {}}
@@ -31,8 +32,9 @@ class HardwareConditionsTests(unittest.TestCase):
         self.assertEqual(report["status"], "unknown")
 
     def test_purpose_distinguishes_hardware_changes_from_missing_evidence(self):
-        from unittest.mock import patch
         from copy import deepcopy
+        from unittest.mock import patch
+
         from acprof.analysis.comparison import compare_results
         from acprof.host.hardware_conditions import HARDWARE_FIELDS
         left = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
@@ -51,7 +53,8 @@ class HardwareConditionsTests(unittest.TestCase):
     def test_requested_affinity_failure_is_recorded_and_stops_before_measurement(self):
         import json
         from unittest.mock import patch
-        from acprof.host.hardware_conditions import record_case_conditions, HARDWARE_FIELDS
+
+        from acprof.host.hardware_conditions import HARDWARE_FIELDS, record_case_conditions
         record = {**dict.fromkeys(HARDWARE_FIELDS), "cpu_affinity": ["0-7"], "errors": []}
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.hardware_conditions.observe_conditions", return_value=record
@@ -62,8 +65,9 @@ class HardwareConditionsTests(unittest.TestCase):
             self.assertTrue(payload["cases"]["1c_4g_off"]["errors"])
 
     def test_cross_hardware_does_not_hide_unknown_policy_under_a_known_difference(self):
-        from unittest.mock import patch
         from copy import deepcopy
+        from unittest.mock import patch
+
         from acprof.analysis.comparison import compare_results
         from acprof.host.hardware_conditions import HARDWARE_FIELDS
         left = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
@@ -79,7 +83,8 @@ class HardwareConditionsTests(unittest.TestCase):
 
     def test_runtime_may_narrow_each_thread_within_the_requested_cpu_set(self):
         from unittest.mock import patch
-        from acprof.host.hardware_conditions import record_case_conditions, HARDWARE_FIELDS
+
+        from acprof.host.hardware_conditions import HARDWARE_FIELDS, record_case_conditions
         record = {**dict.fromkeys(HARDWARE_FIELDS), "cpu_affinity": ["0", "1-2"], "errors": []}
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.hardware_conditions.observe_conditions", return_value=record

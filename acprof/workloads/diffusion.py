@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
-
 DEFAULT_RESOLUTIONS = [128, 192, 256, 320, 384, 512]
 DEFAULT_NUM_INFERENCE_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5

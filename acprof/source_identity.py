@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Iterable
-
 
 _SERVICE_DIRECTORIES = {"container", "extensions", "workloads"}
 _PRESENTATION_DIRECTORIES = {"tui", "plotting", "analysis"}

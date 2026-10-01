@@ -3,14 +3,13 @@ import copy
 import hashlib
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
 import wave
+from pathlib import Path
 
 from acprof.workloads import WorkloadGenerator, get_generator
 from acprof.workloads.audio import AudioWorkloadGenerator
-
 
 SAMPLE_RATE = 16000
 NUM_SAMPLES = 30 * SAMPLE_RATE

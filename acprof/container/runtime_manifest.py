@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import base64
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -11,8 +11,12 @@ import platform
 import subprocess
 from pathlib import Path
 
-from acprof.dependency_locks import normalized_name, package_versions, read_python_lock, require_exact_packages
-
+from acprof.dependency_locks import (
+    normalized_name,
+    package_versions,
+    read_python_lock,
+    require_exact_packages,
+)
 
 MANIFEST_PATH = "/app/runtime_environment.json"
 

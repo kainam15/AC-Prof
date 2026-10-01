@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from acprof.host import orchestrator
@@ -71,7 +71,7 @@ class MatrixPlanTests(unittest.TestCase):
             self.assertEqual(case.call_args_list, original)
 
     def test_scale_seed_does_not_depend_on_number_or_order_of_cases(self):
-        from acprof.host.matrix_plan import matrix_identity, build_matrix_plan
+        from acprof.host.matrix_plan import build_matrix_plan, matrix_identity
         plans = []
         for cpus in ([1, 2], [8, 2, 1]):
             identity = matrix_identity(self.task, self.image, cpus, [4], ['off'],

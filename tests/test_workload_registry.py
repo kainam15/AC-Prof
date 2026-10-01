@@ -1,13 +1,13 @@
 """Lazy workload discovery, failure diagnostics and legacy factory contracts."""
 
-from contextlib import contextmanager
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 import acprof.workloads as workloads

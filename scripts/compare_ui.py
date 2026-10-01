@@ -2,19 +2,21 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
-from pathlib import Path
 import random
 import statistics
 import sys
+from dataclasses import replace
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from acprof.analysis.uncertainty import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    bootstrap_mean_interval,
+)
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.analysis.uncertainty import bootstrap_mean_interval  # noqa: E402 -- 脚本先设置仓库导入路径。
-from acprof.result_csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.experiment import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.result_csv import read_result_csv  # noqa: E402 -- 脚本先设置仓库导入路径。
 from scripts.check_hardware import run_config  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 

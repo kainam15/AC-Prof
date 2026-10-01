@@ -1,11 +1,11 @@
-from contextlib import redirect_stdout
-import io
 import hashlib
+import io
 import json
 import os
+import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 from acprof.host import docker_runtime as docker

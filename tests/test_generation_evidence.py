@@ -1,14 +1,14 @@
 """Actual generated IDs remain distinct from budgets and decoded token counts."""
 
-from types import SimpleNamespace
-from collections import UserDict
 import unittest
+from collections import UserDict
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
 
-from acprof.container.handlers.nlp import NLPHandler
 from acprof.container.handlers.multimodal import MultimodalHandler
+from acprof.container.handlers.nlp import NLPHandler
 
 
 class FakeGenerationPipeline:

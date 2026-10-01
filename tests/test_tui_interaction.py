@@ -6,11 +6,10 @@ from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Input, Select, Static
 
-from acprof.tui.app import AcprofTui
-from acprof.tui.progress import ProgressSnapshot
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
 from acprof.tui.commands import format_command
-
+from acprof.tui.progress import ProgressSnapshot
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 

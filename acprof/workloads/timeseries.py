@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import random
 import math
+import random
 from typing import Any, Dict
 
 from acprof.workloads import WorkloadGenerator, register_generator

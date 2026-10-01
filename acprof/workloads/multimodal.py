@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
-
 TASK_MODALITY = {
     "audio-text-to-text": "audio",
     "image-text-to-text": "image",

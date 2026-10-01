@@ -1,13 +1,14 @@
 import dataclasses
-import tempfile
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
-from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import request_fingerprint, model_fingerprint
-from acprof.host.dependency_images import runtime_fingerprint
 from runtime_fixture import copy_dependency_tree
+
+from acprof.host.dependency_images import runtime_fingerprint
+from acprof.host.detect import TaskInfo
+from acprof.host.runtime_images import model_fingerprint, request_fingerprint
 from acprof.runtime_profiles import select_runtime_profile
 
 

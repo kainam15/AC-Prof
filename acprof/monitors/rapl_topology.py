@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 
 
 def discover_rapl_topology(powercap_root="/sys/class/powercap") -> dict:

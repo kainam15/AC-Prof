@@ -8,14 +8,14 @@ Run in either locked multimodal environment; no Hub downloads are needed.
 import base64
 import importlib.util
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
+import test_multimodal_generation_runtime as fixtures
 
 from acprof.container.handlers.multimodal import MultimodalHandler
 from acprof.container.validation import validate_output
-import test_multimodal_generation_runtime as fixtures
-
 
 _AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('torch', 'transformers', 'mistral_common'))
 
@@ -65,7 +65,12 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
                 del ctx
 
     def test_qwen_audio_snapshot_uses_auto_loader_and_native_audio_messages(self):
-        from transformers import Qwen2AudioConfig, Qwen2AudioForConditionalGeneration, Qwen2AudioProcessor, WhisperFeatureExtractor
+        from transformers import (
+            Qwen2AudioConfig,
+            Qwen2AudioForConditionalGeneration,
+            Qwen2AudioProcessor,
+            WhisperFeatureExtractor,
+        )
 
         config = Qwen2AudioConfig(
             audio_config={'d_model': 32, 'encoder_layers': 1, 'encoder_attention_heads': 4, 'encoder_ffn_dim': 64,
@@ -85,7 +90,13 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
 
     def test_voxtral_snapshot_uses_native_mistral_audio_tokenizer_without_jinja(self):
         from mistral_common.tokens.tokenizers.tekken import Tekkenizer
-        from transformers import AutoTokenizer, VoxtralConfig, VoxtralForConditionalGeneration, VoxtralProcessor, WhisperFeatureExtractor
+        from transformers import (
+            AutoTokenizer,
+            VoxtralConfig,
+            VoxtralForConditionalGeneration,
+            VoxtralProcessor,
+            WhisperFeatureExtractor,
+        )
 
         config = VoxtralConfig(
             audio_config={'model_type': 'voxtral_encoder', 'hidden_size': 32, 'num_hidden_layers': 1,
@@ -122,6 +133,7 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
 
     def test_composite_omni_snapshot_loads_only_registered_multimodal_text_head(self):
         import transformers
+
         from acprof.model_resolution import audio_text_loader
 
         if not audio_text_loader(transformers.__version__, {'model_type': 'qwen2_5_omni_thinker'}):
@@ -131,8 +143,15 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
             self.assertFalse(supports_transformers_task(transformers.__version__, 'audio-text-to-text', 'qwen2_5_omni'))
             return
         from safetensors.torch import save_file
-        from transformers import Qwen2_5OmniConfig, Qwen2_5OmniThinkerConfig, Qwen2_5OmniThinkerForConditionalGeneration
-        from transformers import Qwen2_5OmniProcessor, Qwen2VLImageProcessor, Qwen2VLVideoProcessor, WhisperFeatureExtractor
+        from transformers import (
+            Qwen2_5OmniConfig,
+            Qwen2_5OmniProcessor,
+            Qwen2_5OmniThinkerConfig,
+            Qwen2_5OmniThinkerForConditionalGeneration,
+            Qwen2VLImageProcessor,
+            Qwen2VLVideoProcessor,
+            WhisperFeatureExtractor,
+        )
 
         config = Qwen2_5OmniThinkerConfig(
             audio_config={'d_model': 32, 'encoder_layers': 1, 'encoder_attention_heads': 4, 'encoder_ffn_dim': 64,

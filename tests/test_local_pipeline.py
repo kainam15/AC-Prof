@@ -1,11 +1,11 @@
 """Capability decisions are exact, reviewed, and independent of version ordering."""
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from types import ModuleType
 import unittest
+from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 from acprof.container import local_pipeline

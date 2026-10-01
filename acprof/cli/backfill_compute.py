@@ -27,7 +27,6 @@ from acprof.host.compute_profile_plan import (
     load_compute_profile_plan,
 )
 
-
 COMPUTE_PROFILE_FIELDS = (
     TORCH_LOGICAL_MFLOP_FIELD,
     "model_logical_mflops_app_torch_profiler_eager",

@@ -1,15 +1,15 @@
 """Resolution UI asks for gaps only and hands probes to the managed subprocess."""
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import test_model_contract as fixture
 from textual.widgets import Button, Select, Static
 
-from acprof.tui.app import AcprofTui
 from acprof.experiment import RunConfig
-import test_model_contract as fixture
+from acprof.tui.app import AcprofTui
 
 
 class TuiModelResolutionTests(unittest.IsolatedAsyncioTestCase):

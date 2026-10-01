@@ -9,9 +9,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acprof.host import docker_runtime, input_plan
 from acprof.cli import run
-from acprof.host import orchestrator
+from acprof.host import docker_runtime, input_plan, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_progress import ProfilerProgress
 from acprof.notifications import NotificationConfigError, NotificationEvent

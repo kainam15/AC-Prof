@@ -2,8 +2,8 @@
 
 import colorsys
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from acprof.plotting.config import (
     CPU_FIXED_COLORS,

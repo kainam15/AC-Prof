@@ -68,8 +68,8 @@ def review_questions(task_info) -> list[dict]:
 
 def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
-    from acprof.model_resolution import discover_model_candidates
     from acprof.host.task_support import require_task_support
+    from acprof.model_resolution import discover_model_candidates
 
     questions = review_questions(task_info)
     if any(item.get("read_only") for item in questions):
@@ -79,8 +79,8 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
         raise ValueError("answers must cover exactly the unresolved fields")
     task = copy.deepcopy(task_info)
     if set(answers) == {"pipeline_task"}:
+        from acprof.host.detect import dependency_metadata, read_model_source
         from acprof.model_contract import apply_model_contract
-        from acprof.host.detect import read_model_source, dependency_metadata
         if answers["pipeline_task"] not in questions[0].get("options", []):
             raise ValueError("select a declared Pipeline")
         previous = task.model_resolution["contract"]
@@ -96,8 +96,8 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     draft = copy.deepcopy(report["draft_spec"])
     for path, value in answers.items():
         if path == "dependencies":
-            from acprof.model_dependencies import resolve_dependencies
             from acprof.host.detect import dependency_metadata
+            from acprof.model_dependencies import resolve_dependencies
             if not isinstance(value, list) or len(value) > 16 or any(
                 not isinstance(item, dict) or set(item) - {"repo_id", "role", "required"}
                 or type(item.get("required", True)) is not bool

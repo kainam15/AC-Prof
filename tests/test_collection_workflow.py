@@ -1,6 +1,6 @@
 """Preparation pauses and retries must keep the original collection alive."""
-import io
 import copy
+import io
 import json
 import os
 import unittest
@@ -8,10 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import test_run_recovery as recovery
 import test_model_contract as contracts
-from acprof.host.model_inspection import explain_resolution
+import test_run_recovery as recovery
+
 from acprof.host.collection_workflow import PreparationWorkflow
+from acprof.host.model_inspection import explain_resolution
 from acprof.model_spec import task_model_spec
 
 

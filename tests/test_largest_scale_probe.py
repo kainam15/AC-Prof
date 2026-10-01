@@ -1,14 +1,16 @@
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
 
-from acprof.host import docker_runtime
 from acprof.cli.probe import main as probe_main
+from acprof.host import docker_runtime
 from acprof.host.detect import TaskInfo
+from acprof.host.docker_runtime import RunningContainer
+from acprof.host.input_plan import PlannedInputScales
 from acprof.host.largest_scale_probe import (
     PROBE_SUMMARY_NAME,
     load_largest_scale_entry,
@@ -16,8 +18,6 @@ from acprof.host.largest_scale_probe import (
     select_minimum_resources,
 )
 from acprof.host.orchestrator import ImageInfo
-from acprof.host.input_plan import PlannedInputScales
-from acprof.host.docker_runtime import RunningContainer
 
 
 def _task_info() -> TaskInfo:

@@ -1,9 +1,9 @@
 """审计真实 CSV/JSON 的故障与历史兼容边界。"""
 import csv
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from acprof.analysis.audit import audit_result
 from acprof.config import CSV_FIELDS

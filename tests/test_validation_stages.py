@@ -1,12 +1,12 @@
 """Independent validation identifies failure stages without producing measurements."""
-from contextlib import ExitStack, nullcontext, redirect_stdout
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack, nullcontext, redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from acprof.container import runtime_validate

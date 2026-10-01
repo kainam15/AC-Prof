@@ -5,9 +5,9 @@ import importlib.util
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from examples.onnxruntime.fixtures import create_image_fixture, create_text_fixture
@@ -117,6 +117,7 @@ class ONNXTaskRuntimeTests(unittest.TestCase):
 
     def test_text_rejects_invalid_config_and_wrong_named_input_dtype(self):
         import numpy as np
+
         from acprof.container.onnx_session import validate_inputs
         root = create_text_fixture(self.root)
         handler, context = self.load('nlp', root, 'text-classification')

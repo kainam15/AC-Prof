@@ -6,13 +6,13 @@ import datetime as dt
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
 import tempfile
 import urllib.request
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

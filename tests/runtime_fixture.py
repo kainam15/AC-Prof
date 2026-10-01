@@ -1,6 +1,6 @@
 """隔离依赖构建输入，避免身份测试修改工作区。"""
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 

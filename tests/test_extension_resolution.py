@@ -1,11 +1,11 @@
 """Golden host contracts and strict declaration-driven resolution."""
-from dataclasses import asdict, replace
 import hashlib
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from dataclasses import asdict, replace
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError, load_catalog

@@ -22,8 +22,8 @@ class MetricRegistryTests(unittest.TestCase):
         self.assertNotIn('workload_contract', NUMERIC_FIELDS)
 
     def test_consumers_share_registry_without_changing_tool_completeness(self):
-        from acprof.metric_registry import CSV_FIELDS as registry_fields, tool_fields
         from acprof.host.posthoc.context import TOOL_FIELDS, TOOL_METRIC_FIELDS
+        from acprof.metric_registry import CSV_FIELDS as registry_fields, tool_fields
         self.assertIs(CSV_FIELDS, registry_fields)
         for tool in TOOL_FIELDS:
             self.assertEqual(TOOL_FIELDS[tool], tool_fields(tool))

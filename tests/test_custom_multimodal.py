@@ -1,19 +1,19 @@
 """Declared multimodal protocols must work independently of checkpoint names."""
-import copy
 import contextlib
+import copy
 import sys
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
-
-from acprof.host.detect import TaskInfo
-from acprof.host.task_support import TaskSupportError, require_task_support
-from acprof.host.runtime_images import model_fingerprint, request_fingerprint
-from acprof.model_spec import validate_model_spec
-from acprof.container.handlers.multimodal import MultimodalHandler
 from test_multimodal_handler import audio_payload
+
+from acprof.container.handlers.multimodal import MultimodalHandler
+from acprof.host.detect import TaskInfo
+from acprof.host.runtime_images import model_fingerprint, request_fingerprint
+from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.model_spec import validate_model_spec
 
 
 def pipeline_spec():

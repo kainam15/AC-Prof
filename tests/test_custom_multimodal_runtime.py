@@ -2,16 +2,15 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from test_custom_multimodal import pipeline_spec
 from test_multimodal_handler import audio_payload, image_payload
-
 
 CUSTOM_MODEL = '''from transformers import BertConfig, BertForSequenceClassification
 
@@ -116,9 +115,10 @@ class CustomMultimodalRuntimeTests(unittest.TestCase):
             self.assertIn("limit 1", result["response"]["texts"][0])
 
     def test_modalities_match_official_pipeline_and_runtime_validation(self):
-        import torch
         import numpy as np
+        import torch
         from PIL import Image
+
         from acprof.container.handlers.multimodal import MultimodalHandler
         from acprof.container.runtime_validate import validate
         from acprof.model_spec import encode_model_spec

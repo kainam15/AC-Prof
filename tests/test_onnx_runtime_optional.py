@@ -1,8 +1,8 @@
 """真实 ORT 容器接口回归；宿主机不安装推理框架。"""
 import importlib.util
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ('onnx', 'onnxruntime', 'numpy')),
@@ -22,8 +22,9 @@ class ONNXRuntimeIntegrationTests(unittest.TestCase):
 
     def test_dynamic_rows_have_known_results_at_distinct_shapes(self):
         import numpy as np
-        from examples.onnxruntime.smoke import create_linear_fixture
+
         from acprof.container.handlers import HandlerRegistry
+        from examples.onnxruntime.smoke import create_linear_fixture
         with tempfile.TemporaryDirectory() as temporary:
             handler = HandlerRegistry.get('structured', 'onnxruntime')
             root = create_linear_fixture(Path(temporary))
@@ -42,8 +43,8 @@ class ONNXRuntimeIntegrationTests(unittest.TestCase):
                                                              response)['protocol']['status'], 'verified')
 
     def test_fixed_batch_cannot_silently_change_workload(self):
-        from examples.onnxruntime.smoke import create_linear_fixture
         from acprof.container.handlers import HandlerRegistry
+        from examples.onnxruntime.smoke import create_linear_fixture
         with tempfile.TemporaryDirectory() as temporary:
             root = create_linear_fixture(Path(temporary), fixed_rows=1)
             handler = HandlerRegistry.get('structured', 'onnxruntime')

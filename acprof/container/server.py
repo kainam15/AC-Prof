@@ -12,7 +12,7 @@ SERVER_PROCESS_STARTED_PERF = time.perf_counter()
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-from flask import Flask, request, jsonify  # noqa: E402 -- 先记录进程启动时刻并设置离线环境。
+from flask import Flask, jsonify, request  # noqa: E402 -- 先记录进程启动时刻并设置离线环境。
 
 app = Flask(__name__)
 
@@ -29,8 +29,13 @@ USE_GPU = int(os.getenv("USE_GPU", "0"))
 # ─────────────────────────────────────────────
 # Load handler and model
 # ─────────────────────────────────────────────
-from acprof.container.handlers import HandlerRegistry, InputLimitError, load_handler, resolve_model_source  # noqa: E402
 from acprof.container.execution import complete_prediction, configured_execution  # noqa: E402
+from acprof.container.handlers import (  # noqa: E402
+    HandlerRegistry,
+    InputLimitError,
+    load_handler,
+    resolve_model_source,
+)
 from acprof.runtime_settings import runtime_threads  # noqa: E402
 from acprof.workloads.contract import workload_contract  # noqa: E402
 

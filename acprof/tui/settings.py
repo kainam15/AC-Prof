@@ -7,19 +7,18 @@ contain no environment variables or credentials.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields, replace
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
+from dataclasses import asdict, dataclass, field, fields, replace
+from pathlib import Path
 from typing import Any, get_type_hints
 
 from acprof.experiment import RunConfig
 from acprof.messages import message
 from acprof.tui.i18n import UI_LANGUAGES, error_message
 from acprof.tui.themes import UI_THEMES
-
 
 LOG_MAX_LINES = (500, 1000, 3000, 10000)
 SETTINGS_VERSION = 4

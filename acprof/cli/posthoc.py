@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-
 from typing import Optional, Sequence
 
 from acprof.host.env_utils import bootstrap_project_env
-from acprof.host.posthoc.context import PosthocError, SUPPORTED_TOOLS
+from acprof.host.posthoc.context import SUPPORTED_TOOLS, PosthocError
 from acprof.host.posthoc.service import run_posthoc
 
 

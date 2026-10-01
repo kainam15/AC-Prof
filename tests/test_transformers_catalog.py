@@ -1,10 +1,10 @@
 """The host can inspect upstream registries without executing model code."""
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from scripts.export_transformers_support import export_support
 

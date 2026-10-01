@@ -1,10 +1,11 @@
 """Field review preserves source evidence and cannot silently accept unrelated gaps."""
 import copy
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_model_contract as fixture
+
 from acprof.model_review import apply_review, review_questions
 from acprof.model_spec import task_model_spec
 

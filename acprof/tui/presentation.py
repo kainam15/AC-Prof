@@ -2,7 +2,6 @@
 
 from acprof.messages import message
 
-
 NOT_APPLICABLE = "—"
 CALCULATING = "…"
 UNKNOWN = message("未知")

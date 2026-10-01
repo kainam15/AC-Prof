@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from acprof.host.execution_conditions import ExecutionConditions
-from acprof.host.gpu_device import pin_gpu_device, resolve_gpu_device, gpu_device_scope
+from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device, resolve_gpu_device
 
 
 class ExecutionConditionsTests(unittest.TestCase):

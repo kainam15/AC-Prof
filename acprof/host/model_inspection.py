@@ -61,12 +61,12 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
                          memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
                          reuse_existing: bool = False) -> dict:
     from acprof.host.docker_runtime import prepare_image
-    from acprof.host.preflight import require_native_linux_host, require_native_docker
+    from acprof.host.input_plan import _get_task_generator, resolve_input_scales
+    from acprof.host.preflight import require_native_docker, require_native_linux_host
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     from acprof.host.runtime_validation import validate_runtime
     from acprof.host.task_support import require_task_support
     from acprof.installation import resource_root
-    from acprof.host.input_plan import _get_task_generator, resolve_input_scales
 
     if (mode not in {"basic", "full"} or mode == "basic" and gpu or type(cpus) is not int or cpus <= 0
             or type(memory_gb) is not int or memory_gb <= 0 or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
