@@ -51,6 +51,9 @@ class RuntimeImageBuildTests(unittest.TestCase):
             patch.object(docker_runtime, "_run", side_effect=self.fake_run),
             patch.object(runtime_images, "inspect_identity", side_effect=self.images.get),
             patch.object(runtime_images, "verified_image", side_effect=self.verified_image),
+            patch("acprof.host.model_store.plan_model", return_value={}),
+            patch("acprof.host.network_preflight.preflight", return_value={"sources": []}),
+            patch("acprof.host.model_store.prepare_model", return_value={"plan_sha256": "d" * 64}),
             patch.object(docker_runtime, "_select_nlp_torch_index_url",
                          return_value="https://download.pytorch.org/whl/cu124"),
         ):
@@ -116,10 +119,20 @@ class RuntimeImageBuildTests(unittest.TestCase):
         self.assertFalse(any(name.startswith(("acprof/tui/", "acprof/host/", ".env", "tests/", ".git/"))
                              for name in self.service_context_files))
 
+    def test_budget_rejection_precedes_every_build_and_weight_download(self):
+        from acprof.network_policy import DownloadPolicyError
+        with patch("acprof.host.network_preflight.preflight", side_effect=DownloadPolicyError("over budget")), patch(
+            "acprof.host.model_store.prepare_model",
+        ) as download:
+            with self.assertRaisesRegex(DownloadPolicyError, "over budget"):
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+            download.assert_not_called()
+        self.assertEqual(self.commands, [])
+
     def test_endpoint_policy_reaches_build_and_invalidates_only_model_and_service(self):
         runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         self.commands.clear()
-        with patch.dict(os.environ, {"HF_ENDPOINT": "https://mirror.example",
+        with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-preferred", "HF_ENDPOINT": "https://mirror.example",
                                     "HF_FALLBACK_ENDPOINTS": "https://huggingface.co"}):
             runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         builds = self.build_commands()
@@ -228,9 +241,9 @@ class RuntimeImageBuildTests(unittest.TestCase):
         self.task.model_id = "Qwen/Qwen2.5-0.5B"
         result = docker_runtime.build_image(self.task, str(PROJECT_ROOT))
         builds = self.build_commands()
-        weights_name = next(cmd[3] for cmd in self.commands if cmd[:2] == ["docker", "tag"] and cmd[3].startswith("acprof-weights-"))
+        weights_name = next(cmd[3] for cmd in self.commands if cmd[:2] == ["docker", "tag"] and cmd[3].startswith("acprof-model-plan-"))
         service_name = result.name
-        self.assertRegex(weights_name, r"^acprof-weights-nlp-qwen--qwen2\.5-0\.5b:[0-9a-f]{20}$")
+        self.assertRegex(weights_name, r"^acprof-model-plan-nlp-qwen--qwen2\.5-0\.5b:[0-9a-f]{20}$")
         self.assertRegex(service_name, r"^acprof-nlp-qwen--qwen2\.5-0\.5b:[0-9a-f]{20}$")
         self.assertEqual(result.name, service_name)
         self.assertIn("MODEL_ID=Qwen/Qwen2.5-0.5B", builds[2])
@@ -242,14 +255,11 @@ class RuntimeImageBuildTests(unittest.TestCase):
             docker_runtime.build_image(self.task, str(PROJECT_ROOT))
         self.assertEqual(self.commands, [])
 
-    def test_hf_token_is_passed_only_as_buildkit_secret(self):
+    def test_host_model_store_token_never_enters_docker_build(self):
         with patch.dict(os.environ, {"HF_TOKEN": "test-secret-value"}):
             docker_runtime.build_image(self.task, str(PROJECT_ROOT))
         for command in self.build_commands():
-            recipe = Path(command[command.index("-f") + 1]).name
-            self.assertEqual("--secret" in command, recipe == "runtime-model.Dockerfile")
-            if recipe == "runtime-model.Dockerfile":
-                self.assertIn("id=hf_token,env=HF_TOKEN", command)
+            self.assertNotIn("--secret", command)
         self.assertFalse(any("test-secret-value" in arg or arg.startswith("HF_TOKEN=")
                              for cmd in self.commands for arg in cmd))
 

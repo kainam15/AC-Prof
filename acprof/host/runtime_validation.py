@@ -40,6 +40,7 @@ def validate_runtime(
     from acprof.artifacts import require_schema_version
     from acprof.host.docker_runtime import _inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
+    from acprof.host.model_store import mount_args
 
     plan = json.loads(Path(planned.plan_file).read_text())
     require_schema_version(plan, 2, "input_scale_plan.json")
@@ -81,6 +82,7 @@ def validate_runtime(
                 "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds:g}",
                 *runtime_docker_env_args(),
                 *hf_offline_docker_env_args(),
+                *mount_args(image_info.runtime_environment),
                 "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
                 "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", f"ACPROF_CONTRACT_PROBE_MODE={mode}",
             ]

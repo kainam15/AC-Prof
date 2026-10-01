@@ -36,6 +36,7 @@ def _parent(item: ManagedImage, indexed: dict[str, ManagedImage]) -> tuple[str, 
             return item.parent_id, "missing"
         return (parent.image_id, "recorded") if _prefix(parent, item, strict=False) else ("", "conflict")
     kind, attribute = {"runtime": ("base", "platform_key"), "weights": ("runtime", "environment_key"),
+                       "model-plan": ("runtime", "environment_key"),
                        "model": ("weights", "model_files_key")}.get(item.kind, ("", ""))
     if attribute and getattr(item, attribute):
         candidates = [parent for parent in indexed.values() if parent.kind == kind

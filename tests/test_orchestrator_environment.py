@@ -417,7 +417,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             },
         ), patch(
             "acprof.host.static_metadata._docker_model_cache_bytes", return_value=123
-        ), patch("acprof.host.static_metadata._docker_image_size_bytes", return_value=456), patch(
+        ) as cache_size, patch("acprof.host.static_metadata._docker_image_size_bytes", return_value=456), patch(
             "acprof.host.static_metadata._docker_storage_metadata",
             return_value={
                 "docker_storage_total_bytes": 1_000_000,
@@ -453,7 +453,25 @@ class DetectEnvironmentTests(unittest.TestCase):
                 ),
                 compute_profile_enabled=False,
             )
+            previous_calls = cache_size.call_count
+            mounted_meta = static_metadata.collect_static_meta(
+                task_info=task_info, batch_size=1, input_scale_type="seq_length",
+                image_info=docker_runtime.ImageInfo(tag="mounted-fixture", runtime_environment={
+                    "model_store": {"model_artifact_bytes": 2345},
+                    "model_download": {"endpoint": "https://hf-mirror.com"},
+                }),
+            )
+            self.assertEqual(cache_size.call_count, previous_calls)
 
+        self.assertEqual(mounted_meta.model_storage_mode, "mounted")
+        self.assertEqual(mounted_meta.model_cache_bytes, 2345)
+        self.assertEqual(mounted_meta.model_artifact_bytes, 2345)
+        self.assertEqual(mounted_meta.runtime_image_bytes, 456)
+        self.assertEqual(mounted_meta.total_deployment_bytes, 2801)
+        self.assertEqual(meta.model_storage_mode, "baked")
+        self.assertIsNone(meta.model_artifact_bytes)
+        self.assertIsNone(meta.runtime_image_bytes)
+        self.assertEqual(meta.total_deployment_bytes, 456)
         self.assertEqual(meta.environment, "windows11+wsl")
         self.assertEqual(meta.model_resolution, task_info.model_resolution)
         self.assertIsNot(meta.model_resolution, task_info.model_resolution)

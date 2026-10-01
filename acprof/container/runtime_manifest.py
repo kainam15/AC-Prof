@@ -50,7 +50,11 @@ def collect_manifest() -> dict:
         raise RuntimeError("dependency lock is missing")
     if dependency["platform_image_id"] != os.environ["ACPROF_PLATFORM_IMAGE_ID"]:
         raise RuntimeError("platform image differs from dependency manifest")
+    store_path = Path("/models/model-store.json")
+    store = json.loads(store_path.read_text()) if store_path.is_file() else None
     source = Path(os.getenv("MODEL_LOCAL_PATH", "/models/model-snapshot"))
+    if store:
+        return _mounted_manifest(dependency, packages, lock_hash, store)
     snapshot_revision = source.resolve().name if source.is_symlink() else ""
     if snapshot_revision != os.environ.get("MODEL_REVISION"):
         raise RuntimeError("baked model snapshot differs from declared model revision")
@@ -107,6 +111,39 @@ def collect_manifest() -> dict:
             for p in sorted(source.rglob("*.py"))
         },
     }
+
+
+def _mounted_manifest(dependency: dict, packages: dict, lock_hash: str, store: dict) -> dict:
+    from acprof.container.model_files import validate_plan
+    from acprof.model_spec import load_model_dependencies
+    plan = store["model_download"]
+    validate_plan(plan)
+    if (store.get("schema_version") != 1 or plan.get("verification") != "sha256"
+            or plan["plan_sha256"] != store["plan_sha256"]):
+        raise RuntimeError("Model Store declaration is not verified")
+    for key, value in {"model_id": os.environ.get("MODEL_ID"), "model_revision": os.environ.get("MODEL_REVISION"),
+                       "adapter": os.environ.get("ACPROF_MODEL_ADAPTER"),
+                       "requested_policy": os.environ.get("MODEL_DOWNLOAD_POLICY", "auto")}.items():
+        if plan.get(key) != value:
+            raise RuntimeError(f"Model Store declaration differs: {key}")
+    if [{k: v for k, v in item.items() if k != "download"} for item in plan.get("dependencies", [])] != load_model_dependencies():
+        raise RuntimeError("Model Store dependencies differ")
+    return {**dependency, "schema_version": 1,
+        "request_fingerprint": os.environ["ACPROF_REQUEST_FINGERPRINT"],
+        "build_fingerprint": os.environ["ACPROF_BUILD_FINGERPRINT"],
+        "platform_image_id": os.environ["ACPROF_PLATFORM_IMAGE_ID"],
+        "environment_image_id": os.environ["ACPROF_ENVIRONMENT_IMAGE_ID"],
+        "model_image_id": os.environ["ACPROF_MODEL_IMAGE_ID"],
+        "profile_id": os.environ["ACPROF_RUNTIME_PROFILE"], "adapter": os.environ["ACPROF_MODEL_ADAPTER"],
+        "model_id": plan["model_id"], "model_revision": plan["model_revision"],
+        "model_snapshot_revision": plan["model_revision"], "model_download": plan,
+        "model_store": {k: v for k, v in store.items() if k != "model_download"},
+        "model_spec": json.loads(base64.b64decode(os.environ["ACPROF_MODEL_SPEC_B64"], validate=True))
+                      if os.getenv("ACPROF_MODEL_SPEC_B64") else {},
+        "python_version": platform.python_version(), "packages": packages,
+        "dependency_lock_sha256": lock_hash,
+        "resolved_packages_sha256": hashlib.sha256(json.dumps(packages, sort_keys=True).encode()).hexdigest(),
+        "custom_code_sha256": {r["path"]: r["sha256"] for r in plan["files"] if r["path"].endswith(".py")}}
 
 
 if __name__ == "__main__":

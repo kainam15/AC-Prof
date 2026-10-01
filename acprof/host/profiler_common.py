@@ -97,6 +97,7 @@ def _base_docker_cmd(
     profile_root: str,
     tool_mount_roots: Sequence[str],
 ) -> List[str]:
+    from acprof.host.model_store import mount_args
     from acprof.installation import resource_root
     package_root = str(resource_root() / "acprof")
     cmd = [
@@ -112,6 +113,7 @@ def _base_docker_cmd(
         "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
         "-e", f"USE_GPU={1 if use_gpu else 0}",
         *hf_offline_docker_env_args(),
+        *mount_args({"model_store": getattr(task_info, "model_store", {})}),
         "-e", "HOME=/tmp",
         "-e", f"OMP_NUM_THREADS={max(1, int(cpu))}",
         "-e", f"MKL_NUM_THREADS={max(1, int(cpu))}",

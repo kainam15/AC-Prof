@@ -353,7 +353,15 @@ def prepare_image(
     """Resolve a compatible runtime and verify exact image reuse."""
     from acprof.host.runtime_images import prepare_runtime_image
 
-    return prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
+    image = prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
+    from acprof.host.model_store import mount_args, store_root
+    if image.runtime_environment.get("model_store"):
+        # Host-only provenance for post-hoc runs; never baked into portable images.
+        image.runtime_environment["model_store"] = {
+            **image.runtime_environment["model_store"], "host_path": str(store_root())}
+    task_info.model_store = image.runtime_environment.get("model_store", {})
+    mount_args(image.runtime_environment)
+    return image
 
 
 def build_image(task_info: TaskInfo, project_dir: str) -> ImageInfo:
@@ -373,6 +381,8 @@ def require_image_identity(image: str, runtime_environment: Dict[str, Any]) -> N
         raise RuntimeError("补采镜像 ID 与原实验不一致")
     if runtime_environment and (identity.get("labels") or {}).get(FINGERPRINT_LABEL) != runtime_environment.get("build_fingerprint"):
         raise RuntimeError("补采镜像的运行环境与原实验不一致")
+    from acprof.host.model_store import verify_entry
+    verify_entry(runtime_environment)
 
 
 def _launch_container(command: List[str]) -> str:
@@ -430,6 +440,7 @@ def _start_container_session(
     owner = container_owner_labels()
     recover_abandoned_containers(owner, _run)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
+    from acprof.host.model_store import mount_args
 
     docker_cmd = [
         "docker", "run", "-d",
@@ -446,6 +457,7 @@ def _start_container_session(
         "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
         "-e", f"USE_GPU={use_gpu}",
         *hf_offline_docker_env_args(),
+        *mount_args(image_info.runtime_environment),
         "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
         *runtime_docker_env_args(),
         "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.dependency_locks import content_digest
-from acprof.hf_endpoints import hf_endpoints
+from acprof.hf_endpoints import hf_download_mode, hf_endpoints
 from acprof.host.dependency_images import (
     platform_fingerprint,
     prepare_environment_image,
@@ -83,6 +83,7 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
         "build_overrides": overrides,
         "model_download_policy": download_policy(task_info),
         "hf_endpoints": hf_endpoints(),
+        "hf_download_mode": hf_download_mode(),
         "model_spec": task_model_spec(task_info),
         "resolution_identity": getattr(task_info, "model_resolution", {}).get("provenance", {}).get("identity_sha256"),
     }, sort_keys=True).encode())
@@ -106,6 +107,7 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
         "hf_endpoints": hf_endpoints(),
+        "hf_download_mode": hf_download_mode(),
     }, sort_keys=True).encode())
     for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/model_spec.py", "acprof/hf_endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
         digest.update((root / relative).read_bytes())
@@ -233,6 +235,8 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
     if reuse_existing:
         image = verified_image(task_info, name, fingerprint, project_dir)
         if image is not None:
+            from acprof.host.model_store import verify_entry
+            verify_entry(image.runtime_environment)
             print(f"[build] 指纹核验通过，跳过构建并复用：{name}", flush=True)
             return image
         print(f"[build] 未找到本地模型镜像 {name}；将自动构建，旧版 :latest 不用于本次采集。", flush=True)
@@ -250,23 +254,29 @@ def build_runtime_image(task_info: Any, project_dir: str):
     root = Path(project_dir)
     fingerprint = request_fingerprint(task_info, root)
     name = _model_image_tag(task_info, root)
+    from acprof.host.model_store import plan_model, prepare_model
+    from acprof.host.network_preflight import preflight
+    model_plan = plan_model(task_info)
+    network_plan = preflight(task_info, profile, root, model_plan)
+    store_record = None
 
     def build(dockerfile: str, args: dict[str, str], parent: tuple[str, str]) -> str:
         with tempfile.TemporaryDirectory(prefix="acprof-model-build-") as directory:
             iidfile = Path(directory) / "image-id"
-            context = root
+            context = Path(directory) / "context"
             if dockerfile == "runtime-final.Dockerfile":
-                context = Path(directory) / "context"
                 expected = source_fingerprint(root, service_context_files(root), scope="service-context-v1")
                 stage_service_context(root, context)
                 if source_fingerprint(context, service_context_files(context), scope="service-context-v1") != expected:
                     raise RuntimeError("服务构建上下文与源码指纹不一致，尚未构建镜像")
+            else:
+                (context / "dockerfiles").mkdir(parents=True)
+                (context / "dockerfiles" / dockerfile).write_bytes((root / "dockerfiles" / dockerfile).read_bytes())
+                (context / "model-store.json").write_text(json.dumps(store_record, ensure_ascii=False) + "\n")
             command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
                        "-f", str(context / "dockerfiles" / dockerfile)]
             for key, value in args.items():
                 command += ["--build-arg", f"{key}={value}"]
-            if dockerfile == "runtime-model.Dockerfile" and (os.environ.get("HF_TOKEN") or "").strip():
-                command += ["--secret", "id=hf_token,env=HF_TOKEN"]
             command.append(str(context))
             require_image_source(*parent)
             if request_fingerprint(task_info, root) != fingerprint:
@@ -283,16 +293,21 @@ def build_runtime_image(task_info: Any, project_dir: str):
             return image_id
 
     dependency = prepare_environment_image(profile.environment, root)
+    store_record = prepare_model(task_info, model_plan, planned_download_bytes=sum(
+        source["estimated_bytes"] for source in network_plan["sources"] if source["category"] == "model"))
     runtime_id = dependency.image_id
     runtime_source = "acprof-build-source:" + runtime_id.split(":", 1)[1]
     _run(["docker", "tag", runtime_id, runtime_source])
-    model_key = model_fingerprint(task_info, runtime_id, root)
-    model_tag = f"acprof-weights-{profile.family}-{_sanitize_model_id(task_info.model_id)}:{model_key[:20]}"
+    model_key = content_digest({"build": model_fingerprint(task_info, runtime_id, root),
+                                "model_plan_sha256": store_record["plan_sha256"]})
+    model_tag = f"acprof-model-plan-{profile.family}-{_sanitize_model_id(task_info.model_id)}:{model_key[:20]}"
     model_identity = inspect_identity(model_tag)
     if model_identity is None:
         candidate = build("runtime-model.Dockerfile", {
             "RUNTIME_IMAGE": runtime_source, "MODEL_ID": task_info.model_id,
             "MODEL_REVISION": task_info.model_revision, "HF_ENDPOINT": endpoints[0],
+            "HF_DOWNLOAD_MODE": hf_download_mode(),
+            "ACPROF_ALLOW_PROXY_FALLBACK": os.environ.get("ACPROF_ALLOW_PROXY_FALLBACK", "0"),
             "HF_FALLBACK_ENDPOINTS": ",".join(endpoints[1:]),
             "TASK_FAMILY": task_info.task_family, "RUNTIME_BACKEND": task_info.runtime_backend,
             "MODEL_ADAPTER": profile.adapter, "MODEL_DOWNLOAD_POLICY": download_policy(task_info),
@@ -320,4 +335,5 @@ def build_runtime_image(task_info: Any, project_dir: str):
     if image is None:
         raise RuntimeError("构建后未找到模型镜像")
     _run(["docker", "tag", final_id, name])
-    return ImageInfo(tag=final_id, name=name, runtime_environment=image.runtime_environment)
+    manifest = {**image.runtime_environment, "network_preflight": network_plan}
+    return ImageInfo(tag=final_id, name=name, runtime_environment=manifest)

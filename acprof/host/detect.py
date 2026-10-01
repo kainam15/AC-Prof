@@ -44,6 +44,7 @@ class TaskInfo:
     model_resolution: dict[str, Any] = field(default_factory=dict)
     model_spec: dict[str, Any] = field(default_factory=dict)
     hub_metadata: dict[str, Any] = field(default_factory=dict)
+    model_store: dict[str, Any] = field(default_factory=dict)
 
 
 def _architecture_metadata(config: Any) -> dict[str, Any]:

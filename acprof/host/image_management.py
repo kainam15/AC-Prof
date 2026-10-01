@@ -182,7 +182,7 @@ def _inspect(connection: DockerConnection, resource: str, references: list[str])
 
 def _kind(tags: tuple[str, ...], labels: dict) -> str:
     repositories = [tag.rsplit(":", 1)[0] for tag in tags]
-    explicit_kind = {"platform": "base", "environment": "runtime", "weights": "weights", "model": "model"}.get(
+    explicit_kind = {"platform": "base", "environment": "runtime", "weights": "weights", "model-plan": "model-plan", "model": "model"}.get(
         labels.get("org.acprof.image-kind"))
     if explicit_kind:
         return explicit_kind
@@ -244,7 +244,7 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
             kind = _kind(tags, labels)
             env = dict(value.split("=", 1) for value in config.get("Env") or [] if "=" in value)
             parent = (env.get("ACPROF_MODEL_IMAGE_ID", "") if kind == "model" else "") or row.get("Parent") or ""
-            if not model and kind in {"model", "weights"}:
+            if not model and kind in {"model", "weights", "model-plan"}:
                 for tag in tags:
                     match = re.match(r"acprof-(?:weights-)?(?:audio|cv|nlp|diffusion|multimodal|structured|timeseries)-(.+):[^:]+$", tag)
                     if match:

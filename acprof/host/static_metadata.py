@@ -51,6 +51,10 @@ class StaticMeta:
     cpu_boost: str
     image_id: str = ""
     image_name: str = ""
+    model_storage_mode: str = "baked"
+    model_artifact_bytes: Optional[int] = None
+    runtime_image_bytes: Optional[int] = None
+    total_deployment_bytes: Optional[int] = None
     runtime_environment: Dict[str, Any] = field(default_factory=dict)
     runtime_validation: Dict[str, Any] = field(default_factory=dict)
     latency_slo: Dict[str, Any] = field(
@@ -706,6 +710,10 @@ def collect_static_meta(
     host_swap = _host_swap_metadata()
     docker_storage = _docker_storage_metadata()
     input_format, output_format = _model_io_formats(task_info)
+    manifest = getattr(image_info, "runtime_environment", {})
+    store = manifest.get("model_store")
+    model_bytes = store["model_artifact_bytes"] if store else _docker_model_cache_bytes(image_info.tag)
+    image_bytes = _docker_image_size_bytes(image_info.tag)
     static_meta = StaticMeta(
         model_name=task_info.model_id,
         profiling_mode=profiling_mode,
@@ -733,7 +741,8 @@ def collect_static_meta(
         batch_size=batch_size,
         input_scale_type=input_scale_type,
         run_command=run_command,
-        model_download_url=_build_model_download_url(task_info.model_id),
+        model_download_url=(manifest.get("model_download", {}).get("endpoint", "").rstrip("/") + "/" + task_info.model_id
+                            if manifest.get("model_download", {}).get("endpoint") else _build_model_download_url(task_info.model_id)),
         gpu_device=dict(gpu_device or {}),
         gpu=(gpu_device["name"] if gpu_device else _get_gpu_name(device_index=device_index)),
         gpu_mem_total_bytes=(gpu_device["memory_total_bytes"] if gpu_device
@@ -745,8 +754,12 @@ def collect_static_meta(
         ],
         host_swap_type=host_swap["host_swap_type"],
         host_vm_swappiness=host_swap["host_vm_swappiness"],
-        model_cache_bytes=_docker_model_cache_bytes(image_info.tag),
-        docker_image_bytes=_docker_image_size_bytes(image_info.tag),
+        model_cache_bytes=model_bytes,
+        docker_image_bytes=image_bytes,
+        model_storage_mode="mounted" if store else "baked",
+        model_artifact_bytes=model_bytes if store else None,
+        runtime_image_bytes=image_bytes if store else None,
+        total_deployment_bytes=model_bytes + image_bytes if store else image_bytes,
         docker_storage_total_bytes=docker_storage[
             "docker_storage_total_bytes"
         ],

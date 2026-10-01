@@ -35,6 +35,7 @@ def dependency_stage(rows: list[dict]) -> str:
         "weights": ['RUN if [ -s /run/secrets/hf_token ]; then export HF_TOKEN="$(cat /run/secrets/hf_token)"; fi; python /opt/acprof/download_model.py',
                     "COPY acprof/container/download_model.py acprof/container/model_files.py /opt/acprof/"],
         "model": ["RUN python -m acprof.container.runtime_manifest", "COPY acprof/ /app/acprof/"],
+        "model-plan": ["COPY model-store.json /models/model-store.json"],
     }
     return next((kind for kind, expected in stages.items() if commands[:len(expected)] == expected), "")
 
@@ -82,10 +83,10 @@ def describe_dependencies(inventory: ImageInventory) -> ImageInventory:
                     delta = tuple(sorted((name, version) for name, version in package_versions(environment["packages"]).items()
                                          if inherited.get(name) != version))
                     item = replace(item, python_dependencies=delta, dependency_source="environment-lock")
-            elif item.kind in {"weights", "model"}:
+            elif item.kind in {"weights", "model-plan", "model"}:
                 parent = indexed.get(item.parent_id)
-                expected = "runtime" if item.kind == "weights" else "weights"
-                if (parent and parent.kind == expected and parent.dependency_source != "unknown"
+                expected = {"runtime"} if item.kind in {"weights", "model-plan"} else {"weights", "model-plan"}
+                if (parent and parent.kind in expected and parent.dependency_source != "unknown"
                         and item.environment_id and item.environment_key and item.platform_key
                         and (item.environment_id, item.environment_key, item.platform_key)
                         == (parent.environment_id, parent.environment_key, parent.platform_key)):

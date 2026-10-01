@@ -1,9 +1,11 @@
-# syntax=docker/dockerfile:1
+# Metadata only: model weights live exclusively in the host Model Store.
 ARG RUNTIME_IMAGE
 FROM ${RUNTIME_IMAGE}
 ARG MODEL_ID
 ARG MODEL_REVISION
-ARG HF_ENDPOINT=https://huggingface.co
+ARG HF_ENDPOINT=https://hf-mirror.com
+ARG HF_DOWNLOAD_MODE=mirror-only
+ARG ACPROF_ALLOW_PROXY_FALLBACK=0
 ARG HF_FALLBACK_ENDPOINTS=
 ARG TASK_FAMILY
 ARG RUNTIME_BACKEND
@@ -16,11 +18,7 @@ ENV TASK_FAMILY=${TASK_FAMILY} RUNTIME_BACKEND=${RUNTIME_BACKEND} MODEL_ADAPTER=
 ENV MODEL_DOWNLOAD_POLICY=${MODEL_DOWNLOAD_POLICY}
 ENV ACPROF_MODEL_DEPENDENCIES_B64=${MODEL_DEPENDENCIES_B64}
 ENV HF_HUB_CACHE=/models/hf
-LABEL org.acprof.model-files-key=${MODEL_FILES_KEY} org.acprof.image-kind="weights"
+LABEL org.acprof.model-files-key=${MODEL_FILES_KEY} org.acprof.image-kind="model-plan"
 ENV HF_FALLBACK_ENDPOINTS=${HF_FALLBACK_ENDPOINTS}
-COPY acprof/container/download_model.py acprof/container/model_files.py /opt/acprof/
-COPY acprof/model_spec.py /opt/acprof/acprof/model_spec.py
-COPY acprof/hf_endpoints.py /opt/acprof/acprof/hf_endpoints.py
-RUN --mount=type=secret,id=hf_token \
-    if [ -s /run/secrets/hf_token ]; then export HF_TOKEN="$(cat /run/secrets/hf_token)"; fi; \
-    python /opt/acprof/download_model.py
+ENV HF_DOWNLOAD_MODE=${HF_DOWNLOAD_MODE} HF_HUB_DISABLE_XET=1 ACPROF_ALLOW_PROXY_FALLBACK=${ACPROF_ALLOW_PROXY_FALLBACK}
+COPY model-store.json /models/model-store.json

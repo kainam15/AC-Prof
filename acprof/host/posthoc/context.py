@@ -381,6 +381,7 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         detection_method="posthoc_static_meta",
         runtime_profile_id=(static_meta.get("runtime_environment") or {}).get("profile_id", ""),
         model_adapter=(static_meta.get("runtime_environment") or {}).get("adapter", "family-default"),
+        model_store=(static_meta.get("runtime_environment") or {}).get("model_store", {}),
     )
     if not all(
         (task_info.pipeline_tag, task_info.task_family, task_info.runtime_backend)
