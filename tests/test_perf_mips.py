@@ -9,13 +9,36 @@ from acprof.monitors import perf_mips
 
 
 class PerfMIPSTests(unittest.TestCase):
+    def setUp(self):
+        locator = patch.object(perf_mips.shutil, "which", return_value="/usr/bin/perf")
+        locator.start()
+        self.addCleanup(locator.stop)
+
+    def test_start_uses_prepared_command_without_discovery(self):
+        monitor = perf_mips.PerfMIPSMonitor("case")
+        with patch.object(perf_mips.common, "docker_container_pid", return_value=1234), patch.object(
+            perf_mips, "resolve_perf_command_prefix_for_pid", return_value=["perf"],
+        ):
+            monitor.prepare()
+        with patch.object(perf_mips.common, "docker_container_pid", side_effect=AssertionError("window discovery")), patch.object(
+            perf_mips, "resolve_perf_command_prefix_for_pid", side_effect=AssertionError("window probe"),
+        ), patch.object(perf_mips.subprocess, "Popen") as launch:
+            monitor.start()
+        self.assertIn("1234", launch.call_args.args[0])
+
+    def test_unprepared_start_is_rejected_without_discovery(self):
+        with patch.object(perf_mips.common, "docker_container_pid") as discover:
+            with self.assertRaisesRegex(perf_mips.MIPSProfilingError, "prepared"):
+                perf_mips.PerfMIPSMonitor("case").start()
+        discover.assert_not_called()
+
     def test_preflight_rejects_cross_user_attach_denial_after_self_probe_passes(self):
         results = [
             SimpleNamespace(returncode=0, stdout='', stderr='1000,,instructions,100,100.00,,\n'),
             SimpleNamespace(returncode=1, stdout='', stderr='Error:\nNo supported events found.\nAccess denied'),
         ]
         with patch.object(perf_mips.shutil, 'which', return_value='/usr/bin/perf'), patch.object(
-            perf_mips.subprocess, 'run', side_effect=results,
+            perf_mips, 'run_command', side_effect=results,
         ) as run:
             with self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'PID 1'):
                 perf_mips.resolve_perf_command_prefix(env={'PATH': '/usr/bin'})
@@ -129,7 +152,7 @@ class PerfMIPSTests(unittest.TestCase):
             raise AssertionError(f"unexpected command: {cmd}")
 
         with patch("acprof.monitors.perf_mips.shutil.which", return_value="/usr/bin/perf"), patch(
-            "acprof.monitors.perf_mips.subprocess.run",
+            "acprof.monitors.perf_mips.run_command",
             side_effect=fake_run,
         ):
             prefix = perf_mips.resolve_perf_command_prefix()
@@ -167,7 +190,7 @@ class PerfMIPSTests(unittest.TestCase):
                 self.returncode = -9
 
         fake_pid = SimpleNamespace(returncode=0, stdout="1234\n", stderr="")
-        with patch("acprof.monitors.perf_mips.subprocess.run", return_value=fake_pid), patch(
+        with patch("acprof.monitors.common.run_command", return_value=fake_pid), patch(
             "acprof.monitors.perf_mips.subprocess.Popen",
             side_effect=lambda cmd, **kwargs: FakeProcess(cmd, **kwargs),
         ):
@@ -175,10 +198,11 @@ class PerfMIPSTests(unittest.TestCase):
                 container_name="case_container",
                 command_prefix=["perf"],
             )
+            monitor.prepare()
             monitor.start()
             result = monitor.stop(repeat_in_window=2, latency_app_s=0.125)
 
-        self.assertEqual(popen_cmds[0][:5], ["perf", "stat", "--no-big-num", "-x", ","])
+        self.assertEqual(popen_cmds[0][:5], ["/usr/bin/perf", "stat", "--no-big-num", "-x", ","])
         self.assertIn("-p", popen_cmds[0])
         self.assertIn("1234", popen_cmds[0])
         self.assertIn(",".join(perf_mips.PERF_EVENTS), popen_cmds[0])
@@ -195,11 +219,11 @@ class PerfMIPSTests(unittest.TestCase):
     def test_monitor_does_not_start_when_pid_attach_is_denied(self):
         with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
             perf_mips.shutil, 'which', return_value='/usr/bin/perf',
-        ), patch.object(perf_mips.subprocess, 'run', return_value=SimpleNamespace(
+        ), patch.object(perf_mips, 'run_command', return_value=SimpleNamespace(
             returncode=1, stdout='', stderr='Permission denied',
         )), patch.object(perf_mips.subprocess, 'Popen') as popen:
             with self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'Permission denied'):
-                perf_mips.PerfMIPSMonitor('case_container').start()
+                perf_mips.PerfMIPSMonitor('case_container').prepare()
         popen.assert_not_called()
 
     def test_monitor_uses_wall_elapsed_when_perf_omits_elapsed_line(self) -> None:
@@ -220,7 +244,7 @@ class PerfMIPSTests(unittest.TestCase):
                 self.returncode = -9
 
         fake_pid = SimpleNamespace(returncode=0, stdout="1234\n", stderr="")
-        with patch("acprof.monitors.perf_mips.subprocess.run", return_value=fake_pid), patch(
+        with patch("acprof.monitors.common.run_command", return_value=fake_pid), patch(
             "acprof.monitors.perf_mips.subprocess.Popen",
             side_effect=lambda cmd, **kwargs: FakeProcess(),
         ), patch("acprof.monitors.perf_mips.time.perf_counter", side_effect=[10.0, 10.25]):
@@ -228,6 +252,7 @@ class PerfMIPSTests(unittest.TestCase):
                 container_name="case_container",
                 command_prefix=["perf"],
             )
+            monitor.prepare()
             monitor.start()
             result = monitor.stop(repeat_in_window=2, latency_app_s=0.125)
 
@@ -240,13 +265,13 @@ class PerfMIPSTests(unittest.TestCase):
         ) as popen:
             for prefix in (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']):
                 with self.subTest(prefix=prefix), self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'direct perf'):
-                    perf_mips.PerfMIPSMonitor('case_container', command_prefix=prefix).start()
+                    perf_mips.PerfMIPSMonitor('case_container', command_prefix=prefix).prepare()
         popen.assert_not_called()
 
     def test_preflight_cannot_gain_access_from_retired_password_setting(self):
         with patch.dict('os.environ', {'ACPROF_SUDO_PASSWORD': 'test-retired-secret'}), patch.object(
             perf_mips.shutil, 'which', return_value='/usr/bin/perf',
-        ), patch.object(perf_mips.subprocess, 'run', return_value=SimpleNamespace(
+        ), patch.object(perf_mips, 'run_command', return_value=SimpleNamespace(
             returncode=1, stdout='', stderr='Permission denied',
         )) as run, self.assertRaises(perf_mips.MIPSProfilingError):
             perf_mips.resolve_perf_command_prefix()
@@ -260,7 +285,7 @@ class PerfMIPSTests(unittest.TestCase):
             return SimpleNamespace(returncode=255, stdout="", stderr="perf_event_paranoid setting is 4")
 
         with patch("acprof.monitors.perf_mips.shutil.which", return_value="/usr/bin/perf"), patch(
-            "acprof.monitors.perf_mips.subprocess.run",
+            "acprof.monitors.perf_mips.run_command",
             side_effect=fake_run,
         ), patch("acprof.monitors.perf_mips.read_perf_event_paranoid", return_value="4"), self.assertRaises(
             SystemExit

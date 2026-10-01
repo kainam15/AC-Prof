@@ -10,36 +10,23 @@ import json
 import math
 import os
 import re
-import subprocess
 import sys
 import time
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
-from acprof.artifact_layout import ArtifactLayout, case_sidecar
-
-
 import requests
 
+from acprof.artifact_layout import ArtifactLayout, case_sidecar
+from acprof.capabilities import measurement_requested
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
     CSV_FIELDS,
     GPU_RUNTIME_STATE_FIELDS,
     IDLE_DIAG_DIRNAME,
 )
-from acprof.host.compute_profile_plan import (
-    find_compute_profile_entry as _find_compute_profile_entry,
-    load_compute_profile_plan as _load_compute_profile_plan,
-)
-from acprof.host.execution_profile_plan import (
-    find_execution_profile_entry as _find_execution_profile_entry,
-    load_execution_profile_plan as _load_execution_profile_plan,
-)
-
-from acprof.host import client_metrics as _client_metrics
-from acprof.host.measurement_window import MonitorCleanupError, MonitorGroup, run_matched_control_window
-from acprof.workloads.contract import summarize_workload_contracts
-from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
+from acprof.host import client_diagnostics, client_metrics as _client_metrics, client_publication
+from acprof.host.client_config import ClientConfig
 from acprof.host.client_metrics import (
     CPU_METRIC_FIELDS,
     EFFICIENCY_METRIC_FIELDS,
@@ -72,9 +59,22 @@ from acprof.host.client_metrics import (
     _resource_usage_metrics_from_result,
     _to_float_or_nan,
 )
+from acprof.host.compute_profile_plan import (
+    find_compute_profile_entry as _find_compute_profile_entry,
+    load_compute_profile_plan as _load_compute_profile_plan,
+)
+from acprof.host.execution_profile_plan import (
+    find_execution_profile_entry as _find_execution_profile_entry,
+    load_execution_profile_plan as _load_execution_profile_plan,
+)
+from acprof.host.measurement_window import (
+    MonitorCleanupError,
+    MonitorGroup,
+    run_matched_control_window,
+)
+from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
+from acprof.workloads.contract import summarize_workload_contracts
 
-from acprof.capabilities import measurement_requested
-from acprof.host.client_config import ClientConfig
 
 def _ensure_local_proxy_bypass() -> None:
     local_hosts = ("localhost", "127.0.0.1", "::1")
@@ -201,274 +201,6 @@ def _merge_effective_input_scale(
 
 def _generic_scale_label(scale_value: float) -> str:
     return f"scale{float(scale_value):g}"
-
-def _append_sniff_group(sidecar_f, sniff_group_id: str) -> None:
-    sidecar_f.write(json.dumps({"sniff_group_id": sniff_group_id}, ensure_ascii=True) + "\n")
-    sidecar_f.flush()
-    os.fsync(sidecar_f.fileno())
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_json_safe(item) for item in value]
-    return value
-
-def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]]:
-    result = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "").strip())
-    rows = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line:
-            rows.append(json.loads(line))
-    return rows
-
-def _collect_top_cpu_processes(limit: int = 10) -> List[Dict[str, Any]]:
-    result = subprocess.run(
-        [
-            "ps",
-            "-eo",
-            "pid=,ppid=,user=,comm=,%cpu=,%mem=,args=",
-            "--sort=-%cpu",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=2.0,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "").strip())
-
-    processes = []
-    for line in result.stdout.splitlines():
-        parts = line.strip().split(None, 6)
-        if len(parts) < 7:
-            continue
-        pid, ppid, user, comm, cpu_pct, mem_pct, args = parts
-        processes.append({
-            "pid": int(pid),
-            "ppid": int(ppid),
-            "user": user,
-            "comm": comm,
-            "cpu_pct": _to_float_or_nan(cpu_pct),
-            "mem_pct": _to_float_or_nan(mem_pct),
-            "args": args,
-        })
-        if len(processes) >= limit:
-            break
-    return processes
-
-def _run_text(cmd: List[str], timeout: float = 2.0) -> str:
-    result = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "").strip())
-    return result.stdout
-
-def _float_or_none(value: str) -> Optional[float]:
-    number = _to_float_or_nan(value.strip())
-    return number if math.isfinite(number) else None
-
-def _int_or_none(value: str) -> Optional[int]:
-    try:
-        return int(value.strip())
-    except (TypeError, ValueError):
-        return None
-
-def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> Dict[str, Any]:
-    query_fields = [
-        "index",
-        "name",
-        "pstate",
-        "power.draw",
-        "power.limit",
-        "clocks.sm",
-        "clocks.mem",
-        "clocks.gr",
-        "clocks.video",
-        "temperature.gpu",
-        "utilization.gpu",
-        "utilization.memory",
-        "memory.used",
-        "memory.total",
-    ]
-    output = _run_text([
-        "nvidia-smi",
-        f"--id={device_index}",
-        f"--query-gpu={','.join(query_fields)}",
-        "--format=csv,noheader,nounits",
-    ])
-    line = next((row.strip() for row in output.splitlines() if row.strip()), "")
-    values = [part.strip() for part in line.split(",")]
-    if len(values) != len(query_fields):
-        raise RuntimeError(f"unexpected nvidia-smi gpu row: {line!r}")
-
-    return {
-        "index": _int_or_none(values[0]),
-        "name": values[1],
-        "pstate": values[2],
-        "power_draw_w": _float_or_none(values[3]),
-        "power_limit_w": _float_or_none(values[4]),
-        "clocks_sm_mhz": _float_or_none(values[5]),
-        "clocks_mem_mhz": _float_or_none(values[6]),
-        "clocks_gr_mhz": _float_or_none(values[7]),
-        "clocks_video_mhz": _float_or_none(values[8]),
-        "temperature_gpu_c": _float_or_none(values[9]),
-        "utilization_gpu_pct": _float_or_none(values[10]),
-        "utilization_memory_pct": _float_or_none(values[11]),
-        "memory_used_mib": _float_or_none(values[12]),
-        "memory_total_mib": _float_or_none(values[13]),
-    }
-
-def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> List[Dict[str, Any]]:
-    output = _run_text([
-        "nvidia-smi",
-        f"--id={device_index}",
-        "--query-compute-apps=pid,process_name,used_memory",
-        "--format=csv,noheader,nounits",
-    ])
-    apps: List[Dict[str, Any]] = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line or "No running processes found" in line:
-            continue
-        parts = [part.strip() for part in line.split(",", 2)]
-        if len(parts) != 3:
-            continue
-        apps.append({
-            "pid": _int_or_none(parts[0]),
-            "process_name": parts[1],
-            "used_memory_mib": _float_or_none(parts[2]),
-        })
-    return apps
-
-def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
-    output = _run_text(["nvidia-smi", "pmon", "-c", "1", "-i", str(device_index)])
-    rows: List[Dict[str, Any]] = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if len(parts) < 10:
-            continue
-        gpu, pid, proc_type, sm, mem, enc, dec, jpg, ofa, *command = parts
-        rows.append({
-            "gpu": _int_or_none(gpu),
-            "pid": _int_or_none(pid),
-            "type": proc_type,
-            "sm_pct": _float_or_none(sm),
-            "mem_pct": _float_or_none(mem),
-            "enc_pct": _float_or_none(enc),
-            "dec_pct": _float_or_none(dec),
-            "jpg_pct": _float_or_none(jpg),
-            "ofa_pct": _float_or_none(ofa),
-            "command": " ".join(command),
-        })
-    return rows
-
-def _collect_idle_debug_snapshot() -> Dict[str, Any]:
-    snapshot: Dict[str, Any] = {"snapshot_scope": "after_idle"}
-    try:
-        snapshot["loadavg"] = list(os.getloadavg())
-    except Exception as exc:
-        snapshot["loadavg_error"] = repr(exc)
-
-    try:
-        snapshot["top_cpu_processes"] = _collect_top_cpu_processes()
-    except Exception as exc:
-        snapshot["top_cpu_processes_error"] = repr(exc)
-
-    try:
-        snapshot["docker_containers"] = _run_json_lines([
-            "docker",
-            "ps",
-            "--format",
-            "{{json .}}",
-        ])
-    except Exception as exc:
-        snapshot["docker_containers_error"] = repr(exc)
-
-    try:
-        snapshot["docker_stats"] = _run_json_lines([
-            "docker",
-            "stats",
-            "--no-stream",
-            "--format",
-            "{{json .}}",
-        ])
-    except Exception as exc:
-        snapshot["docker_stats_error"] = repr(exc)
-
-    return snapshot
-
-def _append_idle_diag(diag_f, record: Dict[str, Any]) -> None:
-    diag_f.write(json.dumps(_json_safe(record), ensure_ascii=True, sort_keys=True) + "\n")
-    diag_f.flush()
-    os.fsync(diag_f.fileno())
-
-def _append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat_idx,
-                           latencies, error="", failed_request_id="") -> None:
-    """Persist buffered successful requests after every monitor has stopped.
-
-    Array position is the request index in ``<sniff_group_id>:<index>``.
-    Failed attempts are identified separately and never enter latency statistics.
-    """
-    record = {
-        "schema_version": 1, "sniff_group_id": sniff_group_id,
-        "input_scale": input_scale, "warmup": warmup, "repeat_idx": repeat_idx,
-        "source": "client_http", "latency_app_s": latencies,
-        "status": "error" if error else "ok",
-    }
-    if error:
-        record["error"] = error
-    if failed_request_id:
-        record["failed_request_id"] = failed_request_id
-    stream.write(json.dumps(_json_safe(record), separators=(",", ":"), allow_nan=False) + "\n")
-    stream.flush()
-    os.fsync(stream.fileno())
-
-def _append_row(
-    writer: csv.DictWriter,
-    row: Dict[str, Any],
-    f,
-    sidecar_f,
-    sniff_group_id: str,
-    diag_f=None,
-    idle_diag_record: Optional[Dict[str, Any]] = None,
-) -> None:
-    out = {k: row.get(k, "") for k in CSV_FIELDS}
-    if str(out.get("status") or "").strip().lower() == "error" and not str(
-        out.get("error") or ""
-    ).strip():
-        raise RuntimeError("refusing to write status=error without an error diagnostic")
-    writer.writerow(out)
-    f.flush()
-    os.fsync(f.fileno())
-    _append_sniff_group(sidecar_f, sniff_group_id)
-    if diag_f is not None and idle_diag_record is not None:
-        _append_idle_diag(diag_f, idle_diag_record)
 
 
 class ClientRunner:
@@ -702,17 +434,17 @@ class ClientRunner:
         device_index = self.config.device_index if device_index is None else device_index
         snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
         try:
-            snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
+            snapshot["nvidia_smi_gpu"] = client_diagnostics._collect_nvidia_smi_gpu_snapshot(device_index)
         except Exception as exc:
             snapshot["nvidia_smi_gpu_error"] = repr(exc)
 
         try:
-            snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(device_index)
+            snapshot["nvidia_smi_pmon"] = client_diagnostics._collect_nvidia_smi_pmon(device_index)
         except Exception as exc:
             snapshot["nvidia_smi_pmon_error"] = repr(exc)
 
         try:
-            snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(device_index)
+            snapshot["nvidia_smi_compute_apps"] = client_diagnostics._collect_nvidia_smi_compute_apps(device_index)
         except Exception as exc:
             snapshot["nvidia_smi_compute_apps_error"] = repr(exc)
 
@@ -890,7 +622,7 @@ class ClientRunner:
                         if gpu_monitor is not None:
                             gpu_idle_debug_snapshot = self._collect_gpu_idle_debug_snapshot()
                         if cpu_monitor is not None:
-                            idle_debug_snapshot = _collect_idle_debug_snapshot()
+                            idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
 
                 monitors.start()
 
@@ -943,7 +675,7 @@ class ClientRunner:
                     cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
                 mips_result = monitors.results.get("mips")
                 try:
-                    _append_request_window(
+                    client_publication._append_request_window(
                         requests_f, sniff_group_id=sniff_group_id,
                         input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
                         warmup=warmup_flag, repeat_idx=repeat_idx,
@@ -1155,7 +887,7 @@ class ClientRunner:
         idle_diag_record = None
         if self.config.idle_debug:
             if idle_debug_snapshot is None:
-                idle_debug_snapshot = _collect_idle_debug_snapshot()
+                idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
             idle_diag_record = {
                 "case_name": self.config.case_name,
                 "gpu_mode": self.config.gpu_mode,
@@ -1258,9 +990,9 @@ class ClientRunner:
                     "gpu_mode": self.config.gpu_mode,
                     **self._cold_start_row_metrics(),
                     "status": "error",
-                    "error": f"ready_failed: {repr(e)}",
+                    "error": f"ready_failed: {e!r}",
                 })
-                _append_row(writer, row, f, sidecar_f, "")
+                client_publication._append_row(writer, row, f, sidecar_f, "")
                 return
 
             cpu_idle_values_so_far: List[float] = []
@@ -1282,7 +1014,7 @@ class ClientRunner:
                         cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s,
                         compute_profile_plan, execution_profile_plan,
                     )
-                    _append_row(
+                    client_publication._append_row(
                         writer,
                         row,
                         f,

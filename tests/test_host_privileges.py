@@ -14,7 +14,7 @@ class HostPrivilegeTests(unittest.TestCase):
     def test_perf_permission_failure_never_retries_with_sudo(self):
         failed = subprocess.CompletedProcess([], 1, "", "Permission denied")
         with patch.object(perf_mips.shutil, "which", return_value="/usr/bin/perf"), patch.object(
-            perf_mips.subprocess, "run", return_value=failed,
+            perf_mips, "run_command", return_value=failed,
         ) as run, self.assertRaises(perf_mips.MIPSProfilingError):
             perf_mips.resolve_perf_command_prefix(env={"PATH": "/usr/bin"})
         self.assertEqual(run.call_count, 1)
@@ -24,7 +24,7 @@ class HostPrivilegeTests(unittest.TestCase):
     def test_pid_attach_failure_never_retries_with_sudo(self):
         failed = subprocess.CompletedProcess([], 1, "", "Permission denied")
         with patch.object(perf_mips.shutil, "which", return_value="/usr/bin/perf"), patch.object(
-            perf_mips.subprocess, "run", return_value=failed,
+            perf_mips, "run_command", return_value=failed,
         ) as run, self.assertRaises(perf_mips.MIPSProfilingError):
             perf_mips.resolve_perf_command_prefix_for_pid(1234)
         self.assertEqual(run.call_count, 1)

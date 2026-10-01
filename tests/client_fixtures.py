@@ -1,8 +1,8 @@
 """Configure isolated client instances in measurement regression fixtures."""
-from contextlib import contextmanager, ExitStack
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
-from acprof.host import client
+from acprof.host import client, client_diagnostics, client_publication
 
 
 def patch_client(runner, name, *args, **kwargs):
@@ -10,7 +10,8 @@ def patch_client(runner, name, *args, **kwargs):
     if name.isupper() and hasattr(runner.config, name.lower()):
         return patch.object(runner.config, name.lower(), *args, **kwargs)
     name = special.get(name, name)
-    return patch.object(runner if hasattr(runner, name) else client, name, *args, **kwargs)
+    owner = next(module for module in (runner, client, client_diagnostics, client_publication) if hasattr(module, name))
+    return patch.object(owner, name, *args, **kwargs)
 
 
 @contextmanager

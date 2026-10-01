@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, List, Mapping, Optional
 
+from acprof.host.command import run_command
 from acprof.monitors import common
 
 MIPS_EXIT_CODE = 8
@@ -249,7 +250,7 @@ def _run_perf_probe(
     kwargs["input"] = ""
     if env is not None:
         kwargs["env"] = env
-    return subprocess.run(_perf_probe_command(prefix), **kwargs)
+    return run_command(_perf_probe_command(prefix), **kwargs)
 
 
 def _run_perf_attach_probe(
@@ -269,7 +270,7 @@ def _run_perf_attach_probe(
     kwargs["input"] = ""
     if env is not None:
         kwargs["env"] = env
-    return subprocess.run(_perf_attach_probe_command(prefix, pid), **kwargs)
+    return run_command(_perf_attach_probe_command(prefix, pid), **kwargs)
 
 
 def _probe_succeeded(result: subprocess.CompletedProcess) -> bool:
@@ -340,9 +341,10 @@ def resolve_perf_command_prefix_for_pid(pid: int) -> List[str]:
     raise MIPSProfilingError(f"{last_error}; see docs/Getting_Started.md#最小权限安装")
 
 
-def _friendly_mips_error(detail: str) -> str:
-    perf_path = shutil.which("perf") or "not found"
-    paranoid = read_perf_event_paranoid()
+def _friendly_mips_error(detail: str, *, perf_path: str | None = None,
+                         paranoid: str | None = None) -> str:
+    perf_path = perf_path if perf_path is not None else shutil.which("perf") or "not found"
+    paranoid = paranoid if paranoid is not None else read_perf_event_paranoid()
     return (
         "[mips][ERROR] MIPS profiling requires Linux perf access to hardware "
         f"event {PERF_EVENT!r}.\n\n"
@@ -399,10 +401,14 @@ class PerfMIPSMonitor:
         self.command_prefix = command_prefix
         self._proc: Optional[subprocess.Popen] = None
         self._t_start: Optional[float] = None
+        self._command: Optional[List[str]] = None
+        self._perf_path = "not found"
+        self._paranoid = "unknown"
 
-    def start(self) -> None:
+    def prepare(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             raise MIPSProfilingError("MIPS monitor is already running")
+        self._command = None
         if not self.container_name:
             raise MIPSProfilingError("CONTAINER_NAME is required for MIPS profiling")
 
@@ -410,8 +416,12 @@ class PerfMIPSMonitor:
         prefix = list(self.command_prefix or resolve_perf_command_prefix_for_pid(pid))
         if len(prefix) != 1 or os.path.basename(prefix[0]) != "perf":
             raise MIPSProfilingError("Only a direct perf executable is supported; configure cap_perfmon first")
-        cmd = [
-            *prefix,
+        self._perf_path = shutil.which(prefix[0]) or "not found"
+        if self._perf_path == "not found":
+            raise MIPSProfilingError("Linux perf command was not found.")
+        self._paranoid = read_perf_event_paranoid()
+        self._command = [
+            self._perf_path,
             "stat",
             "--no-big-num",
             "-x",
@@ -423,9 +433,15 @@ class PerfMIPSMonitor:
             "--timeout",
             str(PERF_TIMEOUT_MS),
         ]
+
+    def start(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            raise MIPSProfilingError("MIPS monitor is already running")
+        if self._command is None:
+            raise MIPSProfilingError("MIPS monitor must be prepared before sampling")
         try:
             self._proc = subprocess.Popen(
-                cmd,
+                self._command,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -438,6 +454,7 @@ class PerfMIPSMonitor:
             raise MIPSProfilingError(f"failed to start perf: {exc}") from exc
 
     def stop(self, repeat_in_window: int, latency_app_s: float) -> MIPSResult:
+        self._command = None
         if self._proc is None:
             raise MIPSProfilingError("MIPS monitor was not started")
 
@@ -460,7 +477,8 @@ class PerfMIPSMonitor:
             parsed = parse_perf_stat_output(output, fallback_elapsed_s=wall_elapsed_s)
         except MIPSProfilingError as exc:
             detail = output.strip() or str(exc)
-            raise MIPSProfilingError(_friendly_mips_error(detail)) from exc
+            raise MIPSProfilingError(_friendly_mips_error(
+                detail, perf_path=self._perf_path, paranoid=self._paranoid)) from exc
 
         repeat = max(1, int(repeat_in_window))
         instructions_per_request = float(parsed.instructions_total) / float(repeat)
@@ -510,6 +528,7 @@ class PerfMIPSMonitor:
         )
 
     def close(self) -> None:
+        self._command = None
         if self._proc is not None and self._proc.poll() is None:
             self._proc.kill()
             try:

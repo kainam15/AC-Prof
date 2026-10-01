@@ -1,10 +1,12 @@
 """Monitor ownership and ordered shutdown, without hardware or workload imports."""
 from __future__ import annotations
 
-from contextlib import ExitStack
 import math
 import time
+from contextlib import ExitStack
 from typing import Any
+
+from acprof.monitors.interfaces import MonitorLifecycle
 
 
 class MonitorCleanupError(RuntimeError):
@@ -18,19 +20,21 @@ class MonitorGroup:
     STOP_ORDER = ("mips", "resource", "gpu", "cpu")
 
     def __init__(self, *, close: bool = True):
-        self.monitors: dict[str, Any] = {}
+        self.monitors: dict[str, MonitorLifecycle] = {}
         self.results: dict[str, Any] = {}
         self.failures: list[tuple[str, BaseException]] = []
         self.started: set[str] = set()
         self._closers = ExitStack()
         self._owns_monitors = close
+        self._prepared = False
 
-    def add(self, name: str, monitor: Any) -> None:
+    def add(self, name: str, monitor: MonitorLifecycle | None) -> None:
         if monitor is None:
             return
         if name not in self.START_ORDER or name in self.monitors:
             raise ValueError(f"invalid or duplicate monitor: {name}")
         self.monitors[name] = monitor
+        self._prepared = False
         if self._owns_monitors:
             self._closers.callback(self._attempt, f"{name}.close", monitor.close)
 
@@ -41,7 +45,18 @@ class MonitorGroup:
             self.failures.append((operation, error))
             return None
 
+    def prepare(self) -> None:
+        """Resolve every prerequisite before the first collector starts sampling."""
+        if self._prepared:
+            return
+        for name in self.START_ORDER:
+            prepare = getattr(self.monitors.get(name), "prepare", None)
+            if prepare is not None:
+                prepare()
+        self._prepared = True
+
     def start(self) -> None:
+        self.prepare()
         for name in self.START_ORDER:
             if name in self.monitors:
                 # A start implementation may acquire resources before raising.
@@ -54,8 +69,9 @@ class MonitorGroup:
                 if name in self.started:
                     self.started.remove(name)
                     args = (repeat_count, latency_app_s) if name == "mips" else ()
-                    self.results[name] = self._attempt(f"{name}.stop", self.monitors[name].stop, *args)
+                    self.results[name] = self._attempt(f"{name}.stop", getattr(self.monitors[name], "stop"), *args)
         finally:
+            self._prepared = False
             self._closers.close()
 
     @property
@@ -95,4 +111,4 @@ def run_matched_control_window(monitors: MonitorGroup, *, idle_seconds: float,
     for name in ("gpu", "cpu"):
         values = group.results.get(name)
         if values is not None:
-            group.monitors[name].apply_control_baseline(values[0], values[-1], trace=trace)
+            getattr(group.monitors[name], "apply_control_baseline")(values[0], values[-1], trace=trace)

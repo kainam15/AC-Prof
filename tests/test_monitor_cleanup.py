@@ -1,22 +1,95 @@
 """Exercise the real client loop with failures at its external monitor boundary."""
-from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
-from client_fixtures import patch_client
-from contextlib import ExitStack, redirect_stdout
 import io
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack, redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acprof.host import client
+from client_fixtures import patch_client
+
+from acprof.host import client, client_publication
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
 from acprof.host.measurement_window import MonitorGroup
-from acprof.monitors import energy_cpu, resource_usage
+from acprof.monitors import energy_cpu, resource_metrics
 
 
 class MonitorCleanupTests(unittest.TestCase):
+    def test_request_and_result_publication_wait_for_monitor_finish(self):
+        timeout = client.RequestTimeoutAbort("timed out", input_scale=1.0, request_id="one", timeout_s=1.0)
+        for error in (None, timeout, KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
+                events = []
+                monitor = Mock()
+                monitor.start.side_effect = lambda: events.append("start")
+                monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics._nan_result(), "", [])
+                monitor.close.side_effect = lambda: events.append("close")
+                runner = ClientRunner(ClientConfig(out_csv=str(Path(directory) / "case.csv"),
+                    warmup=0, repeat=1, repeat_in_window=1, use_mips=False, gpu_mode="off"))
+                runner.cpu_energy_mod = None
+                runner.resource_usage_mod = SimpleNamespace(ResourceUsageMonitor=lambda **kwargs: monitor)
+                runner.input_scale_entries = [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
+
+                def request(*args, **kwargs):
+                    self.assertEqual(events, ["start"])
+                    if error is not None:
+                        raise error
+                    return {"latency_app_s": 0.1, "effective_input_scale": 1.0}
+
+                def publish(callback, label):
+                    def wrapped(*args, **kwargs):
+                        self.assertEqual(events[:3], ["start", "stop", "close"])
+                        events.append(label)
+                        return callback(*args, **kwargs)
+                    return wrapped
+
+                with patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200)), patch.object(
+                    runner, "_one_request", side_effect=request,
+                ), patch.object(client_publication, "_append_request_window", side_effect=publish(
+                    client_publication._append_request_window, "requests",
+                )), patch.object(client_publication, "_append_row", side_effect=publish(
+                    client_publication._append_row, "result",
+                )):
+                    if error is None:
+                        runner.main()
+                    else:
+                        with self.assertRaises(type(error)):
+                            runner.main()
+                self.assertEqual(events, ["start", "stop", "close", "requests"] +
+                                 (["result"] if error is None else []))
+
+    def test_all_preparation_finishes_before_any_sampling(self):
+        events = []
+        group = MonitorGroup()
+        for name in group.START_ORDER:
+            monitor = Mock()
+            monitor.prepare.side_effect = lambda n=name: events.append(f"{n}.prepare")
+            monitor.start.side_effect = lambda n=name: events.append(f"{n}.start")
+            group.add(name, monitor)
+        group.start()
+        group.finish(1, 1.0)
+        self.assertEqual(events, [f"{n}.prepare" for n in group.START_ORDER] +
+                         [f"{n}.start" for n in group.START_ORDER])
+
+    def test_prepare_failure_closes_all_without_starting_sampling(self):
+        group = MonitorGroup()
+        gpu, mips = Mock(), Mock()
+        mips.prepare.side_effect = RuntimeError("attach denied")
+        group.add("gpu", gpu)
+        group.add("mips", mips)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "attach denied"):
+                group.start()
+        finally:
+            group.finish(0, float("nan"))
+        gpu.start.assert_not_called()
+        mips.start.assert_not_called()
+        gpu.close.assert_called_once()
+        mips.close.assert_called_once()
+
     def setUp(self):
         self.runner = ClientRunner(ClientConfig())
 
@@ -30,7 +103,7 @@ class MonitorCleanupTests(unittest.TestCase):
             cpu.idle_power_w = 1.0
             cpu.stop.return_value = (energy_cpu._nan_result(), "", [])
             resource = Mock()
-            resource.stop.return_value = (resource_usage._nan_result(), "", [])
+            resource.stop.return_value = (resource_metrics._nan_result(), "", [])
             monitors = {"cpu": cpu, "resource": resource}
             name, operation = fault.split(".")
             getattr(monitors[name], operation).side_effect = RuntimeError(f"{fault} failed")

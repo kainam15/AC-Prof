@@ -5,14 +5,23 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.monitors import resource_usage
+from acprof.monitors import resource_metrics, resource_readers, resource_usage
 
 
 class ResourceUsageMonitorTests(unittest.TestCase):
+    def test_sampling_does_not_rediscover_cpu_topology(self):
+        with patch.object(resource_readers, "_resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
+            resource_readers, "_discover_cpu_ids", return_value=[],
+        ):
+            monitor = resource_usage.ResourceUsageMonitor(container_name="case")
+        with patch.object(resource_readers, "_discover_cpu_ids") as discover:
+            monitor._read_sample(1.0)
+        discover.assert_not_called()
+
     def test_result_calculates_container_and_gpu_usage_metrics(self) -> None:
         gib = 1024 ** 3
         samples = [
-            resource_usage.ResourceUsageSample(
+            resource_metrics.ResourceUsageSample(
                 0.0,
                 0.0,
                 100,
@@ -25,7 +34,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 gpu_temp_c=50.0,
                 container_swap_usage_bytes=10,
             ),
-            resource_usage.ResourceUsageSample(
+            resource_metrics.ResourceUsageSample(
                 1.0,
                 1.0,
                 200,
@@ -38,7 +47,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 gpu_temp_c=52.0,
                 container_swap_usage_bytes=20,
             ),
-            resource_usage.ResourceUsageSample(
+            resource_metrics.ResourceUsageSample(
                 2.0,
                 3.0,
                 300,
@@ -53,7 +62,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             ),
         ]
 
-        result = resource_usage._result_from_samples(
+        result = resource_metrics._result_from_samples(
             samples,
             cpu_cores=2.0,
             mem_limit_bytes=1000,
@@ -82,7 +91,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
 
     def test_result_calculates_cpu_frequency_metrics(self) -> None:
         samples = [
-            resource_usage.ResourceUsageSample(
+            resource_metrics.ResourceUsageSample(
                 0.0,
                 0.0,
                 None,
@@ -92,7 +101,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 cpu_freq_avg_hz=2_000_000_000.0,
                 cpu_freq_peak_hz=2_200_000_000.0,
             ),
-            resource_usage.ResourceUsageSample(
+            resource_metrics.ResourceUsageSample(
                 1.0,
                 1.0,
                 None,
@@ -104,7 +113,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             ),
         ]
 
-        result = resource_usage._result_from_samples(
+        result = resource_metrics._result_from_samples(
             samples,
             cpu_cores=1.0,
             mem_limit_bytes=0.0,
@@ -133,23 +142,23 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             ) as f:
                 f.write("1800000\n")
 
-            avg_hz, peak_hz = resource_usage._read_cpu_frequency_hz(
+            avg_hz, peak_hz = resource_readers._prepare_cpu_frequency_reader(
                 cpu_sysfs_root=cpu_root,
                 proc_cpuinfo_path=os.path.join(tmp, "missing_cpuinfo"),
-            )
+            )()
 
         self.assertAlmostEqual(avg_hz, 2_000_000_000.0)
         self.assertAlmostEqual(peak_hz, 2_200_000_000.0)
 
     def test_peak_cpu_util_ignores_too_short_intervals(self) -> None:
         samples = [
-            resource_usage.ResourceUsageSample(0.0, 0.0, None, None, None, None),
-            resource_usage.ResourceUsageSample(0.001, 0.02, None, None, None, None),
-            resource_usage.ResourceUsageSample(0.101, 0.12, None, None, None, None),
-            resource_usage.ResourceUsageSample(0.201, 0.22, None, None, None, None),
+            resource_metrics.ResourceUsageSample(0.0, 0.0, None, None, None, None),
+            resource_metrics.ResourceUsageSample(0.001, 0.02, None, None, None, None),
+            resource_metrics.ResourceUsageSample(0.101, 0.12, None, None, None, None),
+            resource_metrics.ResourceUsageSample(0.201, 0.22, None, None, None, None),
         ]
 
-        result = resource_usage._result_from_samples(
+        result = resource_metrics._result_from_samples(
             samples,
             cpu_cores=1.0,
             mem_limit_bytes=0.0,
@@ -254,8 +263,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 f.write("max 1\n")
 
             fake_completed = SimpleNamespace(returncode=0, stdout="123\n", stderr="")
-            with patch("acprof.monitors.common.subprocess.run", return_value=fake_completed):
-                readers = resource_usage._resolve_container_metric_readers(
+            with patch("acprof.monitors.common.run_command", return_value=fake_completed):
+                readers = resource_readers._resolve_container_metric_readers(
                     "case_container",
                     cgroup_root=cgroup_root,
                     proc_root=proc_root,
@@ -415,8 +424,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 f.write("Total 1000\n")
 
             fake_completed = SimpleNamespace(returncode=0, stdout="123\n", stderr="")
-            with patch("acprof.monitors.common.subprocess.run", return_value=fake_completed):
-                readers = resource_usage._resolve_container_metric_readers(
+            with patch("acprof.monitors.common.run_command", return_value=fake_completed):
+                readers = resource_readers._resolve_container_metric_readers(
                     "case_container",
                     cgroup_root=cgroup_root,
                     proc_root=proc_root,
@@ -426,8 +435,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 self.assertIsNone(getattr(readers, name), name)
 
     def test_window_counter_metrics_calculate_deltas_and_psi_stalls(self) -> None:
-        result = resource_usage._nan_result(2)
-        start = resource_usage._WindowCounterSnapshots(
+        result = resource_metrics._nan_result(2)
+        start = resource_metrics._WindowCounterSnapshots(
             cpu_throttle={
                 "nr_periods": 100.0,
                 "nr_throttled": 10.0,
@@ -454,7 +463,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             io_operations={"read_ops": 20.0, "write_ops": 30.0},
             pids={"current": 5.0, "peak": 6.0, "max_events": 0.0},
         )
-        end = resource_usage._WindowCounterSnapshots(
+        end = resource_metrics._WindowCounterSnapshots(
             cpu_throttle={
                 "nr_periods": 110.0,
                 "nr_throttled": 12.0,
@@ -482,7 +491,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             pids={"current": 7.0, "peak": 9.0, "max_events": 1.0},
         )
 
-        resource_usage._apply_window_counter_metrics(
+        resource_metrics._apply_window_counter_metrics(
             result,
             start,
             end,
@@ -521,7 +530,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             limit_path = os.path.join(tmp, "memory.swap.max")
             with open(limit_path, "w", encoding="utf-8") as f:
                 f.write("max\n")
-            self.assertEqual(resource_usage._read_cgroup_limit(limit_path), -1)
+            self.assertEqual(resource_readers._read_cgroup_limit(limit_path), -1)
 
     def test_monitor_collects_swap_and_window_io_delta(self) -> None:
         state = {
@@ -529,18 +538,18 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             "read": 100,
             "write": 200,
         }
-        readers = resource_usage._ContainerReaders(
+        readers = resource_readers._ContainerReaders(
             swap=lambda: state["swap"],
             swap_limit=lambda: 4096,
             io=lambda: (state["read"], state["write"]),
         )
 
         with patch(
-            "acprof.monitors.resource_usage._resolve_container_metric_readers",
+            "acprof.monitors.resource_readers._resolve_container_metric_readers",
             return_value=readers,
         ), patch(
-            "acprof.monitors.resource_usage._read_cpu_frequency_hz",
-            return_value=(None, None),
+            "acprof.monitors.resource_readers._prepare_cpu_frequency_reader",
+            return_value=lambda: (None, None),
         ):
             monitor = resource_usage.ResourceUsageMonitor(
                 sample_hz=1.0,
@@ -598,14 +607,14 @@ class ResourceUsageMonitorTests(unittest.TestCase):
 
     def test_dominant_pstate_prefers_higher_performance_on_tie(self) -> None:
         self.assertEqual(
-            resource_usage._dominant_pstate(["P2", "p0", "P2", "P0"]),
+            resource_metrics._dominant_pstate(["P2", "p0", "P2", "P0"]),
             "P0",
         )
-        self.assertEqual(resource_usage._dominant_pstate(["invalid"]), "nan")
+        self.assertEqual(resource_metrics._dominant_pstate(["invalid"]), "nan")
 
     def test_unavailable_container_keeps_nan_result_without_raising(self) -> None:
         fake_completed = SimpleNamespace(returncode=1, stdout="", stderr="missing")
-        with patch("acprof.monitors.common.subprocess.run", return_value=fake_completed):
+        with patch("acprof.monitors.common.run_command", return_value=fake_completed):
             monitor = resource_usage.ResourceUsageMonitor(
                 sample_hz=10.0,
                 container_name="missing_container",

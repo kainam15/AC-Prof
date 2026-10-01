@@ -13,7 +13,7 @@ class MonitorCommonTests(unittest.TestCase):
         for code, output, error in ((1, '', 'permission denied'), (0, 'not-a-pid', ''), (0, '0', '')):
             for error_type in (RuntimeError, MIPSProfilingError):
                 with self.subTest(output=output, error=error, error_type=error_type), patch(
-                    'acprof.monitors.common.subprocess.run',
+                    'acprof.monitors.common.run_command',
                     return_value=subprocess.CompletedProcess([], code, output, error),
                 ), self.assertRaises(error_type):
                     docker_container_pid('owned-container', error_type=error_type)

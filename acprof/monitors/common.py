@@ -1,14 +1,15 @@
 """Shared Docker PID lookup and fixed-cadence sampling; metric reduction stays local."""
 from __future__ import annotations
 
-import subprocess
 import threading
 import time
 from typing import Callable
 
+from acprof.host.command import run_command
+
 
 def docker_container_pid(container_name: str, *, error_type: type[RuntimeError] = RuntimeError) -> int:
-    result = subprocess.run(
+    result = run_command(
         ["docker", "inspect", "--format", "{{.State.Pid}}", container_name],
         capture_output=True, text=True, check=False, encoding="utf-8", errors="replace",
     )

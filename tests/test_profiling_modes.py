@@ -1,6 +1,3 @@
-from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
-from client_fixtures import patch_client
 import csv
 import io
 import json
@@ -11,10 +8,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from client_fixtures import patch_client
+
 from acprof.host import client, orchestrator
+from acprof.host.client import ClientRunner
+from acprof.host.client_config import ClientConfig
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo
-from acprof.host.docker_runtime import RunningContainer
+from acprof.host.docker_runtime import ImageInfo, RunningContainer
 
 
 class ProfilingModeTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class ProfilingModeTests(unittest.TestCase):
             def start(self):
                 events.append("resource_start")
             def stop(self):
-                from acprof.monitors.resource_usage import _nan_result
+                from acprof.monitors.resource_metrics import _nan_result
                 events.append("resource_stop")
                 result = _nan_result()
                 result.container_cpu_util_avg_pct = 25.0
