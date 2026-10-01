@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
+from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
+
 
 class CapabilityStatus(str, Enum):
     AVAILABLE = "available"
@@ -64,6 +66,8 @@ class CapabilityReport:
     collection_finished: bool | None = False
     collection_succeeded: bool | None = False
     row_counts: dict[str, int] | None = None
+    identity: dict = field(default_factory=lambda: Environment().metadata())
+    metric_support: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         require_profiling_mode(self.profiling_mode)
@@ -75,9 +79,12 @@ class CapabilityReport:
         complete = bool(self.requested) and all(name in self.measurement and
             self.measurement[name].status == CapabilityStatus.VERIFIED for name in self.requested)
         return {
-            "schema_version": 2, "profiling_mode": self.profiling_mode,
+            "schema_version": 3, "profiling_mode": self.profiling_mode,
+            **self.identity,
+            "metric_support": dict(self.metric_support),
             "execution": {name: item.to_dict() for name, item in self.execution.items()},
-            "measurement": {name: item.to_dict() for name, item in self.measurement.items()},
+            "measurement": {name: {**item.to_dict(), "support": self.metric_support.get(
+                name, "requires_native_validation")} for name, item in self.measurement.items()},
             "requested_measurements": sorted(self.requested),
             "requested_measurements_available": available,
             "requested_measurements_complete": complete,
@@ -85,15 +92,16 @@ class CapabilityReport:
             "collection_finished": self.collection_finished,
             "collection_succeeded": self.collection_succeeded,
             "row_counts": self.row_counts,
-            "full_profile_complete": self.profiling_mode == "full" and complete and self.collection_complete,
+            "full_profile_complete": (self.identity.get("comparability_class") == "native_linux"
+                                      and self.profiling_mode == "full" and complete and self.collection_complete),
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping) -> "CapabilityReport":
-        """Read v1/v2 evidence; a missing version denotes the original v1 shape."""
+        """Read v1/v2/v3 evidence; legacy reports have unknown environment identity."""
         version = payload.get("schema_version", 1)
-        if type(version) is not int or version not in {1, 2}:
-            raise ValueError(f"CapabilityReport: unsupported schema_version={version!r}; expected 1 or 2")
+        if type(version) is not int or version not in {1, 2, 3}:
+            raise ValueError(f"CapabilityReport: unsupported schema_version={version!r}; expected 1, 2 or 3")
         for name in ("collection_complete", "collection_finished", "collection_succeeded"):
             if name not in payload:
                 continue
@@ -104,7 +112,11 @@ class CapabilityReport:
                 raise ValueError(f"CapabilityReport.{name} must be {expected}; received {value!r}")
         report = cls(payload.get("profiling_mode", "full"))
         for group in ("execution", "measurement"):
-            setattr(report, group, {name: Capability(**item) for name, item in payload.get(group, {}).items()})
+            setattr(report, group, {name: Capability(**{key: value for key, value in item.items()
+                                                       if key != "support"})
+                                    for name, item in payload.get(group, {}).items()})
+        report.identity = recorded_identity(payload)
+        report.metric_support = dict(payload.get("metric_support", {}))
         report.requested = set(payload.get("requested_measurements", ()))
         report.collection_complete = payload.get("collection_complete", False)
         # A legacy false means either unfinished or finished with failures.
@@ -160,9 +172,12 @@ def declared_profiler_error(task_info: Any, tool: str) -> str:
 
 
 def measurement_report(mode: str, *, gpu_modes=(), compute_tool="none", execution_tool="none",
-                       dram_energy="auto", rapl_topology=None) -> CapabilityReport:
+                       dram_energy="auto", rapl_topology=None, environment=None) -> CapabilityReport:
     from acprof.monitors.rapl_topology import dram_policy
     report = CapabilityReport(mode)
+    environment = detect_environment() if environment is None else environment
+    report.identity = environment.metadata()
+    report.metric_support = capability_matrix(environment)
     topology = rapl_topology or {}
     dram_enabled = dram_policy(mode, dram_energy)
     report.measurement["dram_energy"] = Capability(
@@ -174,6 +189,8 @@ def measurement_report(mode: str, *, gpu_modes=(), compute_tool="none", executio
         report.requested.add("dram_energy")
     gpu = "on" in gpu_modes
     cpu = "off" in gpu_modes
+    for name in ("gpu_memory", "gpu_utilization"):
+        report.measurement[name] = Capability("available" if gpu else "not_requested", source="nvml")
     for name in ("latency", "throughput", "container_cpu", "container_memory",
                  "packet_latency", "cpu_energy", "cpu_instructions", "gpu_power"):
         requested = measurement_requested(mode, name, gpu=gpu)
@@ -199,6 +216,13 @@ def measurement_report(mode: str, *, gpu_modes=(), compute_tool="none", executio
         )
         if selected:
             report.requested.add(name)
+    for name, support in report.metric_support.items():
+        if support == "unsupported":
+            report.measurement[name] = Capability("unsupported", "unavailable on this platform; no fallback",
+                                                   "platform_policy")
+        elif support == "requires_native_validation" and name in report.requested:
+            report.measurement[name] = Capability("unavailable", "requires native validation",
+                                                   "platform_policy")
     return report
 
 
@@ -317,7 +341,23 @@ def apply_collection_result(report: CapabilityReport, rows: list[Mapping]) -> No
     report.collection_succeeded = outcomes["succeeded"]
     report.row_counts = outcomes["row_counts"]
     report.collection_complete = outcomes["succeeded"]
+    for name, metrics in {"gpu_memory": ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"),
+                          "gpu_utilization": ("gpu_util_avg_pct",)}.items():
+        item = report.measurement.get(name)
+        if item is None or item.status == CapabilityStatus.NOT_REQUESTED:
+            continue
+        relevant = [row for row in rows if row.get("status") in {"ok", "warn"} and row.get("gpu_mode") == "on"]
+        try:
+            verified = bool(relevant) and all(math.isfinite(float(row.get(metric, "nan")))
+                                              for row in relevant for metric in metrics)
+        except (ValueError, TypeError):
+            verified = False
+        report.measurement[name] = Capability("verified" if verified else "unavailable",
+                                              "" if verified else "NVML query has no complete finite evidence",
+                                              "result_all.csv", {"fields": list(metrics)})
     for name, metrics in REQUIRED_MEASUREMENT_FIELDS.items():
+        if report.metric_support.get(name) == "unsupported":
+            continue
         if name not in report.requested and not (
             name == "dram_energy" and name in report.measurement
             and report.measurement[name].status != CapabilityStatus.NOT_REQUESTED

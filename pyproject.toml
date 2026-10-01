@@ -80,3 +80,11 @@ follow_imports = "skip"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: isolated tests without real hardware or external services",
+    "wsl: WSL2 integration tests, skipped outside WSL2",
+    "native_linux: tests requiring native Linux measurement semantics",
+    "hardware: tests requiring real hardware and explicitly provisioned prerequisites",
+]

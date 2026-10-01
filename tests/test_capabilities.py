@@ -8,9 +8,15 @@ from unittest.mock import patch
 
 from acprof.cli.run_args import build_parser
 from acprof.host.profilers import ncu, torch
+from acprof.platform import Environment
 
 
 class CapabilityTests(unittest.TestCase):
+    def setUp(self):
+        native = patch("acprof.capabilities.detect_environment", return_value=Environment("native_linux"))
+        native.start()
+        self.addCleanup(native.stop)
+
     def test_optional_dram_is_verified_without_becoming_a_full_prerequisite(self):
         caps = self.capabilities()
         report = caps.measurement_report('full', gpu_modes=['off'], dram_energy='auto')
@@ -141,7 +147,7 @@ class CapabilityTests(unittest.TestCase):
                 restored = caps.CapabilityReport.from_dict({
                     **version, "profiling_mode": "basic", "collection_complete": False,
                 }).to_dict()
-                self.assertEqual(restored["schema_version"], 2)
+                self.assertEqual(restored["schema_version"], 3)
                 self.assertIs(restored["collection_complete"], False)
                 self.assertIsNone(restored["collection_finished"])
                 self.assertIsNone(restored["collection_succeeded"])
@@ -149,7 +155,7 @@ class CapabilityTests(unittest.TestCase):
 
     def test_report_reader_rejects_unknown_and_non_integer_versions(self):
         caps = self.capabilities()
-        for version in (0, 3, 999, True, False, 1.0, "2", None):
+        for version in (0, 4, 999, True, False, 1.0, "2", None):
             with self.subTest(version=version):
                 with self.assertRaisesRegex(ValueError, "schema_version"):
                     caps.CapabilityReport.from_dict({"schema_version": version})
