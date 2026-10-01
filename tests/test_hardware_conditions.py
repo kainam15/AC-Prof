@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from acprof.cli.run_args import build_parser
+from acprof.platform import Environment
 
 
 class HardwareConditionsTests(unittest.TestCase):
@@ -23,13 +24,17 @@ class HardwareConditionsTests(unittest.TestCase):
         from unittest.mock import patch
 
         from acprof.analysis.comparison import compare_results
-        snapshot = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                    "conditions": {"inputs": "same"}, "identity": {}, "hardware": {}}
+        snapshot = {**Environment("native_linux").metadata(), "metric_availability": {},
+                    "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
+                    "conditions": {"inputs": "same", "comparability_class": "native_linux"},
+                    "identity": {}, "hardware": {}}
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.analysis.comparison._snapshot", return_value=snapshot
         ):
             report = compare_results(Path(directory), Path(directory), purpose="same-hardware")
         self.assertEqual(report["status"], "unknown")
+        self.assertEqual(report["conditions"]["hardware_cpu_model"]["status"], "unknown")
+        self.assertFalse(report["native_baseline_eligible"])
 
     def test_purpose_distinguishes_hardware_changes_from_missing_evidence(self):
         from copy import deepcopy
@@ -37,8 +42,9 @@ class HardwareConditionsTests(unittest.TestCase):
 
         from acprof.analysis.comparison import compare_results
         from acprof.host.hardware_conditions import HARDWARE_FIELDS
-        left = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                "conditions": {"inputs": "same"}, "identity": {},
+        left = {**Environment("native_linux").metadata(), "metric_availability": {},
+                "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
+                "conditions": {"inputs": "same", "comparability_class": "native_linux"}, "identity": {},
                 "hardware": dict.fromkeys(HARDWARE_FIELDS, "same")}
         right = deepcopy(left)
         right["hardware"]["cpu_model"] = "different CPU"
@@ -70,8 +76,9 @@ class HardwareConditionsTests(unittest.TestCase):
 
         from acprof.analysis.comparison import compare_results
         from acprof.host.hardware_conditions import HARDWARE_FIELDS
-        left = {"run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                "conditions": {"inputs": "same"}, "identity": {},
+        left = {**Environment("native_linux").metadata(), "metric_availability": {},
+                "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
+                "conditions": {"inputs": "same", "comparability_class": "native_linux"}, "identity": {},
                 "hardware": dict.fromkeys(HARDWARE_FIELDS, "same")}
         right = deepcopy(left)
         left["hardware"]["gpu"] = {"model": "A", "power_limit_w": None}
