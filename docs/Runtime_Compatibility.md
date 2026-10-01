@@ -1303,6 +1303,8 @@ Python/CUDA runtime build 消费精确 wheel URL，`PYPI_MIRROR_INDEX` 不能改
 
 保留 `/root/.cache/pip` 和 `/root/.cache/acprof/debs` 的 BuildKit cache mounts。wheel 使用 pip cache 目录下按 SHA256 寻址的 `acprof-artifacts/`，校验命中后完全跳过网络；未命中时检查重定向、验证 hash，再以本地 URL 交给 `pip --no-index --no-deps --require-hashes`。旧 pip HTTP cache 不自动转换为新缓存，首次迁移应按完整依赖下载量预检；已有 `.deb` hash 缓存可直接复用。依赖缓存键不含业务源码或权重；普通业务修改复用依赖层。构建日志报告平台/环境与每个 artifact 的 hit/miss、节省量、新下载 payload 和实际来源 host，写入 `build_download_sources`；该字段是镜像构建 provenance，不是本次 OCI pull 流量。Docker 未暴露精确传输字节时保留未知。模型日志中的 `verified_new_payload_bytes` 是新增完整文件的逻辑大小，`wire_bytes` 仍为未知。
 
+依赖下载及大小预检统一使用 `acprof-dependency-downloader/1.0` 的 `User-Agent`，避免官方制品源拒绝默认 `Python-urllib` 客户端。预检在重定向后仍保持 HEAD；HTTP 错误返回未知大小，预算检查继续拒绝未知总量。客户端标识不会改写锁定 URL、SHA256 或放宽来源切换策略。做法参考 [PyTorch 的 `torch.hub` 下载器](https://github.com/pytorch/pytorch/blob/v2.11.0/torch/hub.py)（BSD 风格许可证），沿用现有标准库 `urllib`，没有新增运行依赖或测量窗口开销。
+
 旧 `python -m acprof.container.download_model` 下载入口已停用并明确报错，避免绕过主机预检、容量检查和预算。
 
 参考 [Hub client factory](https://github.com/huggingface/huggingface_hub/blob/v0.36.2/src/huggingface_hub/utils/_http.py)、[镜像与 Xet Issue](https://github.com/huggingface/huggingface_hub/issues/4741)、[uv 索引规则](https://github.com/astral-sh/uv/blob/main/docs/concepts/indexes.md)、[BuildKit cache mounts](https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md)。借用公开 transport、精确解析和分层 cache 思路；Hub/Transformers/BuildKit 为 Apache-2.0，uv 为 MIT/Apache-2.0。没有引入新下载框架或测量窗口内诊断。

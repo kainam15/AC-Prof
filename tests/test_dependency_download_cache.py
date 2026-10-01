@@ -1,17 +1,88 @@
 import hashlib
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 from pathlib import Path
+from threading import Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof import dependency_locks, network_policy
+from acprof.host.network_preflight import artifact_size
 
 
 class DependencyDownloadCacheTests(unittest.TestCase):
+    @contextmanager
+    def artifact_server(self, payload):
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                agent = self.headers.get("User-Agent", "")
+                requests.append((self.command, self.path, agent))
+                if not agent.startswith("acprof") or self.path == "/forbidden":
+                    self.send_error(403)
+                elif self.path == "/artifact":
+                    self.send_response(302)
+                    self.send_header("Location", "/payload")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    if self.command == "GET":
+                        self.wfile.write(payload)
+
+            do_GET = do_HEAD
+
+            def log_message(self, format, *args):
+                pass
+
+        with HTTPServer(("127.0.0.1", 0), Handler) as server:
+            thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+            thread.start()
+            try:
+                with patch.dict("os.environ", {"NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}):
+                    yield f"http://127.0.0.1:{server.server_port}", requests
+            finally:
+                server.shutdown()
+                thread.join()
+
+    def test_download_identifies_client_through_redirect_and_publishes_verified_cache(self):
+        helper = self.helper()
+        payload = b"fixed dependency payload"
+        with self.artifact_server(payload) as (base_url, requests), tempfile.TemporaryDirectory() as directory:
+            entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                     "url": base_url + "/artifact"}
+            target = Path(directory) / "example.whl"
+            with patch.object(helper, "_record_transfer") as recorded:
+                self.assertEqual(helper.cached_artifact(entry, target, "python"), target)
+                self.assertEqual(target.read_bytes(), payload)
+                self.assertEqual(recorded.call_args.args[2:], (len(payload), "127.0.0.1", "miss"))
+                self.assertEqual(helper.cached_artifact(entry, target, "python"), target)
+                self.assertEqual(recorded.call_args.args[2:], (0, "127.0.0.1", "hit"))
+            self.assertEqual([(method, path) for method, path, _ in requests],
+                             [("GET", "/artifact"), ("GET", "/payload")])
+            self.assertEqual(requests[0][2], requests[1][2])
+            self.assertEqual(json.loads(target.with_suffix(".whl.source.json").read_text()),
+                             {"actual_source_host": "127.0.0.1"})
+            self.assertFalse(target.with_suffix(".whl.part").exists())
+
+    def test_preflight_identifies_client_through_redirect_without_getting_payload(self):
+        payload = b"fixed dependency payload"
+        with self.artifact_server(payload) as (base_url, requests):
+            self.assertEqual(artifact_size(base_url + "/artifact"), len(payload))
+            self.assertIsNone(artifact_size(base_url + "/forbidden"))
+            self.assertIsNone(artifact_size("invalid-url"))
+        self.assertEqual([(method, path) for method, path, _ in requests],
+                         [("HEAD", "/artifact"), ("HEAD", "/payload"), ("HEAD", "/forbidden")])
+        self.assertTrue(all(agent == requests[0][2] for _, _, agent in requests))
+
     def helper(self):
         path = Path(__file__).resolve().parents[1] / "dockerfiles/environment_tools.py"
         spec = importlib.util.spec_from_file_location("acprof_build_test", path)

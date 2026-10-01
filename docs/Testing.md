@@ -19,6 +19,8 @@
 `test_network_preflight.py`、`test_dependency_download_cache.py`、`test_lock_compiler.py`
 与 `test_tui_downloads.py`。Hub transport 用真实 SDK 加受控 HTTP transport 检查重定向前阻断，
 不下载真实权重；Model Store 覆盖 SHA256、空间、预算、独立 dependency refs 和活动 lease。
+依赖下载测试使用本地 HTTP 服务覆盖客户端标识、重定向后的 HEAD 方法、SHA256 校验和缓存命中，
+无需外网；锁生成测试在 Python 3.10 验证明确拒绝且不修改原锁，在 Python 3.11+ 验证镜像解析及 hash 保护。
 依赖、模型、Dockerfile 变更还需分别说明新构建、已有 runtime、小型 fixture、真实 checkpoint 的验证范围。
 
 ## Python 修改工作流

@@ -9,6 +9,7 @@ from typing import Mapping
 from urllib.parse import urlsplit
 
 DIRECT_HOSTS = frozenset({"hf-mirror.com", "docker.m.daocloud.io"})
+DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
 
 class DownloadPolicyError(ValueError):

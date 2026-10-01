@@ -16,6 +16,7 @@ from acprof.host.dependency_images import (
     runtime_fingerprint,
 )
 from acprof.network_policy import (
+    DEPENDENCY_USER_AGENT,
     DownloadSource,
     enforce_download_budget,
     require_source_transition,
@@ -27,14 +28,19 @@ from acprof.runtime_profiles import environment_identity
 class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         require_source_transition(req.full_url, newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and req.get_method() == "HEAD":
+            # urllib otherwise turns a redirected HEAD into a payload-fetching GET.
+            redirected.method = "HEAD"
+        return redirected
 
 
 def artifact_size(url: str) -> int | None:
     """HEAD only; no artifact GET is permitted during estimation."""
     opener = urllib.request.build_opener(PolicyRedirectHandler())
     try:
-        with opener.open(urllib.request.Request(url, method="HEAD"), timeout=8) as response:
+        request = urllib.request.Request(url, headers={"User-Agent": DEPENDENCY_USER_AGENT}, method="HEAD")
+        with opener.open(request, timeout=8) as response:
             size = response.headers.get("Content-Length")
             return int(size) if size and size.isdecimal() else None
     except (OSError, ValueError):

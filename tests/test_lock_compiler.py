@@ -25,6 +25,15 @@ class LockCompilerTests(unittest.TestCase):
             output = root / "requirements.txt"
             output.write_text(python_lock_text([{"name": "example", "version": "1.0",
                 "url": "https://files.pythonhosted.org/example-1.0-py3-none-any.whl", "sha256": digest}]))
+            original = output.read_bytes()
+            if sys.version_info < (3, 11):
+                with patch("subprocess.run") as run, self.assertRaisesRegex(RuntimeError, r"Python 3\.11\+"):
+                    compile_locks.resolve("uv", [root / "input.in"], output, PLATFORMS["cu124"], {"example": "1.0"},
+                                          index_url="https://mirror.example/simple")
+                run.assert_not_called()
+                self.assertEqual(output.read_bytes(), original)
+                self.assertFalse(output.with_suffix(".artifacts.json").exists())
+                return
 
             def resolve(command, **kwargs):
                 destination = Path(command[command.index("--output-file") + 1])

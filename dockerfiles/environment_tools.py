@@ -24,7 +24,7 @@ from dependency_locks import (
     require_parent_subset,
     system_lock_identity,
 )
-from network_policy import require_source_transition
+from network_policy import DEPENDENCY_USER_AGENT, require_source_transition
 
 
 class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -60,8 +60,9 @@ def cached_artifact(entry, path, category):
         return path
     temporary = path.with_suffix(path.suffix + ".part")
     opener = urllib.request.build_opener(PolicyRedirectHandler())
+    request = urllib.request.Request(entry["url"], headers={"User-Agent": DEPENDENCY_USER_AGENT})
     try:
-        with opener.open(entry["url"], timeout=60) as source, temporary.open("wb") as target:
+        with opener.open(request, timeout=60) as source, temporary.open("wb") as target:
             shutil.copyfileobj(source, target)
             actual_source = urlsplit(source.geturl()).hostname
         if _digest(temporary) != entry["sha256"]:
