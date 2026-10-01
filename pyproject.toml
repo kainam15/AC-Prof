@@ -58,8 +58,8 @@ force-exclude = true
 extend-exclude = ["internal-testing", "results", "evidence"]
 
 [tool.ruff.lint]
-# 基础错误与 import 排序。
-select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "I"]
+# 基础错误、import 排序及经过单独核对的少量低风险规则。
+select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "I", "RUF010", "RUF013", "SIM101"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
