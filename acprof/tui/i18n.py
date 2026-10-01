@@ -437,7 +437,7 @@ ENGLISH: dict[str, str] = {
     "详情": "Details",
     "尚未启动": "Not started",
     "复制选区": "Copy text",
-    "回到最新": "Follow log",
+    "回到底部": "Follow log",
     "返回监控": "Restore log",
     "绘图工具": "Plotting",
     "已有结果": "Existing results",
