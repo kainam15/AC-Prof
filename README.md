@@ -3,7 +3,7 @@
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
 
 AC-Prof compares Hugging Face model inference across CPU, memory, and GPU configurations and input sizes.
-Given a model ID, it prepares a Docker image containing the model weights, runs experiments, and records latency, energy use, and resource utilization.
+Given a model ID, it prepares a Docker runtime with weights mounted read-only from a shared host Model Store, runs experiments, and records latency, energy use, and resource utilization.
 Supported models require no code changes. Results include CSV measurements and metadata for reproduction, with commands to generate plots.
 
 [Quick start](#quick-start) · [Terminal interface](#interactive-terminal-interface) · [View results](#view-results) · [Documentation](docs/README.md)
@@ -71,10 +71,10 @@ After installation, use `acprof` in a new terminal, or use the full executable p
 From the repository, you can also run `./acprof-tui --preset smoke`. This launcher supports both the project `.venv` and the installed tool environment;
 see [launcher selection](docs/Distribution.md#clone-后初始化) for the order of preference.
 You can then launch AC-Prof from any working directory; output paths are relative to that directory. The setup script starts it from the repository root.
-Model runtime dependencies reuse verified GHCR images when available and fall back to local builds otherwise. Model weights are still downloaded as needed.
+Model runtime dependencies reuse verified GHCR images when available; any local-build fallback is visible and must satisfy the source policy. Budgeted runs stop on pull failure and require a new preflight. Model weights are downloaded as needed into the shared Model Store.
 For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures proxies, notifications, and profiling permissions.
 Connection settings are stored in `.env.local` in the working directory, readable and writable only by the current user. Exclude this file and its backups from Git.
-AC-Prof uses the official Hugging Face Hub by default; mirrors require [explicit configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
+AC-Prof defaults to `mirror-only` at `https://hf-mirror.com`, disables Xet, and stops on mirror failure or unapproved redirects. Use `--max-download 5GB` to enforce a budget before bulk downloads; unknown sizes stop budgeted runs. See [download and Model Store policy](docs/Runtime_Compatibility.md#下载网络与-model-store) and [source configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
 See [authentication](docs/Getting_Started.md#hugging-face-认证), [development environment setup](docs/Getting_Started.md#2-安装-python-依赖), and [distribution options](docs/Distribution.md) for details.
 
 <a id="3-跑通第一个-cpu-实验"></a>

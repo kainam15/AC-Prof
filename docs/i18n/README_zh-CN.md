@@ -3,7 +3,7 @@
 [English](../../README.md) · **简体中文**
 
 AC-Prof 用来比较 Hugging Face 模型在不同 CPU、内存、GPU 配置和输入规模下的推理表现。
-你提供一个模型 ID，它会准备包含模型权重的 Docker 镜像，运行实验，并保存延迟、能耗、资源占用等数据。
+你提供一个模型 ID，它会准备 Docker runtime，通过只读挂载共享主机 Model Store 中的权重，运行实验，并保存延迟、能耗、资源占用等数据。
 支持的模型无需修改代码；结果包含 CSV、复现所需的元数据和可生成的图表。
 
 [快速开始](#快速开始) · [终端界面](#交互式终端界面) · [查看结果](#查看结果) · [完整文档](../README.md)
@@ -58,10 +58,10 @@ Docker 或基础采集条件缺失时会给出处理建议，修复后可重新�
 在仓库目录也可运行 `./acprof-tui --preset smoke`，它支持项目 `.venv` 和已安装的工具环境，
 具体选择顺序见[启动入口说明](../Distribution.md#clone-后初始化)。
 后续可从任意工作目录启动，结果写入该目录；`setup.sh` 启动的工作目录为源码根目录。
-模型推理依赖优先复用经过核验的 GHCR 预构建镜像，不可用时自动本机构建；模型权重仍按需下载。
+模型推理依赖优先复用经过核验的 GHCR 预构建镜像；回退本机构建会明确显示，并须符合来源策略。预算模式下 pull 失败会停止，需重新预检；模型权重按需下载到共享 Model Store。
 私有或 gated 模型可在 TUI 按 `F2` → **连接与权限**填写 `HF_TOKEN`；同处可配置代理、通知和采集权限。
 连接配置保存到当前工作目录的 `.env.local`（仅当前用户可读写），该文件及其备份应加入 Git 忽略。
-默认连接官方 Hugging Face Hub；镜像需[显式配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
+默认以 `mirror-only` 连接 `https://hf-mirror.com`，禁用 Xet，镜像失败或未允许的重定向直接停止。使用 `--max-download 5GB` 在大下载前检查预算；大小未知时预算模式也会停止。详见[下载与 Model Store 策略](../Runtime_Compatibility.md#下载网络与-model-store)和[来源配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
 详见[认证配置](../Getting_Started.md#hugging-face-认证)、[开发环境安装](../Getting_Started.md#2-安装-python-依赖)和[发行包说明](../Distribution.md)。
 
 ### 3. 跑通第一个 CPU 实验

@@ -152,13 +152,16 @@ python -m pip install --no-deps -e .
 
 ```env
 HF_TOKEN=hf_xxx
-# 可选：显式使用镜像；不设置时使用 https://huggingface.co
-# HF_ENDPOINT=https://hf-mirror.com
+# 默认仅使用镜像；镜像失败停止，不自动切换官方源
+HF_DOWNLOAD_MODE=mirror-only
+HF_ENDPOINT=https://hf-mirror.com
+# 可选：批量 payload 预算，未知或超限时在下载前停止
+# ACPROF_MAX_DOWNLOAD=5GB
 ```
 
 `.env.local` 已被 Git 忽略，可用 `chmod 600 .env.local` 限制读取权限。程序自动读取
-`.env` 和 `.env.local`；令牌只用于主机检测和构建时的 BuildKit secret，正式推理容器
-从镜像内的 `/models/model-snapshot` 离线加载模型，不接收令牌或在运行中下载权重。
+`.env` 和 `.env.local`；令牌只用于主机检测和 Model Store 下载，正式推理容器
+从只读挂载的固定 snapshot 离线加载模型，不接收令牌或在运行中下载权重。
 地址、令牌的优先级与空白值处理见 [主机环境与 Hugging Face 认证](CLI_Reference.md#主机环境与-hugging-face-认证)。
 
 ### 3. 跑一个最小 smoke test

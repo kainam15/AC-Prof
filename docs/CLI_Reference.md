@@ -12,13 +12,9 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 
 读取完成后，Hugging Face 初始化按去除首尾空白后的非空值选择配置：
 
-- 地址依次取 `HF_ENDPOINT`、`HF_HUB_ENDPOINT`，都为空时使用官方 `https://huggingface.co`。
-  `HF_ENDPOINT` 规范化为实际选中值，缺失或空白的别名回填该值。镜像需要显式设置，例如
-  `HF_ENDPOINT=https://hf-mirror.com`；不会自动改写 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 或 `no_proxy`。
-- `HF_FALLBACK_ENDPOINTS` 是显式备用地址列表，以逗号或分号分隔；先尝试主地址，再按顺序尝试备用地址。
-  未配置时只使用主地址，不隐式添加镜像或官方回退。主地址只接受单个 URL；URL 不得带凭据、查询或片段。
-  模型下载对已声明的地址重试；主机元数据下载仅在缺少 Hub 元数据响应头时尝试显式备用地址，
-  不把认证、文件不存在或离线缓存错误变成跨站请求。
+- 默认 `HF_DOWNLOAD_MODE=mirror-only`，endpoint 依次取 `HF_ENDPOINT`、`HF_HUB_ENDPOINT`，为空时使用 `https://hf-mirror.com`。`mirror-only` 禁止备用 endpoint，失败直接停止；每次 HTTP 请求和重定向均检查目标 host、scheme、port，禁止绕到官方域名或 Xet。
+- 显式 `official` 使用 `https://huggingface.co`；`mirror-preferred` 按主地址、`HF_FALLBACK_ENDPOINTS`、官方地址排序。所有跨源尝试打印来源；DIRECT → 可能 PROXY 的切换默认停止，仅 `ACPROF_ALLOW_PROXY_FALLBACK=1` 显式允许。
+- 模型下载强制 `HF_HUB_DISABLE_XET=1`、禁用 `hf_transfer`，同时设置已导入 Hub 的常量。不会改写 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`、VPN 或默认路由。上游分流需要单独确认拓扑和代理规则。
 - 令牌依次取 `HF_TOKEN`、`HUGGING_FACE_HUB_TOKEN`，都为空时调用已有
   `huggingface_hub.utils.get_token()`；找到令牌后回填缺失或仅含空白的令牌变量。
   两个变量都有非空值时保留各自值，解析结果以 `HF_TOKEN` 为准；没有令牌或本地读取失败时返回匿名状态。
@@ -28,7 +24,7 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 （[Apache-2.0](https://github.com/huggingface/huggingface_hub/blob/main/LICENSE)）。
 项目沿用已安装的公开接口，只在自身初始化层处理空白值和变量回填，不复制上游内部实现、
 不新增依赖；该初始化发生在主机准备阶段，不进入正式测量窗口。
-模型构建仅通过 BuildKit secret 使用令牌，正式推理容器继续离线加载模型。
+令牌仅用于主机检测与 Model Store 下载，不传入 Docker 构建或正式推理容器；运行阶段只读挂载固定 snapshot 并离线加载。
 配置自定义 endpoint 也决定 Hugging Face 请求及认证令牌的接收方，应只选择信任的服务。
 主地址与备用列表同时传给 Docker 构建并进入模型层、服务层指纹；切换来源不会复用旧来源的模型层。
 实际成功请求的 Hub 基地址写入 `runtime_environment.model_download.endpoint`，依赖模型分别记录，
@@ -319,6 +315,10 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--output-dir` | `results` | 输出根目录。最终还会追加 model name 子目录。 |
 | `--resume` | false | 使用原参数和目录恢复实验；核对运行身份、保留完成 case，并备份后重测中断 case。已完成实验不重测。 |
 | `--skip-build` | false | 核验构建指纹和环境清单后复用镜像；不存在时自动构建，不匹配时退出。 |
+| `--download-mode` | `mirror-only` | `mirror-only`、`mirror-preferred`、`official`；显式参数优先于 `HF_DOWNLOAD_MODE`。 |
+| `--max-download` | 不设上限 | 下载前核验全部批量 payload 预算，例如 `5GB`、`5GiB`；`0` 只允许缓存命中。任何来源大小未知或总量超限时，在 pull/build/权重下载前停止。环境变量为 `ACPROF_MAX_DOWNLOAD`。 |
+| `--model-store` | `~/.cache/acprof/model-store` | 单份主机模型目录，对应 `ACPROF_MODEL_STORE`；运行容器只读挂载。 |
+| `--model-store-max` | 不设上限 | Model Store 容量上限，对应 `ACPROF_MODEL_STORE_MAX`；超限须先显式清理。 |
 | `--model-download-policy` | `auto` | `auto` 按已覆盖的加载器规则筛选文件，未知结构保留完整快照并记录原因；`full` 下载固定 commit 的完整仓库。策略进入镜像指纹，不能相互误复用。采集和探测入口均支持。 |
 | `--notify` | `auto` | `auto` 在配置 Webhook 后启用企业微信；`none` 关闭，`wecom` 显式选择企业微信。配置见[企业微信通知](#企业微信通知)。 |
 | `--help` | — | 显示此入口的全部公开参数后退出。 |

@@ -303,3 +303,12 @@ Warmup 和 Repeat 分别输入，次数、Hz 和 s 放在输入框右侧。采�
 也不轮询正在写入的 CSV；状态仅从已有进程输出中事件驱动更新。TUI 内运行时还会
 禁用子进程的 tmux pane 捕获，避免把全屏 ANSI 重绘写进 `logs/terminal.log`（旧目录为 `tmux_all.log`）。论文复现仍可
 直接复制界面显示的完整命令，在普通 CLI 或自动化脚本中执行。
+
+
+## 下载与磁盘预检
+
+实验参数中的“下载与 Model Store”提供下载源模式、`max-download`、Model Store 路径和容量上限，保存实验默认配置后会恢复这些字段。连接配置也可保存对应环境变量。开始准备后，在大下载前展示 expected / DIRECT / PROXY、模型缓存、runtime 来源与磁盘余量；DIRECT/PROXY 是预期分类，不是已验证的 VPN 分流。存在待下载量或未知量时弹出计划确认；预算未知/超限时先报错，不能通过确认绕过预算。该过程全部在正式测量前，测量窗口不扫描磁盘、不查询下载源。
+
+下载完成后同一区域显示已校验的新增模型 payload、cache savings；未知 wire bytes 不显示成零。“Model Store 占用与清理”按需展示总量、各模型、free space 和 LRU 删除预览，确认后才清理，活动 lease 与预览后新增的模型会保留。关闭面板后恢复实验操作，运行和测量期间不能打开清理面板。
+
+Model Store 清理命令和 lease/LRU 语义见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。真实终端效果需另验，headless 交互不代替 SSH/VS Code 客户端验证。

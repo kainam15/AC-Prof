@@ -417,7 +417,11 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `host_swap_used_bytes_at_start` | 静态元数据采集时 host 已使用的 swap 快照，单位 bytes；无法读取时为 `null`。 |
 | `host_swap_type` | `/proc/swaps` 中 active swap 的 backing 类型：`none`、`file`、`partition`、`zram`、`mixed` 或无法识别时的 `unknown`。 |
 | `host_vm_swappiness` | 实验启动时 `/proc/sys/vm/swappiness` 的整数值；无法读取时为 `null`。 |
-| `model_cache_bytes` | Docker image 内 `/models/hf` 下唯一普通文件的逻辑字节数总和；跳过符号链接并按 inode 去重。包括缓存中的全部权重格式、配置、tokenizer 等 artifacts，不代表单一权重文件大小、文件系统实际占用块或 Docker 下载体积。 |
+| `model_cache_bytes` | mounted 模型为 `model_artifact_bytes` 的兼容别名；历史 baked 模型仍为镜像 `/models/hf` 下按 inode 去重的普通文件逻辑 bytes，不重写历史结果。 |
+| `model_storage_mode` | `mounted` 表示主机 Model Store 只读挂载，`baked` 表示历史镜像内权重。历史缺字段时不推断具体缓存/制品大小。 |
+| `model_artifact_bytes` | mounted 模型清单中主 snapshot 与离线依赖文件的逻辑 bytes；按清单路径求和，包含配置、tokenizer、代码，不等同于物理共享 blob 占用。历史 baked 结果为未知。 |
+| `runtime_image_bytes` | mounted 模式下的 Docker image size，包含 runtime、代码和模型清单，不含挂载权重。历史 baked 镜像无法可靠拆分，保留未知。 |
+| `total_deployment_bytes` | mounted 模式为 `model_artifact_bytes + runtime_image_bytes`；baked 模式为完整 `docker_image_bytes`，避免重复加权重。非 registry 压缩流量、非共享层实际占盘量。 |
 | `docker_image_bytes` | `docker image inspect <image_tag> --format "{{.Size}}"` 返回的本地 image size，单位 bytes。 |
 | `docker_storage_total_bytes` | Docker daemon `DockerRootDir` 所在文件系统的总容量，单位 bytes；无法访问 daemon 路径时为 `null`。 |
 | `docker_storage_available_bytes_at_start` | 静态元数据采集时 `DockerRootDir` 所在文件系统对当前用户可用的容量快照，单位 bytes；该值会随磁盘使用变化。 |
@@ -490,7 +494,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 `dependency_lock_sha256` 仍是镜像内完整 Python 锁文件字节的摘要；可复用环境中的注释排版
 不参与 `environment_id`，因此构建服务时读取实际父环境清单中的该值。
 
-`runtime_environment.model_download` 是可选的独立 schema v1 清单，历史结果可缺失。`requested_policy` 保存 `auto/full`，`effective_policy` 保存实际 `selected/full`，`reason` 说明筛选或回退原因；`weights` 记录组件、格式、variant 和索引／分片文件。`files` 保存路径、实际逻辑大小和构建时计算的 SHA256，另保留 Hub 提供的 Git blob／LFS 标识；`excluded_files` 是未下载文件的远端元数据。`verification=sha256` 表示构建阶段已完成完整性检查，`plan_sha256` 校验规范化 JSON（不含自身字段）。`selected_bytes` 按清单路径求和，不对相同内容的多个路径去重，因此不等同于 `model_cache_bytes`、镜像大小或释放的磁盘空间。新增清单不改变 CSV 字段和历史指标定义。
+`runtime_environment.model_download` 是可选的独立 schema v1 清单，历史结果可缺失。`requested_policy` 保存 `auto/full`，`effective_policy` 保存实际 `selected/full`，`reason` 说明筛选或回退原因；`weights` 记录组件、格式、variant 和索引／分片文件。`files` 保存路径、实际逻辑大小和准备阶段计算的 SHA256，另保留 Hub 提供的 Git blob／LFS 标识；`excluded_files` 是未下载文件的远端元数据。`verification=sha256` 表示准备阶段已完成完整性检查，`plan_sha256` 校验规范化 JSON（不含自身字段）。`selected_bytes` 按清单路径求和，不对相同内容的多个路径去重，mounted 模式下其含依赖总量成为 `model_artifact_bytes`（及兼容别名 `model_cache_bytes`）；不等同于镜像大小或释放的磁盘空间。新增清单不改变 CSV 字段和历史指标定义。`runtime_environment.model_store` 记录 entry ID、计划 SHA256 和逻辑制品大小；主机结果额外记录 `host_path`，仅用于挂载定位，不参与便携镜像内容身份。
 
 新构建在该清单的 `endpoint` 字符串中记录成功使用的 Hugging Face Hub 基地址，依赖模型在
 `dependencies[].download.endpoint` 分别记录。该字段来自执行 metadata/snapshot 请求的地址，

@@ -25,8 +25,9 @@ flowchart LR
     route --> env[完整依赖环境]
     platform[平台：Python / 系统锁；旧 Torch 平台兼容] --> deps[依赖环境镜像缓存]
     env --> deps
-    deps --> weights[固定 commit 的模型层]
+    deps --> weights[固定计划的模型清单层]
     weights --> code[适配代码和环境清单]
+    store[主机 Model Store：固定 commit 和文件 SHA256] -->|只读挂载| verify
     code --> verify[独立 CPU / GPU 推理验证]
     verify --> matrix[统一资源矩阵与测量协议]
     matrix --> posthoc[按原镜像 ID 补采]
@@ -694,7 +695,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 模型 commit、下载策略、后端、构建参数和 AC-Prof 代码；完整 `build_fingerprint` 再绑定实际模型
 父镜像 ID。模型层指纹绑定实际环境 image ID。标签是查找入口，执行与补采始终使用不可变 ID。
 主地址及显式备用列表也进入模型层、服务层指纹；切换 endpoint 会重建这两层，但复用依赖环境。
-默认官方 Hub，镜像与备用地址均需[显式配置](CLI_Reference.md#主机环境与-hugging-face-认证)。
+默认严格镜像模式；来源与显式官方模式见[下载网络与 Model Store](#下载网络与-model-store)。
 实际成功地址随 `model_download.endpoint` 保存，历史缺失字段不推算。
 
 分层构建与文件选择细节见[模型文件选择规则](#模型文件选择规则)。
@@ -709,7 +710,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 集合，额外包同样报错。缓存命中时核对完整身份标签和内部清单；构建使用独立输入目录及
 `--iidfile`，核验输入未变、父镜像引用未变、成品清单正确后才发布标签。
 
-正式 server 和 profiler 使用镜像中配置的本地 snapshot。显式 `MODEL_LOCAL_PATH` 不存在时
+正式 server 和 profiler 使用只读 Model Store 中固定的本地 snapshot；历史 baked image 保留原有解释。显式 `MODEL_LOCAL_PATH` 不存在时
 立即报错，不回退到 Hub/cache 加载；未知 backend 不会自动选择同任务族的其他 handler。
 
 在正式资源矩阵之前，使用输入计划的最小尺度、最大已选 CPU／内存，为每个请求的设备模式
@@ -762,7 +763,7 @@ TUI 根据镜像标签和 AC-Prof 元数据判定类型。下表列出常见名�
 | --- | --- | --- |
 | 公共基础 | `acprof-platform-<platform_id>:<指纹前20位>`；历史 `acprof-base:*` | 平台镜像包含固定 Python 和系统包；`cpu`/CUDA 平台另含 Torch 必需闭包，`python-cpu` 不预装 Torch，供 ONNX Runtime 等独立运行时使用。不含任务族 Python 依赖或模型。 |
 | 运行依赖 | `acprof-runtime-env:<指纹前20位>`；历史 `acprof-runtime-*` | 完整依赖环境，供多个 profile 或模型共用；不含模型权重或 AC-Prof 业务代码。 |
-| 模型文件 | `acprof-weights-*` | 继承运行依赖，加入某个模型固定 commit 的权重、配置、tokenizer／processor 等文件，供该模型的服务镜像复用。 |
+| 模型清单 | `acprof-model-plan-*`；历史 `acprof-weights-*` | 新镜像只保存固定 Model Store 计划，不保存权重。历史 `weights` 镜像仍含原模型文件，按旧身份保留或显式清理。 |
 | 推理服务 | `acprof-nlp-*`、`acprof-cv-*` 等任务族前缀 | 在运行环境与模型文件上加入 AC-Prof 服务代码和环境清单，实际运行模型推理。 |
 | 调试镜像 | `acprof-blip-reuse-base:*`、`acprof-massif-*`、`acprof-nsys-*`、`acprof-ncu-*`；名称含 `dependency-check` 或 `reuse-base` | 调试、修复或旧 profiler 兼容流程留下的镜像；可能继承某个模型的权重。 |
 | 其它镜像 | 例如 `acprof-validation-host:*` | 未匹配上述分类的已标记镜像。此例用于开发时验证主机依赖、Python 兼容性和回归测试，常规采集不会自动创建或使用它。 |
@@ -774,9 +775,9 @@ TUI 根据镜像标签和 AC-Prof 元数据判定类型。下表列出常见名�
 点号符合 [Docker 镜像名称规则](https://github.com/distribution/reference/blob/main/regexp.go)；下载、加载与元数据仍保留原始模型 ID。
 镜像搜索和“选择同模型”区分点号与下划线。已有镜像标签与结果文件不会自动改名。
 
-`org.acprof.image-kind` 标签分别标记 `platform/environment/weights/model`；原有镜像仍可通过
-历史标签和名称识别。常规模型的继承关系是 **平台 → 运行依赖 → 模型文件 → 推理服务**。后两类共享运行环境和权重层，
-不会因为保留两类镜像就各存一份权重。`acprof-build-source:<image ID>` 是构建时给已有镜像添加的别名，
+`org.acprof.image-kind` 标签分别标记 `platform/environment/model-plan/model`；原有 `weights` 镜像仍可通过
+历史标签和名称识别。常规模型的继承关系是 **平台 → 运行依赖 → 模型清单 → 推理服务**，权重从主机 Model Store 只读挂载。
+`acprof-build-source:<image ID>` 是构建时给已有镜像添加的别名，
 不另存一份镜像内容；TUI 按 image ID 合并这些标签。分类与构建实现分别见
 [`image_management.py`](../acprof/host/image_management.py) 和 [`runtime_images.py`](../acprof/host/runtime_images.py)。
 
@@ -925,20 +926,20 @@ Docker 查询只在上述空闲窗口执行，不增加正式测量窗口内的�
 
 ## 模型文件选择规则
 
-模型文件默认采用 `--model-download-policy auto`。程序在构建环境中读取固定 commit 的文件清单、配置和分片索引，按照当前加载器选择权重：标准 Transformers 优先默认 safetensors（含分片），否则保留默认 PyTorch `.bin`；Sentence Transformers 保留模块结构；已覆盖的 Stable Diffusion／SDXL／DDPM／DDIM pipeline 按组件选择；TorchScript／skops 遵循现有 artifact 清单。配置、tokenizer、processor 和其它未确认可省略的附属文件会保留。分片缺失直接报错，不静默换一套权重。
+模型文件默认采用 `--model-download-policy auto`。程序在主机准备阶段读取固定 commit 的文件清单、配置和分片索引，按照目标 runtime 的加载器选择权重：标准 Transformers 优先默认 safetensors（含分片），否则保留默认 PyTorch `.bin`；Sentence Transformers 保留模块结构；已覆盖的 Stable Diffusion／SDXL／DDPM／DDIM pipeline 按组件选择；TorchScript／skops 遵循现有 artifact 清单。配置、tokenizer、processor 和其它未确认可省略的附属文件会保留。分片缺失直接报错，不静默换一套权重。
 
 自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`run.py` 和 `probe.py` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
 
 共享环境层不包含 AC-Prof 业务代码或模型。默认构建使用带完整依赖锁的 runtime 镜像，
-再共用模型／最终代码构建流程。模型层指纹包含真实环境 image ID、模型 commit、backend、adapter、
-下载策略和筛选器内容；最终层复制 AC-Prof 代码。修改界面或 handler 可以复用依赖与模型层，
+再构建不含权重的模型清单和最终代码层。模型清单层不再包含权重，指纹绑定真实环境 image ID、模型 commit、backend、adapter、
+下载策略、筛选器及已验证计划 SHA256；最终层复制 AC-Prof 代码。修改界面或 handler 可以复用依赖与模型层，
 修改筛选规则只重建模型及最终层。Python 和系统依赖均消费锁，补采仍需保留原始 image ID。
 
 主机 NVML 依赖直接使用 NVIDIA 的 `nvidia-ml-py`，Python 导入名仍是 `pynvml`。
 已删除的同名 `pynvml` 发行包由[上游标记为弃用](https://github.com/gpuopenanalytics/pynvml#readme)；
 这项替换不增加采集步骤或测量开销。
 
-镜像内 `/models/model_download_plan.json` 保存所选文件、排除文件、选择原因、框架版本、文件 SHA256 和清单 SHA256。文件大小／内容检查在构建阶段执行，清单写入 `static_meta.json/runtime_environment/model_download`；正式 server 启动不会再次扫描、下载或校验全部权重。`model_cache_bytes` 统计实际缓存 artifacts，`docker_image_bytes` 包含该镜像继承的共享层；判断磁盘节省应查看 `docker system df -v` 的共享／独占占用。保留旧镜像时，它引用的大层仍会占用空间。
+Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排除文件、选择原因、框架版本、文件 SHA256 和清单 SHA256。文件大小／内容检查在构建阶段执行，清单写入 `static_meta.json/runtime_environment/model_download`；正式 server 启动不会再次扫描、下载或校验全部权重。mounted 模型的 `model_cache_bytes` 是 `model_artifact_bytes` 的兼容别名；`docker_image_bytes` 只包含 runtime、代码与清单层；判断磁盘节省应查看 `docker system df -v` 的共享／独占占用。保留旧镜像时，它引用的大层仍会占用空间。
 
 声明离线依赖时，下载计划另含 `dependencies[].download` 子清单和 `total_selected_bytes`；
 原 `selected_bytes` 仍只统计主 snapshot，新增总量包括主模型和依赖。子清单分别固定 commit、
@@ -1271,3 +1272,37 @@ MOSS 自动选择专用 adapter 和依赖锁，不需要修改主机 `.venv`。�
 - 输入 `params` 直接传给官方 pipeline，缺省时使用该 pipeline 与固定模型 revision 的默认生成配置。响应文本解析与重新分词属于原请求的后处理，计入 application/packet 延迟；不新增推理轮次。输出文本会增加相应响应字节，不能与旧版误标为 detection 的响应直接比较。
 - `input_scale` 仍是传入合成 RGB 图片相对 224 像素基准的缩放倍率。模型内部可能缩放到固定分辨率；输出 token 数也不能代表视觉编码器 FLOP。此实现覆盖官方旧 pipeline 可加载的图像描述模型，不扩展到多模态对话或所有模型架构。
 - 使用现有 CSV 列和任务相关的 `static_meta.json.output_format`，沿用现有输出字段；运行环境元数据见 static schema v7；窗口聚合沿用现有逻辑，只对有限的输出计数求平均，全部不可得时为 `nan`。缺少可选输出字段时为 `nan`，静态元数据必须为当前 schema v7。正式性能分析仍筛选 `status=ok` 且 `warmup=0`。
+
+
+## 下载网络与 Model Store
+
+默认使用 `HF_DOWNLOAD_MODE=mirror-only` 与 `HF_ENDPOINT=https://hf-mirror.com`。镜像失败直接停止；Xet 和 hf_transfer 禁用，Hub 0.x 的 requests adapter 与 1.x 的 HTTP client hook 在请求发送前检查每个重定向。设置 endpoint 本身不能阻止跨域 302；HTTP Xet bridge URL 同样被严格模式阻止。官方下载须显式选择 `official`；`mirror-preferred` 可选择备用来源，但 DIRECT → 可能 PROXY 的 fallback 默认停止。设置见 [CLI](CLI_Reference.md#主机环境与-hugging-face-认证)。
+
+`network_policy.py` 统一记录 source 的 URL、host、category、预期 DIRECT/PROXY、cache 状态、估算和实际 bytes。Hugging Face、Python wheels、OCI 和 Debian 使用同一汇总模型；未知 host 保守归入 PROXY。这不是 VPN 规则验证：HTTP 代理、上游 NAT 或 TUN 仍由主机/网关管理。安装 AC-Prof 之前的 uv bootstrap 不属于 runtime 下载预算。
+
+所有新构建先完成 Network Preflight：模型总量、本地已有量、待下载量与 endpoint；平台/环境本地 image 命中、是否尝试 GHCR、OCI manifest 的压缩总量上界；精确 Python/Debian artifacts 的大小。BuildKit 缓存无法从主机可靠读取时显示 `unknown`，按完整制品大小保守估计；HEAD 或 manifest 不能给出大小时保留 `null`，不当作零。`expected_download_bytes`、`direct_download_bytes`、`proxy_download_bytes` 在批量下载前显示，并随 runtime 元数据保存。
+
+`--max-download 5GB`（十进制）或 `5GiB`（二进制）约束本次计划的批量 payload。总量未知或超限会在任何权重下载、OCI pull 或 dependency build 前退出；API、HEAD 和受限配置 JSON 查询是计划所需的小额流量，不是零流量预检。它不是 TCP/TLS 开销和失败重传的精确线速账单。预算模式下 GHCR 失败不继续未规划的本机构建；需显式选择 `ACPROF_RUNTIME_IMAGE_SOURCE=build` 后重新预检。GHCR 未被禁用，国内 OCI registry 可通过现有 `ACPROF_RUNTIME_REGISTRY` 显式选择，仍核验完整身份。
+
+Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 更改。`hf/` 是唯一权重缓存；`entries/<id>/hf/` 只用相对符号链接构成每个固定计划的视图，并保留各依赖独立的 `refs/main`，避免多个模型依赖不同 revision 时互相覆盖。清单固定 model ID、完整 commit、文件大小、每文件 SHA256 与计划 SHA256。entry 身份不包含 CPU/GPU/profile，筛选器与 catalog 的变更会失效旧 entry。
+
+主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.6.0 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
+
+模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。
+
+```bash
+acprof run --model google-bert/bert-base-uncased --download-mode mirror-only --max-download 5GB
+acprof model-store status
+acprof model-store prune --target-size 100GB              # 预览 LRU 删除及可回收量
+acprof model-store prune --target-size 100GB --apply      # 显式执行
+```
+
+`--model-store-max` 在下载前核对总容量；同时检查文件系统 free space 并预留 64 MiB 元数据余量。大小未知、容量不足或磁盘不足直接停止。清理为显式操作，按最久未使用顺序选择，保留活动 lease 和 `--keep <entry-id>`。可回收量按实际共享 blobs 计算；多个模型的逻辑大小不能直接相加当成物理磁盘用量。旧 baked 镜像可能仍被历史实验/补采引用，应通过镜像管理明确清理；新构建不再向 Docker 写入第二份权重。
+
+Python/CUDA runtime build 消费精确 wheel URL，`PYPI_MIRROR_INDEX` 不能改写这些 URL。`scripts/compile_locks.py --index-url <https-index> --runtime-only --variant cpu` 让固定 uv 重新从指定索引解析目标平台 artifacts；`--torch-index-url` 可显式指定相应 CUDA wheel 索引。默认保留 exact versions；同版本 artifact SHA256 改变会拒绝替换。生成 `.artifacts.json` 保存目标平台、来源与已知大小。不要字符串替换 URL。`--check --variant cpu --variant cu124 --variant cu128` 是离线锁校验，不能代替三个环境的实际构建/推理。
+
+保留 `/root/.cache/pip` 和 `/root/.cache/acprof/debs` 的 BuildKit cache mounts。wheel 使用 pip cache 目录下按 SHA256 寻址的 `acprof-artifacts/`，校验命中后完全跳过网络；未命中时检查重定向、验证 hash，再以本地 URL 交给 `pip --no-index --no-deps --require-hashes`。旧 pip HTTP cache 不自动转换为新缓存，首次迁移应按完整依赖下载量预检；已有 `.deb` hash 缓存可直接复用。依赖缓存键不含业务源码或权重；普通业务修改复用依赖层。构建日志报告平台/环境与每个 artifact 的 hit/miss、节省量、新下载 payload 和实际来源 host，写入 `build_download_sources`；该字段是镜像构建 provenance，不是本次 OCI pull 流量。Docker 未暴露精确传输字节时保留未知。模型日志中的 `verified_new_payload_bytes` 是新增完整文件的逻辑大小，`wire_bytes` 仍为未知。
+
+旧 `python -m acprof.container.download_model` 下载入口已停用并明确报错，避免绕过主机预检、容量检查和预算。
+
+参考 [Hub client factory](https://github.com/huggingface/huggingface_hub/blob/v0.36.2/src/huggingface_hub/utils/_http.py)、[镜像与 Xet Issue](https://github.com/huggingface/huggingface_hub/issues/4741)、[uv 索引规则](https://github.com/astral-sh/uv/blob/main/docs/concepts/indexes.md)、[BuildKit cache mounts](https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md)。借用公开 transport、精确解析和分层 cache 思路；Hub/Transformers/BuildKit 为 Apache-2.0，uv 为 MIT/Apache-2.0。没有引入新下载框架或测量窗口内诊断。

@@ -15,6 +15,12 @@
 | 模型、backend、依赖或 Dockerfile | 路由与离线加载测试、镜像构建、所声明设备的真实推理；profiler 分别验证 |
 | TUI | 受影响的交互与尺寸检查；原生终端问题还需对应终端证据 |
 
+下载策略的定向回归包含 `test_download_network.py`、`test_model_store.py`、
+`test_network_preflight.py`、`test_dependency_download_cache.py`、`test_lock_compiler.py`
+与 `test_tui_downloads.py`。Hub transport 用真实 SDK 加受控 HTTP transport 检查重定向前阻断，
+不下载真实权重；Model Store 覆盖 SHA256、空间、预算、独立 dependency refs 和活动 lease。
+依赖、模型、Dockerfile 变更还需分别说明新构建、已有 runtime、小型 fixture、真实 checkpoint 的验证范围。
+
 ## Python 修改工作流
 
 修改 Python 代码时优先使用 PyCharm MCP，覆盖根脚本、`acprof/`、`scripts/` 和 `tests/`。
