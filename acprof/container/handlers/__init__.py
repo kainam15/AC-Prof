@@ -231,10 +231,11 @@ class HandlerRegistry:
     @classmethod
     def get(cls, task_family: str, backend: str) -> BaseHandler:
         adapter = os.getenv("ACPROF_MODEL_ADAPTER", "family-default")
-        key = f"{task_family}:{backend}" if adapter == "family-default" else (adapter, task_family, backend)
         target = cls._handlers if adapter == "family-default" else cls._adapters
         with cls._lock:
-            selected = target.get(key)
+            selected = (cls._handlers.get(f"{task_family}:{backend}")
+                        if adapter == "family-default"
+                        else cls._adapters.get((adapter, task_family, backend)))
             if selected is None:
                 raise HandlerNotRegisteredError(
                     f"Handler not registered: family={task_family}, backend={backend}, adapter={adapter}; "
@@ -270,7 +271,10 @@ class HandlerRegistry:
                     f"backend: {backend}; handler: {_handler_source(handler_cls)}; "
                     f"original exception: {type(exc).__name__}: {exc}"
                 ) from exc
-            target[key] = instance
+            if adapter == "family-default":
+                cls._handlers[f"{task_family}:{backend}"] = instance
+            else:
+                cls._adapters[(adapter, task_family, backend)] = instance
             return instance
 
 

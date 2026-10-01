@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
-from typing import Any, Callable, TextIO
+from pathlib import Path
+from typing import Any, Callable, TextIO, cast
 
 
 def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
@@ -49,7 +49,8 @@ def atomic_write(path: str | Path, write: Callable[[TextIO], None]) -> None:
                                          dir=destination.parent, prefix=f".{destination.name}.",
                                          suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
-            write(stream)
+            # NamedTemporaryFile delegates the complete text stream interface.
+            write(cast(TextIO, stream))
             stream.flush()
             os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
