@@ -889,6 +889,9 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     def _tick_elapsed(self) -> None:
         """Update elapsed time display; skipped during measurement windows."""
+        # Textual stops the app before removing widgets, ahead of on_unmount.
+        if not self.is_running:
+            return
         if self._latest_snapshot.measurement_active:
             return  # Zero redraws during RAPL/latency measurement windows.
         if not self._started_monotonic or not self._is_busy():
@@ -1863,6 +1866,9 @@ class AcprofTui(ImageActions, BarCursorApp):
         """Use the same bounded cleanup policy even after widgets are gone."""
         self._form_ready = False
         self._cancel_preview_timer()
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
+            self._elapsed_timer = None
         if self._image_refresh_timer is not None:
             self._image_refresh_timer.stop()
         result = await asyncio.to_thread(self._lifecycle.stop, closing=True)

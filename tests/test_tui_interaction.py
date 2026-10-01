@@ -1,5 +1,6 @@
 import shlex
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -35,6 +36,30 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             app._configuration_changed()
             self.assertIsNotNone(app._preview_timer)
+
+    async def test_pending_elapsed_tick_is_safe_during_shutdown(self):
+        class ClosingElapsedApp(AcprofTui):
+            CSS_PATH = AcprofTui.CSS_PATH
+
+            async def _close_all(self):
+                # Deliver a queued tick after the status widget is removed,
+                # before on_unmount runs, without depending on timer timing.
+                await self.query_one("#status-elapsed").remove()
+                try:
+                    self._tick_elapsed()
+                finally:
+                    await super()._close_all()
+
+        app = ClosingElapsedApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app._process_kind = "probe"
+            app._started_monotonic = time.monotonic() - 2
+            app._elapsed_timer = app.set_interval(60, app._tick_elapsed)
+            with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
+                app._tick_elapsed()
+                update.assert_called_once()
+        self.assertIsNone(app._elapsed_timer)
 
     async def test_rapid_clicks_are_not_discarded_by_button_active_effect(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)

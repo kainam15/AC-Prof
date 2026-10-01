@@ -625,6 +625,11 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 详情分隔条检查上下拖动的实际高度变化、拖出边界后的最小可见区域、按键调整与默认值恢复、缩窗后再放大的手动高度和阅读位置；切换页面、采集开始、失去捕获、缩放或按 `Esc` 后均须释放鼠标，三个镜像视图与中英文均应可用。
 镜像自动刷新检查首次打开、定时更新、失败重试与有效勾选/浏览位置保留；验证后台页面、确认框、并发操作和测量窗口不启动扫描，以及任务结束后恢复。
 退出阶段还需验证已排队的 timer 和 worker 回调：Textual 停止应用后、控件部分卸载而 `on_unmount` 尚未执行时，不再扫描或访问页面控件。
+`test_tui_interaction.py` 在退出期间主动投递计时回调，检查耗时控件卸载后无异常且定时器释放；
+同时保留运行时刷新、正式测量期间暂停和测量结束后恢复的断言，无需延长固定等待。
+此边界依据锁定的 [Textual 8.2.8 退出生命周期](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/app.py)
+和 [Timer.stop](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/timer.py)（MIT），
+复用现有 API，不增加依赖或测量期刷新。
 页面切换、挂载和布局更新后等待框架处理事件，再判断点击和焦点，不用堆叠固定 `sleep` 掩盖竞态。
 `scripts/run_tui_validation.py` 在子进程结束后，通过 `call_after_refresh` 等待监控页显示且日志控件
 进入实际屏幕布局，再保存 `tui-finished.svg` 并返回退出码。排队的焦点事件若切回配置页，辅助入口
