@@ -25,7 +25,8 @@ from textual.widgets import (
 
 from acprof.experiment import RunConfig
 from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
-from acprof.tui.app import AcprofTui, PendingLaunch
+from acprof.tui.app import AcprofTui
+from acprof.tui.commands import PendingLaunch
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.images import (
     filtered_images,

@@ -1,25 +1,29 @@
 import asyncio
 import csv
 import os
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from textual.widgets import Button, Input, Select, Static, TabbedContent
 from textual.css.query import NoMatches
+from textual.widgets import Button, Input, Select, Static, TabbedContent
 
-from acprof.tui.app import AcprofTui
-from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
-from acprof.tui.app import PendingLaunch
-from acprof.tui.diagnostics import _readable_rapl_paths, PreflightCheck, summarize_result_csv
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.tui.commands import build_probe_command, build_profile_command, format_command, parse_slash_command
-from acprof.tui.progress import RunProgressTracker
+from acprof.tui.app import AcprofTui
+from acprof.tui.commands import (
+    PendingLaunch,
+    build_probe_command,
+    build_profile_command,
+    format_command,
+    parse_slash_command,
+)
+from acprof.tui.diagnostics import PreflightCheck, _readable_rapl_paths, summarize_result_csv
 from acprof.tui.log import SelectableLog
-
+from acprof.tui.progress import RunProgressTracker
+from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 

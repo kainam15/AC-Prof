@@ -1,14 +1,15 @@
 """由硬件对照脚本驱动真实 TUI 子进程路径，使用独立设置文件。"""
 import argparse
 import json
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from acprof.tui.app import AcprofTui, PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.experiment import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.tui.app import AcprofTui  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.tui.commands import PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 
 def main():

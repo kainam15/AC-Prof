@@ -5,9 +5,9 @@ import argparse
 from dataclasses import replace
 from typing import Sequence
 
-from acprof.tui.app import AcprofTui
-
 from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
+from acprof.tui.run_form import infer_preset
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -59,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.output_dir is not None:
         config = replace(config, output_dir=args.output_dir)
     app.initial_config = config
-    app._initial_preset = app._infer_preset(config)
+    app._initial_preset = infer_preset(config)
     app.run()
 
 

@@ -1,23 +1,29 @@
-from dataclasses import replace
-from itertools import product
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from itertools import product
+from pathlib import Path
 from unittest.mock import patch
 
 from rich.cells import cell_len
 from textual.widgets import (
-    Button, Checkbox, Collapsible, ContentSwitcher, Input, Select, Static, TabbedContent,
+    Button,
+    Checkbox,
+    Collapsible,
+    ContentSwitcher,
+    Input,
+    Select,
+    Static,
+    TabbedContent,
 )
 
-from acprof.tui.app import AcprofTui
 from acprof.cli.tui import main
-from acprof.tui.views import ConfirmActionScreen
-from acprof.tui.app import PendingLaunch
+from acprof.experiment import RunConfig
+from acprof.tui.app import AcprofTui
+from acprof.tui.commands import PendingLaunch
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
-from acprof.experiment import RunConfig
 from acprof.tui.settings import (
     TuiSettings,
     UiPreferences,
@@ -25,7 +31,7 @@ from acprof.tui.settings import (
     load_settings,
     save_settings,
 )
-
+from acprof.tui.views import ConfirmActionScreen
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -673,7 +679,8 @@ class TuiMainSettingsTests(unittest.TestCase):
                 app = run.call_args.args[0]
                 self.assertEqual(app.initial_config, expected)
                 self.assertEqual(app.ui_preferences.theme, "acprof-light")
-                self.assertEqual(app._initial_preset, app._infer_preset(expected))
+                from acprof.tui.run_form import infer_preset
+                self.assertEqual(app._initial_preset, infer_preset(expected))
                 self.assertEqual(self.settings_path.read_bytes(), original)
 
 

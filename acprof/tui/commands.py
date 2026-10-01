@@ -3,12 +3,57 @@ from __future__ import annotations
 
 import shlex
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 from acprof.experiment import RunConfig, RunConfigError, _csv_values
-from acprof.messages import message
 from acprof.installation import cli_command
+from acprof.messages import message
+
+
+@dataclass(frozen=True)
+class PendingLaunch:
+    command: tuple[str, ...]
+    kind: str
+    config: RunConfig | None = None
+    result_dir: str = ""
+    result_csv: str = ""
+
+
+def resolve_result_path(source: str, project_dir: Path) -> Path:
+    path = Path(source).expanduser()
+    return path if path.is_absolute() else project_dir / path
+
+
+def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
+    path = resolve_result_path(source, project_dir)
+    if not path.is_file():
+        raise RunConfigError([message("结果 CSV 不存在：{0}", path)])
+    command = build_plot_command(path, project_dir=project_dir, python_executable=python_executable)
+    return PendingLaunch(tuple(command), "plot", result_csv=str(path))
+
+
+def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
+    from acprof.artifact_layout import ArtifactLayout
+    path = resolve_result_path(source, project_dir)
+    if path.is_dir():
+        path /= "result_all.csv"
+    if path.suffix.lower() != ".csv" or not path.is_file():
+        raise RunConfigError([message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。")])
+    output_dir = ArtifactLayout.discover(path.parent).path("analysis")
+    command = build_stats_command(path, output_dir, project_dir=project_dir, python_executable=python_executable)
+    return PendingLaunch(tuple(command), "stats", result_csv=str(path))
+
+
+def prepare_profile(source: str, *, tools: str, dry_run: bool,
+                    project_dir: Path, python_executable: Path) -> PendingLaunch:
+    path = resolve_result_path(source, project_dir)
+    if not path.is_dir():
+        raise FileNotFoundError(message("结果目录不存在：{0}", path))
+    command = build_profile_command(path, tools=tools, dry_run=dry_run,
+                                    project_dir=project_dir, python_executable=python_executable)
+    return PendingLaunch(tuple(command), "profile-dry-run" if dry_run else "profile", result_dir=str(path))
 
 
 def build_probe_command(

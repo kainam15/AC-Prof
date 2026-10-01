@@ -2,28 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import os
 import subprocess
 import sys
-import asyncio
 import time
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Sequence
 
 try:
-    from textual import events, on, work
     from rich.console import Console
     from rich.text import Text
+    from textual import events, on, work
     from textual.app import ComposeResult
     from textual.binding import Binding
-    from textual.widget import Widget
     from textual.containers import Horizontal, Vertical
     from textual.geometry import Size
     from textual.screen import ModalScreen
     from textual.theme import Theme
+    from textual.widget import Widget
     from textual.widgets import (
         Button,
         Checkbox,
@@ -33,8 +33,8 @@ try:
         Header,
         Select,
         Static,
-        TabPane,
         TabbedContent,
+        TabPane,
         Tabs,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests install deps
@@ -47,67 +47,58 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
     raise
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.tui.commands import build_plot_command, build_probe_command, build_profile_command, build_stats_command, format_command, parse_slash_command
-
-from acprof.tui.diagnostics import PreflightCheck, quick_preflight, summarize_result_csv
-from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN, format_input_number
-
-from acprof.messages import join_messages, message
-from acprof.tui.i18n import error_message, translate
-
-from acprof.tui.input import BarCursorApp, BarCursorInput as Input
-
-from acprof.tui.log import SelectableLog
-from acprof.tui.table import ResizableDataTable
-
-from acprof.tui.image_actions import ImageActions
-from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
-from acprof.tui.process import ProcessLifecycle, StopResult
-from acprof.tui.reports import ReportView, read_report
-from acprof.tui.rendering import CjkScreen
 from acprof.host.image_management import (
     ImageInventory,
     ImageLayer,
     ManagedImage,
 )
-
+from acprof.messages import join_messages, message
+from acprof.tui import run_form
+from acprof.tui.commands import (
+    PendingLaunch,
+    build_probe_command,
+    format_command,
+    parse_slash_command,
+    prepare_plot,
+    prepare_profile,
+    prepare_stats,
+    resolve_result_path,
+)
+from acprof.tui.diagnostics import PreflightCheck, quick_preflight, summarize_result_csv
+from acprof.tui.i18n import error_message, translate
+from acprof.tui.image_actions import ImageActions
+from acprof.tui.input import BarCursorApp, BarCursorInput as Input
+from acprof.tui.log import SelectableLog
+from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN
+from acprof.tui.process import ProcessLifecycle, StopResult
+from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.rendering import CjkScreen
+from acprof.tui.reports import ReportView, read_report
 from acprof.tui.scrollbar import SolidScrollBarRender
-
 from acprof.tui.settings import (
     UiPreferences,
     default_settings_path,
     load_settings,
     save_settings,
 )
-
+from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_CATALOG
-
 from acprof.tui.views import (
     ConfirmActionScreen,
     LogPanel,
+    compose_images_tab,
     compose_monitor_tab,
     compose_plot_tab,
     compose_profile_tab,
     compose_reports_tab,
     compose_run_tab,
     compose_settings_tab,
-    compose_images_tab,
 )
-
 
 PROJECT_DIR = Path.cwd()
 # Keep the virtual-environment path. Resolving this symlink would turn
 # ``.venv/bin/python`` into the system interpreter and lose the venv.
 PYTHON_EXECUTABLE = Path(sys.executable).absolute()
-
-
-@dataclass(frozen=True)
-class PendingLaunch:
-    command: tuple[str, ...]
-    kind: str
-    config: RunConfig | None = None
-    result_dir: str = ""
-    result_csv: str = ""
 
 
 class AcprofTui(ImageActions, BarCursorApp):
@@ -186,7 +177,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._applying_config = False
         self._preview_timer = None
         self._ignored_preset_event: str | None = None
-        self._initial_preset = self._infer_preset(self.initial_config)
+        self._initial_preset = run_form.infer_preset(self.initial_config)
         self._elapsed_timer = None
         self._report_view: ReportView | None = None
         self._report_loading = False
@@ -465,16 +456,6 @@ class AcprofTui(ImageActions, BarCursorApp):
             "返回基本配置" if show_advanced else "高级参数", "label",
         )
 
-    @staticmethod
-    def _infer_preset(config: RunConfig) -> str:
-        model = config.model
-        if config == RunConfig.smoke(model):
-            return "smoke"
-        if config == RunConfig.main_matrix(model):
-            return "main"
-        if config == RunConfig(model=model):
-            return "default"
-        return "custom"
 
     def _gpu_options(self) -> list[tuple[str, str]]:
         options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
@@ -482,15 +463,6 @@ class AcprofTui(ImageActions, BarCursorApp):
             options.append((message('自定义：{0}', self.initial_config.gpus), self.initial_config.gpus))
         return options
 
-    @staticmethod
-    def _matches_preset(config: RunConfig, preset: str) -> bool:
-        if preset == "smoke":
-            return config == RunConfig.smoke(config.model)
-        if preset == "main":
-            return config == RunConfig.main_matrix(config.model)
-        if preset == "default":
-            return config == RunConfig(model=config.model)
-        return preset == "custom"
 
     def _input(self, widget_id: str) -> str:
         return self.query_one(f"#{widget_id}", Input).value.strip()
@@ -585,70 +557,17 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.preset_default()
 
     def _collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
-        config = RunConfig(
-            model=self._input("model"),
-            task=self._input("task"),
-            task_family=self._select("task-family"),
-            backend=self._input("backend"),
-            cpus=self._input("cpus"),
-            cpuset_cpus=self._input("cpuset-cpus"),
-            mems=self._input("mems"),
-            gpus=self._select("gpus"),
-            input_scales=self._input("input-scales"),
-            workload_spec=self._input("workload-spec"),
-            model_spec=self._input("model-spec"),
-            output_dir=self._input("output-dir"),
-            batch_size=self._input("batch-size"),  # normalized by RunConfig
-            warmup=self._input("warmup"),
-            repeat=self._input("repeat"),
-            repeat_in_window=self._input("repeat-in-window"),
-            repeat_window_seconds=self._input("repeat-window-seconds"),
-            request_timeout_seconds=self._input("request-timeout-seconds"),
-            sample_hz=self._input("sample-hz"),
-            idle_seconds=self._input("idle-seconds"),
-            idle_cooldown_seconds=self._input("idle-cooldown-seconds"),
-            compute_profile_tool=self._select("compute-profile-tool"),
-            profiling_mode=self._select("profiling-mode"),
-            execution_profile_tool=self._select("execution-profile-tool"),
-            sniff_iface=self._input("sniff-iface"),
-            notify=self._select("notify"),
-            prune_startup_oom=self._checked("prune-startup-oom"),
-            skip_build=self._checked("skip-build"),
-            resume=self._checked("resume-run"),
-            idle_debug=self._checked("idle-debug"),
+        return run_form.collect_config(
+            {key: self._input(key) for key in run_form.INPUT_FIELDS},
+            {key: self._select(key) for key in run_form.SELECT_FIELDS},
+            {key: self._checked(key) for key in run_form.CHECKED_FIELDS},
+            project_dir=PROJECT_DIR, allow_empty_model=allow_empty_model,
         )
-        if allow_empty_model and not config.model:
-            validated = replace(config, model="settings/default-model").validate(
-                project_dir=PROJECT_DIR,
-            )
-            return replace(validated, model="")
-        return config.validate(project_dir=PROJECT_DIR)
 
     def _apply_config(self, config: RunConfig, *, preset: str = "custom") -> None:
         self._cancel_preview_timer()
         self._applying_config = True
-        values = {
-            "model": config.model,
-            "task": config.task,
-            "backend": config.backend,
-            "cpus": config.cpus,
-            "cpuset-cpus": config.cpuset_cpus,
-            "mems": config.mems,
-            "input-scales": config.input_scales,
-            "workload-spec": config.workload_spec,
-            "model-spec": config.model_spec,
-            "output-dir": config.output_dir,
-            "batch-size": format_input_number(config.batch_size),
-            "warmup": format_input_number(config.warmup),
-            "repeat": format_input_number(config.repeat),
-            "repeat-in-window": format_input_number(config.repeat_in_window),
-            "repeat-window-seconds": format_input_number(config.repeat_window_seconds),
-            "request-timeout-seconds": format_input_number(config.request_timeout_seconds),
-            "sample-hz": format_input_number(config.sample_hz),
-            "idle-seconds": format_input_number(config.idle_seconds),
-            "idle-cooldown-seconds": format_input_number(config.idle_cooldown_seconds),
-            "sniff-iface": config.sniff_iface,
-        }
+        values, selects, checks = run_form.config_values(config)
         # Value watchers post Changed messages asynchronously. Suppressing
         # them here avoids dozens of queued debounce timers after a preset.
         try:
@@ -656,21 +575,9 @@ class AcprofTui(ImageActions, BarCursorApp):
                 with self.batch_update():
                     for widget_id, value in values.items():
                         self.query_one(f"#{widget_id}", Input).value = value
-                    for widget_id, value in {
-                        "task-family": config.task_family,
-                        "gpus": config.gpus,
-                        "compute-profile-tool": config.compute_profile_tool,
-                        "profiling-mode": config.profiling_mode,
-                        "execution-profile-tool": config.execution_profile_tool,
-                        "notify": config.notify,
-                    }.items():
+                    for widget_id, value in selects.items():
                         self.query_one(f"#{widget_id}", Select).value = value
-                    for widget_id, value in {
-                        "prune-startup-oom": config.prune_startup_oom,
-                        "skip-build": config.skip_build,
-                        "resume-run": config.resume,
-                        "idle-debug": config.idle_debug,
-                    }.items():
+                    for widget_id, value in checks.items():
                         self.query_one(f"#{widget_id}", Checkbox).value = value
                     self.query_one("#run-preset", Select).value = preset
                     self._ignored_preset_event = None
@@ -710,7 +617,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             if sync_preset:
                 selected_preset = self._select("run-preset")
                 if selected_preset != "custom" and (
-                    config is None or not self._matches_preset(config, selected_preset)
+                    config is None or not run_form.matches_preset(config, selected_preset)
                 ):
                     self.query_one("#run-preset", Select).value = "custom"
         case_count = (
@@ -1573,9 +1480,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             if notify:
                 self.notify("请填写结果 CSV 路径", severity="warning")
             return
-        csv_path = Path(result_csv).expanduser()
-        if not csv_path.is_absolute():
-            csv_path = PROJECT_DIR / csv_path
+        csv_path = resolve_result_path(result_csv, PROJECT_DIR)
         try:
             summary = summarize_result_csv(csv_path)
         except (OSError, csv.Error, UnicodeError) as exc:
@@ -1613,18 +1518,12 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not result_csv:
             self.notify("请填写结果 CSV 路径", severity="warning")
             return
-        csv_path = Path(result_csv).expanduser()
-        if not csv_path.is_absolute():
-            csv_path = PROJECT_DIR / csv_path
-        if not csv_path.is_file():
-            self.notify(message('结果 CSV 不存在：{0}', csv_path), severity="error")
+        try:
+            pending = prepare_plot(result_csv, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
+        except RunConfigError as exc:
+            self.notify(str(exc), severity="error")
             return
-        command = build_plot_command(
-            csv_path,
-            project_dir=PROJECT_DIR,
-            python_executable=PYTHON_EXECUTABLE,
-        )
-        self._launch(PendingLaunch(tuple(command), "plot", result_csv=str(csv_path)))
+        self._launch(pending)
 
     def _clear_report(self, status: str) -> None:
         self._report_view = None
@@ -1650,9 +1549,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not source.strip():
             self._clear_report("请填写报告 JSON 路径，或使用当前结果计算统计。")
             return
-        report_path = Path(source).expanduser()
-        if not report_path.is_absolute():
-            report_path = PROJECT_DIR / report_path
+        report_path = resolve_result_path(source, PROJECT_DIR)
         if report_path.suffix.lower() != ".json":
             self._clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。")
             return
@@ -1721,28 +1618,15 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not source.strip():
             self._clear_report("请填写实验目录或结果 CSV 路径。")
             return
-        csv_path = Path(source).expanduser()
-        if not csv_path.is_absolute():
-            csv_path = PROJECT_DIR / csv_path
-        if csv_path.is_dir():
-            csv_path /= "result_all.csv"
-        if csv_path.suffix.lower() != ".csv" or not csv_path.is_file():
-            self._clear_report("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。")
-            return
-        # Route generated reports through the same manifest as collection and plotting.
-        from acprof.artifact_layout import ArtifactLayout
         try:
-            layout = ArtifactLayout.discover(csv_path.parent)
-            output_dir = layout.path("analysis")
+            pending = prepare_stats(source, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
         except (OSError, ValueError) as exc:
             self._clear_report(str(exc))
             return
-        command = build_stats_command(csv_path, output_dir, project_dir=PROJECT_DIR,
-                                      python_executable=PYTHON_EXECUTABLE)
         self._stats_report_path = None
         self._stats_report_reused = False
         self._clear_report(message("{0} 正在计算窗口统计，完成后自动显示报告。", CALCULATING))
-        self._launch(PendingLaunch(tuple(command), "stats", result_csv=str(csv_path)))
+        self._launch(pending)
 
     @on(Button.Pressed, "#profile-dry-run")
     def profile_dry_run_button(self) -> None:
@@ -1771,21 +1655,13 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not selected_tools:
             self.notify("请至少勾选一个补采工具", severity="warning")
             return None
-        result_path = Path(directory).expanduser()
-        if not result_path.is_absolute():
-            result_path = PROJECT_DIR / result_path
-        if not result_path.is_dir():
-            self.notify(message('结果目录不存在：{0}', result_path), severity="error")
-            return None
         try:
-            command = build_profile_command(
-                result_path,
-                tools=selected_tools,
-                dry_run=dry_run,
-                project_dir=PROJECT_DIR,
-                python_executable=PYTHON_EXECUTABLE,
-            )
-            return command, result_path
+            pending = prepare_profile(directory, tools=selected_tools, dry_run=dry_run,
+                                      project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
+            return list(pending.command), Path(pending.result_dir)
+        except FileNotFoundError as exc:
+            self.notify(str(exc), severity="error")
+            return None
         except RunConfigError as exc:
             self._show_config_error(exc)
             return None

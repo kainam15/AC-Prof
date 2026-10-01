@@ -12,14 +12,14 @@ from unittest.mock import patch
 from textual.widgets import Button, Static
 
 from acprof.cli import probe, run
-from acprof.tui.app import AcprofTui
-from acprof.tui.app import PendingLaunch
 from acprof.experiment import RunConfig
-from acprof.tui.progress import RunProgressTracker
-from acprof.tui.i18n import translate
-from acprof.tui.log import SelectableLog
 from acprof.host import detect
 from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.tui.app import AcprofTui
+from acprof.tui.commands import PendingLaunch
+from acprof.tui.i18n import translate
+from acprof.tui.log import SelectableLog
+from acprof.tui.progress import RunProgressTracker
 
 
 def task_info(tag="image-text-to-text", family="unknown"):
