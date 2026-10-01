@@ -4,6 +4,12 @@
 
 [文档导航](README.md)
 
+新 CSV 包含 `environment_class`；旧数据缺环境证据时为 `unknown`。分析按环境分组，图表写入
+`plots/<environment_class>/...`，混合身份 CSV 明确拒绝。`audit --compare` 同时检查
+`comparability_class`，Native/WSL 或未知身份不能生成跨环境性能结论；缺失能耗显示
+`not comparable`，不补零、不加入 Native baseline。范围与字段见 [WSL2](platforms/wsl2.md)
+和[环境协议](Profiling_Protocol.md#环境身份与能力支持)。
+
 ## 采集能力概览
 
 以下为项目可采集的指标范围；实际列值取决于 [profiling mode](Profiling_Protocol.md#profiling-mode-与能力证据)、设备和显式启用的工具。
@@ -412,13 +418,15 @@ python plot.py \
   results/smoke/google-bert--bert-base-uncased/result_all.csv
 ```
 
-图表会写回模型结果目录下的 `cpu/`、`gpu/`、`gpu+cpu/` 和 `latency_model/`；没有适用数据的分组会自动跳过。除原有指标总览外，还会按可用字段生成资源失败边界、P50/P90/P95 尾延迟、延迟–能耗 Pareto 前沿和冷启动阶段分解图。历史 CSV 缺少新字段时只跳过对应图，不影响其余图表。
+图表按环境写入绘图根目录下的 `<environment_class>/cpu/`、`<environment_class>/gpu/` 和 `<environment_class>/gpu+cpu/`，延迟模型仍写入 `latency_model/`；没有适用数据的分组会自动跳过。除原有指标总览外，还会按可用字段生成资源失败边界、P50/P90/P95 尾延迟、延迟–能耗 Pareto 前沿和冷启动阶段分解图。历史 CSV 缺少新字段时只跳过对应图，不影响其余图表。
 
 `plot.py` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
 
-- `cpu/`：只使用 `gpu_mode=off` 的 CPU 数据
-- `gpu/`：只使用 `gpu_mode=on` 的 GPU 数据
-- `gpu+cpu/`：同时包含 GPU 和 CPU 数据，用于对比
+- `<environment_class>/cpu/`：只使用该环境下 `gpu_mode=off` 的 CPU 数据
+- `<environment_class>/gpu/`：只使用该环境下 `gpu_mode=on` 的 GPU 数据
+- `<environment_class>/gpu+cpu/`：同时包含该环境下 GPU 和 CPU 数据，用于对比
+
+缺少环境身份的旧 CSV 归入 `unknown/`。单个输入文件混合多种环境或与元数据身份冲突时拒绝绘图，不生成跨环境排名或拟合模型。
 
 每个有对应数据的目录按可用指标生成总览图、能耗图和专项分析图；Massif 采用独立图表，以保留其进程生命周期内存口径：
 
@@ -467,6 +475,9 @@ Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派�
 - `cold_start_breakdown.png` 仅在五个阶段字段完整时生成，并为每个 GPU mode/CPU 数选择最大 memory cap。同一张 PNG 使用上下两个子图，共享配置横轴、独立缩放纵轴：上图堆叠 container launch、server setup、CUDA init、model load 和 ready wait，并用 `cold_start_s` 独立标记核对阶段和；下图单独展示 first-predict application latency，不计入 `/ready` 前的堆叠总量，缺少该指标时显示 `No data`。旧结果缺少阶段列时继续保留 `cold_start_bar.png`，并自动跳过分解图。
 
 延迟建模产物统一写入绘图根目录下的 `latency_model/`（v2 为 `plots/latency_model/`）：
+
+报告 JSON 保留源实验的 platform、collection_tier、comparability_class 与 environment_class；
+residual CSV 每行写入 environment_class。缺少源身份时标记 unknown，混合环境输入拒绝拟合。
 
 - `latency_model/latency_model_report.json`
 - `latency_model/latency_model_residuals.csv`

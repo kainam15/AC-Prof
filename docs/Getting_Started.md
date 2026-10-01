@@ -12,8 +12,9 @@
 
 ### 1. 检查主机环境
 
-AC-Prof 只支持原生 Linux 主机和本机 Docker Engine，正式采集强制使用统一 cgroup v2。
-WSL、Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采集环境。
+AC-Prof 的 FULL 采集要求 Native Linux、本机 Docker Engine 和统一 cgroup v2。
+WSL2 支持开发及 basic/PARTIAL 采集，仍需发行版内的 Docker Engine 和 cgroup v2，详见 [WSL2](platforms/wsl2.md)。
+Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采集环境。
 当前推荐并验证的是 Ubuntu 24.04。
 
 必需条件：
@@ -210,7 +211,7 @@ results/smoke/google-bert--bert-base-uncased/
 
 ### 无 Torch 的 ONNX Runtime CPU 示例
 
-`basic` 只采集 application latency、吞吐、容器 CPU 和内存；仍要求原生 Linux、本机 Docker、
+`basic` 采集 application latency、吞吐、容器 CPU 和内存；支持 Native Linux 或 WSL2、本机 Docker、
 cgroup v2。RAPL、perf、抓包不参与此模式，结果明确记录模式和能力状态。默认 `full` 保留原有严格条件。
 
 ```bash

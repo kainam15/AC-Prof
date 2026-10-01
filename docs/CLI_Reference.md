@@ -135,7 +135,8 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 ### `acprof doctor`
 
 `doctor` 只检查环境，不下载模型、启动容器、安装工具或修改权限。
-检查覆盖原生 Linux x86_64、cgroup v2、本机 Docker、Buildx、安装资源与输出目录。
+检查覆盖 Native Linux / WSL2 x86_64、cgroup v2、本机 Docker、Buildx、安装资源与输出目录。
+输出 Environment、Collection tier、Native benchmark 和按指标的支持策略；WSL2 使用 `--profiling-mode basic`。
 `full` 另外检查 RAPL、perf instructions、抓包工具和网卡；`--gpus on` 检查 NVIDIA driver
 和 Docker NVIDIA runtime。模型下载、容器 GPU、任务输出与正式测量仍由实际运行验证。
 
@@ -244,7 +245,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 | `--task-family` | auto | 覆盖任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `--backend` | auto | 覆盖声明清单中的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`、`onnxruntime`。 |
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](Runtime_Compatibility.md#本地模型声明与自定义-pipeline)。 |
-| `--profiling-mode` | `full` | `full` 保留 RAPL、perf 和 packet latency 必需条件；`basic` 仅要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包。两者均要求原生 Linux、本机 Docker 和 cgroup v2。 |
+| `--profiling-mode` | `full` | `full` 保留 Native Linux 的 RAPL、perf 和 packet latency 必需条件；`basic` 要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包，允许 WSL2 PARTIAL。两者均要求本机 Docker 和 cgroup v2；不自动降级，见 [WSL2](platforms/wsl2.md)。 |
 | `--cpus` | `1,2,4,8` | CPU core 限制列表。 |
 | `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
 | `--mems` | `2,4,8,16` | Memory cap GB 列表。 |

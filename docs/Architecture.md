@@ -3,6 +3,11 @@
 AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运行时采集、结果分析与界面组织。
 根目录脚本负责命令启动；Python 调用直接引用职责所属模块，不保留已被替代的导入入口。
 
+`acprof/platform.py` 是环境识别和平台能力策略的唯一入口，保持标准库依赖；
+`capabilities.py` 分开维护平台 support 与采集 evidence。`host/platform_metadata.py` 只在准备阶段
+采集版本信息，analysis/plotting 只读取保存的环境身份，不探测当前主机来解释历史结果。
+WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
+
 安装包通过 `acprof.cli.main` 惰性分发 `acprof <command>`，根脚本继续调用同一实现。
 `installation.py` 区分只读构建资源和用户工作目录，并生成 Python/standalone 子进程命令。
 资源、安装与发布边界见[发行包说明](Distribution.md)。

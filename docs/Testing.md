@@ -5,6 +5,15 @@
 
 ## 验证范围
 
+WSL2 是开发与 PARTIAL 采集平台。可选 pytest runner 注册 `unit`、`wsl`、`native_linux`、`hardware`
+markers；未标集成边界的测试归入 unit。WSL 默认执行 `.venv/bin/python -m pytest -m "not native_linux"`，
+Native Linux 执行完整测试。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
+模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
+环境检测、能力矩阵、历史 unknown、CSV 合并与比较隔离回归在 `test_environment_policy.py`、
+`test_result_comparison.py`，详见 [WSL2 支持范围](platforms/wsl2.md)。
+修改 RAPL、PMU/perf、cgroup、NVML、CPU topology、affinity、cold start 或 energy 时必须报告
+`Native validation: verified / required / not applicable` 中的一项；WSL/mock 通过不能替代 Native 证据。
+
 | 改动 | 应取得的证据 |
 | --- | --- |
 | 文档、导航或链接迁移 | 本地文件与章节锚点可达、旧入口仍可跳转、代码块与差异格式正确；无需为措辞运行模型 |
@@ -279,8 +288,9 @@ Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/ru
 新增依赖这些工具的常规测试时，先补齐相应开发依赖与 CI 环境，不能仅依赖本机安装。
 
 快照用例使用 `snap_compare` fixture，显式指定 `terminal_size`，固定语言、主题和输入，
-仓库的 `tests/visual/test_snapshots.py` 固定七个场景：中文窄终端、英文常规尺寸、宽终端、
-弹窗覆盖、实际拖动表格之后、测量中和清理未完成；覆盖 `80×24`、`120×30`、`150×45`。
+仓库的 `tests/visual/test_snapshots.py` 固定九个场景：中文窄终端、英文常规尺寸、宽终端、
+弹窗覆盖、实际拖动表格之后、测量中、清理未完成和中英文 WSL2 采集确认；覆盖 `80×24`、`120×30`、`150×45`。
+通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
 基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
 独立环境使用 Python 3.12、Textual 8.2.8、pytest 8.4.2、pytest-textual-snapshot 1.1.0 和 syrupy 4.8.0：
 

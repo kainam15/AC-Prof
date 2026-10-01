@@ -25,10 +25,19 @@ AC-Prof 用来比较 Hugging Face 模型在不同 CPU、内存、GPU 配置和�
 
 ### 1. 准备主机
 
-需要原生 Linux x86_64、本机 Docker Engine 和统一 cgroup v2，推荐 Ubuntu 24.04。
+FULL 采集需要 Native Linux x86_64、本机 Docker Engine 和统一 cgroup v2，推荐 Ubuntu 24.04。
 下面的安装脚本会自动准备 uv 和 Python；也可使用无需源码的 [standalone](../Distribution.md#linux-standalone)。
 当前用户应能直接运行 `docker info`，并能访问 Hugging Face 及依赖下载源。
-WSL、Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集。
+WSL2 支持开发及 `--profiling-mode basic` 的 PARTIAL 采集，详见 [WSL2 支持范围](../platforms/wsl2.md)。
+Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集。
+
+| 平台 | 开发 | 采集 | Native baseline |
+| --- | --- | --- | --- |
+| Native Linux | 支持 | FULL（仍需满足各 collector 前置条件） | 验证后可纳入 |
+| WSL2 | 支持 | PARTIAL / basic，需发行版内本机 Docker 和 cgroup v2 | 不可纳入 |
+| Windows / macOS | 离线开发与分析 | 不支持 | 不可纳入 |
+
+每个 dataset 保存环境身份；历史缺字段为 `unknown`，Native 与 WSL 结果不能合并进入同一 baseline。
 下面的 CPU 示例不需要 GPU；GPU 实验另需 NVIDIA driver 和 NVIDIA Container Toolkit。
 
 不确定环境是否满足要求时，先看[主机检查与配置](../Getting_Started.md#1-检查主机环境)。

@@ -34,10 +34,19 @@ The [metrics guide](docs/Metrics.md#采集能力概览) explains what each metri
 
 ### 1. Prepare the host
 
-You need native Linux x86_64, a local Docker Engine, and unified cgroup v2. Ubuntu 24.04 is recommended.
+FULL collection requires Native Linux x86_64, a local Docker Engine, and unified cgroup v2. Ubuntu 24.04 is recommended.
 The setup script below installs uv and Python as needed; a [standalone distribution](docs/Distribution.md#linux-standalone) is also available without a source checkout.
 Your user account must be able to run `docker info` directly and access Hugging Face and dependency download sources.
-Measurement runs are not supported on WSL, Docker Desktop, remote Docker daemons, Windows, or macOS.
+WSL2 supports development and PARTIAL collection using `--profiling-mode basic`. See [WSL2 support](docs/platforms/wsl2.md).
+Docker Desktop, remote Docker daemons, Windows, and macOS are not supported collection hosts.
+
+| Platform | Development | Collection | Native baseline |
+| --- | --- | --- | --- |
+| Native Linux | Supported | FULL (subject to collector prerequisites) | Eligible after validation |
+| WSL2 | Supported | PARTIAL / basic, local in-distro Docker and cgroup v2 | No |
+| Windows / macOS | Offline development and analysis | Unsupported | No |
+
+Environment identity is recorded with every dataset. Missing historical identity is `unknown`; Native and WSL results cannot be merged into one baseline.
 The CPU example below does not need a GPU. GPU experiments additionally require an NVIDIA driver and NVIDIA Container Toolkit.
 
 See [host checks and configuration](docs/Getting_Started.md#1-检查主机环境) if you are unsure whether your machine meets the requirements.

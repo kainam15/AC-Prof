@@ -24,11 +24,24 @@ AC-Prof 对 Docker 中的 Hugging Face 推理服务进行可复现分析，输�
 - 修改 `README.md` 或 `docs/i18n/README_zh-CN.md` 时，必须在同一次改动中同步另一语言版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径。
 - 不修改 `docs/Original_Project_Definition.md`；用户未明确要求时不提交 Git。
 - 功能或结构改动前先检索 GitHub，评估兼容性、许可证、维护、依赖成本与测量开销，说明复用取舍。
-- 使用已有 `.venv`、Python 3.10+；正式采集要求原生 Linux、本机 Docker Engine、cgroup v2。
+- 使用已有 `.venv`、Python 3.10+；FULL 采集要求 Native Linux、本机 Docker Engine、cgroup v2；WSL2 支持开发及 PARTIAL 采集，边界见[WSL2](docs/platforms/wsl2.md)。
 - 不得通过扩大忽略规则掩盖新问题。
 - 保持指标归因和可复现口径；界面活动、绘图、通知与额外诊断不进入正式测量窗口。
 - 凭据放在被 Git 忽略的 `.env.local`，不得写入文档或提交密码、令牌、webhook。
 - GPU/磁盘余量、Docker 状态、Git 分支和进程按需实时检查；临时计划不进入长期 Agent 文档。
+
+## 环境策略（Environment Policy）
+
+WSL is a supported development and partial collection platform.
+
+WSL measurements must not be treated as native Linux measurements.
+
+Do not change native measurement semantics merely to make a
+hardware-dependent feature work under WSL.
+
+- 环境判断集中在 `acprof/platform.py`，能力支持与真实采集证据分别记录；不支持的硬件指标保持 unavailable，禁止填 `0`、估算或替代值。
+- 旧结果缺环境身份时为 `unknown`；不得加入 Native Linux baseline，也不得混合环境续跑。
+- 修改 RAPL、PMU/perf、cgroup、NVML、CPU topology、affinity、cold start 或 energy 后，交付中必须报告 `Native validation: verified / required / not applicable` 中的一项，并说明真实证据或缺口。WSL、mock 和离线测试不能代替 Native validation。
 
 ## 按任务读取
 

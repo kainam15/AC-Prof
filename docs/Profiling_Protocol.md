@@ -126,7 +126,7 @@ persistence mode，以及 `/meta` 的有效线程数。证据原子写入
 ## Profiling mode 与能力证据
 
 `profiling_mode=full` 为默认，保留原有 native Linux、本机 Docker、cgroup v2、RAPL、硬件 instructions
-和抓包要求。`basic` 仍需前三项，仅要求 application latency、throughput、容器 CPU/memory；
+和抓包要求。`basic` 允许 Native Linux 或 WSL2，但仍需本机 Docker 和 cgroup v2，仅要求 application latency、throughput、容器 CPU/memory；
 能耗、PMU、packet latency 不请求、不启动、数值保持 `nan`。两种模式不能混作同一画像。
 Torch、NCU、Massif、Nsys 仍是显式选择的额外工具，`full` 不意味着自动开启全部工具。
 
@@ -144,19 +144,33 @@ Torch、NCU、Massif、Nsys 仍是显式选择的额外工具，`full` 不意味
 独立 `capability_report.json` 在采集结束后补充实际 CSV/profiler 证据。
 它记录主采集收尾时的能力快照；后续 posthoc 补采的状态以对应 profiler plan、CSV error 和
 `collection_history.json` 为准，当前不会自动改写该主采集快照。
-Capability Report schema v2 将 `requested_measurements_available`（全部要求可采集）与
+Capability Report schema v3 将 `requested_measurements_available`（全部要求可采集）与
 `requested_measurements_complete`（全部要求已经 verified）分开；预检 available 不再算完成。
 `collection_complete` 保留原有“采集行完成且成功”的含义，新增 `collection_finished` 与
 `collection_succeeded` 分别表示行已有终态及行执行成功，`row_counts` 区分 succeeded、failed、
 not_measured、unfinished。OOM／timeout 是已结束的失败；剪枝未尝试行单列为 not_measured。
 这些是已提交审计的行状态，完整计划覆盖仍由 run_state/CSV 唯一键和 audit.coverage 检查。
 旧报告不能区分的完成状态为 null，不把 available 或单独的 runtime `status=ok` 冒充验证证据。
-读取兼容 schema v1/v2，缺版本按 v1；未知版本及非布尔完成状态明确报错，不隐式转换字符串。
-`full_profile_complete` 仅在 full 且上述两者满足时成立。工具 permission denied 或输出全为未知数值不能标完整。
+读取兼容 schema v1/v2/v3，缺版本按 v1；v1/v2 缺少环境身份时保持 unknown。未知版本及非布尔完成状态明确报错，不隐式转换字符串。
+`full_profile_complete` 仅在 native_linux、full 且上述两者满足时成立。工具 permission denied 或输出全为未知数值不能标完整。
 主矩阵仍可保留其它成功指标与失败计划；成功测量行缺少当前模式的必需指标时，保存诊断并以失败退出。
 
 模式参与实验恢复身份；旧参数中缺失模式解释为历史默认 full，历史结果不会凭空补出能力证据。
 新增 `profiling_mode`、`capability_report` 是 static schema v7 的可选字段，旧 v7 文件继续可读。
+
+### 环境身份与能力支持
+
+static schema v7 新增可选 `platform`、`collection_tier`、`comparability_class`、`environment_class`
+和 `platform_runtime`，新采集必须写入。`platform` 包含 environment/native、system/kernel/kernel_version、
+machine、WSL generation 与识别证据；`platform_runtime` 保存 Git commit、Docker/runtime、GPU driver、
+CUDA driver/NVML 版本和探测错误，GPU 硬件身份继续保存在 `gpu_device`。版本不可读时为 null/明确错误，
+不合成版本。只在 Preparation 探测，不进入请求窗口。
+
+Capability Report v3 增加相同的环境身份及 `metric_support`，measurement 每项增加独立 `support`。
+支持状态为 supported、partial、unsupported、requires_native_validation；它们不替代原来的实测状态。
+CSV 新增文本列 `environment_class`（experiment 范围、无数值单位），包括失败占位行。
+旧结果缺失、冲突身份读为 unknown，不由当前运行主机反推；CSV 合并、续跑和 Native baseline 拒绝混用。
+FULL/PARTIAL 是平台上限，不等于采集成功或 full/basic 模式。完整边界见 [WSL2](platforms/wsl2.md)。
 
 ## Startup probe 与冻结矩阵
 
@@ -241,7 +255,7 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 │   ├── execution_profiles/
 │   ├── posthoc_profiles/
 │   └── probes/
-├── plots/                   # cpu/、gpu/、gpu+cpu/、latency_model/、analysis/
+├── plots/                   # <environment_class>/{cpu,gpu,gpu+cpu}/、latency_model/、analysis/
 ├── logs/                    # terminal.log、runtime_validation_<device>.log
 ├── debug/idle/<case-id>.jsonl
 └── .acprof/
@@ -306,9 +320,9 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 | `plots/latency_model/latency_model_fit_curves.png` | `plot.py` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |
 | `plots/latency_model/latency_model_residuals.png` | `plot.py` 在 residual CSV 有有效数据时生成的模型诊断图，包含 OOF 实际值/预测值、相对残差分布及残差随预测延迟和输入尺度的变化。 |
 | `debug/idle/<case-id>.jsonl` | 仅 `--idle-debug` 时生成。每行对应一个 workload window 的 idle 诊断记录，包含 GPU NVML idle power trace、`nvidia-smi` GPU/process 快照、CPU idle window 内 RAPL 子窗口功率、host/container CPU delta、top proc CPU delta，以及 after-idle 快照，用于定位 `gpu_idle_power_w` / `cpu_idle_power_w` case 内波动来源。 |
-| `plots/cpu/*.png` | `plot.py` 生成的 CPU-only 图表。 |
-| `plots/gpu/*.png` | `plot.py` 生成的 GPU-only 图表。 |
-| `plots/gpu+cpu/*.png` | `plot.py` 生成的 GPU/CPU 对比图表。 |
+| `plots/<environment_class>/cpu/*.png` | `plot.py` 生成的该环境 CPU-only 图表；历史身份缺失时归入 `unknown`。 |
+| `plots/<environment_class>/gpu/*.png` | `plot.py` 生成的该环境 GPU-only 图表。 |
+| `plots/<environment_class>/gpu+cpu/*.png` | `plot.py` 生成的同一环境内 GPU/CPU 对比图表。 |
 
 `.acprof/work/cases/` 下本次已完成 case 的中间文件会在 `result_all.csv` 成功 merge、完成状态持久化后清理。
 旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
@@ -412,7 +426,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `gpu` | 存在 GPU case 时为选定物理 GPU 的名称；仅 CPU 实验保留主机设备信息，没有可见 NVIDIA GPU 时为 `unknown`。 |
 | `gpu_mem_total_bytes` | 对应上述设备的 total VRAM，单位 bytes；无法读取时为 `null`。 |
 | `gpu_device` | schema v7 的新增可选 object：`uuid`、主机 `index`、`pci_bus_id`、`name`、`memory_total_bytes`。GPU case 运行前解析并固定 UUID，Docker、NVML 和独立 profiler 共用；容器内单卡编号为 `0`。CPU 实验为空对象；历史缺字段表示身份未知，重新执行 GPU post-hoc 采集时拒绝猜测设备。 |
-| `host_mem_total_bytes` | Host 物理 RAM 总量，单位 bytes；无法读取时为 `null`。 |
+| `host_mem_total_bytes` | Linux 测量环境可见 RAM 总量，单位 bytes；Native 沿用主机 RAM，WSL 为 guest 可见内存，不代表 Windows host；无法读取时为 `null`。 |
 | `host_swap_total_bytes` | 实验启动时 host 已启用 swap 的总容量，单位 bytes；无法读取时为 `null`，未启用时为 `0`。 |
 | `host_swap_used_bytes_at_start` | 静态元数据采集时 host 已使用的 swap 快照，单位 bytes；无法读取时为 `null`。 |
 | `host_swap_type` | `/proc/swaps` 中 active swap 的 backing 类型：`none`、`file`、`partition`、`zram`、`mixed` 或无法识别时的 `unknown`。 |
@@ -428,7 +442,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `docker_storage_filesystem` | `DockerRootDir` 所在文件系统类型，例如 `ext4`；无法识别时为 `unknown`。 |
 | `docker_storage_device` | 承载 `DockerRootDir` 的 mount source，例如 `/dev/nvme0n1p2`；无法识别时为 `unknown`。 |
 | `docker_storage_type` | 根据 `lsblk` transport/rotational 信息得到的 `nvme_ssd`、`ssd`、`hdd` 或内存文件系统 `memory`；证据不足时为 `unknown`。 |
-| `environment` | 自动检测的运行环境标签，例如 `ubuntu24.04`；历史文件也可能包含 WSL/macOS 标签，当前正式采集会拒绝这些环境。 |
+| `environment` | 兼容保留的发行版标签，例如 `ubuntu24.04` 或 `ubuntu24.04+wsl`；不能用于判定采集等级或补全历史身份，环境边界以 `platform` / `comparability_class` 为准。 |
 | `cgroup_version` | 本次 preflight 实际检测到的 hierarchy：仅支持 `v2`，其它 hierarchy 在预检退出。 |
 | `cgroup_collection_mode` | 当前唯一采集策略为 `strict_v2`。分析正式数据集时应同时要求 `cgroup_version=v2` 和 `cgroup_collection_mode=strict_v2`。 |
 | `cpu_power_source` | CPU package 功耗来源。`rapl` 表示使用 Linux RAPL powercap 真实计数器；`unavailable` 表示当前环境没有可用 RAPL。 |
