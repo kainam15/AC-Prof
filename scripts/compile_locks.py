@@ -112,7 +112,8 @@ def wheel_records(data, platform):
             raise ValueError(f"没有目标平台 wheel；不会自动从源码构建：{package['name']}")
         wheel = min(ranked, key=lambda item: (item[0], item[1]))[2]
         records.append({"name": package["name"], "version": package["version"],
-                        "url": wheel["url"], "sha256": wheel["hashes"]["sha256"]})
+                        "url": wheel["url"], "sha256": wheel["hashes"]["sha256"],
+                        **({"size": wheel["size"]} if type(wheel.get("size")) is int else {})})
     return records
 
 
@@ -166,7 +167,7 @@ def check_catalog(root=ROOT, variants=None):
             "environments": environments, "platforms": sorted(selected)}
 
 
-def resolve(uv, inputs, output, platform, pins):
+def resolve(uv, inputs, output, platform, pins, *, index_url=None, torch_index_url=None):
     try:
         import tomllib
     except ImportError as error:
@@ -180,7 +181,11 @@ def resolve(uv, inputs, output, platform, pins):
                         "--python-version", platform.python_version, "--python-platform", platform.python_target,
                         "--only-binary", ":all:",
                         "--format", "pylock.toml", "--no-header", "--output-file", str(target)]
-        if platform.torch_version:
+        if index_url:
+            command += ["--default-index", index_url]
+        if torch_index_url and platform.torch_version:
+            command += ["--index", torch_index_url]
+        elif platform.torch_version:
             command += ["--torch-backend", platform.platform_id]
         subprocess.run(command,
                        cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
@@ -193,7 +198,17 @@ def resolve(uv, inputs, output, platform, pins):
         generated = directory / "requirements.txt"
         generated.write_text(text)
         read_python_lock(generated)
+        if output.exists() and (index_url or torch_index_url):
+            old = {entry["name"]: entry for entry in read_python_lock(output)}
+            for record in records:
+                prior = old.get(record["name"])
+                if prior and prior["version"] == record["version"] and prior["sha256"] != record["sha256"]:
+                    raise ValueError(f"镜像解析改变了锁定 artifact hash：{record['name']}；不会替换原锁")
         output.write_text(text)
+        output.with_suffix(".artifacts.json").write_text(json.dumps({
+            "schema_version": 1, "python_target": platform.python_target, "python_version": platform.python_version,
+            "index_url": index_url, "torch_index_url": torch_index_url,
+            "artifacts": records}, sort_keys=True, indent=2) + "\n")
 
 
 def main(argv=None):
@@ -204,11 +219,18 @@ def main(argv=None):
     parser.add_argument("--variant", action="append", choices=PLATFORMS)
     parser.add_argument("--check", action="store_true", help="不访问 Docker/网络、不写文件；默认核验容器锁，--host-only 核验主机声明（Python 3.11+）")
     parser.add_argument("--upgrade", action="store_true", help="显式更新环境包；平台 Torch 和安装工具仍保持锁定")
+    parser.add_argument("--index-url", help="Resolve artifacts from this PEP 503 index; never rewrite lock URLs")
+    parser.add_argument("--torch-index-url", help="Explicit target Torch wheel index; exact versions/platform/hashes remain checked")
     args = parser.parse_args(argv)
+    for url in (args.index_url, args.torch_index_url):
+        if url:
+            parsed = urlsplit(url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                parser.error("镜像索引必须是无凭据的 HTTPS URL")
     if args.host_only and args.runtime_only:
         parser.error("--host-only 与 --runtime-only 互斥")
     if args.check:
-        if args.upgrade or (args.host_only and args.variant):
+        if args.upgrade or args.index_url or args.torch_index_url or (args.host_only and args.variant):
             parser.error("--check 不与 --upgrade 同用；主机检查不接受 --variant")
         result = check_host_lock(ROOT) if args.host_only else check_catalog(variants=args.variant)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -219,6 +241,8 @@ def main(argv=None):
     if not args.runtime_only:
         command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements-host.in", "--python-version", "3.10",
                    "--universal", "--generate-hashes", "--no-annotate", "--no-header", "-o", "requirements.lock"]
+        if args.index_url:
+            command += ["--default-index", args.index_url]
         subprocess.run(command + (["--upgrade"] if args.upgrade else []), cwd=ROOT, check=True)
     if args.host_only:
         return 0
@@ -231,7 +255,8 @@ def main(argv=None):
             if platform.torch_version:
                 base_packages = ("torch", *base_packages)
             source.write_text("".join(f"{name}=={platform_pins[name]}\n" for name in base_packages))
-            resolve(args.uv, [source], ROOT / platform.requirements_lock, platform, platform_pins)
+            resolve(args.uv, [source], ROOT / platform.requirements_lock, platform, platform_pins,
+                    index_url=args.index_url, torch_index_url=args.torch_index_url)
         for environment in ENVIRONMENTS.values():
             if environment.platform.platform_id != key:
                 continue
@@ -242,7 +267,8 @@ def main(argv=None):
                 source = Path(directory) / "platform.in"
                 source.write_text("".join(f"{name}=={version}\n" for name, version in platform_pins.items()))
                 resolve(args.uv, [*(ROOT / name for name in environment.requirements_inputs), source],
-                        ROOT / environment.requirements_lock, platform, pins)
+                        ROOT / environment.requirements_lock, platform, pins,
+                        index_url=args.index_url, torch_index_url=args.torch_index_url)
     check_catalog(variants=args.variant)
     return 0
 

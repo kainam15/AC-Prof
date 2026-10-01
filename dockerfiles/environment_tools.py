@@ -10,21 +10,69 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from dependency_locks import (
     content_digest,
     normalized_name,
     package_versions,
-    python_lock_text,
     read_python_lock,
     read_system_lock,
     require_exact_packages,
     require_parent_subset,
     system_lock_identity,
 )
+from network_policy import require_source_transition
+
+
+class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        require_source_transition(req.full_url, newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _digest(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _record_transfer(entry, category, actual_bytes, source_host, cache_status):
+    destination = Path("/opt/acprof/download-sources.jsonl")
+    with destination.open("a") as stream:
+        stream.write(json.dumps({"category": category, "url": entry["url"], "sha256": entry["sha256"],
+            "actual_source_host": source_host, "actual_payload_bytes": actual_bytes,
+            "wire_bytes": None, "cache_status": cache_status}) + "\n")
+
+
+def cached_artifact(entry, path, category):
+    """Content-addressed payload cache with guarded redirects and no source fallback."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file() and _digest(path) == entry["sha256"]:
+        sidecar = path.with_suffix(path.suffix + ".source.json")
+        origin = json.loads(sidecar.read_text()).get("actual_source_host") if sidecar.is_file() else None
+        _record_transfer(entry, category, 0, origin, "hit")
+        print(f"[dependency-cache] {category} hit name={entry['name']} saved_bytes={path.stat().st_size}", flush=True)
+        return path
+    temporary = path.with_suffix(path.suffix + ".part")
+    opener = urllib.request.build_opener(PolicyRedirectHandler())
+    try:
+        with opener.open(entry["url"], timeout=60) as source, temporary.open("wb") as target:
+            shutil.copyfileobj(source, target)
+            actual_source = urlsplit(source.geturl()).hostname
+        if _digest(temporary) != entry["sha256"]:
+            raise ValueError(f"artifact SHA256 mismatch: {entry['name']}")
+        temporary.replace(path)
+        path.with_suffix(path.suffix + ".source.json").write_text(json.dumps({"actual_source_host": actual_source}) + "\n")
+        _record_transfer(entry, category, path.stat().st_size, actual_source, "miss")
+        print(f"[dependency-cache] {category} miss name={entry['name']} actual_bytes={path.stat().st_size} source={actual_source}", flush=True)
+        return path
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def installed_packages() -> dict[str, str]:
@@ -53,21 +101,7 @@ def install_system(path: Path) -> None:
         files = []
         for entry in lock["artifacts"]:
             cached = cache / (entry["sha256"] + ".deb")
-            for attempt in range(3):
-                if cached.is_file() and hashlib.sha256(cached.read_bytes()).hexdigest() == entry["sha256"]:
-                    break
-                temporary = cached.with_suffix(".part")
-                try:
-                    with urllib.request.urlopen(entry["url"], timeout=60) as source, temporary.open("wb") as target:
-                        shutil.copyfileobj(source, target)
-                    if hashlib.sha256(temporary.read_bytes()).hexdigest() != entry["sha256"]:
-                        raise ValueError(f"deb SHA256 mismatch: {entry['name']}")
-                    temporary.replace(cached)
-                except Exception:
-                    temporary.unlink(missing_ok=True)
-                    if attempt == 2:
-                        raise
-                    time.sleep(1)
+            cached_artifact(entry, cached, "debian")
             # APT 缓存名包含版本 epoch（例如 1%3a），上游 URL 的文件名可能省略它。
             version = entry["version"].replace(":", "%3a")
             destination = Path(directory) / f"{entry['name']}_{version}_{entry['architecture']}.deb"
@@ -98,10 +132,15 @@ def install_python(kind: str) -> None:
     if delta:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "install.txt"
-            path.write_text(python_lock_text(delta))
+            lines = []
+            for entry in delta:
+                filename = unquote(urlsplit(entry["url"]).path.rsplit("/", 1)[-1])
+                cached = cached_artifact(entry, Path("/root/.cache/pip/acprof-artifacts") / entry["sha256"] / filename, "python")
+                lines.append(f"{entry['name']} @ {cached.as_uri()} --hash=sha256:{entry['sha256']}")
+            path.write_text("\n".join(lines) + "\n")
             subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
                             "--no-index", "--no-deps", "--require-hashes", "--only-binary=:all:",
-                            "-r", str(path)], check=True)
+                            "--progress-bar", "off", "-r", str(path)], check=True)
     subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
     require_exact_packages(package_versions(lock), installed_packages())
 
@@ -120,6 +159,8 @@ def write_manifest(kind: str) -> None:
                 "system_lock_sha256": content_digest(system_lock_identity(system)),
                 "dependency_lock_sha256": hashlib.sha256(Path("/opt/acprof/requirements.lock").read_bytes()).hexdigest(),
                 "resolved_packages_sha256": hashlib.sha256(json.dumps(packages, sort_keys=True).encode()).hexdigest()}
+    sources = Path("/opt/acprof/download-sources.jsonl")
+    manifest["build_download_sources"] = [json.loads(line) for line in sources.read_text().splitlines()] if sources.exists() else []
     Path(f"/opt/acprof/{kind}-manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     if kind == "platform":
         shutil.copyfile("/opt/acprof/requirements.lock", "/opt/acprof/platform-requirements.lock")

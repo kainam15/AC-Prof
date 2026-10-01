@@ -15,6 +15,42 @@ from scripts.compile_system_lock import resolve_in_container, snapshot_url
 
 
 class LockCompilerTests(unittest.TestCase):
+    def test_mirror_resolution_keeps_versions_hashes_and_target_platform(self):
+        from acprof.dependency_locks import python_lock_text, read_python_lock
+        from acprof.runtime_profiles import PLATFORMS
+        digest = "a" * 64
+        wheel_url = "https://mirror.example/packages/example-1.0-py3-none-any.whl"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "requirements.txt"
+            output.write_text(python_lock_text([{"name": "example", "version": "1.0",
+                "url": "https://files.pythonhosted.org/example-1.0-py3-none-any.whl", "sha256": digest}]))
+
+            def resolve(command, **kwargs):
+                destination = Path(command[command.index("--output-file") + 1])
+                destination.write_text('[[packages]]\nname="example"\nversion="1.0"\n'
+                    '[[packages.wheels]]\nurl="' + wheel_url + '"\nsize=123\n'
+                    '[packages.wheels.hashes]\nsha256="' + digest + '"\n')
+
+            with patch("subprocess.run", side_effect=resolve) as run:
+                compile_locks.resolve("uv", [root / "input.in"], output, PLATFORMS["cu124"], {"example": "1.0"},
+                                      index_url="https://mirror.example/simple")
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--default-index") + 1], "https://mirror.example/simple")
+            self.assertEqual(command[command.index("--python-platform") + 1], PLATFORMS["cu124"].python_target)
+            self.assertEqual(read_python_lock(output)[0]["url"], wheel_url)
+            self.assertEqual(read_python_lock(output)[0]["sha256"], digest)
+            original = output.read_bytes()
+            digest = "b" * 64
+            with patch("subprocess.run", side_effect=resolve), self.assertRaisesRegex(ValueError, "artifact hash"):
+                compile_locks.resolve("uv", [root / "input.in"], output, PLATFORMS["cu124"], {"example": "1.0"},
+                                      index_url="https://mirror.example/simple")
+            self.assertEqual(output.read_bytes(), original)
+            with patch("subprocess.run", side_effect=resolve), self.assertRaisesRegex(ValueError, "artifact hash"):
+                compile_locks.resolve("uv", [root / "input.in"], output, PLATFORMS["cu124"], {"example": "1.0"},
+                                      torch_index_url="https://mirror.example/cu124")
+            self.assertEqual(output.read_bytes(), original)
+
     @unittest.skipIf(sys.version_info < (3, 11), 'Host metadata checks require Python 3.11+')
     def test_host_check_rejects_metadata_drift_in_each_python_branch_without_resolving(self):
         with tempfile.TemporaryDirectory() as directory:

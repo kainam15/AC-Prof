@@ -27,7 +27,7 @@ from acprof.runtime_profiles import (
 PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"
 ENVIRONMENT_LABEL = "org.acprof.environment-build-fingerprint"
-BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/dependency_locks.py")
+BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/dependency_locks.py", "acprof/network_policy.py")
 DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/universal-profiles/runtime"
 
 
@@ -53,6 +53,18 @@ def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
     if result.returncode:
         if source == "pull":
             raise RuntimeError(f"预构建镜像拉取失败：{reference}；可设置 ACPROF_RUNTIME_IMAGE_SOURCE=build 本机构建")
+        if os.environ.get("ACPROF_MAX_DOWNLOAD", "").strip():
+            raise RuntimeError("预构建镜像拉取失败；预算模式禁止未预检的 local build fallback。请显式选择 build 后重新预检。")
+        from urllib.parse import urlsplit
+
+        from acprof.network_policy import require_source_transition
+        platform = identity.get("platform", identity)
+        artifacts = [*identity["packages"], *platform.get("system", {}).get("artifacts", [])]
+        origins = {f"{urlsplit(entry['url']).scheme}://{urlsplit(entry['url']).netloc}" for entry in artifacts}
+        if kind == "platform":
+            origins.add("https://registry-1.docker.io")
+        for origin in sorted(origins):
+            require_source_transition("https://" + reference, origin)
         print("[runtime] 预构建镜像不可用，回退到本机锁定依赖构建。", flush=True)
         return None
     # A successful pull with bad identity is never silently replaced by a local build.
@@ -174,6 +186,9 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         iidfile = context / "image-id"
         command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
                    "-f", str(context / recipe)]
+        for key in ("ACPROF_ALLOW_PROXY_FALLBACK", "ACPROF_DIRECT_HOSTS"):
+            if os.environ.get(key):
+                command += ["--build-arg", f"{key}={os.environ[key]}"]
         for key, value in arguments.items():
             command += ["--build-arg", f"{key}={value}"]
         command.append(str(context))
@@ -210,6 +225,7 @@ def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
                          "platform_build_fingerprint": platform_key, "python_version": platform.python_version,
                          "python_base_image": platform.python_base_image, "architecture": platform.architecture}
     existing = checked_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform, platform_data, "platform")
+    print(f"[runtime-cache] platform={'hit' if existing else 'miss'} source={source_policy}", flush=True)
     if existing is None:
         existing = _pull_cached_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform,
                                       platform_data, "platform", source_policy, registry)
@@ -254,6 +270,7 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
     expected = {**expected_platform, "platform_image_id": platform_image_id,
                 "environment_id": content_digest(identity), "environment_build_fingerprint": environment_key}
     existing = checked_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity, "environment")
+    print(f"[runtime-cache] environment={'hit' if existing else 'miss'} source={source_policy}", flush=True)
     if existing is None:
         existing = _pull_cached_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity,
                                       "environment", source_policy, registry)

@@ -21,6 +21,7 @@ class EnvironmentIdentityTests(unittest.TestCase):
         shutil.copytree(ROOT / 'dockerfiles', self.root / 'dockerfiles')
         (self.root / 'acprof').mkdir()
         shutil.copyfile(ROOT / 'acprof/dependency_locks.py', self.root / 'acprof/dependency_locks.py')
+        shutil.copyfile(ROOT / 'acprof/network_policy.py', self.root / 'acprof/network_policy.py')
         self.env = ENVIRONMENTS['audio-cpu']
 
     def test_profiles_share_exact_environments_without_merging_near_matches(self):
@@ -84,6 +85,14 @@ class EnvironmentIdentityTests(unittest.TestCase):
         path.write_text(path.read_text() + '\n# build change\n')
         self.assertEqual(original, environment_id(self.env, self.root))
         self.assertNotEqual(build, runtime_fingerprint(self.env, self.root))
+
+    def test_business_code_changes_do_not_invalidate_dependency_cache(self):
+        original = runtime_fingerprint(self.env, self.root)
+        for relative in ("acprof/container/server.py", "acprof/tui/app.py", "acprof/host/model_store.py"):
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# ordinary code update\n")
+        self.assertEqual(original, runtime_fingerprint(self.env, self.root))
 
     def test_parent_dependency_cannot_be_removed_or_replaced(self):
         path = self.root / self.env.requirements_lock
