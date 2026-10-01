@@ -24,11 +24,12 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
     cases, keys = defaultdict(list), set()
     for row in rows:
         key = measurement_key(row)
-        if key in keys:
+        environment = row.get("environment_class", "unknown")
+        if (environment, key) in keys:
             raise ValueError(f"duplicate measurement: {key}")
-        keys.add(key)
+        keys.add((environment, key))
         if str(row.get("status", "")).strip().lower() == "ok" and key[4] == "0":
-            cases[key[:4]].append(row)
+            cases[(*key[:4], environment)].append(row)
     groups = []
     for case in sorted(cases):
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
@@ -43,6 +44,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                     values.append(value)
             count = len(values)
             result = {"cpu_cores": float(case[0]), "mem_cap_gb": float(case[1]), "gpu_mode": case[2],
+                      "environment_class": case[4],
                       "input_scale": float(case[3]), "metric": name, "unit": METRICS[name].unit,
                       "n_windows": count, "missing_windows": len(ordered) - count,
                       "mean": statistics.fmean(values) if values else None,

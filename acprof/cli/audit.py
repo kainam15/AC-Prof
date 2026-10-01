@@ -54,9 +54,14 @@ def main(argv=None):
         if report["missing_metrics"]:
             print(f"{len(report['missing_metrics'])} 个数值字段存在缺失；使用 --json 查看有证据支持的原因。")
         if "comparison" in report:
+            for warning in report["comparison"]["warnings"]:
+                print(f"[WARN] {warning}")
             print(f"比较条件：{report['comparison']['status']}；不表示模型质量已验证。")
             for name, condition in report["comparison"]["conditions"].items():
                 print(f"  {name}: {condition['status']}")
+            for name in ("cpu_energy_total_j", "dram_window_energy_j", "gpu_energy_total_j"):
+                check = report["comparison"]["metric_comparability"][name]
+                print(f"  {name}: {check['status']} ({check['reason']})")
     return 0 if passed else 1
 
 

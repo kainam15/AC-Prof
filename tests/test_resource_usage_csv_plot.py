@@ -1536,7 +1536,7 @@ class ResourceUsageCsvPlotTests(unittest.TestCase):
                 },
             )
             for directory in ("cpu", "gpu", "gpu+cpu"):
-                self.assertTrue(os.path.isdir(os.path.join(tmp, directory)))
+                self.assertTrue(os.path.isdir(os.path.join(tmp, "unknown", directory)))
 
     def test_main_consolidates_cpu_execution_and_memory_behavior_metrics(
         self,

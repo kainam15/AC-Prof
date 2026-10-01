@@ -12,6 +12,7 @@ from pathlib import Path
 from acprof.cli.audit import main
 from acprof.cli.run_args import build_parser
 from acprof.config import CSV_FIELDS
+from acprof.platform import Environment
 
 
 class ResultComparisonTests(unittest.TestCase):
@@ -59,6 +60,7 @@ class ResultComparisonTests(unittest.TestCase):
             "entries": [{"input_scale": 2, "payload": {"features": [[1, 2], [3, 4]], "batch_size": 1}}],
         })
         self.write_json(directory, "static_meta.json", {
+            **Environment("native_linux").metadata(),
             "schema_version": 7, "model_name": f"example/{backend}", "model_revision": backend,
             "runtime_backend": backend, "image_id": f"sha256:{backend}",
             "runtime_environment": {"environment_id": backend},
@@ -76,6 +78,8 @@ class ResultComparisonTests(unittest.TestCase):
 
     def write_rows(self, directory, contract, *, count=3):
         row = {**dict.fromkeys(CSV_FIELDS, "nan"), "cpu_cores": 1, "mem_cap_gb": 4, "gpu_mode": "off",
+               "environment_class": "native_linux",
+               "latency_app_s": 0.25,
                "input_scale": 2, "warmup": 0, "repeat_idx": 0, "status": "ok", "error": "",
                "workload_contract": json.dumps({"schema_version": 1, "request_count": count,
                     "variants": [{"count": count, "contract": contract}]})}
@@ -87,6 +91,44 @@ class ResultComparisonTests(unittest.TestCase):
     def compare(self):
         module = importlib.import_module("acprof.analysis.comparison")
         return module.compare_results(self.left, self.right)
+
+    def test_wsl_cannot_enter_native_baseline_even_for_cross_hardware(self):
+        from acprof.analysis.comparison import compare_results
+        self.change_json(self.right, "static_meta.json", lambda meta: meta.update(Environment("wsl2").metadata()))
+        path = self.right / "result_all.csv"
+        path.write_text(path.read_text().replace("native_linux", "wsl2"))
+        for purpose in ("same-hardware", "cross-hardware"):
+            report = compare_results(self.left, self.right, purpose=purpose)
+            self.assertEqual(report["conditions"]["comparability_class"]["status"], "incompatible")
+            self.assertFalse(report["native_baseline_eligible"])
+            self.assertTrue(report["warnings"])
+            self.assertEqual(report["metric_comparability"]["cpu_energy_total_j"]["status"], "not comparable")
+
+    def test_legacy_environment_is_unknown_without_using_current_host(self):
+        for directory in (self.left, self.right):
+            self.change_json(directory, "static_meta.json", lambda meta: [meta.pop(name) for name in (
+                "platform", "collection_tier", "comparability_class", "environment_class")])
+            path = directory / "result_all.csv"
+            path.write_text(path.read_text().replace("native_linux", "unknown"))
+        report = self.compare()
+        self.assertEqual(report["status"], "unknown")
+        self.assertFalse(report["native_baseline_eligible"])
+
+    def test_wsl_fabricated_zero_energy_is_invalid(self):
+        from acprof.analysis.audit import audit_result
+        self.change_json(self.right, "static_meta.json", lambda meta: meta.update(Environment("wsl2").metadata()))
+        path = self.right / "result_all.csv"
+        with path.open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, row = reader.fieldnames, next(reader)
+        row.update(environment_class="wsl2", cpu_energy_total_j="0")
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerow(row)
+        report = audit_result(self.right)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any(issue["code"] == "unsupported_wsl_metric" for issue in report["issues"]))
 
     def test_expected_backend_identity_changes_do_not_prevent_comparison(self):
         report = self.compare()
@@ -150,7 +192,9 @@ class ResultComparisonTests(unittest.TestCase):
             writer = csv.DictWriter(stream, CSV_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
-        self.assertEqual(self.compare()["conditions"]["actual_workload"]["status"], "compatible")
+        report = self.compare()
+        self.assertEqual(report["conditions"]["actual_workload"]["status"], "compatible")
+        self.assertEqual(report["metric_comparability"]["latency_app_s"]["status"], "comparable")
 
     def test_known_mismatch_is_reported_even_when_another_legacy_field_is_missing(self):
         self.change_json(self.right, "static_meta.json", lambda metadata: metadata.pop("cgroup_collection_mode"))

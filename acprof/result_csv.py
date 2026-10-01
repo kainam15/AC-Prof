@@ -91,6 +91,8 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
             if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
                 raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
             keys.add(key)
+            if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
+                row["environment_class"] = "unknown"
             rows.append(row)
     if not rows:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
@@ -114,11 +116,15 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
     if Path(destination).resolve() in resolved:
         raise ResultValidationError("final CSV cannot also be an input case")
     rows, keys = [], set()
+    environments = set()
     fields = list(CSV_FIELDS)
     for path in resolved:
         if not path.is_file():
             raise ResultValidationError(f"missing case CSV: {path}")
         source_fields, source_rows = read_result_csv(path)
+        environments.update(row["environment_class"] for row in source_rows)
+        if len(environments) > 1:
+            raise ResultValidationError(f"cannot merge result environments: {sorted(environments)}")
         fields.extend(field for field in source_fields if field not in fields)
         for row in source_rows:
             key = measurement_key(row)

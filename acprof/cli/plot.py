@@ -54,9 +54,9 @@ def main(argv=None):
 
     performance_groups = dict(plotting_data.build_plot_groups(df))
     feasibility_groups = dict(plotting_data.build_plot_groups(all_status_df))
-    for group_name in plotting_config.PLOT_OUTPUT_DIRS:
-        group_df = performance_groups[group_name]
-        feasibility_df = feasibility_groups[group_name]
+    for group_name in dict.fromkeys([*performance_groups, *feasibility_groups]):
+        group_df = performance_groups.get(group_name, df.iloc[0:0])
+        feasibility_df = feasibility_groups.get(group_name, all_status_df.iloc[0:0])
         group_output_dir = os.path.join(output_dir, group_name)
         if group_df.empty and feasibility_df.empty:
             print(f"[skip] No data available for {group_name} plots")

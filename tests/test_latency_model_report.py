@@ -16,9 +16,30 @@ import acprof.plotting.data as plotting_data
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 from acprof.cli import plot
+from acprof.platform import Environment
 
 
 class LatencyModelReportTests(unittest.TestCase):
+    def test_export_keeps_environment_identity_and_rejects_mixed_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            frame = pd.DataFrame(self._rows(gpu_modes=("off",)))
+            frame["environment_class"] = "wsl2"
+            analysis_latency_report.write_latency_model_report(frame, Environment("wsl2").metadata(), temporary)
+            report, residuals = self._read_artifacts(temporary)
+            self.assertEqual(report["comparability_class"], "wsl2")
+            self.assertEqual(report["collection_tier"], "partial")
+            self.assertTrue(residuals)
+            self.assertEqual({row["environment_class"] for row in residuals}, {"wsl2"})
+            frame.loc[0, "environment_class"] = "native_linux"
+            with self.assertRaisesRegex(ValueError, "mixed or inconsistent environments"):
+                analysis_latency_report.write_latency_model_report(frame, Environment("wsl2").metadata(), temporary)
+
+    def test_skipped_report_preserves_unknown_provenance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            analysis_latency_report.write_latency_model_report(pd.DataFrame(), {}, temporary)
+            report, _ = self._read_artifacts(temporary)
+            self.assertEqual(report["comparability_class"], "unknown")
+
     def test_v2_plot_cli_writes_reports_and_figures_below_plots(self):
         from contextlib import ExitStack
         from pathlib import Path

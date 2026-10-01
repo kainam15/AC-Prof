@@ -15,6 +15,7 @@ from acprof.pixel_metrics import (
     PIXEL_RATE_SOURCES,
     pixel_rate_metrics,
 )
+from acprof.platform import recorded_identity
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
 
 
@@ -22,9 +23,10 @@ def make_config_label(row) -> str:
     cpu = int(row["cpu_cores"])
     mem = int(row["mem_cap_gb"])
     if is_gpu_on(row["gpu_mode"]):
-        return f"GPU+CPU{cpu}+Mem{mem}"
+        label = f"GPU+CPU{cpu}+Mem{mem}"
     else:
-        return f"CPU+CPU{cpu}+Mem{mem}"
+        label = f"CPU+CPU{cpu}+Mem{mem}"
+    return f"{row['environment_class']} / {label}" if "environment_class" in row else label
 
 
 def is_gpu_on(gpu_mode: object) -> bool:
@@ -37,6 +39,13 @@ def is_gpu_off(gpu_mode: object) -> bool:
 
 def build_plot_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     """Split plot inputs into CPU-only, GPU-only, and comparison groups."""
+    if "environment_class" in df.columns:
+        groups = []
+        for environment, subset in df.groupby("environment_class", dropna=False):
+            for name, group in build_plot_groups(subset.drop(columns="environment_class")):
+                group["environment_class"] = environment
+                groups.append((f"{environment}/{name}", group))
+        return groups
     gpu_on = df["gpu_mode"].map(is_gpu_on)
     gpu_off = df["gpu_mode"].map(is_gpu_off)
     cpu_df = df[gpu_off].copy()
@@ -118,6 +127,16 @@ def prepare_df(
             df[col] = df[col].map(lambda value: value.strip() if isinstance(value, str) else value)
 
     static_meta = read_static_meta(csv_path)
+    environment = recorded_identity(static_meta)["environment_class"]
+    if "environment_class" not in df:
+        df["environment_class"] = environment
+    else:
+        df["environment_class"] = df["environment_class"].where(
+            df["environment_class"].isin(["native_linux", "wsl2", "vm", "cloud", "container_host"]), "unknown")
+    if len(set(df["environment_class"])) > 1 or any(
+        value not in {"unknown", environment} for value in df["environment_class"]
+    ):
+        raise ValueError("mixed or inconsistent environment_class; split results by recorded environment")
     if "gpu_mem_total_bytes" not in df.columns and static_meta.get("gpu_mem_total_bytes"):
         df["gpu_mem_total_bytes"] = pd.to_numeric(
             static_meta["gpu_mem_total_bytes"],
@@ -179,6 +198,8 @@ def read_static_meta(csv_path: str) -> dict[str, object]:
 
 def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -> pd.DataFrame:
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
+    if "environment_class" in df:
+        group_cols.insert(0, "environment_class")
     metric_df = df[group_cols + [metric]].copy()
     metric_df = metric_df[metric_df[metric].notna()].copy()
     if metric_df.empty:
@@ -196,6 +217,8 @@ def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -
 
 def aggregate_cold_start(df: pd.DataFrame, *, agg_func: str = "mean") -> pd.DataFrame:
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode"]
+    if "environment_class" in df:
+        group_cols.insert(0, "environment_class")
     metric_df = df[group_cols + ["cold_start_s"]].copy()
     metric_df = metric_df[metric_df["cold_start_s"].notna()].copy()
     if metric_df.empty:

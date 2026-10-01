@@ -5,8 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from acprof.analysis.audit import audit_result
+from acprof.analysis.audit import audit_result, number
 from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
+from acprof.metric_registry import METRICS
+from acprof.platform import recorded_identity
 from acprof.result_csv import measurement_key, read_result_csv
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
@@ -157,6 +159,7 @@ def _snapshot(source: str | Path) -> dict:
         threads[device] = (observed if explicit_threads and result.get("status") == "ok"
                            and type(observed) is int and observed > 0 else None)
     case_ids = set()
+    rows = []
     try:
         _, rows = read_result_csv(directory / "result_all.csv" if source.is_dir() else source)
         actual = _actual_workload(rows)
@@ -169,10 +172,16 @@ def _snapshot(source: str | Path) -> dict:
     # Only the input payload and semantic conditions are compared. Model/export,
     # packages and backend hashes continue to belong to the existing run identity.
     host = object_field(state, "host")
+    measured_rows = [row for row in rows if row.get("status") == "ok" and measurement_key(row)[4] == "0"]
     return {
+        **recorded_identity(metadata),
+        "metric_availability": {name: any(number(row.get(name)) is not None
+                                           for row in measured_rows)
+                                for name, metric in METRICS.items() if metric.kind == "number"},
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "valid": audit["valid"] and not issues, "issues": issues,
         "conditions": {
+            "comparability_class": recorded_identity(metadata)["comparability_class"],
             "task_semantics": {key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
             "planned_inputs": inputs,
             "resources": {**{key: options.get(key) for key in ("cpus", "mems", "gpus", "batch_size")},
@@ -225,11 +234,29 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
               else "unknown" if "unknown" in statuses else "compatible")
     differences = {name: {"left": value, "right": rhs["identity"][name]}
                    for name, value in lhs["identity"].items() if value != rhs["identity"][name]}
+    environment_condition = conditions["comparability_class"]
+    warnings = []
+    if environment_condition["status"] != "compatible":
+        warnings.append(f"Environment comparison blocked: {lhs['comparability_class']} vs "
+                        f"{rhs['comparability_class']}. WSL measurements must not be treated as "
+                        "native Linux measurements; unknown provenance cannot enter a Native baseline.")
+    metric_comparability = {}
+    for name in lhs["metric_availability"]:
+        available = lhs["metric_availability"][name] and rhs["metric_availability"][name]
+        metric_comparability[name] = {
+            "status": "comparable" if status == "compatible" and available else "not comparable",
+            "reason": ("missing_measurement" if not available else
+                       "environment_" + environment_condition["status"]
+                       if environment_condition["status"] != "compatible" else
+                       "conditions_" + status if status != "compatible" else ""),
+        }
     return {"schema_version": 2, "purpose": purpose, "status": status, "valid": valid,
+            "warnings": warnings, "metric_comparability": metric_comparability,
+            "native_baseline_eligible": status == "compatible" and lhs["comparability_class"] == "native_linux",
             "scope": "recorded_comparison_conditions_not_model_quality_or_resume_identity",
             "limitations": ["hardware conditions are boundary observations, not proof of continuous isolation or identical thermal state",
                             "missing hardware or effective thread evidence remains unknown; affinity does not prove exclusive CPU use",
                             "matching quality constraints do not prove either model meets them"],
             "conditions": conditions, "expected_differences": differences,
-            "experiments": {side: {key: snapshot[key] for key in ("run_id", "result_csv", "valid", "issues")}
+            "experiments": {side: {key: snapshot[key] for key in ("run_id", "result_csv", "valid", "issues", "environment_class")}
                             for side, snapshot in snapshots.items()}}

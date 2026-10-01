@@ -114,6 +114,9 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         result: dict[str, Any] = {"cpu_cores": float(cpu), "mem_cap_gb": float(mem), "gpu_mode": gpu,
                   "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
                   "difference": None, "ratio": None, "difference_ci": None, "ratio_ci": None, "reason": ""}
+        blocked = any(check.get("metric_comparability", {}).get(metric, {}).get("status") == "not comparable"
+                      for check in checks)
+        result["comparability"] = "not comparable" if blocked or status != "compatible" else "comparable"
         values = {}
         for side in ("left", "right"):
             records = sides[side]
@@ -124,7 +127,9 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                             "std": statistics.stdev(values[side]) if len(values[side]) > 1 else None,
                             "failed_windows": sum(record["failed_windows"] for record in records),
                             "missing_windows": sum(record["missing_windows"] for record in records), "runs": records}
-        if status != "compatible":
+        if blocked:
+            result["reason"] = "not comparable"
+        elif status != "compatible":
             result["reason"] = "conditions_" + status
         elif not values["left"] or not values["right"]:
             result["reason"] = "missing_comparable_runs"

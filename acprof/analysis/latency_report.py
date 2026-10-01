@@ -32,12 +32,14 @@ from acprof.analysis.latency_model import (
     _validation_is_evaluable,
     _validation_quality_failures,
 )
+from acprof.platform import recorded_identity
 
 LATENCY_MODEL_DIR = "latency_model"
 LATENCY_MODEL_REPORT = "latency_model_report.json"
 LATENCY_MODEL_RESIDUALS = "latency_model_residuals.csv"
 LATENCY_MODEL_RESIDUAL_FIELDS = [
     "report_schema_version",
+    "environment_class",
     "case_id",
     "split",
     "hardware_model",
@@ -92,6 +94,7 @@ def _write_skipped_latency_model_report(
         writer.writeheader()
     report = {
         "report_schema_version": 2,
+        **recorded_identity(static_meta),
         "status": "skipped",
         "prediction_ready": False,
         "reason": reason,
@@ -113,6 +116,11 @@ def write_latency_model_report(
     output_dir: str,
 ) -> None:
     """Fit validated positive latency models and write report/residual artifacts."""
+    identity = recorded_identity(static_meta)
+    if "environment_class" in df:
+        environments = set(df["environment_class"].fillna("unknown"))
+        if len(environments) > 1 or not environments <= {"unknown", identity["environment_class"]}:
+            raise ValueError("cannot fit a latency model from mixed or inconsistent environments")
     model_output_dir = os.path.join(output_dir, LATENCY_MODEL_DIR)
     os.makedirs(model_output_dir, exist_ok=True)
 
@@ -390,6 +398,7 @@ def write_latency_model_report(
             scale_prediction = scale_predictions.get(key)
             writer.writerow({
                 "report_schema_version": 2,
+                "environment_class": identity["environment_class"],
                 "case_id": case_id,
                 "split": (
                     "out_of_fold_test"
@@ -434,6 +443,7 @@ def write_latency_model_report(
     input_scale_metrics = metrics_for_predictions(scale_predictions)
     report = {
         "report_schema_version": 2,
+        **identity,
         "status": status,
         "prediction_ready": status == "ok",
         "target_metric": "latency_s",

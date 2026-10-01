@@ -11,6 +11,7 @@ from pathlib import Path
 from acprof.artifact_layout import ArtifactLayout
 from acprof.capabilities import collection_outcomes
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
+from acprof.platform import native_only_metric, recorded_identity
 from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
 
 MISSING = {"", "nan", "none", "null", "n/a"}
@@ -28,6 +29,8 @@ def missing_reason(field: str, row: dict, metadata: dict) -> str:
     if field not in row:
         return "not_recorded"
     metric = METRICS[field]
+    if recorded_identity(metadata)["environment_class"] == "wsl2" and native_only_metric(metric):
+        return "unavailable_on_wsl2"
     if metric.applicability in {"gpu", "gpu_idle_debug"} and row.get("gpu_mode") == "off":
         return "not_applicable"
     if metric.applicability == "cpu" and row.get("gpu_mode") == "on":
@@ -125,6 +128,7 @@ def audit_result(source: str | Path) -> dict:
         return report
     report["layout_version"] = layout.layout_version
     metadata = read_json("static_meta.json")
+    report.update(recorded_identity(metadata))
     state = read_json("run_state.json")
     if state:
         report["run_status"] = state.get("status")
@@ -140,6 +144,13 @@ def audit_result(source: str | Path) -> dict:
         issue("invalid_csv", error)
         return report
     report["counts"]["rows"] = len(rows)
+    environments = {row["environment_class"] for row in rows}
+    report["row_environment_classes"] = sorted(environments)
+    if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}
+                                  for value in environments):
+        issue("environment_mismatch", "CSV 与元数据环境身份不一致，或包含混合环境结果")
+    if report["environment_class"] == "unknown":
+        issue("unknown_environment", "环境身份 unknown；不能作为 Native Linux baseline", severity="warning")
     report["execution"] = collection_outcomes(rows)
     report["unknown_columns"] = [name for name in fields if name not in METRICS]
     report["missing_columns"] = [name for name in METRICS if name not in fields]
@@ -182,6 +193,9 @@ def audit_result(source: str | Path) -> dict:
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
         for field in NUMERIC_FIELDS:
+            if (report["environment_class"] == "wsl2" and native_only_metric(METRICS[field])
+                    and number(row.get(field)) is not None):
+                issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)
             raw = str(row.get(field, "nan")).strip().lower()
             if raw not in MISSING and number(raw) is None:
                 issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
