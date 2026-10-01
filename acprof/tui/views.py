@@ -351,6 +351,25 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     ))
 
+                with Collapsible(title=app.tr("下载与 Model Store"), collapsed=True):
+                    with Grid(classes="form-grid"):
+                        yield app._localized_widget(Label("下载源模式"))
+                        yield app._localized_select((("mirror-only", "mirror-only"),
+                            ("mirror-preferred", "mirror-preferred"), ("official", "official")),
+                            value=app.initial_config.download_mode, allow_blank=False,
+                            id="download-mode", classes="config-control")
+                        for key, label, placeholder in (
+                            ("max-download", "下载预算", "5GB；留空不设上限"),
+                            ("model-store", "Model Store 路径", "留空使用用户缓存目录"),
+                            ("model-store-max", "Model Store 容量上限", "100GB；留空不设上限"),
+                        ):
+                            yield app._localized_widget(Label(label))
+                            yield app._localized_widget(Input(value=getattr(app.initial_config, key.replace("-", "_")),
+                                placeholder=placeholder, id=key, classes="config-control"))
+                    yield app._localized_widget(Static("启动前显示流量与磁盘预检；预算不明或超限会停止。", markup=False))
+                    yield Static("", id="network-download-summary", markup=False)
+                    yield app._localized_widget(Button("Model Store 占用与清理", id="open-model-store", classes="config-control"))
+
                 with Horizontal(classes="checkbox-row"):
                     yield app._localized_widget(StatusCheckbox(
                         "启动 OOM 剪枝",

@@ -86,6 +86,10 @@ def build_probe_command(
         ("--input-scales", config.input_scales),
         ("--workload-spec", config.workload_spec),
         ("--model-spec", config.model_spec),
+        ("--download-mode", config.download_mode),
+        ("--max-download", config.max_download),
+        ("--model-store", config.model_store),
+        ("--model-store-max", config.model_store_max),
     ):
         if value:
             command.extend((option, value))

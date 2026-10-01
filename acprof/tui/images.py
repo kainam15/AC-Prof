@@ -28,6 +28,7 @@ from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScr
 
 IMAGE_KINDS = {
     "base": "公共基础", "runtime": "运行依赖", "weights": "模型文件",
+    "model-plan": "模型清单",
     "model": "推理服务", "debug": "调试镜像", "other": "其它镜像", "untagged": "无标签",
 }
 IMAGE_HINT = "清单自动刷新；点行查看，点 □/☑ 勾选；空格切换，←→ 展开/折叠。"
@@ -444,6 +445,7 @@ def dependency_detail(item: ManagedImage) -> str:
         return join_messages("\n", (
             message("本层依赖：无新增包，继承父镜像。"),
             message("本层添加模型文件；包依赖由运行环境提供。" if item.kind == "weights" else
+                    "本层仅保存模型清单；权重通过只读 Model Store 挂载。" if item.kind == "model-plan" else
                     "本层添加推理服务代码与运行清单；包依赖由运行环境提供。"),
         ))
     packages = dependency_packages(item)

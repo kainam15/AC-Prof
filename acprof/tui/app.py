@@ -982,6 +982,10 @@ class AcprofTui(ImageActions, BarCursorApp):
                     state_changed,
                 )
                 preparation = parse_preparation_event(line)
+                if line.startswith("[network-preflight] "):
+                    self.call_from_thread(self._network_preflight_report, line)
+                elif line.startswith("[network-download] "):
+                    self.call_from_thread(self._network_download_report, line)
                 if preparation is not None:
                     self.call_from_thread(self._preparation_event, preparation)
             returncode = process.wait()
@@ -1316,6 +1320,31 @@ class AcprofTui(ImageActions, BarCursorApp):
     @on(Button.Pressed, "#quick-check")
     def quick_check_button(self) -> None:
         self.action_quick_check()
+
+    def _network_preflight_report(self, line: str) -> None:
+        import json
+        report = json.loads(line.split(" ", 1)[1])
+        from acprof.host.network_preflight import format_summary
+        self.query_one("#network-download-summary", Static).update(format_summary(report))
+
+    def _network_download_report(self, line: str) -> None:
+        import json
+        report = json.loads(line.split(" ", 1)[1])
+        summary = self.query_one("#network-download-summary", Static)
+        summary.update(f"{summary.content}\n{report['category']}: "
+            f"verified_new_payload_bytes={report['verified_new_payload_bytes']:,}; "
+            f"cache_savings_bytes={report['cache_savings_bytes']:,}; wire_bytes=unknown")
+
+    @on(Button.Pressed, "#open-model-store")
+    def open_model_store(self):
+        if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
+            return
+        from acprof.host.model_store import store_root
+        from acprof.tui.model_store import ModelStoreScreen
+        root = Path(self._input("model-store")).expanduser().resolve() if self._input("model-store") else store_root()
+        self._environment_open = True
+        self._set_busy(True)
+        self.push_screen(ModelStoreScreen(root, self._input("model-store-max")), self._environment_closed)
 
     def _preparation_event(self, event: dict) -> None:
         from acprof.tui.preparation import PreparationScreen, phase_summary

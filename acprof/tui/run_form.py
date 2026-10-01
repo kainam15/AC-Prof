@@ -18,6 +18,9 @@ INPUT_FIELDS = {
     "input-scales": "input_scales",
     "workload-spec": "workload_spec",
     "model-spec": "model_spec",
+    "max-download": "max_download",
+    "model-store": "model_store",
+    "model-store-max": "model_store_max",
     "output-dir": "output_dir",
     "batch-size": "batch_size",
     "warmup": "warmup",
@@ -31,6 +34,7 @@ INPUT_FIELDS = {
     "sniff-iface": "sniff_iface",
 }
 SELECT_FIELDS = {
+    "download-mode": "download_mode",
     "task-family": "task_family",
     "gpus": "gpus",
     "compute-profile-tool": "compute_profile_tool",

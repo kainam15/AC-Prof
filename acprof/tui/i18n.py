@@ -36,6 +36,20 @@ def translate(source: str, language: str) -> str:
 
 
 ENGLISH: dict[str, str] = {
+    "清理未使用模型": "Prune unused models",
+    "Model Store 占用与清理": "Model Store usage and pruning",
+    "模型清单": "Model manifest",
+    "本层仅保存模型清单；权重通过只读 Model Store 挂载。": "This layer stores the manifest only; weights are mounted from the read-only Model Store.",
+    "Token 留空可使用 hf login；默认 mirror-only。备用地址只适用于 mirror-preferred。": "An empty token uses hf login. Defaults to mirror-only; fallback endpoints require mirror-preferred.",
+    "下载与 Model Store": "Downloads and Model Store",
+    "下载源模式": "Download source mode",
+    "下载预算": "Download budget",
+    "5GB；留空不设上限": "5GB; empty means unlimited",
+    "Model Store 路径": "Model Store path",
+    "留空使用用户缓存目录": "Empty uses the user cache directory",
+    "Model Store 容量上限": "Model Store capacity",
+    "100GB；留空不设上限": "100GB; empty means unlimited",
+    "启动前显示流量与磁盘预检；预算不明或超限会停止。": "Review download and disk estimates before startup; unknown or exceeded budgets stop the run.",
     "高级诊断": "Advanced diagnostics",
     "模型检查": "Inspect model",
     "可选诊断；开始采集会自动解析和验证。": "Optional diagnostics; starting collection resolves and validates automatically.",
