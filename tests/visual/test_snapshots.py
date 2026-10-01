@@ -9,6 +9,7 @@ pytest.importorskip("pytest_textual_snapshot")
 from textual.widgets import TabbedContent
 
 from acprof.experiment import RunConfig
+from acprof.platform import Environment
 from acprof.tui.app import AcprofTui
 from acprof.tui.process import StopResult
 from acprof.tui.progress import ProgressSnapshot
@@ -25,6 +26,8 @@ from acprof.tui.views import ConfirmActionScreen
     ("en", (120, 30), "resized-table"),
     ("zh", (120, 30), "measuring"),
     ("en", (80, 24), "cleanup-incomplete"),
+    ("zh", (80, 24), "wsl-confirmation"),
+    ("en", (120, 30), "wsl-confirmation"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     import pytest_textual_snapshot
@@ -37,6 +40,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))
     monkeypatch.setattr("acprof.tui.app.PYTHON_EXECUTABLE", Path("/usr/bin/python"))
+    environment = Environment("wsl2" if scene == "wsl-confirmation" else "native_linux")
+    monkeypatch.setattr("acprof.tui.app.detect_environment", lambda: environment)
+    monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     app.ui_preferences = replace(app.ui_preferences, theme="acprof-graphite", language=language)
 
@@ -44,7 +50,11 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         await pilot.pause()
         app.clear_notifications()
         app.set_input_cursor_blink_enabled(False)
-        if scene == "modal":
+        if scene == "wsl-confirmation":
+            await pilot.press("f5")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmActionScreen)
+        elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
         elif scene == "resized-table":
             app._report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
@@ -53,6 +63,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app._activate_tab("reports-tab")
             await pilot.pause()
             table = app.query_one("#report-table", ResizableDataTable)
+            # This scene verifies the drag result, without a timing-dependent
+            # help tooltip covering its cells during slower test runs.
+            table.tooltip = None
             # Drag the visible first header separator with actual mouse events.
             boundary = next(table._header_boundaries())[0]
             origin = table.content_region.offset - table.region.offset

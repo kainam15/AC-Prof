@@ -73,7 +73,7 @@ class ConfirmActionScreen(ModalScreen[bool]):
 
     #confirm-message {
         height: auto;
-        max-height: 18;
+        max-height: 40vh;
         overflow-y: auto;
         margin-bottom: 1;
     }

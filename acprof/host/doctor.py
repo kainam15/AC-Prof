@@ -15,6 +15,7 @@ from acprof.host import preflight
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.installation import resource_root
+from acprof.platform import capability_matrix, detect_environment
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,8 @@ def _gpu() -> str:
 def collect_checks(*, profiling_mode: str = "full", gpus: str = "off",
                    sniff_iface: str = "docker0", output_dir: Path | None = None) -> list[DoctorCheck]:
     checks = [
-        _check("native_linux", preflight.require_native_linux_host, "请在原生 Linux 主机运行。"),
+        _check("environment", lambda: preflight.require_collection_host(profiling_mode=profiling_mode),
+               "WSL2 请使用 --profiling-mode basic；full 需要 Native Linux。"),
         _check("architecture", _architecture, "请使用 Linux x86_64；当前依赖锁不支持 ARM。"),
         _check("cgroup_v2", preflight.require_cgroup_prerequisites, "启用统一 cgroup v2 后重启。"),
         _check("docker", preflight.require_native_docker,
@@ -148,6 +150,9 @@ def _probe_environment() -> dict[str, str]:
 
 
 def report_dict(checks: list[DoctorCheck], *, profiling_mode: str, gpus: str) -> dict:
-    return {"schema_version": 1, "profiling_mode": profiling_mode, "gpus": gpus,
+    environment = detect_environment()
+    return {"schema_version": 2, "profiling_mode": profiling_mode, "gpus": gpus,
+            **environment.metadata(), "native_benchmark": environment.native,
+            "metric_support": capability_matrix(environment),
             "ready": all(check.status != "unavailable" for check in checks),
             "scope": "prerequisites_only", "checks": [asdict(check) for check in checks]}

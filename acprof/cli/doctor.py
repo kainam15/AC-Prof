@@ -30,6 +30,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(f"AC-Prof doctor · {args.profiling_mode} · GPU {args.gpus}")
+        name = {"wsl2": "WSL2", "native_linux": "Native Linux"}.get(
+            report["platform"]["environment"], report["platform"]["environment"])
+        print(f"Environment       {name}")
+        print(f"Collection tier   {report['collection_tier'].upper()}")
+        print(f"Native benchmark  {'YES' if report['native_benchmark'] else 'NO'}")
+        for name, support in report["metric_support"].items():
+            print(f"  {name}: {support}")
         for check in checks:
             print(f"[{check.status}] {check.name}: {check.detail}")
             if check.remedy:

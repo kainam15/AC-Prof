@@ -9,11 +9,14 @@ from unittest.mock import patch
 
 from acprof.experiment import RunConfig
 from acprof.monitors.perf_mips import PERF_PROBE_TIMEOUT_S
+from acprof.platform import Environment
 from acprof.tui.diagnostics import quick_preflight
 
 
 class TuiPreflightTests(unittest.TestCase):
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.project_dir = Path(temporary.name)
@@ -26,7 +29,7 @@ class TuiPreflightTests(unittest.TestCase):
         )
         self.which = which.start()
         self.addCleanup(which.stop)
-        host_platform = patch("acprof.tui.diagnostics.platform.platform", return_value="test Linux")
+        host_platform = patch("acprof.tui.diagnostics.detect_environment", return_value=Environment("native_linux"))
         host_platform.start()
         self.addCleanup(host_platform.stop)
         rapl = patch("acprof.tui.diagnostics._readable_rapl_paths", return_value=["/fake/energy_uj"])

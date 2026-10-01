@@ -36,6 +36,9 @@ def translate(source: str, language: str) -> str:
 
 
 ENGLISH: dict[str, str] = {
+    "采集环境": "Collection environment",
+    "环境：{0}\n会采（需预检）：{1}\n会降级（环境内有效）：{2}\n会缺失：{3}\n\n":
+        "Environment: {0}\nCollect (subject to preflight): {1}\nPartial (within environment): {2}\nUnavailable: {3}\n\n",
     "清理未使用模型": "Prune unused models",
     "Model Store 占用与清理": "Model Store usage and pruning",
     "模型清单": "Model manifest",

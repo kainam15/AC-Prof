@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import math
 import os
-import platform
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from acprof.host.env_utils import load_project_env
 from acprof.host.packet_capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.messages import message
+from acprof.platform import capability_matrix, collection_policy_error, detect_environment
 from acprof.tui.commands import _csv_values
 
 
@@ -28,6 +28,23 @@ class PreflightCheck:
     status: str
     detail: str
     capability_status: str = ""
+
+
+def collection_preview(config: RunConfig):
+    environment = detect_environment()
+    matrix = capability_matrix(environment)
+    selected = [name for name in ("latency", "throughput", "container_cpu", "container_memory",
+                                  "cpu_energy", "cpu_instructions", "packet_latency", "gpu_power")
+                if measurement_requested(config.profiling_mode, name, gpu="on" in config.gpus.split(","))]
+    if "on" in config.gpus.split(","):
+        selected.extend(("gpu_memory", "gpu_utilization"))
+    collected = [name for name in selected if matrix[name] == "supported"]
+    partial = [name for name in selected if matrix[name] == "partial"]
+    missing = [name for name in matrix if matrix[name] == "unsupported"]
+    missing.extend(name for name in selected if matrix[name] == "requires_native_validation")
+    return message("环境：{0}\n会采（需预检）：{1}\n会降级（环境内有效）：{2}\n会缺失：{3}\n\n",
+                   environment.label, ", ".join(collected) or "—", ", ".join(partial) or "—",
+                   ", ".join(missing) or "—")
 
 
 def _completed_command(
@@ -62,20 +79,15 @@ def quick_preflight(
 ) -> list[PreflightCheck]:
     """Run read-only host checks; run.py remains the authoritative preflight."""
     checks: list[PreflightCheck] = []
-    is_linux = platform.system() == "Linux"
-    try:
-        proc_version = Path("/proc/version").read_text(
-            encoding="utf-8",
-            errors="replace",
-        )
-    except OSError:
-        proc_version = ""
-    is_wsl = "microsoft" in proc_version.lower()
+    environment = detect_environment()
+    policy_error = collection_policy_error(environment, profiling_mode=config.profiling_mode,
+                                          compute_tool=config.compute_profile_tool,
+                                          execution_tool=config.execution_profile_tool)
     checks.append(
         PreflightCheck(
-            message('原生 Linux'),
-            "ok" if is_linux and not is_wsl else "fail",
-            platform.platform() if not is_wsl else message('检测到 WSL'),
+            message('采集环境'),
+            "fail" if policy_error else "ok",
+            policy_error or environment.label,
         )
     )
 

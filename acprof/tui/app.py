@@ -53,6 +53,7 @@ from acprof.host.image_management import (
     ManagedImage,
 )
 from acprof.messages import join_messages, message
+from acprof.platform import collection_policy_error, detect_environment
 from acprof.tui import run_form
 from acprof.tui.commands import (
     PendingLaunch,
@@ -64,7 +65,12 @@ from acprof.tui.commands import (
     prepare_stats,
     resolve_result_path,
 )
-from acprof.tui.diagnostics import PreflightCheck, quick_preflight, summarize_result_csv
+from acprof.tui.diagnostics import (
+    PreflightCheck,
+    collection_preview,
+    quick_preflight,
+    summarize_result_csv,
+)
 from acprof.tui.i18n import error_message, translate
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
@@ -307,7 +313,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         # Keep mounted widgets, drafts, selected values, log text/selection,
         # scroll positions and progress state. This runs only on a UI change.
         with self.prevent(Select.Changed), self.batch_update():
-            self.sub_title = self.tr(self.SUB_TITLE)
+            self.sub_title = f"{detect_environment().label} · {self.tr(self.SUB_TITLE)}"
             for (widget, attribute), source in self._localized_text.items():
                 self._render_text(widget, attribute, source)
             for widget, sources in self._localized_selects.items():
@@ -776,6 +782,13 @@ class AcprofTui(ImageActions, BarCursorApp):
             return
         try:
             config = self._collect_config()
+            environment = detect_environment()
+            error = collection_policy_error(environment, profiling_mode=config.profiling_mode,
+                                            compute_tool=config.compute_profile_tool,
+                                            execution_tool=config.execution_profile_tool)
+            if environment.environment == "wsl2" and error:
+                self.notify(error, severity="error", timeout=10)
+                return
             command = build_run_command(
                 config,
                 project_dir=PROJECT_DIR,
@@ -792,6 +805,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 "开始 AC-Prof 采集？",
                 join_messages("", (
                     message("将启动独立采集进程。正式测量窗口内 TUI 会停止常规日志刷新。\n\n"),
+                    collection_preview(config),
                     preview,
                 )),
                 "开始采集",

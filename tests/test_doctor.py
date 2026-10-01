@@ -29,7 +29,7 @@ class DoctorTests(unittest.TestCase):
     def collect(self, mode="basic", **overrides):
         with ExitStack() as stack:
             for target, value in {
-                "preflight.require_native_linux_host": None,
+                "preflight.require_collection_host": None,
                 "preflight.require_cgroup_prerequisites": "v2",
                 "preflight.require_native_docker": None,
                 "_architecture": "x86_64", "_resources": "bundled", "_command": "buildx",
@@ -52,9 +52,9 @@ class DoctorTests(unittest.TestCase):
         self.assertTrue(doctor.report_dict(list(checks.values()), profiling_mode="basic", gpus="off")["ready"])
 
     def test_failure_and_timeout_do_not_hide_later_checks(self):
-        checks = self.collect(**{"preflight.require_native_linux_host": SystemExit(1),
+        checks = self.collect(**{"preflight.require_collection_host": SystemExit(1),
                                  "_command": subprocess.TimeoutExpired(["docker"], 15)})
-        self.assertEqual(checks["native_linux"].status, "unavailable")
+        self.assertEqual(checks["environment"].status, "unavailable")
         self.assertEqual(checks["buildx"].status, "unavailable")
         self.assertEqual(checks["resources"].status, "available")
         self.assertEqual(checks["workspace"].status, "available")
