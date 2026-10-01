@@ -167,7 +167,8 @@ class ModelDetectionInterfaceTests(unittest.TestCase):
             hub = SimpleNamespace(pipeline_tag="fill-mask", library_name="transformers", sha="c" * 40,
                                   config={}, tags=[], siblings=[SimpleNamespace(rfilename="config.json")])
             with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch.dict(
-                "os.environ", {"HF_ENDPOINT": "https://hf-mirror.com", "HF_FALLBACK_ENDPOINTS": "https://huggingface.co"}, clear=True,
+                "os.environ", {"HF_DOWNLOAD_MODE": "mirror-preferred", "ACPROF_ALLOW_PROXY_FALLBACK": "1",
+                               "HF_ENDPOINT": "https://hf-mirror.com", "HF_FALLBACK_ENDPOINTS": "https://huggingface.co"}, clear=True,
             ), patch("huggingface_hub.hf_hub_download", side_effect=[error, str(config)]) as download:
                 info = detect_task("unseen/encoder")
         self.assertFalse(info.metadata_errors)

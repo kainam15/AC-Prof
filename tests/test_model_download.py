@@ -8,17 +8,18 @@ from unittest.mock import patch
 
 from acprof.container import download_model
 from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
+from acprof.hf_endpoints import hf_endpoints
 
 
 class ModelDownloadTests(unittest.TestCase):
     def test_explicit_mirror_has_no_implicit_fallback(self):
         with patch.dict(os.environ, {"HF_ENDPOINT": "https://mirror.example/"}, clear=True):
-            self.assertEqual(download_model._candidate_endpoints(), ["https://mirror.example"])
+            self.assertEqual(hf_endpoints(), ["https://mirror.example"])
 
-    def test_default_precedes_explicit_fallback(self):
-        with patch.dict(os.environ, {"HF_FALLBACK_ENDPOINTS": "https://mirror.example"}, clear=True):
-            self.assertEqual(download_model._candidate_endpoints(), [
-                "https://huggingface.co", "https://mirror.example",
+    def test_mirror_preferred_exposes_explicit_fallback(self):
+        with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-preferred", "HF_FALLBACK_ENDPOINTS": "https://mirror.example"}, clear=True):
+            self.assertEqual(hf_endpoints(), [
+                "https://hf-mirror.com", "https://mirror.example", "https://huggingface.co",
             ])
 
     def dependency_plan(self):

@@ -99,7 +99,7 @@ class BootstrapProjectEnvTests(unittest.TestCase):
             self.assertEqual(probe_environ["LOCAL_SETTING"], "test-only-value")
             self.assertNotIn("LOCAL_SETTING", os.environ)
 
-    def test_bootstrap_defaults_to_official_hub_and_preserves_proxy_policy(self) -> None:
+    def test_bootstrap_defaults_to_mirror_and_preserves_proxy_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(
             "acprof.host.env_utils.os.environ",
             {
@@ -113,8 +113,8 @@ class BootstrapProjectEnvTests(unittest.TestCase):
         ), patch("acprof.host.env_utils.resolve_hf_token", return_value=None):
             env_utils.bootstrap_project_env(tmp_dir)
 
-            self.assertEqual(env_utils.os.environ["HF_ENDPOINT"], "https://huggingface.co")
-            self.assertEqual(env_utils.os.environ["HF_HUB_ENDPOINT"], "https://huggingface.co")
+            self.assertEqual(env_utils.os.environ["HF_ENDPOINT"], "https://hf-mirror.com")
+            self.assertEqual(env_utils.os.environ["HF_HUB_ENDPOINT"], "https://hf-mirror.com")
             self.assertEqual(env_utils.os.environ["NO_PROXY"], "localhost,127.0.0.1")
             self.assertEqual(env_utils.os.environ["no_proxy"], "localhost,127.0.0.1")
 

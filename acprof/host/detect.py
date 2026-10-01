@@ -62,12 +62,17 @@ def _download_metadata(model_id: str, name: str, revision: str | None = None) ->
     from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
 
     from acprof.hf_endpoints import hf_endpoints
+    from acprof.hf_transport import configure_hf_transport
+    from acprof.network_policy import require_source_transition
 
+    configure_hf_transport()
     kwargs = {"repo_id": model_id, "filename": name}
     if revision is not None:
         kwargs["revision"] = revision
     endpoints = hf_endpoints()
     for index, endpoint in enumerate(endpoints):
+        if index:
+            require_source_transition(endpoints[index - 1], endpoint)
         try:
             return hf_hub_download(**kwargs, endpoint=endpoint)
         except LocalEntryNotFoundError as exc:

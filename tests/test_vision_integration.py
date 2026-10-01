@@ -94,7 +94,7 @@ class VisionIntegrationTests(unittest.TestCase):
                     result = detect.detect_task("example/model")
                 self.assertEqual(result.pipeline_tag, task)
                 self.assertEqual(result.model_revision, "pinned-revision")
-                download.assert_called_once_with(repo_id="example/model", filename="model_index.json", revision="pinned-revision", endpoint="https://huggingface.co")
+                download.assert_called_once_with(repo_id="example/model", filename="model_index.json", revision="pinned-revision", endpoint="https://hf-mirror.com")
 
     def test_cv_manifest_reaches_materialized_plan_and_preserves_parameters(self):
         with tempfile.TemporaryDirectory() as tmp:

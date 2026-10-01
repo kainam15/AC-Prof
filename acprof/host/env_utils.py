@@ -18,7 +18,8 @@ from acprof.config import (
 from acprof.hf_endpoints import hf_endpoints
 
 CONFIGURABLE_ENV_KEYS = (
-    "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS",
+    "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE",
+    "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "ACPROF_WECOM_WEBHOOK_URL",
 )
 _ENV_ALIASES = {
@@ -105,7 +106,10 @@ def save_project_env(
         if not isinstance(value, str) or any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise ValueError(f"{key}: enter a single line without control characters")
         updates[key] = value.strip()
-    hf_endpoints(updates)
+    hf_endpoints({**os.environ, **updates})
+    from acprof.network_policy import parse_bytes
+    for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
+        parse_bytes(updates.get(key))
     for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         if updates.get(key):
             try:
@@ -185,6 +189,8 @@ def configure_hf_network() -> str:
     endpoint = hf_endpoints()[0]
     os.environ["HF_ENDPOINT"] = endpoint
     _set_default_if_blank("HF_HUB_ENDPOINT", endpoint)
+    from acprof.hf_transport import configure_hf_transport
+    configure_hf_transport()
     return endpoint
 
 
@@ -222,6 +228,7 @@ def hf_offline_docker_env_args() -> list[str]:
     return [
         "-e", "HF_HUB_DISABLE_TELEMETRY=1",
         "-e", "HF_HUB_OFFLINE=1",
+        "-e", "HF_HUB_DISABLE_XET=1",
         "-e", "TRANSFORMERS_OFFLINE=1",
         "-e", f"HF_HOME={CONTAINER_HF_HOME}",
         "-e", f"HF_HUB_CACHE={CONTAINER_HF_HOME}",
