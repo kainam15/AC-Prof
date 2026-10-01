@@ -15,6 +15,31 @@
 独立接口验证与 startup probe 可能预热宿主机文件缓存。冷启动描述全新容器的进程和模型初始化，
 不承诺磁盘冷缓存；`cold_start_first_predict_app_s` 不计入 `/ready` 前的分段和，也不新增推理请求。
 
+### Measurement preparation 与窗口副作用
+
+每个窗口在第一个 monitor 采样前完成 preparation。已有 CPU/RAPL、NVML 和 cgroup reader
+在构造时完成初始化；`MonitorGroup.prepare()` 再调用需要显式准备的 monitor。
+`PerfMIPSMonitor.prepare()` 解析容器 PID、验证 perf attach 能力并固定 executable、argv 和
+错误诊断上下文；`start()` 只启动已准备的 `perf stat`，未准备直接报错。
+resource 的 CPU 拓扑与频率文件路径在构造时选定，窗口中读取实时值；拓扑变化由下一组 monitor
+重新发现。无请求对照和正式请求窗口分别准备，不跨窗口复用失效 PID。
+
+所有 prepare 成功后仍按 **GPU → CPU → resource → MIPS** 启动；停止保持
+**MIPS → resource → GPU → CPU**。prepare 失败不会开始采样；已登记资源仍沿原来的
+`finish()` / close 路径清理。部分 start、stop、close 失败继续尝试其余清理，并保留取消与请求超时语义。
+
+| 阶段 | 允许的操作 |
+| --- | --- |
+| Preparation，窗口外 | Docker PID 与环境探测、perf executable/capability probe、profiler prerequisites、模型解析、镜像准备、reader discovery、idle diagnostics |
+| 测量窗口内 | 串行 HTTP inference、RAPL/NVML/cgroup/proc/sysfs 采样、perf 测量进程、必要的起止 counter snapshot、内存中的请求记录 |
+| 全部 monitor finish 后 | 请求 JSONL、CSV/JSON 与诊断文件发布、统计和派生指标、CLI/TUI presentation、通知与诊断 logging |
+
+测量窗口内禁止非必要的 Docker/preflight discovery、同步 diagnostic logging、文件发布、
+界面输出、通知、模型解析及镜像准备。机器可读 progress/preparation events 仍在原来的
+case/client 边界发出，不改为 logger，也不向每个请求插入事件。
+成功、timeout、取消及清理失败路径均先完成 monitor finish，再写已缓冲的请求证据；
+取消和 timeout 不因 publication 失败而被替换。原有 HTTP 请求次数、短连接和超时定义保持不变。
+
 ### 进程与界面边界
 
 TUI 的 `ProcessLifecycle` 统一普通停止、回调异常和卸载清理：向独立进程组发送 SIGINT，

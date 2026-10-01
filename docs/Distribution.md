@@ -11,6 +11,24 @@ standalone 从 wheel 收集同一份 dist-info 元数据。wheel 的 Docker 构�
 最终服务镜像在 `/usr/share/licenses/acprof/` 保存它们；许可文件变化参与服务层指纹。
 外部依赖和下载的模型分别保留原许可。
 
+## Host dependency split 评估
+
+默认安装保持完整可用：`pip/uv install` 与 `setup.sh` 安装相同的 host 依赖，打开 TUI
+和执行分析不要求理解 extras。当前不拆分发行依赖；`requirements.lock` 继续包含完整环境及 hashes，
+runtime profile 的严格版本锁独立维护。
+
+| 候选边界 | 当前依赖与约束 |
+| --- | --- |
+| core | requests、Hugging Face Hub/socksio；numpy 与 Pillow 也被确定性 workload/input preparation 使用，不能简单归入 analysis |
+| TUI | Textual 可在命令路由处惰性加载；完整默认安装仍必须带上它 |
+| analysis | pandas、matplotlib；只读分析与绘图已有模块边界，但 core-only 发行还需要完整的缺依赖提示与安装测试 |
+| GPU | nvidia-ml-py；CPU 路径已有可选加载，但 GPU capability 与错误提示仍须单独验收 |
+
+新增 extras 在保持默认完整依赖时不会减少默认安装成本；改为精简默认又不符合当前开箱即用约定。
+因此本轮仅保留上述职责边界，未新增组合安装模式或重写主机锁。若将来有明确的 headless/minimal
+部署需求，应为每种组合增加隔离安装与实际 CLI smoke，同时继续生成完整 host hashed lock。
+代码路径拆分不改变依赖许可证，也不把容器模型框架移入 host 默认安装。
+
 ## Clone 后初始化
 
 准备原生 Linux x86_64、本机 Docker Engine/Buildx、cgroup v2 和 Git 后：

@@ -151,7 +151,8 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 
 Ruff 版本由 [`pyproject.toml`](../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
 3.10，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
-`B904`（异常链）。不启用 import 排序、`E501` 或 formatter；
+`B904`（异常链）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
+`RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）。不启用全量 RUF/SIM、`E501` 或 formatter；
 `line-length = 100` 本身不检查行长。Ruff hook 只检查，不自动修复；空白和末尾换行 hooks
 会修正文件并返回失败，检查 `git diff` 后重新运行。不得用扩大 `ignore` 或排除目录掩盖新问题。
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
@@ -180,6 +181,30 @@ git diff --check
 已验证 pin 与主机 lock；重新生成方式见[运行兼容](Runtime_Compatibility.md#当前配置)。CI 的 Python 3.12 job
 运行该检查；Python 3.10 job 保留容器锁检查。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
+
+### 渐进类型检查与边界回归
+
+`requirements-dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
+extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner。
+初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
+已经列出的模块仍检查已标注代码。不能用全包 `ignore_errors` 隐藏白名单内的问题。
+独立 CI `types` job 与本地运行同一条命令：
+
+```bash
+.venv/bin/python -m mypy
+```
+
+类型工具只进入开发锁，不改变 host/runtime 的运行依赖。版本选择参考
+[mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)
+及 [Ruff 的 import sorting 说明](https://github.com/astral-sh/ruff/blob/main/docs/faq.md)；
+两者采用 MIT 许可并持续维护，检查目标保持 Python 3.10，开发检查没有测量期开销。
+Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路径的 `E402` 注释留在对应 import 语句上。
+
+`test_host_command.py` 使用真实短子进程验证 timeout、异常、编码、环境、cwd、耗时与脱敏。
+`test_architecture.py` 检查 host 中未登记的直接同步 subprocess 调用（含 import aliases）。
+`test_monitor_cleanup.py` 和 `test_perf_mips.py` 验证 preparation-before-start、窗口中无 Docker discovery，
+以及成功、取消、超时后才发布请求/结果；`test_resource_usage.py` 验证采样不重复扫描 CPU 拓扑。
+这些回归不代替真实 Docker/GPU/perf/NCU 采集或用户终端显示证据。
 
 `internal-testing/`、`result-past/` 和 `results/` 都由仓库 `.gitignore` 排除。忽略规则不授权删除：
 失败或中断的 CSV、pcap、jsonl 与恢复状态应按实验保留；清理前先列出路径、占用和是否仍用于诊断或恢复。

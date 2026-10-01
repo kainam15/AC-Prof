@@ -84,6 +84,7 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | 模块 | 职责 |
 | --- | --- |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
+| `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
 | `docker_runtime` | 镜像准备和构建、容器启停、ready 检查、冷启动分段及 OOM 状态读取 |
 | `dependency_images` | 平台与依赖环境的内容缓存、安装配方指纹、完整清单和标签核验；主构建及容器 CI 共用 |
 | `runtime_images` | profile/平台选择、模型层与代码层构建、父镜像绑定、运行清单及不可变 image ID |
@@ -107,17 +108,59 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
-| `compute_profile` / `execution_profile` | profiler 计划、采集、断点与汇总 |
+| `compute_profile` / `execution_profile` | profiler 计划编排及汇总；计算 profiler 的执行实现放在既有 `profilers/` 下 |
+| `profilers/ncu` / `profilers/torch` / `profilers/advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
+| `client_diagnostics` / `client_publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
+| `monitors/resource_readers` / `monitors/resource_metrics` | cgroup/proc/sysfs discovery 和 raw reader；纯 sample reduction 与 counter 派生计算 |
 | `profilers/compute_parsers` / `profilers/execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
 | `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
 | `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
-| `profiler_common` | 两类 profiler 共享的命令、容器参数、输入计划读取及原子 JSON 写入 |
+| `profiler_common` | 两类 profiler 共享的容器参数、输入计划读取及原子 JSON 写入 |
 
 `docker_runtime` 是输入规划的下层；`static_metadata` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
 两个 profiler 单向依赖 `profiler_common`，解析与工具查找使用 `profilers/` 下的实现。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
+
+### Host command 与 diagnostics
+
+host 的短生命周期同步命令直接复用 `host.command.run_command`，覆盖 Docker、doctor、
+preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。`docker_runtime._run`
+仅保留该模块既有的 `check=True` / `capture` 默认参数映射；profiler 不再经 `profiler_common._run`
+执行命令。container-side subprocess 与开发 scripts 不在此执行边界中。
+
+runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
+返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。
+默认捕获输出、`check=False`；调用方原有的 check、capture 和 timeout 选择保持原义，未设置 timeout
+仍为无限等待。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
+非零退出按 check 决定是否抛出 `CalledProcessError`；timeout、OSError 和取消继续传播原异常。
+timeout 的部分输出保留标准库的 bytes 语义。runner 不增加 retry、进程组或 Docker 容器清理策略。
+长期进程继续由 `ProcessLifecycle`、`PerfMIPSMonitor`、orchestrator/load 的 tcpdump owner 管理。
+
+`CommandMetadata.as_dict()` 是显式提取的 evidence：command、cwd、必要环境差异、duration_s、
+returncode 和 error_type。失败异常附带同一结构的 `command_metadata`。
+常见 credential/token/password/key 参数、环境值及 URL 凭据脱敏；自定义位置的秘密值由调用者
+通过 `redact_values` 显式标记。原始 stdout/stderr 与异常仍供业务处理，不能直接当作已脱敏 metadata。
+runner 只输出已脱敏的 DEBUG logging，不输出 `[cmd]`、不记录 stdout/stderr、不写实验文件。
+普通 doctor/preflight/idle diagnostic 命令不自动进入 experiment provenance；现有 profiler plan、
+runtime validation log、静态元数据仍由各自 producer 按原协议发布。需要额外证据时，调用方须显式选择
+metadata 并在窗口外写入独立 diagnostics/evidence，不能把全部命令自动追加到正式结果。
+
+内部诊断使用命名 `logging` logger，当前覆盖 command duration、orchestration 取消/清理、runtime
+validation 与 profiler failure 类型；默认不安装 handler、不输出 DEBUG。异常日志仅记录必要上下文和
+异常类型，不自动打印可能含凭据的异常正文。CLI/TUI 的状态、警告、进度和 preparation events 继续由
+presentation/event 层输出；没有增加 `--verbose` / `--quiet` 或窗口内同步日志。
+
+此边界参考 [CPython subprocess](https://github.com/python/cpython/blob/3.10/Lib/subprocess.py)
+（PSF License）的执行及异常语义、[Invoke runners](https://github.com/pyinvoke/invoke/blob/main/invoke/runners.py)
+（BSD-2-Clause）的显式输出/环境控制，以及 [pyperf hooks](https://github.com/psf/pyperf/blob/main/pyperf/_hooks.py)
+（MIT）的准备与测量分离。上游有持续维护的源码与测试；兼容本项目 Python 3.10+ 的标准库已足够，
+不引入 Invoke/pyperf 运行依赖、PTY、常驻管理进程或新的测量阶段，不复制其框架实现。
+
+导入审计区分模块执行时、函数体与 `TYPE_CHECKING` 中的依赖；静态图中的延迟 SCC 不等于启动失败。
+`config`、`metric_registry` 和 `extensions` 不为消除 late import / `E402` 注释而拆分。
+只有实际依赖循环导致初始化顺序或职责问题时才调整模块边界。
 
 `metric_registry` 统一 CSV 字段、单位、来源、窗口和 profiler 完成条件；`config.CSV_FIELDS`
 保留同一列表对象。`analysis/audit` 和 `analysis/uncertainty` 负责只读审计与窗口统计，
@@ -210,6 +253,9 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 ## TUI 与兼容维护
 
 `app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
+`run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
+`commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/profile 启动参数准备；
+`app` 继续持有控件、busy/measurement 状态、确认框、报告加载与显示，不把 `self.query_*()` 搬到新 controller。
 `host.collection_workflow` 在原采集进程内执行准备阶段和用户裁决；`tui.preparation` 只呈现未决项／错误，
 通过有界、带请求 ID 的 stdin 回复继续同一进程。`preparation_events` 定义独立的版本化准备消息，
 不复用正式测量边界事件，不依赖日志错误字符串决定是否询问。普通 CLI 保持非交互失败行为。
