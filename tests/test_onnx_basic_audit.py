@@ -1,13 +1,20 @@
 """basic 容器验收器的负向协议测试；数值为测试输入，不是采集证据。"""
+import csv
 import json
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from acprof.capabilities import (
     apply_collection_result,
     apply_runtime_validation,
     measurement_report,
 )
-from scripts.check_onnx_basic import audit_basic_capabilities, audit_basic_rows
+from acprof.config import CSV_FIELDS
+from acprof.platform import Environment
+from scripts.check_onnx_basic import audit_basic_capabilities, audit_basic_rows, run_basic_e2e
 
 
 def audit_rows():
@@ -28,6 +35,62 @@ def audit_rows():
 
 
 class ONNXBasicAuditTests(unittest.TestCase):
+    def test_saved_basic_results_preserve_host_environment_and_reject_mismatch(self):
+        for host, row_environment in (("native_linux", "native_linux"), ("wsl2", "wsl2"),
+                                      ("native_linux", "wsl2")):
+            with self.subTest(host=host, rows=row_environment), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory)
+
+                def run(command, **_kwargs):
+                    stdout = ""
+                    if command[:2] == ["docker", "info"]:
+                        stdout = json.dumps({"OSType": "linux", "CgroupVersion": "2", "ServerVersion": "fixture"})
+                    elif command[:2] == ["docker", "port"]:
+                        stdout = "127.0.0.1:8002"
+                    elif "--rm" in command:
+                        for name, payload in {
+                            "output_validation.json": {
+                                "reference": {"known_reference_passed": True},
+                                "runtime_validation": {"status": "ok", "validation": {
+                                    "protocol": {"status": "verified"}, "task": {"status": "verified"},
+                                }},
+                            },
+                            "payload.json": {"input_scale": 2, "batch_size": 2},
+                            "input_scale_plan.json": {"schema_version": 2, "entries": [{"input_scale": 2}]},
+                        }.items():
+                            (output / name).write_text(json.dumps(payload), encoding="utf-8")
+                    elif "acprof.host.client" in command:
+                        rows = [{**dict.fromkeys(CSV_FIELDS, "nan"), **row,
+                                 "cpu_cores": "2", "mem_cap_gb": "1", "gpu_mode": "off", "input_scale": "2",
+                                 "environment_class": row_environment} for row in audit_rows()]
+                        with (output / "result_case.csv").open("w", newline="", encoding="utf-8") as stream:
+                            writer = csv.DictWriter(stream, CSV_FIELDS)
+                            writer.writeheader()
+                            writer.writerows(rows)
+                    return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+                session = Mock()
+                session.get.return_value.json.return_value = {"status": "ok"}
+                session.post.return_value.json.return_value = {"output_shape": [4, 1], "n_results": 4}
+                with (
+                    patch("scripts.check_onnx_basic.subprocess.run", side_effect=run),
+                    patch("scripts.check_onnx_basic.os.getuid", return_value=1000, create=True),
+                    patch("scripts.check_onnx_basic.os.getgid", return_value=1000, create=True),
+                    patch("requests.Session", return_value=session),
+                    patch("acprof.capabilities.detect_environment", return_value=Environment(host)),
+                ):
+                    report = run_basic_e2e("fixture-image", output)
+                self.assertEqual(report["successful"], host == row_environment, report.get("error"))
+                for name in ("static_meta.json", "run_state.json"):
+                    metadata = json.loads((output / name).read_text())
+                    self.assertEqual(metadata["environment_class"], host)
+                    self.assertEqual(metadata["platform"]["environment"], host)
+                    self.assertEqual(metadata["comparability_class"], host)
+                    self.assertEqual(metadata["collection_tier"], "full" if host == "native_linux" else "partial")
+                audit = json.loads((output / "audit.json").read_text())
+                codes = {issue["code"] for issue in audit["issues"]}
+                self.assertEqual("environment_mismatch" in codes, host != row_environment)
+
     def test_image_scenario_checks_processed_geometry_separately_from_source(self):
         rows = audit_rows()
         for row in rows:

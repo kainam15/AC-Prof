@@ -567,6 +567,10 @@ ONNX 的三个 profile 按 runtime 选择专用测试集，不按 family 误选 
 样本顺序、dtype/shape 与固定形状拒绝；不会下载 Hub 模型。basic 回归复用生产 client、
 ResourceUsageMonitor、CSV 合并及 audit，验证应用延迟、原有 batch/latency 吞吐口径、真实
 cgroup CPU/内存、actual workload、输出验证和能力状态。合成图只证明接口与执行链路。
+验收脚本将能力报告中的实际主机环境身份同步写入 `static_meta.json` 和 `run_state.json`，
+与 client 写入 CSV 的身份交叉核对；不根据 CSV 猜测主机，也不放宽环境不一致的审计错误。
+`test_onnx_basic_audit.py` 在 Docker/HTTP 边界模拟下覆盖 Native Linux、WSL2 的身份保存和不一致拒绝，
+保留真实 CSV 合并及审计链路；此测试不代替上述容器端到端验证。
 `--basic-e2e` 依次执行表格、图像、文本三种场景，每种包含一次 warmup 和两次正式请求；
 任一场景失败即返回失败。图像检查原始与处理后尺寸，文本检查具名整数输入及实际 token 数。
 真实 ORT、WordPiece tokenizer、HTTP probe 与既有规划器的联合回归还覆盖超限拒绝和自动尺度规划。

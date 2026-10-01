@@ -208,6 +208,7 @@ prepare_basic_scenario(os.environ['ACPROF_BASIC_SCENARIO'], Path('/evidence'))
         audit_basic_capabilities(capability)
         # This records the diagnostic's measured plan; it does not invoke the hardware matrix.
         atomic_write_json(output / "static_meta.json", {
+            **capability.identity,
             "schema_version": STATIC_META_SCHEMA_VERSION, "validation_scope": "synthetic_onnx_basic_container",
             "model_id": container_environment["MODEL_ID"], "task_family": specification["family"],
             "pipeline_tag": specification["task"], "runtime_backend": "onnxruntime",
@@ -218,6 +219,7 @@ prepare_basic_scenario(os.environ['ACPROF_BASIC_SCENARIO'], Path('/evidence'))
             "capability_report": capability.to_dict(),
         })
         atomic_write_json(output / "run_state.json", {
+            **capability.identity,
             "schema_version": 1, "status": "complete", "run_id": name,
             "validation_scope": "synthetic_onnx_basic_container",
             "options": {"cpus": "2", "mems": "1", "gpus": "off", "warmup": 1, "repeat": 2,
