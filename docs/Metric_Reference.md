@@ -1,15 +1,16 @@
-# æŒ‡æ ‡ç™»è®°è¡¨é€ŸæŸ¥
+# Ö¸±êµÇ¼Ç±íËÙ²é
 
-ç”± `scripts/render_metric_reference.py` ç”Ÿæˆï¼Œæ¥æºä¸º [metric_registry.py](../acprof/metric_registry.py)ã€‚
-å­—æ®µè§£é‡Šå’Œè®¡ç®—å…¬å¼è§ [æŒ‡æ ‡](Metrics.md)ã€[èƒ½è€—](Energy_Measurement.md) å’Œ [Profiler](Profilers.md)ã€‚
+ÓÉ `scripts/render_metric_reference.py` Éú³É£¬À´Ô´Îª [metric_registry.py](../acprof/metric_registry.py)¡£
+×Ö¶Î½âÊÍºÍ¼ÆËã¹«Ê½¼û [Ö¸±ê](Metrics.md)¡¢[ÄÜºÄ](Energy_Measurement.md) ºÍ [Profiler](Profilers.md)¡£
 
-`request_window` è¡¨ç¤ºæœ¬è¡Œè¯·æ±‚çª—å£ï¼›å•ä½ä¸­çš„ `/request` è¡¨ç¤ºå·²æŒ‰å®é™…è¯·æ±‚æ•°å½’ä¸€åŒ–ã€‚
-`cgroup_lifetime`ã€`container_startup`ã€`profiler_process_lifetime` å’Œ `independent_profiler`
-å…·æœ‰ç‹¬ç«‹çš„ç”Ÿå‘½å‘¨æœŸï¼Œä¸èƒ½æŠŠå¤åˆ¶åˆ°å¤šè¡Œçš„å€¼å½“ä½œé‡å¤æµ‹é‡ã€‚`input_scale_type` ä¸
-`task_output_unit` çš„å…·ä½“å•ä½ç”±æ¨¡å‹ä»»åŠ¡å’Œç‰©åŒ–è¾“å…¥è®¡åˆ’å®šä¹‰ã€‚
+`request_window` ±íÊ¾±¾ĞĞÇëÇó´°¿Ú£»µ¥Î»ÖĞµÄ `/request` ±íÊ¾ÒÑ°´Êµ¼ÊÇëÇóÊı¹éÒ»»¯¡£
+`cgroup_lifetime`¡¢`container_startup`¡¢`profiler_process_lifetime` ºÍ `independent_profiler`
+¾ßÓĞ¶ÀÁ¢µÄÉúÃüÖÜÆÚ£¬²»ÄÜ°Ñ¸´ÖÆµ½¶àĞĞµÄÖµµ±×÷ÖØ¸´²âÁ¿¡£`input_scale_type` Óë
+`task_output_unit` µÄ¾ßÌåµ¥Î»ÓÉÄ£ĞÍÈÎÎñºÍÎï»¯ÊäÈë¼Æ»®¶¨Òå¡£
 
-| å­—æ®µ | å•ä½ | æ¥æº | çª—å£ | é€‚ç”¨èŒƒå›´ | ç±»å‹ |
+| ×Ö¶Î | µ¥Î» | À´Ô´ | ´°¿Ú | ÊÊÓÃ·¶Î§ | ÀàĞÍ |
 | --- | --- | --- | --- | --- | --- |
+| `environment_class` | `text` | `platform_identity` | `experiment` | `all` | `text` |
 | `cpu_cores` | `core` | `protocol` | `case` | `all` | `number` |
 | `mem_cap_gb` | `GiB` | `protocol` | `case` | `all` | `number` |
 | `gpu_mode` | `text` | `protocol` | `case` | `gpu` | `text` |

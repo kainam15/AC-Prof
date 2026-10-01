@@ -147,7 +147,7 @@ class RuntimeValidationTests(unittest.TestCase):
                 '--gpus', 'off,on', '--input-scales', '1', '--notify', 'none', '--output-dir', temporary,
             ]))
             for name in (
-                'bootstrap_project_env', 'require_native_linux_host', 'require_native_docker',
+                'bootstrap_project_env', 'require_collection_host', 'require_native_docker',
                 'require_packet_latency_prerequisites', 'require_cpu_energy_prerequisites',
                 'require_mips_prerequisites',
             ):

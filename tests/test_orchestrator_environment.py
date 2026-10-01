@@ -68,6 +68,8 @@ def _write_cpu_case_csv(path: str, idle_power_values: list[float], gpu_mode: str
 
 class DetectEnvironmentTests(unittest.TestCase):
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         conditions = patch("acprof.host.orchestrator.record_case_conditions")
         conditions.start()
         self.addCleanup(conditions.stop)
@@ -359,7 +361,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             commands,
         )
 
-    def test_detect_environment_windows_11_with_wsl_kernel(self) -> None:
+    def test_windows_process_is_not_relabelled_from_docker_wsl_kernel(self) -> None:
         with patch("acprof.host.static_metadata.platform.system", return_value="Windows"), patch(
             "acprof.host.static_metadata.platform.release", return_value="11"
         ), patch.dict("acprof.host.static_metadata.os.environ", {}, clear=True), patch(
@@ -370,7 +372,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 stderr="",
             ),
         ):
-            self.assertEqual(static_metadata._detect_environment(), "windows11+wsl")
+            self.assertEqual(static_metadata._detect_environment(), "windows11")
 
     def test_detect_environment_linux_ubuntu_without_wsl(self) -> None:
         with patch("acprof.host.static_metadata.platform.system", return_value="Linux"), patch(

@@ -208,6 +208,8 @@ class ClientRunner:
 
     def __init__(self, config: ClientConfig):
         self.config = config
+        from acprof.platform import detect_environment
+        self.collection_environment = detect_environment()
         self.first_predict_app_s = float("nan")
         self.input_scale_entries: List[Dict[str, Any]] = []
         self.use_energy = config.gpu_mode == "on"
@@ -501,6 +503,13 @@ class ClientRunner:
         row.update(
             _execution_profile_row_metrics(execution_profile)
         )
+        row["environment_class"] = self.collection_environment.environment
+        if self.collection_environment.environment == "wsl2":
+            from acprof.metric_registry import METRICS
+            from acprof.platform import native_only_metric
+            for name, metric in METRICS.items():
+                if native_only_metric(metric):
+                    row[name] = "nan" if metric.kind == "number" else "unavailable"
         return row
 
     def _execute_window(self, scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f, cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s, compute_profile_plan, execution_profile_plan):
@@ -823,6 +832,7 @@ class ClientRunner:
         )
 
         row = self._build_result_row({
+            "environment_class": self.collection_environment.environment,
             "gpu_device_uuid": self.config.gpu_device_uuid if self.use_energy else "nan",
             "gpu_energy_source": getattr(gpu_result, "energy_source", "unavailable") if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) else "not_requested",
             "gpu_energy_fallback_reason": getattr(gpu_result, "energy_fallback_reason", ""),
@@ -918,6 +928,9 @@ class ClientRunner:
         return row, idle_diag_record, sniff_group_id
 
     def main(self) -> None:
+        from acprof.host.preflight import require_collection_host
+        require_collection_host(profiling_mode=self.config.profiling_mode,
+                                dram_energy=self.config.dram_energy)
         from acprof.artifacts import read_static_metadata
         from acprof.latency_slo import latency_slo_threshold
         slow_latency_threshold_s = latency_slo_threshold(

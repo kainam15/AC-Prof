@@ -26,6 +26,8 @@ from acprof.pixel_metrics import pixel_counts_from_metadata
 
 class PixelNormalizationTests(unittest.TestCase):
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         self.runner = ClientRunner(ClientConfig())
 
     def write_result(self, root, *, family="diffusion", scale_type="resolution_px",

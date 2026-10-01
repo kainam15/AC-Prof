@@ -19,6 +19,8 @@ from acprof.host.run_state import RunState
 
 class ArtifactLayoutTests(unittest.TestCase):
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         self.runner = ClientRunner(ClientConfig())
 
     def test_client_uses_the_experiment_slo_from_nested_case_directory(self):

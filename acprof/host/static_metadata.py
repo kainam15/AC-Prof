@@ -26,6 +26,7 @@ from acprof.host.model_schema import (
     _model_io_formats,
 )
 from acprof.monitors.rapl_topology import discover_rapl_topology
+from acprof.platform import detect_environment
 
 
 @dataclass
@@ -63,6 +64,11 @@ class StaticMeta:
     gpu_device: Dict[str, Any] = field(default_factory=dict)
     profiling_mode: str = "full"
     capability_report: Dict[str, Any] = field(default_factory=dict)
+    platform: Dict[str, Any] = field(default_factory=dict)
+    collection_tier: str = "unknown"
+    comparability_class: str = "unknown"
+    environment_class: str = "unknown"
+    platform_runtime: Dict[str, Any] = field(default_factory=dict)
     rapl_topology: Dict[str, Any] = field(default_factory=dict)
     cgroup_version: str = "unknown"
     cgroup_collection_mode: str = "unknown"
@@ -584,30 +590,6 @@ def _macos_environment_label() -> str:
     return "macos"
 
 
-def _process_is_wsl() -> bool:
-    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
-        return True
-
-    try:
-        return platform.system() == "Linux" and "microsoft" in platform.release().lower()
-    except Exception:
-        return False
-
-
-def _docker_kernel_indicates_wsl() -> bool:
-    try:
-        result = _run(
-            ["docker", "info", "--format", "{{.KernelVersion}}"],
-            check=False,
-        )
-    except Exception:
-        return False
-
-    if result.returncode != 0:
-        return False
-    return "microsoft-standard-wsl" in result.stdout.strip().lower()
-
-
 def _detect_environment() -> str:
     try:
         system = platform.system()
@@ -623,7 +605,7 @@ def _detect_environment() -> str:
     else:
         label = str(system).strip().lower() or "unknown"
 
-    if label != "unknown" and (_process_is_wsl() or _docker_kernel_indicates_wsl()):
+    if label != "unknown" and detect_environment().environment == "wsl2":
         return f"{label}+wsl"
     return label
 
@@ -702,6 +684,9 @@ def collect_static_meta(
 ) -> StaticMeta:
     """Collect static metadata for the current model/image pair."""
     from acprof.capabilities import measurement_requested
+    from acprof.host.platform_metadata import collect_platform_metadata
+    from acprof.installation import resource_root
+    environment = detect_environment()
     cpu_power_source, vcpu_power_method = (
         _cpu_power_metadata() if measurement_requested(profiling_mode, "cpu_energy")
         else ("not_requested", "not_requested")
@@ -715,6 +700,8 @@ def collect_static_meta(
     model_bytes = store["model_artifact_bytes"] if store else _docker_model_cache_bytes(image_info.tag)
     image_bytes = _docker_image_size_bytes(image_info.tag)
     static_meta = StaticMeta(
+        **environment.metadata(),
+        platform_runtime=collect_platform_metadata(environment, resource_root()),
         model_name=task_info.model_id,
         profiling_mode=profiling_mode,
         model_revision=task_info.model_revision,
@@ -776,7 +763,7 @@ def collect_static_meta(
         cgroup_collection_mode=cgroup_collection_mode,
         cpu_power_source=cpu_power_source,
         vcpu_power_method=vcpu_power_method,
-        rapl_topology=discover_rapl_topology(),
+        rapl_topology=discover_rapl_topology() if environment.native else {},
         cpu_governor=cpu_governor,
         cpu_boost=cpu_boost,
     )

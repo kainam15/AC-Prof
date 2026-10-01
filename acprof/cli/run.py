@@ -61,11 +61,12 @@ from acprof.host.packet_capture import (
 )
 from acprof.host.preflight import (
     require_cgroup_prerequisites,
+    require_collection_host,
     require_cpu_energy_prerequisites,
     require_mips_prerequisites,
     require_native_docker,
-    require_native_linux_host,
     require_result_cgroup_compatibility,
+    require_result_environment,
 )
 from acprof.host.profiler_progress import ProfilerProgress
 from acprof.host.run_state import RunState, RunStateError, load_run_state, run_options
@@ -945,6 +946,10 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     for name, value in asdict(common).items():
         setattr(args, name, value)
 
+    require_collection_host(profiling_mode=args.profiling_mode,
+                            compute_tool=args.compute_profile_tool,
+                            execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)
+
     terminal_output_dir = os.path.join(
         os.getcwd(),
         args.output_dir,
@@ -976,10 +981,10 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     task_info = workflow.resolve(args, initial=initial_task)
 
     def host_preflight():
-        require_native_linux_host()
         require_native_docker()
         version = require_cgroup_prerequisites()
-        topology = discover_rapl_topology()
+        from acprof.platform import detect_environment
+        topology = discover_rapl_topology() if detect_environment().native else {}
         measurements = {}
         if dram_enabled and args.dram_energy == "required" and topology["dram_status"] != "available":
             raise RuntimeError(f"required DRAM RAPL unavailable: {topology['dram_status']}; "
@@ -995,7 +1000,10 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         return version, topology, measurements
 
     cgroup_version, rapl_topology, preflight_measurements = workflow.run("preflight", host_preflight)
-    cgroup_collection_mode = "strict_v2"
+    from acprof.platform import detect_environment
+    collection_environment = detect_environment()
+    cgroup_collection_mode = "strict_v2" if collection_environment.native else "wsl2_v2"
+    print(f"  Environment: {collection_environment.label}; Native benchmark: {collection_environment.native}")
     from acprof.runtime_profiles import select_runtime_profile
     latency_slo = resolve_latency_slo(
         latency_slo_rules, pipeline_tag=task_info.pipeline_tag,
@@ -1020,6 +1028,10 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         args.output_dir,
         task_info.model_id.replace("/", "--"),
     )
+    try:
+        require_result_environment(output_dir)
+    except ValueError as exc:
+        parser.error(str(exc))
     require_result_cgroup_compatibility(
         output_dir,
         cgroup_version=cgroup_version,

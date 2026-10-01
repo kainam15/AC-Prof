@@ -8,7 +8,7 @@ from acprof.config import CSV_FIELDS
 
 class MetricRegistryTests(unittest.TestCase):
     def test_historical_field_order_is_unchanged(self):
-        additions = {'result_origin', 'workload_contract', 'gpu_device_uuid', 'gpu_energy_source',
+        additions = {'environment_class', 'result_origin', 'workload_contract', 'gpu_device_uuid', 'gpu_energy_source',
                      'gpu_energy_fallback_reason', 'gpu_idle_energy_source',
                      'latency_tail_ratio', 'latency_app_tail_ratio',
                      'cpu_cycles_per_request', 'cpu_ref_cycles_per_request', 'cpu_ipc', 'cpu_perf_running_pct'}

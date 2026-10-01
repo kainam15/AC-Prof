@@ -50,7 +50,7 @@ class TaskSupportTests(unittest.TestCase):
                         csv = existing / "result_all.csv"
                         csv.write_text("existing measurement\n", encoding="utf-8")
                         stack.enter_context(patch.object(module, "bootstrap_project_env"))
-                        for guard in ("require_native_linux_host", "require_native_docker", "require_cgroup_prerequisites"):
+                        for guard in ("require_collection_host", "require_native_docker", "require_cgroup_prerequisites"):
                             stack.enter_context(patch.object(module, guard, return_value="v2"))
                         if module is run:
                             for guard in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites", "_start_tmux_terminal_log"):

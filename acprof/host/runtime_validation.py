@@ -46,7 +46,9 @@ def validate_runtime(
     require_schema_version(plan, 2, "input_scale_plan.json")
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     encoded = json.dumps(entry["payload"], ensure_ascii=False).encode()
+    from acprof.platform import detect_environment
     report: dict[str, Any] = {
+        **detect_environment().metadata(),
         "schema_version": 1, "status": "running", "image_id": image_info.tag,
         "build_fingerprint": image_info.runtime_environment["build_fingerprint"],
         "input_scale": entry["input_scale"], "payload_sha256": hashlib.sha256(encoded).hexdigest(),

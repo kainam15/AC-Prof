@@ -61,6 +61,11 @@ from acprof.metric_registry import (  # noqa: E402
 STATIC_META_FIELDS = [
     "profiling_mode",
     "capability_report",
+    "platform",
+    "collection_tier",
+    "comparability_class",
+    "environment_class",
+    "platform_runtime",
     "schema_version",
     "model_name",
     "model_revision",

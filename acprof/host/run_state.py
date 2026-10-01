@@ -16,6 +16,7 @@ from uuid import uuid4
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.host.execution_conditions import measurement_environment
+from acprof.platform import detect_environment
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.source_identity import measurement_sources, source_fingerprint
 
@@ -49,6 +50,7 @@ def host_identity(project_dir: str | Path) -> dict:
                       for dist in importlib.metadata.distributions())
     machine_id = Path("/etc/machine-id")
     return {
+        **detect_environment().metadata(),
         "machine": platform.machine(), "kernel": platform.release(), "hostname": platform.node(),
         "machine_id_sha256": file_sha256(machine_id) if machine_id.is_file() else None,
         "python": platform.python_version(), "source_sha256": source_hash,

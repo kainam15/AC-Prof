@@ -680,9 +680,13 @@ def _write_case_error_csv(
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
     scales = resolve_input_scales(task_info.task_family, input_scales)
 
+    from acprof.platform import detect_environment
+    environment_class = detect_environment().environment
+
     def make_row(scale: float, repeat_idx: int, is_warmup: bool) -> Dict[str, Any]:
         row = {field: "nan" for field in CSV_FIELDS}
         row.update({
+            "environment_class": environment_class,
             "cpu_cores": str(cpu),
             "mem_cap_gb": str(mem),
             "gpu_mode": gpu,

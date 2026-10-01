@@ -39,8 +39,12 @@ class ResourceUsageMonitor:
         self.dt = 1.0 / self.sample_hz
         self.cpu_sysfs_root = cpu_sysfs_root
         self.proc_cpuinfo_path = proc_cpuinfo_path
-        self._cpu_frequency_reader = resource_readers._prepare_cpu_frequency_reader(
-            cpu_sysfs_root, proc_cpuinfo_path)
+        from acprof.platform import detect_environment
+        self._partial_platform = detect_environment().environment == "wsl2"
+        self.gpu_query_errors: dict[str, str] = {}
+        self._cpu_frequency_reader = ((lambda: (None, None)) if self._partial_platform else
+                                     resource_readers._prepare_cpu_frequency_reader(
+                                         cpu_sysfs_root, proc_cpuinfo_path))
 
         self.samples: List[resource_metrics.ResourceUsageSample] = []
         self._cpu_reader: Optional[Callable[[], float]] = None
@@ -312,12 +316,15 @@ class ResourceUsageMonitor:
         if self._gpu_handle is not None and pynvml is not None:
             try:
                 util = pynvml.nvmlDeviceGetUtilizationRates(self._gpu_handle)
-                mem = pynvml.nvmlDeviceGetMemoryInfo(self._gpu_handle)
                 gpu_util_pct = float(util.gpu)
+            except Exception as exc:
+                self._gpu_query_error("utilization", exc)
+            try:
+                mem = pynvml.nvmlDeviceGetMemoryInfo(self._gpu_handle)
                 gpu_mem_used_bytes = int(mem.used)
                 gpu_mem_total_bytes = int(mem.total)
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._gpu_query_error("memory", exc)
             try:
                 gpu_sm_clock_mhz = float(
                     pynvml.nvmlDeviceGetClockInfo(
@@ -326,7 +333,7 @@ class ResourceUsageMonitor:
                     )
                 )
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._gpu_query_error("sm_clock", exc)
             try:
                 gpu_memory_clock_mhz = float(
                     pynvml.nvmlDeviceGetClockInfo(
@@ -335,13 +342,13 @@ class ResourceUsageMonitor:
                     )
                 )
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._gpu_query_error("memory_clock", exc)
             try:
                 gpu_pstate = resource_metrics._normalize_pstate(
                     pynvml.nvmlDeviceGetPerformanceState(self._gpu_handle)
                 )
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._gpu_query_error("pstate", exc)
             try:
                 gpu_temp_c = float(
                     pynvml.nvmlDeviceGetTemperature(
@@ -350,7 +357,7 @@ class ResourceUsageMonitor:
                     )
                 )
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._gpu_query_error("temperature", exc)
 
         return resource_metrics.ResourceUsageSample(
             timestamp,
@@ -370,3 +377,10 @@ class ResourceUsageMonitor:
 
     def _append_sample(self, timestamp: float) -> None:
         self.samples.append(self._read_sample(timestamp))
+
+    def _gpu_query_error(self, query: str, error: Exception) -> None:
+        self.gpu_query_errors[query] = str(error)
+        if (self._partial_platform and pynvml is not None
+                and isinstance(error, pynvml.NVMLError_NotSupported)):
+            return
+        self._runtime_error = str(error)

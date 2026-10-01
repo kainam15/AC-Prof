@@ -98,6 +98,8 @@ class RunRecoveryTests(unittest.TestCase):
             self.invoke('--resume')
 
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -132,7 +134,9 @@ class RunRecoveryTests(unittest.TestCase):
                                   hashlib.sha256(path.read_bytes()).hexdigest())
 
     def invoke(self, *extra, case=None, validation=None, output=None):
+        from acprof.platform import Environment
         metadata = StaticMeta(
+            **Environment("native_linux").metadata(),
             model_name="org/model", model_revision="a" * 40, task_family="nlp",
             pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
             image_tag=self.image.tag, batch_size=1, input_scale_type="seq_length",
@@ -148,7 +152,7 @@ class RunRecoveryTests(unittest.TestCase):
                 "--repeat-in-window", "1", "--notify", "none", "--no-prune-startup-oom",
                 "--output-dir", str(self.root), "--matrix-order", "declared", *extra,
             ]))
-            for name in ("bootstrap_project_env", "require_native_linux_host", "require_native_docker",
+            for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker",
                          "require_packet_latency_prerequisites", "require_cpu_energy_prerequisites",
                          "require_mips_prerequisites"):
                 stack.enter_context(patch.object(run, name))

@@ -19,8 +19,8 @@ from acprof.host.largest_scale_probe import (
 )
 from acprof.host.preflight import (
     require_cgroup_prerequisites,
+    require_collection_host,
     require_native_docker,
-    require_native_linux_host,
 )
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
@@ -122,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     command_started = time.perf_counter()
     bootstrap_project_env(Path.cwd())
-    require_native_linux_host()
+    require_collection_host()
     require_native_docker()
     cgroup_version = require_cgroup_prerequisites()
 
@@ -196,6 +196,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     summary["timing"]["command_s"] = time.perf_counter() - command_started
+    from acprof.platform import detect_environment
+    summary.update(detect_environment().metadata())
     write_probe_summary(summary["artifacts"]["summary"], summary)
     print(
         "[largest-probe] Total command elapsed: "

@@ -16,6 +16,7 @@ import acprof.host.posthoc.plans as host_posthoc_plans
 import acprof.host.posthoc.storage as host_posthoc_storage
 from acprof.cli import posthoc
 from acprof.host.compute_profile_plan import TORCH_LOGICAL_MFLOP_FIELD
+from acprof.platform import Environment
 
 
 class PosthocProfileTests(unittest.TestCase):
@@ -44,6 +45,8 @@ class PosthocProfileTests(unittest.TestCase):
             self.assertFalse((root / "collection_history.json").exists())
 
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         selection = patch('acprof.host.posthoc.service.pin_gpu_device')
         self.pin_gpu = selection.start()
         self.addCleanup(selection.stop)
@@ -156,6 +159,7 @@ class PosthocProfileTests(unittest.TestCase):
         plan_path.write_text(json.dumps(input_plan), encoding="utf-8")
         plan_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest()
         static_meta = {
+            **Environment("native_linux").metadata(),
             "schema_version": 7,
             "gpu_device": {"uuid": "GPU-fixture"},
             "model_name": "example/model",

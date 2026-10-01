@@ -23,7 +23,7 @@ class ModelInspectionTests(unittest.TestCase):
             task = TaskInfo("example/native", tag, family, "transformers_pipeline", "transformers", "a" * 40, "hub")
             with self.subTest(family=family), tempfile.TemporaryDirectory() as directory, patch(
                     "acprof.host.docker_runtime.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
-                    "acprof.host.preflight.require_native_linux_host"), patch(
+                    "acprof.host.preflight.require_collection_host"), patch(
                     "acprof.host.preflight.require_native_docker"), patch(
                     "acprof.host.run_state.MeasurementLock"), patch(
                     "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}) as validate:
@@ -45,7 +45,7 @@ class ModelInspectionTests(unittest.TestCase):
                            "model_file": "iris.onnx", "feature_dim": 4}
         with tempfile.TemporaryDirectory() as directory, patch("acprof.host.docker_runtime.prepare_image",
                 return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
-                "acprof.host.preflight.require_native_linux_host"), patch(
+                "acprof.host.preflight.require_collection_host"), patch(
                 "acprof.host.preflight.require_native_docker"), patch(
                 "acprof.host.run_state.MeasurementLock"), patch(
                 "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}) as validate:

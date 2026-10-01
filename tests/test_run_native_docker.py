@@ -100,6 +100,8 @@ class TmuxTerminalLogTests(unittest.TestCase):
 
 class NativeDockerGuardTests(unittest.TestCase):
     def setUp(self) -> None:
+        from platform_fixtures import native_policy
+        native_policy(self)
         self.resolved_task = TaskInfo(
             model_id="dummy-model",
             pipeline_tag="fill-mask",
@@ -124,43 +126,45 @@ class NativeDockerGuardTests(unittest.TestCase):
         self.addCleanup(notification_env.stop)
 
     def test_native_linux_host_allows_ubuntu(self) -> None:
-        with patch("acprof.host.preflight.platform.system", return_value="Linux"), patch(
-            "acprof.host.preflight.platform.release",
+        with patch("acprof.platform.platform.system", return_value="Linux"), patch(
+            "acprof.platform.platform.release",
             return_value="7.0.0-28-generic",
         ), patch.dict("acprof.host.preflight.os.environ", {}, clear=True):
-            run.require_native_linux_host()
+            host_preflight.require_native_linux_host()
 
     def test_native_linux_host_rejects_wsl(self) -> None:
         stderr = io.StringIO()
+        from acprof.platform import Environment
 
-        with patch("acprof.host.preflight.platform.system", return_value="Linux"), patch(
-            "acprof.host.preflight.platform.release",
+        with patch("acprof.host.preflight.detect_environment", return_value=Environment("wsl2")), patch(
+            "acprof.platform.platform.release",
             return_value="6.6.87.2-microsoft-standard-WSL2",
         ), patch.dict(
             "acprof.host.preflight.os.environ",
             {"WSL_DISTRO_NAME": "Ubuntu"},
             clear=True,
         ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
-            run.require_native_linux_host()
+            host_preflight.require_native_linux_host()
 
         self.assertEqual(raised.exception.code, 1)
         message = stderr.getvalue()
         self.assertIn("native Linux host", message)
-        self.assertIn("WSL was detected", message)
+        self.assertIn("WSL2 / PARTIAL", message)
         self.assertIn("acprof run", message)
 
     def test_native_linux_host_rejects_windows(self) -> None:
         stderr = io.StringIO()
+        from acprof.platform import Environment
 
-        with patch("acprof.host.preflight.platform.system", return_value="Windows"), patch.dict(
+        with patch("acprof.host.preflight.detect_environment", return_value=Environment()), patch.dict(
             "acprof.host.preflight.os.environ",
             {},
             clear=True,
         ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
-            run.require_native_linux_host()
+            host_preflight.require_native_linux_host()
 
         self.assertEqual(raised.exception.code, 1)
-        self.assertIn("detected host OS Windows", stderr.getvalue())
+        self.assertIn("unknown / UNKNOWN", stderr.getvalue())
 
     def test_detect_cgroup_version_distinguishes_v2_and_v1(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -263,7 +267,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_native_linux_host",
+            "acprof.cli.run.require_collection_host",
         ), patch(
             "acprof.cli.run.require_native_docker",
         ), patch(
@@ -311,7 +315,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_native_linux_host"), patch(
+        ), patch("acprof.cli.run.require_collection_host"), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(
             "acprof.cli.run.require_cgroup_prerequisites",
@@ -345,7 +349,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_native_linux_host"), patch(
+        ), patch("acprof.cli.run.require_collection_host"), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(
             "acprof.cli.run.require_cgroup_prerequisites",
@@ -488,7 +492,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "argv",
             ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.require_native_linux_host",
+            "acprof.cli.run.require_collection_host",
             side_effect=RuntimeError("host guard called"),
         ), patch(
             "acprof.cli.run.require_native_docker",
@@ -498,7 +502,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
             with self.assertRaisesRegex(RuntimeError, "host guard called"):
                 run.main()
-        detect.assert_called_once()
+        detect.assert_not_called()
 
     def test_main_invokes_native_docker_guard_after_host_guard(self) -> None:
         with patch.object(
@@ -506,7 +510,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "argv",
             ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.require_native_linux_host",
+            "acprof.cli.run.require_collection_host",
         ), patch(
             "acprof.cli.run.require_native_docker",
             side_effect=RuntimeError("guard called"),
@@ -521,7 +525,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(sys, "argv", ["acprof.cli.run.py", "--model", "dummy-model"]), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_native_linux_host"), patch(
+        ), patch("acprof.cli.run.require_collection_host"), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(
             "acprof.cli.run.require_cgroup_prerequisites",
@@ -584,7 +588,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_native_linux_host"
+            "acprof.cli.run.require_collection_host"
         ), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(
@@ -681,7 +685,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_native_linux_host"
+            "acprof.cli.run.require_collection_host"
         ), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(
@@ -789,7 +793,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_native_linux_host"
+            "acprof.cli.run.require_collection_host"
         ), patch(
             "acprof.cli.run.require_native_docker"
         ), patch(

@@ -151,7 +151,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             "acprof.host.detect.detect_task",
             side_effect=resolve,
         ), patch(
-            "acprof.cli.run.require_native_linux_host",
+            "acprof.cli.run.require_collection_host",
             side_effect=preflight,
         ):
             with self.assertRaisesRegex(RuntimeError, "ordering check"):
@@ -345,7 +345,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         ), patch.multiple(
             run,
             bootstrap_project_env=Mock(),
-            require_native_linux_host=Mock(),
+            require_collection_host=Mock(),
             require_native_docker=Mock(),
             require_cgroup_prerequisites=Mock(return_value="v2"),
             require_packet_latency_prerequisites=Mock(),

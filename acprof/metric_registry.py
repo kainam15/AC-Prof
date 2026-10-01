@@ -23,6 +23,7 @@ class Metric:
 
 # 顺序就是 CSV 协议顺序；单位和窗口在此显式声明，消费者不得按列名猜测。
 _DECLARATIONS = (
+    Metric('environment_class', 'text', 'platform_identity', 'experiment', kind='text'),
     # 资源配置、输入、输出与网络。
     Metric('cpu_cores', 'core', 'protocol', 'case'),
     Metric('mem_cap_gb', 'GiB', 'protocol', 'case'),

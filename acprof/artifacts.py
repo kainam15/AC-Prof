@@ -36,7 +36,8 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
     history = [key for key in payload if key.endswith(("_history", "_last_run"))]
     if history:
         raise ValueError(f"{path}: collection history must be in collection_history.json: {history}")
-    return payload
+    from acprof.platform import recorded_identity
+    return {**payload, **recorded_identity(payload)}
 
 
 def atomic_write(path: str | Path, write: Callable[[TextIO], None]) -> None:

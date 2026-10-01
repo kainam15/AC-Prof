@@ -91,6 +91,8 @@ class MonitorCleanupTests(unittest.TestCase):
         mips.close.assert_called_once()
 
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         self.runner = ClientRunner(ClientConfig())
 
     def run_failure(self, fault, *, request_error=None, journal_error=None):

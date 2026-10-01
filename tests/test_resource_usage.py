@@ -9,6 +9,10 @@ from acprof.monitors import resource_metrics, resource_readers, resource_usage
 
 
 class ResourceUsageMonitorTests(unittest.TestCase):
+    def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
+
     def test_sampling_does_not_rediscover_cpu_topology(self):
         with patch.object(resource_readers, "_resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
             resource_readers, "_discover_cpu_ids", return_value=[],

@@ -19,6 +19,8 @@ from acprof.host.docker_runtime import ImageInfo, RunningContainer
 
 class ProfilingModeTests(unittest.TestCase):
     def setUp(self):
+        from platform_fixtures import native_policy
+        native_policy(self)
         self.runner = ClientRunner(ClientConfig())
 
     def test_basic_refuses_missing_required_resource_collector(self):
@@ -115,7 +117,7 @@ class ProfilingModeTests(unittest.TestCase):
         from acprof.cli import run
         with ExitStack() as stack:
             stack.enter_context(patch.object(run.sys, "argv", ["run.py", "--model", "test", "--profiling-mode", "basic", "--notify", "none"]))
-            for name in ("bootstrap_project_env", "require_native_linux_host", "require_native_docker"):
+            for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker"):
                 stack.enter_context(patch.object(run, name))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))
             for name in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites"):

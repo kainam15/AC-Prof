@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import subprocess
 import sys
 from pathlib import Path
 
 from acprof.capabilities import Capability, CapabilityStatus, capability_from_error
 from acprof.host.command import run_command
+from acprof.platform import collection_policy_error, detect_environment, recorded_identity
 
 NATIVE_DOCKER_SOCKET = "/var/run/docker.sock"
 
@@ -22,15 +22,6 @@ def _docker_info_is_docker_desktop(info: str) -> bool:
 def _docker_context_is_docker_desktop(context_name: str) -> bool:
     normalized = (context_name or "").strip().lower()
     return normalized in {"desktop-linux", "docker-desktop"} or normalized.startswith("desktop-")
-
-
-def _process_is_wsl() -> bool:
-    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
-        return True
-    try:
-        return "microsoft" in platform.release().lower()
-    except Exception:
-        return False
 
 
 def _exit_unsupported_host(reason: str) -> None:
@@ -51,15 +42,42 @@ def _exit_unsupported_host(reason: str) -> None:
 
 def require_native_linux_host() -> None:
     """Exit before profiling when the process is not on native Linux."""
-    try:
-        system = platform.system()
-    except Exception:
-        system = ""
+    environment = detect_environment()
+    if not environment.native:
+        _exit_unsupported_host(f"detected {environment.label}")
 
-    if system != "Linux":
-        _exit_unsupported_host(f"detected host OS {system or 'unknown'}")
-    if _process_is_wsl():
-        _exit_unsupported_host("WSL was detected")
+
+def require_collection_host(*, profiling_mode="basic", compute_tool="none",
+                            execution_tool="none", dram_energy="auto") -> None:
+    error = collection_policy_error(detect_environment(), profiling_mode=profiling_mode,
+                                    compute_tool=compute_tool, execution_tool=execution_tool,
+                                    dram_energy=dram_energy)
+    if error:
+        print(f"[platform][ERROR] {error}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def require_result_environment(output_dir: str) -> None:
+    """Prevent extending a historical/foreign dataset under today's identity."""
+    from acprof.artifact_layout import ArtifactLayout
+    root = Path(output_dir)
+    if not root.is_dir():
+        return
+    layout = ArtifactLayout.discover(root)
+    meta_path = layout.path("static_meta.json")
+    has_rows = layout.result_csv.exists() or any(root.glob("result_case_*.csv")) or any(
+        root.glob(".acprof/work/cases/*/result.csv"))
+    if not meta_path.exists() and not has_rows:
+        return
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        old = recorded_identity(payload)["comparability_class"]
+    except (OSError, ValueError, TypeError, AttributeError):
+        old = "unknown"
+    current = detect_environment().environment
+    if old == "unknown" or old != current:
+        raise ValueError(f"Refusing to mix result environments: existing={old}, current={current}; "
+                         "choose a new output directory. Native Linux baselines cannot contain WSL results.")
 
 
 def detect_cgroup_version(
@@ -277,6 +295,8 @@ def require_native_docker() -> None:
 
 def probe_cpu_energy() -> Capability:
     """Reuse the production detector, retaining the reason for missing counters."""
+    if detect_environment().environment == "wsl2":
+        return Capability("unsupported", "RAPL unavailable on WSL2; requires Native Linux", "platform_policy")
     try:
         from acprof.monitors import energy_cpu
         source = energy_cpu.detect_cpu_power_source()
@@ -297,6 +317,8 @@ def probe_cpu_energy() -> Capability:
 
 
 def probe_perf_instructions(*, env=None) -> Capability:
+    if detect_environment().environment == "wsl2":
+        return Capability("unsupported", "PMU/perf unavailable on WSL2; requires Native Linux", "platform_policy")
     from acprof.monitors.perf_mips import resolve_perf_command_prefix
     try:
         prefix = resolve_perf_command_prefix(env=env)

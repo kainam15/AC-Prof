@@ -403,7 +403,7 @@ class LargestScaleProbeTests(unittest.TestCase):
 
     @patch("acprof.cli.probe.require_cgroup_prerequisites", return_value="v2")
     @patch("acprof.cli.probe.require_native_docker")
-    @patch("acprof.cli.probe.require_native_linux_host")
+    @patch("acprof.cli.probe.require_collection_host")
     @patch("acprof.cli.probe.bootstrap_project_env")
     @patch("acprof.host.detect.detect_task", return_value=_task_info())
     @patch("acprof.cli.probe.plan_input_scales")

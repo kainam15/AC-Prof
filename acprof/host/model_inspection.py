@@ -62,7 +62,7 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
                          reuse_existing: bool = False) -> dict:
     from acprof.host.docker_runtime import prepare_image
     from acprof.host.input_plan import _get_task_generator, resolve_input_scales
-    from acprof.host.preflight import require_native_docker, require_native_linux_host
+    from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     from acprof.host.runtime_validation import validate_runtime
     from acprof.host.task_support import require_task_support
@@ -74,7 +74,7 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
     if mode == "basic" and not task_info.model_resolution.get("contract"):
         raise ValueError("basic signature probe requires a Pipeline contract; use --probe full for native models")
     require_task_support(task_info)
-    require_native_linux_host()
+    require_collection_host()
     require_native_docker()
     root = Path(output_dir)
     with MeasurementLock(), ResultDirectoryLock(root):
