@@ -410,8 +410,10 @@ git diff --check
 其静态、容器 full Probe 与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
 
 采集准备与重试使用 `test_collection_workflow.py`、`test_run_native_docker.py`、
-`test_run_notifications.py` 和 `test_tui_collection_workflow.py`。当前顺序为开始通知、模型解析、
-主机预检、运行环境准备和验证、正式测量；预检失败必须阻止后续准备。预检和通知测试在
+`test_run_notifications.py` 和 `test_tui_collection_workflow.py`。当前顺序为采集平台策略检查、
+开始通知、模型解析、主机预检、运行环境准备和验证、正式测量；预检失败必须阻止后续准备。
+策略拒绝时不发送开始通知、不访问 Hub 或 Docker；策略通过后，开始通知早于模型解析和 Docker 预检。
+预检和通知测试在
 `acprof.host.detect.detect_task` 边界提供静态 fixture，避免假模型 ID 访问真实 Hub。
 监控布局测试同时检查状态网格、准备状态行和日志的衔接，以及各尺寸下日志和按钮的可用空间。
 

@@ -110,7 +110,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         self.assertGreaterEqual(event.elapsed_seconds, 0.0)
         self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION.event)
 
-    def test_run_main_sends_start_before_resolution_and_native_preflight(self) -> None:
+    def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self) -> None:
         argv = [
             "run.py",
             "--model",
@@ -132,40 +132,49 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 model_revision="1" * 40, detection_method="unit",
             )
 
+        def policy(*, profiling_mode, compute_tool, execution_tool, dram_energy):
+            self.assertEqual((profiling_mode, compute_tool, execution_tool, dram_energy),
+                             ("full", "none", "none", "auto"))
+            order.append(("policy", None))
+            if not allowed:
+                raise RuntimeError("stop after ordering check")
+
         def preflight():
             order.append(("preflight", None))
             raise RuntimeError("stop after ordering check")
 
-        with patch.object(sys, "argv", argv), patch(
-            "acprof.cli.run.bootstrap_project_env"
-        ), patch(
-            "acprof.cli.run._activate_run_notification",
-            side_effect=activate,
-        ), patch(
-            "acprof.cli.run._start_tmux_terminal_log",
-            side_effect=lambda *_args: order.append(("tmux", None)),
-        ), patch(
-            "acprof.cli.run._notify_run_started",
-            side_effect=lambda: order.append(("started", None)),
-        ), patch(
-            "acprof.host.detect.detect_task",
-            side_effect=resolve,
-        ), patch(
-            "acprof.cli.run.require_collection_host",
-            side_effect=preflight,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "ordering check"):
-                run._run_main()
+        for allowed in (False, True):
+            order.clear()
+            with self.subTest(policy_allowed=allowed), patch.object(sys, "argv", argv), patch(
+                "acprof.cli.run.bootstrap_project_env"
+            ), patch(
+                "acprof.cli.run._activate_run_notification",
+                side_effect=activate,
+            ), patch(
+                "acprof.cli.run._start_tmux_terminal_log",
+                side_effect=lambda *_args: order.append(("tmux", None)),
+            ), patch(
+                "acprof.cli.run._notify_run_started",
+                side_effect=lambda: order.append(("started", None)),
+            ), patch(
+                "acprof.host.detect.detect_task",
+                side_effect=resolve,
+            ), patch(
+                "acprof.cli.run.require_collection_host",
+                side_effect=policy,
+            ), patch(
+                "acprof.cli.run.require_native_docker",
+                side_effect=preflight,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "ordering check"):
+                    run._run_main()
 
-        self.assertEqual(
-            order,
-            [
-                ("activate", expected_command),
-                ("started", None),
-                ("resolution", "org/model with space"),
-                ("preflight", None),
-            ],
-        )
+                self.assertEqual(order, [("policy", None)] + ([
+                    ("activate", expected_command),
+                    ("started", None),
+                    ("resolution", "org/model with space"),
+                    ("preflight", None),
+                ] if allowed else []))
 
     def test_completion_marks_error_rows_as_partial(self) -> None:
         notifier = Mock()
