@@ -97,12 +97,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reuse the local model image if present; automatically build it if missing",
     )
+    from acprof.cli.download_args import add_download_arguments
+    add_download_arguments(parser)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    from acprof.cli.download_args import apply_download_arguments
+    apply_download_arguments(args)
     if args.batch_size <= 0:
         parser.error("--batch-size must be > 0")
     if args.timeout_seconds is not None and (

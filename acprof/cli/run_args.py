@@ -289,4 +289,6 @@ Examples:
         ),
     )
 
+    from acprof.cli.download_args import add_download_arguments
+    add_download_arguments(parser)
     return parser

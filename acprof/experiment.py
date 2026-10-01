@@ -97,6 +97,10 @@ class RunConfig:
     input_scales: str = ""
     workload_spec: str = ""
     model_spec: str = ""
+    download_mode: str = "mirror-only"
+    max_download: str = ""
+    model_store: str = ""
+    model_store_max: str = ""
     output_dir: str = "results"
     batch_size: int = 1
     warmup: int = 2
@@ -155,6 +159,15 @@ class RunConfig:
     def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
         """Normalize form values and reject invalid or misleading runs."""
         errors: list[str] = []
+        from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+        from acprof.network_policy import parse_bytes
+        if self.download_mode not in HF_DOWNLOAD_MODES:
+            errors.append(message("下载源模式必须是 mirror-only、mirror-preferred 或 official"))
+        for value in (self.max_download, self.model_store_max):
+            try:
+                parse_bytes(value)
+            except ValueError as exc:
+                errors.append(str(exc))
         from acprof.cpu_affinity import normalize_cpu_set
         try:
             cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
@@ -380,6 +393,10 @@ def build_run_command(
         ("--input-scales", config.input_scales),
         ("--workload-spec", config.workload_spec),
         ("--model-spec", config.model_spec),
+        ("--download-mode", config.download_mode),
+        ("--max-download", config.max_download),
+        ("--model-store", config.model_store),
+        ("--model-store-max", config.model_store_max),
     ):
         if value:
             command.extend((option, value))

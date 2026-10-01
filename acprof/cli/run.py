@@ -884,11 +884,12 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     global _ACTIVE_TMUX_TERMINAL_LOG, _ACTIVE_RUN_STATE
 
     start_time = time.perf_counter()
-    bootstrap_project_env(Path.cwd())
-
     parser = _build_parser(default_notify_provider=DEFAULT_NOTIFY_PROVIDER)
 
     args = parser.parse_args() if args is None else args
+    from acprof.cli.download_args import apply_download_arguments
+    apply_download_arguments(args)
+    bootstrap_project_env(Path.cwd())
     try:
         latency_slo_rules = parse_latency_slo_rules(
             args.latency_slo, environment_threshold=os.environ.get("SLOW_LATENCY_THRESHOLD_S"),
