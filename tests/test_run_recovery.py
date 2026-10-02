@@ -156,7 +156,7 @@ class RunRecoveryTests(unittest.TestCase):
                          "require_packet_latency_prerequisites", "require_cpu_energy_prerequisites",
                          "require_mips_prerequisites"):
                 stack.enter_context(patch.object(run, name))
-            stack.enter_context(patch.object(run, "_start_tmux_terminal_log", return_value=None))
+            stack.enter_context(patch.object(run, "start_terminal_log", return_value=None))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))
             stack.enter_context(patch("acprof.host.detect.detect_task", return_value=self.task))
             stack.enter_context(patch("acprof.host.runtime_images.prepare_image", return_value=self.image))

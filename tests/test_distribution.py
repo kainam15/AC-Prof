@@ -53,9 +53,9 @@ class DistributionTests(unittest.TestCase):
             self.assertIn("--profiling-mode", result.stdout)
 
     def test_recorded_frozen_command_is_executable(self):
-        from acprof.cli.run import _format_run_command
+        from acprof.cli.run import format_run_command
         with patch("sys.frozen", True, create=True), patch("sys.executable", "/opt/AC Prof/acprof"):
-            command = _format_run_command(["acprof run", "--model", "example/model"])
+            command = format_run_command(["acprof run", "--model", "example/model"])
         self.assertEqual(shlex.split(command), ["/opt/AC Prof/acprof", "run", "--model", "example/model"])
 
     def test_posthoc_recognizes_installed_runs_in_their_own_workspace(self):

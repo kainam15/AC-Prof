@@ -53,7 +53,7 @@ class TaskSupportTests(unittest.TestCase):
                         for guard in ("require_collection_host", "require_native_docker", "require_cgroup_prerequisites"):
                             stack.enter_context(patch.object(module, guard, return_value="v2"))
                         if module is run:
-                            for guard in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites", "_start_tmux_terminal_log"):
+                            for guard in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites", "start_terminal_log"):
                                 stack.enter_context(patch.object(run, guard, return_value=None))
                         stack.enter_context(patch("acprof.host.detect.detect_task", return_value=task_info(tag, family)))
                         build_target = "acprof.host.runtime_images.prepare_image" if module is run else "acprof.cli.probe.prepare_image"

@@ -9,6 +9,13 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_run_orchestrator_does_not_own_tmux_subprocesses(self):
+        tree = ast.parse((PROJECT_DIR / "acprof/cli/run.py").read_text())
+        tmux_commands = [node for node in ast.walk(tree)
+                         if isinstance(node, ast.List) and node.elts
+                         and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == "tmux"]
+        self.assertEqual(tmux_commands, [])
+
     def test_short_host_commands_use_the_registered_runner(self):
         # Resolve import aliases too, so `from subprocess import run` cannot bypass it.
         violations = []

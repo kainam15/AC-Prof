@@ -118,7 +118,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             "--cpus",
             "1",
         ]
-        expected_command = run._format_run_command(argv)
+        expected_command = run.format_run_command(argv)
         order = []
 
         def activate(**kwargs):
@@ -151,7 +151,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 "acprof.cli.run._activate_run_notification",
                 side_effect=activate,
             ), patch(
-                "acprof.cli.run._start_tmux_terminal_log",
+                "acprof.cli.run.start_terminal_log",
                 side_effect=lambda *_args: order.append(("tmux", None)),
             ), patch(
                 "acprof.cli.run._notify_run_started",
@@ -360,7 +360,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             require_packet_latency_prerequisites=Mock(),
             require_cpu_energy_prerequisites=Mock(),
             require_mips_prerequisites=Mock(),
-            _start_tmux_terminal_log=Mock(return_value=None),
+            start_terminal_log=Mock(return_value=None),
         ), patch(
             "acprof.cli.run.WeComWebhookNotifier.from_env", return_value=notifier,
         ) as from_env, patch(
@@ -509,7 +509,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             return True
 
         with patch("acprof.cli.run._run_main", side_effect=finish_run), patch(
-            "acprof.cli.run._stop_tmux_terminal_log",
+            "acprof.cli.run.stop_terminal_log",
             side_effect=stop_log,
         ):
             run.main()

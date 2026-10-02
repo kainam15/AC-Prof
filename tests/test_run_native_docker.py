@@ -20,8 +20,8 @@ class TmuxTerminalLogTests(unittest.TestCase):
             "acprof.cli.run.os.environ",
             {},
             clear=True,
-        ), patch("acprof.cli.run.run_command") as mock_run:
-            terminal_log = run._start_tmux_terminal_log(
+        ), patch("acprof.cli.terminal_log.run_command") as mock_run:
+            terminal_log = run.start_terminal_log(
                 "/tmp/acprof-results",
                 ["run.py", "--model", "dummy-model"],
             )
@@ -48,11 +48,11 @@ class TmuxTerminalLogTests(unittest.TestCase):
             },
             clear=True,
         ), patch(
-            "acprof.cli.run.run_command",
+            "acprof.cli.terminal_log.run_command",
             side_effect=fake_run,
         ):
             output_dir = os.path.join(tmp, "results", "org--model")
-            terminal_log = run._start_tmux_terminal_log(
+            terminal_log = run.start_terminal_log(
                 output_dir,
                 ["run.py", "--model", "org/model"],
             )
@@ -62,7 +62,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             with open(partial_path, "a", encoding="utf-8") as f:
                 f.write("experiment output\n")
 
-            finalized = run._stop_tmux_terminal_log(terminal_log)
+            finalized = run.stop_terminal_log(terminal_log)
 
             self.assertTrue(finalized)
             self.assertEqual(pane_id, "%7")
@@ -88,7 +88,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             "acprof.cli.run._run_main",
             side_effect=fail_after_starting_log,
         ), patch(
-            "acprof.cli.run._stop_tmux_terminal_log",
+            "acprof.cli.run.stop_terminal_log",
             return_value=True,
         ) as stop_log:
             with self.assertRaisesRegex(RuntimeError, "profiling failed"):
