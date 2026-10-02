@@ -67,13 +67,15 @@ class ProcessLifecycle:
             self.cleanup_error = ""
             return True
 
-    def stop(self, *, closing: bool = False) -> StopResult:
+    def stop(self, *, closing: bool = False, expected_process: subprocess.Popen[str] | None = None) -> StopResult:
         with self._lock:
             self._closing = self._closing or closing
         # Stop, exception cleanup and unmount can arrive concurrently.
         with self._stop_lock:
             with self._lock:
                 process = self.process
+                if expected_process is not None and process is not expected_process:
+                    return StopResult(None, None)
             if process is None:
                 return StopResult(None, None)
             for sig, timeout in (

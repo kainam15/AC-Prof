@@ -17,6 +17,16 @@ from acprof.tui.process import ProcessLifecycle, StopResult
 
 
 class TuiProcessFailureTests(unittest.TestCase):
+    def test_delayed_stop_cannot_signal_a_replacement_process(self):
+        manager = ProcessLifecycle(interrupt_timeout=0, terminate_timeout=0)
+        old = Mock(pid=111)
+        replacement = Mock(pid=222)
+        manager.process = replacement
+        with patch("os.killpg") as signal_group:
+            manager.stop(expected_process=old)
+        signal_group.assert_not_called()
+        self.assertIs(manager.process, replacement)
+
     def test_callback_failure_keeps_live_process_busy_and_does_not_finish(self):
         with tempfile.TemporaryDirectory() as directory:
             app = AcprofTui(settings_path=Path(directory) / "settings.json")
