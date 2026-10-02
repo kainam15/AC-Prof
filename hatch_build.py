@@ -8,6 +8,9 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
+        # Editable installs resolve Docker resources from the live checkout.
+        if version == "editable":
+            return
         root = Path(self.root)
         self.bundle = tempfile.TemporaryDirectory(prefix="acprof-wheel-resources-")
         destination = Path(self.bundle.name)
@@ -31,4 +34,5 @@ class CustomBuildHook(BuildHookInterface):
         build_data["force_include"][str(destination)] = "acprof/_bundle"
 
     def finalize(self, version, build_data, artifact_path):
-        self.bundle.cleanup()
+        if version != "editable":
+            self.bundle.cleanup()

@@ -348,6 +348,12 @@ acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snap
 避免将临时虚拟环境中的第三方代码视为项目实现。调用分析无法解析已找到的 Python 符号时，
 结合符号文档和源码核对调用者；空结果不能证明没有依赖。
 
+若 `analyze_calls` 返回两条相同的候选标识，使用 `search_symbol(include_external=true)`
+核对是否同时找到源码和 `.venv/.../acprof/_bundle` 中的安装副本。`.venv` 的项目排除规则
+不排除 Python SDK 库索引。editable 安装不应复制这份 bundle；修复 build hook 后，执行
+`uv pip install --python .venv/bin/python --no-deps --reinstall-package acprof -e .` 更新安装，
+再验证入向和出向调用。资源打包约定见[安装包说明](Distribution.md#工作目录与资源)。
+
 PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 `analyze_calls` 的 `isCallableSymbol` 依赖显示文本中的 `name(...)`，
 而 Python 函数的 Usage View 文本只有名称，因此真实 `PyFunction` 也会被过滤。

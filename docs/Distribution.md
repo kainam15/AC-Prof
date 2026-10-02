@@ -111,6 +111,10 @@ Docker 模型层仍由本机按固定 revision 下载，令牌经 BuildKit secre
 standalone 同时收集 Plotly 的 bundle 数据。报告生成时内嵌资源，不从 CDN 下载。
 `scripts/check_distribution.py` 在空工作目录实际生成 HTML，核对模板与 bundle 可用性。
 
+editable 安装（`uv pip install -e .`）直接从当前 checkout 读取这些资源，build hook
+不生成 `acprof/_bundle` 副本，避免保留过期源码副本，以及 IDE 同时索引两份同名 Python 符号。
+普通 wheel 仍携带完整资源，standalone 继续从 wheel 收集资源。
+
 ## Linux standalone
 
 [`release.yml`](../.github/workflows/release.yml) 在 Ubuntu 22.04、Python 3.10 上构建
@@ -182,7 +186,9 @@ GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或
   `acprof-tui` 复用 [uv 的目录查询接口](https://github.com/astral-sh/uv/blob/main/crates/uv/src/commands/tool/dir.rs)
   定位工具入口，不推测内部虚拟环境布局；不增加运行依赖，查询只发生在界面启动前。
 - [Hatch build hooks](https://github.com/pypa/hatch/tree/master/backend/src/hatchling/builders/hooks)
-  （MIT）：用一个小型 build hook 打包既有资源，不改变运行时依赖和镜像配方。
+  （MIT）：用一个小型 build hook 打包既有资源；按官方
+  [wheel 构建版本](https://github.com/pypa/hatch/blob/master/docs/plugins/builder/wheel.md)
+  区分 `standard` 与 `editable`，只在发行 wheel 中复制资源，不改变运行时依赖和镜像配方。
 - [PyInstaller](https://github.com/pyinstaller/pyinstaller)（GPL 与分发例外）：使用官方冻结工具，
   按其[资源与子进程说明](https://pyinstaller.org/en/stable/runtime-information.html)处理真实源码、动态模块和系统库路径。
   构建工具不进入主机运行依赖，不将 Torch/CUDA 安装到主机包。
