@@ -22,7 +22,7 @@ AC-Prof 对 Docker 中的 Hugging Face 推理服务进行可复现分析，输�
 
 - 使用简体中文回复；`AGENTS.md` 的标题与说明使用简体中文，保留技术标识。
 - 修改 `README.md` 或 `docs/i18n/README_zh-CN.md` 时，必须在同一次改动中同步另一语言版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径。
-- 用户未明确要求时不提交 Git。
+- 完成本轮开发后，按功能/模块拆分为多个逻辑独立的 Git commit；每个 commit 只包含一个明确主题的改动，并使用清晰的 commit message。除非用户明确要求，不执行 push、merge、rebase 等远程或历史修改操作。
 - 当前项目仍处于开发期，尚未形成稳定的公开 API 或用户兼容基线；除非用户明确要求或涉及已有实验结果/数据协议的可复现性，否则不为未正式发布的接口、命令、路径、配置或文件布局保留旧兼容层、alias、shim 或重复入口。优先采用结构清晰、单一事实来源、维护成本更低的当前设计，避免提前积累兼容债。
 - 功能或结构改动前先检索 GitHub，评估兼容性、许可证、维护、依赖成本与测量开销，说明复用取舍。
 - 使用已有 `.venv`、Python 3.10+；FULL 采集要求 Native Linux、本机 Docker Engine、cgroup v2；WSL2 支持开发及 PARTIAL 采集，边界见[WSL2](docs/platforms/wsl2.md)。
