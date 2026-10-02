@@ -92,6 +92,27 @@ ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["acprof"]
+relative_files = true
+data_file = "internal-testing/coverage/.coverage"
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+# First establish evidence; do not gate the repository on a global percentage.
+
+[tool.coverage.xml]
+output = "internal-testing/coverage/coverage.xml"
+
+[tool.coverage.json]
+output = "internal-testing/coverage/coverage.json"
+
+[tool.coverage.html]
+directory = "internal-testing/coverage/html"
+
 [tool.pytest.ini_options]
 markers = [
     "unit: isolated tests without real hardware or external services",

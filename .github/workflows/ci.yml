@@ -59,6 +59,9 @@ jobs:
           cache: pip
           cache-dependency-path: requirements/host.lock
       - run: python -m pip install --require-hashes -r requirements/host.lock
+      - name: 安装 coverage 开发锁（仅 Python 3.12）
+        if: matrix.python == '3.12'
+        run: python -m pip install --require-hashes -r requirements/dev.lock
       - run: python -m pip check
       - run: python scripts/compile_locks.py --check
       - run: python scripts/compile_locks.py --host-only --check
@@ -67,10 +70,15 @@ jobs:
         run: python scripts/render_metric_reference.py --check
       - run: |
           mkdir -p evidence
-          python scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count 4 --report evidence/host.json 2>&1 | tee evidence/host.log
+          if [[ '${{ matrix.python }}' == '3.12' ]]; then
+            python -m coverage run --branch --parallel-mode scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count 4 --report evidence/host.json 2>&1 | tee evidence/host.log
+          else
+            python scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count 4 --report evidence/host.json 2>&1 | tee evidence/host.log
+          fi
         shell: bash
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
+          COVERAGE_FILE: evidence/coverage/.coverage
       - name: 检查 CLI 帮助与源码编译
         run: |
           python run.py --help
@@ -86,6 +94,14 @@ jobs:
         with:
           name: host-${{ matrix.python }}-${{ matrix.shard }}
           path: evidence/
+      - name: 上传 Python 3.12 coverage 分片
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && matrix.python == '3.12'
+        with:
+          name: coverage-3.12-${{ matrix.shard }}
+          path: evidence/coverage/.coverage.*
+          include-hidden-files: true
+          if-no-files-found: error
   host-summary:
     needs: host
     if: always()
@@ -103,6 +119,30 @@ jobs:
           merge-multiple: false
       - name: 校验两个 Python 版本的完整测试证据
         run: python scripts/aggregate_test_reports.py evidence/shards --report evidence/host-summary.json
+      - run: python -m pip install --require-hashes -r requirements/dev.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-3.12-*
+          path: evidence/coverage-shards
+          merge-multiple: false
+      - name: 汇总四个 coverage 分片（只记录，不设百分比门槛）
+        shell: bash
+        env:
+          COVERAGE_FILE: evidence/coverage/.coverage
+        run: |
+          for shard in 0 1 2 3; do
+            compgen -G "evidence/coverage-shards/coverage-3.12-${shard}/.coverage.*" >/dev/null || exit 1
+          done
+          python -m coverage combine --keep evidence/coverage-shards/coverage-3.12-*
+          python -m coverage xml -o evidence/coverage/coverage.xml
+          python -m coverage json -o evidence/coverage/coverage.json
+          python -m coverage html -d evidence/coverage/html
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-baseline-3.12
+          path: evidence/coverage/
+          include-hidden-files: true
+          if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
