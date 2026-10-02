@@ -12,6 +12,7 @@ from pathlib import Path
 from acprof.dependency_locks import content_digest
 from acprof.host import command as host_command
 from acprof.host.dependency_images import (
+    DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
     registry_reference,
     runtime_fingerprint,
@@ -106,7 +107,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
             summary["alternatives"]["domestic_registry"] = os.environ.get("ACPROF_RUNTIME_REGISTRY") or "not configured"
             return result, summary
     elif policy != "build":
-        result.append(DownloadSource("oci", "https://" + os.environ.get("ACPROF_RUNTIME_REGISTRY", "ghcr.io/kainam15/universal-profiles/runtime"),
+        result.append(DownloadSource("oci", "https://" + os.environ.get("ACPROF_RUNTIME_REGISTRY", DEFAULT_RUNTIME_REGISTRY),
                                      None, detail="environment reference depends on unavailable platform config digest"))
         return result, summary
     packages = identity["packages"]

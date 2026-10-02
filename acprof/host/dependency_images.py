@@ -29,7 +29,7 @@ PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"
 ENVIRONMENT_LABEL = "org.acprof.environment-build-fingerprint"
 BUILD_HELPERS = ("dockerfiles/environment_tools.py", "acprof/dependency_locks.py", "acprof/network_policy.py")
-DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/universal-profiles/runtime"
+DEFAULT_RUNTIME_REGISTRY = "ghcr.io/kainam15/ac-prof/runtime"
 
 
 def registry_reference(kind: str, fingerprint: str, registry: str | None = None) -> str:

@@ -816,7 +816,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 ### GHCR 预构建依赖镜像
 
 依赖准备按“本地核验缓存 → GHCR 预构建镜像 → 本机锁定构建”执行。
-默认 registry 为 `ghcr.io/kainam15/universal-profiles/runtime`，可用
+默认 registry 为 `ghcr.io/kainam15/ac-prof/runtime`，可用
 `ACPROF_RUNTIME_REGISTRY` 指向镜像仓库。镜像必须已发布且对当前 Docker 用户可访问。
 
 `ACPROF_RUNTIME_IMAGE_SOURCE` 可选择：
