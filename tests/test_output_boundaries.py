@@ -2,6 +2,7 @@
 import io
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -32,9 +33,9 @@ class OutputBoundaryTests(unittest.TestCase):
         self.assertIn("pipeline_tag=fill-mask", logs.output[0])
 
     def test_idle_warning_goes_to_stderr(self):
-        with redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
             orchestrator._check_idle_power_values_stable(
-                csv_path="case.csv", metric_name="cpu_idle_power_w", idle_values=[1., 3.],
+                csv_path=str(Path(directory) / "case.csv"), metric_name="cpu_idle_power_w", idle_values=[1., 3.],
                 invalid_rows=0, row_count=2, threshold=.05, remediation="retry")
         self.assertEqual(stdout.getvalue(), "")
         self.assertIn("[energy][WARN]", stderr.getvalue())
