@@ -70,6 +70,14 @@ flowchart TD
 实现层不导入 `acprof.cli`。数值分析层不依赖绘图库；命令和配置模块不通过包初始化
 提前加载 Textual。容器内推理与主机通过现有 HTTP、输入计划和产物协议交互。
 
+跨模块调用应引用职责所属模块的公共能力。`scripts/check_private_api.py` 用标准库 AST
+记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
+也拒绝已经失效但仍留在 baseline 中的条目；具体范围与维护命令见
+[private API 检查](Testing.md#跨模块-private-api-检查)。
+`client_metrics` 与 client/diagnostics、`resource_metrics` 与资源采样器属于现有内部协作边界，
+继续逐条登记，不给予整个子系统无限制豁免。`latency_model` 的 analysis/plotting 边界同样保留
+现有条目，后续按职责处理，不以消除下划线数量为目标。
+
 `run.py`、`probe.py`、`profile.py`、`plot.py`、`tui.py` 和 `acprof-tui` 仍使用原命令。
 `profile.py` 在被 Python 导入时继续代理标准库 `profile`，使 `cProfile` 正常工作。
 `acprof.host.client`、容器 server/runner 和 packet 命令的模块路径保持原样。
@@ -92,9 +100,11 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | --- | --- |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
-| `docker_runtime` | 镜像准备和构建、容器启停、ready 检查、冷启动分段及 OOM 状态读取 |
+| `docker_runtime` | 推理服务容器的所有权、启停、ready 检查及原有冷启动分段 |
+| `container_state` | Docker inspect 状态证据、启动失败与运行期 OOM 解释；不拥有容器生命周期 |
+| `runtime_identity` / `gpu_device` | 镜像、容器、payload 共用的模型名称 token；GPU mode 归一化及选定设备身份 |
 | `dependency_images` | 平台与依赖环境的内容缓存、安装配方指纹、完整清单和标签核验；主构建及容器 CI 共用 |
-| `runtime_images` | profile/平台选择、模型层与代码层构建、父镜像绑定、运行清单及不可变 image ID |
+| `runtime_images` | `ImageInfo`、镜像准备、profile/平台选择、模型层与代码层构建、父镜像绑定、运行清单及不可变 image ID 核验 |
 | `image_management` | Docker 镜像清单、标签合并、容器引用检查及按确认清单删除；不参与采集 |
 | `image_graph` | 从镜像元数据、依赖锁身份与层链解析父子关系、逻辑名称、共享层和按选择集合去重的释放估算；不访问 Docker |
 | `image_dependencies` | 匹配镜像身份与本地锁，核对构建阶段并生成本层依赖增量；不启动容器或扫描包 |
@@ -115,27 +125,31 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
-| `compute_profile` / `execution_profile` | profiler 计划编排及汇总；计算 profiler 的执行实现放在既有 `profilers/` 下 |
+| `compute_profile` / `execution_profile` | profiler 计划编排及汇总；工具执行实现统一放在 `profilers/` 下 |
 | `profilers/ncu` / `profilers/torch` / `profilers/advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
+| `profilers/massif` / `profilers/nsys` | 隔离执行、错误条目与产物处理；Massif 拥有 checkpoint/resume，Nsys 拥有 stats、SQLite 与 raw stream 清理 |
 | `client_diagnostics` / `client_publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
 | `monitors/resource_readers` / `monitors/resource_metrics` | cgroup/proc/sysfs discovery 和 raw reader；纯 sample reduction 与 counter 派生计算 |
 | `profilers/compute_parsers` / `profilers/execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
 | `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
 | `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
-| `profiler_common` | 两类 profiler 共享的容器参数、输入计划读取及原子 JSON 写入 |
+| `profiler_support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
+| `cli/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，CLI 持有活动会话并负责 finally 清理 |
 
 `docker_runtime` 是输入规划的下层；`static_metadata` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
-两个 profiler 单向依赖 `profiler_common`，解析与工具查找使用 `profilers/` 下的实现。
+两类 profiler 单向依赖 `profiler_support`，TaskInfo 只在类型检查时导入；
+解析与工具查找使用 `profilers/` 下的实现。`execution_profile` 通过 Massif/Nsys 的
+`profile` 与 `error_entry` 调度各工具，不再重导出其私有采集、恢复或解析入口。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
 
 ### Host command 与 diagnostics
 
 host 的短生命周期同步命令直接复用 `host.command.run_command`，覆盖 Docker、doctor、
-preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。`docker_runtime._run`
-仅保留该模块既有的 `check=True` / `capture` 默认参数映射；profiler 不再经 `profiler_common._run`
-执行命令。container-side subprocess 与开发 scripts 不在此执行边界中。
+preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜像、状态、容器与调用方
+直接使用 runner，原 `docker_runtime._run` 已删除；需要非零退出抛错或直通输出的调用显式设置
+`check=True` / `capture_output=False`。container-side subprocess 与开发 scripts 不在此执行边界中。
 
 runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
 返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。
@@ -158,6 +172,18 @@ metadata 并在窗口外写入独立 diagnostics/evidence，不能把全部命�
 validation 与 profiler failure 类型；默认不安装 handler、不输出 DEBUG。异常日志仅记录必要上下文和
 异常类型，不自动打印可能含凭据的异常正文。CLI/TUI 的状态、警告、进度和 preparation events 继续由
 presentation/event 层输出；没有增加 `--verbose` / `--quiet` 或窗口内同步日志。
+
+输出审计保留 case/工具进度、posthoc dry-run/更新清单、input scale 规划和
+`ACPROF_*` machine events。preflight 与 client 面向用户的错误使用 stderr；idle 稳定性警告、
+largest-probe 错误和 tmux 警告也使用 stderr。client 启动配置、scale 内部原因和
+Nsys importer 成功诊断使用 DEBUG logger。TUI 的进程层仍合并 stdout/stderr，
+machine events 继续由 `RunProgressTracker` 解析。
+
+容器职责划分参考 [Docker SDK 的 container API](https://github.com/docker/docker-py/blob/main/docker/api/container.py)
+（Apache-2.0），日志边界参考 [CPython logging](https://github.com/python/cpython/blob/3.12/Lib/logging/__init__.py)
+（PSF），tmux pipe 所有权核对 [tmux 源码](https://github.com/tmux/tmux/blob/master/cmd-pipe-pane.c)
+（ISC）。这些项目均有持续维护的官方源码；本项目只借鉴职责与生命周期边界，
+保留现有 Docker CLI、标准库 logging 与 tmux 命令，不新增运行依赖或正式测量期开销。
 
 此边界参考 [CPython subprocess](https://github.com/python/cpython/blob/3.10/Lib/subprocess.py)
 （PSF License）的执行及异常语义、[Invoke runners](https://github.com/pyinvoke/invoke/blob/main/invoke/runners.py)

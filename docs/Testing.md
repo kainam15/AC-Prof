@@ -218,7 +218,9 @@ Playwright 已安装的 Chromium。测试以离线模式检查排序、baseline=
 ### 渐进类型检查与边界回归
 
 `requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
-extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner。
+extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner，
+以及 matrix plan、run state、compute/execution plan、profiler support/纯解析器和
+comparison/independent comparison/uncertainty。当前清单以 `pyproject.toml` 为准，仍只维护 mypy。
 初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
 已经列出的模块仍检查已标注代码。不能用全包 `ignore_errors` 隐藏白名单内的问题。
 独立 CI `types` job 与本地运行同一条命令：
@@ -239,9 +241,46 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 以及成功、取消、超时后才发布请求/结果；`test_resource_usage.py` 验证采样不重复扫描 CPU 拓扑。
 这些回归不代替真实 Docker/GPU/perf/NCU 采集或用户终端显示证据。
 
+`test_output_boundaries.py` 用独立进程验证 library import 不输出、不配置 root logger，
+验证 DEBUG 与用户 stderr 的边界，并用真实短子进程检查 TUI 的 stdout/stderr 合并。
+`test_monitor_cleanup.py` 在成功、超时和取消路径启用 DEBUG，断言采样开始至停止间没有日志。
+`test_progress_events.py` 继续保护 machine events；`test_execution_profile.py` 在工具所属模块
+模拟命令，验证 checkpoint、恢复、失败条目、清理与通知顺序。
+
 `internal-testing/`、`result-past/` 和 `results/` 都由仓库 `.gitignore` 排除。忽略规则不授权删除：
 失败或中断的 CSV、pcap、jsonl 与恢复状态应按实验保留；清理前先列出路径、占用和是否仍用于诊断或恢复。
 开发环境副本与旧构建目录可单独评估，不能仅按文件扩展名批量删除实验依据。
+全局 `*.csv` 保留；`tests/fixtures/**/*.csv` 与 `examples/**/*.csv` 显式放行。
+`test_git_ignore.py` 在临时 Git 仓库验证根层及嵌套 fixture/example 可跟踪、结果与实验 CSV 仍被忽略。
+
+### 跨模块 private API 检查
+
+`scripts/check_private_api.py` 不导入业务代码，只解析 `acprof/` 的 Python 源码。
+识别 `from x import _foo`、`import x; x._foo`、`from pkg import mod; mod._foo`，
+以及 import alias、相对 import、函数局部作用域、lambda 与 comprehension 参数遮蔽。
+同模块访问、dunder、第三方模块和实例私有属性不进入本 gate；测试的 private helper 引用单独统计。
+这是显式静态依赖检查，不追踪动态 `importlib`/`getattr`、运行时 re-export 或任意赋值的数据流。
+
+`tests/private_api_baseline.json` 保存排序且去重的 `source`、`target`、`symbol`，不保存行号或单一总数。
+新增 tuple 与过期 tuple 都令 CI 和 architecture test 失败；删除依赖后必须同步删除条目，
+以后重新加入会再次被拒绝。确需新增共享 private dependency 时，审查具体 tuple 和职责理由，
+不能仅用重建整份 baseline 或扩大豁免消除失败。
+
+```bash
+.venv/bin/python scripts/check_private_api.py
+# 仅删除已不存在的条目；不会批准新增依赖。
+.venv/bin/python scripts/check_private_api.py --prune
+.venv/bin/python scripts/run_tests.py --pattern test_private_api_guard.py \
+  --pattern test_architecture.py --report internal-testing/private-api.json
+```
+
+设计参考 [Import Linter protected contract](https://github.com/seddonym/import-linter/blob/main/src/importlinter/contracts/protected.py)
+的具体依赖与 unmatched ignore 检查（BSD-2-Clause），并核对
+[Pylint private import checker](https://github.com/pylint-dev/pylint/blob/main/pylint/extensions/private_import.py)
+（GPL-2.0）和 [Pyright 对测试目录的独立设置](https://github.com/microsoft/pyright/discussions/8193)
+（MIT）。Import Linter 面向模块图，Pylint 该规则主要针对外部 private import；本 gate 需要
+项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 3.10 标准库 AST 实现，
+不复制这些项目的源码，也不引入额外 linter 或第二套类型工具。它仅在开发与 CI 中运行。
 
 ### 辅助开发工具
 
@@ -487,6 +526,44 @@ runner 在进程内为测量锁注入独立临时目录，分片测试互不争�
 `host-summary` job 自动下载两个 Python 版本的全部分片到各自目录；
 `scripts/aggregate_test_reports.py` 确认同一 Python 版本分片齐全且测试集摘要相同，所有 test ID 无重复，
 总执行数等于完整发现数；单片通过不代表主机回归完成。
+
+### Host coverage baseline
+
+`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.10+。
+CI 仅在 Python 3.12 的四个 host shard 使用 branch coverage；Python 3.10 继续原 unittest runner。
+每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
+再确认四个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
+发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
+
+第一阶段只记录覆盖情况，不设全仓百分比 gate、不迁移到 pytest，也不排除错误与清理路径来提高数字。
+`pyproject.toml` 固定 `source=["acprof"]`、branch 和 relative paths；未运行的模块仍进入报告。
+默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
+
+```bash
+# 使用装有 host/dev lock 的 Python 3.12 环境，每个 index 执行一次。
+python -m coverage erase
+for shard in 0 1 2 3; do
+  python -m coverage run --branch --parallel-mode scripts/run_tests.py \
+    --shard-index "$shard" --shard-count 4 \
+    --report "internal-testing/coverage/host-3.12-$shard/host.json" || exit 1
+done
+python scripts/aggregate_test_reports.py internal-testing/coverage \
+  --python-versions 3.12 --report internal-testing/coverage/host-summary.json
+python -m coverage combine --keep
+python -m coverage xml
+python -m coverage json
+python -m coverage html
+```
+
+优先查看 schema/merge、matrix planning、run recovery、energy math、error/cleanup 的未覆盖分支。
+该 baseline 只度量 host runner 进程；未启用对子进程的自动注入，不能代表子进程、Docker、
+GPU、RAPL 或 perf 的实际路径。测试中的 mock 覆盖也不等于 Native validation。
+设计复用 [Coverage.py 官方合并流程](https://github.com/coveragepy/coveragepy/blob/main/coverage/data.py)
+（Apache-2.0）与现有 unittest/evidence runner；锁定版本、仅安装开发依赖，不进入采集环境。
+hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-artifact/issues/602)。
+
+### 恢复与运行环境回归
+
 空测试集必定失败；容器作业带 `--require-no-skips`，跳过或 expected failure 都不算环境验证通过。
 普通主机测试允许缺少推理依赖时跳过，报告明确列出范围。`check_runtime.py` 的目录必须为空；
 `runtime.json` 另记录逻辑 profile、环境 ID、平台/环境 image ID、完整运行清单和退出结果，不覆盖旧验证。
