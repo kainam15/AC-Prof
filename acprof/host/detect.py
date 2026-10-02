@@ -1,4 +1,4 @@
-"""AC-Prof Universal Profiler - HuggingFace Model Task Auto-Detection.
+"""AC-Prof - HuggingFace Model Task Auto-Detection.
 
 Collect Hub, repository and artifact evidence at a pinned revision, then select
 an interface using explicit overrides or unambiguous metadata. No model code is

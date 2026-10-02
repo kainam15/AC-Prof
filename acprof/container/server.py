@@ -1,4 +1,4 @@
-"""AC-Prof Universal Flask Server - dynamic handler routing by task family."""
+"""AC-Prof Flask Server - dynamic handler routing by task family."""
 
 from __future__ import annotations
 

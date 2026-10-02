@@ -13,7 +13,7 @@ from acprof.config import (
 
 def build_parser(*, default_notify_provider: str = "auto", automatic: bool = False) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="AC-Prof: Universal HuggingFace Model Profiler",
+        description="AC-Prof: Hugging Face model profiler",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

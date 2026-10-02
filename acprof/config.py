@@ -1,4 +1,4 @@
-"""AC-Prof Universal Profiler - Configuration & Constants."""
+"""AC-Prof - Configuration & Constants."""
 
 from dataclasses import dataclass
 from typing import Any, Dict

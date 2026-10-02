@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AC-Prof Universal Profiler - One-click HuggingFace model profiling.
+"""AC-Prof - One-click HuggingFace model profiling.
 
 Usage:
     python run.py --model bert-base-uncased
@@ -823,7 +823,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
 
     # ── Step 1: Detect task ──
     print("=" * 60)
-    print("AC-Prof Universal Profiler")
+    print("AC-Prof")
     print("=" * 60)
 
     from acprof.host.collection_workflow import PreparationWorkflow, RebuildEnvironment

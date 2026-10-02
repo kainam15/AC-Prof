@@ -34,8 +34,8 @@ runtime profile 的严格版本锁独立维护。
 准备原生 Linux x86_64、本机 Docker Engine/Buildx、cgroup v2 和 Git 后：
 
 ```bash
-git clone https://github.com/kainam15/universal-profiles.git
-cd universal-profiles
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
 ./setup.sh
 ```
 
@@ -88,7 +88,7 @@ acprof tui
 
 也可以安装 Release 的 wheel：`uv tool install ./acprof-0.2.0-py3-none-any.whl`。
 远端源码包含本版本后，可直接运行
-`uv tool install git+https://github.com/kainam15/universal-profiles.git`；复现实验应固定 Git tag 或 commit。
+`uv tool install git+https://github.com/kainam15/AC-Prof.git`；复现实验应固定 Git tag 或 commit。
 这里只使用源码和 Release 制品，不假设 PyPI 已有同名官方发行包。
 
 安装后的公共命令是 `acprof run / tui / probe / plot / doctor / profile / audit / stats / inspect / auto / coverage`，
@@ -122,7 +122,7 @@ editable 安装（`uv pip install -e .`）直接从当前 checkout 读取这些�
 它包含 Python 解释器、主机依赖和构建资源；目标机无需先安装 Python 或 uv。
 Docker、RAPL、perf、抓包及 NVIDIA 的要求仍按所选模式检查。
 
-Release 发布后，从 [GitHub Releases](https://github.com/kainam15/universal-profiles/releases)
+Release 发布后，从 [GitHub Releases](https://github.com/kainam15/AC-Prof/releases)
 下载 `acprof-linux-x86_64` 和 `SHA256SUMS`，在下载目录核对并运行：
 
 ```bash

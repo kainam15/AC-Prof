@@ -59,8 +59,8 @@ The `full` mode also requires readable RAPL counters, working `perf instructions
 With Git and Docker available, run:
 
 ```bash
-git clone https://github.com/kainam15/universal-profiles.git
-cd universal-profiles
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
 ./setup.sh
 ```
 

@@ -1,4 +1,4 @@
-"""AC-Prof Universal Client - workload generation, latency measurement, energy monitoring.
+"""AC-Prof Client - workload generation, latency measurement, energy monitoring.
 
 Runs on HOST (not inside container). Generalized from example-code/client.py.
 """

@@ -29,8 +29,8 @@ dependencies = [
 acprof = "acprof.cli.main:main"
 
 [project.urls]
-Repository = "https://github.com/kainam15/universal-profiles"
-Issues = "https://github.com/kainam15/universal-profiles/issues"
+Repository = "https://github.com/kainam15/AC-Prof"
+Issues = "https://github.com/kainam15/AC-Prof/issues"
 
 [tool.hatch.version]
 path = "acprof/__init__.py"

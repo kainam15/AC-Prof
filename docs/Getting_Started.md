@@ -123,8 +123,8 @@ AC-Prof 使用 `tcpdump -p` 关闭 promiscuous mode，不要求 `CAP_NET_ADMIN`�
 首次获取源码：
 
 ```bash
-git clone https://github.com/kainam15/universal-profiles.git
-cd universal-profiles
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
 ```
 
 在仓库根目录安装主机依赖；已有 `.venv` 时直接激活并安装：

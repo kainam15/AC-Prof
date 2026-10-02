@@ -48,8 +48,8 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集�
 准备好 Git 和 Docker 后执行：
 
 ```bash
-git clone https://github.com/kainam15/universal-profiles.git
-cd universal-profiles
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
 ./setup.sh
 ```
 
