@@ -5,7 +5,11 @@ from typing import Any, Dict, List
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import _base_docker_cmd, _parse_last_json_line, _runner_args
+from acprof.host.profiler_support import (
+    parse_last_json_line,
+    profile_runner_args,
+    profiler_container_command,
+)
 from acprof.host.profilers.compute_parsers import (
     _to_float,
 )
@@ -40,7 +44,7 @@ def _run_torch_profiler_for_entry(
     entry: Dict[str, Any],
     repeat: int,
 ) -> Dict[str, Any]:
-    base_cmd = _base_docker_cmd(
+    base_cmd = profiler_container_command(
         task_info=task_info,
         image_tag=image_tag,
         cpu=cpu,
@@ -51,7 +55,7 @@ def _run_torch_profiler_for_entry(
         tool_mount_roots=(),
     )
     runner_mode = "torch_eager_gpu" if use_gpu else "torch_eager_cpu"
-    result = run_command([*base_cmd, *_runner_args(entry, repeat, runner_mode)], check=False)
+    result = run_command([*base_cmd, *profile_runner_args(entry, repeat, runner_mode)], check=False)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         return _torch_error_entries(
@@ -59,7 +63,7 @@ def _run_torch_profiler_for_entry(
             f"torch_profiler_eager_failed:{detail}",
         )[0]
 
-    payload = _parse_last_json_line(result.stdout)
+    payload = parse_last_json_line(result.stdout)
     attention_implementation = str(
         payload.get("attention_implementation") or ""
     )

@@ -6,11 +6,15 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import _base_docker_cmd, _format_scale_value, _runner_args
+from acprof.host.profiler_support import (
+    format_scale_value,
+    profile_runner_args,
+    profiler_container_command,
+)
 from acprof.host.profilers.compute_parsers import (
     parse_advisor_self_gflop_csv,
 )
-from acprof.host.profilers.tool_discovery import _tool_mount_roots
+from acprof.host.profilers.tool_discovery import tool_mount_roots
 
 
 def _tool_error_entries(
@@ -42,11 +46,11 @@ def _run_advisor_for_entry(
     entry: Dict[str, Any],
     repeat: int,
 ) -> Dict[str, Any]:
-    scale_label = _format_scale_value(float(entry["input_scale"]))
+    scale_label = format_scale_value(float(entry["input_scale"]))
     project_dir = f"/profiles/advisor_scale_{scale_label}"
     report_path = f"/profiles/advisor_scale_{scale_label}.csv"
     host_report_path = os.path.join(profile_root, f"advisor_scale_{scale_label}.csv")
-    base_cmd = _base_docker_cmd(
+    base_cmd = profiler_container_command(
         task_info=task_info,
         image_tag=image_tag,
         cpu=cpu,
@@ -56,7 +60,7 @@ def _run_advisor_for_entry(
         profile_root=profile_root,
         tool_mount_roots=tool_mount_roots,
     )
-    runner_args = _runner_args(entry, repeat, "cpu")
+    runner_args = profile_runner_args(entry, repeat, "cpu")
     commands = [
         [
             advisor_bin,
@@ -134,7 +138,7 @@ def _profile_cpu_entries(
                 "intel_advisor",
             ),
         }
-    mount_roots = _tool_mount_roots(advisor_bin, advisor_root)
+    mount_roots = tool_mount_roots(advisor_bin, advisor_root)
     profile_entries = [
         _run_advisor_for_entry(
             advisor_bin=advisor_bin,

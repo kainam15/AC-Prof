@@ -9,7 +9,7 @@ from unittest.mock import patch
 import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
 import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
 from acprof.container.handlers import transformers_pipeline_load_kwargs
-from acprof.host import compute_profile, profiler_common
+from acprof.host import compute_profile, profiler_support
 from acprof.host.detect import TaskInfo
 from acprof.host.profilers import advisor, compute_parsers, ncu, tool_discovery, torch
 
@@ -75,7 +75,7 @@ class ComputeProfileTests(unittest.TestCase):
             ValueError,
             "input_scale_plan_file is required",
         ):
-            compute_profile._load_input_scale_plan_entries("")
+            compute_profile.load_input_scale_plan_entries("")
 
         with tempfile.TemporaryDirectory() as tmp:
             missing = os.path.join(tmp, "input_scale_plan.json")
@@ -83,7 +83,7 @@ class ComputeProfileTests(unittest.TestCase):
                 FileNotFoundError,
                 "input scale plan not found",
             ):
-                compute_profile._load_input_scale_plan_entries(missing)
+                compute_profile.load_input_scale_plan_entries(missing)
 
     def test_current_input_plan_reuses_the_exact_payload(self) -> None:
         payload = {
@@ -116,7 +116,7 @@ class ComputeProfileTests(unittest.TestCase):
                 with open(path, "w", encoding="utf-8") as plan_file:
                     json.dump(plan, plan_file)
 
-                entries = compute_profile._load_input_scale_plan_entries(path)
+                entries = compute_profile.load_input_scale_plan_entries(path)
 
                 self.assertEqual(entries[0]["payload"], payload)
 
@@ -138,7 +138,7 @@ class ComputeProfileTests(unittest.TestCase):
             with open(payload_file, "w", encoding="utf-8") as f:
                 f.write("{}")
 
-            cmd = profiler_common._base_docker_cmd(
+            cmd = profiler_support.profiler_container_command(
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 cpu=1,
@@ -396,7 +396,7 @@ class ComputeProfileTests(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.profilers.torch._base_docker_cmd",
+                "acprof.host.profilers.torch.profiler_container_command",
             return_value=["docker"],
         ), patch(
             "acprof.host.profilers.torch.run_command",
@@ -460,7 +460,7 @@ class ComputeProfileTests(unittest.TestCase):
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                "acprof.host.profilers.ncu._base_docker_cmd",
+                    "acprof.host.profilers.ncu.profiler_container_command",
                 return_value=["docker"],
             ), patch(
                 "acprof.host.profilers.ncu._ncu_collect_filter_args",
@@ -538,7 +538,7 @@ class ComputeProfileTests(unittest.TestCase):
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                "acprof.host.profilers.ncu._base_docker_cmd",
+                    "acprof.host.profilers.ncu.profiler_container_command",
                 return_value=["docker"],
             ), patch(
                 "acprof.host.profilers.ncu._ncu_collect_filter_args",
@@ -912,7 +912,7 @@ class ComputeProfileTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             return_value=None,
         ), patch(
             "acprof.host.compute_profile.run_command",
@@ -972,7 +972,7 @@ class ComputeProfileTests(unittest.TestCase):
             detection_method="hub_api",
         )
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             side_effect=AssertionError("none mode must not discover tools"),
         ), patch(
             "acprof.host.profilers.torch._profile_torch_entries",
@@ -1058,7 +1058,7 @@ class ComputeProfileTests(unittest.TestCase):
             }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             side_effect=fake_find_executable,
         ), patch(
             "acprof.host.profilers.torch._profile_torch_entries",
@@ -1140,7 +1140,7 @@ class ComputeProfileTests(unittest.TestCase):
             }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             return_value="/usr/bin/ncu",
         ), patch(
             "acprof.host.profilers.torch._profile_torch_entries",
@@ -1203,7 +1203,7 @@ class ComputeProfileTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             return_value=None,
         ), patch(
             "acprof.host.compute_profile.run_command",
@@ -1255,7 +1255,7 @@ class ComputeProfileTests(unittest.TestCase):
             return {"tool": "ncu", "repeat": 1, "error": "", "entries": []}
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             return_value="/usr/bin/tool",
         ), patch(
             "acprof.host.profilers.advisor._profile_cpu_entries",
@@ -1301,7 +1301,7 @@ class ComputeProfileTests(unittest.TestCase):
             return {"tool": "intel_advisor", "repeat": 1, "error": "", "entries": []}
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.compute_profile._find_executable",
+                "acprof.host.compute_profile.find_executable",
             return_value="/usr/bin/tool",
         ), patch(
             "acprof.host.compute_profile._host_logical_cpus",
@@ -1344,7 +1344,7 @@ class ComputeProfileTests(unittest.TestCase):
                 f.write("#!/bin/sh\n")
 
             self.assertEqual(
-                compute_profile._find_executable(None, ("advisor", "advixe-cl")),
+                compute_profile.find_executable(None, ("advisor", "advixe-cl")),
                 advisor_path,
             )
 
@@ -1353,11 +1353,11 @@ class ComputeProfileTests(unittest.TestCase):
         ncu_bin = "/opt/nvidia/nsight-compute/2025.1.0/ncu"
 
         self.assertEqual(
-            host_profilers_tool_discovery._tool_mount_root(advisor_bin, None),
+            host_profilers_tool_discovery.tool_mount_root(advisor_bin, None),
             "/opt/intel/oneapi/advisor/2025.5",
         )
         self.assertEqual(
-            host_profilers_tool_discovery._tool_mount_root(ncu_bin, None),
+            host_profilers_tool_discovery.tool_mount_root(ncu_bin, None),
             "/opt/nvidia/nsight-compute/2025.1.0",
         )
 
@@ -1375,7 +1375,7 @@ class ComputeProfileTests(unittest.TestCase):
                 f.write("#!/bin/sh\n")
 
             self.assertEqual(
-                tool_discovery._tool_mount_roots(ncu_path, None),
+                tool_discovery.tool_mount_roots(ncu_path, None),
                 [lib_root, arch_root],
             )
 
@@ -1393,7 +1393,7 @@ class ComputeProfileProgressTests(unittest.TestCase):
         with open(input_plan, "w", encoding="utf-8") as f:
             json.dump(payload, f)
         with patch.object(
-            compute_profile, "_find_executable", return_value=None,
+            compute_profile, "find_executable", return_value=None,
         ), patch.object(
             compute_profile, "_executable_version", return_value="unknown",
         ):

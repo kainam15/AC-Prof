@@ -63,7 +63,7 @@ def _best_existing_executable(roots: Sequence[str], names: Sequence[str]) -> Opt
     return max(candidates, key=lambda path: _executable_version_key(path, names))
 
 
-def _find_executable(root: Optional[str], names: Sequence[str]) -> Optional[str]:
+def find_executable(root: Optional[str], names: Sequence[str]) -> Optional[str]:
     if root:
         best = _best_existing_executable([root], names)
         if best:
@@ -82,7 +82,7 @@ def _find_executable(root: Optional[str], names: Sequence[str]) -> Optional[str]
     return None
 
 
-def _tool_mount_root(tool_path: str, requested_root: Optional[str]) -> str:
+def tool_mount_root(tool_path: str, requested_root: Optional[str]) -> str:
     if requested_root:
         return os.path.abspath(requested_root)
     path = os.path.realpath(tool_path)
@@ -107,8 +107,8 @@ def _tool_mount_root(tool_path: str, requested_root: Optional[str]) -> str:
     return path
 
 
-def _tool_mount_roots(tool_path: str, requested_root: Optional[str]) -> List[str]:
-    root = _tool_mount_root(tool_path, requested_root)
+def tool_mount_roots(tool_path: str, requested_root: Optional[str]) -> List[str]:
+    root = tool_mount_root(tool_path, requested_root)
     roots = [root]
     for ncu_target in glob.glob(os.path.join(root, "target", "*")):
         real_target = os.path.realpath(ncu_target)
@@ -160,7 +160,7 @@ def _nsys_path_rank(path: str) -> Tuple[Tuple[int, ...], str]:
     return tuple(int(part) for part in re.findall(r"\d+", path)), path
 
 
-def _find_nsys_executable(nsys_root: Optional[str]) -> Optional[str]:
+def find_nsys_executable(nsys_root: Optional[str]) -> Optional[str]:
     roots = [nsys_root] if nsys_root else list(NSYS_DEFAULT_SEARCH_ROOTS)
     candidates: List[str] = []
     seen = set()
@@ -181,7 +181,7 @@ def _find_nsys_executable(nsys_root: Optional[str]) -> Optional[str]:
     return os.path.realpath(found) if found else None
 
 
-def _nsys_mount_root(nsys_bin: str) -> str:
+def find_nsys_mount_root(nsys_bin: str) -> str:
     """Return an install root containing Nsys reports, Python, and libraries."""
     path = os.path.realpath(nsys_bin)
     parts = path.split(os.sep)
@@ -208,7 +208,7 @@ def _nsys_mount_root(nsys_bin: str) -> str:
     return parent
 
 
-def _find_nsys_importer(nsys_mount_root: str) -> Optional[str]:
+def find_nsys_importer(nsys_mount_root: str) -> Optional[str]:
     """Find the QDSTRM importer shipped beside the selected Nsys CLI."""
     root = os.path.realpath(os.path.abspath(os.fspath(nsys_mount_root)))
     candidates: List[str] = []

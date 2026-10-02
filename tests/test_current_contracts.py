@@ -12,7 +12,7 @@ from unittest.mock import patch
 from acprof.cli.run_args import build_parser
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
 from acprof.host.dependency_images import runtime_fingerprint
-from acprof.host.profiler_common import _load_input_scale_plan_entries
+from acprof.host.profiler_support import load_input_scale_plan_entries
 from acprof.host.profilers.ncu import _resolve_ncu_metrics, _select_ncu_flop_metrics
 from acprof.host.runtime_validation import validate_runtime
 from acprof.host.static_metadata import enrich_static_meta_from_input_plan
@@ -99,9 +99,9 @@ class CurrentContractTests(unittest.TestCase):
                     payload["schema_version"] = version
                 path.write_text(json.dumps(payload))
                 with self.subTest(version=version), self.assertRaisesRegex(ValueError, "schema_version"):
-                    _load_input_scale_plan_entries(str(path))
+                    load_input_scale_plan_entries(str(path))
             path.write_text(json.dumps({"schema_version": 2, "entries": [entry]}))
-            self.assertEqual(_load_input_scale_plan_entries(str(path))[0]["payload"], entry["payload"])
+            self.assertEqual(load_input_scale_plan_entries(str(path))[0]["payload"], entry["payload"])
 
     def test_unlocked_runtime_is_rejected_before_building(self):
         with self.assertRaisesRegex(ValueError, "锁|lock"):

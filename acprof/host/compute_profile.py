@@ -11,13 +11,13 @@ from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import _load_input_scale_plan_entries, _write_json_atomic
 from acprof.host.profiler_progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
 )
+from acprof.host.profiler_support import load_input_scale_plan_entries, write_profile_json
 from acprof.host.profilers import advisor, ncu, torch
-from acprof.host.profilers.tool_discovery import _find_executable
+from acprof.host.profilers.tool_discovery import find_executable
 
 _LOG = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ def collect_compute_profile_plan(
     from acprof.artifact_layout import ArtifactLayout
     layout = ArtifactLayout.discover(output_dir)
     profile_root = str(layout.path("compute_profiles"))
-    entries = _load_input_scale_plan_entries(input_scale_plan_file)
+    entries = load_input_scale_plan_entries(input_scale_plan_file)
     payload_file = input_scale_plan_file
 
     normalized_gpus = {_normal_gpu_mode(gpu) for gpu in gpu_list}
@@ -226,12 +226,12 @@ def collect_compute_profile_plan(
     ):
         os.makedirs(profile_root, exist_ok=True)
     advisor_bin = (
-        _find_executable(advisor_root, ("advisor", "advixe-cl"))
+        find_executable(advisor_root, ("advisor", "advixe-cl"))
         if collect_advisor_cpu and not declared_profiler_error(task_info, "intel_advisor")
         else None
     )
     ncu_bin = (
-        _find_executable(ncu_root, ("ncu", "nv-nsight-cu-cli"))
+        find_executable(ncu_root, ("ncu", "nv-nsight-cu-cli"))
         if collect_ncu_gpu and not declared_profiler_error(task_info, ncu.NCU_TOOL)
         else None
     )
@@ -430,6 +430,6 @@ def collect_compute_profile_plan(
         _strip_discarded_profile_paths(profiles)
         shutil.rmtree(profile_root, ignore_errors=True)
 
-    _write_json_atomic(plan_path, plan)
+    write_profile_json(plan_path, plan)
     print(f"[compute] Compute profile plan: {plan_path}")
     return plan_path

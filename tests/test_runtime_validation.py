@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import _base_docker_cmd
+from acprof.host.profiler_support import profiler_container_command
 from acprof.host.runtime_images import ImageInfo
 from acprof.host.runtime_validation import validate_runtime
 
@@ -127,7 +127,7 @@ class RuntimeValidationTests(unittest.TestCase):
         self.assertEqual(set(report['devices']), {'off', 'on'})
 
     def test_managed_profilers_keep_image_adapter_code(self):
-        command = _base_docker_cmd(
+        command = profiler_container_command(
             task_info=self.task(), image_tag='sha256:' + 'b' * 64,
             cpu=1, mem=8, use_gpu=True, payload_file='/tmp/payload.json',
             profile_root='/tmp/profiles', tool_mount_roots=[],

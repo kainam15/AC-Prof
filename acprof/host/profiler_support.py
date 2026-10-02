@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
-from typing import Any, Dict, List, Sequence
+import re
+from typing import TYPE_CHECKING, Any, Dict, List, Sequence
 
-from acprof.host.detect import TaskInfo
+from acprof.artifacts import atomic_write
+
+if TYPE_CHECKING:
+    from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
@@ -14,16 +17,14 @@ from acprof.runtime_settings import runtime_docker_env_args
 CONTAINER_INPUT_SCALE_PLAN_FILE = "/payloads/input_scale_plan.json"
 
 
-
-
-def _format_scale_value(scale: float) -> str:
+def format_scale_value(scale: float) -> str:
     value = float(scale)
     if value.is_integer():
         return str(int(value))
     return f"{value:g}"
 
 
-def _parse_last_json_line(text: str) -> Dict[str, Any]:
+def parse_last_json_line(text: str) -> Dict[str, Any]:
     for line in reversed((text or "").splitlines()):
         line = line.strip()
         if not line:
@@ -37,7 +38,7 @@ def _parse_last_json_line(text: str) -> Dict[str, Any]:
     return {}
 
 
-def _load_input_scale_plan_entries(
+def load_input_scale_plan_entries(
     input_scale_plan_file: str,
 ) -> List[Dict[str, Any]]:
     if not input_scale_plan_file:
@@ -79,14 +80,14 @@ def _load_input_scale_plan_entries(
         entries.append({
             "input_scale": scale,
             "scale_label": str(
-                entry.get("scale_label") or _format_scale_value(scale)
+                entry.get("scale_label") or format_scale_value(scale)
             ),
             "payload": payload,
         })
     return entries
 
 
-def _base_docker_cmd(
+def profiler_container_command(
     *,
     task_info: TaskInfo,
     image_tag: str,
@@ -140,33 +141,60 @@ def _base_docker_cmd(
     return cmd
 
 
-def _runner_args(entry: Dict[str, Any], repeat: int, mode: str) -> List[str]:
+def profile_runner_args(entry: Dict[str, Any], repeat: int, mode: str) -> List[str]:
     return [
         "python", "-m", "acprof.container.compute_profile_runner",
         "--payload-file", CONTAINER_INPUT_SCALE_PLAN_FILE,
-        "--input-scale", _format_scale_value(float(entry["input_scale"])),
+        "--input-scale", format_scale_value(float(entry["input_scale"])),
         "--repeat", str(max(1, int(repeat))),
         "--profile-mode", mode,
     ]
 
 
-def _write_json_atomic(path: str, payload: Dict[str, Any]) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-    os.makedirs(directory, exist_ok=True)
-    fd, temporary_path = tempfile.mkstemp(
-        prefix=f".{os.path.basename(path)}.",
-        suffix=".tmp",
-        dir=directory,
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=True, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary_path, path)
-    except Exception:
-        try:
-            os.unlink(temporary_path)
-        except OSError:
-            pass
-        raise
+def write_profile_json(path: str, payload: Dict[str, Any]) -> None:
+    """Publish legacy profiler JSON (including unavailable NaN) after collection."""
+    atomic_write(path, lambda stream: json.dump(payload, stream, ensure_ascii=True, indent=2))
+
+
+COMPUTE_THREAD_ENV_NAMES = {
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "TORCH_NUM_THREADS",
+}
+
+
+def safe_filename_token(value: Any) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("._")
+    return token or "unknown"
+
+
+def relative_artifact(path: str, output_dir: str) -> str:
+    return os.path.relpath(os.path.abspath(path), os.path.abspath(output_dir))
+
+
+def docker_env(cmd: Sequence[str], name: str, value: str) -> List[str]:
+    if not cmd:
+        return []
+    return [*cmd[:-1], "-e", f"{name}={value}", cmd[-1]]
+
+
+def execution_thread_environment(cmd: Sequence[str]) -> List[str]:
+    """Keep execution probes aligned with the normal matrix runtime config."""
+    filtered: List[str] = []
+    index = 0
+    while index < len(cmd):
+        value = str(cmd[index])
+        if value == "-e" and index + 1 < len(cmd):
+            assignment = str(cmd[index + 1])
+            if assignment.split("=", 1)[0] in COMPUTE_THREAD_ENV_NAMES:
+                index += 2
+                continue
+        filtered.append(value)
+        index += 1
+    # The old quota-derived profiler default is removed above. An explicit
+    # legacy request must still match the normal server, just like generic settings.
+    if filtered and 'TORCH_NUM_THREADS' in os.environ:
+        filtered = docker_env(filtered, 'TORCH_NUM_THREADS', os.environ['TORCH_NUM_THREADS'])
+    return filtered

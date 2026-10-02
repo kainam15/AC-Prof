@@ -10,12 +10,12 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import (
-    _base_docker_cmd,
-    _format_scale_value,
-    _parse_last_json_line,
-    _runner_args,
-    _write_json_atomic,
+from acprof.host.profiler_support import (
+    format_scale_value,
+    parse_last_json_line,
+    profile_runner_args,
+    profiler_container_command,
+    write_profile_json,
 )
 from acprof.host.profilers.compute_parsers import (
     NCU_DURATION_METRIC,
@@ -26,7 +26,7 @@ from acprof.host.profilers.compute_parsers import (
     _to_float,
     parse_ncu_profile_csv,
 )
-from acprof.host.profilers.tool_discovery import _tool_mount_roots
+from acprof.host.profilers.tool_discovery import tool_mount_roots
 
 NCU_TOOL = "ncu"
 
@@ -176,7 +176,7 @@ def _ncu_artifact_paths(
     profile_root: str,
     input_scale: float,
 ) -> Tuple[str, str, str, str]:
-    scale_label = _format_scale_value(input_scale)
+    scale_label = format_scale_value(input_scale)
     report_base = f"/profiles/ncu_scale_{scale_label}"
     host_csv = os.path.join(profile_root, f"ncu_scale_{scale_label}.csv")
     host_report = os.path.join(profile_root, f"ncu_scale_{scale_label}.ncu-rep")
@@ -354,7 +354,7 @@ def _write_ncu_checkpoint(
     host_csv: str,
     entry: Dict[str, Any],
 ) -> None:
-    _write_json_atomic(
+    write_profile_json(
         checkpoint_path,
         {
             "schema_version": NCU_CHECKPOINT_SCHEMA_VERSION,
@@ -382,7 +382,7 @@ def _resume_ncu_for_entry(
     repeat: int,
 ) -> Optional[Dict[str, Any]]:
     input_scale = float(entry["input_scale"])
-    scale_label = _format_scale_value(input_scale)
+    scale_label = format_scale_value(input_scale)
     report_base, host_csv, host_report, checkpoint_path = _ncu_artifact_paths(
         profile_root,
         input_scale,
@@ -511,7 +511,7 @@ def _run_ncu_for_entry(
         profile_root,
         float(entry["input_scale"]),
     )
-    base_cmd = _base_docker_cmd(
+    base_cmd = profiler_container_command(
         task_info=task_info,
         image_tag=image_tag,
         cpu=cpu,
@@ -531,7 +531,7 @@ def _run_ncu_for_entry(
         "--metrics", ",".join(ncu_metrics),
         "-f",
         "-o", report_base,
-        *_runner_args(entry, repeat, "gpu"),
+        *profile_runner_args(entry, repeat, "gpu"),
     ]
     result = run_command([*base_cmd, *collect_cmd], check=False)
     if result.returncode != 0:
@@ -558,7 +558,7 @@ def _run_ncu_for_entry(
         host_csv=host_csv,
         profile_root=profile_root,
         repeat=repeat,
-        runner_payload=_parse_last_json_line(result.stdout),
+        runner_payload=parse_last_json_line(result.stdout),
     )
 
 
@@ -583,8 +583,8 @@ def _profile_gpu_entries(
             "error": "ncu_not_found",
             "entries": _ncu_error_entries(entries, "ncu_not_found"),
         }
-    mount_roots = _tool_mount_roots(ncu_bin, ncu_root)
-    metric_query_base_cmd = _base_docker_cmd(
+    mount_roots = tool_mount_roots(ncu_bin, ncu_root)
+    metric_query_base_cmd = profiler_container_command(
         task_info=task_info,
         image_tag=image_tag,
         cpu=cpu,
@@ -622,7 +622,7 @@ def _profile_gpu_entries(
                     repeat=repeat,
                 )
             if profile_entry is None:
-                scale_label = _format_scale_value(float(entry["input_scale"]))
+                scale_label = format_scale_value(float(entry["input_scale"]))
                 print(f"[compute][ncu] scale={scale_label}: collecting")
                 profile_entry = _run_ncu_for_entry(
                     ncu_bin=ncu_bin,

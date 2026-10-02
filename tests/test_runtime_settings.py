@@ -57,12 +57,12 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(requested, {**original, 'ACPROF_RUNTIME_THREADS': '3'})
 
     def test_execution_probe_preserves_explicit_legacy_request_not_quota_default(self):
-        from acprof.host.execution_profile import _without_compute_thread_env
+        from acprof.host.profiler_support import execution_thread_environment
         command = ['docker', 'run', '--cpus=2', '-e', 'TORCH_NUM_THREADS=2', 'image']
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(_without_compute_thread_env(command), ['docker', 'run', '--cpus=2', 'image'])
+            self.assertEqual(execution_thread_environment(command), ['docker', 'run', '--cpus=2', 'image'])
         with patch.dict(os.environ, {'TORCH_NUM_THREADS': '3'}, clear=True):
-            self.assertEqual(_without_compute_thread_env(command),
+            self.assertEqual(execution_thread_environment(command),
                              ['docker', 'run', '--cpus=2', '-e', 'TORCH_NUM_THREADS=3', 'image'])
 
     def test_unlimited_probe_timeout_is_preserved_by_completion_hook(self):
@@ -76,16 +76,16 @@ class RuntimeSettingsTests(unittest.TestCase):
 
     def test_profiler_keeps_unlimited_completion_unless_explicitly_requested(self):
         from acprof.container.execution import complete_prediction
-        from acprof.host.profiler_common import _base_docker_cmd
+        from acprof.host.profiler_support import profiler_container_command
         task = SimpleNamespace(model_id='fixture', model_revision='main', task_family='structured',
                                pipeline_tag='tabular-regression', runtime_backend='onnxruntime',
                                runtime_profile_id='onnxruntime-cpu')
         for override, expected in ((None, None), ('600', 600.0)):
             environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
             with self.subTest(override=override), patch.dict(os.environ, environment, clear=True):
-                command = _base_docker_cmd(task_info=task, image_tag='fixture', cpu=2, mem=2,
-                                          use_gpu=False, payload_file='/tmp/plan.json',
-                                          profile_root='/tmp/profiles', tool_mount_roots=())
+                command = profiler_container_command(task_info=task, image_tag='fixture', cpu=2, mem=2,
+                                                     use_gpu=False, payload_file='/tmp/plan.json',
+                                                     profile_root='/tmp/profiles', tool_mount_roots=())
             forwarded = dict(command[i + 1].split('=', 1) for i, part in enumerate(command)
                              if part == '-e')
             captured = []

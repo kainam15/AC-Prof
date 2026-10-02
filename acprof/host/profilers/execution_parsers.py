@@ -15,7 +15,7 @@ NSYS_REPORTS = (
 )
 
 
-def _finite_float(value: Any) -> Optional[float]:
+def finite_float(value: Any) -> Optional[float]:
     try:
         if value is None:
             return None
@@ -64,7 +64,7 @@ def parse_massif_output(report_path: str) -> Dict[str, Any]:
                 "mem_stacks_B",
             }:
                 continue
-            value = _finite_float(raw_value)
+            value = finite_float(raw_value)
             if value is not None:
                 current[key] = value
 
@@ -199,7 +199,7 @@ def _sum_numeric_column(
         if include_row is not None and not include_row(row):
             continue
         eligible = True
-        value = _finite_float(row.get(field))
+        value = finite_float(row.get(field))
         if value is None:
             continue
         total += value

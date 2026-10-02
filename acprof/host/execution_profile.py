@@ -8,50 +8,35 @@ diagnostic entry rather than aborting the other profiler.
 from __future__ import annotations
 
 import copy
-import json
-import math
 import os
-import re
 import shutil
 from time import perf_counter
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_common import (
-    _base_docker_cmd,
-    _format_scale_value,
-    _load_input_scale_plan_entries,
-    _parse_last_json_line,
-    _runner_args,
-    _write_json_atomic,
-)
 from acprof.host.profiler_progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
 )
+from acprof.host.profiler_support import (
+    load_input_scale_plan_entries,
+    write_profile_json,
+)
+from acprof.host.profilers import massif, nsys
 from acprof.host.profilers.execution_environment import (
-    _command_detail,
-    _massif_version,
-    _nsys_version,
-    _validate_nsys_container_runtime,
+    get_massif_version,
+    get_nsys_version,
     require_execution_image,
+    validate_nsys_container_runtime,
 )
-from acprof.host.profilers.execution_parsers import (
-    NSYS_REPORTS,
-    _finite_float,
-    parse_massif_output,
-    parse_nsys_stats_reports,
-)
-from acprof.host.profilers.tool_discovery import _find_nsys_executable, _nsys_mount_root
+from acprof.host.profilers.massif import MASSIF_TOOL
+from acprof.host.profilers.nsys import NSYS_TOOL
+from acprof.host.profilers.tool_discovery import find_nsys_executable, find_nsys_mount_root
 
 EXECUTION_PROFILE_PLAN_NAME = "execution_profile_plan.json"
 EXECUTION_PROFILE_DIRNAME = "execution_profiles"
 EXECUTION_PROFILE_SCHEMA_VERSION = 1
-MASSIF_CHECKPOINT_SCHEMA_VERSION = 1
 EXECUTION_PROFILE_TOOL_MODES = {"none", "both", "massif", "nsys"}
-MASSIF_TOOL = "massif"
-NSYS_TOOL = "nsys"
 MASSIF_SAMPLING_MODES = {"per-scale", "full"}
 NSYS_SAMPLING_MODES = {"per-cpu-scale", "per-scale", "full"}
 SAMPLING_STRATEGY_METADATA = {
@@ -59,43 +44,6 @@ SAMPLING_STRATEGY_METADATA = {
     "per-scale": "representative_per_scale",
     "per-cpu-scale": "representative_per_cpu_scale",
 }
-NSYS_NVTX_RANGE = "acprof_compute"
-NSYS_TRACE_DOMAINS = "cuda,nvtx"
-NSYS_RAW_STREAM_SUFFIX = ".qdstrm"
-COMPUTE_THREAD_ENV_NAMES = {
-    "OMP_NUM_THREADS",
-    "MKL_NUM_THREADS",
-    "OPENBLAS_NUM_THREADS",
-    "NUMEXPR_NUM_THREADS",
-    "TORCH_NUM_THREADS",
-}
-
-MASSIF_FIELDS = (
-    "cpu_heap_peak_bytes_massif",
-    "cpu_heap_extra_peak_bytes_massif",
-    "cpu_stack_peak_bytes_massif",
-    "cpu_heap_peak_total_bytes_massif",
-    "cpu_heap_peak_at_ms_massif",
-)
-NSYS_FIELDS = (
-    "host_inference_wall_time_ms_per_request_nsys",
-    "cuda_api_time_sum_ms_per_request_nsys",
-    "cuda_api_call_count_per_request_nsys",
-    "gpu_kernel_time_sum_ms_per_request_nsys",
-    "gpu_kernel_launch_count_per_request_nsys",
-    "gpu_memcpy_time_sum_ms_per_request_nsys",
-    "gpu_memcpy_count_per_request_nsys",
-    "gpu_memcpy_bytes_per_request_nsys",
-)
-
-
-def _safe_filename_token(value: Any) -> str:
-    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("._")
-    return token or "unknown"
-
-
-def _relative_artifact(path: str, output_dir: str) -> str:
-    return os.path.relpath(os.path.abspath(path), os.path.abspath(output_dir))
 
 
 def _normalize_gpu_modes(gpu_list: Iterable[str]) -> List[str]:
@@ -221,674 +169,6 @@ def _copy_profile_with_provenance(
     return copied
 
 
-def _massif_error_entry(
-    entry: Mapping[str, Any],
-    error: str,
-    *,
-    report: Optional[str] = None,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
-        "input_scale": float(entry["input_scale"]),
-        "tool": MASSIF_TOOL,
-        **{field: None for field in MASSIF_FIELDS},
-        "compute_profile_error_massif": error,
-        "error": error,
-    }
-    if report is not None:
-        result["report"] = report
-    return result
-
-
-def _nsys_error_entry(
-    entry: Mapping[str, Any],
-    error: str,
-    *,
-    report: Optional[str] = None,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
-        "input_scale": float(entry["input_scale"]),
-        "tool": NSYS_TOOL,
-        **{field: None for field in NSYS_FIELDS},
-        "compute_profile_error_nsys": error,
-        "error": error,
-    }
-    if report is not None:
-        result["report"] = report
-    return result
-
-
-def _docker_env(cmd: Sequence[str], name: str, value: str) -> List[str]:
-    if not cmd:
-        return []
-    return [*cmd[:-1], "-e", f"{name}={value}", cmd[-1]]
-
-
-def _without_compute_thread_env(cmd: Sequence[str]) -> List[str]:
-    """Keep execution probes aligned with the normal matrix runtime config."""
-    filtered: List[str] = []
-    index = 0
-    while index < len(cmd):
-        value = str(cmd[index])
-        if value == "-e" and index + 1 < len(cmd):
-            assignment = str(cmd[index + 1])
-            if assignment.split("=", 1)[0] in COMPUTE_THREAD_ENV_NAMES:
-                index += 2
-                continue
-        filtered.append(value)
-        index += 1
-    # The old quota-derived profiler default is removed above. An explicit
-    # legacy request must still match the normal server, just like generic settings.
-    if filtered and 'TORCH_NUM_THREADS' in os.environ:
-        filtered = _docker_env(filtered, 'TORCH_NUM_THREADS', os.environ['TORCH_NUM_THREADS'])
-    return filtered
-
-
-def _massif_artifact_paths(
-    *,
-    profile_root: str,
-    cpu: int,
-    mem: int,
-    input_scale: float,
-) -> Tuple[str, str]:
-    scale_label = _safe_filename_token(
-        _format_scale_value(input_scale)
-    )
-    filename = f"massif_cpu_{cpu}_mem_{mem}_scale_{scale_label}.out"
-    host_report = os.path.join(profile_root, filename)
-    checkpoint = os.path.join(
-        profile_root,
-        f"massif_cpu_{cpu}_mem_{mem}_scale_{scale_label}.checkpoint.json",
-    )
-    return host_report, checkpoint
-
-
-def _massif_entry_complete(entry: Mapping[str, Any]) -> bool:
-    return not str(entry.get("error") or "").strip() and all(
-        _finite_float(entry.get(field)) is not None
-        for field in MASSIF_FIELDS
-    )
-
-
-def _massif_entry_from_report(
-    *,
-    entry: Mapping[str, Any],
-    host_report: str,
-    output_dir: str,
-) -> Dict[str, Any]:
-    relative_report = _relative_artifact(host_report, output_dir)
-    try:
-        parsed = parse_massif_output(host_report)
-    except Exception as exc:
-        detail = str(exc)
-        error = (
-            detail
-            if detail.startswith("massif_parse_failed:")
-            else f"massif_parse_failed:{detail}"
-        )
-        return _massif_error_entry(
-            entry,
-            error,
-            report=relative_report if os.path.isfile(host_report) else None,
-        )
-    return {
-        "input_scale": float(entry["input_scale"]),
-        "tool": MASSIF_TOOL,
-        **parsed,
-        "compute_profile_error_massif": "",
-        "error": "",
-        "report": relative_report,
-    }
-
-
-def _write_massif_checkpoint(
-    *,
-    checkpoint_path: str,
-    task_info: TaskInfo,
-    derived_image: str,
-    cpu: int,
-    mem: int,
-    input_scale: float,
-    repeat: int,
-    host_report: str,
-    entry: Mapping[str, Any],
-) -> None:
-    _write_json_atomic(
-        checkpoint_path,
-        {
-            "schema_version": MASSIF_CHECKPOINT_SCHEMA_VERSION,
-            "model_id": task_info.model_id,
-            "model_revision": task_info.model_revision or "main",
-            "derived_image": derived_image,
-            "cpu_cores": int(cpu),
-            "mem_cap_gb": int(mem),
-            "input_scale": float(input_scale),
-            "repeat": max(1, int(repeat)),
-            "report_size_bytes": os.path.getsize(host_report),
-            "entry": dict(entry),
-        },
-    )
-
-
-def _read_massif_checkpoint(path: str) -> Optional[Dict[str, Any]]:
-    try:
-        with open(path, "r", encoding="utf-8") as checkpoint_file:
-            payload = json.load(checkpoint_file)
-    except (OSError, ValueError, TypeError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _massif_checkpoint_matches(
-    checkpoint: Mapping[str, Any],
-    *,
-    task_info: TaskInfo,
-    derived_image: str,
-    cpu: int,
-    mem: int,
-    input_scale: float,
-    repeat: int,
-) -> bool:
-    try:
-        schema_version = int(checkpoint.get("schema_version"))
-        checkpoint_cpu = int(checkpoint.get("cpu_cores"))
-        checkpoint_mem = int(checkpoint.get("mem_cap_gb"))
-        checkpoint_scale = float(checkpoint.get("input_scale"))
-        checkpoint_repeat = int(checkpoint.get("repeat"))
-    except (TypeError, ValueError):
-        return False
-    return (
-        schema_version == MASSIF_CHECKPOINT_SCHEMA_VERSION
-        and str(checkpoint.get("model_id") or "") == task_info.model_id
-        and str(checkpoint.get("model_revision") or "main")
-        == str(task_info.model_revision or "main")
-        and str(checkpoint.get("derived_image") or "") == derived_image
-        and checkpoint_cpu == int(cpu)
-        and checkpoint_mem == int(mem)
-        and math.isclose(checkpoint_scale, input_scale, abs_tol=1e-9)
-        and checkpoint_repeat == max(1, int(repeat))
-    )
-
-
-def _resume_massif_entry(
-    *,
-    task_info: TaskInfo,
-    derived_image: str,
-    cpu: int,
-    mem: int,
-    profile_root: str,
-    output_dir: str,
-    entry: Mapping[str, Any],
-    repeat: int,
-) -> Optional[Dict[str, Any]]:
-    input_scale = float(entry["input_scale"])
-    scale_label = _format_scale_value(input_scale)
-    host_report, checkpoint_path = _massif_artifact_paths(
-        profile_root=profile_root,
-        cpu=cpu,
-        mem=mem,
-        input_scale=input_scale,
-    )
-    checkpoint_exists = os.path.isfile(checkpoint_path)
-    checkpoint = (
-        _read_massif_checkpoint(checkpoint_path)
-        if checkpoint_exists
-        else None
-    )
-    if checkpoint_exists and (
-        checkpoint is None
-        or not _massif_checkpoint_matches(
-            checkpoint,
-            task_info=task_info,
-            derived_image=derived_image,
-            cpu=cpu,
-            mem=mem,
-            input_scale=input_scale,
-            repeat=repeat,
-        )
-    ):
-        print(
-            f"[execution-profile][massif][resume] scale={scale_label}: "
-            "checkpoint does not match this run; recollecting"
-        )
-        return None
-
-    if checkpoint is not None and os.path.isfile(host_report):
-        checkpoint_entry = checkpoint.get("entry")
-        expected_size = _finite_float(checkpoint.get("report_size_bytes"))
-        if (
-            isinstance(checkpoint_entry, Mapping)
-            and _massif_entry_complete(checkpoint_entry)
-            and expected_size is not None
-            and os.path.getsize(host_report) == int(expected_size)
-        ):
-            resumed = dict(checkpoint_entry)
-            resumed["report"] = _relative_artifact(host_report, output_dir)
-            print(
-                f"[execution-profile][massif][resume] scale={scale_label}: "
-                f"reusing checkpoint {checkpoint_path}"
-            )
-            return resumed
-
-    if checkpoint is None and os.path.isfile(host_report):
-        resumed = _massif_entry_from_report(
-            entry=entry,
-            host_report=host_report,
-            output_dir=output_dir,
-        )
-        if _massif_entry_complete(resumed):
-            _write_massif_checkpoint(
-                checkpoint_path=checkpoint_path,
-                task_info=task_info,
-                derived_image=derived_image,
-                cpu=cpu,
-                mem=mem,
-                input_scale=input_scale,
-                repeat=repeat,
-                host_report=host_report,
-                entry=resumed,
-            )
-            print(
-                f"[execution-profile][massif][resume] scale={scale_label}: "
-                f"reusing valid report {host_report}"
-            )
-            return resumed
-        print(
-            f"[execution-profile][massif][resume] scale={scale_label}: "
-            "existing report is incomplete; recollecting"
-        )
-    return None
-
-
-def _collect_massif_entry(
-    *,
-    task_info: TaskInfo,
-    derived_image: str,
-    cpu: int,
-    mem: int,
-    payload_file: str,
-    profile_root: str,
-    output_dir: str,
-    entry: Mapping[str, Any],
-    repeat: int,
-) -> Dict[str, Any]:
-    input_scale = float(entry["input_scale"])
-    host_report, checkpoint_path = _massif_artifact_paths(
-        profile_root=profile_root,
-        cpu=cpu,
-        mem=mem,
-        input_scale=input_scale,
-    )
-    filename = os.path.basename(host_report)
-    relative_report = _relative_artifact(host_report, output_dir)
-    base_cmd = _base_docker_cmd(
-        task_info=task_info,
-        image_tag=derived_image,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=False,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=(),
-    )
-    base_cmd = _without_compute_thread_env(base_cmd)
-    command = [
-        *base_cmd,
-        "valgrind",
-        "--tool=massif",
-        "--time-unit=ms",
-        "--stacks=yes",
-        f"--massif-out-file=/profiles/{filename}",
-        *_runner_args(dict(entry), repeat, "cpu"),
-    ]
-    result = run_command(command, check=False)
-    if result.returncode != 0:
-        return _massif_error_entry(
-            entry,
-            f"massif_failed:{_command_detail(result)}",
-            report=relative_report if os.path.isfile(host_report) else None,
-        )
-    profiled = _massif_entry_from_report(
-        entry=entry,
-        host_report=host_report,
-        output_dir=output_dir,
-    )
-    if _massif_entry_complete(profiled):
-        _write_massif_checkpoint(
-            checkpoint_path=checkpoint_path,
-            task_info=task_info,
-            derived_image=derived_image,
-            cpu=cpu,
-            mem=mem,
-            input_scale=input_scale,
-            repeat=repeat,
-            host_report=host_report,
-            entry=profiled,
-        )
-    return profiled
-
-
-def _nsys_sqlite_path(report_path: str) -> str:
-    """Return the SQLite cache path generated by ``nsys stats``."""
-    return f"{os.path.splitext(os.fspath(report_path))[0]}.sqlite"
-
-
-def _discard_nsys_sqlite(report_path: str) -> None:
-    """Remove the derived SQLite cache while preserving the raw report."""
-    try:
-        os.remove(_nsys_sqlite_path(report_path))
-    except FileNotFoundError:
-        pass
-
-
-def _run_nsys_stats(nsys_bin: str, report_path: str) -> Dict[str, str]:
-    outputs: Dict[str, str] = {}
-    sqlite_path = _nsys_sqlite_path(report_path)
-    try:
-        for index, report_name in enumerate(NSYS_REPORTS):
-            refresh_export = ["--force-export=true"] if index == 0 else []
-            # Nsys 2026.1 can report a freshly exported SQLite cache as older
-            # than its .nsys-rep when both files were written in the same
-            # second.  Export once from the raw report, then pass the SQLite
-            # file directly so later reports do not repeat that freshness
-            # check.
-            stats_input = report_path if index == 0 else sqlite_path
-            result = run_command(
-                [
-                    nsys_bin,
-                    "stats",
-                    "--report",
-                    report_name,
-                    "--format",
-                    "csv",
-                    "--timeunit",
-                    "nsec",
-                    "--output",
-                    "-",
-                    *refresh_export,
-                    stats_input,
-                ],
-                check=False,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(
-                    f"nsys_stats_failed:{report_name}:"
-                    f"{_command_detail(result)}"
-                )
-            stdout = str(result.stdout or "")
-            stderr = str(result.stderr or "")
-            outputs[report_name] = "\n".join(
-                part for part in (stdout, stderr) if part.strip()
-            )
-        return outputs
-    finally:
-        _discard_nsys_sqlite(report_path)
-
-
-def _discard_nsys_raw_stream(path: str) -> int:
-    """Remove an intermediate QDSTRM and return its former byte size."""
-    try:
-        size = os.path.getsize(path)
-    except OSError:
-        size = 0
-    try:
-        os.remove(path)
-    except FileNotFoundError:
-        pass
-    return size
-
-
-def _collect_nsys_entry(
-    *,
-    task_info: TaskInfo,
-    image_tag: str,
-    nsys_bin: str,
-    nsys_mount_root: str,
-    cpu: int,
-    mem: int,
-    payload_file: str,
-    profile_root: str,
-    output_dir: str,
-    entry: Mapping[str, Any],
-    repeat: int,
-) -> Dict[str, Any]:
-    scale_label = _safe_filename_token(
-        _format_scale_value(float(entry["input_scale"]))
-    )
-    stem = f"nsys_cpu_{cpu}_mem_{mem}_scale_{scale_label}"
-    filename = f"{stem}.nsys-rep"
-    host_report = os.path.join(profile_root, filename)
-    host_raw_stream = os.path.join(
-        profile_root,
-        f"{stem}{NSYS_RAW_STREAM_SUFFIX}",
-    )
-    relative_report = _relative_artifact(host_report, output_dir)
-    # A failed importer may have left a huge stream from an earlier attempt.
-    _discard_nsys_raw_stream(host_raw_stream)
-    base_cmd = _base_docker_cmd(
-        task_info=task_info,
-        image_tag=image_tag,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=True,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=(nsys_mount_root,),
-    )
-    base_cmd = _without_compute_thread_env(base_cmd)
-    base_cmd = _docker_env(
-        base_cmd,
-        "NSYS_NVTX_PROFILER_REGISTER_ONLY",
-        "0",
-    )
-    command = [
-        *base_cmd,
-        nsys_bin,
-        "profile",
-        f"--trace={NSYS_TRACE_DOMAINS}",
-        "--capture-range=nvtx",
-        f"--nvtx-capture={NSYS_NVTX_RANGE}",
-        "--capture-range-end=stop",
-        "--sample=none",
-        "--cpuctxsw=none",
-        "--force-overwrite=true",
-        f"--output=/profiles/{stem}",
-        *_runner_args(dict(entry), repeat, "gpu"),
-    ]
-    try:
-        result = run_command(command, check=False)
-    except Exception:
-        _discard_nsys_raw_stream(host_raw_stream)
-        raise
-    if result.returncode != 0:
-        discarded_bytes = _discard_nsys_raw_stream(host_raw_stream)
-        discarded = (
-            f":discarded_qdstrm_bytes={discarded_bytes}"
-            if discarded_bytes
-            else ""
-        )
-        return _nsys_error_entry(
-            entry,
-            f"nsys_failed:{_command_detail(result)}{discarded}",
-            report=relative_report if os.path.isfile(host_report) else None,
-        )
-    if not os.path.isfile(host_report):
-        discarded_bytes = _discard_nsys_raw_stream(host_raw_stream)
-        discarded = (
-            f":discarded_qdstrm_bytes={discarded_bytes}"
-            if discarded_bytes
-            else ""
-        )
-        return _nsys_error_entry(
-            entry,
-            f"nsys_import_failed:report_not_found{discarded}",
-        )
-    _discard_nsys_raw_stream(host_raw_stream)
-
-    runner_payload = _parse_last_json_line(str(result.stdout or ""))
-    wall_time = _finite_float(
-        runner_payload.get("profile_window_wall_time_ms_per_request")
-    )
-    if wall_time is None:
-        total_wall_time = _finite_float(
-            runner_payload.get("profile_window_wall_time_ms")
-        )
-        if total_wall_time is not None:
-            wall_time = total_wall_time / max(1, int(repeat))
-    if wall_time is None or wall_time < 0:
-        return _nsys_error_entry(
-            entry,
-            "nsys_parse_failed:profile_window_wall_time_missing",
-            report=relative_report,
-        )
-
-    try:
-        stats = parse_nsys_stats_reports(
-            _run_nsys_stats(nsys_bin, host_report),
-            repeat=repeat,
-        )
-    except Exception as exc:
-        detail = str(exc)
-        error = (
-            detail
-            if detail.startswith(("nsys_parse_failed:", "nsys_stats_failed:"))
-            else f"nsys_parse_failed:{detail}"
-        )
-        return _nsys_error_entry(
-            entry,
-            error,
-            report=relative_report,
-        )
-
-    return {
-        "input_scale": float(entry["input_scale"]),
-        "tool": NSYS_TOOL,
-        "host_inference_wall_time_ms_per_request_nsys": wall_time,
-        **stats,
-        "compute_profile_error_nsys": "",
-        "error": "",
-        "report": relative_report,
-    }
-
-
-def _profile_massif_tool(
-    *,
-    entries: List[Dict[str, Any]],
-    global_error: str,
-    task_info: TaskInfo,
-    derived_image: Optional[str],
-    cpu: int,
-    mem: int,
-    payload_file: str,
-    profile_root: str,
-    output_dir: str,
-    repeat: int,
-    resume_existing: bool = False,
-) -> Dict[str, Any]:
-    if global_error or not derived_image:
-        error = global_error or "massif_not_found"
-        profiled_entries = [
-            _massif_error_entry(entry, error)
-            for entry in entries
-        ]
-    else:
-        profiled_entries = []
-        for entry in entries:
-            try:
-                profiled = None
-                if resume_existing:
-                    profiled = _resume_massif_entry(
-                        task_info=task_info,
-                        derived_image=derived_image,
-                        cpu=cpu,
-                        mem=mem,
-                        profile_root=profile_root,
-                        output_dir=output_dir,
-                        entry=entry,
-                        repeat=repeat,
-                    )
-                if profiled is None:
-                    profiled = _collect_massif_entry(
-                        task_info=task_info,
-                        derived_image=derived_image,
-                        cpu=cpu,
-                        mem=mem,
-                        payload_file=payload_file,
-                        profile_root=profile_root,
-                        output_dir=output_dir,
-                        entry=entry,
-                        repeat=repeat,
-                    )
-                profiled_entries.append(profiled)
-            except Exception as exc:
-                profiled_entries.append(
-                    _massif_error_entry(
-                        entry,
-                        f"massif_failed:{exc!r}",
-                    )
-                )
-    return {
-        "tool": MASSIF_TOOL,
-        "repeat": repeat,
-        "error": global_error,
-        "entries": profiled_entries,
-    }
-
-
-def _profile_nsys_tool(
-    *,
-    entries: List[Dict[str, Any]],
-    global_error: str,
-    task_info: TaskInfo,
-    image_tag: str,
-    nsys_bin: Optional[str],
-    nsys_mount_root: Optional[str],
-    cpu: int,
-    mem: int,
-    payload_file: str,
-    profile_root: str,
-    output_dir: str,
-    repeat: int,
-) -> Dict[str, Any]:
-    if global_error or not nsys_bin or not nsys_mount_root:
-        error = global_error or "nsys_not_found"
-        profiled_entries = [
-            _nsys_error_entry(entry, error)
-            for entry in entries
-        ]
-    else:
-        profiled_entries = []
-        for entry in entries:
-            try:
-                profiled_entries.append(
-                    _collect_nsys_entry(
-                        task_info=task_info,
-                        image_tag=image_tag,
-                        nsys_bin=nsys_bin,
-                        nsys_mount_root=nsys_mount_root,
-                        cpu=cpu,
-                        mem=mem,
-                        payload_file=payload_file,
-                        profile_root=profile_root,
-                        output_dir=output_dir,
-                        entry=entry,
-                        repeat=repeat,
-                    )
-                )
-            except Exception as exc:
-                profiled_entries.append(
-                    _nsys_error_entry(
-                        entry,
-                        f"nsys_failed:{exc!r}",
-                    )
-                )
-    return {
-        "tool": NSYS_TOOL,
-        "repeat": repeat,
-        "error": global_error,
-        "entries": profiled_entries,
-    }
-
-
 def _strip_artifact_paths(profiles: Sequence[Mapping[str, Any]]) -> None:
     for profile in profiles:
         tools = profile.get("tools")
@@ -954,7 +234,7 @@ def collect_execution_profile_plan(
         name="nsys_sampling",
         allowed=NSYS_SAMPLING_MODES,
     )
-    entries = _load_input_scale_plan_entries(input_scale_plan_file)
+    entries = load_input_scale_plan_entries(input_scale_plan_file)
     normalized_massif_repeat = max(1, int(massif_repeat))
     normalized_nsys_repeat = max(1, int(nsys_repeat))
     output_dir = os.path.abspath(os.fspath(output_dir))
@@ -1045,7 +325,7 @@ def collect_execution_profile_plan(
             if not massif_error.startswith("massif_"):
                 massif_error = f"massif_runtime_check_failed:{exc!r}"
         if derived_image:
-            massif_version = _massif_version(derived_image)
+            massif_version = get_massif_version(derived_image)
 
     nsys_bin: Optional[str] = None
     nsys_mount_root: Optional[str] = None
@@ -1054,19 +334,19 @@ def collect_execution_profile_plan(
     nsys_version = "unknown"
     if collect_nsys and not nsys_error:
         try:
-            nsys_bin = _find_nsys_executable(nsys_root)
+            nsys_bin = find_nsys_executable(nsys_root)
         except Exception as exc:
             nsys_error = f"nsys_discovery_failed:{exc!r}"
         if nsys_bin:
             try:
-                nsys_mount_root = _nsys_mount_root(nsys_bin)
+                nsys_mount_root = find_nsys_mount_root(nsys_bin)
             except Exception as exc:
                 nsys_error = f"nsys_mount_failed:{exc!r}"
-            nsys_version = _nsys_version(nsys_bin)
+            nsys_version = get_nsys_version(nsys_bin)
             if nsys_mount_root and not nsys_error:
                 try:
                     nsys_profile_image = require_execution_image(image_tag, NSYS_TOOL)
-                    _validate_nsys_container_runtime(
+                    validate_nsys_container_runtime(
                         nsys_profile_image,
                         nsys_mount_root,
                     )
@@ -1087,7 +367,7 @@ def collect_execution_profile_plan(
     source_profiles: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
     massif_started = perf_counter()
     for cpu, mem in massif_sources:
-        source_profiles[(MASSIF_TOOL, cpu, mem)] = _profile_massif_tool(
+        source_profiles[(MASSIF_TOOL, cpu, mem)] = massif.profile(
             entries=entries,
             global_error=massif_error,
             task_info=task_info,
@@ -1112,7 +392,7 @@ def collect_execution_profile_plan(
         )
     nsys_started = perf_counter()
     for cpu, mem in nsys_sources:
-        source_profiles[(NSYS_TOOL, cpu, mem)] = _profile_nsys_tool(
+        source_profiles[(NSYS_TOOL, cpu, mem)] = nsys.profile(
             entries=entries,
             global_error=nsys_error,
             task_info=task_info,
@@ -1260,6 +540,6 @@ def collect_execution_profile_plan(
         _strip_artifact_paths(profiles)
         shutil.rmtree(profile_root, ignore_errors=True)
 
-    _write_json_atomic(plan_path, plan)
+    write_profile_json(plan_path, plan)
     print(f"[execution] Execution profile plan: {plan_path}")
     return plan_path
