@@ -121,6 +121,13 @@ class RunConfig:
     resume: bool = False
     idle_debug: bool = False
 
+    def experiment_parameters(self) -> tuple[tuple[str, object], ...]:
+        """Preset identity excludes transport, storage and execution controls."""
+        execution = {"model", "output_dir", "download_mode", "max_download", "model_store",
+                     "model_store_max", "notify", "skip_build", "resume", "idle_debug", "sniff_iface"}
+        return tuple((item.name, getattr(self, item.name)) for item in fields(self)
+                     if item.name not in execution)
+
     @classmethod
     def from_namespace(cls, args) -> "RunConfig":
         defaults = cls()

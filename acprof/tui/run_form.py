@@ -71,22 +71,25 @@ def config_values(config: RunConfig) -> tuple[dict[str, str], dict[str, str], di
     return inputs, selects, checks
 
 
+PRESET_OPTIONS = (("自定义", "custom"), ("基础 CPU Smoke", "smoke"),
+                  ("主矩阵（分析器关闭）", "main"), ("完整默认", "default"))
+
+
 def infer_preset(config: RunConfig) -> str:
-    model = config.model
-    if config == RunConfig.smoke(model):
+    if matches_preset(config, "smoke"):
         return "smoke"
-    if config == RunConfig.main_matrix(model):
+    if matches_preset(config, "main"):
         return "main"
-    if config == RunConfig(model=model):
+    if matches_preset(config, "default"):
         return "default"
     return "custom"
 
 
 def matches_preset(config: RunConfig, preset: str) -> bool:
     if preset == "smoke":
-        return config == RunConfig.smoke(config.model)
+        return config.experiment_parameters() == RunConfig.smoke(config.model).experiment_parameters()
     if preset == "main":
-        return config == RunConfig.main_matrix(config.model)
+        return config.experiment_parameters() == RunConfig.main_matrix(config.model).experiment_parameters()
     if preset == "default":
-        return config == RunConfig(model=config.model)
+        return config.experiment_parameters() == RunConfig(model=config.model).experiment_parameters()
     return preset == "custom"

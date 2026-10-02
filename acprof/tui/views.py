@@ -25,6 +25,7 @@ from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import NOT_APPLICABLE, format_input_number
 from acprof.tui.rendering import CjkCompositor
+from acprof.tui.run_form import PRESET_OPTIONS
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_OPTIONS
 
@@ -174,12 +175,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
 
                     yield app._localized_widget(Label("运行预设"))
                     yield app._localized_select(
-                        (
-                            ("自定义", "custom"),
-                            ("基础 CPU Smoke", "smoke"),
-                            ("主矩阵（分析器关闭）", "main"),
-                            ("完整默认", "default"),
-                        ),
+                        PRESET_OPTIONS,
                         value=app._initial_preset,
                         allow_blank=False,
                         id="run-preset",

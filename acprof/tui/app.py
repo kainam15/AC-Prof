@@ -590,7 +590,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         finally:
             self._applying_config = False
         if self._form_ready:
-            self._refresh_command_preview(notify=False)
+            self._refresh_command_preview(notify=False, sync_preset=True)
 
     def _show_config_error(self, exc: RunConfigError) -> None:
         text = join_messages("\n", (message("• {0}", error) for error in exc.errors))
@@ -620,12 +620,17 @@ class AcprofTui(ImageActions, BarCursorApp):
                 self._show_config_error(exc)
             return False
         finally:
-            if sync_preset:
+            if sync_preset and config is not None:
                 selected_preset = self._select("run-preset")
-                if selected_preset != "custom" and (
-                    config is None or not run_form.matches_preset(config, selected_preset)
-                ):
-                    self.query_one("#run-preset", Select).value = "custom"
+                if selected_preset != "custom":
+                    adjusted = not run_form.matches_preset(config, selected_preset)
+                    options = tuple((message("{0} · 已调整", message(label)) if key == selected_preset and adjusted else label, key)
+                        for label, key in run_form.PRESET_OPTIONS)
+                    widget = self.query_one("#run-preset", Select)
+                    self._localized_selects[widget] = options
+                    with self.prevent(Select.Changed):
+                        widget.set_options((self.tr(label), key) for label, key in options)
+                        widget.value = selected_preset
         case_count = (
             len(config.cpus.split(","))
             * len(config.mems.split(","))

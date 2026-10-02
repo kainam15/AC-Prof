@@ -40,6 +40,7 @@ ENGLISH: dict[str, str] = {
     "模型": "Model",
     "读取已有结果，不重新执行模型。": "Read recorded results without rerunning models.",
     "仅覆盖所选样本的独立验证，不代表正式采集完成。": "Independent validation of the selected sample; does not imply completed profiling.",
+    "{0} · 已调整": "{0} · adjusted",
     "采集环境": "Collection environment",
     "环境：{0}\n会采（需预检）：{1}\n会降级（环境内有效）：{2}\n会缺失：{3}\n\n":
         "Environment: {0}\nCollect (subject to preflight): {1}\nPartial (within environment): {2}\nUnavailable: {3}\n\n",

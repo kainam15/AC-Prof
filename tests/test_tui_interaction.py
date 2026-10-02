@@ -90,7 +90,7 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             preview = str(app.query_one("#command-preview", Static).render())
             self.assertIn("--cpus 1,3", preview)
             self.assertIn("--model demo/latest", preview)
-            self.assertEqual(app.query_one("#run-preset", Select).value, "custom")
+            self.assertEqual(app.query_one("#run-preset", Select).value, "smoke")
 
     async def test_applying_preset_does_not_queue_redundant_preview_updates(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)

@@ -548,7 +548,7 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             auto_preview = str(app.query_one("#command-preview", Static).render())
             self.assertIn("--cpus 1,3", auto_preview)
-            self.assertEqual(app.query_one("#run-preset").value, "custom")
+            self.assertEqual(app.query_one("#run-preset").value, "smoke")
 
             app.query_one("#run-preset", Select).value = "main"
             await pilot.pause(0.1)
