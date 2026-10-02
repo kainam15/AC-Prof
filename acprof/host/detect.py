@@ -45,6 +45,7 @@ class TaskInfo:
     model_spec: dict[str, Any] = field(default_factory=dict)
     hub_metadata: dict[str, Any] = field(default_factory=dict)
     model_store: dict[str, Any] = field(default_factory=dict)
+    repository_sources: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 def _architecture_metadata(config: Any) -> dict[str, Any]:
@@ -565,7 +566,11 @@ def detect_task(
     if not info.metadata_errors:
         from acprof.model_contract import apply_model_contract
         source_revision = info.model_revision
-        apply_model_contract(info, lambda name: read_model_source(model_id, name, source_revision),
+        def source_text(name):
+            if name not in info.repository_sources:
+                info.repository_sources[name] = read_model_source(model_id, name, source_revision)
+            return info.repository_sources[name]
+        apply_model_contract(info, source_text,
                              override_tag=override_tag, override_backend=override_backend,
                              resolve_repository=dependency_metadata)
 

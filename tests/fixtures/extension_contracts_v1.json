@@ -774,7 +774,10 @@
       "family": "timeseries",
       "backend": "chronos",
       "adapter": "family-default",
-      "precision": {},
+      "precision": {
+        "cpu": "FP32",
+        "gpu": "FP16"
+      },
       "io_sha256": "c9dbbff3618b279fe5307104d48b5bfe2f9fe215e55b83befa5ce54f1644e2ec"
     },
     {
@@ -986,7 +989,7 @@
       "adapter": "family-default",
       "precision": {
         "cpu": "FP32",
-        "gpu": "mixed FP16 (thinker/talker), FP32 (token2wav)"
+        "gpu": "FP16"
       },
       "io_sha256": "a6c719924db4f1c37c593a7c259922f8b6b711a10aa4f94e6b77e5b58aec9281"
     },
@@ -1070,7 +1073,7 @@
       "adapter": "family-default",
       "precision": {
         "cpu": "FP32",
-        "gpu": "mixed FP16 (thinker/talker), FP32 (token2wav)"
+        "gpu": "FP16"
       },
       "io_sha256": "a6c719924db4f1c37c593a7c259922f8b6b711a10aa4f94e6b77e5b58aec9281"
     },
@@ -1082,7 +1085,7 @@
       "adapter": "moss-transcribe-diarize",
       "precision": {
         "cpu": "FP32",
-        "gpu": "FP16"
+        "gpu": "BF16"
       },
       "io_sha256": "4a4a1153525dc571216fa91ecb36fc48633fe03b4e83758d83bc66b118703213"
     },
@@ -1094,7 +1097,7 @@
       "adapter": "moss-transcribe-diarize",
       "precision": {
         "cpu": "FP32",
-        "gpu": "FP16"
+        "gpu": "BF16"
       },
       "io_sha256": "4a4a1153525dc571216fa91ecb36fc48633fe03b4e83758d83bc66b118703213"
     },

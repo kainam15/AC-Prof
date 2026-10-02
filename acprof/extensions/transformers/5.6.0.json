@@ -1688,5 +1688,40 @@
     "MODEL_FOR_IMAGE_TO_IMAGE_MAPPING_NAMES": {
       "swin2sr": "Swin2SRForImageSuperResolution"
     }
+  },
+  "pipeline_registry": {
+    "tasks": [
+      "any-to-any",
+      "audio-classification",
+      "automatic-speech-recognition",
+      "depth-estimation",
+      "document-question-answering",
+      "feature-extraction",
+      "fill-mask",
+      "image-classification",
+      "image-feature-extraction",
+      "image-segmentation",
+      "image-text-to-text",
+      "keypoint-matching",
+      "mask-generation",
+      "object-detection",
+      "table-question-answering",
+      "text-classification",
+      "text-generation",
+      "text-to-audio",
+      "token-classification",
+      "video-classification",
+      "zero-shot-audio-classification",
+      "zero-shot-classification",
+      "zero-shot-image-classification",
+      "zero-shot-object-detection"
+    ],
+    "aliases": {
+      "sentiment-analysis": "text-classification",
+      "ner": "token-classification",
+      "text-to-speech": "text-to-audio"
+    },
+    "source": "https://raw.githubusercontent.com/huggingface/transformers/v5.6.0/src/transformers/pipelines/__init__.py",
+    "sha256": "4f7161564b6a97b3ed9546ff9a393be13292bfb120d3cf48bc9e06030835927e"
   }
 }

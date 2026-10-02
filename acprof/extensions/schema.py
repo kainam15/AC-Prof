@@ -86,6 +86,29 @@ def _validate_io_format(formats: dict) -> None:
             raise ValueError(f"io_format.{direction}.required must name declared properties")
 
 
+def validate_precision_policy(policy: dict) -> None:
+    allowed = {"supported_dtypes", "preferred_dtype", "device_overrides", "model_type_overrides", "task_overrides", "rules"}
+    if not isinstance(policy, dict) or set(policy) - allowed:
+        raise ValueError("invalid precision policy fields")
+    dtypes = {"FP16", "BF16", "FP32", "FP64"}
+    if "supported_dtypes" in policy and (not isinstance(policy["supported_dtypes"], (list, tuple)) or
+            not policy["supported_dtypes"] or any(value not in dtypes for value in policy["supported_dtypes"])):
+        raise ValueError("precision supported_dtypes must contain known floating dtypes")
+    if "preferred_dtype" in policy and policy["preferred_dtype"] not in dtypes:
+        raise ValueError("invalid precision preferred_dtype")
+    for key in ("device_overrides", "model_type_overrides", "task_overrides"):
+        overrides = policy.get(key, {})
+        if not isinstance(overrides, dict) or key == "device_overrides" and set(overrides) - {"cpu", "gpu"}:
+            raise ValueError(f"invalid precision {key}")
+        for override in overrides.values():
+            validate_precision_policy(override)
+    for rule in policy.get("rules", []):
+        if (not isinstance(rule, dict) or set(rule) - {"task", "device", "model_types", "transformers_versions", "blocked_dtypes", "evidence"}
+                or not rule.get("evidence") or not isinstance(rule.get("blocked_dtypes"), list)
+                or any(value not in dtypes for value in rule["blocked_dtypes"])):
+            raise ValueError("precision exclusions require scoped dtype evidence")
+
+
 @dataclass(frozen=True)
 class ScalingDeclaration:
     param_name: str
@@ -142,6 +165,8 @@ class ExtensionDeclaration:
     io_format: dict[str, Any] = field(default_factory=dict)
     task_io_format: dict[str, dict[str, Any]] = field(default_factory=dict)
     precision: dict[str, str] = field(default_factory=dict)
+    precision_policy: dict[str, Any] = field(default_factory=dict)
+    trust_remote_code: bool | None = None
     task_precision: dict[str, dict[str, str]] = field(default_factory=dict)
     backend_precision: dict[str, dict[str, str]] = field(default_factory=dict)
     input_plan: InputPlanCapabilities = field(default_factory=InputPlanCapabilities)
@@ -156,6 +181,7 @@ class ExtensionDeclaration:
     def __post_init__(self):
         if not self.extension_id or not self.family or not self.runtime or not self.backends or not self.dtypes:
             raise ValueError("extension requires non-empty ID, family, runtime, backends and dtypes")
+        validate_precision_policy(self.precision_policy)
         for kind in ("handler", "validation"):
             validate_entrypoint(getattr(self, f"{kind}_entrypoint"), kind=kind)
         if self.workload_entrypoint:
@@ -169,10 +195,11 @@ class ExtensionDeclaration:
         for overrides in self.task_input_plan.values():
             declaration_from_dict(InputPlanCapabilities, overrides, "task_input_plan")
         for key in self.profile_options:
-            if key not in {"gpu_dtype", "trust_remote_code", "runtime_line"}:
+            if key not in {"precision_policy", "trust_remote_code", "runtime_line"}:
                 raise ValueError(f"unknown profile option: {key}")
         for key, value in self.profile_options.items():
-            _decode(value, bool if key == "trust_remote_code" else str, f"profile_options.{key}")
+            _decode(value, dict[str, Any] if key == "precision_policy" else
+                    bool if key == "trust_remote_code" else str, f"profile_options.{key}")
 
     def validate_templates(self) -> None:
         """Validate once during manifest load, outside request execution."""

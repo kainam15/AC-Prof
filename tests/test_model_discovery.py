@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.input_plan import _get_task_generator
 from acprof.host.runtime_images import request_fingerprint
 from acprof.host.task_support import TaskSupportError, require_task_support
+from acprof.runtime_profiles import PROFILES
 
 REVISION = "a" * 40
 
@@ -36,7 +38,9 @@ class ModelDiscoveryTests(unittest.TestCase):
             with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch(
                 "huggingface_hub.hf_hub_download", side_effect=download,
             ), patch("sys.stderr", io.StringIO()):
-                return detect_task("example/model", **options)
+                task = detect_task("example/model", **options)
+                task.repository_sources.update({name: "raise AssertionError('host must not import')" for name in files if name.endswith(".py")})
+                return task
 
     def test_onnx_without_hub_task_uses_declared_interface(self):
         spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
@@ -99,7 +103,10 @@ class ModelDiscoveryTests(unittest.TestCase):
                 "pipeline_task": "acme-classify"}
         task = self.discover({"config.json": config, "acprof_model.json": spec},
                              tag="acme-classify", library="transformers", files=("custom_pipeline.py",))
-        require_task_support(task)
+        profile = replace(PROFILES["nlp-cu128"], profile_id="fixture-custom", trust_remote_code=True)
+        task.runtime_profile_id = profile.profile_id
+        with patch.dict(PROFILES, {profile.profile_id: profile}):
+            require_task_support(task)
         self.assertEqual(task.pipeline_tag, "text-classification")
         self.assertEqual(task.model_resolution["pipeline_task"], "acme-classify")
         self.assertEqual(task.model_resolution["interface_kind"], "custom_pipeline")
@@ -107,7 +114,9 @@ class ModelDiscoveryTests(unittest.TestCase):
     def test_custom_auto_class_is_a_candidate_without_host_import(self):
         config = {"auto_map": {"AutoModelForSequenceClassification": "custom_model.Classifier"}}
         task = self.discover({"config.json": config}, library="transformers", files=("custom_model.py",))
-        require_task_support(task)
+        with self.assertRaises(TaskSupportError) as caught:
+            require_task_support(task)
+        self.assertEqual(caught.exception.failure.reason_code, "remote_code_disallowed")
         self.assertEqual(task.pipeline_tag, "text-classification")
         self.assertEqual(task.model_resolution["interface_kind"], "custom_auto")
 
@@ -210,12 +219,15 @@ class ModelSpecificationTests(unittest.TestCase):
             (root / "config.json").write_text(json.dumps({"custom_pipelines": {
                 "acme-classify": {"impl": "custom_pipeline.Classifier"}}}))
             (root / "custom_pipeline.py").write_text("raise AssertionError('host must not import this')\n")
+            profile = replace(PROFILES["nlp-cpu"], profile_id="fixture-custom", trust_remote_code=True)
             with patch.dict("sys.modules", {"torch": SimpleNamespace(float32="float32", float16="float16"),
-                                           "transformers": SimpleNamespace()}):
+                                           "transformers": SimpleNamespace(__version__="4.57.6")}), patch.dict(
+                PROFILES, {profile.profile_id: profile}), patch.dict(os.environ, {"ACPROF_RUNTIME_PROFILE": profile.profile_id}):
                 with patch("transformers.pipeline", create=True) as pipeline:
                     pipeline.return_value = SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
                     context = NLPHandler().load(str(root), "text-classification", "transformers_pipeline", "cpu")
             self.assertEqual(pipeline.call_args.kwargs["task"], "acme-classify")
+            self.assertTrue(pipeline.call_args.kwargs["trust_remote_code"])
             self.assertEqual(context["task_type"], "text-classification")
 
 

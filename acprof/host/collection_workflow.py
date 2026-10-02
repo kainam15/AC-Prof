@@ -180,7 +180,7 @@ class PreparationWorkflow:
                     restored = task
                     for answers in saved["decisions"]:
                         restored = self._apply(restored, answers, args)
-                    require_task_support(restored, batch_size=args.batch_size)
+                    require_task_support(restored, batch_size=args.batch_size, devices=args.gpus.split(","))
                     task, decisions = restored, saved["decisions"]
                 except (ValueError, KeyError, TypeError, OSError):
                     # A stale decision cannot force an incompatible route.
@@ -201,7 +201,7 @@ class PreparationWorkflow:
                 decisions.append(answers)
                 error = ""
             self._explicit(task, args)
-            require_task_support(task, batch_size=args.batch_size)
+            require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
             if cache and decisions:
                 atomic_write_json(cache, {"schema_version": 1, "identity": identity, "decisions": decisions})
             return task

@@ -136,7 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         model_spec_path=args.model_spec,
     )
     try:
-        require_task_support(task_info, batch_size=args.batch_size)
+        require_task_support(task_info, batch_size=args.batch_size, devices=gpu_list)
     except TaskSupportError as exc:
         print(str(exc), file=sys.stderr)
         return 2

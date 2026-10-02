@@ -73,7 +73,7 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
         raise ValueError("invalid contract probe mode/resources/timeout")
     if mode == "basic" and not task_info.model_resolution.get("contract"):
         raise ValueError("basic signature probe requires a Pipeline contract; use --probe full for native models")
-    require_task_support(task_info)
+    require_task_support(task_info, devices=("gpu" if gpu else "cpu",))
     require_collection_host()
     require_native_docker()
     root = Path(output_dir)

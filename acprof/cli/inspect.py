@@ -61,9 +61,19 @@ def main(argv=None) -> int:
                     task.model_resolution["contract"] = contract
             except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 pass
+    preflight_error = None
+    if task.model_resolution.get("status") not in {"ambiguous", "needs_configuration"}:
+        from acprof.host.task_support import TaskSupportError, require_task_support
+        try:
+            require_task_support(task, devices=("gpu" if args.gpus == "on" else "cpu",))
+        except TaskSupportError as exc:
+            preflight_error = exc
     if output is not None:
         write_model_resolution(task, output)
     print(explain_resolution(task, explain=args.explain), flush=True)
+    if preflight_error is not None:
+        print(str(preflight_error), file=sys.stderr)
+        return 2
     if task.model_resolution.get("status") in {"ambiguous", "needs_configuration"}:
         return 2
     if args.probe != "none":

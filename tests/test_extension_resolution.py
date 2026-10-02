@@ -77,10 +77,10 @@ class ExtensionResolutionTests(unittest.TestCase):
                 with self.subTest(payload=payload), self.assertRaises(ValueError):
                     load_catalog([path])
 
-    def test_precision_fallback_and_schema_copies(self):
+    def test_precision_policy_is_independent_of_checkpoint_storage_dtype(self):
         task = TaskInfo("fixture/model", "time-series-forecasting", "timeseries", "chronos", "chronos", "fixed", "manual")
         self.assertEqual(_inference_precision_by_device(replace(task, precision_dtype="BF16")),
-                         {"cpu": "BF16", "gpu": "BF16"})
+                         {"cpu": "FP32", "gpu": "FP16"})
         first, _ = _model_io_formats(task)
         first["json_schema"]["required"].clear()
         self.assertEqual(_model_io_formats(task)[0]["json_schema"]["required"], ["context", "prediction_length"])

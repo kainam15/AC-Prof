@@ -117,7 +117,7 @@ class CollectionWorkflowTests(unittest.TestCase):
     @staticmethod
     def args():
         return SimpleNamespace(model="arbitrary/audio-model", task=None, task_family=None, backend=None,
-                               model_spec=None, revision=None, batch_size=1)
+                               model_spec=None, revision=None, batch_size=1, gpus="off")
 
     def test_answer_continues_resolution_and_same_evidence_reuses_decision(self):
         task = contracts.ModelContractTests().discover(contracts.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]'))

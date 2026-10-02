@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -15,6 +15,7 @@ from acprof.dependency_locks import (
     system_lock_identity,
 )
 from acprof.extensions import CATALOG, select_extension
+from acprof.extensions.schema import validate_precision_policy
 
 PYTHON_BASE_IMAGE = (
     "docker.m.daocloud.io/library/python:3.10-slim@sha256:"
@@ -71,7 +72,10 @@ class RuntimeProfile:
     family: str
     environment: DependencyEnvironment | None = None
     adapter: str = "family-default"
-    gpu_dtype: str = "FP16"
+    precision_policy: dict[str, Any] = field(default_factory=lambda: {
+        "supported_dtypes": ["FP32", "FP16"], "preferred_dtype": "FP32",
+        "device_overrides": {"gpu": {"preferred_dtype": "FP16"}},
+    })
     trust_remote_code: bool = False
     task_types: tuple[str, ...] = ()
     model_types: tuple[str, ...] = ()
@@ -81,6 +85,7 @@ class RuntimeProfile:
     def __post_init__(self) -> None:
         if not isinstance(self.environment, DependencyEnvironment) or not self.environment.requirements_lock:
             raise ValueError("逻辑 profile 必须引用完整 dependency environment lock；不支持未锁定环境")
+        validate_precision_policy(self.precision_policy)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -117,7 +122,7 @@ def runtime_declarations(catalog) -> tuple[dict, dict, dict]:
         profile = RuntimeProfile(
             extension.profile, extension.family, environments[extension.environment], extension.adapter,
             task_types=extension.tasks, model_types=extension.model_types, backends=extension.backends,
-            **{"gpu_dtype": extension.dtypes[0], **extension.profile_options},
+            **extension.profile_options,
         )
         if extension.profile in profiles and profiles[extension.profile] != profile:
             raise ValueError(f"conflicting runtime profile: {extension.profile}")
@@ -144,7 +149,7 @@ def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:
         return None
     config = getattr(task_info, "model_config", {}) or {}
     # Custom Auto classes are verified by the selected extension/container.
-    if config.get("auto_map") or (getattr(task_info, "model_resolution", {}) or {}).get("interface_kind") == "custom_pipeline":
+    if config.get("auto_map") or config.get("custom_pipelines") or (getattr(task_info, "model_resolution", {}) or {}).get("interface_kind") == "custom_pipeline":
         return None
     version = _transformers_version(profile.environment)
     if not version:

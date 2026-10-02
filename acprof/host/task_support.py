@@ -7,15 +7,21 @@ This check uses local metadata only and does not load models or runtime librarie
 from __future__ import annotations
 
 from acprof.extensions import CATALOG, select_extension
+from acprof.failures import Failure, RuntimeFailure
 from acprof.host.detect import TaskInfo
 
 
-class TaskSupportError(ValueError):
+class TaskSupportError(RuntimeFailure):
     """Collection preflight failed before image preparation or measurement."""
 
+    def __init__(self, failure: Failure | str):
+        super().__init__(failure if isinstance(failure, Failure) else
+                         Failure("preflight", "runtime_task_unsupported", failure))
 
-def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
+
+def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()) -> None:
     """Reject known gaps and invalid task routing, without promising runtime compatibility."""
+    task_info.model_resolution.update(model_id=task_info.model_id, model_revision=task_info.model_revision)
     if task_info.metadata_errors:
         raise TaskSupportError("\n".join([
             f"[model-metadata][ERROR] Cannot resolve model metadata: {task_info.model_id}",
@@ -29,6 +35,8 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
     try:
         require_resolved_candidate(task_info)
         custom_code_files(task_info.model_config or {})
+    except RuntimeFailure as exc:
+        raise TaskSupportError(exc.failure) from exc
     except ValueError as exc:
         raise TaskSupportError(f"[model-resolution][ERROR] {exc}\n  未进入镜像准备或正式测量。") from exc
     task = task_info.pipeline_tag
@@ -46,6 +54,9 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
             extension = select_extension(task_info)
             if batch_size != 1 and extension.execution.get("batch") == "unsupported":
                 reason = f"{expected_family} 采集每个请求使用一个样本；请设置 --batch-size 1。"
+        except RuntimeFailure as exc:
+            task_info.model_resolution["failure"] = exc.failure.to_dict()
+            raise TaskSupportError(exc.failure) from exc
         except ValueError as exc:
             reason = str(exc)
     if reason is None:
@@ -57,6 +68,33 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
             profile = select_runtime_profile(task_info)
             task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
             task_info.model_resolution["runtime_profile"] = profile.profile_id
+            from acprof.runtime_dependencies import dependency_preflight
+            dependency_preflight(task_info, profile)
+            from acprof.model_resolution import supports_transformers_task
+            from acprof.precision import remote_code_allowed, resolve_precision
+            from acprof.runtime_profiles import _transformers_version
+            extension = select_extension(task_info)
+            version = _transformers_version(profile.environment) or ""
+            config = task_info.model_config or {}
+            remote_required = config.get("custom_pipelines") or (config.get("auto_map") and version and
+                supports_transformers_task(version, task, config.get("model_type", ""), config) is not True)
+            if remote_required and not remote_code_allowed(profile, extension):
+                raise RuntimeFailure(Failure("preflight", "remote_code_disallowed",
+                    "Model requires remote code but its registered runtime/extension policy forbids it",
+                    runtime_profile=profile.profile_id, retryability="after_configuration",
+                    evidence={"trust_remote_code": False, "code_files": task_info.model_resolution.get("code_files", [])}))
+            task_info.model_resolution["trust_remote_code"] = remote_code_allowed(profile, extension)
+            task_info.model_resolution["requested_devices"] = list(devices)
+            task_info.model_resolution["precision"] = {
+                device: resolve_precision(profile, extension, device=device, task=task,
+                    model_type=config.get("model_type", ""), version=version)
+                for device in devices
+            }
+        except RuntimeFailure as exc:
+            task_info.model_resolution["failure"] = exc.failure.to_dict()
+            if exc.failure.reason_code == "model_contract_required":
+                task_info.model_resolution["status"] = "needs_configuration"
+            raise TaskSupportError(exc.failure) from exc
         except ValueError as exc:
             reason = str(exc)
         else:
@@ -76,4 +114,7 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1) -> None:
         "TUI 可在高级配置的“识别覆盖”中设置。仅在模型确实支持目标任务时使用覆盖。",
     ]
     lines.append("  本次未进入资源矩阵或推理测量，不会生成新的测量 CSV；已有测量结果保留。")
-    raise TaskSupportError("\n".join(lines))
+    failure = Failure("preflight", "runtime_task_unsupported", "\n".join(lines),
+                      runtime_profile=task_info.runtime_profile_id)
+    task_info.model_resolution["failure"] = failure.to_dict()
+    raise TaskSupportError(failure)

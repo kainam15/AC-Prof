@@ -53,7 +53,13 @@ class TaskCatalogIntegrationTests(unittest.TestCase):
                 actual = detect.detect_task("example/model")
                 self.assertEqual((actual.task_family, actual.runtime_backend), (family, backend))
                 self.assertEqual(actual.model_revision, "fixed-revision")
-                require_task_support(actual)
+                if family == "structured" and backend == "torchscript":
+                    with self.assertRaises(TaskSupportError) as caught:
+                        require_task_support(actual)
+                    self.assertEqual(caught.exception.failure.reason_code, "model_contract_required")
+                    self.assertEqual(actual.model_resolution["status"], "needs_configuration")
+                else:
+                    require_task_support(actual)
 
     def test_explicit_backend_override_is_preserved_and_incompatibility_rejected(self):
         with patch.object(detect, "_detect_from_hub", return_value=info("robotics", "structured")):

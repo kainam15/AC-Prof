@@ -45,13 +45,30 @@ def export_support(source: bytes, version: str) -> dict:
             "source_sha256": hashlib.sha256(source).hexdigest(), "mappings": mappings}
 
 
+def export_pipeline_registry(source: bytes, version: str) -> dict:
+    values = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            name = getattr(node.targets[0], "id", "")
+            if name == "SUPPORTED_TASKS" and isinstance(node.value, ast.Dict):
+                values["tasks"] = sorted(ast.literal_eval(key) for key in node.value.keys)
+            elif name == "TASK_ALIASES":
+                values["aliases"] = ast.literal_eval(node.value)
+    if not values.get("tasks") or not isinstance(values.get("aliases"), dict):
+        raise ValueError("unsupported pipeline registry; no partial catalog is published")
+    return {**values, "source": f"https://raw.githubusercontent.com/huggingface/transformers/v{version}/src/transformers/pipelines/__init__.py",
+            "sha256": hashlib.sha256(source).hexdigest()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
+    parser.add_argument("--pipeline-source", required=True, type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     data = export_support(args.source.read_bytes(), args.version)
+    data["pipeline_registry"] = export_pipeline_registry(args.pipeline_source.read_bytes(), args.version)
     if args.output.is_file():
         previous = json.loads(args.output.read_text(encoding="utf-8"))
         # Auto-registry extraction cannot review dynamic loader behavior. Preserve

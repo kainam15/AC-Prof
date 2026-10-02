@@ -70,6 +70,10 @@ def configure_runtime_profile(task_info: Any) -> RuntimeProfile:
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if getattr(task_info, "model_resolution", None):
         task_info.model_resolution["runtime_profile"] = profile.profile_id
+        # Hardware selects the final platform lock. Recheck it before any build
+        # or weight download; static selection must not borrow another lock.
+        from acprof.host.task_support import require_task_support
+        require_task_support(task_info, devices=task_info.model_resolution.get("requested_devices", ()))
     return profile
 
 

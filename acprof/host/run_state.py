@@ -268,7 +268,8 @@ class RunState:
         if plan["plan_file"]:
             plan["plan_file"] = str(Path(plan["plan_file"]).resolve().relative_to(self.directory))
         self.data["runtime"] = {
-            "task": asdict(task), "image": asdict(image), "planned": plan,
+            "task": {key: value for key, value in asdict(task).items() if key != "repository_sources"},
+            "image": asdict(image), "planned": plan,
             "compute_plan": str(Path(compute_plan).resolve().relative_to(self.directory)) if compute_plan else "",
             "execution_plan": str(Path(execution_plan).resolve().relative_to(self.directory)) if execution_plan else "",
         }

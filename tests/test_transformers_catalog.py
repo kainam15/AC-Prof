@@ -22,6 +22,8 @@ class TransformersCatalogTests(unittest.TestCase):
             root = Path(directory)
             source, output = root / "modeling_auto.py", root / "catalog.json"
             source.write_bytes(self.SOURCE)
+            pipeline_source = root / "pipelines.py"
+            pipeline_source.write_text('TASK_ALIASES = {}\nSUPPORTED_TASKS = {"text-generation": {}}')
             reviewed = export_support(self.SOURCE, "99.0.0")
             reviewed["capabilities"] = {"local_dynamic_transitive_imports": True, "local_dynamic_symlink_safe": True}
             script = Path(__file__).resolve().parents[1] / "scripts" / "export_transformers_support.py"
@@ -31,7 +33,7 @@ class TransformersCatalogTests(unittest.TestCase):
                     output.write_text(json.dumps(reviewed))
                     source.write_bytes(contents)
                     result = subprocess.run([sys.executable, str(script), "--source", str(source),
-                                             "--version", version, "--output", str(output)],
+                                             "--pipeline-source", str(pipeline_source), "--version", version, "--output", str(output)],
                                             capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = reviewed["capabilities"] if keep else {

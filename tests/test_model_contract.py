@@ -60,7 +60,11 @@ class ModelContractTests(unittest.TestCase):
             with patch("huggingface_hub.HfApi.model_info", side_effect=model_info), patch(
                 "huggingface_hub.hf_hub_download", side_effect=download,
             ):
-                return detect_task("arbitrary/audio-model", **options)
+                task = detect_task("arbitrary/audio-model", **options)
+                # Author specs bypass synthesis, but dependency preflight still
+                # needs the pinned source after this temporary snapshot closes.
+                task.repository_sources["pipeline.py"] = source
+                return task
 
     def test_generates_v1_contract_without_checkpoint_specific_routing(self):
         task = self.discover()

@@ -771,8 +771,6 @@ def collect_static_meta(
             "torch_version": packages.get("torch", "unknown"),
             "transformers_version": packages.get("transformers", "unknown"),
         })
-        if image_info.runtime_environment.get("adapter") == "moss-transcribe-diarize":
-            static_meta = replace(static_meta, inference_precision_by_device={"cpu": "FP32", "gpu": "BF16"})
     return (
         enrich_static_meta(static_meta, disabled_metadata)
         if disabled_metadata

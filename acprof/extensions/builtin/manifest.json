@@ -75,11 +75,16 @@
       },
       "task_handler_options": {
         "sentence-similarity": {
-          "encoder": "sentence"
+          "encoder": "sentence",
+          "uses_pipeline": false
         },
         "text-ranking": {
-          "encoder": "cross"
+          "encoder": "cross",
+          "uses_pipeline": false
         }
+      },
+      "handler_options": {
+        "uses_pipeline": true
       }
     },
     {
@@ -134,6 +139,39 @@
       "backend_handler_options": {
         "transformers_pipeline": {
           "model_spec_format": "transformers-pipeline"
+        }
+      },
+      "precision_policy": {
+        "rules": [
+          {
+            "task": "mask-generation",
+            "device": "gpu",
+            "model_types": [
+              "sam",
+              "sam2"
+            ],
+            "transformers_versions": [
+              "4.57.6"
+            ],
+            "blocked_dtypes": [
+              "FP16"
+            ],
+            "evidence": {
+              "source": "2026-09-27 frozen compatibility audit",
+              "reason": "torchvision NMS boxes/scores dtype mismatch observed on sam-vit-base and sam2.1-hiera-tiny; FP32 GPU remains unverified"
+            }
+          }
+        ]
+      },
+      "handler_options": {
+        "uses_pipeline": true
+      },
+      "task_handler_options": {
+        "video-classification": {
+          "uses_pipeline": false
+        },
+        "keypoint-detection": {
+          "uses_pipeline": false
         }
       }
     },
@@ -209,6 +247,32 @@
       "backend_handler_options": {
         "transformers_pipeline": {
           "model_spec_format": "transformers-pipeline"
+        }
+      },
+      "precision_policy": {
+        "task_overrides": {
+          "audio-to-audio": {
+            "supported_dtypes": [
+              "FP32"
+            ],
+            "preferred_dtype": "FP32",
+            "device_overrides": {
+              "gpu": {
+                "preferred_dtype": "FP32"
+              }
+            }
+          }
+        }
+      },
+      "handler_options": {
+        "uses_pipeline": true
+      },
+      "task_handler_options": {
+        "voice-activity-detection": {
+          "uses_pipeline": false
+        },
+        "audio-to-audio": {
+          "uses_pipeline": false
         }
       }
     },
@@ -427,6 +491,14 @@
         "transformers_pipeline": {
           "model_spec_format": "transformers-pipeline"
         }
+      },
+      "task_handler_options": {
+        "visual-question-answering": {
+          "uses_pipeline": true
+        },
+        "document-question-answering": {
+          "uses_pipeline": true
+        }
       }
     },
     {
@@ -484,8 +556,19 @@
         }
       },
       "profile_options": {
-        "gpu_dtype": "BF16",
-        "trust_remote_code": true
+        "trust_remote_code": true,
+        "precision_policy": {
+          "supported_dtypes": [
+            "FP32",
+            "BF16"
+          ],
+          "preferred_dtype": "FP32",
+          "device_overrides": {
+            "gpu": {
+              "preferred_dtype": "BF16"
+            }
+          }
+        }
       },
       "dependency_environment": {
         "platform": "cu128",
@@ -2949,7 +3032,6 @@
       "family": "nlp",
       "environment": "nlp-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -2964,7 +3046,6 @@
       "family": "nlp",
       "environment": "nlp-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -2979,7 +3060,6 @@
       "family": "nlp",
       "environment": "nlp-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -2994,7 +3074,6 @@
       "family": "cv",
       "environment": "cv-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3009,7 +3088,6 @@
       "family": "cv",
       "environment": "cv-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3024,7 +3102,6 @@
       "family": "cv",
       "environment": "cv-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3039,7 +3116,6 @@
       "family": "audio",
       "environment": "audio-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3054,7 +3130,6 @@
       "family": "audio",
       "environment": "audio-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3069,7 +3144,6 @@
       "family": "audio",
       "environment": "audio-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3084,7 +3158,6 @@
       "family": "diffusion",
       "environment": "diffusion-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3099,7 +3172,6 @@
       "family": "diffusion",
       "environment": "diffusion-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3114,7 +3186,6 @@
       "family": "diffusion",
       "environment": "diffusion-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3129,7 +3200,6 @@
       "family": "structured",
       "environment": "structured-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3144,7 +3214,6 @@
       "family": "structured",
       "environment": "structured-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3159,7 +3228,6 @@
       "family": "structured",
       "environment": "structured-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3174,7 +3242,6 @@
       "family": "timeseries",
       "environment": "timeseries-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3189,7 +3256,6 @@
       "family": "timeseries",
       "environment": "timeseries-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3204,7 +3270,6 @@
       "family": "timeseries",
       "environment": "timeseries-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3219,7 +3284,6 @@
       "family": "multimodal",
       "environment": "audio-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3234,7 +3298,6 @@
       "family": "multimodal",
       "environment": "audio-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3249,7 +3312,6 @@
       "family": "multimodal",
       "environment": "multimodal-transformers4576",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3264,7 +3326,6 @@
       "family": "nlp",
       "environment": "transformers560-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3279,7 +3340,6 @@
       "family": "nlp",
       "environment": "transformers560-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3294,7 +3354,6 @@
       "family": "nlp",
       "environment": "transformers560-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3309,7 +3368,6 @@
       "family": "cv",
       "environment": "transformers560-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3324,7 +3382,6 @@
       "family": "cv",
       "environment": "transformers560-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3339,7 +3396,6 @@
       "family": "cv",
       "environment": "transformers560-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3354,7 +3410,6 @@
       "family": "audio",
       "environment": "transformers560-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3369,7 +3424,6 @@
       "family": "audio",
       "environment": "transformers560-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3384,7 +3438,6 @@
       "family": "audio",
       "environment": "transformers560-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3399,7 +3452,6 @@
       "family": "multimodal",
       "environment": "transformers560-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3414,7 +3466,6 @@
       "family": "multimodal",
       "environment": "transformers560-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3429,7 +3480,6 @@
       "family": "multimodal",
       "environment": "transformers560-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": false,
       "task_types": [],
       "model_types": [],
@@ -3444,7 +3494,6 @@
       "family": "multimodal",
       "environment": "custom-multimodal-cpu",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": true,
       "task_types": [],
       "model_types": [],
@@ -3458,7 +3507,6 @@
       "family": "multimodal",
       "environment": "custom-multimodal-cu124",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": true,
       "task_types": [],
       "model_types": [],
@@ -3472,7 +3520,6 @@
       "family": "multimodal",
       "environment": "custom-multimodal-cu128",
       "adapter": "family-default",
-      "gpu_dtype": "FP16",
       "trust_remote_code": true,
       "task_types": [],
       "model_types": [],

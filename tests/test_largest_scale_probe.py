@@ -471,6 +471,18 @@ class LargestScaleProbeTests(unittest.TestCase):
             "metadata_files": [], "model_type": None, "runtime_profile": "nlp-cu128",
             "interface_kind": "standard", "pipeline_task": "fill-mask",
             "code_revision": None, "code_files": [], "model_spec": {},
+            "model_id": "demo/model", "transformers_version": "4.57.6", "trust_remote_code": False,
+            "requested_devices": ["off", "on"],
+            "dependency_preflight": {
+                "schema_version": 1, "revision": "1" * 40, "runtime_profile": "nlp-cu128",
+                "lock": "dockerfiles/locks/nlp-cu128.txt", "source_sha256": {}, "dependencies": [],
+            },
+            "precision": {
+                "off": {"dtype": "FP32", "torch_dtype": "float32", "supported_dtypes": ["FP32", "FP16"],
+                        "device": "cpu", "runtime_profile": "nlp-cu128", "evidence": []},
+                "on": {"dtype": "FP16", "torch_dtype": "float16", "supported_dtypes": ["FP32", "FP16"],
+                       "device": "gpu", "runtime_profile": "nlp-cu128", "evidence": []},
+            },
         }
         self.assertEqual(build_image.call_args.args[0], expected_task)
         self.assertIs(plan_scales.call_args.kwargs["image_info"], built_image)
