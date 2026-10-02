@@ -20,3 +20,5 @@ results/
 /internal-testing/
 
 *.csv
+!tests/fixtures/**/*.csv
+!examples/**/*.csv
