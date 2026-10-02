@@ -6,28 +6,28 @@ import time
 from datetime import datetime, timezone
 
 from acprof.artifacts import atomic_write_json
-from acprof.host import docker_runtime as docker
+from acprof.host import container_state, docker_runtime, runtime_identity
 
 PROBE_NAME = "startup_oom_pruning.json"
 
 
 def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds, cpuset_cpus="") -> dict:
-    name = f"startup-probe-{docker._sanitize_model_id(task.model_id)}-{cpu}c-{mem}g-{gpu}"
+    name = f"startup-probe-{runtime_identity.model_token(task.model_id)}-{cpu}c-{mem}g-{gpu}"
     started = time.perf_counter()
     record = {"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": gpu,
               "container_name": name, "started_at": datetime.now(timezone.utc).isoformat(),
               "ready": False, "docker_state": None, "outcome": "error", "diagnostic": ""}
     session = None
     try:
-        session = docker._start_container_session(
+        session = docker_runtime.start_container_session(
             task_info=task, cpu=cpu, mem=mem, gpu=gpu, image_info=image,
             container_name=name, log_prefix="[startup-probe]",
             request_timeout_seconds=request_timeout_seconds,
             **({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}))
         record.update(ready=True, outcome="startup_feasible", container_name=session.name,
                       container_id=session.container_id,
-                      docker_state=docker._inspect_container_state(session.container_id))
-    except docker.ContainerStartupError as exc:
+                      docker_state=container_state.inspect_container_state(session.container_id))
+    except container_state.ContainerStartupError as exc:
         record.update(outcome=exc.outcome, docker_state=exc.state, diagnostic=str(exc))
         if exc.container_name:
             record.update(container_name=exc.container_name, container_id=exc.container_id)
@@ -36,7 +36,7 @@ def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds, cpuset
         record["diagnostic"] = f"{type(exc).__name__}: {exc}"
     finally:
         if session is not None:
-            docker._stop_container_session(session)
+            docker_runtime.stop_container_session(session)
     record["duration_s"] = time.perf_counter() - started
     return record
 

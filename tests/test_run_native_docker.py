@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import acprof.host.preflight as host_preflight
 from acprof.cli import run
-from acprof.host import docker_runtime, input_plan, orchestrator
+from acprof.host import input_plan, orchestrator, runtime_images
 from acprof.host.detect import TaskInfo
 
 
@@ -560,7 +560,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             detection_method="unit",
         )
         stderr = io.StringIO()
-        built_image = docker_runtime.ImageInfo(tag="acprof-nlp-dummy-model:latest")
+        built_image = runtime_images.ImageInfo(tag="acprof-nlp-dummy-model:latest")
 
         def collect_metadata(**kwargs):
             build_image.assert_called_once_with(task_info, run.PROJECT_DIR)
@@ -604,10 +604,10 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.docker_runtime._run",
+            "acprof.host.command.run_command",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="No such image"),
         ), patch(
-            "acprof.host.docker_runtime.build_image",
+            "acprof.host.runtime_images.build_runtime_image",
             return_value=built_image,
         ) as build_image, patch(
             "acprof.host.static_metadata.collect_static_meta",
@@ -701,8 +701,8 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.docker_runtime.prepare_image",
-            return_value=docker_runtime.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
+            "acprof.host.runtime_images.prepare_image",
+            return_value=runtime_images.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta",
             return_value=SimpleNamespace(),
@@ -809,8 +809,8 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.docker_runtime.prepare_image",
-            return_value=docker_runtime.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
+            "acprof.host.runtime_images.prepare_image",
+            return_value=runtime_images.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta",
             return_value=SimpleNamespace(),

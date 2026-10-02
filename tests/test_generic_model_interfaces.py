@@ -70,7 +70,7 @@ class SentenceTransformerInterfaceTests(unittest.TestCase):
                 spec = Path(directory, "embedding.json")
                 spec.write_text(json.dumps({"schema_version": 1, "task": task.pipeline_tag, "params": params}))
                 with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-                    input_plan, "_stop_container_session",
+                    input_plan, "stop_container_session",
                 ), patch.object(input_plan, "_post_probe_payload", side_effect=probe), patch.object(
                     input_plan, "_request_nlp_scale_meta", return_value={"max_effective_input_scale": 16, "reason": "test tokenizer"},
                 ):
@@ -228,7 +228,7 @@ class ModelResolutionTests(unittest.TestCase):
         from acprof.host.runtime_images import configure_runtime_profile
         task = self.task()
         require_task_support(task)
-        with patch("acprof.host.docker_runtime._select_nlp_torch_index_url",
+        with patch("acprof.host.runtime_images._select_nlp_torch_index_url",
                    return_value="https://download.pytorch.org/whl/cpu"):
             profile = configure_runtime_profile(task)
         self.assertEqual(profile.environment.environment_key, "transformers560-cpu")

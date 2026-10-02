@@ -12,16 +12,16 @@ from typing import Any, Dict, Sequence
 
 import requests
 
+from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
-    ImageInfo,
     RunningContainer,
-    _inspect_container_state,
-    _sanitize_model_id,
-    _start_container_session,
-    _stop_container_session,
+    start_container_session,
+    stop_container_session,
 )
 from acprof.host.input_plan import PlannedInputScales
+from acprof.host.runtime_identity import model_token
+from acprof.host.runtime_images import ImageInfo
 
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3
@@ -231,7 +231,7 @@ def _classify_oom_failure(
     ):
         return "startup_oom" if phase == "startup" else "runtime_oom"
 
-    state = _inspect_container_state(container_name)
+    state = container_state.inspect_container_state(container_name)
     if isinstance(state, dict) and bool(state.get("OOMKilled")):
         return "startup_oom" if phase == "startup" else "runtime_oom"
     return None
@@ -252,7 +252,7 @@ def _probe_memory_candidate(
 ) -> tuple[Dict[str, Any], Dict[str, Any] | None]:
     """Run at most one largest-scale request for one memory candidate."""
     container_name = (
-        f"largest_probe_{_sanitize_model_id(task_info.model_id)}_"
+        f"largest_probe_{model_token(task_info.model_id)}_"
         f"{cpu}c_{mem}g_{gpu}_{os.getpid()}"
     )
     session: RunningContainer | None = None
@@ -270,7 +270,7 @@ def _probe_memory_candidate(
         f"cpu={cpu} mem={mem} gpu={gpu} input_scale={planned_scale:g}"
     )
     try:
-        session = _start_container_session(
+        session = start_container_session(
             task_info=task_info,
             cpu=cpu,
             mem=mem,
@@ -331,7 +331,7 @@ def _probe_memory_candidate(
         ) or "error"
     finally:
         if session is not None:
-            _stop_container_session(session, log_prefix="[largest-probe]")
+            stop_container_session(session, log_prefix="[largest-probe]")
 
     cold_start = _cold_start_payload(session)
     request_s = _finite_or_none(request_s)

@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host import docker_runtime, gpu_device
+from acprof.host import docker_runtime, gpu_device, runtime_images
 from acprof.host.detect import TaskInfo
 
 DEVICE = {"uuid": "GPU-second", "index": 1, "pci_bus_id": "00000000:02:00.0",
@@ -53,13 +53,12 @@ class GPUIdentityTests(unittest.TestCase):
                         model_revision="main", detection_method="fixture")
         commands = []
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
-        with patch.object(docker_runtime, "resolve_gpu_device", return_value=DEVICE, create=True), patch.object(
-            docker_runtime, "_run", side_effect=lambda cmd, **kw: (
+        with patch.object(docker_runtime, "resolve_gpu_device", return_value=DEVICE, create=True), patch("acprof.host.command.run_command", side_effect=lambda cmd, **kw: (
                 commands.append(cmd) or SimpleNamespace(returncode=0, stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "", stderr="")
             )
         ), patch("requests.get", return_value=response):
-            session = docker_runtime._start_container_session(
-                task, 1, 2, "on", docker_runtime.ImageInfo("fixture"), "fixture", "[test]"
+            session = docker_runtime.start_container_session(
+                task, 1, 2, "on", runtime_images.ImageInfo("fixture"), "fixture", "[test]"
             )
         command = next(cmd for cmd in commands if cmd[:3] == ["docker", "run", "-d"])
         self.assertEqual(command[command.index("--gpus") + 1], "device=GPU-second")

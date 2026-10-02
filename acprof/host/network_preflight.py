@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from acprof.dependency_locks import content_digest
+from acprof.host import command as host_command
 from acprof.host.dependency_images import (
     platform_fingerprint,
     registry_reference,
@@ -50,8 +51,7 @@ def artifact_size(url: str) -> int | None:
 def registry_manifest(reference: str) -> dict | None:
     """OCI metadata only; returns compressed upper bound and Docker config ID."""
     try:
-        from acprof.host.docker_runtime import _run
-        result = _run(["docker", "manifest", "inspect", "--verbose", reference], timeout=20, check=False)
+        result = host_command.run_command(['docker', 'manifest', 'inspect', '--verbose', reference], timeout=20, check=False)
         if result.returncode:
             return None
         data = json.loads(result.stdout)

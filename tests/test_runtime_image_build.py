@@ -16,7 +16,7 @@ from acprof.dependency_locks import (
     read_python_lock,
     system_lock_identity,
 )
-from acprof.host import docker_runtime, runtime_images
+from acprof.host import runtime_images
 from acprof.host.detect import TaskInfo
 from acprof.runtime_profiles import RuntimeProfile
 
@@ -48,13 +48,13 @@ class RuntimeImageBuildTests(unittest.TestCase):
         self.failed_dockerfile = None
         for mocked in (
             patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True),
-            patch.object(docker_runtime, "_run", side_effect=self.fake_run),
+            patch("acprof.host.command.run_command", side_effect=self.fake_run),
             patch.object(runtime_images, "inspect_identity", side_effect=self.images.get),
             patch.object(runtime_images, "verified_image", side_effect=self.verified_image),
             patch("acprof.host.model_store.plan_model", return_value={}),
             patch("acprof.host.network_preflight.preflight", return_value={"sources": []}),
             patch("acprof.host.model_store.prepare_model", return_value={"plan_sha256": "d" * 64}),
-            patch.object(docker_runtime, "_select_nlp_torch_index_url",
+            patch("acprof.host.runtime_images._select_nlp_torch_index_url",
                          return_value="https://download.pytorch.org/whl/cu124"),
         ):
             mocked.start()
@@ -106,7 +106,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
 
     def verified_image(self, task, name, fingerprint, project_dir=None):
         # 服务清单由 test_image_reuse 覆盖；依赖清单走实际核验函数。
-        return docker_runtime.ImageInfo(tag=self.images[name]["image_id"], name=name)
+        return runtime_images.ImageInfo(tag=self.images[name]["image_id"], name=name)
 
     def build_commands(self):
         return [command for command in self.commands if command[:2] == ["docker", "build"]]
@@ -160,8 +160,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
             return self.fake_run(command, **kwargs)
 
-        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch.object(
-            docker_runtime, "_run", side_effect=registry_run,
+        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.host.command.run_command", side_effect=registry_run,
         ), patch.object(runtime_images, "inspect_identity", side_effect=self.images.get):
             reused = prepare_environment_image(environment)
         self.assertEqual(reused.image_id, prepared.image_id)
@@ -172,8 +171,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
     def test_pull_only_failure_never_builds_locally(self):
         from acprof.host.dependency_images import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
-        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch.object(
-            docker_runtime, "_run", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
+        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.host.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
         ) as command:
             with self.assertRaisesRegex(RuntimeError, "拉取"):
                 prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"])
@@ -188,7 +186,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 1, "", "registry unavailable")
             return self.fake_run(command, **kwargs)
 
-        with patch.object(docker_runtime, "_run", side_effect=unavailable_registry):
+        with patch("acprof.host.command.run_command", side_effect=unavailable_registry):
             image = prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         self.assertTrue(image.image_id.startswith("sha256:"))
         self.assertEqual(len(self.build_commands()), 2)
@@ -202,7 +200,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
             self.images[command[-1]] = {"image_id": "sha256:" + "f" * 64, "labels": {}}
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        with patch.object(docker_runtime, "_run", side_effect=corrupted_registry):
+        with patch("acprof.host.command.run_command", side_effect=corrupted_registry):
             with self.assertRaisesRegex(RuntimeError, "标签内容不匹配"):
                 prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         self.assertEqual(self.build_commands(), [])
@@ -214,7 +212,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
 
     def test_locked_runtime_passes_fixed_model_revision_to_model_layer(self):
-        docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         builds = self.build_commands()
         self.assertEqual([Path(cmd[cmd.index("-f") + 1]).name for cmd in builds], [
             "platform.Dockerfile", "runtime.Dockerfile", "runtime-model.Dockerfile", "runtime-final.Dockerfile",
@@ -231,15 +229,15 @@ class RuntimeImageBuildTests(unittest.TestCase):
                                          pipeline_tag="image-text-to-text",
                                          runtime_backend="transformers_model",
                                          runtime_profile_id="multimodal-transformers4576-cpu")
-        docker_runtime.build_image(audio, str(PROJECT_ROOT))
-        docker_runtime.build_image(multimodal, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(audio, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(multimodal, str(PROJECT_ROOT))
         runtime_builds = [cmd for cmd in self.build_commands()
                           if Path(cmd[cmd.index("-f") + 1]).name == "runtime.Dockerfile"]
         self.assertEqual(len(runtime_builds), 1)
 
     def test_model_version_dots_survive_weights_and_service_image_names(self):
         self.task.model_id = "Qwen/Qwen2.5-0.5B"
-        result = docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+        result = runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         builds = self.build_commands()
         weights_name = next(cmd[3] for cmd in self.commands if cmd[:2] == ["docker", "tag"] and cmd[3].startswith("acprof-model-plan-"))
         service_name = result.name
@@ -252,41 +250,41 @@ class RuntimeImageBuildTests(unittest.TestCase):
     def test_mutable_model_revision_is_rejected_before_docker(self):
         self.task.model_revision = "main"
         with self.assertRaisesRegex(RuntimeError, "固定 model revision"):
-            docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         self.assertEqual(self.commands, [])
 
     def test_host_model_store_token_never_enters_docker_build(self):
         with patch.dict(os.environ, {"HF_TOKEN": "test-secret-value"}):
-            docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         for command in self.build_commands():
             self.assertNotIn("--secret", command)
         self.assertFalse(any("test-secret-value" in arg or arg.startswith("HF_TOKEN=")
                              for cmd in self.commands for arg in cmd))
 
     def test_wrong_dependency_cache_label_stops_before_building_more_layers(self):
-        docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         name = next(name for name in self.images if name.startswith("acprof-runtime-env:"))
         self.images[name]["labels"]["org.acprof.environment-build-fingerprint"] = "wrong"
         count = len(self.build_commands())
         with self.assertRaisesRegex(RuntimeError, "缓存标签"):
-            docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         self.assertEqual(len(self.build_commands()), count)
 
     def test_environment_id_label_must_match_even_with_valid_build_fingerprint(self):
-        docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         name = next(name for name in self.images if name.startswith("acprof-runtime-env:"))
         self.images[name]["labels"]["org.acprof.environment"] = "wrong"
         count = len(self.build_commands())
         with self.assertRaisesRegex(RuntimeError, "缓存标签"):
-            docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         self.assertEqual(len(self.build_commands()), count)
 
     def test_extra_installed_package_in_cached_environment_is_rejected(self):
-        docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+        runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         name = next(name for name in self.images if name.startswith("acprof-runtime-env:"))
         self.manifests[self.images[name]["image_id"]]["packages"]["undeclared-package"] = "1.0"
         with self.assertRaisesRegex(ValueError, "extra=.*undeclared-package"):
-            docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
 
     def test_retagged_parent_during_build_does_not_publish_environment_cache(self):
         from acprof.host.dependency_images import prepare_environment_image
@@ -297,7 +295,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
                 source = next(arg.split("=", 1)[1] for arg in command if arg.startswith("PLATFORM_IMAGE="))
                 self.images[source] = {"image_id": "sha256:" + "e" * 64, "labels": {}}
             return result
-        with patch.object(docker_runtime, "_run", side_effect=changed), self.assertRaisesRegex(RuntimeError, "父镜像引用发生变化"):
+        with patch("acprof.host.command.run_command", side_effect=changed), self.assertRaisesRegex(RuntimeError, "父镜像引用发生变化"):
             prepare_environment_image(ENVIRONMENTS["audio-cpu"], PROJECT_ROOT)
         self.assertFalse(any(name.startswith("acprof-runtime-env:") for name in self.images))
 
@@ -313,7 +311,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
                     recipe = root / "dockerfiles/platform.Dockerfile"
                     recipe.write_text(recipe.read_text() + "\n# changed during build\n")
                 return result
-            with patch.object(docker_runtime, "_run", side_effect=changed), self.assertRaisesRegex(RuntimeError, "发生变化"):
+            with patch("acprof.host.command.run_command", side_effect=changed), self.assertRaisesRegex(RuntimeError, "发生变化"):
                 prepare_environment_image(ENVIRONMENTS["audio-cpu"], root)
             self.assertFalse(any(name.startswith("acprof-platform-") for name in self.images))
 
@@ -343,7 +341,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
                 self.images.clear()
                 self.failed_dockerfile = recipe
                 with self.assertRaisesRegex(RuntimeError, "Docker 构建失败"):
-                    docker_runtime.build_image(self.task, str(PROJECT_ROOT))
+                    runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
                 last_build = self.build_commands()[-1]
                 self.assertEqual(Path(last_build[last_build.index("-f") + 1]).name, recipe)
 

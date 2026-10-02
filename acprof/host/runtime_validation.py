@@ -38,7 +38,7 @@ def validate_runtime(
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_info.tag):
         raise ValueError("runtime validation requires an immutable image ID")
     from acprof.artifacts import require_schema_version
-    from acprof.host.docker_runtime import _inspect_container_state
+    from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
     from acprof.host.model_store import mount_args
 
@@ -97,7 +97,7 @@ def validate_runtime(
                 result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
                 log = (result.stdout or "") + "\n" + (result.stderr or "")
                 records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines() if line.startswith(RESULT_PREFIX)]
-                state = _inspect_container_state(name) or {}
+                state = inspect_container_state(name) or {}
                 if state.get("OOMKilled"):
                     device_result = {"status": "resource_limit", "error": "validation_container_oom", "mem_cap_gb": max(mem_list)}
                 elif records:

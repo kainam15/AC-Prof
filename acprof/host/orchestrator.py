@@ -23,20 +23,17 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
+from acprof.host import command as host_command
 from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
+from acprof.host.container_state import container_runtime_oom_error
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
-    ImageInfo,
-    _cold_start_client_env,
-    _container_runtime_oom_error,
-    _host_port,
-    _normalize_gpu_mode,
-    _parse_csv_float,
-    _run,
-    _sanitize_model_id,
-    _start_container_session,
-    _stop_container_session,
+    cold_start_client_env,
+    service_port,
+    start_container_session,
+    stop_container_session,
 )
+from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.input_plan import (
     _format_scale_value,
@@ -44,6 +41,8 @@ from acprof.host.input_plan import (
     serialize_input_scales,
 )
 from acprof.host.packet_capture import _packet_latency_error, _resolve_packet_latency_runtime
+from acprof.host.runtime_identity import model_token
+from acprof.host.runtime_images import ImageInfo
 from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
@@ -149,7 +148,7 @@ def _check_case_gpu_idle_power_stable(
         for row in reader:
             if ignore_error_rows and _row_has_error_status(row):
                 continue
-            if _normalize_gpu_mode(row.get("gpu_mode", "off")) != "on":
+            if normalize_gpu_mode(row.get("gpu_mode", "off")) != "on":
                 continue
             gpu_rows += 1
             gpu_idle_power_w = _parse_csv_float(
@@ -297,11 +296,11 @@ def run_single_case(
         or not math.isfinite(request_timeout_seconds)
     ):
         raise ValueError("request_timeout_seconds must be a finite value > 0")
-    model_tag = _sanitize_model_id(task_info.model_id)
+    model_tag = model_token(task_info.model_id)
     case_name = f"case_{model_tag}_{cpu}c_{mem}g_{gpu}"
     container_name = case_name
 
-    host_port = _host_port(cpu, mem)
+    host_port = service_port(cpu, mem)
     case = ArtifactLayout.discover(output_dir).case(task_info.model_id, cpu, mem, gpu)
     case.csv.parent.mkdir(parents=True, exist_ok=True)
     out_csv = str(case.csv)
@@ -323,7 +322,7 @@ def run_single_case(
 
     emit_event("case_started", case_name)
     try:
-        session = _start_container_session(
+        session = start_container_session(
             task_info=task_info,
             cpu=cpu,
             mem=mem,
@@ -418,7 +417,7 @@ def run_single_case(
             "REPEAT_IN_WINDOW": str(repeat_in_window),
             "REPEAT_WINDOW_SECONDS": str(repeat_window_seconds),
             "REQUEST_TIMEOUT_SECONDS": f"{request_timeout_seconds:g}",
-            **_cold_start_client_env(session),
+            **cold_start_client_env(session),
             "OUT_CSV": out_csv,
             "CASE_NAME": case_name,
             "CONTAINER_NAME": container_name,
@@ -444,15 +443,10 @@ def run_single_case(
         client_env.pop("ACPROF_WECOM_WEBHOOK_URL", None)
 
         with measurement_boundary(case_name):
-            client_result = _run(
-                module_command("acprof.host.client"),
-                check=False,
-                capture=False,
-                env=client_env,
-            )
+            client_result = host_command.run_command(module_command('acprof.host.client'), check=False, capture_output=False, env=client_env)
 
         if client_result.returncode != 0:
-            runtime_oom_error = _container_runtime_oom_error(
+            runtime_oom_error = container_runtime_oom_error(
                 container_name,
                 mem,
                 client_result.returncode,
@@ -533,7 +527,7 @@ def run_single_case(
                 if tcpdump_proc is not None and tcpdump_proc.poll() is None:
                     _stop_capture(tcpdump_proc)
             finally:
-                _stop_container_session(session, log_prefix="[case]")
+                stop_container_session(session, log_prefix="[case]")
         except BaseException as exc:
             _LOG.debug("case cleanup failed: case=%s error_type=%s", case_name, type(exc).__name__)
             case_status = "error"
@@ -543,7 +537,6 @@ def run_single_case(
 
     print(f"[case] Done. Output: {out_csv}")
     return out_csv
-
 
 
 def _case_result_status(csv_path: str) -> str:
@@ -585,7 +578,7 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
         else:
             print("[sniff] Parsing pcap -> packet latencies...")
             assert sniff_runtime is not None
-            parse_result = _run(sniff_runtime.parse_cmd, check=False)
+            parse_result = host_command.run_command(sniff_runtime.parse_cmd, check=False)
             parse_output = parse_result.stdout.strip()
             if parse_result.returncode != 0:
                 raise _packet_latency_error(
@@ -621,15 +614,7 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
 
             print("[sniff] Merging packet latency into CSV...")
             merged_csv = out_csv + ".merged"
-            merge_result = _run(
-                [
-                    *module_command("acprof.packet.merge_packet_latency"),
-                    out_csv,
-                    lat_json,
-                    merged_csv,
-                ],
-                check=False,
-            )
+            merge_result = host_command.run_command([*module_command('acprof.packet.merge_packet_latency'), out_csv, lat_json, merged_csv], check=False)
             if merge_result.returncode != 0:
                 raise _packet_latency_error(
                     "packet latency merge failed",
@@ -651,7 +636,7 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
             out_csv,
             ignore_error_rows=case_incomplete,
         )
-        if _normalize_gpu_mode(gpu) == "on":
+        if normalize_gpu_mode(gpu) == "on":
             _check_case_gpu_idle_power_stable(
                 out_csv,
                 ignore_error_rows=case_incomplete,
@@ -914,7 +899,7 @@ def _write_startup_oom_pruned_case_csv(
         "planned_request_attempted=false; measurement_row_completed=false; "
         "reason=confirmed_startup_oom_at_reference_cpu; "
         f"reference_cpu_cores={reference_cpu}; reference_mem_cap_gb={mem}; "
-        f"gpu_mode={_normalize_gpu_mode(gpu)}; "
+        f"gpu_mode={normalize_gpu_mode(gpu)}; "
         "pruning_scope=container_startup_only; "
         "result_origin=inferred_not_measured"
     )
@@ -1013,7 +998,7 @@ def run_matrix(
     for current, case in enumerate(plan["cases"], 1):
         cpu, mem, gpu = case["cpu_cores"], case["mem_cap_gb"], case["gpu_mode"]
         print(f"[matrix] Case {current}/{total}: CPU={cpu}, MEM={mem}GB, GPU={gpu}")
-        filename = f"result_case_{_sanitize_model_id(task_info.model_id)}_{cpu}c_{mem}g_{gpu}.csv"
+        filename = f"result_case_{model_token(task_info.model_id)}_{cpu}c_{mem}g_{gpu}.csv"
         cached_case = run_state.prepare_case(filename, cpu, mem, gpu) if run_state else None
         if cached_case:
             csv_path = cached_case
@@ -1052,3 +1037,10 @@ def merge_all_csvs(csv_paths: List[str], output_path: str, *, expected=None) -> 
 
     row_count = merge_result_csvs(csv_paths, output_path, expected=expected)
     print(f"[merge] Final CSV: {output_path} ({row_count} rows)")
+
+
+def _parse_csv_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")

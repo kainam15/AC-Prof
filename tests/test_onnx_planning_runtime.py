@@ -79,7 +79,7 @@ class ONNXWordPiecePlanningTests(unittest.TestCase):
         self.contexts.enter_context(patch.dict(sys.modules, {'requests': SimpleNamespace(post=post)}))
         session = SimpleNamespace(name='wordpiece-test-session', base_url=self.base)
         self.contexts.enter_context(patch.object(input_plan, '_start_probe_session', return_value=session))
-        self.stop = self.contexts.enter_context(patch.object(input_plan, '_stop_container_session'))
+        self.stop = self.contexts.enter_context(patch.object(input_plan, 'stop_container_session'))
         self.task = TaskInfo('local/wordpiece-fixture', 'text-classification', 'nlp',
                              'onnxruntime', 'onnx', 'fixture', 'test')
 

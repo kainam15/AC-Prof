@@ -36,7 +36,7 @@ class OverheadEntrypointTests(unittest.TestCase):
                                                return_value={"uuid": "GPU-recorded", "index": 3}))
             stack.enter_context(patch("acprof.host.env_utils.bootstrap_project_env"))
             stack.enter_context(patch("acprof.host.run_state.host_identity", return_value={}))
-            stack.enter_context(patch("acprof.host.docker_runtime.require_image_identity"))
+            stack.enter_context(patch("acprof.host.runtime_images.require_image_identity"))
             session = SimpleNamespace(name="owned", base_url="http://fixture.invalid",
                                       gpu_device={"uuid": "GPU-recorded", "index": 3})
             def launch(*_args, **kwargs):
@@ -44,8 +44,8 @@ class OverheadEntrypointTests(unittest.TestCase):
                 self.assertEqual(os.environ["ACPROF_GPU_DEVICE"], "GPU-recorded")
                 self.assertEqual(os.environ["ACPROF_RUNTIME_THREADS"], "2")
                 return session
-            start = stack.enter_context(patch("acprof.host.docker_runtime._start_container_session", side_effect=launch))
-            stop = stack.enter_context(patch("acprof.host.docker_runtime._stop_container_session"))
+            start = stack.enter_context(patch("acprof.host.docker_runtime.start_container_session", side_effect=launch))
+            stop = stack.enter_context(patch("acprof.host.docker_runtime.stop_container_session"))
             stack.enter_context(patch("acprof.host.hardware_conditions.observe_conditions",
                                       return_value={"cpu_affinity": ["1-2"], "errors": []}))
             monitor = Mock()

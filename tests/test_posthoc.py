@@ -59,7 +59,7 @@ class PosthocProfileTests(unittest.TestCase):
             context.static_meta['runtime_environment'] = {'build_fingerprint': 'fixed'}
             with patch('acprof.host.preflight.require_native_linux_host'), patch(
                 'acprof.host.preflight.require_native_docker',
-            ), patch('acprof.host.docker_runtime.require_image_identity'), patch(
+            ), patch('acprof.host.runtime_images.require_image_identity'), patch(
                 'acprof.host.runtime_validation.validate_runtime', return_value={'status': 'ok'},
             ) as validate:
                 host_posthoc_plans._validate_profiler_runtime(context, gpu_modes=['off'])
@@ -82,7 +82,7 @@ class PosthocProfileTests(unittest.TestCase):
                 with patch('acprof.host.posthoc.service.find_active_processes', return_value=[]), patch(
                     'acprof.host.preflight.require_native_linux_host',
                 ), patch('acprof.host.preflight.require_native_docker'), patch(
-                    'acprof.host.docker_runtime.require_image_identity',
+                    'acprof.host.runtime_images.require_image_identity',
                 ), patch('acprof.host.runtime_validation.validate_runtime',
                          side_effect=validation_result if isinstance(validation_result, Exception) else None,
                          return_value=validation_result) as validate, patch(

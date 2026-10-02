@@ -14,7 +14,8 @@ from acprof.host import client, orchestrator
 from acprof.host.client import ClientRunner
 from acprof.host.client_config import ClientConfig
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo, RunningContainer
+from acprof.host.docker_runtime import RunningContainer
+from acprof.host.runtime_images import ImageInfo
 
 
 class ProfilingModeTests(unittest.TestCase):
@@ -38,9 +39,9 @@ class ProfilingModeTests(unittest.TestCase):
                 captured.append(kwargs["env"])
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
-            stack.enter_context(patch.object(orchestrator, "_start_container_session", return_value=RunningContainer("test", "http://localhost", 8000, 0.1)))
-            stack.enter_context(patch.object(orchestrator, "_stop_container_session"))
-            stack.enter_context(patch.object(orchestrator, "_run", side_effect=fake_run))
+            stack.enter_context(patch.object(orchestrator, "start_container_session", return_value=RunningContainer("test", "http://localhost", 8000, 0.1)))
+            stack.enter_context(patch.object(orchestrator, "stop_container_session"))
+            stack.enter_context(patch("acprof.host.command.run_command", side_effect=fake_run))
             stack.enter_context(patch.object(orchestrator, "_resolve_packet_latency_runtime", side_effect=AssertionError("basic must not resolve packet capture")))
             stack.enter_context(patch.object(orchestrator, "_check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
             stack.enter_context(redirect_stdout(output))

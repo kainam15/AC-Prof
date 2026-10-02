@@ -13,11 +13,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
+from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import (
-    ImageInfo,
-    _run,
-)
 from acprof.host.input_plan import (
     PlannedInputScales,
 )
@@ -25,6 +22,7 @@ from acprof.host.model_schema import (
     _inference_precision_by_device,
     _model_io_formats,
 )
+from acprof.host.runtime_images import ImageInfo
 from acprof.monitors.rapl_topology import discover_rapl_topology
 from acprof.platform import detect_environment
 
@@ -167,10 +165,7 @@ def _get_gpu_name(device_index: int = 0) -> str:
     if not nvidia_smi:
         return "unknown"
 
-    result = _run(
-        [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
-        check=False,
-    )
+    result = host_command.run_command([nvidia_smi, '--query-gpu=name', '--format=csv,noheader'], check=False)
     if result.returncode != 0:
         return "unknown"
 
@@ -203,10 +198,7 @@ def _get_gpu_mem_total_bytes(device_index: int = 0) -> Optional[int]:
     if not nvidia_smi:
         return None
 
-    result = _run(
-        [nvidia_smi, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-        check=False,
-    )
+    result = host_command.run_command([nvidia_smi, '--query-gpu=memory.total', '--format=csv,noheader,nounits'], check=False)
     if result.returncode != 0:
         return None
 
@@ -341,10 +333,7 @@ def _host_swap_metadata(
 def _docker_root_dir() -> Optional[str]:
     """Resolve the Docker daemon data directory without assuming a default."""
     try:
-        result = _run(
-            ["docker", "info", "--format", "{{.DockerRootDir}}"],
-            check=False,
-        )
+        result = host_command.run_command(['docker', 'info', '--format', '{{.DockerRootDir}}'], check=False)
     except Exception:
         return None
     if result.returncode != 0:
@@ -359,17 +348,7 @@ def _docker_mount_metadata(path: str) -> Tuple[str, str]:
     if not findmnt:
         return "unknown", "unknown"
     try:
-        result = _run(
-            [
-                findmnt,
-                "--json",
-                "--target",
-                path,
-                "--output",
-                "SOURCE,FSTYPE",
-            ],
-            check=False,
-        )
+        result = host_command.run_command([findmnt, '--json', '--target', path, '--output', 'SOURCE,FSTYPE'], check=False)
     except Exception:
         return "unknown", "unknown"
     if result.returncode != 0:
@@ -396,16 +375,7 @@ def _block_device_storage_type(device: str) -> str:
         return "unknown"
     query_device = device.split("[", 1)[0]
     try:
-        result = _run(
-            [
-                lsblk,
-                "--json",
-                "--output",
-                "KNAME,TYPE,PKNAME,ROTA,TRAN",
-                query_device,
-            ],
-            check=False,
-        )
+        result = host_command.run_command([lsblk, '--json', '--output', 'KNAME,TYPE,PKNAME,ROTA,TRAN', query_device], check=False)
     except Exception:
         return "unknown"
     if result.returncode != 0:
@@ -612,10 +582,7 @@ def _detect_environment() -> str:
 
 def _docker_image_size_bytes(image_tag: str) -> int:
     """Get the local Docker image size in bytes."""
-    result = _run(
-        ["docker", "image", "inspect", image_tag, "--format", "{{.Size}}"],
-        check=False,
-    )
+    result = host_command.run_command(['docker', 'image', 'inspect', image_tag, '--format', '{{.Size}}'], check=False)
     if result.returncode != 0:
         raise RuntimeError(f"failed to inspect image size for {image_tag}: {result.stderr.strip()}")
 
@@ -651,10 +618,7 @@ def _docker_model_cache_bytes(image_tag: str, cache_root: str = "/models/hf") ->
         "        total += st.st_size\n"
         "print(total)\n"
     )
-    result = _run(
-        ["docker", "run", "--rm", "--entrypoint", "python", image_tag, "-c", script],
-        check=False,
-    )
+    result = host_command.run_command(['docker', 'run', '--rm', '--entrypoint', 'python', image_tag, '-c', script], check=False)
     if result.returncode != 0:
         raise RuntimeError(
             f"failed to inspect model cache size for {image_tag}: {result.stderr.strip()}"

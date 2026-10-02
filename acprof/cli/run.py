@@ -26,8 +26,8 @@ from acprof.host.command import run_command
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
-    from acprof.host.docker_runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.runtime_images import ImageInfo
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.capabilities import (
@@ -629,8 +629,8 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                      require_full_validation=False, workflow=None) -> _PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
-    from acprof.host.docker_runtime import prepare_image
     from acprof.host.input_plan import plan_input_scales
+    from acprof.host.runtime_images import prepare_image
     workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
         collect_static_meta,

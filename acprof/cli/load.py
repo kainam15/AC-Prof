@@ -17,17 +17,13 @@ from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import (
-    ImageInfo,
-    _start_container_session,
-    _stop_container_session,
-    require_image_identity,
-)
+from acprof.host.docker_runtime import start_container_session, stop_container_session
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.load_protocol import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
+from acprof.host.runtime_images import ImageInfo, require_image_identity
 from acprof.installation import module_command, resource_root
 
 
@@ -140,7 +136,7 @@ def main(argv=None):
     try:
         with MeasurementLock(), conditions.activate():
             require_image_identity(image.tag, image.runtime_environment)
-            session = _start_container_session(task, cpu, mem, args.gpu, image, "acprof-load", "[load]",
+            session = start_container_session(task, cpu, mem, args.gpu, image, "acprof-load", "[load]",
                                                **conditions.container_options)
             try:
                 record_case_conditions(output, f"{cpu}c_{mem}g_{args.gpu}", session, cpuset_cpus=conditions.cpuset_cpus)
@@ -157,7 +153,7 @@ def main(argv=None):
                 if capture:
                     report["packet_validation"] = validate_packets(pcap, report["result"])
             finally:
-                _stop_container_session(session, "[load]")
+                stop_container_session(session, "[load]")
         report.update(successful=report["result"]["successful"], status="complete")
     except BaseException as error:
         if hasattr(error, "load_report"):

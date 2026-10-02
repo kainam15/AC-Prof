@@ -1,45 +1,33 @@
-"""Docker 镜像、容器生命周期及启动状态。"""
+"""Owned inference service sessions and their cold-start timing."""
 from __future__ import annotations
 
 import datetime
-import json
-import logging
 import math
-import os
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
 
 from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    DOCKER_IMAGE_PREFIX,
     READY_POLL_INTERVAL_S,
     READY_TIMEOUT_S,
     SERVER_PORT,
 )
-from acprof.host.command import run_command
+from acprof.host import command as host_command, container_state
 from acprof.host.container_lifecycle import container_owner_labels, recover_abandoned_containers
+from acprof.host.container_state import (
+    ContainerStartupError,
+)
 from acprof.host.detect import TaskInfo
 from acprof.host.env_utils import hf_offline_docker_env_args
-from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
+from acprof.host.gpu_device import gpu_docker_args, normalize_gpu_mode, resolve_gpu_device
+from acprof.host.runtime_images import ImageInfo
 from acprof.runtime_settings import runtime_docker_env_args
-
-_LOG = logging.getLogger(__name__)
-
-
-@dataclass
-class ImageInfo:
-    tag: str
-    name: str = ""
-    runtime_environment: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -57,153 +45,6 @@ class RunningContainer:
     cold_start_ready_wait_s: float = float("nan")
     gpu_device: Dict[str, Any] = field(default_factory=dict)
     container_id: str = ""
-
-
-class ContainerStartupError(RuntimeError):
-    """Typed evidence captured before removing a container that never reached /ready."""
-
-    def __init__(self, message: str, *, state=None, timed_out=False, container_name="", container_id=""):
-        super().__init__(message)
-        self.state = state
-        self.container_name = container_name
-        self.container_id = container_id
-        confirmed = (isinstance(state, dict) and state.get("OOMKilled") is True
-                     and state.get("Running") is False and state.get("Restarting") is not True)
-        # A timeout boundary is ambiguous even if a later inspect observes OOM.
-        self.outcome = "timeout" if timed_out else "startup_oom" if confirmed else "error"
-
-
-DEFAULT_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu128"
-CUDA124_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu124"
-DEFAULT_NLP_TORCH_SPEC = "torch>=2.7"
-CUDA124_NLP_TORCH_SPEC = "torch>=2.6,<2.7"
-
-
-def _sanitize_model_id(model_id: str) -> str:
-    """生成镜像、容器和文件名的模型标识；转小写、展开斜线并保留点号。"""
-    return model_id.replace("/", "--").lower()
-
-
-def _run(cmd: List[str], check: bool = True, capture: bool = True, **kwargs) -> subprocess.CompletedProcess:
-    """Run a subprocess with error handling."""
-    return run_command(
-        cmd,
-        capture_output=capture,
-        text=True,
-        check=check,
-        encoding="utf-8",
-        errors="replace",
-        **kwargs,
-    )
-
-
-def _inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
-    """Return Docker's runtime state without flooding readiness logs."""
-    try:
-        result = run_command(
-            [
-                "docker",
-                "inspect",
-                container_name,
-                "--format",
-                "{{json .State}}",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except OSError as exc:
-        _LOG.debug("container inspect unavailable: error_type=%s", type(exc).__name__)
-        return None
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    try:
-        state = json.loads(result.stdout)
-    except (TypeError, json.JSONDecodeError):
-        return None
-    return state if isinstance(state, dict) else None
-
-
-def _container_startup_exit_error(
-    container_name: str,
-    memory_limit_gb: int,
-) -> Optional[str]:
-    """Describe a container that exited while the server was starting."""
-    state = _inspect_container_state(container_name)
-    if not state:
-        return None
-
-    status = str(state.get("Status") or "").strip().lower()
-    running = bool(state.get("Running"))
-    restarting = bool(state.get("Restarting"))
-    oom_killed = bool(state.get("OOMKilled"))
-    if running or restarting:
-        return None
-    if not oom_killed and status not in {"dead", "exited", "removing"}:
-        return None
-
-    try:
-        exit_code = int(state.get("ExitCode"))
-    except (TypeError, ValueError):
-        exit_code = -1
-    docker_error = str(state.get("Error") or "").strip()
-    detail = (
-        f"container={container_name}, memory_limit={memory_limit_gb}g, "
-        f"status={status or 'unknown'}, exit_code={exit_code}"
-    )
-    if docker_error:
-        detail += f", docker_error={docker_error}"
-    if oom_killed:
-        return f"container_oom_killed during startup ({detail})"
-    return f"container_exited_before_ready ({detail})"
-
-
-def _container_runtime_oom_error(
-    container_name: str,
-    memory_limit_gb: int,
-    client_exit_code: int,
-) -> Optional[str]:
-    """Describe a workload-time cgroup OOM reported by Docker.
-
-    Client-side monitors can observe a dead container before the orchestrator
-    does and consequently return a monitor-specific exit code. Docker's
-    explicit ``OOMKilled`` state is stronger evidence, so callers must consult
-    it before classifying a non-zero client exit as a profiler failure.
-    """
-    state = _inspect_container_state(container_name)
-    if not state or not bool(state.get("OOMKilled")):
-        return None
-
-    status = str(state.get("Status") or "").strip().lower()
-    try:
-        container_exit_code = int(state.get("ExitCode"))
-    except (TypeError, ValueError):
-        container_exit_code = -1
-    docker_error = str(state.get("Error") or "").strip()
-    detail = (
-        "container_runtime_oom: docker_oom_killed=true; "
-        "measurement_row_completed=false; planned_request_attempted=unknown; "
-        f"container={container_name}; memory_limit_gb={memory_limit_gb}; "
-        f"container_status={status or 'unknown'}; "
-        f"container_exit_code={container_exit_code}; "
-        f"client_exit_code={client_exit_code}"
-    )
-    if docker_error:
-        detail += f"; docker_error={docker_error}"
-    return detail
-
-
-def _url_host(url: str) -> str:
-    """Extract host from a URL for pip trusted-host."""
-    parsed = urlparse(url)
-    return parsed.netloc or parsed.path
-
-
-def _normalize_gpu_mode(gpu: str) -> str:
-    return "on" if str(gpu).lower() == "on" else "off"
 
 
 def _parse_csv_float(value: Any) -> float:
@@ -273,7 +114,7 @@ def _cold_start_breakdown(
     }
 
 
-def _cold_start_client_env(session: RunningContainer) -> Dict[str, str]:
+def cold_start_client_env(session: RunningContainer) -> Dict[str, str]:
     return {
         "COLD_START_STARTED_AT": session.cold_start_started_at,
         "COLD_START_READY_AT": session.cold_start_ready_at,
@@ -288,101 +129,8 @@ def _cold_start_client_env(session: RunningContainer) -> Dict[str, str]:
     }
 
 
-def _host_port(cpu: int, mem: int) -> int:
+def service_port(cpu: int, mem: int) -> int:
     return SERVER_PORT + cpu * 100 + mem
-
-
-def _parse_cuda_version(raw: str) -> Optional[Tuple[int, int]]:
-    match = re.search(r"(\d+)\.(\d+)", str(raw))
-    if not match:
-        return None
-
-    return int(match.group(1)), int(match.group(2))
-
-
-def _host_cuda_version() -> Optional[Tuple[int, int]]:
-    override = (os.environ.get("ACPROF_HOST_CUDA_VERSION") or "").strip()
-    if override:
-        return _parse_cuda_version(override)
-
-    nvidia_smi = shutil.which("nvidia-smi")
-    if not nvidia_smi:
-        return None
-
-    result = _run([nvidia_smi], check=False)
-    if result.returncode != 0:
-        return None
-
-    match = re.search(r"CUDA Version:\s*(\d+\.\d+)", result.stdout)
-    if not match:
-        return None
-
-    return _parse_cuda_version(match.group(1))
-
-
-def _select_nlp_torch_index_url() -> str:
-    override = (os.environ.get("ACPROF_NLP_TORCH_INDEX_URL") or "").strip()
-    if override:
-        return override
-
-    cuda_version = _host_cuda_version()
-    if cuda_version is None:
-        return DEFAULT_NLP_TORCH_INDEX_URL
-
-    if cuda_version >= (12, 8):
-        return DEFAULT_NLP_TORCH_INDEX_URL
-    if cuda_version >= (12, 4):
-        return CUDA124_NLP_TORCH_INDEX_URL
-    return DEFAULT_NLP_TORCH_INDEX_URL
-
-
-def _model_image_tag(task_info: TaskInfo, project_dir: Optional[str] = None) -> str:
-    from acprof.host.runtime_images import PROJECT_ROOT, request_fingerprint
-
-    model_tag = _sanitize_model_id(task_info.model_id)
-    fingerprint = request_fingerprint(task_info, project_dir or PROJECT_ROOT)
-    return f"{DOCKER_IMAGE_PREFIX}-{task_info.task_family}-{model_tag}:{fingerprint[:20]}"
-
-
-def prepare_image(
-    task_info: TaskInfo,
-    project_dir: str,
-    *,
-    reuse_existing: bool = False,
-) -> ImageInfo:
-    """Resolve a compatible runtime and verify exact image reuse."""
-    from acprof.host.runtime_images import prepare_runtime_image
-
-    image = prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
-    from acprof.host.model_store import mount_args, store_root
-    if image.runtime_environment.get("model_store"):
-        # Host-only provenance for post-hoc runs; never baked into portable images.
-        image.runtime_environment["model_store"] = {
-            **image.runtime_environment["model_store"], "host_path": str(store_root())}
-    task_info.model_store = image.runtime_environment.get("model_store", {})
-    mount_args(image.runtime_environment)
-    return image
-
-
-def build_image(task_info: TaskInfo, project_dir: str) -> ImageInfo:
-    from acprof.host.runtime_images import build_runtime_image
-
-    return build_runtime_image(task_info, project_dir)
-
-
-def require_image_identity(image: str, runtime_environment: Dict[str, Any]) -> None:
-    """Verify recorded image identity before post-hoc collection; never rebuild it."""
-    from acprof.host.runtime_images import FINGERPRINT_LABEL, inspect_identity
-
-    identity = inspect_identity(image)
-    if identity is None:
-        raise RuntimeError(f"原实验镜像 {image} 已不存在；请恢复该镜像后再补采")
-    if image.startswith("sha256:") and identity["image_id"] != image:
-        raise RuntimeError("补采镜像 ID 与原实验不一致")
-    if runtime_environment and (identity.get("labels") or {}).get(FINGERPRINT_LABEL) != runtime_environment.get("build_fingerprint"):
-        raise RuntimeError("补采镜像的运行环境与原实验不一致")
-    from acprof.host.model_store import verify_entry
-    verify_entry(runtime_environment)
 
 
 def _launch_container(command: List[str]) -> str:
@@ -390,7 +138,7 @@ def _launch_container(command: List[str]) -> str:
     with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
         cidfile = Path(directory) / "container.cid"
         try:
-            result = _run([*command[:3], "--cidfile", str(cidfile), *command[3:]], check=False)
+            result = host_command.run_command([*command[:3], '--cidfile', str(cidfile), *command[3:]], check=False)
             if result.returncode != 0:
                 raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
             identifier = result.stdout.strip()
@@ -400,11 +148,11 @@ def _launch_container(command: List[str]) -> str:
         except BaseException:
             identifier = cidfile.read_text().strip() if cidfile.is_file() else ""
             if re.fullmatch(r"[0-9a-f]{64}", identifier):
-                _run(["docker", "rm", "-f", identifier], check=False)
+                host_command.run_command(['docker', 'rm', '-f', identifier], check=False)
             raise
 
 
-def _start_container_session(
+def start_container_session(
     task_info: TaskInfo,
     cpu: int,
     mem: int,
@@ -417,7 +165,7 @@ def _start_container_session(
 ) -> RunningContainer:
     import requests
 
-    gpu = _normalize_gpu_mode(gpu)
+    gpu = normalize_gpu_mode(gpu)
     if request_timeout_seconds is not None:
         request_timeout_seconds = float(request_timeout_seconds)
         if not math.isfinite(request_timeout_seconds) or request_timeout_seconds <= 0:
@@ -425,7 +173,7 @@ def _start_container_session(
     from acprof.cpu_affinity import normalize_cpu_set
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     completion_timeout = "none" if request_timeout_seconds is None else f"{request_timeout_seconds:g}"
-    host_port = _host_port(cpu, mem)
+    host_port = service_port(cpu, mem)
 
     container_name = f"{container_name}-{uuid.uuid4().hex[:12]}"
 
@@ -438,7 +186,7 @@ def _start_container_session(
         use_gpu = 1
 
     owner = container_owner_labels()
-    recover_abandoned_containers(owner, _run)
+    recover_abandoned_containers(owner, host_command.run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
     from acprof.host.model_store import mount_args
 
@@ -472,8 +220,8 @@ def _start_container_session(
     deadline = time.perf_counter() + READY_TIMEOUT_S
 
     def fail_startup(reason: str, *, timed_out: bool = False) -> None:
-        state = _inspect_container_state(container_id)
-        logs = _run(["docker", "logs", container_id, "--tail", "200"], check=False)
+        state = container_state.inspect_container_state(container_id)
+        logs = host_command.run_command(['docker', 'logs', container_id, '--tail', '200'], check=False)
         diagnostic = ((logs.stdout or "") + "\n" + (logs.stderr or "")).strip()
         if diagnostic:
             print(diagnostic[-8000:], file=sys.stderr)
@@ -538,7 +286,7 @@ def _start_container_session(
             except Exception:
                 pass
 
-            startup_exit_error = _container_startup_exit_error(container_name, mem)
+            startup_exit_error = container_state.container_startup_exit_error(container_name, mem)
             if startup_exit_error:
                 print(f"{log_prefix} Container exited before server became ready: {startup_exit_error}")
                 fail_startup(startup_exit_error)
@@ -546,23 +294,23 @@ def _start_container_session(
 
         cold_start_s = time.perf_counter() - t0
         print(f"{log_prefix} Server not ready after {READY_TIMEOUT_S}s. cold_start={cold_start_s:.3f}s")
-        startup_exit_error = _container_startup_exit_error(container_name, mem)
+        startup_exit_error = container_state.container_startup_exit_error(container_name, mem)
         fail_startup(
             startup_exit_error
             or f"server not ready after {READY_TIMEOUT_S}s for container {container_name}",
             timed_out=True,
         )
     except BaseException:
-        _run(["docker", "rm", "-f", container_id], check=False)
+        host_command.run_command(['docker', 'rm', '-f', container_id], check=False)
         raise
 
 
-def _stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
+def stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
     if not re.fullmatch(r"[0-9a-f]{64}", session.container_id):
         raise ValueError("refusing to remove a container without its owned immutable ID")
     if log_prefix:
         print(f"{log_prefix} Stopping container...")
     try:
-        _run(["docker", "stop", session.container_id], check=False)
+        host_command.run_command(['docker', 'stop', session.container_id], check=False)
     finally:
-        _run(["docker", "rm", "-f", session.container_id], check=False)
+        host_command.run_command(['docker', 'rm', '-f', session.container_id], check=False)

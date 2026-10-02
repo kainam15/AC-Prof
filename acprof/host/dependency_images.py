@@ -16,6 +16,7 @@ from acprof.dependency_locks import (
     require_exact_packages,
     system_lock_identity,
 )
+from acprof.host import command as host_command
 from acprof.installation import resource_root
 from acprof.runtime_profiles import (
     DependencyEnvironment,
@@ -43,13 +44,11 @@ def registry_reference(kind: str, fingerprint: str, registry: str | None = None)
 
 def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
                        identity: dict, kind: str, source: str, registry: str | None):
-    from acprof.host.docker_runtime import _run
     if source == "build":
         return None
     reference = registry_reference(kind, fingerprint, registry)
     print(f"[runtime] 拉取预构建依赖：{reference}", flush=True)
-    result = _run(["docker", "pull", "--platform", "linux/amd64", reference],
-                  check=False, capture=False)
+    result = host_command.run_command(['docker', 'pull', '--platform', 'linux/amd64', reference], check=False, capture_output=False)
     if result.returncode:
         if source == "pull":
             raise RuntimeError(f"预构建镜像拉取失败：{reference}；可设置 ACPROF_RUNTIME_IMAGE_SOURCE=build 本机构建")
@@ -71,7 +70,7 @@ def _pull_cached_image(name: str, label: str, fingerprint: str, expected: dict,
     verified = checked_image(reference, label, fingerprint, expected, identity, kind)
     if verified is None:
         raise RuntimeError(f"拉取后未找到预构建镜像：{reference}")
-    _run(["docker", "tag", verified[0], name])
+    host_command.run_command(['docker', 'tag', verified[0], name], check=True)
     return verified
 
 
@@ -118,8 +117,7 @@ def _runtime_fingerprint(identity: dict, platform_key: str, root: Path) -> str:
 
 
 def read_image_manifest(image_id: str, path: str) -> dict:
-    from acprof.host.docker_runtime import _run
-    result = _run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "cat", image_id, path], check=False)
+    result = host_command.run_command(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id, path], check=False)
     if result.returncode:
         raise RuntimeError(f"镜像缺少依赖清单：{image_id}: {path}")
     try:
@@ -173,7 +171,6 @@ def checked_image(name: str, label: str, fingerprint: str, expected: dict, ident
 
 def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expected: dict,
                      identity: dict, current_fingerprint, original_fingerprint: str) -> None:
-    from acprof.host.docker_runtime import _run
     from acprof.host.runtime_images import inspect_identity
     with tempfile.TemporaryDirectory(prefix="acprof-dependency-build-") as directory:
         context = Path(directory)
@@ -194,7 +191,7 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         command.append(str(context))
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("依赖构建输入发生变化，尚未构建镜像")
-        result = _run(command, check=False, capture=False)
+        result = host_command.run_command(command, check=False, capture_output=False)
         if result.returncode:
             raise RuntimeError(f"Docker 构建失败: {recipe} (exit={result.returncode})")
         image_id = iidfile.read_text().strip()
@@ -206,7 +203,7 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         kind = "platform" if recipe == "platform.Dockerfile" else "environment"
         verify_labels(image, expected, kind)
         verify_manifest(read_image_manifest(image_id, f"/opt/acprof/{kind}-manifest.json"), expected, identity)
-        _run(["docker", "tag", image_id, name])
+        host_command.run_command(['docker', 'tag', image_id, name], check=True)
 
 
 def _source_policy(image_source: str | None) -> str:
@@ -253,7 +250,6 @@ def prepare_platform_image(platform: PlatformSpec, project_dir=PROJECT_ROOT,
 def prepare_environment_image(environment: DependencyEnvironment, project_dir=PROJECT_ROOT,
                               *, image_source: str | None = None,
                               registry: str | None = None) -> PreparedEnvironment:
-    from acprof.host.docker_runtime import _run
     from acprof.host.runtime_images import inspect_identity
     root = Path(project_dir)
     source_policy = _source_policy(image_source)
@@ -276,7 +272,7 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
                                       "environment", source_policy, registry)
     if existing is None:
         source = "acprof-build-source:" + platform_image_id.split(":", 1)[1]
-        _run(["docker", "tag", platform_image_id, source])
+        host_command.run_command(['docker', 'tag', platform_image_id, source], check=True)
         def current_environment_fingerprint():
             require_image_source(source, platform_image_id)
             return runtime_fingerprint(environment, root)

@@ -137,12 +137,12 @@ class ArtifactLayoutTests(unittest.TestCase):
 
     def test_startup_error_is_written_directly_into_case_work_directory(self):
         from acprof.host.detect import TaskInfo
-        from acprof.host.docker_runtime import ImageInfo
         from acprof.host.orchestrator import run_single_case
+        from acprof.host.runtime_images import ImageInfo
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
-            with patch("acprof.host.orchestrator._start_container_session", side_effect=RuntimeError("startup failed")), \
+            with patch("acprof.host.orchestrator.start_container_session", side_effect=RuntimeError("startup failed")), \
                  redirect_stdout(io.StringIO()):
                 output = run_single_case(TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "a" * 40, "manual"),
                                          1, 4, "off", ImageInfo(tag="sha256:" + "b" * 64), str(root), temporary,

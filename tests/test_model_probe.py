@@ -28,7 +28,7 @@ class ModelProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
                 stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr=""),
-        ) as run, patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
+        ) as run, patch("acprof.host.container_state.inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
             options.update(task_info=task, gpu_list=["off"], mode="basic")
@@ -52,7 +52,7 @@ class ModelProbeTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr="")
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.runtime_validation.run_command", side_effect=run,
-        ), patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
+        ), patch("acprof.host.container_state.inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
             options.update(task_info=task, gpu_list=["off"])
@@ -71,7 +71,7 @@ class ModelProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
                     stdout='ACPROF_RUNTIME_VALIDATION={"status":"ok"}', stderr=""),
-        ), patch("acprof.host.docker_runtime._inspect_container_state", return_value={}):
+        ), patch("acprof.host.container_state.inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
             options.update(task_info=task, gpu_list=["off"])

@@ -60,10 +60,10 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
 def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: int = 2,
                          memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
                          reuse_existing: bool = False) -> dict:
-    from acprof.host.docker_runtime import prepare_image
     from acprof.host.input_plan import _get_task_generator, resolve_input_scales
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
+    from acprof.host.runtime_images import prepare_image
     from acprof.host.runtime_validation import validate_runtime
     from acprof.host.task_support import require_task_support
     from acprof.installation import resource_root

@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo
 from acprof.host.profiler_common import _base_docker_cmd
+from acprof.host.runtime_images import ImageInfo
 from acprof.host.runtime_validation import validate_runtime
 
 
@@ -53,7 +53,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
-        ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
             root = Path(temporary)
             report = validate_runtime(**self.fixture(root))
             saved = json.loads((root / 'runtime_validation.json').read_text())
@@ -80,7 +80,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
-        ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
             root = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, 'wrong Transformers'):
                 validate_runtime(**self.fixture(root))
@@ -110,7 +110,7 @@ class RuntimeValidationTests(unittest.TestCase):
         result = subprocess.CompletedProcess([], 0, stdout='ACPROF_RUNTIME_VALIDATION=[]\n', stderr='')
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', return_value=result,
-        ) as run, patch('acprof.host.docker_runtime._inspect_container_state', return_value={}):
+        ) as run, patch('acprof.host.container_state.inspect_container_state', return_value={}):
             root = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, 'validation response'):
                 validate_runtime(**self.fixture(root))
@@ -121,7 +121,7 @@ class RuntimeValidationTests(unittest.TestCase):
         result = subprocess.CompletedProcess([], 137, stdout='', stderr='Killed')
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', return_value=result,
-        ), patch('acprof.host.docker_runtime._inspect_container_state', return_value={'OOMKilled': True}):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={'OOMKilled': True}):
             report = validate_runtime(**self.fixture(Path(temporary)))
         self.assertEqual(report['status'], 'resource_limited')
         self.assertEqual(set(report['devices']), {'off', 'on'})
@@ -154,7 +154,7 @@ class RuntimeValidationTests(unittest.TestCase):
                 stack.enter_context(patch('acprof.cli.run.' + name))
             stack.enter_context(patch('acprof.cli.run.require_cgroup_prerequisites', return_value='v2'))
             stack.enter_context(patch('acprof.host.detect.detect_task', return_value=self.task()))
-            stack.enter_context(patch('acprof.host.docker_runtime.prepare_image', return_value=ImageInfo(
+            stack.enter_context(patch('acprof.host.runtime_images.prepare_image', return_value=ImageInfo(
                 tag='sha256:' + 'b' * 64, runtime_environment={'build_fingerprint': 'build'},
             )))
             stack.enter_context(patch('acprof.host.static_metadata.collect_static_meta', return_value=SimpleNamespace()))

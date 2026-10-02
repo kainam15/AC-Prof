@@ -60,3 +60,7 @@ def gpu_docker_args(device: dict | None = None) -> list[str]:
     device = resolve_gpu_device() if device is None else device
     return ["--gpus", f"device={device['uuid']}",
             "-e", f"NVIDIA_VISIBLE_DEVICES={device['uuid']}", "-e", "CUDA_VISIBLE_DEVICES=0"]
+
+
+def normalize_gpu_mode(gpu: str) -> str:
+    return "on" if str(gpu).lower() == "on" else "off"

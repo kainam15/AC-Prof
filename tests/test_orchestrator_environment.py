@@ -19,6 +19,7 @@ from acprof.host import (
     model_schema,
     orchestrator,
     packet_capture,
+    runtime_images,
     static_metadata,
 )
 from acprof.host.detect import TaskInfo
@@ -181,7 +182,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             for device_metadata, expected in cases:
                 with self.subTest(expected=expected), patch(
-                    "acprof.host.static_metadata._run",
+                    "acprof.host.command.run_command",
                     return_value=SimpleNamespace(
                         returncode=0,
                         stdout=json.dumps({"blockdevices": [device_metadata]}),
@@ -208,8 +209,8 @@ class DetectEnvironmentTests(unittest.TestCase):
         self.assertEqual(metadata["docker_storage_type"], "unknown")
 
     def test_select_nlp_torch_index_url_uses_cu124_for_cuda_12_4_driver(self) -> None:
-        with patch("acprof.host.docker_runtime.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
-            "acprof.host.docker_runtime._run",
+        with patch("acprof.host.runtime_images.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
+            "acprof.host.command.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout="Driver Version: 550.78    CUDA Version: 12.4\n",
@@ -217,18 +218,18 @@ class DetectEnvironmentTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(
-                docker_runtime._select_nlp_torch_index_url(),
-                docker_runtime.CUDA124_NLP_TORCH_INDEX_URL,
+                runtime_images._select_nlp_torch_index_url(),
+                runtime_images.CUDA124_NLP_TORCH_INDEX_URL,
             )
 
     def test_select_nlp_torch_index_url_respects_explicit_override(self) -> None:
         with patch.dict(
-            "acprof.host.docker_runtime.os.environ",
+            "acprof.host.runtime_images.os.environ",
             {"ACPROF_NLP_TORCH_INDEX_URL": "https://example.invalid/torch"},
             clear=True,
         ):
             self.assertEqual(
-                docker_runtime._select_nlp_torch_index_url(),
+                runtime_images._select_nlp_torch_index_url(),
                 "https://example.invalid/torch",
             )
 
@@ -256,18 +257,18 @@ class DetectEnvironmentTests(unittest.TestCase):
         )
 
         with patch(
-            "acprof.host.docker_runtime._run",
+            "acprof.host.command.run_command",
             side_effect=lambda cmd, **_kwargs: (
                 commands.append(cmd)
                 or SimpleNamespace(returncode=0, stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "", stderr="")
             ),
         ), patch("requests.get", return_value=ready_response):
-            docker_runtime._start_container_session(
+            docker_runtime.start_container_session(
                 task_info=task_info,
                 cpu=1,
                 mem=2,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 container_name="offline-test",
                 log_prefix="[test]",
             )
@@ -332,22 +333,22 @@ class DetectEnvironmentTests(unittest.TestCase):
             "Error": "",
         }
         with patch(
-            "acprof.host.docker_runtime._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ), patch(
-            "acprof.host.docker_runtime._inspect_container_state",
+            "acprof.host.container_state.inspect_container_state",
             return_value=container_state,
         ), patch(
             "requests.get",
             side_effect=ConnectionError("connection refused"),
         ):
             with self.assertRaises(RuntimeError) as raised:
-                docker_runtime._start_container_session(
+                docker_runtime.start_container_session(
                     task_info=task_info,
                     cpu=1,
                     mem=2,
                     gpu="off",
-                    image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                     container_name="oom-test",
                     log_prefix="[test]",
                 )
@@ -365,7 +366,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         with patch("acprof.host.static_metadata.platform.system", return_value="Windows"), patch(
             "acprof.host.static_metadata.platform.release", return_value="11"
         ), patch.dict("acprof.host.static_metadata.os.environ", {}, clear=True), patch(
-            "acprof.host.static_metadata._run",
+            "acprof.host.command.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout="6.6.87.2-microsoft-standard-WSL2\n",
@@ -379,7 +380,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.static_metadata.platform.freedesktop_os_release",
             return_value={"ID": "ubuntu", "VERSION_ID": "24.04"},
         ), patch.dict("acprof.host.static_metadata.os.environ", {}, clear=True), patch(
-            "acprof.host.static_metadata._run",
+            "acprof.host.command.run_command",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="docker unavailable"),
         ):
             self.assertEqual(static_metadata._detect_environment(), "ubuntu24.04")
@@ -437,7 +438,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             meta = static_metadata.collect_static_meta(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 batch_size=1,
                 input_scale_type="seq_length",
                 run_command="python run.py --model google-bert/bert-base-uncased",
@@ -446,7 +447,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             )
             disabled_meta = static_metadata.collect_static_meta(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 batch_size=1,
                 input_scale_type="seq_length",
                 run_command=(
@@ -458,7 +459,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             previous_calls = cache_size.call_count
             mounted_meta = static_metadata.collect_static_meta(
                 task_info=task_info, batch_size=1, input_scale_type="seq_length",
-                image_info=docker_runtime.ImageInfo(tag="mounted-fixture", runtime_environment={
+                image_info=runtime_images.ImageInfo(tag="mounted-fixture", runtime_environment={
                     "model_store": {"model_artifact_bytes": 2345},
                     "model_download": {"endpoint": "https://hf-mirror.com"},
                 }),
@@ -844,7 +845,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.input_plan._start_probe_session",
             return_value=session,
         ), patch(
-            "acprof.host.input_plan._stop_container_session",
+            "acprof.host.input_plan.stop_container_session",
         ), patch(
             "acprof.host.input_plan._post_probe_payload",
             return_value={
@@ -856,7 +857,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             planned = input_plan.plan_input_scales(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 cpu_list=[1],
                 mem_list=[4],
                 gpu_list=["off"],
@@ -899,7 +900,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 "acprof.workloads.get_generator",
                 return_value=FakeWorkloadGenerator(),
             ), patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-                input_plan, "_stop_container_session"
+                input_plan, "stop_container_session"
             ), patch.object(input_plan, "_request_scale_meta", return_value={
                 "max_effective_input_scale": 512, "input_scale_type": "context_length",
                 "reason": "test model context limit",
@@ -917,7 +918,7 @@ class DetectEnvironmentTests(unittest.TestCase):
 
                 planned = input_plan.plan_input_scales(
                     task_info=task_info,
-                    image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                     cpu_list=[1],
                     mem_list=[4],
                     gpu_list=["off"],
@@ -986,7 +987,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ) as plan_audio:
             planned = input_plan.plan_input_scales(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 cpu_list=[1],
                 mem_list=[4],
                 gpu_list=["off"],
@@ -1071,7 +1072,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             input_plan.plan_input_scales(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 cpu_list=[1],
                 mem_list=[4],
                 gpu_list=["off"],
@@ -1099,7 +1100,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             input_plan._plan_audio_scales(
                 task_info=task_info,
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 cpu_list=[1],
                 mem_list=[4],
                 gpu_list=["off"],
@@ -1189,7 +1190,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator.os.environ",
             {"ACPROF_WECOM_WEBHOOK_URL": "https://example.invalid/secret"},
         ), patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1204,14 +1205,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_ready_wait_s=0.1,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1254,7 +1255,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1262,14 +1263,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1304,7 +1305,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1315,9 +1316,9 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ), patch(
-            "acprof.host.orchestrator._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             orchestrator.run_single_case(
@@ -1325,7 +1326,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1362,7 +1363,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1370,14 +1371,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1419,7 +1420,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1427,14 +1428,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ) as start_container, patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1470,7 +1471,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1478,14 +1479,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=self.output_dir,
                 project_dir=".",
                 warmup=0,
@@ -1516,7 +1517,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1524,18 +1525,18 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ), patch(
-            "acprof.host.orchestrator._container_runtime_oom_error",
+            "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             with self.assertRaises(orchestrator.EnergyProfilingError) as raised:
                 orchestrator.run_single_case(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
                     gpu="on",
-                    image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                     output_dir=self.output_dir,
                     project_dir=".",
                     warmup=0,
@@ -1608,7 +1609,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "Error": "",
         }
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_2c_2g_on",
                 base_url="http://127.0.0.1:8204",
@@ -1619,12 +1620,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.docker_runtime._inspect_container_state",
+            "acprof.host.container_state.inspect_container_state",
             return_value=container_state,
         ) as inspect_state, patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ) as stop_container, patch(
-            "acprof.host.orchestrator._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -1632,7 +1633,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cpu=2,
                 mem=2,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=0,
@@ -1681,7 +1682,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1692,12 +1693,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._container_runtime_oom_error",
+            "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ), patch(
-            "acprof.host.orchestrator._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             with self.assertRaises(orchestrator.MIPSProfilingError):
@@ -1706,7 +1707,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                     cpu=1,
                     mem=4,
                     gpu="off",
-                    image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                     output_dir=self.output_dir,
                     project_dir=".",
                     warmup=0,
@@ -1752,7 +1753,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1763,12 +1764,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ) as stop_container, patch(
-            "acprof.host.orchestrator._container_runtime_oom_error",
+            "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -1776,7 +1777,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=1,
@@ -1871,7 +1872,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1882,12 +1883,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ), patch(
-            "acprof.host.orchestrator._container_runtime_oom_error",
+            "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -1895,7 +1896,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=0,
@@ -1932,7 +1933,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             side_effect=RuntimeError(
                 "container_oom_killed during startup "
                 "(container=unit-test, memory_limit=2g, status=exited, exit_code=137)"
@@ -1943,7 +1944,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cpu=1,
                 mem=2,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=1,
@@ -1999,7 +2000,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -2007,14 +2008,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=0,
@@ -2044,7 +2045,7 @@ class DetectEnvironmentTests(unittest.TestCase):
 
         stdout = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -2052,14 +2053,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run), redirect_stdout(stdout):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stdout(stdout):
             csv_path = orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="on",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=0,
@@ -2096,7 +2097,7 @@ class DetectEnvironmentTests(unittest.TestCase):
 
         stdout = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -2104,14 +2105,14 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
-        ), patch("acprof.host.orchestrator._run", side_effect=fake_run), redirect_stdout(stdout):
+            "acprof.host.orchestrator.stop_container_session"
+        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stdout(stdout):
             csv_path = orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
                 gpu="off",
-                image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 output_dir=tmp_dir,
                 project_dir=".",
                 warmup=0,
@@ -2157,7 +2158,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             return SimpleNamespace(returncode=1, stdout="", stderr="")
 
         with patch("acprof.host.packet_capture.shutil.which", side_effect=fake_which), patch(
-            "acprof.host.packet_capture._run",
+            "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
             runtime = packet_capture._resolve_packet_latency_runtime(
@@ -2175,7 +2176,7 @@ class DetectEnvironmentTests(unittest.TestCase):
     def test_resolve_packet_latency_runtime_requires_administrator_setup(self):
         with patch('acprof.host.packet_capture.shutil.which', side_effect=lambda name: '/usr/bin/' + name), patch(
             'acprof.host.packet_capture.os.geteuid', return_value=1000,
-        ), patch('acprof.host.packet_capture._run', return_value=SimpleNamespace(
+        ), patch('acprof.host.command.run_command', return_value=SimpleNamespace(
             returncode=0, stdout='', stderr='',
         )) as run:
             with self.assertRaisesRegex(packet_capture.PacketLatencyError, 'capture capability'):
@@ -2195,7 +2196,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         )
 
         with patch(
-            "acprof.host.orchestrator._start_container_session",
+            "acprof.host.orchestrator.start_container_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -2203,7 +2204,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator._stop_container_session"
+            "acprof.host.orchestrator.stop_container_session"
         ):
             with self.assertRaises(packet_capture.PacketLatencyError) as raised:
                 orchestrator.run_single_case(
@@ -2211,7 +2212,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                     cpu=1,
                     mem=4,
                     gpu="off",
-                    image_info=docker_runtime.ImageInfo(tag="acprof-test:latest"),
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                     output_dir=self.output_dir,
                     project_dir=".",
                     warmup=0,
@@ -2247,7 +2248,6 @@ class DetectEnvironmentTests(unittest.TestCase):
                 csv_path,
                 ignore_error_rows=True,
             )
-
 
 
 if __name__ == "__main__":

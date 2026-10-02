@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from acprof.cli import run
-from acprof.host import docker_runtime, input_plan, orchestrator
+from acprof.host import input_plan, orchestrator, runtime_images
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_progress import ProfilerProgress
 from acprof.notifications import NotificationConfigError, NotificationEvent
@@ -366,8 +366,8 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         ) as from_env, patch(
             "acprof.host.detect.detect_task", return_value=task_info,
         ), patch(
-            "acprof.host.docker_runtime.prepare_image",
-            return_value=docker_runtime.ImageInfo(tag="acprof-nlp-org--resolved-model:latest"),
+            "acprof.host.runtime_images.prepare_image",
+            return_value=runtime_images.ImageInfo(tag="acprof-nlp-org--resolved-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta", return_value=SimpleNamespace(),
         ), patch.multiple(

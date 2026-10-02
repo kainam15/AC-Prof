@@ -210,12 +210,12 @@ def _validate_profiler_runtime(
 ) -> None:
     # Validate outputs in a separate container before any profiler starts;
     # whole-process profilers must not include validation allocations.
-    from acprof.host.docker_runtime import ImageInfo
     from acprof.host.preflight import (
         require_native_docker,
         require_native_linux_host,
         require_result_environment,
     )
+    from acprof.host.runtime_images import ImageInfo
     from acprof.host.runtime_validation import validate_runtime
 
     require_native_linux_host()
@@ -225,7 +225,7 @@ def _validate_profiler_runtime(
         raise PosthocError(str(exc)) from exc
     require_native_docker()
     if context.static_meta.get("image_id"):
-        from acprof.host.docker_runtime import require_image_identity
+        from acprof.host.runtime_images import require_image_identity
 
         try:
             require_image_identity(context.image_tag, context.static_meta.get("runtime_environment") or {})

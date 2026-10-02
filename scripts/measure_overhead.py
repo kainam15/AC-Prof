@@ -235,14 +235,10 @@ def main(argv=None):
     if any(output.iterdir()):
         parser.error("诊断输出目录必须为空")
     from acprof.host.detect import TaskInfo
-    from acprof.host.docker_runtime import (
-        ImageInfo,
-        _start_container_session,
-        _stop_container_session,
-        require_image_identity,
-    )
+    from acprof.host.docker_runtime import start_container_session, stop_container_session
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
+    from acprof.host.runtime_images import ImageInfo, require_image_identity
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.resource_usage import ResourceUsageMonitor
@@ -283,7 +279,7 @@ def main(argv=None):
         with MeasurementLock(), conditions.activate() as device:
             report["gpu_device"] = device
             require_image_identity(image.tag, image.runtime_environment)
-            session = _start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]",
+            session = start_container_session(task, cpu, mem, args.gpu, image, name, "[overhead]",
                                                **conditions.container_options)
             name = session.name
             try:
@@ -334,7 +330,7 @@ def main(argv=None):
                 report["comparisons"] = summarize_overhead(report["rounds"], seed=args.seed)
                 report["successful"] = True
             finally:
-                _stop_container_session(session, "[overhead]")
+                stop_container_session(session, "[overhead]")
     except BaseException as error:
         report["successful"] = False
         report["error"] = str(error)

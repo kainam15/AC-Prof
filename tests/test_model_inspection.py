@@ -22,7 +22,7 @@ class ModelInspectionTests(unittest.TestCase):
                 ("nlp", "fill-mask", 64, "text"), ("cv", "image-classification", 0.1, "image_base64")):
             task = TaskInfo("example/native", tag, family, "transformers_pipeline", "transformers", "a" * 40, "hub")
             with self.subTest(family=family), tempfile.TemporaryDirectory() as directory, patch(
-                    "acprof.host.docker_runtime.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
+                    "acprof.host.runtime_images.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
                     "acprof.host.preflight.require_collection_host"), patch(
                     "acprof.host.preflight.require_native_docker"), patch(
                     "acprof.host.run_state.MeasurementLock"), patch(
@@ -43,7 +43,7 @@ class ModelInspectionTests(unittest.TestCase):
                         "onnx", "a" * 40, "manual")
         task.model_spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                            "model_file": "iris.onnx", "feature_dim": 4}
-        with tempfile.TemporaryDirectory() as directory, patch("acprof.host.docker_runtime.prepare_image",
+        with tempfile.TemporaryDirectory() as directory, patch("acprof.host.runtime_images.prepare_image",
                 return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
                 "acprof.host.preflight.require_collection_host"), patch(
                 "acprof.host.preflight.require_native_docker"), patch(
@@ -79,7 +79,7 @@ class ModelInspectionTests(unittest.TestCase):
         task = fixture.ModelContractTests().discover()
         with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
             "acprof.host.env_utils.bootstrap_project_env",
-        ), patch("acprof.host.docker_runtime.prepare_image") as build:
+        ), patch("acprof.host.runtime_images.prepare_image") as build:
             path = Path(directory, "model_resolution.json")
             path.write_text('{"preserve":true}')
             self.assertEqual(main(["inspect", task.model_id, "--expected-revision", "b" * 40,
@@ -91,7 +91,7 @@ class ModelInspectionTests(unittest.TestCase):
         task = fixture.ModelContractTests().discover(transformers_info=fixture.GENERIC_LOADER)
         with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
             "acprof.host.env_utils.bootstrap_project_env",
-        ), patch("acprof.host.docker_runtime.prepare_image") as build, contextlib.redirect_stdout(io.StringIO()) as output:
+        ), patch("acprof.host.runtime_images.prepare_image") as build, contextlib.redirect_stdout(io.StringIO()) as output:
             code = main(["inspect", task.model_id, "--explain", "--output-dir", directory])
             self.assertEqual(code, 0)
             report = json.loads(Path(directory, "model_resolution.json").read_text())

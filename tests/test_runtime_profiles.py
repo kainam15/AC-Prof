@@ -8,7 +8,7 @@ from unittest.mock import patch
 from runtime_fixture import copy_dependency_tree
 
 from acprof.container.handlers import HandlerRegistry
-from acprof.host import docker_runtime
+from acprof.host import docker_runtime, runtime_images
 from acprof.host.detect import TaskInfo
 from acprof.host.runtime_images import request_fingerprint
 from acprof.runtime_profiles import (
@@ -132,7 +132,7 @@ class RuntimeProfileRegressionTests(unittest.TestCase):
         with patch("acprof.host.runtime_images.inspect_identity", return_value={
             "image_id": image, "labels": {FINGERPRINT_LABEL: "other-build"},
         }), self.assertRaisesRegex(RuntimeError, "运行环境"):
-            docker_runtime.require_image_identity(image, {"build_fingerprint": "original-build"})
+            runtime_images.require_image_identity(image, {"build_fingerprint": "original-build"})
 
     def test_historical_image_identity_does_not_require_new_environment_fields(self):
         from acprof.host.runtime_images import FINGERPRINT_LABEL
@@ -141,7 +141,7 @@ class RuntimeProfileRegressionTests(unittest.TestCase):
         with patch("acprof.host.runtime_images.inspect_identity", return_value={
             "image_id": image, "labels": {FINGERPRINT_LABEL: "original-build"},
         }), patch("acprof.host.runtime_images.prepare_environment_image", side_effect=AssertionError("rebuilt history")):
-            docker_runtime.require_image_identity(image, original)
+            runtime_images.require_image_identity(image, original)
         self.assertNotIn("environment_id", original)
         self.assertNotIn("platform_id", original)
 
@@ -152,21 +152,20 @@ class RuntimeProfileRegressionTests(unittest.TestCase):
             stderr = "ValueError: custom code is required" if command[:2] == ["docker", "logs"] else ""
             return subprocess.CompletedProcess(command, 0, stdout="b" * 64 if command[:2] == ["docker", "run"] else "", stderr=stderr)
 
-        with patch.object(docker_runtime, "_run", side_effect=fake_run), patch.object(
-            docker_runtime, "_inspect_container_state", return_value={
+        with patch("acprof.host.command.run_command", side_effect=fake_run), patch("acprof.host.container_state.inspect_container_state", return_value={
                 "Status": "exited", "Running": False, "ExitCode": 1,
             },
         ), patch("requests.get", side_effect=ConnectionError), self.assertRaisesRegex(RuntimeError, "custom code is required"):
-            docker_runtime._start_container_session(
-                moss_task(), 1, 2, "off", docker_runtime.ImageInfo(tag="unit-image"), "unit-startup", "[test]",
+            docker_runtime.start_container_session(
+                moss_task(), 1, 2, "off", runtime_images.ImageInfo(tag="unit-image"), "unit-startup", "[test]",
             )
 
     def test_model_revision_changes_image_identity(self):
         task = moss_task()
         other = dataclasses.replace(task, model_revision="a" * 40)
         self.assertNotEqual(
-            docker_runtime._model_image_tag(task),
-            docker_runtime._model_image_tag(other),
+            runtime_images._model_image_tag(task),
+            runtime_images._model_image_tag(other),
         )
 
     def test_explicit_adapter_is_used_by_all_container_entrypoints(self):

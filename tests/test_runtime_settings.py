@@ -96,17 +96,18 @@ class RuntimeSettingsTests(unittest.TestCase):
             self.assertEqual(captured, [expected])
 
     def test_service_inherits_requested_deadline_with_explicit_override_priority(self):
-        from acprof.host.docker_runtime import ImageInfo, _start_container_session
+        from acprof.host.docker_runtime import start_container_session
+        from acprof.host.runtime_images import ImageInfo
         task = SimpleNamespace(model_id='fixture', model_revision='main', task_family='structured',
                                pipeline_tag='tabular-regression', runtime_backend='onnxruntime')
         for timeout, override, expected in ((600, None, '600'), (None, None, 'none'), (600, '120', '120')):
             commands = []
             environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
             with self.subTest(timeout=timeout, override=override), patch.dict(os.environ, environment, clear=True), patch(
-                'acprof.host.docker_runtime._run', side_effect=lambda command, **kwargs:
+                'acprof.host.command.run_command', side_effect=lambda command, **kwargs:
                 commands.append(command) or SimpleNamespace(returncode=0, stdout='b' * 64 if command[:2] == ['docker', 'run'] else '', stderr=''),
             ), patch('requests.get', return_value=SimpleNamespace(status_code=200, json=lambda: {'status': 'ok'})):
-                _start_container_session(task, 1, 1, 'off', ImageInfo(tag='fixture'), 'test-deadline', '[test]',
+                start_container_session(task, 1, 1, 'off', ImageInfo(tag='fixture'), 'test-deadline', '[test]',
                                          request_timeout_seconds=timeout)
             command = next(command for command in commands if command[:3] == ['docker', 'run', '-d'])
             values = [item for item in command if item.startswith('ACPROF_REQUEST_TIMEOUT_S=')]

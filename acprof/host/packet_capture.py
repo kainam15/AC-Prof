@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from acprof.config import SERVER_PORT
-from acprof.host.docker_runtime import (
-    _run,
-)
+from acprof.host import command as host_command
 from acprof.installation import module_command
 
 
@@ -41,7 +39,7 @@ def _tcpdump_can_capture_without_sudo(tcpdump_path: str) -> bool:
     if os.geteuid() == 0:
         return True
 
-    result = _run(["getcap", tcpdump_path], check=False)
+    result = host_command.run_command(['getcap', tcpdump_path], check=False)
     if result.returncode != 0:
         return False
 
@@ -75,7 +73,7 @@ def _sniff_interface_exists(sniff_iface: str) -> bool:
     if not ip_cmd:
         return False
 
-    result = _run([ip_cmd, "link", "show", sniff_iface], check=False)
+    result = host_command.run_command([ip_cmd, 'link', 'show', sniff_iface], check=False)
     return result.returncode == 0
 
 

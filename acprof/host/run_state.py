@@ -277,8 +277,8 @@ class RunState:
 
     def restore_runtime(self):
         from acprof.host.detect import TaskInfo
-        from acprof.host.docker_runtime import ImageInfo, require_image_identity
         from acprof.host.input_plan import PlannedInputScales
+        from acprof.host.runtime_images import ImageInfo, require_image_identity
         snapshot = self.data["runtime"]
         image = ImageInfo(**snapshot["image"])
         if not image.tag.startswith("sha256:"):

@@ -12,8 +12,8 @@ from unittest.mock import patch
 from acprof.cli import run
 from acprof.config import CSV_FIELDS
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
+from acprof.host.runtime_images import ImageInfo
 from acprof.host.static_metadata import StaticMeta
 
 
@@ -159,8 +159,8 @@ class RunRecoveryTests(unittest.TestCase):
             stack.enter_context(patch.object(run, "_start_tmux_terminal_log", return_value=None))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))
             stack.enter_context(patch("acprof.host.detect.detect_task", return_value=self.task))
-            stack.enter_context(patch("acprof.host.docker_runtime.prepare_image", return_value=self.image))
-            stack.enter_context(patch("acprof.host.docker_runtime.require_image_identity"))
+            stack.enter_context(patch("acprof.host.runtime_images.prepare_image", return_value=self.image))
+            stack.enter_context(patch("acprof.host.runtime_images.require_image_identity"))
             stack.enter_context(patch("acprof.host.runtime_validation.validate_runtime",
                                       side_effect=validation, return_value={"status": "ok"}))
             stack.enter_context(patch("acprof.host.static_metadata.collect_static_meta", return_value=metadata))

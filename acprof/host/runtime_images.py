@@ -6,12 +6,16 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 
+from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
 from acprof.hf_endpoints import hf_download_mode, hf_endpoints
+from acprof.host import command as host_command
 from acprof.host.dependency_images import (
     platform_fingerprint,
     prepare_environment_image,
@@ -20,6 +24,8 @@ from acprof.host.dependency_images import (
     verify_labels,
     verify_manifest,
 )
+from acprof.host.detect import TaskInfo
+from acprof.host.runtime_identity import model_token
 from acprof.installation import resource_root
 from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
 from acprof.runtime_profiles import (
@@ -35,10 +41,19 @@ FINGERPRINT_LABEL = "org.acprof.build-fingerprint"
 REQUEST_LABEL = "org.acprof.request-fingerprint"
 MODEL_KEY_LABEL = "org.acprof.model-files-key"
 
+DEFAULT_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+CUDA124_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu124"
+
+
+@dataclass
+class ImageInfo:
+    tag: str
+    name: str = ""
+    runtime_environment: Dict[str, Any] = field(default_factory=dict)
+
 
 def configure_runtime_profile(task_info: Any) -> RuntimeProfile:
     """只在主机构建预检选择驱动分支；静态路由模块不探测硬件。"""
-    from acprof.host.docker_runtime import _select_nlp_torch_index_url
     from acprof.runtime_profiles import PLATFORMS, profile_for_platform
 
     profile = select_runtime_profile(task_info)
@@ -115,9 +130,7 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
 
 
 def inspect_identity(image: str) -> dict | None:
-    from acprof.host.docker_runtime import _run
-
-    result = _run([
+    result = host_command.run_command([
         "docker", "image", "inspect", image, "--format",
         '{"image_id":{{json .Id}},"labels":{{json .Config.Labels}}}',
     ], check=False)
@@ -136,15 +149,13 @@ def inspect_identity(image: str) -> dict | None:
 
 
 def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJECT_ROOT):
-    from acprof.host.docker_runtime import ImageInfo, _run
-
     identity = inspect_identity(name)
     if identity is None:
         return None
     labels = identity.get("labels") or {}
     if labels.get(REQUEST_LABEL) != fingerprint:
         raise RuntimeError(f"镜像 {name} 的构建指纹不匹配；请重新构建")
-    result = _run([
+    result = host_command.run_command([
         "docker", "run", "--rm", "--network", "none", "--entrypoint", "cat",
         identity["image_id"], "/app/runtime_environment.json",
     ], check=False)
@@ -213,8 +224,6 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
 
 
 def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: bool = False):
-    from acprof.host.docker_runtime import _model_image_tag, build_image
-
     profile = configure_runtime_profile(task_info)
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if not re.fullmatch(r"[0-9a-f]{40}", task_info.model_revision or ""):
@@ -240,12 +249,10 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
             print(f"[build] 指纹核验通过，跳过构建并复用：{name}", flush=True)
             return image
         print(f"[build] 未找到本地模型镜像 {name}；将自动构建，旧版 :latest 不用于本次采集。", flush=True)
-    return build_image(task_info, project_dir)
+    return build_runtime_image(task_info, project_dir)
 
 
 def build_runtime_image(task_info: Any, project_dir: str):
-    from acprof.host.docker_runtime import ImageInfo, _model_image_tag, _run, _sanitize_model_id
-
     profile = select_runtime_profile(task_info)
     endpoints = hf_endpoints()
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
@@ -281,7 +288,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
             require_image_source(*parent)
             if request_fingerprint(task_info, root) != fingerprint:
                 raise RuntimeError("构建期间代码或依赖配置发生变化，尚未发布镜像标签")
-            result = _run(command, check=False, capture=False)
+            result = host_command.run_command(command, check=False, capture_output=False)
             if result.returncode:
                 raise RuntimeError(f"Docker 构建失败: {dockerfile} (exit={result.returncode})")
             require_image_source(*parent)
@@ -297,10 +304,10 @@ def build_runtime_image(task_info: Any, project_dir: str):
         source["estimated_bytes"] for source in network_plan["sources"] if source["category"] == "model"))
     runtime_id = dependency.image_id
     runtime_source = "acprof-build-source:" + runtime_id.split(":", 1)[1]
-    _run(["docker", "tag", runtime_id, runtime_source])
+    host_command.run_command(['docker', 'tag', runtime_id, runtime_source], check=True)
     model_key = content_digest({"build": model_fingerprint(task_info, runtime_id, root),
                                 "model_plan_sha256": store_record["plan_sha256"]})
-    model_tag = f"acprof-model-plan-{profile.family}-{_sanitize_model_id(task_info.model_id)}:{model_key[:20]}"
+    model_tag = f"acprof-model-plan-{profile.family}-{model_token(task_info.model_id)}:{model_key[:20]}"
     model_identity = inspect_identity(model_tag)
     if model_identity is None:
         candidate = build("runtime-model.Dockerfile", {
@@ -317,12 +324,12 @@ def build_runtime_image(task_info: Any, project_dir: str):
         model_identity = inspect_identity(candidate)
         if model_identity is None or (model_identity.get("labels") or {}).get(MODEL_KEY_LABEL) != model_key:
             raise RuntimeError("模型文件层指纹不匹配；拒绝发布缓存")
-        _run(["docker", "tag", candidate, model_tag])
+        host_command.run_command(['docker', 'tag', candidate, model_tag], check=True)
     if (model_identity.get("labels") or {}).get(MODEL_KEY_LABEL) != model_key:
         raise RuntimeError("模型文件层指纹不匹配；拒绝复用")
     model_id = model_identity["image_id"]
     model_source = "acprof-build-source:" + model_id.split(":", 1)[1]
-    _run(["docker", "tag", model_id, model_source])
+    host_command.run_command(['docker', 'tag', model_id, model_source], check=True)
     final_id = build("runtime-final.Dockerfile", {
         "MODEL_IMAGE": model_source, "RUNTIME_PROFILE": profile.profile_id,
         "MODEL_ADAPTER": profile.adapter, "BUILD_FINGERPRINT": build_fingerprint(fingerprint, model_id),
@@ -334,6 +341,89 @@ def build_runtime_image(task_info: Any, project_dir: str):
     image = verified_image(task_info, final_id, fingerprint, root)
     if image is None:
         raise RuntimeError("构建后未找到模型镜像")
-    _run(["docker", "tag", final_id, name])
+    host_command.run_command(['docker', 'tag', final_id, name], check=True)
     manifest = {**image.runtime_environment, "network_preflight": network_plan}
     return ImageInfo(tag=final_id, name=name, runtime_environment=manifest)
+
+
+def _parse_cuda_version(raw: str) -> Optional[Tuple[int, int]]:
+    match = re.search(r"(\d+)\.(\d+)", str(raw))
+    if not match:
+        return None
+
+    return int(match.group(1)), int(match.group(2))
+
+
+def _host_cuda_version() -> Optional[Tuple[int, int]]:
+    override = (os.environ.get("ACPROF_HOST_CUDA_VERSION") or "").strip()
+    if override:
+        return _parse_cuda_version(override)
+
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return None
+
+    result = host_command.run_command([nvidia_smi], check=False)
+    if result.returncode != 0:
+        return None
+
+    match = re.search(r"CUDA Version:\s*(\d+\.\d+)", result.stdout)
+    if not match:
+        return None
+
+    return _parse_cuda_version(match.group(1))
+
+
+def _select_nlp_torch_index_url() -> str:
+    override = (os.environ.get("ACPROF_NLP_TORCH_INDEX_URL") or "").strip()
+    if override:
+        return override
+
+    cuda_version = _host_cuda_version()
+    if cuda_version is None:
+        return DEFAULT_NLP_TORCH_INDEX_URL
+
+    if cuda_version >= (12, 8):
+        return DEFAULT_NLP_TORCH_INDEX_URL
+    if cuda_version >= (12, 4):
+        return CUDA124_NLP_TORCH_INDEX_URL
+    return DEFAULT_NLP_TORCH_INDEX_URL
+
+
+def _model_image_tag(task_info: TaskInfo, project_dir: Optional[str] = None) -> str:
+    model_tag = model_token(task_info.model_id)
+    fingerprint = request_fingerprint(task_info, project_dir or PROJECT_ROOT)
+    return f"{DOCKER_IMAGE_PREFIX}-{task_info.task_family}-{model_tag}:{fingerprint[:20]}"
+
+
+def prepare_image(
+    task_info: TaskInfo,
+    project_dir: str,
+    *,
+    reuse_existing: bool = False,
+) -> ImageInfo:
+    """Resolve a compatible runtime and verify exact image reuse."""
+
+    image = prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
+    from acprof.host.model_store import mount_args, store_root
+    if image.runtime_environment.get("model_store"):
+        # Host-only provenance for post-hoc runs; never baked into portable images.
+        image.runtime_environment["model_store"] = {
+            **image.runtime_environment["model_store"], "host_path": str(store_root())}
+    task_info.model_store = image.runtime_environment.get("model_store", {})
+    mount_args(image.runtime_environment)
+    return image
+
+
+def require_image_identity(image: str, runtime_environment: Dict[str, Any]) -> None:
+    """Verify recorded image identity before post-hoc collection; never rebuild it."""
+
+    identity = inspect_identity(image)
+    if identity is None:
+        raise RuntimeError(f"原实验镜像 {image} 已不存在；请恢复该镜像后再补采")
+    if image.startswith("sha256:") and identity["image_id"] != image:
+        raise RuntimeError("补采镜像 ID 与原实验不一致")
+    if runtime_environment and (identity.get("labels") or {}).get(FINGERPRINT_LABEL) != runtime_environment.get("build_fingerprint"):
+        raise RuntimeError("补采镜像的运行环境与原实验不一致")
+    from acprof.host.model_store import verify_entry
+    verify_entry(runtime_environment)

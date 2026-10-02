@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.host import docker_runtime, input_plan
+from acprof.host import input_plan, runtime_images
 from acprof.host.detect import TaskInfo
 
 RESAMPLING_POLICY = "scipy.signal.resample_poly_if_required_in_preprocess"
@@ -15,12 +15,12 @@ class AudioScalePlanningTests(unittest.TestCase):
     def _plan(self, task, constraints, directory):
         info = TaskInfo("example/audio", task, "audio", "transformers_model", "transformers", "fixed", "unit")
         with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="audio-probe")), patch.object(
-            input_plan, "_stop_container_session"
+            input_plan, "stop_container_session"
         ), patch.object(input_plan, "_request_scale_meta", return_value=constraints), patch.object(
             input_plan, "_post_probe_payload", return_value={"effective_input_scale": 1.0, "truncated_by_limit": False, "reason": "valid waveform"}
         ):
             return input_plan._plan_audio_scales(
-                task_info=info, image_info=docker_runtime.ImageInfo("unused"),
+                task_info=info, image_info=runtime_images.ImageInfo("unused"),
                 cpu_list=[1], mem_list=[2], gpu_list=["off"], scales=[1.0], batch_size=1,
                 output_dir=directory, source="manual", workload_spec_path=None,
             )

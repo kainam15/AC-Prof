@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 import requests
 
 from acprof.cli.probe import main as probe_main
-from acprof.host import docker_runtime
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
 from acprof.host.input_plan import PlannedInputScales
@@ -79,8 +78,8 @@ class LargestScaleProbeTests(unittest.TestCase):
         self.assertEqual(entry["input_scale"], 512.0)
         self.assertEqual(entry["payload"], {"text": "largest"})
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_probe_times_exactly_one_largest_request_and_writes_summary(
         self,
@@ -157,8 +156,8 @@ class LargestScaleProbeTests(unittest.TestCase):
             log_prefix="[largest-probe]",
         )
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_request_timeout_is_persisted_without_formal_csv(
         self,
@@ -201,8 +200,8 @@ class LargestScaleProbeTests(unittest.TestCase):
             self.assertFalse((output_dir / "result_all.csv").exists())
         stop_container.assert_called_once()
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_startup_oom_advances_to_first_viable_memory(
         self,
@@ -255,8 +254,8 @@ class LargestScaleProbeTests(unittest.TestCase):
             log_prefix="[largest-probe]",
         )
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_runtime_memory_oom_advances_and_successful_attempt_supplies_timing(
         self,
@@ -314,8 +313,8 @@ class LargestScaleProbeTests(unittest.TestCase):
         self.assertEqual(post.call_count, 2)
         self.assertEqual(stop_container.call_count, 2)
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_cuda_oom_stops_host_memory_scan(
         self,
@@ -360,8 +359,8 @@ class LargestScaleProbeTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
         stop_container.assert_called_once()
 
-    @patch("acprof.host.largest_scale_probe._stop_container_session")
-    @patch("acprof.host.largest_scale_probe._start_container_session")
+    @patch("acprof.host.largest_scale_probe.stop_container_session")
+    @patch("acprof.host.largest_scale_probe.start_container_session")
     @patch("acprof.host.largest_scale_probe.requests.post")
     def test_all_memory_candidates_oom_without_claiming_a_minimum(
         self,
@@ -429,10 +428,8 @@ class LargestScaleProbeTests(unittest.TestCase):
         run_probe.side_effect = fake_run
 
         built_image = ImageInfo(tag="acprof-nlp-demo--model:latest")
-        with tempfile.TemporaryDirectory() as temporary_dir, patch.object(
-            docker_runtime, "_run", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
-        ), patch.object(
-            docker_runtime, "build_image", return_value=built_image,
+        with tempfile.TemporaryDirectory() as temporary_dir, patch("acprof.host.command.run_command", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
+        ), patch("acprof.host.runtime_images.build_runtime_image", return_value=built_image,
         ) as build_image:
             plan_path = Path(temporary_dir) / "planned.json"
             plan_scales.return_value = PlannedInputScales(

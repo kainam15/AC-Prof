@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from acprof.host import orchestrator
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import ImageInfo
+from acprof.host.runtime_images import ImageInfo
 
 
 class MatrixPlanTests(unittest.TestCase):
