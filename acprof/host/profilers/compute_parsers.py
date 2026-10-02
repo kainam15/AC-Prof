@@ -81,8 +81,8 @@ def parse_advisor_self_gflop_csv(report_path: str) -> float:
         if gflop_field is None:
             return float("nan")
         found = False
-        for row in csv.DictReader(f, fieldnames=fieldnames):
-            value = _to_float(row.get(gflop_field))
+        for data_row in csv.DictReader(f, fieldnames=fieldnames):
+            value = _to_float(data_row.get(gflop_field))
             if value == value:
                 total_gflop += value
                 found = True

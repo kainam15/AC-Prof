@@ -76,6 +76,16 @@ files = [
     "acprof/monitors/interfaces.py",
     "acprof/host/measurement_window.py",
     "acprof/host/command.py",
+    "acprof/host/matrix_plan.py",
+    "acprof/host/run_state.py",
+    "acprof/host/compute_profile_plan.py",
+    "acprof/host/execution_profile_plan.py",
+    "acprof/host/profiler_support.py",
+    "acprof/host/profilers/compute_parsers.py",
+    "acprof/host/profilers/execution_parsers.py",
+    "acprof/analysis/comparison.py",
+    "acprof/analysis/independent_comparison.py",
+    "acprof/analysis/uncertainty.py",
 ]
 follow_imports = "skip"
 ignore_missing_imports = true

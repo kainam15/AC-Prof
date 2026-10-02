@@ -114,8 +114,11 @@ def _resolve_profile_entry(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        raw_scale = entry.get("input_scale")
+        if raw_scale is None:
+            continue
         try:
-            entry_scale = float(entry.get("input_scale"))
+            entry_scale = float(raw_scale)
         except (TypeError, ValueError):
             continue
         if math.isclose(

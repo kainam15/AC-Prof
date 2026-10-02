@@ -245,6 +245,7 @@ def parse_nsys_stats_csv(
             "count_per_request": 0.0,
         }
 
+    count_bases: tuple[str, ...]
     if report_name == "cuda_api_sum":
         count_bases = ("num calls", "calls", "count")
         required = ("total time",)

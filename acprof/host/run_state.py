@@ -46,7 +46,7 @@ def file_sha256(path: str | Path) -> str:
 def host_identity(project_dir: str | Path) -> dict:
     source_hash = source_fingerprint(project_dir, measurement_sources(project_dir),
                                      scope="measurement-source-v2")
-    packages = sorted((dist.metadata.get("Name", ""), dist.version)
+    packages = sorted((dist.metadata["Name"] or "", dist.version)
                       for dist in importlib.metadata.distributions())
     machine_id = Path("/etc/machine-id")
     return {

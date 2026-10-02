@@ -144,11 +144,11 @@ def _snapshot(source: str | Path) -> dict:
     # The independent probe injects quota-derived TORCH_NUM_THREADS, while the
     # ordinary server preserves runtime defaults. Its effective count only
     # establishes a shared setting when this run explicitly requested threads.
-    thread_names = (("ACPROF_ONNX_INTRA_OP_THREADS",) if metadata.get("runtime_backend") == "onnxruntime" else ())
+    thread_names: tuple[str, ...] = (("ACPROF_ONNX_INTRA_OP_THREADS",) if metadata.get("runtime_backend") == "onnxruntime" else ())
     thread_names += ("ACPROF_RUNTIME_THREADS", "TORCH_NUM_THREADS")
     thread_request = next(((environment or {})[name] for name in thread_names if name in (environment or {})), None)
     try:
-        explicit_threads = not isinstance(thread_request, bool) and int(thread_request) > 0
+        explicit_threads = thread_request is not None and not isinstance(thread_request, bool) and int(thread_request) > 0
     except (TypeError, ValueError):
         explicit_threads = False
     for device in devices:

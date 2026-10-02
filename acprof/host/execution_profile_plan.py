@@ -88,7 +88,7 @@ EXECUTION_PROFILE_FIELDS = MASSIF_FIELDS + NSYS_FIELDS
 
 
 def _empty_result() -> Dict[str, Any]:
-    result = {
+    result: Dict[str, Any] = {
         field: float("nan")
         for field in MASSIF_METRIC_FIELDS + NSYS_METRIC_FIELDS
     }
