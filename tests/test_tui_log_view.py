@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from rich.console import Console
 from textual.widget import Widget
@@ -94,7 +94,11 @@ class TuiLogViewTests(unittest.IsolatedAsyncioTestCase):
 
             # Exercise the existing process-output delivery while maximized;
             # no collection command or external process may start in this test.
-            with patch("acprof.tui.app.subprocess.Popen", side_effect=AssertionError("unexpected process")):
+            process = Mock()
+            process.poll.return_value = None
+            with patch("acprof.tui.app.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
+                app._lifecycle, "process", process
+            ):
                 app._process_started(12345, "test")
                 app._consume_process_line("[build] second line", None, False)
                 await pilot.pause()

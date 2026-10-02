@@ -164,6 +164,7 @@ class TaskSupportTuiTests(unittest.IsolatedAsyncioTestCase):
                 old_csv.write_text("existing measurement\n", encoding="utf-8")
                 app = AcprofTui(config, settings_path=Path(tmp) / "tui.json")
                 async with app.run_test(size=size) as pilot:
+                    await pilot.pause()
                     for kind in ("run", "probe"):
                         for language in ("zh", "en"):
                             with self.subTest(size=size, kind=kind, language=language):

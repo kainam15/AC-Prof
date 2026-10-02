@@ -1295,7 +1295,10 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.notify(message('任务失败，退出码 {0}', returncode), severity="error", timeout=8)
 
         current_csv = ""
-        if kind == "run":
+        if unsupported_task:
+            self._latest_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")
+            self._render_snapshot(self._latest_snapshot)
+        elif kind == "run":
             result = self._run_result
             stage = result.stage(returncode, self._stop_requested, launch_error)
             final_state = snapshot or self._latest_snapshot
@@ -1308,8 +1311,6 @@ class AcprofTui(ImageActions, BarCursorApp):
                 detail = join_messages("\n", (detail, message("已保留的实验目录：{0}", result.retained_dir)))
             if result.complete and not result.result_csv and not result.new_cases:
                 detail = join_messages("\n", (detail, message("已有实验已完成；本次未重新采集。")))
-            if unsupported_task:
-                detail = join_messages("\n", (snapshot.detail, detail))
             self._latest_snapshot = replace(final_state, stage=stage, detail=detail,
                 completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
                 measurement_active=False, measurement_status=("passed" if stage == "已完成" else
