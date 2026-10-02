@@ -1534,26 +1534,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         csv_path = resolve_result_path(result_csv, PROJECT_DIR)
         try:
             summary = summarize_result_csv(csv_path)
-        except (OSError, csv.Error, UnicodeError) as exc:
+        except (OSError, csv.Error, UnicodeError, ValueError) as exc:
             self._set_text(self.query_one('#result-summary', Static), message('无法读取结果：{0}', exc))
             if notify:
                 self.notify(str(exc), severity="error")
             return
         self._remember_last_used(result_csv=str(csv_path))
-        latency_info = ""
-        if summary.avg_latency_s is not None:
-            min_ms = summary.min_latency_s * 1000 if summary.min_latency_s is not None else 0
-            max_ms = summary.max_latency_s * 1000 if summary.max_latency_s is not None else 0
-            avg_ms = summary.avg_latency_s * 1000
-            latency_info = (
-                message('\n应用延迟（均值）：{0:.1f}ms （范围 {1:.1f}ms ~ {2:.1f}ms）', avg_ms, min_ms, max_ms)
-            )
-        self._set_text(self.query_one("#result-summary", Static), message(
-            "结果已读取\n行数：{0}（成功 {1} / 错误 {2}）\n资源 case：{3}\n"
-            "Warmup 行：{4}（正常绘图会排除）{5}",
-            summary.rows, summary.ok_rows, summary.error_rows,
-            summary.cases, summary.warmup_rows, latency_info,
-        ))
+        from acprof.tui.diagnostics import result_summary_text
+        self._set_text(self.query_one("#result-summary", Static), result_summary_text(summary, csv_path))
         if notify:
             self.notify("结果摘要已更新", timeout=3)
 

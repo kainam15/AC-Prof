@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 import csv
-import math
 import os
 import shutil
 import subprocess
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
+from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, measurement_requested
 from acprof.experiment import RunConfig
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.host.packet_capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
-from acprof.messages import message
+from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment
+from acprof.result_csv import KEY_FIELDS, require_current_fields
 from acprof.tui.commands import _csv_values
 
 
@@ -243,57 +245,80 @@ class ResultSummary:
     error_rows: int
     warmup_rows: int
     cases: int
-    min_latency_s: float | None = None
-    max_latency_s: float | None = None
-    avg_latency_s: float | None = None
+    groups: tuple[dict, ...] = ()
+    grouping_detail: str = ""
 
 
-def summarize_result_csv(result_csv: str | Path) -> ResultSummary:
-    """Read a completed result CSV once, outside timed collection windows."""
+SUMMARY_METRICS = (
+    "latency_app_s", "throughput_samples_per_s", "container_mem_usage_peak_bytes",
+    "gpu_mem_used_peak_bytes", "container_attributed_energy_eff_j", "cpu_energy_total_j", "gpu_energy_total_j",
+)
+
+
+def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool] = lambda: False) -> ResultSummary:
+    """Use the stats window grouping/filter, without bootstrap work in a preview."""
     path = Path(result_csv).expanduser()
-    rows = ok_rows = error_rows = warmup_rows = 0
-    cases: set[tuple[str, str, str]] = set()
-    latencies: list[float] = []
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            rows += 1
-            status = str(row.get("status") or "").strip().lower()
-            is_warmup = str(row.get("warmup") or "0").strip() == "1"
-            if status == "ok":
-                ok_rows += 1
-                if not is_warmup:
-                    raw_lat = (
-                        row.get("latency_app_s")
-                        or row.get("latency_s")
-                        or ""
-                    ).strip()
-                    try:
-                        lat_val = float(raw_lat)
-                        if math.isfinite(lat_val) and lat_val > 0:
-                            latencies.append(lat_val)
-                    except ValueError:
-                        pass
-            elif status == "error":
-                error_rows += 1
-            if is_warmup:
-                warmup_rows += 1
-            cases.add(
-                (
-                    str(row.get("cpu_cores") or ""),
-                    str(row.get("mem_cap_gb") or ""),
-                    str(row.get("gpu_mode") or ""),
-                )
-            )
-    min_lat = min(latencies) if latencies else None
-    max_lat = max(latencies) if latencies else None
-    avg_lat = (sum(latencies) / len(latencies)) if latencies else None
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle, strict=True)
+        fields = reader.fieldnames or []
+        if not fields or len(fields) != len(set(fields)) or "status" not in fields:
+            raise ValueError(message("结果 CSV 缺少有效表头"))
+        require_current_fields(fields)
+        rows = []
+        for row in reader:
+            if cancelled():
+                raise CancelledError()
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(message("结果 CSV 包含不完整的行"))
+            rows.append(row)
+    missing = set(KEY_FIELDS) - set(fields)
+    metrics = [name for name in SUMMARY_METRICS if name in fields]
+    groups = ()
+    detail = ""
+    if missing:
+        detail = message("缺少配置身份字段，无法分组比较：{0}", ", ".join(sorted(missing)))
+    elif metrics:
+        groups = tuple(summarize_windows(rows, metrics, include_intervals=False, cancelled=cancelled)["groups"])
+        # Unselected/inapplicable energy and device metrics stay out of the summary.
+        groups = tuple(sorted((group for group in groups if group["n_windows"] or group["metric"] == "latency_app_s"),
+            key=lambda group: (group["cpu_cores"], group["mem_cap_gb"], group["gpu_mode"],
+                               group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
+    else:
+        detail = message("没有可统计的正式成功窗口。")
     return ResultSummary(
-        rows=rows,
-        ok_rows=ok_rows,
-        error_rows=error_rows,
-        warmup_rows=warmup_rows,
-        cases=len(cases),
-        min_latency_s=min_lat,
-        max_latency_s=max_lat,
-        avg_latency_s=avg_lat,
+        rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
+        error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
+        warmup_rows=sum(str(row.get("warmup", "0")).strip() == "1" for row in rows),
+        cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
+        groups=groups, grouping_detail=detail,
     )
+
+
+def result_summary_text(summary: ResultSummary, path: Path) -> str:
+    lines: list[str] = [message("当前选择：{0}", path), message(
+        "结果已读取\n行数：{0}（成功 {1} / 错误 {2}）\n资源 case：{3}\nWarmup 行：{4}（统计排除）",
+        summary.rows, summary.ok_rows, summary.error_rows, summary.cases, summary.warmup_rows),
+        message("按 CPU / 内存上限 / GPU / 输入规模 / 环境分组；仅统计正式成功窗口。")]
+    if summary.grouping_detail:
+        lines.append(summary.grouping_detail)
+    labels = {"latency_app_s": "应用延迟", "throughput_samples_per_s": "吞吐量",
+              "container_mem_usage_peak_bytes": "容器内存峰值", "gpu_mem_used_peak_bytes": "GPU 内存峰值",
+              "container_attributed_energy_eff_j": "容器归因有效能耗",
+              "cpu_energy_total_j": "CPU 总能耗", "gpu_energy_total_j": "GPU 总能耗"}
+    previous = None
+    configurations = 0
+    for group in summary.groups:
+        key = tuple(group[name] for name in ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "environment_class"))
+        if key != previous:
+            configurations += 1
+            if configurations > 30:
+                lines.append(message("摘要仅展示前 30 个配置；完整结果请使用统计报告。"))
+                break
+            lines.append(message("\nCPU={0:g} · MEM={1:g}GB · GPU={2} · 输入={3:g} · {4}", *key))
+            previous = key
+        unit = group["unit"]
+        factor, unit = (1000, "ms") if unit == "s" else (1 / 1048576, "MiB") if unit == "byte" else (1, unit)
+        value = "—" if group["mean"] is None else f"{group['mean'] * factor:.6g} {unit}"
+        lines.append(message("{0}：{1} · 有效窗口 {2} · {3}", message(labels[group["metric"]]), value,
+                             group["n_windows"], message("窗口不足" if group["reason"] == "insufficient_windows" else "窗口均值")))
+    return join_messages("\n", lines)

@@ -5,12 +5,14 @@ import math
 import random
 import statistics
 from collections import defaultdict
+from concurrent.futures import CancelledError
 
 from acprof.metric_registry import METRICS
 from acprof.result_csv import measurement_key
 
 
-def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1):
+def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
+                      include_intervals=True, cancelled=lambda: False):
     if not 0 < confidence < 1 or not isinstance(resamples, int) or resamples < 1:
         raise ValueError("confidence 必须在 0 与 1 之间，resamples 必须为正整数")
     if not isinstance(block_size, int) or block_size < 1:
@@ -23,6 +25,8 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
             raise ValueError(f"{name} 不属于独立测量窗口；不对复用的 profiler/生命周期值计算区间")
     cases, keys = defaultdict(list), set()
     for row in rows:
+        if cancelled():
+            raise CancelledError()
         key = measurement_key(row)
         environment = row.get("environment_class", "unknown")
         if (environment, key) in keys:
@@ -34,6 +38,8 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
     for case in sorted(cases):
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
         for name in metrics:
+            if cancelled():
+                raise CancelledError()
             values = []
             for row in ordered:
                 try:
@@ -57,7 +63,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
             elif block_size > 1 and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
                                         for a, b in zip(ordered, ordered[1:])):
                 result["reason"] = "nonconsecutive_windows"
-            else:
+            elif include_intervals:
                 result["ci_low"], result["ci_high"] = bootstrap_mean_interval(
                     values, confidence=confidence, resamples=resamples, seed=seed, block_size=block_size)
             groups.append(result)

@@ -144,9 +144,13 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
             )
             app._latest_snapshot = snapshot
             app._render_snapshot(snapshot)
-            summary = ResultSummary(3, 2, 1, 1, 2, 0.01, 0.03, 0.02)
+            summary = ResultSummary(3, 2, 1, 1, 2, groups=(dict(cpu_cores=1, mem_cap_gb=4,
+                gpu_mode="off", input_scale=64, environment_class="unknown", metric="latency_app_s",
+                mean=0.02, unit="s", n_windows=1, reason="insufficient_windows"),))
             with patch("acprof.tui.app.summarize_result_csv", return_value=summary) as read_results:
                 app._update_result_summary("read-once.csv", notify=False)
+                await app.workers.wait_for_complete()
+                await pilot.pause()
                 remembered = self.settings_path.read_bytes()
                 self.assertEqual(
                     load_settings(self.settings_path, PROJECT_DIR),
@@ -154,7 +158,7 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
                 )
                 await self.switch(app, pilot, "en")
                 self.assertEqual(read_results.call_count, 1)
-                self.assertIn("Application latency (mean): 20.0ms", app.query_one("#result-summary", Static).content)
+                self.assertIn("App latency: 20 ms", app.query_one("#result-summary", Static).content)
             self.assertEqual(model.value, "等待/{模型}")
             self.assertEqual(model.cursor_position, 2)
             self.assertEqual(app.query_one("#run-preset", Select).value, preset)

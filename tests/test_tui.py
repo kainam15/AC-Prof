@@ -315,14 +315,14 @@ class TuiCoreTests(unittest.TestCase):
                         "cpu_cores",
                         "mem_cap_gb",
                         "gpu_mode",
-                        "latency_app_s",
+                        "latency_app_s", "input_scale", "repeat_idx",
                     ),
                 )
                 writer.writeheader()
                 writer.writerows(
                     (
                         {
-                            "status": "ok",
+                            "status": "ok", "input_scale": "64", "repeat_idx": "0",
                             "warmup": "1",
                             "cpu_cores": "1",
                             "mem_cap_gb": "4",
@@ -330,7 +330,7 @@ class TuiCoreTests(unittest.TestCase):
                             "latency_app_s": "0.100",
                         },
                         {
-                            "status": "ok",
+                            "status": "ok", "input_scale": "64", "repeat_idx": "0",
                             "warmup": "0",
                             "cpu_cores": "1",
                             "mem_cap_gb": "4",
@@ -338,7 +338,7 @@ class TuiCoreTests(unittest.TestCase):
                             "latency_app_s": "0.050",
                         },
                         {
-                            "status": "ok",
+                            "status": "ok", "input_scale": "64", "repeat_idx": "0",
                             "warmup": "0",
                             "cpu_cores": "2",
                             "mem_cap_gb": "4",
@@ -352,9 +352,9 @@ class TuiCoreTests(unittest.TestCase):
             self.assertEqual(summary.ok_rows, 3)
             self.assertEqual(summary.warmup_rows, 1)
             self.assertEqual(summary.cases, 2)
-            self.assertAlmostEqual(summary.min_latency_s, 0.030)
-            self.assertAlmostEqual(summary.max_latency_s, 0.050)
-            self.assertAlmostEqual(summary.avg_latency_s, 0.040)
+            self.assertEqual({group["cpu_cores"]: group["mean"] for group in summary.groups}, {1: 0.050, 2: 0.030})
+            self.assertTrue(all(group["n_windows"] == 1 for group in summary.groups))
+            self.assertTrue(all(group["ci_low"] is None for group in summary.groups))
 
     def test_rapl_check_does_not_follow_cyclic_sysfs_links(self):
         with tempfile.TemporaryDirectory() as temporary_dir:
