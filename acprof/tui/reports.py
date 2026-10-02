@@ -174,9 +174,18 @@ def read_report(path: str | Path) -> ReportView:
     except (ValueError, UnicodeError) as exc:
         raise ValueError(message("JSON 报告损坏或编码无效")) from exc
     if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] != 1:
-        raise ValueError(message("不支持的报告类型或版本；请选择 stats 或开销对照报告"))
+        raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))
     if data.get("resampling_unit") == "csv_request_window":
         return _windows(source, data)
     if data.get("kind") in {"monitor_overhead_diagnostic", "ui_overhead"}:
         return _comparisons(source, data)
-    raise ValueError(message("不支持的报告类型或版本；请选择 stats 或开销对照报告"))
+    if data.get("scope") in {"selected_sample_only; no_formal_measurement", "recorded_results; no_reexecution"}:
+        from acprof.analysis.compatibility import result_status
+        rows = []
+        for row in _objects(data.get("rows")):
+            failure = row.get("failure") or {}
+            rows.append(ReportRow((row["model_id"], result_status(row), failure.get("reason_code", "")),
+                json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", [])}, ensure_ascii=False, indent=2)))
+        note = message("读取已有结果，不重新执行模型。") if data["scope"] == "recorded_results; no_reexecution" else message("仅覆盖所选样本的独立验证，不代表正式采集完成。")
+        return ReportView(source, message("兼容性报告"), ("模型", "状态", "reason_code"), tuple(rows), note)
+    raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))

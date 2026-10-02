@@ -22,6 +22,11 @@ def main(argv=None) -> int:
     run.add_argument("--mems", type=int, default=4)
     run.add_argument("--gpus", choices=("off", "on"), default="off")
     run.add_argument("--timeout-seconds", type=float, default=300)
+    run.add_argument("--max-parameters", type=int, help="Conservative parameter budget; excluded models remain unverified")
+    run.add_argument("--max-download-bytes", type=int, help="Budget for selected pinned artifacts, including dependencies")
+    report = commands.add_parser("report", help="Summarize recorded result directories without rerunning models")
+    report.add_argument("sources", type=Path, nargs="+")
+    report.add_argument("--output-dir", type=Path, required=True, help="New report directory")
     args = parser.parse_args(argv)
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.model_coverage import run_sample, snapshot_sample
@@ -36,9 +41,14 @@ def main(argv=None) -> int:
                 json.dump(sample, stream, indent=2, ensure_ascii=False, allow_nan=False)
                 stream.write("\n")
             print(f"Frozen sample: {args.output}")
+        elif args.command == "report":
+            from acprof.analysis.compatibility import report_results
+            result = report_results(args.sources, args.output_dir)
+            print(f"Reported {len(result['rows'])} recorded results: {args.output_dir}")
         else:
             report = run_sample(json.loads(args.manifest.read_text()), args.output_dir, probe=args.probe,
-                                 cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds)
+                                 cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds,
+                                 max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes)
             print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     except (ValueError, OSError, KeyError, TypeError) as exc:
         print(f"[coverage][ERROR] {exc}", file=sys.stderr)

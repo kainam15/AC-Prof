@@ -87,7 +87,8 @@ def summarize(rows: list[dict], *, probe_requested: bool, sample_weight: float) 
         "weighted_support_rate": rate(weight(lambda row: row["supported"])),
         "weighted_abstain_rate": rate(weight(lambda row: row["resolution_status"] == "abstained")),
         "weighted_runtime_success_rate": rate(weight(lambda row: row["runtime_status"] == "ok")) if probe_requested else None,
-        "weighted_resource_limited_rate": rate(weight(lambda row: row["runtime_status"] == "resource_limited")) if probe_requested else None,
+        "weighted_resource_limited_rate": rate(weight(lambda row: row["runtime_status"] == "resource_limited" or
+            (row.get("failure") or {}).get("reason_code") == "resource_limit")) if probe_requested else None,
         "weighted_access_denied_rate": rate(weight(lambda row: row["resolution_status"] == "access_denied")) if probe_requested else None,
         "semantic_reviewed_weight": reviewed_weight,
         "semantic_accuracy_on_reviewed_selections": rate(sum(row["weight"] for row in reviewed if row["semantic_correct"]), reviewed_weight),
@@ -98,7 +99,8 @@ def summarize(rows: list[dict], *, probe_requested: bool, sample_weight: float) 
 
 
 def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, memory_gb: int = 4,
-               gpu: bool = False, timeout_seconds: float = 300) -> dict:
+               gpu: bool = False, timeout_seconds: float = 300,
+               max_parameters: int | None = None, max_download_bytes: int | None = None) -> dict:
     from acprof.host.detect import detect_task
     from acprof.host.model_inspection import probe_model_contract
     from acprof.host.task_support import require_task_support
@@ -109,6 +111,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
         raise ValueError("invalid coverage probe/resources")
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("timeout must be finite and positive")
+    if any(value is not None and (type(value) is not int or value <= 0) for value in (max_parameters, max_download_bytes)):
+        raise ValueError("resource budgets must be positive integers")
     root.mkdir(parents=True, exist_ok=False)
     atomic_write_json(root / "sample.json", sample)
     report = {"schema_version": 1, "scope": "selected_sample_only; no_formal_measurement",
@@ -118,8 +122,10 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
     sample_weight = sum(item["weight"] for item in sample["models"])
 
     def save():
+        from acprof.analysis.compatibility import write_compatibility_report
         report["summary"] = summarize(report["rows"], probe_requested=probe == "full", sample_weight=sample_weight)
         atomic_write_json(root / "coverage.json", report)
+        write_compatibility_report(root, report["rows"])
 
     save()
     for index, item in enumerate(sample["models"]):
@@ -128,6 +134,7 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                "runtime_status": "not_requested" if probe == "none" else "not_run", "semantic_correct": None}
         output = root / f"model-{index:04d}"
         stage = "resolution"
+        task = None
         try:
             task = detect_task(item["model_id"], revision=item["revision"])
             if task.model_revision != item["revision"]:
@@ -139,8 +146,22 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
             if row["resolved"] and item.get("semantic_reference"):
                 row["semantic_correct"] = task.pipeline_tag == item["semantic_reference"]["task"]
             stage = "support"
-            require_task_support(task)
+            require_task_support(task, devices=("gpu" if gpu else "cpu",) if probe == "full" else ())
+            row["runtime_profile"] = task.runtime_profile_id
+            write_model_resolution(task, output)
             row["supported"] = True
+            if max_parameters is not None or max_download_bytes is not None:
+                from acprof.resource_budget import assess_resource_budget
+                plan = None
+                if max_download_bytes is not None:
+                    from acprof.host.model_store import plan_model
+                    plan = plan_model(task)
+                budget = assess_resource_budget(parameter_count=task.parameter_count, max_parameters=max_parameters,
+                                                plan=plan, max_download_bytes=max_download_bytes)
+                row["resource_preflight"] = budget
+                if budget.get("failure"):
+                    from acprof.failures import Failure, RuntimeFailure
+                    raise RuntimeFailure(Failure(**budget["failure"]))
             if probe == "full":
                 from acprof.host.automation import check_repository_access
                 from acprof.model_spec import task_model_spec
@@ -151,22 +172,39 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                 validation = probe_model_contract(task, output, mode="full", cpus=cpus, memory_gb=memory_gb,
                                                    gpu=gpu, timeout_seconds=timeout_seconds, reuse_existing=True)
                 row["runtime_status"] = validation["status"]
+                row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
+                failures = [value["failure"] for value in validation.get("devices", {}).values() if value.get("failure")]
+                if failures:
+                    row["failure"] = failures[0]
         except (Exception, SystemExit) as exc:
-            row.update(failed_stage=getattr(exc, "stage", stage), error_type=type(exc).__name__)
+            from acprof.failures import compatibility_status, failure_from_exception
+            failure = failure_from_exception(exc, stage=getattr(exc, "stage", stage), device="gpu" if gpu else "cpu",
+                                             runtime_profile=row.get("runtime_profile", ""))
+            row["failure"] = failure.to_dict()
+            row["reason_code"] = failure.reason_code
+            if probe == "full":
+                row["runtime_status"] = compatibility_status(failure)
+            row.update(failed_stage=failure.stage, error_type=type(exc).__name__)
             if stage == "access":
-                row["resolution_status"] = "access_denied" if "GatedRepoError" in str(exc) or "RepositoryNotFoundError" in str(exc) else "access_error"
+                row["resolution_status"] = compatibility_status(failure)
             if stage == "runtime":
                 path = output / "runtime_validation.json"
                 row["runtime_status"] = "error"
                 if path.is_file():
                     validation = json.loads(path.read_text())
+                    row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
                     row["runtime_status"] = validation["status"]
-                    if any("runtime_validation_timeout" in device.get("error", "") for device in validation.get("devices", {}).values()):
-                        row["runtime_status"] = "timeout"
+                    structured = [device["failure"] for device in validation.get("devices", {}).values() if device.get("failure")]
+                    if structured:
+                        row["failure"] = structured[0]
+                        row["reason_code"] = structured[0]["reason_code"]
+                        row["runtime_status"] = compatibility_status(structured[0])
                     failures = [device.get("failed_stage") for device in validation.get("devices", {}).values() if device.get("failed_stage")]
                     row["failed_stage"] = ",".join(failures) or stage
         if row["runtime_status"] == "resource_limited":
             row["failed_stage"] = "resource"
+        if task is not None:
+            write_model_resolution(task, output)
         report["rows"].append(row)
         save()
     report["status"] = "complete"

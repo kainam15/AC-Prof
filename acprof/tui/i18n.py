@@ -36,6 +36,10 @@ def translate(source: str, language: str) -> str:
 
 
 ENGLISH: dict[str, str] = {
+    "兼容性报告": "Compatibility report",
+    "模型": "Model",
+    "读取已有结果，不重新执行模型。": "Read recorded results without rerunning models.",
+    "仅覆盖所选样本的独立验证，不代表正式采集完成。": "Independent validation of the selected sample; does not imply completed profiling.",
     "采集环境": "Collection environment",
     "环境：{0}\n会采（需预检）：{1}\n会降级（环境内有效）：{2}\n会缺失：{3}\n\n":
         "Environment: {0}\nCollect (subject to preflight): {1}\nPartial (within environment): {2}\nUnavailable: {3}\n\n",
@@ -345,7 +349,7 @@ ENGLISH: dict[str, str] = {
     "判断": "Interpretation",
     "报告超过 32 MiB，请先缩小报告范围": "Report exceeds 32 MiB; narrow its scope first",
     "JSON 报告损坏或编码无效": "Malformed JSON report or invalid encoding",
-    "不支持的报告类型或版本；请选择 stats 或开销对照报告": "Unsupported report type or version; choose a stats or overhead report",
+    "不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告": "Unsupported report type or version; choose a stats, compatibility or overhead report",
     "统计未完成，请查看“运行监控”中的错误或终止日志。": "Statistics did not finish; see Run Monitor for error or stop details.",
     "已有相同报告：{0}": "Identical report already exists: {0}",
     "统计报告已保存：{0}": "Statistics report saved: {0}",

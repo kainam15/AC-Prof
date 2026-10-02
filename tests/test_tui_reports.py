@@ -15,6 +15,27 @@ from acprof.tui.progress import ProgressSnapshot
 
 
 class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_compatibility_report_preserves_codes_at_narrow_width_in_both_languages(self):
+        source = self.directory / "coverage.json"
+        source.write_text(json.dumps({"schema_version": 1, "scope": "selected_sample_only; no_formal_measurement",
+            "rows": [{"model_id": "fixture/sam2", "failure": {"reason_code": "compatibility_budget_exhausted", "detail": "budget exhausted"}}]}))
+        original = source.read_bytes()
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.open_tab(app, pilot)
+            app._open_report(str(source))
+            await self.finish_workers(app, pilot)
+            table = app.query_one("#report-table", DataTable)
+            for language, title in (("zh", "模型"), ("en", "Model")):
+                app.ui_preferences = replace(app.ui_preferences, language=language)
+                app._apply_ui_preferences()
+                await pilot.pause()
+                self.assertEqual(str(next(iter(table.columns.values())).label), title)
+                self.assertEqual([str(cell) for cell in table.get_row_at(0)],
+                                 ["fixture/sam2", "inconclusive", "compatibility_budget_exhausted"])
+                self.assertFalse(app._latest_snapshot.measurement_active)
+        self.assertEqual(source.read_bytes(), original)
+
     async def test_v2_statistics_use_plots_directory(self):
         from acprof.artifact_layout import ArtifactLayout
         root = self.directory / "v2"
