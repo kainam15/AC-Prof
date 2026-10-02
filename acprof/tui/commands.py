@@ -13,6 +13,39 @@ from acprof.messages import message
 
 
 @dataclass(frozen=True)
+class OperationState:
+    """One policy for buttons, bindings, commands and confirmation callbacks."""
+
+    process: bool = False
+    stoppable: bool = False
+    checking: bool = False
+    reading: bool = False
+    maintenance: bool = False
+    configuring: bool = False
+    measuring: bool = False
+    closing: bool = False
+
+    @property
+    def busy(self) -> bool:
+        return any((self.process, self.checking, self.reading, self.maintenance,
+                    self.configuring, self.measuring, self.closing))
+
+    def allows(self, operation: str) -> bool:
+        if self.closing:
+            return False
+        if operation == "stop":
+            return self.stoppable
+        if operation == "quit":
+            return not (self.process or self.maintenance)
+        if operation in {"summary", "report"}:
+            # Reading another selection is safe, but the old thread remains
+            # owned until it returns, keeping all measurement starts locked.
+            return not any((self.process, self.checking, self.maintenance,
+                            self.configuring, self.measuring))
+        return not self.busy
+
+
+@dataclass(frozen=True)
 class PendingLaunch:
     command: tuple[str, ...]
     kind: str

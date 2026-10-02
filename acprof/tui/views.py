@@ -434,6 +434,8 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                 yield app._localized_widget(Static("尚未启动", id="status-detail", markup=False))
 
             yield Static("", id="status-preparation", markup=False)
+            with app._localized_widget(Collapsible(title="本次未选择的指标", id="check-details", collapsed=True)):
+                yield Static("", id="check-details-content", markup=False)
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):

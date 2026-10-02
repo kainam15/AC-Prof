@@ -122,7 +122,7 @@ class TuiPresentationTests(unittest.IsolatedAsyncioTestCase):
                 app._open_report(str(self.directory / "report.json"))
                 self.assertTrue(app._is_busy())
                 self.assertTrue(str(app.query_one("#report-status", Static).content).startswith("…"))
-                app._show_report(None, "broken JSON")
+                app._show_report(None, "broken JSON", app._report_request)
                 await pilot.pause()
                 self.assertFalse(app._is_busy())
                 text = str(app.query_one("#report-status", Static).content)

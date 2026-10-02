@@ -1,6 +1,7 @@
 """Image page handlers on Textual's message pump; state stays on AcprofTui."""
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from rich.text import Text
@@ -79,8 +80,10 @@ class ImageActions(MessagePump):
             self._image_refresh_timer.reset()
 
     def _images_unavailable(self: AcprofTui, *, allow_refresh: bool = False) -> bool:
-        busy = self._is_busy() and not (allow_refresh and self._image_operation == "refresh")
-        return busy or self._check_running or self._latest_snapshot.measurement_active or self._pending_launch is not None
+        state = self._operation_state()
+        if allow_refresh and self._image_operation == "refresh":
+            state = replace(state, maintenance=False)
+        return not state.allows("cleanup") or self._pending_launch is not None
 
     def _current_image(self: AcprofTui) -> ManagedImage | None:
         if self._image_view == "layers":

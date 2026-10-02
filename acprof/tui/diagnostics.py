@@ -191,13 +191,13 @@ def quick_preflight(
     elif measurement_requested(config.profiling_mode, "packet_latency"):
         checks.append(PreflightCheck(message('抓包网卡'), "fail", message('未找到 ip 命令')))
     else:
-        checks.append(PreflightCheck(message('抓包网卡'), "ok", "not_requested (basic)", "not_requested"))
+        checks.append(PreflightCheck(message('抓包网卡'), "not_requested", message("本次不采集"), "not_requested"))
 
     rapl = probe_cpu_energy() if measurement_requested(config.profiling_mode, "cpu_energy") else Capability("not_requested", "basic", "profiling_mode")
     checks.append(
         PreflightCheck(
             "CPU RAPL",
-            "ok" if rapl.status.value in {"available", "not_requested"} else "fail",
+            "ok" if rapl.status.value == "available" else "not_requested" if rapl.status.value == "not_requested" else "fail",
             f"{rapl.status.value}: {rapl.detail}", rapl.status.value,
         )
     )
@@ -217,7 +217,7 @@ def quick_preflight(
         detail = message('普通用户 perf 可用，已读到 instructions 计数并通过跨用户 PID 附加检查')
         checks.append(PreflightCheck("perf instructions", "ok", detail, perf.status.value))
     else:
-        checks.append(PreflightCheck("perf instructions", "ok" if perf.status.value == "not_requested" else "fail", f"{perf.status.value}: {perf.detail}", perf.status.value))
+        checks.append(PreflightCheck("perf instructions", "not_requested" if perf.status.value == "not_requested" else "fail", f"{perf.status.value}: {perf.detail}", perf.status.value))
 
     if "on" in _csv_values(config.gpus.lower()):
         nvidia_smi = shutil.which("nvidia-smi")

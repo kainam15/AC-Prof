@@ -606,8 +606,8 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 if not app._is_busy():
                     break
             self.assertFalse(app._is_busy())
-            self.assertEqual(app._latest_snapshot.stage, "已完成")
-            self.assertEqual(app._latest_snapshot.completed_cases, 1)
+            self.assertEqual(app._latest_snapshot.stage, "失败")
+            self.assertEqual(app._latest_snapshot.completed_cases, 0)
 
     async def test_measurement_failure_keeps_multiline_diagnostic(self):
         lines = [
@@ -744,8 +744,8 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
                 if not app._is_busy():
                     break
             self.assertFalse(app._is_busy())
-            self.assertEqual(app.query_one("#status-stage", Static).content, "已完成")
-            self.assertEqual(app.query_one("#status-case", Static).content, "当前 1 · 已完成 1/1")
+            self.assertEqual(app.query_one("#status-stage", Static).content, "失败")
+            self.assertEqual(app.query_one("#status-case", Static).content, "当前 1 · 已完成 0/1")
             self.assertIn("Profiling complete!", app.query_one("#run-log", SelectableLog).text)
             self.assertEqual(len(app.query("#case-progress, #matrix-board, #matrix-table")), 0)
 

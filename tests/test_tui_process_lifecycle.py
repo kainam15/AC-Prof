@@ -36,6 +36,7 @@ class TuiProcessFailureTests(unittest.TestCase):
             app._process_started = Mock(side_effect=RuntimeError("callback failed"))
             app._process_finished = Mock()
             app.call_from_thread = lambda callback, *args: callback(*args)
+            app._deliver_process_callback = lambda token, callback, *args: callback(*args)
             with (
                 patch("subprocess.Popen", return_value=process),
                 patch("os.killpg"),

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from rich.cells import cell_len
 from textual.containers import VerticalScroll
@@ -190,11 +190,17 @@ class TuiPageChromeTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "yellow")
                 await pilot.press("escape")
                 app._process_kind = "run"
-                app._set_busy(True)
-                app.action_request_stop()
-                await pilot.pause()
-                self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "red")
-                await pilot.press("escape")
+                process = Mock()
+                process.poll.return_value = None
+                app._lifecycle.process = process
+                try:
+                    app._set_busy(True)
+                    app.action_request_stop()
+                    await pilot.pause()
+                    self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "red")
+                    await pilot.press("escape")
+                finally:
+                    app._lifecycle.process = None
                 launch.assert_not_called()
                 app._process_kind = ""
                 app._set_busy(False)

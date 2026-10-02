@@ -248,6 +248,13 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     scrollbar-background-active: $background;
     scrollbar-corner-color: $background;
 }
+#check-details {
+    display: none;
+    height: auto;
+    max-height: 8;
+    overflow-y: auto;
+}
+
 #result-summary {
     height: auto;
     background: transparent;

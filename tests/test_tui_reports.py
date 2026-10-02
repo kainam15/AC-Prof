@@ -12,6 +12,7 @@ from textual.widgets import Button, DataTable, Input, Static, TabbedContent, Tab
 from acprof.experiment import RunConfig
 from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.run_results import RunResult
 
 
 class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
@@ -270,7 +271,9 @@ class TuiReportsTests(unittest.IsolatedAsyncioTestCase):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
+            app._run_result = RunResult(True, True, result_csv=str(self.csv_path))
             app._process_finished("run", 0, ProgressSnapshot(final_csv=str(self.csv_path)), "")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             source = app.query_one("#report-source", Input)
             self.assertEqual(source.value, str(self.csv_path))

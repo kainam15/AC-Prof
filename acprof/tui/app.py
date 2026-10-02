@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import csv
 import json
 import os
 import subprocess
@@ -11,6 +10,7 @@ import sys
 import time
 from dataclasses import replace
 from pathlib import Path
+from threading import Event
 from typing import Literal, Sequence
 
 try:
@@ -56,6 +56,7 @@ from acprof.messages import join_messages, message
 from acprof.platform import collection_policy_error, detect_environment
 from acprof.tui import run_form
 from acprof.tui.commands import (
+    OperationState,
     PendingLaunch,
     build_probe_command,
     format_command,
@@ -80,6 +81,7 @@ from acprof.tui.process import ProcessLifecycle, StopResult
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.reports import ReportView, read_report
+from acprof.tui.run_results import RunArtifacts, RunResult, inspect_run_result
 from acprof.tui.scrollbar import SolidScrollBarRender
 from acprof.tui.settings import (
     UiPreferences,
@@ -174,6 +176,15 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._stop_requested = False
         self._latest_snapshot = ProgressSnapshot()
         self._check_running = False
+        self._ui_closing = False
+        self._check_request = None
+        self._summary_request: Event | None = None
+        self._summary_path: Path | None = None
+        self._report_request = None
+        self._report_path: Path | None = None
+        self._read_jobs: set[object] = set()
+        self._process_token = None
+        self._run_result = RunResult()
         self._resolution_open = False
         self._environment_open = False
         self._last_resolution = None
@@ -186,7 +197,6 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._initial_preset = run_form.infer_preset(self.initial_config)
         self._elapsed_timer = None
         self._report_view: ReportView | None = None
-        self._report_loading = False
         self._stats_report_path: Path | None = None
         self._stats_report_reused = False
         self._image_inventory: ImageInventory | None = None
@@ -660,10 +670,35 @@ class AcprofTui(ImageActions, BarCursorApp):
         return True
 
     def _is_busy(self) -> bool:
-        return (self._lifecycle.process is not None or bool(self._process_kind) or self._report_loading
-                or bool(self._image_operation) or self._resolution_open or self._environment_open)
+        return self._operation_state().busy
+
+    def _operation_state(self) -> OperationState:
+        process = self._lifecycle.process
+        return OperationState(
+            process=process is not None or bool(self._process_kind),
+            stoppable=process is not None and process.poll() is None,
+            checking=self._check_running, reading=bool(self._read_jobs),
+            maintenance=bool(self._image_operation) or self._storage_loading,
+            configuring=self._resolution_open or self._environment_open,
+            measuring=self._latest_snapshot.measurement_active, closing=self._ui_closing,
+        )
+
+    def _allow_operation(self, operation: str) -> bool:
+        if self._operation_state().allows(operation):
+            return True
+        self.notify("请等待当前任务完成", severity="warning")
+        return False
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        operation = {"request_run": "run", "request_probe": "probe",
+                     "quick_check": "check", "request_stop": "stop"}.get(action)
+        return self._operation_state().allows(operation) if operation else True
 
     def _set_busy(self, busy: bool) -> None:
+        if not self.is_running or not self._form_ready or self._ui_closing:
+            return
+        state = self._operation_state()
+        busy = busy or state.busy
         # Configuration changes during a run can queue preview redraws and
         # make the visible settings differ from the running subprocess.
         if busy:
@@ -675,21 +710,24 @@ class AcprofTui(ImageActions, BarCursorApp):
             ".config-control, #run-preset, .ui-preference, .profile-tool, .report-control, "
             "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
         ):
+            if widget.id in {"report-source", "report-open"} and state.allows("report"):
+                widget.disabled = False
+                continue
+            if busy and widget.has_focus:
+                self.screen.set_focus(self.query_one("#main-tabs", TabbedContent).query_one(Tabs), scroll_visible=False)
             widget.disabled = busy
         for widget in self.query(".image-control"):
             widget.disabled = (busy and self._image_operation != "refresh") or self._latest_snapshot.measurement_active
-        for selector in (
-            "#start-run",
-            "#probe-largest",
-            "#quick-check",
-            "#inspect-model",
-            "#summarize-results",
-            "#plot-results",
-            "#profile-dry-run",
-            "#profile-run",
-        ):
-            self.query_one(selector, Button).disabled = busy
-        self.query_one("#stop-run", Button).disabled = not busy or self._report_loading or bool(self._image_operation)
+        for selector, operation in {
+            "#start-run": "run", "#probe-largest": "probe", "#quick-check": "check",
+            "#inspect-model": "inspect", "#summarize-results": "summary", "#plot-results": "plot",
+            "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
+            "#report-calculate": "stats", "#stop-run": "stop",
+        }.items():
+            self.query_one(selector, Button).disabled = not state.allows(operation)
+        for selector in ("#result-csv", "#report-source"):
+            self.query_one(selector, Input).disabled = not state.allows("summary")
+        self.refresh_bindings()
         if not busy:
             self.set_input_cursor_blink_enabled(True)
         self._update_image_controls()
@@ -705,10 +743,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         tabs.active = tab_id
 
     def preset_smoke(self) -> None:
+        if not self._allow_operation("configure"):
+            return
         self._apply_config(RunConfig.smoke(self._input("model")), preset="smoke")
         self.notify("已应用基础 CPU Smoke 预设", timeout=3)
 
     def preset_main(self) -> None:
+        if not self._allow_operation("configure"):
+            return
         self._apply_config(
             RunConfig.main_matrix(self._input("model")),
             preset="main",
@@ -716,6 +758,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         self.notify("已应用主矩阵预设（分析器关闭）", timeout=3)
 
     def preset_default(self) -> None:
+        if not self._allow_operation("configure"):
+            return
         self._apply_config(
             RunConfig(model=self._input("model")),
             preset="default",
@@ -731,8 +775,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self.action_request_probe()
 
     def action_request_probe(self) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("probe"):
             return
         try:
             config = self._collect_config()
@@ -782,8 +825,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         )
 
     def action_request_run(self) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("run"):
             return
         try:
             config = self._collect_config()
@@ -858,19 +900,20 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._update_saved_settings_summary()
 
     def _launch(self, pending: PendingLaunch) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("run"):
             return
-        model = ""
-        result_dir, result_csv = pending.result_dir, pending.result_csv
-        if pending.kind in {"run", "probe"} and pending.config is not None:
-            model = pending.config.model
-            if pending.kind == "run":
-                result_dir = str(pending.config.result_dir(PROJECT_DIR))
-                result_csv = str(pending.config.result_csv(PROJECT_DIR))
-        # One atomic save before the subprocess exists, outside measurement
-        # windows. Failed or interrupted attempts retain their intended paths.
-        self._remember_last_used(model=model, result_dir=result_dir, result_csv=result_csv)
+        model = pending.config.model if pending.config is not None else ""
+        # Intended output is not evidence of a result. Keep the selected/history
+        # paths until a matching run attempt has actually published artifacts.
+        if pending.kind == "run":
+            self._remember_last_used(model=model)
+            self._run_result = RunResult()
+            self._summary_request = None
+            self._set_text(self.query_one("#result-summary", Static),
+                           "本次尚未产生结果；历史结果可通过原路径查看。")
+        else:
+            self._remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
+        self._process_token = object()
         self._active_run_config = pending.config if pending.kind == "run" else None
         self._active_command = pending.command
         self._process_kind = pending.kind
@@ -916,6 +959,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         "探测失败": "stage-error",
         "任务不支持": "stage-error",
         "已终止": "stage-error",
+        "已停止": "stage-error",
+        "部分完成": "stage-running",
         "正式测量": "stage-measuring",
         "最大尺度探测": "stage-measuring",
     }
@@ -926,6 +971,15 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     @work(thread=True, group="process", exclusive=True, exit_on_error=False)
     def _execute_command(self, command: list[str], kind: str) -> None:
+        token = self._process_token
+        def deliver(callback, *args):
+            self.call_from_thread(self._deliver_process_callback, token, callback, *args)
+        run_before = None
+        if kind == "run" and self._active_run_config is not None:
+            try:
+                run_before = RunArtifacts.read(self._active_run_config.result_dir(PROJECT_DIR))
+            except (OSError, ValueError, RuntimeError):
+                pass  # CLI reports invalid history; it cannot become current results.
         from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
         tracker = RunProgressTracker(structured=(kind == "run")) if kind in {"run", "probe"} else None
         suppressed_lines = 0
@@ -949,7 +1003,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             process = self._lifecycle.start(command, cwd=PROJECT_DIR, env=child_env)
             if self._stop_requested:
                 self._lifecycle.stop()
-            self.call_from_thread(self._process_started, process.pid, kind)
+            deliver(self._process_started, process.pid, kind)
             assert process.stdout is not None
             for raw_line in process.stdout:
                 line = raw_line.rstrip("\r\n")
@@ -986,18 +1040,18 @@ class AcprofTui(ImageActions, BarCursorApp):
                     and not snapshot.measurement_active
                 ):
                     if deferred_important_lines:
-                        self.call_from_thread(
+                        deliver(
                             self._show_deferred_lines,
                             tuple(deferred_important_lines),
                         )
                         deferred_important_lines.clear()
                     if suppressed_lines:
-                        self.call_from_thread(
+                        deliver(
                             self._show_suppressed_count,
                             suppressed_lines,
                         )
                         suppressed_lines = 0
-                self.call_from_thread(
+                deliver(
                     self._consume_process_line,
                     "" if line.startswith(("ACPROF_EVENT ", PREFIX)) else line,
                     snapshot,
@@ -1005,11 +1059,11 @@ class AcprofTui(ImageActions, BarCursorApp):
                 )
                 preparation = parse_preparation_event(line)
                 if line.startswith("[network-preflight] "):
-                    self.call_from_thread(self._network_preflight_report, line)
+                    deliver(self._network_preflight_report, line)
                 elif line.startswith("[network-download] "):
-                    self.call_from_thread(self._network_download_report, line)
+                    deliver(self._network_download_report, line)
                 if preparation is not None:
-                    self.call_from_thread(self._preparation_event, preparation)
+                    deliver(self._preparation_event, preparation)
             returncode = process.wait()
             process.stdout.close()
         except Exception as exc:  # process errors must become visible in the UI
@@ -1023,13 +1077,15 @@ class AcprofTui(ImageActions, BarCursorApp):
             if process is not None and process.poll() is None:
                 # Keep both ownership and the output reader until exit. A failed
                 # UI callback must not orphan a collector or block its pipe.
-                self._watch_failed_process(process, kind, final_snapshot, launch_error)
+                self._watch_failed_process(process, kind, final_snapshot, launch_error, run_before, token)
             else:
                 if process is not None:
                     if process.stdout is not None:
                         process.stdout.close()
                     self._lifecycle.release(process)
                     returncode = process.returncode
+                if kind == "run" and process is not None and run_before is not None:
+                    self._inspect_finished_run(run_before, process.pid, token)
                 if suppressed_lines:
                     self._safe_process_callback(self._show_suppressed_count, suppressed_lines)
                 if deferred_important_lines:
@@ -1038,16 +1094,38 @@ class AcprofTui(ImageActions, BarCursorApp):
                     self._process_finished, kind, returncode, final_snapshot, launch_error,
                 )
 
-    def _safe_process_callback(self, callback, *args) -> None:
+    def _deliver_process_callback(self, token, callback, *args) -> None:
+        if self.is_running and self._form_ready and not self._ui_closing and token is self._process_token:
+            callback(*args)
+
+    def _accept_run_result(self, token, result: RunResult) -> None:
+        if token is self._process_token:
+            self._run_result = result
+
+    def _inspect_finished_run(self, before: RunArtifacts, pid: int, token: object) -> None:
+        self._safe_process_callback(self._deliver_process_callback, token, self._set_busy, True)
         try:
-            self.call_from_thread(callback, *args)
+            result = inspect_run_result(before, pid)
+        except Exception as exc:
+            result = RunResult(detail=f"{type(exc).__name__}: {exc}")
+        self._safe_process_callback(self._accept_run_result, token, result)
+
+    def _safe_process_callback(self, callback, *args) -> None:
+        if self._ui_closing or not self.is_running:
+            return
+        try:
+            self.call_from_thread(self._deliver_ui_callback, callback, *args)
         except Exception as exc:
             # Widgets may already have been pruned during shutdown. Process
             # cleanup and ownership must not depend on their availability.
             print(f"[TUI] callback failed: {type(exc).__name__}: {exc}", file=sys.stderr)
 
+    def _deliver_ui_callback(self, callback, *args) -> None:
+        if self.is_running and self._form_ready and not self._ui_closing:
+            callback(*args)
+
     @work(thread=True, group="process-reap", exit_on_error=False)
-    def _watch_failed_process(self, process, kind, snapshot, error) -> None:
+    def _watch_failed_process(self, process, kind, snapshot, error, before, token) -> None:
         try:
             if process.stdout is not None:
                 for _ in process.stdout:
@@ -1058,6 +1136,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         if process.stdout is not None:
             process.stdout.close()
         if self._lifecycle.release(process):
+            if kind == "run" and before is not None:
+                self._inspect_finished_run(before, process.pid, token)
             self._safe_process_callback(
                 self._process_finished, kind, process.returncode, snapshot, error,
             )
@@ -1071,6 +1151,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self.notify(detail, severity="error", timeout=10)
 
     def _process_started(self, pid: int, kind: str) -> None:
+        self._set_busy(True)
         self.query_one("#run-log", SelectableLog).write(
             self.tr(message('[TUI] {0} 进程已启动，PID={1}', kind, pid))
         )
@@ -1109,6 +1190,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         if line:
             self.query_one("#run-log", SelectableLog).write(line)
         if snapshot is not None:
+            if self._process_kind == "run" and snapshot.stage == "已完成":
+                snapshot = replace(snapshot, stage="核验产物", detail="进程已报告完成，等待本次产物核验。")
             was_measuring = self._latest_snapshot.measurement_active
             self._latest_snapshot = snapshot
             self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
@@ -1185,7 +1268,6 @@ class AcprofTui(ImageActions, BarCursorApp):
             # Move focus before disabling the monitor page's focused Stop button;
             # its queued focus event could otherwise reactivate that old page.
             self._activate_tab("reports-tab")
-        self._set_busy(False)
         log = self.query_one("#run-log", SelectableLog)
         unsupported_task = (
             snapshot is not None and snapshot.stage == "任务不支持"
@@ -1194,7 +1276,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         if launch_error:
             log.write(self.tr(message('[TUI][ERROR] 无法运行命令：{0}', launch_error)))
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
-        elif returncode == 0:
+        elif returncode == 0 and kind != "run" and not self._stop_requested:
             log.write(self.tr(message('[TUI] {0} 任务完成，退出码 0', kind)))
             notice = (message("已有相同报告：{0}", self._stats_report_path)
                       if kind == "stats" and self._stats_report_reused else "任务已完成")
@@ -1208,46 +1290,41 @@ class AcprofTui(ImageActions, BarCursorApp):
                 '处理办法：换用已适配任务的模型；识别有误时修正配置；需要该任务时等待或开发适配。'
             )))
             self.notify(snapshot.detail, title="任务不支持", severity="error", timeout=12)
-        else:
+        elif kind != "run":
             log.write(self.tr(message('[TUI][ERROR] {0} 任务失败，退出码 {1}', kind, returncode)))
             self.notify(message('任务失败，退出码 {0}', returncode), severity="error", timeout=8)
 
-        if unsupported_task:
-            # No measurement ran. Do not show an older CSV as this run's result.
-            self._latest_snapshot = snapshot
-            self._render_snapshot(snapshot)
-        elif kind == "run":
-            if snapshot is not None:
-                self._latest_snapshot = snapshot
-            final_csv = snapshot.final_csv if snapshot is not None else ""
-            if not final_csv and self._active_run_config is not None:
-                final_csv = str(self._active_run_config.result_csv(PROJECT_DIR))
-            if final_csv:
-                final_path = Path(final_csv).expanduser()
-                if not final_path.is_absolute():
-                    final_path = PROJECT_DIR / final_path
-                self._remember_last_used(
-                    result_csv=str(final_path), result_dir=str(final_path.parent),
-                )
-                if final_path.is_file():
-                    self._update_result_summary(str(final_path), notify=False)
-            final_state = self._latest_snapshot
-            if launch_error or (returncode != 0 and not self._stop_requested):
-                final_state = replace(
-                    final_state,
-                    stage="失败",
-                    detail=launch_error or message('采集进程退出码 {0}', returncode),
-                    measurement_active=False,
-                )
-            elif self._stop_requested:
-                final_state = replace(
-                    final_state,
-                    stage="已终止",
-                    detail="用户请求终止；可使用相同输出目录续跑",
-                    measurement_active=False,
-                )
-            self._latest_snapshot = final_state
-            self._render_snapshot(final_state)
+        current_csv = ""
+        if kind == "run":
+            result = self._run_result
+            stage = result.stage(returncode, self._stop_requested, launch_error)
+            final_state = snapshot or self._latest_snapshot
+            detail = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
+                             result.total_cases or final_state.total_cases,
+                             message("可查看结果或使用相同参数续跑") if stage != "已完成" else message("可查看结果与计算统计"))
+            if result.detail:
+                detail = join_messages("\n", (detail, result.detail))
+            if result.new_cases and result.retained_dir:
+                detail = join_messages("\n", (detail, message("已保留的实验目录：{0}", result.retained_dir)))
+            if result.complete and not result.result_csv and not result.new_cases:
+                detail = join_messages("\n", (detail, message("已有实验已完成；本次未重新采集。")))
+            if unsupported_task:
+                detail = join_messages("\n", (snapshot.detail, detail))
+            self._latest_snapshot = replace(final_state, stage=stage, detail=detail,
+                completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
+                measurement_active=False, measurement_status=("passed" if stage == "已完成" else
+                    "cancelled" if self._stop_requested else "failed"))
+            self._render_snapshot(self._latest_snapshot)
+            current_csv = result.result_csv
+            if current_csv:
+                self._remember_last_used(result_csv=current_csv, result_dir=str(Path(current_csv).parent))
+            else:
+                summary_text = (message("无法确认本次结果：{0}；历史结果可通过原路径查看。", result.detail)
+                                if result.detail and not result.belongs_to_attempt else
+                                message("本次未产生结果 CSV；已保留 {0} 个本次完成的 case。历史结果可通过原路径查看。", result.new_cases))
+                self._set_text(self.query_one("#result-summary", Static), summary_text)
+            self.notify(message("实验{0} · {1}", message(stage), detail),
+                        severity="information" if stage == "已完成" else "warning" if stage in {"部分完成", "已停止"} else "error")
         elif kind == "probe":
             final_state = snapshot or self._latest_snapshot
             if launch_error or (returncode != 0 and not self._stop_requested):
@@ -1294,6 +1371,9 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._active_command = ()
         self._process_kind = ""
         self._stop_requested = False
+        self._set_busy(self._is_busy())
+        if current_csv:
+            self._update_result_summary(current_csv, notify=False)
         self._sync_image_refresh_timer()
         if kind == "stats":
             report_path, self._stats_report_path = self._stats_report_path, None
@@ -1309,12 +1389,10 @@ class AcprofTui(ImageActions, BarCursorApp):
         self.action_request_stop()
 
     def action_request_stop(self) -> None:
-        if self._image_operation:
-            self.notify("镜像操作尚未完成，请稍候", severity="warning")
-            return
-        if not self._is_busy():
+        if not self._operation_state().allows("stop"):
             self.notify("当前没有运行中的任务", severity="warning")
             return
+        token = self._process_token
         self.push_screen(
             ConfirmActionScreen(
                 "终止当前任务？",
@@ -1323,21 +1401,24 @@ class AcprofTui(ImageActions, BarCursorApp):
                 "终止任务",
                 variant="error",
             ),
-            self._confirmed_stop,
+            lambda confirmed: self._confirmed_stop(confirmed) if token is self._process_token else None,
         )
 
     def _confirmed_stop(self, confirmed: bool | None) -> None:
-        if not confirmed:
+        if not confirmed or not self._operation_state().allows("stop"):
             return
         self._stop_requested = True
-        self._stop_process_gracefully()
+        self._stop_process_gracefully(self._process_token, self._lifecycle.process)
 
     @work(thread=True, group="stop", exclusive=True, exit_on_error=False)
-    def _stop_process_gracefully(self) -> None:
-        self._safe_process_callback(self._write_log, "[TUI] 正在请求采集进程安全停止……")
-        result = self._lifecycle.stop()
+    def _stop_process_gracefully(self, token: object, process) -> None:
+        self._safe_process_callback(self._deliver_process_callback, token, self._write_log,
+                                    "[TUI] 正在请求采集进程安全停止……")
+        if process is None:
+            return  # The child may exit between confirmation and this worker.
+        result = self._lifecycle.stop(expected_process=process)
         if not result.complete:
-            self._safe_process_callback(self._process_cleanup_incomplete, result)
+            self._safe_process_callback(self._deliver_process_callback, token, self._process_cleanup_incomplete, result)
 
     @on(Button.Pressed, "#quick-check")
     def quick_check_button(self) -> None:
@@ -1445,8 +1526,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             self._launch(PendingLaunch(tuple(command), "inspect"))
 
     def action_quick_check(self) -> None:
-        if self._is_busy() or self._check_running:
-            self.notify("请等待当前任务完成", severity="warning")
+        if not self._allow_operation("check"):
             return
         # Host diagnostics do not require a model ID or a complete resource
         # matrix, so they remain usable on a freshly configured machine.
@@ -1457,33 +1537,37 @@ class AcprofTui(ImageActions, BarCursorApp):
             sniff_iface=self._input("sniff-iface"),
         )
         self._check_running = True
+        self._check_request = object()
+        self.query_one("#check-details", Collapsible).display = False
         self._sync_image_refresh_timer()
         # Disabling a focused button first moves focus to another control in
         # the old pane, which queues a request to reactivate that pane.
         self._activate_tab("monitor-tab")
-        self.query_one("#quick-check", Button).disabled = True
+        self._set_busy(True)
         self.query_one("#run-log", SelectableLog).write(self.tr("[TUI] 开始只读快速环境检查……"))
-        self._execute_quick_check(config)
+        self._execute_quick_check(config, self._check_request)
 
     @work(thread=True, group="preflight", exclusive=True, exit_on_error=False)
-    def _execute_quick_check(self, config: RunConfig) -> None:
+    def _execute_quick_check(self, config: RunConfig, token: object) -> None:
         try:
             checks = quick_preflight(config, project_dir=PROJECT_DIR)
             error = ""
         except Exception as exc:
             checks = []
             error = f"{type(exc).__name__}: {exc}"
-        self.call_from_thread(self._show_quick_check, checks, error)
+        self._safe_process_callback(self._show_quick_check, checks, error, token)
 
     def _show_quick_check(
         self,
         checks: Sequence[PreflightCheck],
         error: str,
+        token: object,
     ) -> None:
+        if not self.is_running or not self._form_ready or self._ui_closing or token is not self._check_request:
+            return
         self._check_running = False
-        self._sync_image_refresh_timer()
-        if not self._is_busy():
-            self.query_one("#quick-check", Button).disabled = False
+        self._check_request = None
+        self._set_busy(self._is_busy())
         log = self.query_one("#run-log", SelectableLog)
         if error:
             log.write(self.tr(message('[TUI][ERROR] 环境检查失败：{0}', error)))
@@ -1493,7 +1577,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         # Rich renderables cannot be written to its TextArea document.
         log.write(self.tr("[TUI] 环境检查结果："))
         status_label = {"ok": "通过", "warn": "警告", "fail": "失败"}
-        for check in checks:
+        selected = [check for check in checks if check.status != "not_requested"]
+        unselected = [check for check in checks if check.status == "not_requested"]
+        details = self.query_one("#check-details", Collapsible)
+        details.display = bool(unselected)
+        details.collapsed = True
+        self._set_text(self.query_one("#check-details-content", Static), join_messages("\n", (
+            message("{0}：本次不采集；未验证采集能力。", check.label) for check in unselected)))
+        for check in selected:
             log.write(self.tr(message(
                 "[{0}] {1}: {2}",
                 message(status_label.get(check.status, check.status)), check.label, check.detail,
@@ -1503,7 +1594,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         log.write(self.tr(message(
             "[TUI] 快速检查完成：{0} 通过，{1} 警告，{2} 失败。"
             "run.py 启动时仍会执行权威预检。",
-            len(checks) - failures - warnings, warnings, failures,
+            sum(check.status == "ok" for check in selected), warnings, failures,
         )))
         severity = "error" if failures else ("warning" if warnings else "information")
         self.notify(
@@ -1519,39 +1610,81 @@ class AcprofTui(ImageActions, BarCursorApp):
     def action_clear_log(self) -> None:
         self.query_one("#run-log", SelectableLog).clear()
 
+    @on(Input.Changed, "#result-csv")
+    def result_source_changed(self) -> None:
+        if self._form_ready:
+            if (self._summary_request is not None and
+                    resolve_result_path(self._input("result-csv"), PROJECT_DIR) == self._summary_path):
+                return
+            if self._summary_request is not None:
+                self._summary_request.set()
+            self._summary_request = None
+            self._set_text(self.query_one("#result-summary", Static), "结果选择已更改，请读取摘要。")
+
     @on(Button.Pressed, "#summarize-results")
     def summarize_results_button(self) -> None:
-        if self._is_busy():
-            self.notify("请等待当前任务完成", severity="warning")
-            return
         self._update_result_summary(self._input("result-csv"))
 
     def _update_result_summary(self, result_csv: str, *, notify: bool = True) -> None:
+        if not self._allow_operation("summary"):
+            return
         if not result_csv:
             if notify:
                 self.notify("请填写结果 CSV 路径", severity="warning")
             return
-        csv_path = resolve_result_path(result_csv, PROJECT_DIR)
+        path = resolve_result_path(result_csv, PROJECT_DIR)
+        with self.prevent(Input.Changed):
+            self.query_one("#result-csv", Input).value = str(path)
+        if self._summary_request is not None:
+            self._summary_request.set()
+        token = self._summary_request = Event()
+        self._summary_path = path
+        self._read_jobs.add(token)
+        self._set_text(self.query_one("#result-summary", Static), message("{0} 正在读取结果摘要", CALCULATING))
+        self._set_busy(True)
+        self._execute_summary_read(path, token, notify)
+
+    @work(thread=True, group="summary", exit_on_error=False)
+    def _execute_summary_read(self, path: Path, token: Event, notify: bool) -> None:
         try:
-            summary = summarize_result_csv(csv_path)
-        except (OSError, csv.Error, UnicodeError, ValueError) as exc:
-            self._set_text(self.query_one('#result-summary', Static), message('无法读取结果：{0}', exc))
-            if notify:
-                self.notify(str(exc), severity="error")
+            summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
+        except Exception as exc:
+            summary, error = None, error_message(exc)
+        self._safe_process_callback(self._show_result_summary, path, token, summary, error, notify)
+
+    def _show_result_summary(self, path, token, summary, error: str, notify: bool) -> None:
+        self._read_jobs.discard(token)
+        if not self.is_running or self._ui_closing:
             return
-        self._remember_last_used(result_csv=str(csv_path))
+        self._set_busy(self._is_busy())
+        if (token is not self._summary_request or
+                resolve_result_path(self._input("result-csv"), PROJECT_DIR) != path):
+            return
+        if summary is None:
+            self._set_text(self.query_one("#result-summary", Static), message("无法读取结果：{0}", error))
+            if notify:
+                self.notify(error, severity="error")
+            return
         from acprof.tui.diagnostics import result_summary_text
-        self._set_text(self.query_one("#result-summary", Static), result_summary_text(summary, csv_path))
+        self._remember_last_used(result_csv=str(path))
+        self._set_text(self.query_one("#result-summary", Static), result_summary_text(summary, path))
         if notify:
             self.notify("结果摘要已更新", timeout=3)
+
+    def _cancel_result_reads(self) -> None:
+        if self._summary_request is not None:
+            self._summary_request.set()
+        self._summary_request = self._report_request = None
+        self._set_text(self.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
+        self._clear_report("读取已取消；等待后台任务释放资源。")
+        self._set_busy(self._is_busy())
 
     @on(Button.Pressed, "#plot-results")
     def plot_results_button(self) -> None:
         self._launch_plot()
 
     def _launch_plot(self, path: str | None = None) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("plot"):
             return
         result_csv = path or self._input("result-csv")
         if not result_csv:
@@ -1572,7 +1705,11 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     @on(Input.Changed, "#report-source")
     def report_source_changed(self) -> None:
-        if self._form_ready and not self._is_busy():
+        if self._form_ready:
+            if (self._report_request is not None and
+                    resolve_result_path(self._input("report-source"), PROJECT_DIR) == self._report_path):
+                return
+            self._report_request = None
             self._clear_report("CSV / 目录：计算统计；JSON：查看报告。采集结束后操作。")
 
     @on(Button.Pressed, "#report-open")
@@ -1580,8 +1717,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._open_report()
 
     def _open_report(self, path: str | None = None) -> None:
-        if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
-            self.notify("请等待当前任务完成", severity="warning")
+        if not self._allow_operation("report"):
             return
         self._activate_tab("reports-tab")
         source = path if path is not None else self._input("report-source")
@@ -1596,20 +1732,28 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.query_one("#report-source", Input).value = str(report_path)
         self._clear_report(message("{0} 正在读取报告", CALCULATING))
         self.screen.set_focus(self.query_one("#report-table"), scroll_visible=False)
-        self._report_loading = True
+        token = self._report_request = object()
+        self._report_path = report_path
+        self._read_jobs.add(token)
         self._set_busy(True)
-        self._execute_report_read(report_path)
+        self._execute_report_read(report_path, token)
 
-    @work(thread=True, group="report", exclusive=True, exit_on_error=False)
-    def _execute_report_read(self, path: Path) -> None:
+    @work(thread=True, group="report", exit_on_error=False)
+    def _execute_report_read(self, path: Path, token: object) -> None:
         try:
             view, error = read_report(path), ""
         except Exception as exc:
             view, error = None, error_message(exc)
-        self.call_from_thread(self._show_report, view, error)
+        self._safe_process_callback(self._show_report, view, error, token)
 
-    def _show_report(self, view: ReportView | None, error: str) -> None:
-        self._report_loading = False
+    def _show_report(self, view: ReportView | None, error: str, token: object) -> None:
+        self._read_jobs.discard(token)
+        if not self.is_running or self._ui_closing:
+            return
+        if (token is not self._report_request or
+                resolve_result_path(self._input("report-source"), PROJECT_DIR) != self._report_path):
+            self._set_busy(self._is_busy())
+            return
         self._set_busy(self._is_busy())
         if view is None:
             self._clear_report(message("报告读取失败：{0}", error))
@@ -1649,8 +1793,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._launch_stats()
 
     def _launch_stats(self, path: str | None = None) -> None:
-        if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
-            self.notify("请等待当前任务完成", severity="warning")
+        if not self._allow_operation("stats"):
             return
         self._activate_tab("reports-tab")
         source = path if path is not None else self._input("report-source")
@@ -1712,8 +1855,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         result_dir: str | None = None,
         tools: str | None = None,
     ) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("profile"):
             return
         prepared = self._profile_command(
             dry_run=dry_run,
@@ -1731,8 +1873,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         result_dir: str | None = None,
         tools: str | None = None,
     ) -> None:
-        if self._is_busy():
-            self.notify("已有任务正在运行", severity="warning")
+        if not self._allow_operation("profile"):
             return
         prepared = self._profile_command(
             dry_run=False,
@@ -1775,6 +1916,8 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.action_request_probe()
         elif command == "check":
             self.action_quick_check()
+        elif command == "cancel" and self._read_jobs:
+            self._cancel_result_reads()
         elif command in {"stop", "cancel"}:
             self.action_request_stop()
         elif command == "status":
@@ -1815,12 +1958,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 tools=args[1] if len(args) > 1 else None,
             )
         elif command in {"results", "summary"}:
-            if self._is_busy():
-                self.notify("请等待当前任务完成", severity="warning")
-                return
             path = args[0] if args else self._input("result-csv")
-            if args:
-                self.query_one("#result-csv", Input).value = path
             self._update_result_summary(path)
             self._activate_tab("plot-tab")
         elif command in {"log", "logs"}:
@@ -1850,14 +1988,21 @@ class AcprofTui(ImageActions, BarCursorApp):
         if self._image_operation:
             self.notify("镜像操作尚未完成，请稍候", severity="warning")
             return
-        if self._is_busy():
+        if not self._operation_state().allows("quit"):
             self.notify("任务仍在运行，请先使用 /stop 安全终止", severity="warning", timeout=6)
             return
+        if self._summary_request is not None:
+            self._summary_request.set()
+        self._ui_closing = True
         self.exit()
 
     async def on_unmount(self) -> None:
         """Use the same bounded cleanup policy even after widgets are gone."""
         self._form_ready = False
+        self._ui_closing = True
+        if self._summary_request is not None:
+            self._summary_request.set()
+        self._summary_request = self._report_request = self._check_request = None
         self._cancel_preview_timer()
         if self._elapsed_timer is not None:
             self._elapsed_timer.stop()
