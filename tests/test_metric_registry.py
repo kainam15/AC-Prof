@@ -42,3 +42,15 @@ class MetricRegistryTests(unittest.TestCase):
         self.assertEqual(METRICS["cpu_heap_peak_bytes_massif"].window, "profiler_process_lifetime")
         self.assertNotIn("gpu_pstate", NUMERIC_FIELDS)
         self.assertNotIn("gpu_idle_measured_at", NUMERIC_FIELDS)
+
+    def test_visualization_semantics_distinguish_objectives_from_utilization(self):
+        from acprof.metric_registry import METRICS
+        expected = {"latency_app_p95_s": "lower", "throughput_samples_per_s": "higher",
+                    "cpu_ipc": "higher", "cpu_cycles_per_request": "lower",
+                    "cpu_ref_cycles_per_request": "lower", "cold_start_s": "lower",
+                    "container_mem_usage_peak_bytes": "lower", "gpu_mem_used_peak_bytes": "lower",
+                    "container_cpu_util_peak_pct": "neutral", "gpu_util_peak_pct": "neutral"}
+        for name, direction in expected.items():
+            with self.subTest(metric=name):
+                self.assertEqual(getattr(METRICS[name], "direction", None), direction)
+                self.assertTrue(getattr(METRICS[name], "label", ""))

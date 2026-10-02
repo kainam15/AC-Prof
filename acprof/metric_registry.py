@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from types import MappingProxyType
 
 
@@ -16,6 +16,20 @@ class Metric:
     kind: str = "number"
     tool: str = ""
     posthoc: bool = False
+    label: str = ""
+    group: str = "Other"
+    direction: str = "neutral"
+    scale: str = "linear"
+    summary: bool = False
+    aggregation: str = "mean"
+
+    def __post_init__(self):
+        if not self.label:
+            object.__setattr__(self, "label", self.name)
+        if self.direction not in {"higher", "lower", "neutral"}:
+            raise ValueError(f"Invalid direction: {self.direction}")
+        if self.scale not in {"linear", "log"}:
+            raise ValueError(f"Invalid scale: {self.scale}")
 
     def to_dict(self):
         return asdict(self)
@@ -243,12 +257,73 @@ _DECLARATIONS = (
     Metric('status', 'text', 'protocol', 'row', kind='text'),
     Metric('error', 'text', 'protocol', 'row', kind='text'),
 )
-METRICS = MappingProxyType({metric.name: metric for metric in _DECLARATIONS})
+# 展示语义与采集声明共用一个登记表；不改变 CSV 字段、单位或顺序。
+# utilization、频率和总计数不自动解释成效率；未审定的指标保持 neutral。
+_PRESENTATION = {
+    "latency_app_s": ("应用延迟均值", "Performance", "lower", False, "mean"),
+    "latency_app_p50_s": ("应用 P50 · 窗口均值", "Performance", "lower", True, "mean"),
+    "latency_app_p95_s": ("应用 P95 · 窗口均值", "Performance", "lower", True, "mean"),
+    "latency_s": ("Packet 延迟均值", "Performance", "lower", False, "mean"),
+    "latency_p50_s": ("Packet P50 · 窗口均值", "Performance", "lower", False, "mean"),
+    "latency_p95_s": ("Packet P95 · 窗口均值", "Performance", "lower", False, "mean"),
+    "throughput_samples_per_s": ("吞吐量", "Performance", "higher", True, "mean"),
+    "output_tokens_per_s_app": ("输出 Token 吞吐量", "Performance", "higher", False, "mean"),
+    "container_cpu_util_avg_pct": ("CPU 平均占用", "Resource", "neutral", False, "mean"),
+    "container_cpu_util_peak_pct": ("CPU 峰值占用", "Resource", "neutral", True, "max"),
+    "container_mem_usage_avg_bytes": ("内存平均用量", "Resource", "lower", False, "mean"),
+    "container_mem_usage_peak_bytes": ("内存峰值用量", "Resource", "lower", True, "max"),
+    "container_mem_peak_cgroup_bytes": ("cgroup 生命周期内存峰值", "Resource", "lower", False, "max"),
+    "gpu_util_avg_pct": ("GPU 平均占用", "GPU", "neutral", False, "mean"),
+    "gpu_util_peak_pct": ("GPU 峰值占用", "GPU", "neutral", True, "max"),
+    "gpu_mem_used_avg_bytes": ("VRAM 平均用量", "GPU", "lower", False, "mean"),
+    "gpu_mem_used_peak_bytes": ("VRAM 峰值用量", "GPU", "lower", True, "max"),
+    "gpu_energy_total_j": ("GPU 总能耗 / request", "Energy", "lower", False, "mean"),
+    "cpu_energy_total_j": ("CPU package 总能耗 / request", "Energy", "lower", False, "mean"),
+    "dram_energy_per_request_j": ("DRAM 能耗 / request", "Energy", "lower", False, "mean"),
+    "container_attributed_energy_eff_j": ("容器归因有效能耗（估算）", "Energy", "lower", False, "mean"),
+    "cpu_ipc": ("IPC", "CPU PMU", "higher", False, "mean"),
+    "cpu_cycles_per_request": ("CPU cycles", "CPU PMU", "lower", False, "mean"),
+    "cpu_ref_cycles_per_request": ("CPU ref-cycles", "CPU PMU", "lower", False, "mean"),
+    "cpu_instructions_per_request": ("CPU instructions", "CPU PMU", "neutral", False, "mean"),
+    "cpu_perf_running_pct": ("PMU running", "CPU PMU", "neutral", False, "mean"),
+    "cold_start_s": ("Cold start", "Startup", "lower", True, "lifecycle"),
+    "cold_start_container_launch_s": ("Container launch", "Startup", "lower", False, "lifecycle"),
+    "cold_start_server_setup_s": ("Server setup", "Startup", "lower", False, "lifecycle"),
+    "cold_start_cuda_init_s": ("CUDA init", "Startup", "lower", False, "lifecycle"),
+    "cold_start_model_load_s": ("Model load", "Startup", "lower", False, "lifecycle"),
+    "cold_start_ready_wait_s": ("Ready wait", "Startup", "lower", False, "lifecycle"),
+    "cold_start_first_predict_app_s": ("First predict", "Startup", "lower", False, "lifecycle"),
+}
+
+
+def _present(metric: Metric) -> Metric:
+    if metric.name not in _PRESENTATION:
+        return metric
+    label, group, direction, summary, aggregation = _PRESENTATION[metric.name]
+    return replace(metric, label=label, group=group, direction=direction,
+                   summary=summary, aggregation=aggregation)
+
+
+METRICS = MappingProxyType({metric.name: _present(metric) for metric in _DECLARATIONS})
 if len(METRICS) != len(_DECLARATIONS):
     raise ValueError("指标登记表包含重复字段")
 CSV_FIELDS = list(METRICS)
 NUMERIC_FIELDS = tuple(name for name, metric in METRICS.items() if metric.kind == "number")
 GPU_RUNTIME_STATE_FIELDS = ["gpu_sm_clock_mhz", "gpu_memory_clock_mhz", "gpu_pstate", "gpu_temp_c"]
+
+# 分析专用派生量不会写入采集 CSV。QPS 只接收显式记录，不由 samples/s 猜测。
+_ANALYSIS_ONLY = (
+    Metric("qps", "request/s", "recorded_qps", "request_window", label="QPS",
+           group="Performance", direction="higher", summary=True),
+    Metric("observed_energy_j", "J", "derived_package_gpu", "successful_windows",
+           label="CPU package + GPU 窗口总能量", group="Energy", summary=True,
+           aggregation="sum"),
+    Metric("observed_energy_per_request_j", "J/request", "derived_package_gpu", "request_window",
+           label="CPU package + GPU 能耗 / request", group="Energy", direction="lower",
+           summary=True, aggregation="request_weighted"),
+)
+ANALYSIS_METRICS = MappingProxyType({**METRICS, **{m.name: m for m in _ANALYSIS_ONLY}})
+VIEW_METRICS = tuple(name for name, metric in ANALYSIS_METRICS.items() if metric.group != "Other")
 
 
 def order_csv_fields(fields: Iterable[str]) -> list[str]:

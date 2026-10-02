@@ -66,8 +66,11 @@ class ArchitectureTests(unittest.TestCase):
             [sys.executable, "-c", (
                 "import sys; "
                 "import acprof.analysis.latency_report; "
+                "import acprof.analysis.model; "
                 "assert not any(name == 'matplotlib' or name.startswith('matplotlib.') "
                 "for name in sys.modules); "
+                "assert 'plotly' not in sys.modules; "
+                "assert 'acprof.host.run_state' not in sys.modules; "
                 "assert 'acprof.cli.plot' not in sys.modules"
             )],
             cwd=PROJECT_DIR, capture_output=True, text=True, check=False,
