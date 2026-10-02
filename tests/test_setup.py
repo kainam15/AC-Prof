@@ -90,8 +90,9 @@ class SetupTests(unittest.TestCase):
         self.environment["SETUP_TEST_UV"] = str(self.root / "uv")
         shutil.copyfile(self.bin / "uv", self.root / "uv")
         (self.root / "uv").chmod(0o755)
-        for name in ("pyproject.toml", "requirements.lock"):
-            shutil.copyfile(ROOT / name, self.checkout / name)
+        shutil.copyfile(ROOT / "pyproject.toml", self.checkout / "pyproject.toml")
+        (self.checkout / "requirements").mkdir()
+        shutil.copyfile(ROOT / "requirements/host.lock", self.checkout / "requirements/host.lock")
         self.config = self.checkout / ".env.local"
         self.config.write_text("KEEP_EXISTING_CONFIG=yes\n")
 
@@ -223,7 +224,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         install = next(call for call in self.calls("uv") if call["args"][:2] == ["tool", "install"])
         self.assertIn(str(self.checkout), install["args"])
-        self.assertIn(str(self.checkout / "requirements.lock"), install["args"])
+        self.assertIn(str(self.checkout / "requirements/host.lock"), install["args"])
         calls = self.calls("acprof")
         self.assertEqual([call["args"] for call in calls], [["doctor", "--profiling-mode", "basic", "--gpus", "off"]])
         self.assertEqual(calls[0]["cwd"], str(self.checkout))

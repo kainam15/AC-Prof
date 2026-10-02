@@ -88,12 +88,12 @@ RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-
 新字段插入对应用途组，整体 `status`、`error` 保持在最后两列。列顺序调整还需验证
 旧表头的追加、case 合并、packet 回填和 profiler 补采，确保按列名保留数值及未知扩展列。
 
-Ruff、pre-commit 和锁生成工具 uv 由 [`requirements-dev.in`](../requirements-dev.in) 声明，
-完整版本与制品哈希保存在 [`requirements-dev.lock`](../requirements-dev.lock)。开发锁以主机锁
+Ruff、pre-commit 和锁生成工具 uv 由 [`requirements/dev.in`](../requirements/dev.in) 声明，
+完整版本与制品哈希保存在 [`requirements/dev.lock`](../requirements/dev.lock)。开发锁以主机锁
 为约束，避免在同一个 `.venv` 安装时引入冲突；不加入主机运行依赖或容器环境身份。
 
 ```bash
-.venv/bin/python -m pip install --require-hashes -r requirements-dev.lock
+.venv/bin/python -m pip install --require-hashes -r requirements/dev.lock
 .venv/bin/python -m pip check
 .venv/bin/python -m pre_commit install
 .venv/bin/python -m pre_commit run --all-files --show-diff-on-failure
@@ -189,8 +189,8 @@ git diff --check
 完整 commit SHA，pre-commit 需同步最低版本。随后核对锁和 diff，重新安装开发锁并运行完整 hooks。
 
 ```bash
-.venv/bin/uv pip compile requirements-dev.in --python-version 3.10 --universal \
-  --generate-hashes --no-annotate --no-header --output-file requirements-dev.lock
+.venv/bin/uv pip compile requirements/dev.in --python-version 3.10 --universal \
+  --generate-hashes --no-annotate --no-header --output-file requirements/dev.lock
 ```
 
 `scripts/compile_locks.py --check` 仍只验证既有容器锁与 profile 映射，不代替开发锁的重新解析。
@@ -201,7 +201,7 @@ git diff --check
 
 ### 渐进类型检查与边界回归
 
-`requirements-dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
+`requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
 extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner。
 初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
 已经列出的模块仍检查已标注代码。不能用全包 `ignore_errors` 隐藏白名单内的问题。
@@ -231,7 +231,7 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 
 下列工具用于按需调试和补充验证；使用前检查实际环境，已有可用入口时直接复用。
 `textual-dev` 和 Hypothesis 未列入开发锁，使用前核对本机环境。快照插件使用独立
-`requirements-tui-snapshot.lock`，由 CI 的 `tui-snapshots` job 安装；主 unittest job 保持原 runner。
+`requirements/tui-snapshot.lock`，由 CI 的 `tui-snapshots` job 安装；主 unittest job 保持原 runner。
 
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
@@ -298,15 +298,15 @@ Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/ru
 # 新建专用环境时安装；已有 acprof-snapshot-test 环境符合锁时直接复用。
 python3.12 -m venv /path/to/tui-snapshot-env
 /path/to/tui-snapshot-env/bin/python -m pip install --require-hashes \
-  -r requirements.lock -r requirements-tui-snapshot.lock
+  -r requirements/host.lock -r requirements/tui-snapshot.lock
 acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snapshot-report.html
 ```
 
 更新快照工具锁：
 
 ```bash
-.venv/bin/uv pip compile requirements-tui-snapshot.in --python-version 3.12 \
-  --generate-hashes --no-annotate --no-header --output-file requirements-tui-snapshot.lock
+.venv/bin/uv pip compile requirements/tui-snapshot.in --python-version 3.12 \
+  --generate-hashes --no-annotate --no-header --output-file requirements/tui-snapshot.lock
 ```
 
 快照用例固定主题、语言、路径与颜色模式，规范化 SVG 行末空白以兼容仓库格式检查；

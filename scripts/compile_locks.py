@@ -46,8 +46,8 @@ def check_host_lock(root):
             if line and not line.startswith("--hash="):
                 yield Requirement(line)
 
-    pins = list(requirements(root / "requirements-host.in"))
-    locked = list(requirements(root / "requirements.lock"))
+    pins = list(requirements(root / "requirements/host.in"))
+    locked = list(requirements(root / "requirements/host.lock"))
     branches = ("3.10", "3.11", "3.12", "3.13", "3.14")
     for python in branches:
         markers = {**default_environment(), "python_version": python,
@@ -239,8 +239,8 @@ def main(argv=None):
     if version[:2] != ["uv", UV_VERSION]:
         parser.error(f"锁生成工具必须是 uv {UV_VERSION}")
     if not args.runtime_only:
-        command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements-host.in", "--python-version", "3.10",
-                   "--universal", "--generate-hashes", "--no-annotate", "--no-header", "-o", "requirements.lock"]
+        command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements/host.in", "--python-version", "3.10",
+                   "--universal", "--generate-hashes", "--no-annotate", "--no-header", "-o", "requirements/host.lock"]
         if args.index_url:
             command += ["--default-index", args.index_url]
         subprocess.run(command + (["--upgrade"] if args.upgrade else []), cwd=ROOT, check=True)

@@ -133,13 +133,13 @@ cd universal-profiles
 # 仅在 .venv 不存在时执行下一行
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --require-hashes -r requirements.lock
+python -m pip install --require-hashes -r requirements/host.lock
 python -m pip install --no-deps -e .
 ```
 
-主机依赖集合与兼容区间统一在 `pyproject.toml` 声明；`requirements-host.in` 只保存已验证版本约束。
-`requirements.txt` 转向同一份 `requirements.lock`，不再维护独立的宽松版本区间。发行安装继续使用
-`setup.sh`；开发工具单独按[测试指南](Testing.md#开发质量检查)安装。
+主机依赖集合与兼容区间统一在 `pyproject.toml` 声明；`requirements/host.in` 只保存已验证版本约束。
+主机、开发工具和 TUI 快照的输入与锁文件统一放在 `requirements/`，安装直接指定对应 `.lock`。
+发行安装继续使用 `setup.sh`；开发工具单独按[测试指南](Testing.md#开发质量检查)安装。
 
 容器运行依赖由独立的平台和完整制品锁管理：7 个任务族的逻辑 profile 共享依赖环境，
 当前数量和版本统一见[当前配置](Runtime_Compatibility.md#当前配置)，其中 `onnxruntime-cpu` 完全不安装 Torch。

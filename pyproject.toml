@@ -44,7 +44,7 @@ path = "hatch_build.py"
 include = [
     "/acprof", "/assets", "/dockerfiles", "/examples", "/scripts", "/tests",
     "/packaging", "/docs", "/README.md", "/pyproject.toml", "/hatch_build.py",
-    "/requirements*", "/run.py", "/probe.py", "/profile.py", "/plot.py",
+    "/requirements", "/run.py", "/probe.py", "/profile.py", "/plot.py",
     "/tui.py", "/audit.py", "/stats.py", "/.dockerignore", "/setup.sh",
     "/LICENSE", "/NOTICE", "/licenses",
 ]

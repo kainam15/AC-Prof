@@ -73,9 +73,29 @@ Debian `20260912T203535Z` 和安全仓库 `20260912T113611Z` 的实际 snapshot 
 固定，并计入最终完整包集合。普通构建只下载锁中的制品，校验哈希后通过 `--no-download` 安装，
 不查询浮动 apt 仓库、不动态选择包名。
 
-主机使用 [`requirements.lock`](../requirements.lock)，支持 Python 3.10+。依赖集合与兼容区间只在
-[`pyproject.toml`](../pyproject.toml) 声明；[`requirements-host.in`](../requirements-host.in) 是已验证版本约束，
-[`requirements.txt`](../requirements.txt) 仅转向锁文件。锁更新工具固定为 uv 0.12.13。
+主机使用 [`requirements/host.lock`](../requirements/host.lock)，支持 Python 3.10+。依赖集合与兼容区间只在
+[`pyproject.toml`](../pyproject.toml) 声明；[`requirements/host.in`](../requirements/host.in) 是已验证版本约束，
+安装直接指定 `requirements/host.lock`。主机、开发工具和 TUI 快照依赖采用以下布局：
+
+```text
+AC-Prof/
+├── pyproject.toml
+├── requirements/
+│   ├── host.in
+│   ├── host.lock
+│   ├── dev.in
+│   ├── dev.lock
+│   ├── tui-snapshot.in
+│   └── tui-snapshot.lock
+├── acprof/
+├── dockerfiles/
+├── scripts/
+└── tests/
+```
+
+以上只展示依赖相关目录。`dev.in` 和 `tui-snapshot.in` 通过相对路径 `-c host.lock`
+约束共享包版本；安装和生成命令从仓库根目录执行。容器输入与制品锁仍位于 `dockerfiles/`。
+锁更新工具固定为 uv 0.12.13。
 生成目标 wheel 锁及检查主机 TOML 元数据需要 Python 3.11+；容器锁检查和运行代码仍支持 Python 3.10+。
 主机检查离线核对 Python 3.10–3.14 的 marker 分支、直接依赖和 pin，不代表在这些解释器上运行过测试。
 

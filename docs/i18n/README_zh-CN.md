@@ -171,6 +171,7 @@ smoke 预设使用 `basic`、CPU 和单次请求，关闭独立 profiler 与通�
 
 ## 项目结构与开发
 
+[`pyproject.toml`](../../pyproject.toml) 声明主机依赖；[`requirements/`](../../requirements/) 集中保存 `host`、`dev` 和 `tui-snapshot` 的输入与锁文件。
 模块职责见[代码架构](../Architecture.md)，开发依赖、pre-commit 和测试入口见[测试指南](../Testing.md#开发质量检查)。
 新增模型或 backend 参见[适配契约](../Runtime_Compatibility.md#新增一个模型适配)；Agent 协作规则见 [AGENTS.md](../../AGENTS.md)。
 

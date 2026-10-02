@@ -14,7 +14,7 @@ standalone 从 wheel 收集同一份 dist-info 元数据。wheel 的 Docker 构�
 ## Host dependency split 评估
 
 默认安装保持完整可用：`pip/uv install` 与 `setup.sh` 安装相同的 host 依赖，打开 TUI
-和执行分析不要求理解 extras。当前不拆分发行依赖；`requirements.lock` 继续包含完整环境及 hashes，
+和执行分析不要求理解 extras。当前不拆分发行依赖；`requirements/host.lock` 继续包含完整环境及 hashes，
 runtime profile 的严格版本锁独立维护。
 
 | 候选边界 | 当前依赖与约束 |
@@ -41,7 +41,7 @@ cd universal-profiles
 
 `setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.12.13，
 默认安装到 `~/.local/bin`（可用 `UV_INSTALL_DIR` 指定）。随后用 Python 3.10 和
-`requirements.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.10 时由 uv 下载。
+`requirements/host.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.10 时由 uv 下载。
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。
 脚本不自动安装系统包、修改 Docker 权限或 GPU 驱动；错误修复后重试原命令即可。
 
@@ -94,7 +94,7 @@ acprof tui
 安装后的公共命令是 `acprof run / tui / probe / plot / doctor / profile / audit / stats / inspect / auto / coverage`，
 也支持 `python -m acprof`。根目录的 Python 脚本保留给源码使用。
 `run --help` 等命令沿用各自的参数定义；顶层帮助和版本查询不会加载 Textual、绘图库或推理框架。
-Python 依赖声明位于 `pyproject.toml`；开发和 Release 构建采用 `requirements.lock` 中已验证的制品。
+Python 依赖声明位于 `pyproject.toml`；开发和 Release 构建采用 `requirements/host.lock` 中已验证的制品。
 
 ## 工作目录与资源
 
@@ -133,7 +133,7 @@ PyInstaller 单文件模式启动时会解压到临时目录，该目录需要�
 ```bash
 uv build --out-dir internal-testing/distribution/dist
 uv venv internal-testing/distribution/venv --python 3.10
-uv pip install --python internal-testing/distribution/venv/bin/python -r requirements.lock
+uv pip install --python internal-testing/distribution/venv/bin/python -r requirements/host.lock
 uv pip install --python internal-testing/distribution/venv/bin/python --no-deps internal-testing/distribution/dist/*.whl
 uv pip install --python internal-testing/distribution/venv/bin/python 'pyinstaller==6.22.3'
 internal-testing/distribution/venv/bin/python scripts/check_distribution.py

@@ -32,7 +32,7 @@ fail() {
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd -- "$project_dir"
-[[ -f pyproject.toml && -f requirements.lock ]] || fail "请从完整 AC-Prof 源码目录运行 setup.sh。"
+[[ -f pyproject.toml && -f requirements/host.lock ]] || fail "请从完整 AC-Prof 源码目录运行 setup.sh。"
 
 printf '[1/3] 检查主机与 Docker\n'
 [[ "$(uname -s)" == Linux ]] || fail "采集需要原生 Linux；Windows/macOS 不支持。"
@@ -75,7 +75,7 @@ if [[ -z "$uv_command" ]]; then
 fi
 
 # Reinstall this checkout even when its version is unchanged; uv reuses dependency caches.
-"$uv_command" tool install --python 3.10 --constraint "$project_dir/requirements.lock" \
+"$uv_command" tool install --python 3.10 --constraint "$project_dir/requirements/host.lock" \
     --reinstall-package acprof "$project_dir" || fail "AC-Prof 安装失败；检查上方错误，修复网络或依赖问题后重新运行 setup.sh。"
 tool_bin_dir="$("$uv_command" tool dir --bin)"
 acprof_command="$tool_bin_dir/acprof"

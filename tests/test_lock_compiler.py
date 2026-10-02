@@ -65,8 +65,9 @@ class LockCompilerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'pyproject.toml').write_text('[project]\ndependencies = ["numpy>=2,<3"]\n')
-            (root / 'requirements-host.in').write_text('numpy==2.2.6 ; python_version < "3.11"\n')
-            lock = root / 'requirements.lock'
+            (root / 'requirements').mkdir()
+            (root / 'requirements/host.in').write_text('numpy==2.2.6 ; python_version < "3.11"\n')
+            lock = root / 'requirements/host.lock'
             lock.write_text('numpy==2.2.6 ; python_version < "3.11"\n'
                             'numpy==2.4.4 ; python_version >= "3.11"\n')
             with patch.object(compile_locks, 'ROOT', root), patch('subprocess.run', side_effect=AssertionError('resolver used')):

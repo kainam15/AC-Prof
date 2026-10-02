@@ -1,5 +1,5 @@
 # 独立 UI 环境；与主机锁共用 Textual/Rich，不迁移 unittest。
--c requirements.lock
+-c host.lock
 textual==8.2.8
 pytest==8.4.2
 pytest-textual-snapshot==1.1.0

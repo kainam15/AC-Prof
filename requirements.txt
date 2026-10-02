@@ -1,3 +1,0 @@
-# Compatibility installer: use the same hashed host lock as setup.sh and CI.
-# Declare runtime dependencies only in pyproject.toml.
--r requirements.lock

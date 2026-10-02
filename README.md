@@ -211,6 +211,7 @@ See [estimating run time](docs/Profiling_Protocol.md#结果行数和时间成本
 
 ## Project structure and development
 
+[`pyproject.toml`](pyproject.toml) declares host dependencies; [`requirements/`](requirements/) contains the `host`, `dev`, and `tui-snapshot` inputs and locks.
 See [architecture](docs/Architecture.md) for module responsibilities and the [testing guide](docs/Testing.md#开发质量检查) for development dependencies, pre-commit, and test commands.
 To add a model or backend, follow the [adaptation contract](docs/Runtime_Compatibility.md#新增一个模型适配).
 Agent collaboration rules are in [AGENTS.md](AGENTS.md).
