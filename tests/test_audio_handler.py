@@ -87,6 +87,7 @@ class AudioHandlerTests(unittest.TestCase):
         fake_torch.float16 = "float16"
         fake_torch.float32 = "float32"
         fake_transformers = types.ModuleType("transformers")
+        fake_transformers.__version__ = "4.57.6"
         fake_transformers.pipeline = lambda **kwargs: pipe
 
         with patch.dict(

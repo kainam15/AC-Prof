@@ -26,7 +26,7 @@ class ChronosInterfaceTests(unittest.TestCase):
                 loader = Mock(return_value=pipeline)
                 legacy = Mock(side_effect=AssertionError("trial loading is not dispatch"))
                 with patch.dict("sys.modules", {
-                    "torch": SimpleNamespace(),
+                    "torch": SimpleNamespace(float32="float32", float16="float16"),
                     "chronos": SimpleNamespace(
                         BaseChronosPipeline=SimpleNamespace(from_pretrained=loader),
                         ChronosPipeline=SimpleNamespace(from_pretrained=legacy),
@@ -89,7 +89,7 @@ class SentenceTransformerInterfaceTests(unittest.TestCase):
         with patch.dict("sys.modules", {
             "torch": SimpleNamespace(float32="fp32", float16="fp16"),
             "sentence_transformers": SimpleNamespace(SentenceTransformer=constructor),
-            "transformers": SimpleNamespace(pipeline=pipeline),
+            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=pipeline),
         }):
             handler = NLPHandler()
             ctx = handler.load("arbitrary/encoder", "feature-extraction", "sentence_transformers", "cpu")

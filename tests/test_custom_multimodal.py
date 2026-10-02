@@ -45,6 +45,7 @@ def custom_task(spec=None, *, model_id="unseen/speech-model", model_type="unseen
         pipeline_tag="audio-text-to-text", task_family="multimodal",
         runtime_backend="transformers_pipeline", detection_method="manual",
         model_config=config, repository_files=("config.json", "custom_model.py", "custom_pipeline.py"),
+        repository_sources={"custom_model.py": "import torch", "custom_pipeline.py": "import transformers"},
         model_spec=pipeline_spec() if spec is None else spec,
     )
 

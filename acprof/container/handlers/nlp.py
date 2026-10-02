@@ -13,6 +13,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
+from acprof.container.load_policy import load_policy
 from acprof.model_spec import pipeline_task
 
 # Tasks that generate text output
@@ -285,9 +286,9 @@ class NLPHandler(BaseHandler):
         model_revision: str = "main",
         load_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import torch
         device_map = device if device == "cpu" else "auto"
-        torch_dtype = torch.float16 if device != "cpu" else torch.float32
+        policy = load_policy(model_source, task_type, backend, device, load_options)
+        torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
         encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
         if encoder:
@@ -300,7 +301,7 @@ class NLPHandler(BaseHandler):
                 **model_revision_kwargs(model_source, model_revision),
                 device=device,
                 local_files_only=os.path.isdir(model_source),
-                trust_remote_code=True,
+                trust_remote_code=policy["trust_remote_code"],
                 model_kwargs={"torch_dtype": torch_dtype,
                               **pipeline_options.get("model_kwargs", {})},
             )
@@ -315,7 +316,7 @@ class NLPHandler(BaseHandler):
                 **pipeline_options,
                 device_map=device_map,
                 torch_dtype=torch_dtype,
-                trust_remote_code=True,
+                trust_remote_code=policy["trust_remote_code"],
             )
             if task_type == "text-generation":
                 tokenizer = getattr(pipe, "tokenizer", None)

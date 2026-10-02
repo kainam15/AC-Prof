@@ -24,6 +24,7 @@ class OfflineModelLoadingTests(unittest.TestCase):
         fake_torch.float16 = "float16"
         fake_torch.float32 = "float32"
         fake_transformers = types.ModuleType("transformers")
+        fake_transformers.__version__ = "4.57.6"
         fake_transformers.pipeline = fake_pipeline
 
         handlers = [
@@ -62,6 +63,7 @@ class OfflineModelLoadingTests(unittest.TestCase):
         fake_torch.float16 = "float16"
         fake_torch.float32 = "float32"
         fake_transformers = types.ModuleType("transformers")
+        fake_transformers.__version__ = "4.57.6"
         fake_transformers.pipeline = fake_pipeline
 
         with patch.dict(
@@ -90,6 +92,7 @@ class OfflineModelLoadingTests(unittest.TestCase):
         fake_chronos = types.ModuleType("chronos")
         fake_chronos.BaseChronosPipeline = FakeChronosBoltPipeline
         fake_torch = types.ModuleType("torch")
+        fake_torch.float32 = "float32"
 
         with tempfile.TemporaryDirectory() as model_source, patch.dict(
             sys.modules,

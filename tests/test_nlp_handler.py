@@ -272,7 +272,7 @@ class NLPTaskCompatibilityTests(unittest.TestCase):
         with patch.dict("sys.modules", {
             "torch": SimpleNamespace(float32="fp32", float16="fp16"),
             "sentence_transformers": SimpleNamespace(SentenceTransformer=constructor),
-            "transformers": SimpleNamespace(pipeline=Mock()),
+            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=Mock()),
         }):
             self.handler.load("org/model", "sentence-similarity", "sentence_transformers",
                               "cpu", model_revision="fixed-sha",
@@ -286,7 +286,7 @@ class NLPTaskCompatibilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as local, patch.dict("sys.modules", {
             "torch": SimpleNamespace(float32="fp32", float16="fp16"),
             "sentence_transformers": SimpleNamespace(CrossEncoder=constructor),
-            "transformers": SimpleNamespace(pipeline=Mock()),
+            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=Mock()),
         }):
             with self.assertRaisesRegex(ValueError, "single.*score|num_labels"):
                 self.handler.load(local, "text-ranking", "cross_encoder", "cpu", "fixed-sha")
@@ -299,7 +299,7 @@ class NLPTaskCompatibilityTests(unittest.TestCase):
         pipe = SimpleNamespace(tokenizer=tokenizer, generation_config=SimpleNamespace(pad_token_id=None))
         with patch.dict("sys.modules", {
             "torch": SimpleNamespace(float32="fp32", float16="fp16"),
-            "transformers": SimpleNamespace(pipeline=Mock(return_value=pipe)),
+            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=Mock(return_value=pipe)),
         }):
             self.handler.load("org/model", "text-generation", "transformers_pipeline", "cpu")
         self.assertEqual(tokenizer.pad_token, "</s>")

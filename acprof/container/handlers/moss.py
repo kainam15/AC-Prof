@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from acprof.container.handlers import transformers_pipeline_load_kwargs
 from acprof.container.handlers.multimodal import MultimodalHandler
+from acprof.container.load_policy import load_policy, load_processor
 
 
 class MossTranscribeDiarizeHandler(MultimodalHandler):
@@ -19,7 +20,6 @@ class MossTranscribeDiarizeHandler(MultimodalHandler):
         self, model_source: str, task_type: str, backend: str, device: str,
         model_revision: str = "main", load_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import torch
         from transformers import AutoModelForCausalLM, AutoProcessor
 
         if task_type != "audio-text-to-text" or backend not in {"transformers_model", "transformers_pipeline"}:
@@ -30,12 +30,13 @@ class MossTranscribeDiarizeHandler(MultimodalHandler):
         config = json.loads((source / "config.json").read_text())
         if config.get("model_type") != "moss_transcribe_diarize":
             raise ValueError("MOSS adapter received an incompatible model_type")
+        policy = load_policy(model_source, task_type, backend, device, load_options)
         attention = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
         attention.setdefault("attn_implementation", "sdpa")
-        dtype = torch.float32 if device == "cpu" else torch.bfloat16
-        processor = AutoProcessor.from_pretrained(model_source, trust_remote_code=True, local_files_only=True)
+        dtype = policy["dtype"]
+        processor = load_processor(AutoProcessor.from_pretrained, model_source, trust_remote_code=policy["trust_remote_code"], local_files_only=True)
         model = AutoModelForCausalLM.from_pretrained(
-            model_source, trust_remote_code=True, local_files_only=True,
+            model_source, trust_remote_code=policy["trust_remote_code"], local_files_only=True,
             dtype=dtype, **attention,
         ).to(device).eval()
         return {

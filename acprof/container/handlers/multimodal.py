@@ -28,6 +28,7 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.handlers.audio import AudioHandler, _positive_int
+from acprof.container.load_policy import load_policy, load_processor
 
 _TASKS = {
     "audio-text-to-text", "image-text-to-text", "visual-question-answering",
@@ -71,7 +72,6 @@ class MultimodalHandler(BaseHandler):
         model_revision: str = "main",
         load_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import torch
         import transformers
 
         if task_type not in _TASKS:
@@ -84,11 +84,12 @@ class MultimodalHandler(BaseHandler):
                 "token2wav requires SDPA and cannot verify all-eager attention; "
                 "normal inference and vendor profilers remain available"
             )
+        policy = load_policy(model_source, task_type, backend, device, load_options)
         source_kwargs = {
             **model_revision_kwargs(model_source, model_revision),
-            "trust_remote_code": False,
+            "trust_remote_code": policy["trust_remote_code"],
         }
-        dtype = torch.float32 if device == "cpu" else torch.float16
+        dtype = policy["dtype"]
         ctx = {
             "task_type": task_type, "device": device,
             "model_revision": model_revision or "main",
@@ -100,7 +101,7 @@ class MultimodalHandler(BaseHandler):
             spec = load_model_spec(model_source, task_type, expected_format=model_spec_format)
             if "multimodal" in spec:
                 from acprof.container.handlers.custom_pipeline import load_custom_pipeline
-                return {**ctx, **load_custom_pipeline(model_source, task_type, device, dtype, spec, attention_options)}
+                return {**ctx, **load_custom_pipeline(model_source, task_type, device, dtype, spec, attention_options, trust_remote_code=policy["trust_remote_code"])}
         if task_type in _QA_TASKS:
             pipe = transformers.pipeline(
                 task=task_type, model=model_source, **source_kwargs,
@@ -149,7 +150,7 @@ class MultimodalHandler(BaseHandler):
         model_class = getattr(transformers, class_name, None)
         if model_class is None:
             raise RuntimeError(f"{class_name} is unavailable; rebuild the selected locked multimodal environment")
-        processor = transformers.AutoProcessor.from_pretrained(model_source, **source_kwargs)
+        processor = load_processor(transformers.AutoProcessor.from_pretrained, model_source, **source_kwargs)
         if task_type == "video-text-to-text" and "videos" not in inspect.signature(processor.__call__).parameters:
             raise ValueError(f"architecture {model_type!r} has no native video processor")
         model = model_class.from_pretrained(

@@ -223,6 +223,7 @@ class MultimodalHandlerTests(unittest.TestCase):
 
     def test_load_uses_builtin_classes_revision_and_eager_options(self):
         transformers = types.ModuleType('transformers')
+        transformers.__version__ = '4.57.6'
         transformers.AutoConfig = Mock()
         transformers.AutoConfig.from_pretrained.return_value = types.SimpleNamespace(model_type='qwen2_5_vl')
         transformers.AutoProcessor = Mock()

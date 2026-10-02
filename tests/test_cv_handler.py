@@ -85,13 +85,14 @@ class CVCaptionTests(unittest.TestCase):
             self.handler.predict(ctx, {"image": "image", "params": {}})
             self.pipe.assert_called_with("image")
 
-    def test_obsolete_image_error_explains_rebuild_without_hiding_other_errors(self):
+    def test_unknown_pipeline_error_is_preserved_without_string_patch(self):
         torch = types.ModuleType("torch")
         torch.float16, torch.float32 = "fp16", "fp32"
         transformers = types.ModuleType("transformers")
+        transformers.__version__ = "4.57.6"
         transformers.pipeline = Mock(side_effect=KeyError("Unknown task image-to-text, available tasks are []"))
         with patch.dict(sys.modules, {"torch": torch, "transformers": transformers}):
-            with self.assertRaisesRegex(RuntimeError, "4.57.6.*--skip-build"):
+            with self.assertRaisesRegex(KeyError, "Unknown task image-to-text"):
                 self.handler.load("example/model", "image-to-text", "transformers_pipeline", "cpu")
             transformers.pipeline.side_effect = KeyError("broken_model_config")
             with self.assertRaisesRegex(KeyError, "broken_model_config"):

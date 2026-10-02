@@ -131,6 +131,7 @@ class AudioTaskExtensionTests(unittest.TestCase):
 
     def test_codec_load_uses_explicit_supported_architecture_and_pinned_revision(self):
         transformer = types.ModuleType("transformers")
+        transformer.__version__ = "4.57.6"
         transformer.AutoConfig = SimpleNamespace(from_pretrained=Mock(return_value=SimpleNamespace(model_type="encodec", audio_channels=1)))
         model = Mock(config=SimpleNamespace(model_type="encodec", sampling_rate=24000, audio_channels=1))
         model.to.return_value = model

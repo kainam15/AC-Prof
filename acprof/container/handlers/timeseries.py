@@ -23,31 +23,35 @@ class ChronosHandler(BaseHandler):
         model_revision: str = "main",
         load_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import torch  # noqa: F401 -- 保留所选运行时在加载前的 Torch 依赖检查。
+        from acprof.container.load_policy import load_policy
 
         if task_type != "time-series-forecasting" or backend != "chronos":
             raise ValueError("time-series-forecasting supports Chronos/ChronosBolt with backend='chronos'")
         chronos_load_options: Dict[str, Any] = {}
         if load_options:
-            unknown = set(load_options) - {"attention_implementation"}
+            unknown = set(load_options) - {"attention_implementation", "dtype", "trust_remote_code"}
             if unknown:
                 raise ValueError("unsupported Chronos load options: " + ", ".join(sorted(unknown)))
             attention_implementation = load_options.get(
                 "attention_implementation"
             )
-            if attention_implementation != "eager":
+            if attention_implementation not in {None, "eager"}:
                 raise ValueError(
                     "attention_implementation must be 'eager' for compute profiling"
                 )
-            chronos_load_options["attn_implementation"] = "eager"
+            if attention_implementation:
+                chronos_load_options["attn_implementation"] = "eager"
 
         from chronos import BaseChronosPipeline
 
+        policy = load_policy(model_source, task_type, backend, device, load_options)
         pipeline = BaseChronosPipeline.from_pretrained(
             model_source,
             **model_revision_kwargs(model_source, model_revision),
             **chronos_load_options,
             device_map=device,
+            torch_dtype=policy["dtype"],
+            trust_remote_code=policy["trust_remote_code"],
             local_files_only=True,
         )
 

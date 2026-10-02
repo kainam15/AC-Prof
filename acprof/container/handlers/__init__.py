@@ -35,6 +35,8 @@ def transformers_pipeline_load_kwargs(
 ) -> Dict[str, Any]:
     """Translate isolated profiler load options to Transformers pipeline args."""
     options = dict(load_options or {})
+    options.pop("dtype", None)
+    options.pop("trust_remote_code", None)
     attention_implementation = options.pop("attention_implementation", None)
     if options:
         unsupported = ", ".join(sorted(options))

@@ -14,6 +14,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
+from acprof.container.load_policy import load_policy, load_processor
 from acprof.model_spec import pipeline_task
 
 
@@ -28,31 +29,22 @@ class CVHandler(BaseHandler):
         model_revision: str = "main",
         load_options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        import torch
         from transformers import pipeline as hf_pipeline
 
         device_map = device if device == "cpu" else "auto"
-        torch_dtype = torch.float16 if device != "cpu" else torch.float32
+        policy = load_policy(model_source, task_type, backend, device, load_options)
         if task_type in {"video-classification", "keypoint-detection"}:
             return self._load_direct(model_source, task_type, device, model_revision, load_options)
 
-        try:
-            pipe = hf_pipeline(
-                task=pipeline_task(model_source, task_type),
-                model=model_source,
-                **model_revision_kwargs(model_source, model_revision),
-                **transformers_pipeline_load_kwargs(load_options),
-                device_map=device_map,
-                torch_dtype=torch_dtype,
-                trust_remote_code=True,
-            )
-        except KeyError as exc:
-            if task_type == "image-to-text" and "Unknown task image-to-text" in str(exc):
-                raise RuntimeError(
-                    "image-to-text requires the CV image with transformers==4.57.6; "
-                    "rebuild it without --skip-build / 取消“复用现有镜像”后重新构建"
-                ) from exc
-            raise
+        pipe = hf_pipeline(
+            task=pipeline_task(model_source, task_type),
+            model=model_source,
+            **model_revision_kwargs(model_source, model_revision),
+            **transformers_pipeline_load_kwargs(load_options),
+            device_map=device_map,
+            torch_dtype=policy["dtype"],
+            trust_remote_code=policy["trust_remote_code"],
+        )
         return {
             "pipeline": pipe,
             "task_type": task_type,
@@ -63,12 +55,12 @@ class CVHandler(BaseHandler):
 
     def _load_direct(self, model_source: str, task_type: str, device: str,
                      model_revision: str, load_options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        import torch
         from transformers import AutoConfig, AutoImageProcessor, AutoModelForVideoClassification
 
+        policy = load_policy(model_source, task_type, "transformers_model", device, load_options)
         revision = model_revision_kwargs(model_source, model_revision)
         options = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
-        config = AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=True)
+        config = AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])
         keypoint_kind = None
         if task_type == "video-classification":
             model_cls = AutoModelForVideoClassification
@@ -85,10 +77,10 @@ class CVHandler(BaseHandler):
             if config.model_type != "superpoint":
                 raise ValueError("keypoint-detection supports SuperPoint and VitPose with transformers 4.57.6; "
                                  f"unsupported model_type={config.model_type!r}")
-        processor = AutoImageProcessor.from_pretrained(model_source, **revision, trust_remote_code=True, use_fast=False)
+        processor = load_processor(AutoImageProcessor.from_pretrained, model_source, **revision, trust_remote_code=policy["trust_remote_code"], use_fast=False)
         model = model_cls.from_pretrained(
-            model_source, **revision, config=config, trust_remote_code=True,
-            torch_dtype=torch.float16 if device != "cpu" else torch.float32,
+            model_source, **revision, config=config, trust_remote_code=policy["trust_remote_code"],
+            torch_dtype=policy["dtype"],
             **options,
         ).to(device).eval()
         return {"model": model, "processor": processor, "task_type": task_type, "device": device,

@@ -13,6 +13,7 @@ from acprof.container.handlers import (
     BaseHandler,
     model_revision_kwargs,
 )
+from acprof.container.load_policy import load_policy
 
 DEFAULT_NUM_INFERENCE_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5
@@ -112,6 +113,8 @@ def _positive_int(value: Any, field_name: str) -> int:
 def _load_eager_attention(pipe: Any, load_options: Optional[Dict[str, Any]]) -> Any:
     """Use Diffusers' explicit eager attention processor for FLOP profiling."""
     options = dict(load_options or {})
+    options.pop("dtype", None)
+    options.pop("trust_remote_code", None)
     attention_implementation = options.pop("attention_implementation", None)
     if options:
         unsupported = ", ".join(sorted(options))
@@ -359,10 +362,10 @@ class DiffusionHandler(BaseHandler):
                 f"unsupported diffusion backend={backend!r}; expected 'diffusers'"
             )
 
-        import torch
         from diffusers import DiffusionPipeline
 
-        torch_dtype = torch.float16 if device != "cpu" else torch.float32
+        policy = load_policy(model_source, task_type, backend, device, load_options)
+        torch_dtype = policy["dtype"]
         pipe = DiffusionPipeline.from_pretrained(
             model_source,
             **model_revision_kwargs(model_source, model_revision),

@@ -15,6 +15,12 @@ def validate_basic(payload: dict) -> dict:
     spec = load_model_spec(source, task, expected_format="transformers-pipeline")
     if "multimodal" not in spec:
         raise ValueError("basic contract probe requires a declared multimodal Pipeline")
+    from acprof.container.load_policy import registered_policy
+    from acprof.failures import Failure, RuntimeFailure
+    profile, _, trust = registered_policy(task, os.environ["RUNTIME_BACKEND"], "cpu")
+    if not trust:
+        raise RuntimeFailure(Failure("import", "remote_code_disallowed", "Basic probe requires a registered remote-code policy",
+                                     "cpu", profile.profile_id))
     selected = pipeline_task(source, task)
     pipeline_class = load_local_pipeline_class(source, selected)
     params = {"max_new_tokens": 1, "do_sample": False, **payload.get("params", {})}

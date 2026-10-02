@@ -18,6 +18,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
+from acprof.container.load_policy import load_policy, load_processor
 from acprof.model_spec import pipeline_task
 
 _ASR_TASK_TYPES = {
@@ -76,14 +77,14 @@ class AudioHandler(BaseHandler):
             return self._load_codec(model_source, device, model_revision, load_options)
         if task_type not in _ASR_TASK_TYPES | _TEXT_AUDIO_TASK_TYPES | {"audio-classification"}:
             raise ValueError(f"unsupported audio task: {task_type}")
-        import torch
         from transformers import pipeline as hf_pipeline
 
+        policy = load_policy(model_source, task_type, backend, device, load_options)
         if task_type in _TEXT_AUDIO_TASK_TYPES:
             from transformers import AutoConfig
 
             config = AutoConfig.from_pretrained(
-                model_source, **model_revision_kwargs(model_source, model_revision)
+                model_source, **model_revision_kwargs(model_source, model_revision), trust_remote_code=policy["trust_remote_code"]
             )
             if config.model_type in {"speecht5", "fastspeech2_conformer"}:
                 raise ValueError(
@@ -92,7 +93,7 @@ class AudioHandler(BaseHandler):
                     "additional vocoder/speaker asset contract and are not supported"
                 )
         device_map = device if device == "cpu" else "auto"
-        torch_dtype = torch.float16 if device != "cpu" else torch.float32
+        torch_dtype = policy["dtype"]
 
         pipe = hf_pipeline(
             task=pipeline_task(model_source, task_type),
@@ -101,7 +102,7 @@ class AudioHandler(BaseHandler):
             **transformers_pipeline_load_kwargs(load_options),
             device_map=device_map,
             torch_dtype=torch_dtype,
-            trust_remote_code=True,
+            trust_remote_code=policy["trust_remote_code"],
         )
         return {
             "pipeline": pipe,
@@ -149,11 +150,11 @@ class AudioHandler(BaseHandler):
         model_source: str, device: str, model_revision: str,
         load_options: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        import torch
         import transformers
 
         revision = model_revision_kwargs(model_source, model_revision)
-        config = transformers.AutoConfig.from_pretrained(model_source, **revision)
+        policy = load_policy(model_source, "audio-to-audio", "transformers_model", device, load_options)
+        config = transformers.AutoConfig.from_pretrained(model_source, **revision, trust_remote_code=policy["trust_remote_code"])
         model_class = _CODEC_MODEL_TYPES.get(config.model_type)
         if model_class is None:
             raise ValueError(
@@ -164,9 +165,9 @@ class AudioHandler(BaseHandler):
             raise ValueError("audio-to-audio currently requires a mono Encodec/DAC checkpoint")
         options = transformers_pipeline_load_kwargs(load_options).get("model_kwargs", {})
         model = getattr(transformers, model_class).from_pretrained(
-            model_source, **revision, **options, torch_dtype=torch.float32
+            model_source, **revision, **options, torch_dtype=policy["dtype"], trust_remote_code=policy["trust_remote_code"]
         ).to(device).eval()
-        processor = transformers.AutoProcessor.from_pretrained(model_source, **revision)
+        processor = load_processor(transformers.AutoProcessor.from_pretrained, model_source, **revision, trust_remote_code=policy["trust_remote_code"])
         feature_extractor = getattr(processor, "feature_extractor", processor)
         metadata = AudioHandler._extract_audio_metadata(
             SimpleNamespace(model=model, feature_extractor=feature_extractor)
