@@ -5,6 +5,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from scripts.check_private_api import read_baseline, scan_sources
+
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -15,6 +17,11 @@ class ArchitectureTests(unittest.TestCase):
                          if isinstance(node, ast.List) and node.elts
                          and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == "tmux"]
         self.assertEqual(tmux_commands, [])
+
+    def test_private_dependencies_match_the_reviewed_baseline(self):
+        actual = set(scan_sources(PROJECT_DIR))
+        baseline = read_baseline(PROJECT_DIR / "tests/private_api_baseline.json")
+        self.assertEqual(actual, baseline, "Run scripts/check_private_api.py for dependency locations")
 
     def test_short_host_commands_use_the_registered_runner(self):
         # Resolve import aliases too, so `from subprocess import run` cannot bypass it.

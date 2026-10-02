@@ -1,0 +1,515 @@
+{
+  "schema_version": 1,
+  "dependencies": [
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_aggregate_latency_model_points"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_fit_log_latency_model"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_input_scale_validation"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_latency_model_frame"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_point_key"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_predict_latency"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_regression_metrics"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_resource_configuration_validation"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_training_range"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_validation_is_evaluable"
+    },
+    {
+      "source": "acprof.analysis.latency_report",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_validation_quality_failures"
+    },
+    {
+      "source": "acprof.container.handlers.multimodal",
+      "target": "acprof.container.handlers.audio",
+      "symbol": "_positive_int"
+    },
+    {
+      "source": "acprof.container.handlers.multimodal",
+      "target": "acprof.container.handlers.nlp",
+      "symbol": "_actual_input_tokens"
+    },
+    {
+      "source": "acprof.container.handlers.multimodal",
+      "target": "acprof.container.handlers.nlp",
+      "symbol": "_generation_evidence"
+    },
+    {
+      "source": "acprof.container.handlers.onnx_tasks",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_artifact_path"
+    },
+    {
+      "source": "acprof.container.handlers.onnx_tasks",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_positive_integer"
+    },
+    {
+      "source": "acprof.container.handlers.onnxruntime",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_dense_matrix"
+    },
+    {
+      "source": "acprof.container.handlers.onnxruntime",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_positive_integer"
+    },
+    {
+      "source": "acprof.container.onnx_session",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_artifact_path"
+    },
+    {
+      "source": "acprof.container.onnx_session",
+      "target": "acprof.container.handlers.structured",
+      "symbol": "_local_snapshot"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_diagnostics",
+      "symbol": "_collect_idle_debug_snapshot"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_diagnostics",
+      "symbol": "_collect_nvidia_smi_compute_apps"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_diagnostics",
+      "symbol": "_collect_nvidia_smi_gpu_snapshot"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_diagnostics",
+      "symbol": "_collect_nvidia_smi_pmon"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_compute_profile_row_metrics"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_cpu_metrics_from_result"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_derived_efficiency_metrics"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_eff_negative_warnings"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_estimate_cpu_cycles"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_execution_profile_row_metrics"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_finite_positive"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_fmt_float"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_gpu_metrics_from_result"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_gpu_runtime_metrics_from_result"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_idle_debug_stats"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_idle_power_debug_stats"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_input_num_samples"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_input_units_per_request"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_latency_distribution_metrics"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_mean"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_mean_finite"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_mips_metrics_from_result"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_named_negative_warnings"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_nan_metrics"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_per_positive_denominator"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_prepared_body_size_bytes"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_resource_usage_metrics_from_result"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_to_float_or_nan"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_publication",
+      "symbol": "_append_request_window"
+    },
+    {
+      "source": "acprof.host.client",
+      "target": "acprof.host.client_publication",
+      "symbol": "_append_row"
+    },
+    {
+      "source": "acprof.host.client_diagnostics",
+      "target": "acprof.host.client_metrics",
+      "symbol": "_to_float_or_nan"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.advisor",
+      "symbol": "_profile_cpu_entries"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.advisor",
+      "symbol": "_tool_error_entries"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.ncu",
+      "symbol": "_ncu_error_entries"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.ncu",
+      "symbol": "_profile_gpu_entries"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.torch",
+      "symbol": "_profile_torch_entries"
+    },
+    {
+      "source": "acprof.host.compute_profile",
+      "target": "acprof.host.profilers.torch",
+      "symbol": "_torch_error_entries"
+    },
+    {
+      "source": "acprof.host.doctor",
+      "target": "acprof.host.packet_capture",
+      "symbol": "_tcpdump_can_capture_without_sudo"
+    },
+    {
+      "source": "acprof.host.image_dependencies",
+      "target": "acprof.host.dependency_images",
+      "symbol": "_platform_fingerprint"
+    },
+    {
+      "source": "acprof.host.model_inspection",
+      "target": "acprof.host.input_plan",
+      "symbol": "_get_task_generator"
+    },
+    {
+      "source": "acprof.host.model_store",
+      "target": "acprof.container.download_model",
+      "symbol": "_prepare_repository_plan"
+    },
+    {
+      "source": "acprof.host.network_preflight",
+      "target": "acprof.host.static_metadata",
+      "symbol": "_docker_storage_metadata"
+    },
+    {
+      "source": "acprof.host.orchestrator",
+      "target": "acprof.host.input_plan",
+      "symbol": "_format_scale_value"
+    },
+    {
+      "source": "acprof.host.orchestrator",
+      "target": "acprof.host.packet_capture",
+      "symbol": "_packet_latency_error"
+    },
+    {
+      "source": "acprof.host.orchestrator",
+      "target": "acprof.host.packet_capture",
+      "symbol": "_resolve_packet_latency_runtime"
+    },
+    {
+      "source": "acprof.host.posthoc.backfill",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_finite_float"
+    },
+    {
+      "source": "acprof.host.posthoc.backfill",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_fmt_float"
+    },
+    {
+      "source": "acprof.host.posthoc.backfill",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_integer"
+    },
+    {
+      "source": "acprof.host.posthoc.plans",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_finite_float"
+    },
+    {
+      "source": "acprof.host.posthoc.plans",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_read_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_read_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.plans",
+      "symbol": "_collect_compute_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.plans",
+      "symbol": "_collect_execution_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.plans",
+      "symbol": "_find_reusable_compute_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.plans",
+      "symbol": "_find_reusable_execution_plan"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.plans",
+      "symbol": "_validate_profiler_runtime"
+    },
+    {
+      "source": "acprof.host.posthoc.service",
+      "target": "acprof.host.posthoc.storage",
+      "symbol": "_atomic_write_json"
+    },
+    {
+      "source": "acprof.host.posthoc.storage",
+      "target": "acprof.host.posthoc.context",
+      "symbol": "_load_json_object"
+    },
+    {
+      "source": "acprof.host.preflight",
+      "target": "acprof.monitors.perf_mips",
+      "symbol": "_friendly_mips_error"
+    },
+    {
+      "source": "acprof.host.profilers.ncu",
+      "target": "acprof.host.profilers.compute_parsers",
+      "symbol": "_finite_or_none"
+    },
+    {
+      "source": "acprof.host.profilers.ncu",
+      "target": "acprof.host.profilers.compute_parsers",
+      "symbol": "_is_ncu_flop_metric"
+    },
+    {
+      "source": "acprof.host.profilers.ncu",
+      "target": "acprof.host.profilers.compute_parsers",
+      "symbol": "_to_float"
+    },
+    {
+      "source": "acprof.host.profilers.torch",
+      "target": "acprof.host.profilers.compute_parsers",
+      "symbol": "_to_float"
+    },
+    {
+      "source": "acprof.host.static_metadata",
+      "target": "acprof.host.model_schema",
+      "symbol": "_inference_precision_by_device"
+    },
+    {
+      "source": "acprof.host.static_metadata",
+      "target": "acprof.host.model_schema",
+      "symbol": "_model_io_formats"
+    },
+    {
+      "source": "acprof.model_contract",
+      "target": "acprof.runtime_profiles",
+      "symbol": "_transformers_version"
+    },
+    {
+      "source": "acprof.model_metadata_analysis",
+      "target": "acprof.runtime_profiles",
+      "symbol": "_transformers_version"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_metrics",
+      "symbol": "_WindowCounterSnapshots"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_metrics",
+      "symbol": "_apply_window_counter_metrics"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_metrics",
+      "symbol": "_nan_result"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_metrics",
+      "symbol": "_normalize_pstate"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_metrics",
+      "symbol": "_result_from_samples"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_readers",
+      "symbol": "_prepare_cpu_frequency_reader"
+    },
+    {
+      "source": "acprof.monitors.resource_usage",
+      "target": "acprof.monitors.resource_readers",
+      "symbol": "_resolve_container_metric_readers"
+    },
+    {
+      "source": "acprof.plotting.diagnostics",
+      "target": "acprof.plotting.styles",
+      "symbol": "_configurations_with_colors"
+    },
+    {
+      "source": "acprof.plotting.latency",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_model_feature_names"
+    },
+    {
+      "source": "acprof.plotting.latency",
+      "target": "acprof.analysis.latency_model",
+      "symbol": "_predict_latency"
+    },
+    {
+      "source": "acprof.plotting.metrics",
+      "target": "acprof.plotting.styles",
+      "symbol": "_configurations_with_colors"
+    },
+    {
+      "source": "acprof.plotting.metrics",
+      "target": "acprof.plotting.styles",
+      "symbol": "_sort_key"
+    },
+    {
+      "source": "acprof.tui.commands",
+      "target": "acprof.experiment",
+      "symbol": "_csv_values"
+    },
+    {
+      "source": "acprof.tui.diagnostics",
+      "target": "acprof.monitors.energy_cpu",
+      "symbol": "_discover_rapl_domains"
+    },
+    {
+      "source": "acprof.tui.diagnostics",
+      "target": "acprof.tui.commands",
+      "symbol": "_csv_values"
+    }
+  ]
+}
