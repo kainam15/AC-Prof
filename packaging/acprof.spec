@@ -20,6 +20,7 @@ datas = [(str(package / "_bundle"), "acprof/_bundle"),
          (str(package / "extensions"), "acprof/extensions"),
          (str(package / "tui" / "tui.tcss"), "acprof/tui")]
 datas += collect_data_files("textual") + copy_metadata("acprof", recursive=True)
+datas += collect_data_files("acprof.plotting") + collect_data_files("plotly")
 a = Analysis(
     [str(Path(SPECPATH) / "standalone.py")],
     pathex=[str(package.parent)],

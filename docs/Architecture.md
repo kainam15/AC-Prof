@@ -238,6 +238,13 @@ CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采
 `plotting` 内的 `config`、`data`、`styles` 分别管理图表声明、CSV 整理和样式；
 `metrics`、`diagnostics`、`latency` 分别渲染常规指标、诊断图和模型图。
 
+`analysis/model.py` 将历史或当前 CSV 转成统一长表、配置汇总和 Summary，不导入绘图库，
+不回写采集产物。`metric_registry.py` 同时维护采集单位与展示方向、分组、聚合等语义；
+分析专用派生量独立于 `CSV_FIELDS`。`cli/report.py` 负责参数与测量锁，
+`plotting/report.py` 按需加载 Plotly 并内嵌 HTML/CSS/JavaScript；`view_model.js` 集中处理
+baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该入口复用现有 CSV 和布局协议，
+不引入 Web 服务或 TUI 依赖，详见[分析模型](Metrics.md#统一分析模型与精简汇总)。
+
 绘图函数从 `acprof.plotting.data`、`metrics`、`latency` 等模块导入，数值报告从
 `acprof.analysis.latency_report` 导入。`acprof.cli.plot` 只解析参数和调度；已移除
 旧函数包装、`SHOW_PLOTS` / `AGG_FUNC` 全局转发和重复指标清单。

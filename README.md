@@ -145,7 +145,14 @@ Check result completeness, then generate plots for the available data:
 ```bash
 acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
 acprof plot results/first-run/google-bert--bert-base-uncased/result_all.csv
+acprof report results/first-run/google-bert--bert-base-uncased/
 ```
+
+Open the generated `report.html` in a browser to explore the Comparison Matrix, Pareto trade-offs,
+and Scaling views with shared filters and a selectable baseline. The file works offline, including
+in a Windows browser, and preserves the original CSV. Existing reports are not overwritten;
+use `--output another-report.html` for a new snapshot. See [interactive comparison](docs/Metrics.md#交互式配置比较报告)
+for aggregation rules and historical-data limits.
 
 New experiments write plots to `plots/cpu/`, `plots/gpu/`, `plots/gpu+cpu/`, and `plots/latency_model/`, skipping plots without applicable data.
 During collection, results are first written to `.acprof/work/cases/<case-id>/result.csv`; `result_all.csv` is merged after the matrix finishes.

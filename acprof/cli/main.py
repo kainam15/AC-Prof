@@ -13,7 +13,7 @@ COMMANDS = {
     "run": "run", "tui": "tui", "probe": "probe", "plot": "plot", "doctor": "doctor",
     "profile": "posthoc", "audit": "audit", "stats": "stats", "inspect": "inspect", "auto": "auto",
     "coverage": "coverage", "compare": "compare", "load": "load",
-    "model-store": "model_store",
+    "model-store": "model_store", "report": "report",
 }
 WORKERS = {"acprof.host.client", "acprof.packet.sniff_parse_pcap",
            "acprof.packet.merge_packet_latency"}

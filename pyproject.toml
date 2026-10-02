@@ -19,6 +19,7 @@ dependencies = [
     "numpy>=1.24,<3",
     "pandas>=2.0,<4",
     "matplotlib>=3.7,<4",
+    "plotly>=7.1,<8",
     "Pillow>=10.0",
     "nvidia-ml-py>=13.610.43",
 ]

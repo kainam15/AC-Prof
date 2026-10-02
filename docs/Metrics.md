@@ -267,6 +267,99 @@ cycles / ref-cycles 为可选 PMU 事件，不改变 instructions 的必需性�
 
 ## 图表与延迟拟合产物
 
+### 统一分析模型与精简汇总
+
+`acprof.analysis.model.load_analysis()` 将实验目录或 CSV 转为只读 `AnalysisModel`。
+采集 CSV 和字段顺序保持原样；`raw_rows` 保留包括未知扩展列在内的原始行，`records` 提供长表：
+
+```text
+run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
+```
+
+长表同时保留 `config_id`、task、input case、experiment batch、GPU 身份、环境、
+`source`、CSV 行号、`eligible` 和 `evidence`。`source_row` 从 2 开始（第 1 行是表头），
+来源快照记录 CSV SHA256。未记录 run ID 的旧 CSV 使用内容摘要生成 `legacy-*` 标识，
+它只用于定位文件，不证明实验独立性。缺少 model/runtime/concurrency 或环境时保持 unknown/null；
+不能用当前主机身份补全历史实验。相邻 `static_meta.json` 按已有明确字段读取，不要求历史 schema
+升级；未知列完整保留，但已废弃且归因不明的能耗/计算字段不自动映射为当前指标。
+
+`summary` 默认提供 19 列：配置 ID、model/runtime/device、CPU quota、memory cap、GPU 身份，
+应用 P50/P95、samples/s、QPS、CPU/memory/GPU/VRAM peak、cold start、观测总能量、
+观测 energy/request 和 status。完整长表及原始字段仍可由同一模型访问。
+summary 是每个配置的派生数据，不替代主实验 CSV，也不写回原结果。
+
+配置按 run、model、runtime、device、CPU、memory、GPU、concurrency、环境、task、
+input case 和 batch 区分；未显式命名的 input case 由原记录的 input scale、类型、task 参数、
+batch size 和 input units 构成。不同条件不混合求平均。仅 `status=ok`、`warmup=0` 且
+非 `inferred_not_measured` 的行参与汇总；warn/error、warmup、推断和缺失值保持可追溯。
+有成功及失败正式窗口的配置标为 `partial`，没有正式窗口标为 `no_formal_windows`。
+`ok` 仅表示已写入的正式窗口均成功，不证明整个实验计划已完成；完成度仍由原始 run state 和 audit 验收。
+CSV 重复列、损坏行、重复测量键和元数据损坏会明确报错；只读取明确给出的输入，不递归扫描备份目录。
+
+聚合约定：
+
+- 延迟、吞吐、IPC 等对成功窗口等权求均值；P50/P95 是各窗口分位数的均值，不能解释成
+  合并全部请求后的分位数。峰值取成功窗口最大值。每项保留有效/缺失窗口数与 aggregation。
+- Cold start 按 `cold_start_started_at` 去重。同一次启动的冲突值不汇总；历史数据缺少启动时间时，
+  只接受一致的复用值并计为一次观测，不能当成多个独立启动样本。
+- `observed_energy_j` 是成功窗口的 CPU package 与所选 GPU 总能量之和：
+  每行 `(cpu_energy_total_j + gpu_energy_total_j) × repeat_in_window`；CPU-only 行只计 CPU package。
+  GPU 行任一分量缺失、成功窗口能量或实际请求数缺失时，总量 unavailable，避免把部分和呈现为总量。
+  `observed_energy_per_request_j` 对相同窗口按实际请求数加权。未包含 DRAM、启动和窗口外 idle，
+  也不是墙插整机能量；总能量默认 `neutral`，因为窗口数量和持续时间会影响它。
+- QPS 只接受 CSV 显式的 `qps`（request/s）。`throughput_samples_per_s` 保持 sample/s；
+  不通过 batch size 或 latency 猜测并发 QPS。estimated cycles 不补入 PMU cycles/IPC。
+- 长表 evidence 区分 `measured`、`derived`、`inferred_not_measured`，派生能耗保留其范围；
+  数值缺失使用 null，不填 0。本视图不生成 CI，也不将窗口数称为请求样本数。
+
+Metric Registry 在原有采集声明上增加 `label`、`group`、`direction`、`scale`、`summary`
+和 `aggregation`。单位沿用原协议，Dashboard 的标题、单位、颜色方向、默认刻度与预设从同一登记表读取。
+首批覆盖 Performance、Resource、Energy、Startup、CPU PMU、GPU；其余未审定字段保留 neutral。
+CPU/GPU utilization 不默认判定越高或越低越好。
+
+### 交互式配置比较报告
+
+```bash
+acprof report results/<model>/
+acprof report results/run-a/ results/run-b/ --output comparison.html
+acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
+```
+
+默认在第一个实验目录生成新的 `report.html`，已有输出拒绝覆盖。HTML 内嵌数据与 Plotly.js，
+不依赖 CDN、服务器或 GUI；可复制到 Windows 用浏览器直接打开。生成过程在 Linux 遵守主机测量锁，
+不能与同用户正式采集并行。打开浏览器分析也应避开正式测量窗口。
+
+报告聚焦三个视图，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
+input case、experiment batch 和环境筛选；点击表格行或图中点后，其他视图保留同一配置的选中状态。
+
+- **Comparison Matrix**：默认六项 latency/throughput/memory/energy/IPC/startup；显示实际值、
+  单位、状态和窗口数。列标题按数值排序，空值始终置后；可选 Summary、六个指标组或自定义指标。
+  同条件内逐列着色，lower/higher 从 Registry 读取，neutral 与 unavailable 保持灰色；颜色不是跨指标总分。
+- **Baseline**：从任意配置选择，显示绝对值、`current - baseline` 和相对百分比。
+  baseline 为 0 时保留绝对差、百分比 unavailable。不同环境、task 或 input case 不计算差值；
+  unknown 环境限制在同 run 内。`--baseline` 接受 config ID，只有单配置 run 才能直接用 run ID。
+- **Pareto / Trade-off**：四种 latency/throughput 与 energy/memory/VRAM 预设，X/Y 可选，
+  点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较同环境、task、input case
+  下的完整成功配置；unknown 不跨 run，缺失坐标和 partial/failed 不参与支配判断，重复最优点全部保留。
+  neutral 轴只画 scatter，不自动指定优化方向。筛选变化后重新计算 frontier。
+- **Scaling**：CPU cores、memory、concurrency 可作资源轴，其他指标作 Y 轴；按 model/runtime、
+  环境和输入条件分面。每条线固定其他资源、device、GPU 和 run，空值处断线；不跨配置条件连线。
+  历史 CSV 没有 concurrency 时明确显示缺少该资源轴，不推断为 1。
+
+这些比较用于探索已记录数据，不证明不同模型的质量等价、跨实验硬件条件一致或统计显著性。
+独立实验的条件审计和 CI 继续使用[跨独立实验比较](#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
+首期未接入 TUI Results、Run Detail/Profile、原始证据交互钻取或完整 CSV 导出工作流。
+
+实现直接复用 [Plotly](https://github.com/plotly/plotly.py) 的图形与离线 bundle，参考
+[HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py) 和
+[renderer 设计讨论 #1459](https://github.com/plotly/plotly.py/issues/1459)；Pareto 借鉴
+[Optuna 的方向归一化与非支配判断](https://github.com/optuna/optuna/blob/master/optuna/study/_multi_objective.py)
+及[可行性可视化讨论 #2397](https://github.com/optuna/optuna/issues/2397)，没有复制优化器或引入 Optuna。
+两者使用 MIT；Plotly/Optuna 的公开仓库仍在维护。主机锁固定 Plotly 7.1.0（支持本项目 Python 3.10+），
+增加 Plotly 和 narwhals，复用已有 packaging；无 Web 服务、前端构建链或优化框架依赖。
+报告保留 bundle 许可注释并内嵌 [Plotly.js v4.1.1 MIT](https://github.com/plotly/plotly.js/blob/v4.1.1/LICENSE)。
+Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不改变 collector 的测量成本。
+
 ### 只读审计
 
 ```bash

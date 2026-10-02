@@ -128,7 +128,7 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 ## CLI 参数
 
 安装后的统一入口为 `acprof <command>`；公共子命令有 `run`、`tui`、`probe`、`plot`、
-`doctor`、`profile`、`audit`、`stats`、`inspect`、`auto`、`coverage`。现有根脚本仍用于源码运行；所有子命令也可用
+`doctor`、`profile`、`audit`、`stats`、`inspect`、`auto`、`coverage`、`compare`、`load`、`model-store`、`report`。现有根脚本仍用于源码运行；所有子命令也可用
 `python -m acprof <command>` 调用。
 `acprof --version` 查看版本，`acprof <command> --help` 查看对应帮助。
 
@@ -453,6 +453,11 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 | `--compute-profile-cpus` / `--compute-profile-mem` | host 逻辑 CPU / 75% host memory | 临时 compute profiler 的 CPU/内存上限，内存单位 GB。 |
 
 ### 其他入口
+
+`acprof report <实验目录或 CSV> [更多输入 ...]` 生成 Comparison Matrix、Pareto 与 Scaling 的离线 HTML。
+`--output <新文件.html>` 指定输出，默认首个实验目录下 `report.html`，拒绝覆盖已有文件；
+`--baseline <config_id>` 预选配置，单配置 run 也可直接使用 run ID。无需 GUI 或 Web 服务，
+不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](Metrics.md#交互式配置比较报告)。
 
 `plot.py` 接收结果 CSV 路径，`tui.py` 可用 `--model` 预填模型、用 `--preset` 选择预设。
 `audit.py <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`

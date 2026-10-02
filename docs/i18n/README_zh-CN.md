@@ -124,7 +124,13 @@ results/first-run/google-bert--bert-base-uncased/
 ```bash
 acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
 acprof plot results/first-run/google-bert--bert-base-uncased/result_all.csv
+acprof report results/first-run/google-bert--bert-base-uncased/
 ```
+
+用浏览器打开生成的 `report.html`，通过共用筛选和可选 baseline 查看 Comparison Matrix、
+Pareto 取舍及 Scaling 视图。该文件可离线打开，也支持 Windows 浏览器，原始 CSV 保持不变。
+已有报告不会被覆盖；使用 `--output another-report.html` 保存新的快照。
+聚合口径与历史数据边界见[交互式配置比较](../Metrics.md#交互式配置比较报告)。
 
 新实验的图表写入 `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 和 `plots/latency_model/`，没有适用数据的部分会跳过。
 采集过程中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵结束后才合并出 `result_all.csv`。

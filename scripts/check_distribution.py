@@ -33,7 +33,7 @@ def main(argv=None) -> int:
 
         run(["--version"])
         run(["--help"])
-        for command in ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto", "coverage"):
+        for command in ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto", "coverage", "report"):
             run([command, "--help"])
         run(["invalid-command"], accepted=(2,))
         # Simulate a machine without Docker; JSON must still include valid bundled resources.
@@ -43,6 +43,17 @@ def main(argv=None) -> int:
         assert not report["ready"] and report["scope"] == "prerequisites_only", report
         assert next(item for item in report["checks"] if item["name"] == "resources")["status"] == "available", report
         assert all(path.name == "config" for path in workspace.iterdir()), "Help/doctor created result files"
+
+        visualization_source = workspace / "visualization.csv"
+        visualization_source.write_text(
+            "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_p95_s\n"
+            "2,4,off,32,0,0,ok,0.04\n", encoding="utf-8")
+        visualization = workspace / "report.html"
+        run(["report", str(visualization_source), "--output", str(visualization)])
+        html = visualization.read_text(encoding="utf-8")
+        assert "Plotly" in html and "ACProfViews" in html and "report-data" in html
+        assert "__APP__" not in html and "__PLOTLY__" not in html
+        run(["report", str(visualization_source), "--output", str(visualization)], accepted=(1,))
 
         # Exercise the actual child-process dispatcher, not just its command construction.
         source = workspace / "case.csv"

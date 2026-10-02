@@ -200,6 +200,21 @@ git diff --check
 运行该检查；Python 3.10 job 保留容器锁检查。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
 
+离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
+分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互使用 opt-in 测试：
+
+```bash
+# 使用已有 Chrome/Chromium；Playwright 只用于开发验证，不是主机运行依赖。
+.venv/bin/uv pip install --python .venv/bin/python playwright==1.63.0
+ACPROF_BROWSER_TESTS=1 .venv/bin/python scripts/run_tests.py \
+  --pattern test_report_browser.py --report internal-testing/report-browser-tests.json
+```
+
+`ACPROF_BROWSER_EXECUTABLE` 可指定浏览器；默认寻找 google-chrome/chromium，未找到时使用
+Playwright 已安装的 Chromium。测试以离线模式检查排序、baseline=0、mixed-direction Pareto、
+条件隔离、Scaling 分组和窄屏联动；未设置环境变量时明确 skip。headless Chrome 证据不等于
+实际 Windows 浏览器验收，也不证明 Docker/GPU 采集正确。所有验证均避开正式测量锁。
+
 ### 渐进类型检查与边界回归
 
 `requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
