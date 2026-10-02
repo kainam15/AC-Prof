@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 from dataclasses import dataclass, field
@@ -680,7 +681,7 @@ def _plan_nlp_auto_scales(
             "[scale] Auto-planned NLP scales from tokenizer limit "
             f"{max_effective}: {serialize_input_scales(actual_scales)}"
         )
-        print(f"[scale] Scale metadata: {scale_meta['reason']}")
+        logging.getLogger(__name__).debug("scale metadata: %s", scale_meta["reason"])
         return PlannedInputScales(
             scales=actual_scales,
             source="auto",

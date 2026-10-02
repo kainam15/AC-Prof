@@ -1,6 +1,7 @@
 """Exercise the real client loop with failures at its external monitor boundary."""
 import io
 import json
+import logging
 import tempfile
 import unittest
 from contextlib import ExitStack, redirect_stdout
@@ -23,6 +24,7 @@ class MonitorCleanupTests(unittest.TestCase):
         for error in (None, timeout, KeyboardInterrupt()):
             with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
                 events = []
+                window_logs = []
                 monitor = Mock()
                 monitor.start.side_effect = lambda: events.append("start")
                 monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics._nan_result(), "", [])
@@ -46,13 +48,19 @@ class MonitorCleanupTests(unittest.TestCase):
                         return callback(*args, **kwargs)
                     return wrapped
 
+                def capture_log(record):
+                    if "start" in events and "stop" not in events:
+                        window_logs.append((record.name, record.getMessage()))
+
                 with patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200)), patch.object(
                     runner, "_one_request", side_effect=request,
                 ), patch.object(client_publication, "_append_request_window", side_effect=publish(
                     client_publication._append_request_window, "requests",
                 )), patch.object(client_publication, "_append_row", side_effect=publish(
                     client_publication._append_row, "result",
-                )):
+                )), patch.object(logging.Logger, "isEnabledFor", return_value=True), patch.object(
+                    logging.Logger, "handle", side_effect=capture_log,
+                ):
                     if error is None:
                         runner.main()
                     else:
@@ -60,6 +68,7 @@ class MonitorCleanupTests(unittest.TestCase):
                             runner.main()
                 self.assertEqual(events, ["start", "stop", "close", "requests"] +
                                  (["result"] if error is None else []))
+                self.assertEqual(window_logs, [], "even enabled DEBUG handlers must stay outside sampling")
 
     def test_all_preparation_finishes_before_any_sampling(self):
         events = []

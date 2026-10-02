@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -2054,7 +2054,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_container_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stdout(stdout):
+        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,
@@ -2106,7 +2106,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_container_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stdout(stdout):
+        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 task_info=task_info,
                 cpu=1,

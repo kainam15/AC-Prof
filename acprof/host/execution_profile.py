@@ -8,6 +8,7 @@ diagnostic entry rather than aborting the other profiler.
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import shutil
 from time import perf_counter
@@ -350,10 +351,7 @@ def collect_execution_profile_plan(
                         nsys_profile_image,
                         nsys_mount_root,
                     )
-                    print(
-                        "[execution-profile][nsys] QdstrmImporter preflight "
-                        f"passed in {nsys_profile_image}"
-                    )
+                    logging.getLogger(__name__).debug("nsys importer preflight passed: image=%s", nsys_profile_image)
                 except Exception as exc:
                     detail = str(exc)
                     nsys_error = (

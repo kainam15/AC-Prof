@@ -5,6 +5,7 @@ import datetime
 import json
 import math
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -355,7 +356,7 @@ def _probe_memory_candidate(
     }
     print(f"[largest-probe] MEMORY_RESULT mem={mem} status={status}")
     if error:
-        print(f"[largest-probe] Memory {mem}GB: {error}")
+        print(f"[largest-probe] Memory {mem}GB: {error}", file=sys.stderr)
     return attempt, response_payload
 
 
@@ -528,6 +529,6 @@ def run_largest_scale_probe(
     write_probe_summary(summary_path, summary)
     print(_result_marker(summary))
     if error:
-        print(f"[largest-probe][ERROR] {error}")
+        print(f"[largest-probe][ERROR] {error}", file=sys.stderr)
     print(f"[largest-probe] Summary JSON: {summary_path}")
     return summary

@@ -117,7 +117,8 @@ def _check_idle_power_values_stable(
             f"min={min(idle_values):.3f} W, max={max(idle_values):.3f} W, "
             f"mean={mean_idle:.3f} W, relative_range={relative_range * 100.0:.1f}%, "
             f"threshold={threshold * 100.0:.1f}%. This case's energy data may be "
-            f"noisy; experiment will continue. {remediation}"
+            f"noisy; experiment will continue. {remediation}",
+            file=sys.stderr,
         )
         return
 

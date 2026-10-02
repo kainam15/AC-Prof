@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import datetime
 import json
+import logging
 import math
 import os
 import re
@@ -1071,7 +1072,7 @@ def main(config: ClientConfig | None = None) -> None:
     config = ClientConfig.from_env() if config is None else config
     config.validate()
     _ensure_local_proxy_bypass()
-    print(f"[client] PIPELINE_TAG={config.pipeline_tag}", flush=True)
+    logging.getLogger(__name__).debug("client configuration: pipeline_tag=%s", config.pipeline_tag)
     ClientRunner(config).run_cli()
 
 
