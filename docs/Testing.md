@@ -85,6 +85,7 @@ RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-
 
 指标登记表新增字段时，在 `test_metric_registry.py` 中显式列出新增字段，保留历史字段
 顺序的基准哈希；运行 `scripts/render_metric_reference.py` 更新速查文档后再执行 `--check`。
+生成器显式读写 UTF-8，写入无 BOM 的 LF 文本，不依赖 Windows 或 Linux 的默认 locale。
 新字段插入对应用途组，整体 `status`、`error` 保持在最后两列。列顺序调整还需验证
 旧表头的追加、case 合并、packet 回填和 profiler 补采，确保按列名保留数值及未知扩展列。
 
@@ -425,6 +426,8 @@ git diff --check
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
 每个版本将完整测试集按排序后的 test ID 轮转分成四片，保留 20 分钟作业超时。
 所有分片都执行完整 discovery，新增测试会自动分配；不使用手写文件白名单。
+指标文档的编码与同步检查在独立的命名步骤中先于测试分片执行；失败时可直接定位到
+`render_metric_reference.py --check`，不会混入 CLI 帮助步骤。
 每片分别上传 `host.json` 和实时保存的 `host.log`，失败时继续执行其他分片。
 同时运行 `compile_locks.py --check`。七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
@@ -451,6 +454,9 @@ git diff --check
 ```
 
 `run_tests.py` 保留 unittest 输出，并将每项测试的结果、失败/跳过原因、版本及耗时写入 JSON。
+`test_metric_reference.py` 在关闭 UTF-8 mode、启用 `EncodingWarning` 错误的独立进程中
+验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
+工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。
 本地可用 `--shard-index 0 --shard-count 4` 重现一个 CI 分片；省略参数执行完整测试集。
 runner 在进程内为测量锁注入独立临时目录，分片测试互不争用生产锁；生产入口仍固定使用
 `/tmp` 的同用户锁，设置 `TMPDIR` 不能绕过它。直接调用 unittest/pytest 不经过此注入。
@@ -716,6 +722,12 @@ hooks 固定完整 commit SHA，CI 直接执行同一份配置，避免维护第
 profiler 调研了 [NVIDIA nsight-python](https://github.com/NVIDIA/nsight-python)（Apache-2.0）；其 kernel profiling 接口
 不替代现有完整请求和旁路 probe 契约，因此保留 CLI/CSV 集成，提取纯解析与环境发现模块。
 这些选择不增加正式测量窗口内的服务或网络调用，工具和环境验证均在采集前后进行。
+
+生成文档的编码契约参考 [CPython 3.10 pathlib](https://github.com/python/cpython/blob/3.10/Lib/pathlib.py)
+（PSF 许可）和 [PEP 597](https://github.com/python/peps/blob/main/peps/pep-0597.rst)，以及
+[PyPA 对 README 显式使用 UTF-8 的修复](https://github.com/pypa/packaging.python.org/pull/682)。
+采用标准库的显式编码、LF 写入与 `EncodingWarning` 回归保护；兼容 Python 3.10+，
+不复制上游代码、不增加依赖，仅影响开发文档生成和检查。
 
 主机分片沿用 [CPython unittest 的测试集与 fixture 机制](https://github.com/python/cpython/blob/3.12/Lib/unittest/suite.py)
 和 [GitHub Actions matrix](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations)，

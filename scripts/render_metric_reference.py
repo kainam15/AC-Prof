@@ -31,11 +31,15 @@ def main():
     path = ROOT / "docs/Metric_Reference.md"
     content = render()
     if args.check:
-        if not path.exists() or path.read_text() != content:
-            print("指标速查已过期，请运行 python scripts/render_metric_reference.py", file=sys.stderr)
+        try:
+            current = path.read_text(encoding="utf-8")
+        except (FileNotFoundError, UnicodeDecodeError):
+            current = None
+        if current != content:
+            print("指标速查缺失、非 UTF-8 或已过期，请运行 python scripts/render_metric_reference.py", file=sys.stderr)
             return 1
     else:
-        path.write_text(content)
+        path.write_text(content, encoding="utf-8", newline="\n")
     return 0
 
 

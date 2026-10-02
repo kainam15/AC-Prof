@@ -61,20 +61,22 @@ jobs:
       - run: python scripts/compile_locks.py --check
       - run: python scripts/compile_locks.py --host-only --check
         if: matrix.python == '3.12' && matrix.shard == 0
+      - name: 校验指标文档编码与同步状态
+        run: python scripts/render_metric_reference.py --check
       - run: |
           mkdir -p evidence
           python scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count 4 --report evidence/host.json 2>&1 | tee evidence/host.log
         shell: bash
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
-      - run: |
+      - name: 检查 CLI 帮助与源码编译
+        run: |
           python run.py --help
           python probe.py --help
           python profile.py --help
           python plot.py --help
           python audit.py --help
           python stats.py --help
-          python scripts/render_metric_reference.py --check
           python -m compileall -q acprof scripts run.py probe.py profile.py plot.py audit.py stats.py tui.py
           git diff --check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
