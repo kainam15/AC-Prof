@@ -72,9 +72,9 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
             dependency_preflight(task_info, profile)
             from acprof.model_resolution import supports_transformers_task
             from acprof.precision import remote_code_allowed, resolve_precision
-            from acprof.runtime_profiles import _transformers_version
+            from acprof.runtime_profiles import locked_transformers_version
             extension = select_extension(task_info)
-            version = _transformers_version(profile.environment) or ""
+            version = locked_transformers_version(profile.environment) or ""
             config = task_info.model_config or {}
             remote_required = config.get("custom_pipelines") or (config.get("auto_map") and version and
                 supports_transformers_task(version, task, config.get("model_type", ""), config) is not True)

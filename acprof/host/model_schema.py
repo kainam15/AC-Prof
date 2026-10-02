@@ -22,14 +22,14 @@ def _inference_precision_by_device(task_info: TaskInfo) -> dict[str, str]:
         return CATALOG.describe(task_info).precision
     from acprof.failures import RuntimeFailure
     from acprof.precision import resolve_precision
-    from acprof.runtime_profiles import _transformers_version, select_runtime_profile
+    from acprof.runtime_profiles import locked_transformers_version, select_runtime_profile
     profile = select_runtime_profile(task_info)
     extension = CATALOG.describe(task_info).declaration
     values = {}
     for device in ("cpu", "gpu"):
         try:
             values[device] = resolve_precision(profile, extension, device=device, task=task_info.pipeline_tag,
-                model_type=task_info.model_config.get("model_type", ""), version=_transformers_version(profile.environment) or "")["dtype"]
+                model_type=task_info.model_config.get("model_type", ""), version=locked_transformers_version(profile.environment) or "")["dtype"]
         except RuntimeFailure:
             values[device] = "unsupported"
     return values

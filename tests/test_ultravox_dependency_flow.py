@@ -31,7 +31,7 @@ class UltravoxDependencyFlowTests(unittest.TestCase):
             return (FIXTURE / (name + ".txt" if name.endswith(".py") else name)).read_text()
 
         lookup = Mock(side_effect=lambda repo, revision: copy.deepcopy(repositories[repo]))
-        with patch("acprof.runtime_profiles._transformers_version", return_value=version):
+        with patch("acprof.runtime_profiles.locked_transformers_version", return_value=version):
             apply_model_contract(task, read_text, resolve_repository=lookup)
         return task, lookup
 

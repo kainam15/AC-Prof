@@ -220,6 +220,8 @@ machine events 继续由 `RunProgressTracker` 解析。
 （Apache-2.0），仅借鉴所有权与生命周期思路，不引入其调度框架或测量开销。
 
 `runtime_profiles` 使用标准库将 manifest 实例化为 `RuntimeProfile`、`PlatformSpec`、`DependencyEnvironment`；
+公共查询 `locked_transformers_version(environment)` 从所选环境锁读取 Transformers 版本，
+供主机预检、模型契约与容器加载策略共用；保留缓存且不导入推理框架。
 7 个任务族通过逻辑 profile 共享依赖环境，当前数量见[运行配置](Runtime_Compatibility.md#当前配置)。`dependency_locks` 规范化和验证
 制品锁，环境内容身份独立于 profile、adapter、模型及业务代码。主机检测只读元数据；handler 注册表
 供 server、输入规划和 profiler 共用。`extensions/*/manifest.json` 同时提供 config 映射、任务支持、

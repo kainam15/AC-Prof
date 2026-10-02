@@ -138,7 +138,8 @@ DEFAULT_PROFILES = {
 
 
 @lru_cache(maxsize=None)
-def _transformers_version(environment: DependencyEnvironment) -> str | None:
+def locked_transformers_version(environment: DependencyEnvironment) -> str | None:
+    """Read the Transformers pin shared by host preflight and container loading."""
     from acprof.installation import resource_root
     return package_versions(read_python_lock(resource_root() / environment.requirements_lock)).get("transformers")
 
@@ -151,7 +152,7 @@ def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:
     # Custom Auto classes are verified by the selected extension/container.
     if config.get("auto_map") or config.get("custom_pipelines") or (getattr(task_info, "model_resolution", {}) or {}).get("interface_kind") == "custom_pipeline":
         return None
-    version = _transformers_version(profile.environment)
+    version = locked_transformers_version(profile.environment)
     if not version:
         return None
     return supports_transformers_task(version, task_info.pipeline_tag, str(config.get("model_type") or ""), config)

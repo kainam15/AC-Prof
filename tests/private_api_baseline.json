@@ -427,16 +427,6 @@
       "symbol": "_model_io_formats"
     },
     {
-      "source": "acprof.model_contract",
-      "target": "acprof.runtime_profiles",
-      "symbol": "_transformers_version"
-    },
-    {
-      "source": "acprof.model_metadata_analysis",
-      "target": "acprof.runtime_profiles",
-      "symbol": "_transformers_version"
-    },
-    {
       "source": "acprof.monitors.resource_usage",
       "target": "acprof.monitors.resource_metrics",
       "symbol": "_WindowCounterSnapshots"

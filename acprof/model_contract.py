@@ -149,8 +149,8 @@ def resolve_model_contract(task_info, read_text: Callable[[str], str], *, resolv
                                  "source/config analysis + pinned Hub file listing", reason="; ".join(errors))
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 evidence.unresolved("pipeline.source", str(exc), "pinned source analysis")
-    from acprof.runtime_profiles import ENVIRONMENTS, _transformers_version
-    version = _transformers_version(ENVIRONMENTS["custom-multimodal-cpu"]) if config.get("custom_pipelines") else None
+    from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
+    version = locked_transformers_version(ENVIRONMENTS["custom-multimodal-cpu"]) if config.get("custom_pipelines") else None
     return evidence.report(draft_spec=draft, transformers_version=version)
 
 

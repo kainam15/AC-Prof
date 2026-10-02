@@ -336,7 +336,7 @@ def resolve_model_interface(task_info: Any) -> dict:
     """Reject known incompatible layouts; a successful resolution is only a candidate."""
     from acprof.extensions import select_extension
     from acprof.failures import Failure, RuntimeFailure
-    from acprof.runtime_profiles import _transformers_version, select_runtime_profile
+    from acprof.runtime_profiles import locked_transformers_version, select_runtime_profile
 
     require_resolved_candidate(task_info)
     extension = select_extension(task_info)
@@ -380,7 +380,7 @@ def resolve_model_interface(task_info: Any) -> dict:
     format_name, loader, operation = "unknown", backend, "predict"
     profile = select_runtime_profile(task_info)
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
-    version = _transformers_version(profile.environment)
+    version = locked_transformers_version(profile.environment)
     if (extension.handler_options.get("uses_pipeline") and backend not in {"sentence_transformers", "cross_encoder"}
             and pipeline_name not in (config.get("custom_pipelines") or {})
             and version and not supports_pipeline_task(version, pipeline_name)):

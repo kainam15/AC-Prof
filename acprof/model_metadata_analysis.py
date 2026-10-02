@@ -81,11 +81,11 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
                     raise ValueError(f"{filename}: relative source module is missing: {module}")
                 queue.extend(existing)
     from acprof.model_dependency_flow import analyze_dependencies
-    from acprof.runtime_profiles import ENVIRONMENTS, _transformers_version
+    from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())
     evidence.dependency_candidates.extend(analyze_dependencies(
         sources, config, task_info.model_id, files=files, metadata=task_info.repository_metadata,
-        transformers_version=_transformers_version(ENVIRONMENTS["custom-multimodal-cpu"])))
+        transformers_version=locked_transformers_version(ENVIRONMENTS["custom-multimodal-cpu"])))
     # Config references are candidates, not evidence that entire repos must be
     # downloaded. Include those hidden behind helpers for later dependency work.
     def config_references(value, path=""):
