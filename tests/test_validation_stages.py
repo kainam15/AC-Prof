@@ -58,6 +58,24 @@ class ValidationStageTests(unittest.TestCase):
         self.assertEqual(record["stages"][-1]["status"], "error")
         self.assertIn("ValueError: bad input contract", record["error"])
 
+    def test_completion_timeout_records_actual_request_budget(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            payload = Path(directory) / "input.json"
+            payload.write_text('{"text":"hello"}')
+            stack.enter_context(patch("sys.argv", ["runtime_validate", str(payload)]))
+            handler = self.fixtures(stack)
+            stack.enter_context(patch.dict(os.environ, {"ACPROF_REQUEST_TIMEOUT_S": "2.5"}))
+            stack.enter_context(patch("acprof.container.execution.complete_prediction", side_effect=TimeoutError("fixture timeout")))
+            stack.enter_context(patch("acprof.container.runtime_validate.traceback.print_exc"))
+            output = stack.enter_context(redirect_stdout(io.StringIO()))
+            self.assertEqual(runtime_validate.main(), 1)
+            record = json.loads(output.getvalue().split(runtime_validate.RESULT_PREFIX)[1])
+            handler.postprocess.assert_not_called()
+        self.assertEqual(record["failure"]["reason_code"], "request_timeout")
+        self.assertEqual(record["failure"]["evidence"]["timeout_seconds"], 2.5)
+        self.assertEqual(record["failure"]["evidence"]["request_phase"], "completion")
+        self.assertIs(record["failure"]["evidence"]["model_loaded"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

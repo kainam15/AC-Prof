@@ -85,6 +85,7 @@ class ProgressSnapshot:
     interface_status: str = "not_started"
     runtime_status: str = "not_started"
     measurement_status: str = "not_started"
+    failure: dict | None = None
 
 
 class RunProgressTracker:
@@ -97,6 +98,18 @@ class RunProgressTracker:
 
     def feed(self, raw_line: str) -> ProgressSnapshot:
         line = ANSI_ESCAPE_RE.sub("", raw_line).strip()
+        from acprof.failures import FAILURE_PREFIX, Failure
+        if line.startswith(FAILURE_PREFIX):
+            import json
+            try:
+                failure = Failure(**json.loads(line[len(FAILURE_PREFIX):]))
+            except (ValueError, TypeError):
+                return self.snapshot
+            self.snapshot = replace(self.snapshot,
+                stage=message("任务不支持") if failure.stage in {"preflight", "dependency_preflight", "precision_preflight"} else message("运行验证"),
+                detail=f"{failure.reason_code}: {failure.detail}", measurement_active=False,
+                errors=max(1, self.snapshot.errors), failure=failure.to_dict())
+            return self.snapshot
         preparation = parse_preparation_event(line)
         if preparation is not None:
             if self.snapshot.measurement_active:

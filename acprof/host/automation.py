@@ -18,7 +18,13 @@ def check_repository_access(repo_id: str) -> dict:
         HfApi(endpoint=hf_endpoints()[0]).auth_check(repo_id)
     except Exception as exc:
         # Provider exceptions can include URLs/headers. Persist a typed reason only.
-        raise RuntimeError(f"{repo_id}: {type(exc).__name__}; check repository ID, network and authorized HF credentials") from None
+        from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
+
+        from acprof.failures import Failure, RuntimeFailure
+        code = "access_denied" if isinstance(exc, (GatedRepoError, RepositoryNotFoundError, PermissionError)) else "runtime_initialization_failed"
+        raise RuntimeFailure(Failure("access", code,
+            f"{repo_id}: {type(exc).__name__}; check repository ID, network and authorized HF credentials",
+            retryability="after_configuration", exception_type=type(exc).__name__)) from None
     return {"repo_id": repo_id, "status": "accessible", "scope": "repository_read_access_only"}
 
 

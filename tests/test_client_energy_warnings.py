@@ -36,7 +36,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
     def setUp(self):
         from platform_fixtures import native_policy
         native_policy(self)
-        self.runner = ClientRunner(ClientConfig())
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.runner = ClientRunner(ClientConfig(out_csv=os.path.join(temporary.name, "result.csv")))
         gpu_uuid = patch_client(self.runner, "GPU_DEVICE_UUID", "GPU-fixture")
         gpu_uuid.start()
         self.addCleanup(gpu_uuid.stop)

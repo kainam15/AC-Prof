@@ -113,6 +113,8 @@ class ONNXServerCompletionTests(unittest.TestCase):
         status, body = self.request(base)
         self.assertEqual(status, 500)
         self.assertIn('background execution failed', body['error'])
+        self.assertEqual(body['failure']['reason_code'], 'inference_failed')
+        self.assertEqual(body['failure']['stage'], 'completion')
         self.assertNotIn('workload_contract', body)
         self.assertEqual(events, ['submitted'])
 
@@ -122,6 +124,9 @@ class ONNXServerCompletionTests(unittest.TestCase):
         self.assertTrue(entered.is_set())
         self.assertEqual(status, 500)
         self.assertTrue(body['error'], 'timeout needs a diagnostic instead of an empty error')
+        self.assertEqual(body['failure']['reason_code'], 'request_timeout')
+        self.assertEqual(body['failure']['evidence']['timeout_seconds'], 0.2)
+        self.assertIs(body['failure']['evidence']['service_alive'], True)
         self.assertNotIn('workload_contract', body)
         self.assertEqual(events, ['submitted'])
 

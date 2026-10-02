@@ -1004,6 +1004,14 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     except MIPSProfilingError as exc:
         print(f"\n[mips][ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
+    finally:
+        # run_matrix has unwound all measurement/container scopes. Publish
+        # evidence for completed and interrupted cases before any CSV cleanup.
+        from acprof.failures import collect_failures
+        from acprof.quality import collect_quality
+        recorded_cases = [run_state.artifact_path(name) for name in run_state.data["cases"]]
+        collect_quality(Path(output_dir), recorded_cases)
+        collect_failures(Path(output_dir), recorded_cases)
 
     # ── Step 5: Merge all CSVs ──
     if csv_paths:

@@ -13,12 +13,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from acprof.container.runtime_validate import RESULT_PREFIX
+from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
+from acprof.failures import Failure, RuntimeFailure, failure_from_exception
 from acprof.host.command import run_command
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
 
 _LOG = logging.getLogger(__name__)
+
+
+class RuntimeValidationError(RuntimeFailure, RuntimeError):
+    """A persisted runtime failure, including an inconclusive timeout."""
 
 
 def validate_runtime(
@@ -63,6 +68,7 @@ def validate_runtime(
     from acprof.artifact_layout import ArtifactLayout
     layout = ArtifactLayout.discover(root)
     failure = None
+    structured_failure = None
     with tempfile.TemporaryDirectory(prefix="acprof-runtime-validation-") as temporary:
         payload = Path(temporary) / "payload.json"
         payload.write_bytes(encoded)
@@ -100,6 +106,9 @@ def validate_runtime(
                 state = inspect_container_state(name) or {}
                 if state.get("OOMKilled"):
                     device_result = {"status": "resource_limit", "error": "validation_container_oom", "mem_cap_gb": max(mem_list)}
+                    device_result["failure"] = Failure("runtime_validation", "resource_limit", "validation_container_oom",
+                        device_mode, task_info.runtime_profile_id, "higher_budget",
+                        {"docker_state": state, "mem_cap_gb": max(mem_list), "measured_oom": True}).to_dict()
                 elif records:
                     device_result = json.loads(records[-1])
                     if not isinstance(device_result, dict) or device_result.get("status") not in {"ok", "error"}:
@@ -118,29 +127,68 @@ def validate_runtime(
                             raise ValueError("incomplete contract validation response")
                 else:
                     device_result = {"status": "error", "error": log[-4000:] or f"container exit {result.returncode}"}
+                from acprof.quality import cli_exit_quality
+                device_result.setdefault("quality_checks", []).extend(cli_exit_quality(result.returncode, source=name))
+                if device_result.get("failure"):
+                    value = Failure(**device_result["failure"])
+                    if value.reason_code == "request_timeout":
+                        from dataclasses import replace
+                        stages = device_result.get("stages", [])
+                        value = replace(value, evidence={
+                            "timeout_seconds": None, "request_phase": device_result.get("failed_stage", "unknown"),
+                            "model_loaded": True if any(s.get("stage") == "load" and s.get("status") == "verified" for s in stages) else None,
+                            "service_alive": state.get("Running"), **value.evidence,
+                            "request_id": name, "input_scale": entry["input_scale"]})
+                        device_result["status"] = "inconclusive"
+                    device_result["failure"] = value.to_dict()
             except subprocess.TimeoutExpired as exc:
                 _LOG.debug("runtime validation timeout: mode=%s timeout_s=%s", device_mode, timeout_seconds)
                 def decoded(value):
                     return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
 
                 log = decoded(exc.stdout) + "\n" + decoded(exc.stderr)
-                device_result = {"status": "error", "error": f"runtime_validation_timeout ({timeout_seconds:g}s)"}
+                stages = []
+                for line in log.splitlines():
+                    if line.startswith(STAGE_PREFIX):
+                        try:
+                            record = json.loads(line[len(STAGE_PREFIX):])
+                            if isinstance(record, dict):
+                                stages.append(record)
+                        except ValueError:
+                            pass
+                state = inspect_container_state(name) or {}
+                detail = f"runtime_validation_timeout ({timeout_seconds:g}s); compatibility budget exhausted"
+                value = Failure("runtime_validation", "compatibility_budget_exhausted", detail, device_mode,
+                    task_info.runtime_profile_id, "higher_budget", {
+                        "timeout_seconds": timeout_seconds, "request_phase": stages[-1].get("stage", "unknown") if stages else "unknown",
+                        "request_id": name, "input_scale": entry["input_scale"],
+                        "model_loaded": True if any(s.get("stage") == "load" and s.get("status") == "verified" for s in stages) else None,
+                        "service_alive": state.get("Running"), "timeout_scope": "compatibility_budget", "stages": stages})
+                device_result = {"status": "inconclusive", "error": detail, "failure": value.to_dict()}
             except (ValueError, OSError, TypeError, AttributeError) as exc:
                 _LOG.debug("runtime validation failed: mode=%s error_type=%s", device_mode, type(exc).__name__)
                 device_result = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
             finally:
                 run_command(["docker", "rm", "-f", name], capture_output=True, text=True)
+            if device_result["status"] == "error" and "failure" not in device_result:
+                device_result["failure"] = failure_from_exception(
+                    RuntimeError(device_result.get("error", "runtime validation failed")),
+                    stage=device_result.get("failed_stage", "runtime_validation"), device=device_mode,
+                    runtime_profile=task_info.runtime_profile_id).to_dict()
             log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_path.write_text(log)
             report["devices"][device_mode] = device_result
-            if device_result["status"] == "error":
+            if device_result["status"] in {"error", "inconclusive"}:
                 failure = f"{device_mode}: {device_result.get('error', 'runtime validation failed')}"
+                structured_failure = Failure(**device_result["failure"])
                 break
             print(f"[runtime-check] {device_mode}: {device_result['status']}", flush=True)
     report["status"] = "error" if failure else (
         "ok" if all(item["status"] == "ok" for item in report["devices"].values()) else "resource_limited"
     )
+    if any(item["status"] == "inconclusive" for item in report["devices"].values()):
+        report["status"] = "inconclusive"
     from acprof.artifacts import atomic_write_json
     atomic_write_json(layout.path("runtime_validation.json"), report)
     if getattr(task_info, "model_resolution", {}):
@@ -148,5 +196,5 @@ def validate_runtime(
         record_runtime_validation(task_info, report)
         write_model_resolution(task_info, root)
     if failure:
-        raise RuntimeError(f"运行环境验证失败，未进入资源矩阵。{failure}\n完整日志：{layout.path('runtime_validation.json')}")
+        raise RuntimeValidationError(structured_failure)
     return report

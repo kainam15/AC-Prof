@@ -239,7 +239,7 @@ def apply_extension(report: CapabilityReport, extension: Any) -> None:
 def apply_runtime_validation(report: CapabilityReport, validation: Mapping, *, environment_id="") -> None:
     for device, result in validation.get("devices", {}).items():
         name = {"off": "cpu", "on": "cuda"}.get(device, device)
-        evidence = {"environment_id": environment_id, **result}
+        evidence = {"environment_id": environment_id, **{key: value for key, value in result.items() if key != "quality_checks"}}
         if result.get("status") == "ok":
             output_validation = result.get("validation")
             verified = isinstance(output_validation, Mapping) and all(
@@ -251,8 +251,13 @@ def apply_runtime_validation(report: CapabilityReport, validation: Mapping, *, e
                 detail="" if verified else "runtime returned ok without complete protocol/task validation evidence",
                 source="runtime_probe", evidence=evidence,
             )
-        elif result.get("status") == "resource_limit":
-            capability = Capability("unavailable", "validation resource limit", "runtime_probe", evidence)
+        elif result.get("status") in {"resource_limit", "inconclusive"}:
+            capability = Capability("unavailable", result.get("failure", {}).get("reason_code", result["status"]), "runtime_probe", evidence)
+        elif result.get("failure"):
+            failure = result["failure"]
+            status = {"access_denied": "permission_denied", "runtime_task_unsupported": "unsupported",
+                      "runtime_dependency_missing": "unavailable", "model_contract_required": "unavailable"}.get(failure["reason_code"], "error")
+            capability = Capability(status, failure["detail"], "runtime_probe", evidence)
         else:
             error = capability_from_error(result.get("error") or "runtime validation failed", source="runtime_probe")
             capability = Capability(error.status, error.detail, error.source, evidence)

@@ -120,11 +120,15 @@ def ready():
 @app.route("/predict", methods=["POST"])
 def predict():
     data = _request_json_body()
+    stage = "preprocess"
     try:
         processed = handler.preprocess(model_ctx, data)
+        stage = "predict"
         with execution.inference_context():
             output = handler.predict(model_ctx, processed)
+            stage = "completion"
             output = complete_prediction(execution, model_ctx, output)
+        stage = "postprocess"
         result = handler.postprocess(model_ctx, output)
         result["workload_contract"] = workload_contract(model_ctx, data, processed, result)
         metadata = _extract_probe_metadata(processed)
@@ -133,7 +137,23 @@ def predict():
             result["effective_input_scale"] = effective_input_scale
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _failure_response(e, stage, data)
+
+
+def _failure_response(exc, stage, data):
+    from acprof.failures import failure_from_exception
+    failure = failure_from_exception(exc, stage=stage, device=device,
+        runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""), evidence={
+            "request_id": request.headers.get("X-Req-Id"), "input_scale": data.get("input_scale"),
+            "request_phase": stage, "model_loaded": True, "service_alive": True})
+    if failure.reason_code == "request_timeout":
+        from dataclasses import replace
+
+        from acprof.runtime_settings import request_timeout_s
+        failure = replace(failure, evidence={**failure.evidence,
+            "timeout_seconds": request_timeout_s() if stage == "completion" else None,
+            "timeout_scope": "completion_wait" if stage == "completion" else "unknown"})
+    return jsonify({"error": str(exc), "failure": failure.to_dict()}), 500
 
 
 @app.route("/probe", methods=["POST"])
@@ -145,7 +165,7 @@ def probe():
     except InputLimitError as e:
         return jsonify(e.probe_metadata)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _failure_response(e, "preprocess", data)
 
 
 @app.route("/scale_meta", methods=["GET", "POST"])
@@ -155,7 +175,7 @@ def scale_meta():
         metadata = handler.get_scale_metadata(model_ctx, data)
         return jsonify(metadata)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _failure_response(e, "metadata", data)
 
 
 @app.route("/meta")

@@ -61,7 +61,7 @@ class RunRecoveryTests(unittest.TestCase):
             return str(path)
         self.invoke(case=with_samples)
         self.assertEqual({p.name for p in self.directory.iterdir() if p.is_file()},
-                         {"result_all.csv", "static_meta.json", "capability_report.json", "result_manifest.json"})
+                         {"result_all.csv", "static_meta.json", "capability_report.json", "result_manifest.json", "quality_checks.json"})
         for cpu in (1, 2):
             sample = self.directory / f"raw/requests/{cpu}c_4g_off.jsonl"
             self.assertEqual(json.loads(sample.read_text())["latency_app_s"], [0.1])
@@ -211,14 +211,19 @@ class RunRecoveryTests(unittest.TestCase):
         self.assert_missing_required_measurements_rejected("basic")
 
     def test_resume_keeps_completed_case_and_restarts_interrupted_case(self):
+        from acprof.analysis.audit import audit_result
+        from acprof.failures import Failure
+        failure = Failure("predict", "inference_failed", "fixture failure").to_dict()
         def interrupted(**kwargs):
             path = self.write_case(**kwargs)
             if kwargs["cpu"] == 2:
                 Path(path).with_name("requests.jsonl").write_text('{"partial":true}\n')
+                Path(path).with_name("runtime_failures.json").write_text(json.dumps({"failures": [failure]}))
                 raise KeyboardInterrupt()
             return path
         with self.assertRaises(KeyboardInterrupt):
             self.invoke(case=interrupted)
+        self.assertEqual(audit_result(self.directory)["failures"], [failure])
         original_meta = (self.directory / "static_meta.json").read_bytes()
         self.calls.clear()
         self.invoke("--resume")
@@ -230,6 +235,9 @@ class RunRecoveryTests(unittest.TestCase):
         archived_samples = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("requests.jsonl"))
         self.assertEqual(len(archived_samples), 1)
         self.assertEqual(archived_samples[0].read_text(), '{"partial":true}\n')
+        self.assertEqual(audit_result(self.directory)["failures"], [])
+        archived_failures = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("runtime_failures.json"))
+        self.assertEqual(json.loads(archived_failures[0].read_text())["failures"], [failure])
 
     def interrupt_after_first(self):
         def interrupted(**kwargs):

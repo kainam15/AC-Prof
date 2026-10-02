@@ -1501,6 +1501,9 @@ class DetectEnvironmentTests(unittest.TestCase):
         self.assertEqual(captured_env["REPEAT_WINDOW_SECONDS"], "10.0")
 
     def test_run_single_case_aborts_when_client_exits_nonzero(self) -> None:
+        from acprof.artifact_layout import case_sidecar
+        from acprof.failures import Failure, RuntimeFailure
+        recorded_failure = None
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",
             pipeline_tag="fill-mask",
@@ -1513,6 +1516,9 @@ class DetectEnvironmentTests(unittest.TestCase):
 
         def fake_run(cmd, check=True, capture=True, **kwargs):
             if cmd and cmd[-2:] == ["-m", "acprof.host.client"]:
+                if recorded_failure is not None:
+                    case_sidecar(kwargs["env"]["OUT_CSV"], "runtime_failures").write_text(
+                        json.dumps({"failures": [recorded_failure.to_dict()]}))
                 return SimpleNamespace(returncode=7, stdout="", stderr="idle unstable")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -1530,23 +1536,28 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
-            with self.assertRaises(orchestrator.EnergyProfilingError) as raised:
-                orchestrator.run_single_case(
-                    task_info=task_info,
-                    cpu=1,
-                    mem=4,
-                    gpu="on",
-                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                    output_dir=self.output_dir,
-                    project_dir=".",
-                    warmup=0,
-                    repeat=1,
-                    repeat_in_window=0,
-                    input_scales="64",
-                    require_packet_latency=False,
-                )
-
-        self.assertIn("client.py exited with code 7", str(raised.exception))
+            for recorded_failure in (None, Failure("predict", "inference_failed", "typed inference error")):
+                with self.subTest(failure=recorded_failure), self.assertRaises(
+                    RuntimeFailure if recorded_failure else orchestrator.EnergyProfilingError
+                ) as raised:
+                    orchestrator.run_single_case(
+                        task_info=task_info,
+                        cpu=1,
+                        mem=4,
+                        gpu="on",
+                        image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
+                        output_dir=self.output_dir,
+                        project_dir=".",
+                        warmup=0,
+                        repeat=1,
+                        repeat_in_window=0,
+                        input_scales="64",
+                        require_packet_latency=False,
+                    )
+                if recorded_failure:
+                    self.assertEqual(raised.exception.failure, recorded_failure)
+                else:
+                    self.assertIn("client.py exited with code 7", str(raised.exception))
 
     def test_run_single_case_records_runtime_oom_before_mips_failure(self) -> None:
         task_info = TaskInfo(

@@ -9,6 +9,7 @@ import traceback
 from typing import Any
 
 RESULT_PREFIX = "ACPROF_RUNTIME_VALIDATION="
+STAGE_PREFIX = "ACPROF_RUNTIME_STAGE="
 
 
 def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
@@ -20,6 +21,7 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
     stages = [] if stages is None else stages
 
     def check(stage, operation):
+        print(STAGE_PREFIX + json.dumps({"stage": stage, "status": "running"}), flush=True)
         try:
             result = operation()
         except Exception as exc:
@@ -27,6 +29,7 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
             # Preserve typed errors, especially TimeoutError used by callers.
             raise
         stages.append({"stage": stage, "status": "verified"})
+        print(STAGE_PREFIX + json.dumps(stages[-1]), flush=True)
         return result
 
     use_gpu = os.getenv("USE_GPU", "0") == "1"
@@ -65,9 +68,11 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
 
     validation = check("validate_output", validate_output)
     runtime_metadata = check("metadata", execution.metadata)
+    from acprof.container.load_policy import actual_dtype
     return {
         "status": "ok", "mode": "full", "device": device, "stages": stages,
-        "dtype": str(getattr(context.get("model"), "dtype", context.get("dtype", "unknown"))),
+        "dtype": actual_dtype(context),
+        "quality_checks": context.get("quality_checks", []),
         "attention_implementation": context.get("attention_implementation", "model_default"),
         **runtime_metadata, "validation": validation,
         "runtime_parameters": context.get("runtime_parameters", runtime_metadata.get("runtime_parameters", {})),
@@ -94,6 +99,21 @@ def main() -> int:
         result: dict[str, Any] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
         result.update(failed_stage=stages[-1]["stage"] if stages and stages[-1]["status"] == "error" else "input_or_execution_context",
                       stages=stages)
+        from acprof.failures import failure_from_exception
+        failure = failure_from_exception(exc, stage=result["failed_stage"],
+            device="cuda" if os.getenv("USE_GPU") == "1" else "cpu",
+            runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""))
+        if failure.reason_code == "request_timeout":
+            from dataclasses import replace
+
+            from acprof.runtime_settings import request_timeout_s
+            completion = result["failed_stage"] == "completion"
+            failure = replace(failure, evidence={**failure.evidence,
+                "timeout_seconds": request_timeout_s() if completion else None,
+                "timeout_scope": "completion_wait" if completion else "unknown",
+                "request_phase": result["failed_stage"],
+                "model_loaded": True if any(s["stage"] == "load" and s["status"] == "verified" for s in stages) else None})
+        result["failure"] = failure.to_dict()
     print(RESULT_PREFIX + json.dumps(result, ensure_ascii=False), flush=True)
     return 0 if result["status"] == "ok" else 1
 

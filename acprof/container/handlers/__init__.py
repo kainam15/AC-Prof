@@ -148,7 +148,9 @@ def load_handler(handler: BaseHandler, model_source: str, task_type: str, backen
     """Keep dependency failures during model loading as explicit as lazy import failures."""
     module_name = type(handler).__module__
     try:
-        context = handler.load(model_source, task_type, backend, device, model_revision, **load_kwargs)
+        from acprof.container.loading_quality import capture_loading_quality
+        with capture_loading_quality(backend) as checks:
+            context = handler.load(model_source, task_type, backend, device, model_revision, **load_kwargs)
     except HandlerRegistrationError:
         raise
     except ModuleNotFoundError as exc:
@@ -172,6 +174,7 @@ def load_handler(handler: BaseHandler, model_source: str, task_type: str, backen
         ) from exc
     if not isinstance(context, dict):
         raise HandlerInitializationError(f"backend: {backend}; module: {module_name}; handler.load must return a dict")
+    context["quality_checks"] = [*context.get("quality_checks", []), *checks]
     declaration = handler_declaration(task_type, backend)
     model_spec_format = declaration.handler_options.get("model_spec_format")
     if model_spec_format:

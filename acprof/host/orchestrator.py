@@ -111,6 +111,12 @@ def _check_idle_power_values_stable(
 
     relative_range = (max(idle_values) - min(idle_values)) / mean_idle
     if relative_range >= threshold:
+        from acprof.artifact_layout import case_sidecar
+        from acprof.quality import QualityCheck, write_quality
+        write_quality(case_sidecar(csv_path, "quality_checks"), [QualityCheck(
+            "cpu_idle_baseline_unstable" if metric_name == "cpu_idle_power_w" else "gpu_idle_baseline_unstable",
+            "warning", relative_range, threshold, "Idle baseline relative range exceeds the case threshold",
+            {"source": csv_path, "metric": metric_name, "values_w": idle_values, "formula": "(max-min)/mean"}).to_dict()], append=True)
         print(
             f"[energy][WARN] {metric_name} case check warning: "
             f"csv={csv_path}, {metric_name}={_format_watts(idle_values)} W, "
@@ -403,6 +409,7 @@ def run_single_case(
             **os.environ,
             "MODEL_ID": task_info.model_id,
             "MODEL_REVISION": task_info.model_revision,
+            "ACPROF_RUNTIME_PROFILE": task_info.runtime_profile_id,
             "TASK_FAMILY": task_info.task_family,
             "PIPELINE_TAG": task_info.pipeline_tag,
             "RUNTIME_BACKEND": task_info.runtime_backend,
@@ -502,12 +509,19 @@ def run_single_case(
                     preserve_existing=True,
                     timeout_context=timeout_context,
                 )
-            elif client_result.returncode == MIPS_EXIT_CODE:
-                raise MIPSProfilingError(
-                    "client.py exited because MIPS profiling failed; review the "
-                    "[mips][ERROR] output above for the perf remediation steps."
-                )
             else:
+                from acprof.artifact_layout import case_sidecar
+                from acprof.failures import Failure, RuntimeFailure
+                failure_path = case_sidecar(out_csv, "runtime_failures")
+                if failure_path.is_file():
+                    failures = json.loads(failure_path.read_text()).get("failures", [])
+                    if failures:
+                        raise RuntimeFailure(Failure(**failures[-1]))
+                if client_result.returncode == MIPS_EXIT_CODE:
+                    raise MIPSProfilingError(
+                        "client.py exited because MIPS profiling failed; review the "
+                        "[mips][ERROR] output above for the perf remediation steps."
+                    )
                 raise EnergyProfilingError(
                     "client.py exited with code "
                     f"{client_result.returncode}; aborting profiling matrix. "

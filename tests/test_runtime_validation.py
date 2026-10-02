@@ -100,11 +100,54 @@ class RuntimeValidationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
-        ):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
             with self.assertRaisesRegex(RuntimeError, 'timeout'):
                 validate_runtime(**self.fixture(Path(temporary)))
             self.assertIn('loading processor', (Path(temporary) / 'runtime_validation_off.log').read_text())
         self.assertEqual(commands[-1][:3], ['docker', 'rm', '-f'])
+
+    def test_compatibility_timeout_is_inconclusive_with_phase_evidence(self):
+        def run(command, **kwargs):
+            if command[:2] == ['docker', 'run']:
+                raise subprocess.TimeoutExpired(command, 60, output=(
+                    b'ACPROF_RUNTIME_STAGE={"stage":"load","status":"verified"}\n'
+                    b'ACPROF_RUNTIME_STAGE={"stage":"predict","status":"running"}\n'))
+            return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'acprof.host.runtime_validation.run_command', side_effect=run,
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={'Running': True}):
+            root = Path(directory)
+            with self.assertRaises(RuntimeError):
+                validate_runtime(**self.fixture(root))
+            report = json.loads((root / 'runtime_validation.json').read_text())
+        self.assertEqual(report['status'], 'inconclusive')
+        failure = report['devices']['off']['failure']
+        self.assertEqual(failure['reason_code'], 'compatibility_budget_exhausted')
+        self.assertEqual(failure['evidence']['request_phase'], 'predict')
+        self.assertIs(failure['evidence']['model_loaded'], True)
+        self.assertIs(failure['evidence']['service_alive'], True)
+
+        # A timeout returned by the container is distinct from the outer
+        # compatibility budget, but is equally inconclusive for compatibility.
+        from acprof.failures import Failure
+        response = {"status": "error", "failed_stage": "completion", "stages": [
+            {"stage": "load", "status": "verified"}, {"stage": "completion", "status": "error"}],
+            "failure": Failure("completion", "request_timeout", "fixture", evidence={
+                "timeout_seconds": 2.5, "timeout_scope": "completion_wait", "model_loaded": True}).to_dict()}
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'acprof.host.runtime_validation.run_command', return_value=subprocess.CompletedProcess(
+                [], 1, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(response), stderr=''),
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={'Running': False}):
+            root = Path(directory)
+            with self.assertRaises(RuntimeError):
+                validate_runtime(**self.fixture(root))
+            report = json.loads((root / 'runtime_validation.json').read_text())
+        self.assertEqual(report['status'], 'inconclusive')
+        evidence = report['devices']['off']['failure']['evidence']
+        self.assertEqual(evidence['timeout_seconds'], 2.5)
+        self.assertEqual(evidence['input_scale'], 1)
+        self.assertTrue(evidence['request_id'].startswith('acprof-validate-'))
+        self.assertEqual(evidence['request_phase'], 'completion')
 
     def test_invalid_validation_response_keeps_report_and_cleans_container(self):
         result = subprocess.CompletedProcess([], 0, stdout='ACPROF_RUNTIME_VALIDATION=[]\n', stderr='')

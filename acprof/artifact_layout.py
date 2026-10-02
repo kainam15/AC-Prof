@@ -181,8 +181,9 @@ def case_sidecar(csv_path: str | Path, kind: str) -> Path:
     path = Path(csv_path)
     if path.name == "result.csv" and path.parent.parent.parts[-3:] == (".acprof", "work", "cases"):
         return path.with_name({"requests": "requests.jsonl", "sniff_groups": "sniff_groups.jsonl",
-                               "client_error": "client_error.json"}[kind])
-    return Path(f"{path}.{kind}.{'json' if kind == 'client_error' else 'jsonl'}")
+                               "client_error": "client_error.json", "quality_checks": "quality_checks.json",
+                               "runtime_failures": "runtime_failures.json"}[kind])
+    return Path(f"{path}.{kind}.{'json' if kind in {'client_error', 'quality_checks', 'runtime_failures'} else 'jsonl'}")
 
 
 @dataclass(frozen=True)
@@ -222,7 +223,8 @@ class CaseArtifacts:
 
     def temporary_files(self) -> list[Path]:
         return [self.csv, self.sidecar("sniff_groups"), self.sidecar("client_error"),
-                self.requests, self.pcap, self.latency, Path(f"{self.csv}.merged")]
+                self.requests, self.pcap, self.latency, Path(f"{self.csv}.merged"),
+                self.sidecar("quality_checks"), self.sidecar("runtime_failures")]
 
     def retain_requests(self) -> None:
         """Durably publish completed request samples before the case checkpoint."""

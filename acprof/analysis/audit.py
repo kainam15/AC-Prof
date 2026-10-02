@@ -128,6 +128,19 @@ def audit_result(source: str | Path) -> dict:
         return report
     report["layout_version"] = layout.layout_version
     metadata = read_json("static_meta.json")
+    validation = read_json("runtime_validation.json")
+    resolution = read_json("model_resolution.json")
+    report["failures"] = [item["failure"] for item in validation.get("devices", {}).values() if item.get("failure")]
+    report["failures"].extend(read_json("runtime_failures.json").get("failures", []))
+    if resolution.get("failure"):
+        report["failures"].append(resolution["failure"])
+    report["quality_checks"] = read_json("quality_checks.json").get("checks", [])
+    if not report["quality_checks"]:
+        report["quality_checks"] = [check for item in validation.get("devices", {}).values() for check in item.get("quality_checks", [])]
+    for failure in report["failures"]:
+        issue(failure["reason_code"], failure["detail"], failure=failure)
+    for check in report["quality_checks"]:
+        issue(check["code"], check["detail"], severity=check["severity"], quality_check=check)
     report.update(recorded_identity(metadata))
     state = read_json("run_state.json")
     if state:

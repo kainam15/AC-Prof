@@ -213,6 +213,7 @@ class ClientRunner:
         self.collection_environment = detect_environment()
         self.first_predict_app_s = float("nan")
         self.input_scale_entries: List[Dict[str, Any]] = []
+        self.runtime_failures: List[Dict[str, Any]] = []
         self.use_energy = config.gpu_mode == "on"
         self.energy_mod = self._monitor_module("energy_nvml") if self.use_energy else None
         self.cpu_energy_mod = self._monitor_module("energy_cpu")
@@ -256,9 +257,6 @@ class ClientRunner:
         }
 
     def _write_client_error_sidecar(self, exc: RequestTimeoutAbort) -> None:
-        if not self.config.client_error_path:
-            return
-
         payload = {
             "schema_version": 1,
             "error_type": "client_request_timeout",
@@ -270,6 +268,16 @@ class ClientRunner:
             "timeout_semantics": "connect_or_read_inactivity",
             **_request_phase_context(exc.request_id),
         }
+        from acprof.failures import Failure
+        payload["failure"] = Failure("request", "request_timeout", str(exc), self.config.gpu_mode,
+            os.getenv("ACPROF_RUNTIME_PROFILE", ""), "higher_budget", {
+                "timeout_seconds": exc.timeout_s, "request_phase": payload["request_phase"],
+                "request_id": exc.request_id, "input_scale": exc.input_scale,
+                "model_loaded": True, "service_alive": None,
+                "timeout_scope": "connect_or_read_inactivity"}).to_dict()
+        self.runtime_failures.append(payload["failure"])
+        if not self.config.client_error_path:
+            return
         os.makedirs(os.path.dirname(self.config.client_error_path) or ".", exist_ok=True)
         tmp_path = f"{self.config.client_error_path}.tmp-{os.getpid()}"
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -349,9 +357,18 @@ class ClientRunner:
         t1 = time.perf_counter()
         if r.status_code >= 400:
             try:
-                detail = r.json().get("error", "")
+                response = r.json()
+                detail = response.get("error", "")
             except Exception:
+                response = {}
                 detail = r.text[:500]
+            if isinstance(response.get("failure"), dict):
+                from dataclasses import replace
+
+                from acprof.failures import Failure, RuntimeFailure
+                failure = Failure(**response["failure"])
+                raise RuntimeFailure(replace(failure, evidence={**failure.evidence, "input_scale": float(scale_value),
+                    "request_id": req_id, "request_phase": _request_phase_context(req_id)["request_phase"]}))
             raise RuntimeError(f"HTTP {r.status_code}: {detail or r.reason}")
         resp = r.json()
         request_latency_s = t1 - t0
@@ -810,6 +827,9 @@ class ClientRunner:
         except Exception as e:
             if self._is_mips_error(e):
                 raise MIPSAbort(str(e)) from None
+            from acprof.failures import RuntimeFailure
+            if isinstance(e, RuntimeFailure):
+                self.runtime_failures.append(e.failure.to_dict())
             status = "error"
             err_msg = repr(e)
             throughput = float("nan")
@@ -1039,8 +1059,12 @@ class ClientRunner:
                     )
 
     def run_cli(self) -> None:
+        from acprof.failures import FAILURE_PREFIX, RuntimeFailure
         try:
             self.main()
+        except RuntimeFailure as exc:
+            self.runtime_failures.append(exc.failure.to_dict())
+            raise SystemExit(1) from None
         except RequestTimeoutAbort as exc:
             try:
                 self._write_client_error_sidecar(exc)
@@ -1066,6 +1090,13 @@ class ClientRunner:
                 print(f"[mips][ERROR] {message}", file=sys.stderr)
             exit_code = getattr(self.perf_mips_mod, "MIPS_EXIT_CODE", 8) if self.perf_mips_mod else 8
             raise SystemExit(exit_code) from None
+        finally:
+            if self.runtime_failures:
+                from acprof.artifacts import atomic_write_json
+                atomic_write_json(case_sidecar(self.config.out_csv, "runtime_failures"),
+                                  {"schema_version": 1, "failures": self.runtime_failures})
+                for failure in self.runtime_failures:
+                    print(FAILURE_PREFIX + json.dumps(failure, ensure_ascii=False), file=sys.stderr)
 
 
 def main(config: ClientConfig | None = None) -> None:
