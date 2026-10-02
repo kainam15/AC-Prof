@@ -294,6 +294,8 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 | --- | --- |
 | `result_manifest.json` | Artifact Layout v2 的路径契约，不代表文件已生成或测量成功。 |
 | `capability_report.json` | 本次采集的能力状态及实际完整性，和静态元数据中的准备阶段快照分开。 |
+| `quality_checks.json` | 独立 schema v1 的质量观察；普通 warning 不撤销已验证 Capability 或 `full_profile_complete`。 |
+| `runtime_failures.json` | 存在正式请求失败时汇总的 typed failure 列表，保留请求 ID、阶段与环境；不改变测量 CSV 数值协议。 |
 | `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
 | `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
 | `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
@@ -516,7 +518,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 也不能追溯本地 cache 最初从哪里取得文件。历史清单缺失时视为 unknown，不默认补成官方或镜像。
 主地址和显式备用列表参与模型层、服务层指纹；下载失败不发布已验证清单或模型镜像。
 
-`runtime_validation.json` 使用独立 schema v1：`devices.off/on` 分别保存 CPU／GPU 的 `ok`、`error` 或明确 cgroup OOM 的 `resource_limit`；总状态为 `ok`、`error` 或 `resource_limited`。每个模式只执行一次最小计划输入，资源上限为本次配置的最大 CPU／内存。错误会在矩阵之前退出；资源限制允许正式矩阵继续测定 OOM 边界。stdout/stderr 保存在 `runtime_validation_off/on.log`，超时也清理验证容器。它们不是 warmup、测量行或 profiler 结果。验证前已有的结果不因此变为本次成功结果。
+`runtime_validation.json` 使用独立 schema v1：`devices.off/on` 分别保存 CPU／GPU 的 `ok`、`error`、`inconclusive` 或明确 cgroup OOM 的 `resource_limit`；总状态为 `ok`、`error`、`inconclusive` 或 `resource_limited`。每个模式只执行一次最小计划输入，资源上限为本次配置的最大 CPU／内存。错误或验证预算耗尽会在矩阵之前退出；已观测的资源限制允许正式矩阵继续测定 OOM 边界。stdout/stderr 保存在 `runtime_validation_off/on.log`，超时也清理验证容器。它们不是 warmup、测量行或 profiler 结果。验证前已有的结果不因此变为本次成功结果。
 
 每个设备的可选 `stages` 依次记录 `execution/load/preprocess/predict/completion/postprocess/validate_output/metadata`，
 每项包含阶段名与 `verified/error`；错误保存原异常类型和消息。失败报告的 `failed_stage` 指向
@@ -525,6 +527,44 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 这些诊断没有时间单位，不用于比较阶段耗时，也不增加正式测量请求。
 
 这些字段在 profiling 后原子补写，原始 `run_command` 保持不变。`static_flops` 只保存不依赖硬件计数器的 Torch 逻辑 shape FLOPs，并按 input scale 展开；NCU 实际执行 FLOPs、吞吐率以及 execution 数值仍保存在 `result_all.csv`，execution 字段是否来自代表资源由上述 sampling metadata 和 plan entry provenance 说明。
+
+### 质量与失败产物
+
+`quality_checks.json` 为 `{"schema_version": 1, "checks": [...]}`。每个 check 包含
+`code`、`severity`、`observed`、`threshold`、`detail`、`evidence`，与 Capability 分开：
+
+| code | 观察值与边界 |
+| --- | --- |
+| `cpu_idle_baseline_unstable` / `gpu_idle_baseline_unstable` | 该 case 的空闲功率 `(max-min)/mean`，无量纲；保存原始 W 样本与现有阈值，不改变能耗公式或采样窗口 |
+| `weights_reinitialized` | Transformers loading info 的 missing/mismatched keys；threshold 为 0 个 key |
+| `unused_checkpoint_weights` | loading info 的 unexpected keys；保留 loader 来源，不根据告警文本归类 |
+| `missing_cli_exit_code` | process return code 为 null；threshold 表示需要进程退出证据 |
+
+加载质量在独立 probe 的 `devices.<device>.quality_checks` 中保存，case 能耗质量在窗口结束后
+写入 case sidecar。资源矩阵退出时（包括中途失败或取消）保存根目录 `quality_checks.json`；失败的 probe 仍可由 audit 直接读取。
+quality 数据不进入 capability evidence；普通 warning 不改变 `full_profile_complete=true`。
+兼容性报告据此区分 `full_success` 与 `full_success_with_warnings`。
+
+typed `failure` 包含 `stage`、`reason_code`、`detail`、`device`、`runtime_profile`、
+`retryability`、`evidence`、`exception_type`。`reason_code` 包括 task、dependency、precision、
+contract、artifact、processor、access、initialization、inference 与 timeout/resource 原因；
+稳定代码定义在 [`failures.py`](../acprof/failures.py)。原始异常链和日志用于诊断，不作为报告分类输入。
+CLI 使用 `ACPROF_FAILURE=` JSON 记录，TUI 按该结构展示；HTTP 错误响应携带同一 failure，
+client 在请求及 monitor 结束后写入 case sidecar，资源矩阵退出时汇总为根目录 `runtime_failures.json`。
+非零 client 退出优先保留结构化原因；恢复运行时，旧 case 失败随该次尝试归档，根侧车只反映当前 case 证据。
+两个新增根侧车不更改既有 Artifact Layout v2 manifest 身份或历史 CSV 的列和数值。
+
+timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_id`、`input_scale`、
+`model_loaded`、`service_alive` 与 `timeout_scope`。正式 HTTP 请求沿用 connect/read inactivity
+超时语义；兼容性验证沿用整个子进程预算。未观察的布尔字段为 null，不能补成 true 或 false。
+`request_timeout` 和 `compatibility_budget_exhausted` 在兼容性报告中为 `inconclusive`；
+预算筛查或实测资源限制为 `unverified`，用 `evidence.measured_oom` 区分是否有真实 OOM 证据。
+提高预算需显式重试并使用新目录，不覆盖原始预算与失败证据。
+
+历史结果缺少这些字段时保持 unknown；不能从 Capability 推导质量良好，也不回读自然语言日志
+伪造结构化告警。`coverage report` 对已有 full 结果但缺少质量记录的条目展示
+`full_success_quality_unknown`。2026-09-27 旧审计的 140 个 warning 项没有在本次改动中被重写或重新实测；
+新运行会直接产生可消费的结构化原因。
 
 ### `collection_history.json` 字段
 

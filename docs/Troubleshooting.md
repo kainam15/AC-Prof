@@ -185,7 +185,13 @@ cat /proc/sys/kernel/perf_event_paranoid
 - **必须采集此类型：** 等待支持该类型的项目版本，或按[适配契约](Runtime_Compatibility.md#新增一个模型适配)补齐输入、推理、输出与指标口径，再验证后采集。
 - **确实是识别错误：** 核对模型页的 `pipeline_tag`，通过 `--task`、`--task-family`、`--backend`（TUI 高级配置中的“识别覆盖”）纠正。仅在模型实际支持目标任务时使用；把图像描述模型改填成图像分类不会获得分类能力。
 
-`image-to-text` 已有图像描述输出适配，要求 `--batch-size 1`。如果启动时报 `Unknown task image-to-text`，需核对报错镜像的实际依赖：[Transformers v5 迁移说明](https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md#vision-pipelines-that-should-just-be-vlms)确认旧 pipeline 已移除。当前 CV 依赖锁固定 `transformers==4.57.6`；确认镜像内依赖不符后按构建错误提示重建，只修改主机 `.venv` 不会改变镜像内依赖。该版本的[官方实现](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/image_to_text.py)采用 Apache-2.0 许可，项目直接调用其图像预处理和生成流程，未另引入推理框架。此兼容路径不包含多模态对话任务，也不保证所有图像描述模型架构都能运行。
+`image-to-text` 已有图像描述输出适配，要求 `--batch-size 1`，且最终 runtime profile 必须同时支持模型架构和 pipeline task。
+默认 CV profile 使用 Transformers 4.57.6；需要 5.6.0 架构的 GLM-OCR 会因该版本缺少 `image-to-text` registry
+在预检返回 `runtime_task_unsupported`，重建相同环境不能消除这个接口缺口。
+镜像实际版本与选定 lock 不符则返回 `runtime_dependency_incompatible`，应按选定环境重建；
+只修改主机 `.venv` 不会改变镜像内依赖。历史日志中的 `Unknown task image-to-text` 也应先核对这两类证据。
+项目直接调用 4.57.6 的 [Apache-2.0 官方 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/image_to_text.py)，
+未另引入推理框架。该路径不包含多模态对话任务，也不保证所有图像描述架构兼容；详见[Runtime 预检与失败证据](Runtime_Compatibility.md#runtime-预检与失败证据)。
 
 Hub 已明确给出的未知任务标签会保留并提示，不再被通用架构后缀猜成另一类任务。Hub 无法访问、缺少元数据等识别失败仍保留独立诊断，不统一归为“不支持”。
 

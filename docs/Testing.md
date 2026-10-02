@@ -514,6 +514,13 @@ git diff --check
 ```
 
 `run_tests.py` 保留 unittest 输出，并将每项测试的结果、失败/跳过原因、版本及耗时写入 JSON。
+Runtime policy 的最小固定回归在 `test_runtime_preflight.py`：覆盖 GLM-OCR task registry、
+SAM/SAM2 dtype、RMBG/skimage、manga-ocr/fugashi、缺少结构化模型 contract，均不下载权重。
+`test_runtime_validation.py` 验证预算耗尽与阶段存证；`test_runtime_evidence.py` 验证
+CSV/TUI/audit/report 统一原因、质量与能力独立、selected artifact 预算；`test_loading_quality.py`
+验证 loading info 返回约定及失败后的恢复。对应真实 smoke 仍须另外记录 checkpoint SHA、
+镜像 ID、Transformers 版本、CPU/GPU、实际 dtype 和输出验证；mock 与随机权重不替代该证据。
+
 `test_metric_reference.py` 在关闭 UTF-8 mode、启用 `EncodingWarning` 错误的独立进程中
 验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
 工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。

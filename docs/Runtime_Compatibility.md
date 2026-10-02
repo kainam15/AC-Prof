@@ -10,6 +10,7 @@ AC-Prof 按模型选择逻辑 profile 和 adapter，profile 引用完整依赖�
 
 - [任务支持范围](#任务支持范围)：按 NLP、视觉、多模态选择接口与清单。
 - [当前配置](#当前配置)：选择运行环境，核对支持边界。
+- [Runtime 预检与失败证据](#runtime-预检与失败证据)：核对版本、dtype、依赖、remote code 与兼容性状态。
 - [本地模型声明与自定义 pipeline](#本地模型声明与自定义-pipeline)：补充缺失元数据、选择制品或映射标准任务协议。
 - [MOSS 的执行约定](#moss-的执行约定)：仅在处理该 adapter 时读取。
 - [构建、复用和验证](#构建复用和验证)：检查镜像、依赖清单与独立推理验证。
@@ -202,7 +203,8 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 不轮流尝试加载模型类。原生架构的候选资格不再由音频模型名称名单决定。
 
 更新版本时，用 [`export_transformers_support.py`](../scripts/export_transformers_support.py) 对固定 tag 的
-`src/transformers/models/auto/modeling_auto.py` 执行受限 AST 解析，记录源码 URL/SHA256。
+`src/transformers/models/auto/modeling_auto.py` 和 `src/transformers/pipelines/__init__.py`
+执行受限 AST 解析，分别记录源码 URL/SHA256；后者导出 task registry 和 aliases。
 新导出的 dynamic-module capabilities 初始为 `null`（unknown），不能从 Auto 注册表推断。
 仅重新导出相同 schema、version、source URL 和 SHA256 时保留已有 capability 评审；来源变化后重新验收。
 `source_sha256` 仍只表示 Auto 注册表来源，不是 dynamic loader 的验证证明。
@@ -210,6 +212,7 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 ```bash
 .venv/bin/python scripts/export_transformers_support.py \
   --source /path/to/modeling_auto.py --version 5.6.0 \
+  --pipeline-source /path/to/pipelines/__init__.py \
   --output acprof/extensions/transformers/5.6.0.json
 ```
 
@@ -217,6 +220,62 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 提前拒绝。已知独立 adapter 缺少 base、GGUF 或缺少 `model_index.json` 的 Diffusers 单文件／组件
 仓库也提前拒绝；本阶段没有增加这些制品的加载器。pyannote、SB3、LeRobot 等生态不能仅凭
 Hub task 标签当作 Transformers 模型加载。
+
+### Runtime 预检与失败证据
+
+预检先确定逻辑 `runtime_profile`，再使用该 profile 的精确 Transformers lock 检查 Auto 和
+pipeline registry。硬件选择 CPU/CUDA 平台后，会对最终 lock 再检查一次；一个版本支持不能
+替另一个版本提供支持证据。GLM-OCR 的 `image-to-text` 在所选 5.6.0 registry 中不存在，
+因此在下载权重、构建镜像、启动容器前返回 `runtime_task_unsupported`。
+容器加载时还核对实际安装的 Transformers 版本与 profile lock，版本不一致返回
+`runtime_dependency_incompatible`。自定义 pipeline 走明确注册的策略，不借用标准 task 注册资格。
+
+`precision_policy` 由 profile 与 extension 合并，包含 `supported_dtypes`、`preferred_dtype`、
+`device_overrides`、`task_overrides` 和 `model_type_overrides`。应用顺序为基础策略、设备覆盖、
+task 覆盖、model type 覆盖；task/model type 内部也可声明设备覆盖。支持集合还必须满足
+extension 的 `dtypes`。显式 loader `dtype` 不能越过支持集合或有证据的排除规则。
+策略不满足时返回 `precision_mismatch`，不会猜测另一种精度安全。
+
+SAM/SAM2 目前只排除 `mask-generation + GPU + FP16 + Transformers 4.57.6`，依据是
+2026-09-27 冻结审计中 sam-vit-base、sam2.1-hiera-tiny 的 NMS dtype 失败。
+没有把所有 SAM2 强制为 FP32，也没有将 GPU FP32 标为已验证。
+容器 probe 的 `dtype` 取自实际加载模型的浮点参数；无法观察时为 `unknown`，不从 CPU/GPU 名称猜测。
+静态元数据中的精度是策略选择，实际 probe dtype 才是运行证据。混合精度模型列出观察到的
+浮点参数类型，如 `mixed[torch.float16, torch.float32]`；原生 adapter 的局部精度约束仍需单独核验。
+
+`dependency_preflight` 只分析固定 commit 的源码：从 `auto_map/custom_pipelines` 出发遍历本地
+Python imports，最多 64 个文件、每文件 512 KiB；结合 tokenizer 配置及根目录
+`requirements.txt`、`requirements-inference.txt`、`requirements-runtime.txt` 比较最终 runtime lock。
+开发 requirements 不进入推理需求。包缺失、版本冲突、无法安全判断分别使用
+`runtime_dependency_missing`、`runtime_dependency_incompatible`、`runtime_dependency_unknown`。
+源码与 requirements 的 SHA256、模型 revision、lock 路径和比较结果保存在解析报告中。
+动态 import、未知 import/distribution 映射、未固定 revision、URL/extras 等不能自动证明可用，
+须补充受审阅的锁定环境。分析不 import 仓库代码、不执行安装命令，也不修改基础镜像。
+RMBG 的 `skimage` 映射为 `scikit-image`；manga-ocr 的 MeCab tokenizer 明确要求 `fugashi`。
+
+`trust_remote_code` 的有效值是 profile 允许且 extension 没有显式禁止。loader options 可进一步
+收紧为 false，不能将 false 提升为 true。普通 family-default 遵循 profile；只有明确注册的
+custom-code profile/adapter 才能开启，basic probe 也遵守同一策略。
+TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver 消费：缺少
+`acprof_model.json` 时返回 `needs_configuration` 和 `model_contract_required`，不猜输入语义。
+已有 ONNX/skops 的安全格式推断规则保持独立，不推广到任意 TorchScript。
+
+失败由 [`Failure`](../acprof/failures.py) 统一描述，CLI、audit、`models.csv`、TUI 和 `REPORT.md`
+直接传递 `reason_code`；异常链与原始日志保留用于诊断。`request_timeout` 表示请求期限耗尽，
+`compatibility_budget_exhausted` 表示独立验证整体预算耗尽，均为 `inconclusive`。
+真实推理异常使用 `inference_failed`，不能仅因为 60 秒未完成就认定不兼容。
+默认 timeout 仍为 300 秒；显式重试使用更高 `--timeout-seconds` 和新的输出目录，不自动循环。
+质量警告独立于 Capability，字段及历史结果边界见[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
+
+实现参考锁定的 [Transformers 4.57.6 pipeline registry](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
+和 [5.6.0 registry](https://github.com/huggingface/transformers/blob/v5.6.0/src/transformers/pipelines/__init__.py)，
+并使用两版本 `PreTrainedModel.from_pretrained(output_loading_info=True)` 的结构化 loading info
+捕捉权重初始化与未使用权重（[4.57.6 源码](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/modeling_utils.py)、
+[5.6.0 源码](https://github.com/huggingface/transformers/blob/v5.6.0/src/transformers/modeling_utils.py)）。
+Chronos 沿用其 [`from_pretrained` 参数协议](https://github.com/amazon-science/chronos-forecasting/blob/main/src/chronos/chronos.py)。
+这些上游采用 Apache-2.0；AC-Prof 复用现有库与静态快照，不新增推理依赖。
+依赖比较使用已有 lock 中的 `packaging==26.3`，现将其列为直接主机依赖；安装包集合不变。
+快照随锁版本评审，加载观察在初始化完成后恢复原方法；依赖分析和质量持久化均在正式测量窗口外。
 
 ### 自动生成模型契约（M1～M6）
 
@@ -589,7 +648,9 @@ library/config 规则 → family 规则，随后才可使用已声明的 `librar
 | --- | --- |
 | `scaling` / `task_params` | 生成 `SCALING_DIMENSIONS` / `DEFAULT_TASK_PARAMS`；同 family 的共享值必须一致 |
 | `io_format` / `task_io_format` | `/predict` 的输入输出模板及任务差异；对象递归合并，数组替换，`null` 删除键；返回副本 |
-| `precision` / `backend_precision` / `task_precision` | task 优先于 backend，再使用 extension/family 的设备精度；无声明时保留模型 dtype 元数据回退；静态元数据中的运行 profile BF16 覆盖不变 |
+| `precision_policy` | 与 profile 合并的运行 dtype 策略；任务、模型类型、设备覆盖和有证据的排除规则共用于预检与 loader |
+| `precision` / `backend_precision` / `task_precision` | 用于 ONNX/TorchScript/skops 等制品定义精度的描述；浮点模型加载由 `precision_policy` 决定，不再用静态 BF16 特例覆盖 |
+| `trust_remote_code` | 可收紧 profile 的授权，false 不能被 loader options 提升；未声明时遵循 profile |
 | `input_plan` / `task_input_plan` | workload 清单、文本/音频探测、上下文上限、workload 默认尺度、连续尺度及 feature dimension 传递能力 |
 | `handler_options` / `backend_handler_options` / `task_handler_options` | 依次合并 handler 的 loader 选项、句向量模式、模型清单格式与张量输入方式；不改变四阶段执行协议 |
 | `workload_defaults` / `profile_options` | adapter 的提示词、生成参数和 profile dtype/remote-code 策略；MOSS 特有值只在其声明中维护 |
@@ -987,6 +1048,29 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 
 ## 参考实现与取舍
 
+### 2026-09-27 冻结样本的 ecosystem 取舍
+
+2026-10-02 只读复核 `internal-testing/hf-top10-all-tasks-20260927/models.csv`：520 项中
+113 项为 library 未登记，涉及 50 种原始标签（区分大小写）。这是历史样本统计，不是本次重新实测。
+主要集中度与实现取舍如下；成本为设计评估，尚未新增或宣称支持这些 backend。
+
+| 原始 library 标签 | 条目数 | 取舍 |
+| --- | ---: | --- |
+| `gguf` | 11 | 覆盖最多，但须新增原生执行环境、量化语义及测量边界；不通过 generic Transformers fallback 加载 |
+| `minimax-h3` | 9 | 先核实实际架构、权重选择与资源可测性；library 标签不足以确定共享接口 |
+| `transformers.js` | 5 | 需要 JS/ONNX 执行与输入输出契约，当前 Python 路径不能直接替代 |
+| `colpali` / `colpali_engine` | 5 / 1 | 可复用部分 Torch 依赖；有多模态检索科研价值，但须定义 late-interaction 输入、输出和计量边界 |
+| `trellis` | 5 | 3D/GPU 依赖及专用预后处理成本较高，待明确实验问题后实现 |
+| `depth-anything-3`、`anemoi`、`PaddleOCR`、`stable-baselines3`、`lerobot` | 各 4 | 各自需要模型或环境契约；Paddle、RL、robotics 不属于同一个通用 backend |
+| `lightgbm` | 2 | 可作为较轻量的后续 structured adapter 候选；仍需固定特征契约、模型制品与精确依赖锁 |
+| 其余标签 | 55 | 长尾逐项按科研价值和验证成本筛选；`mlx` 仅 1 项且与当前 Linux 测量平台不同 |
+
+本轮决定不新增 ecosystem。后续每个新增项必须具备 extension manifest、locked environment、
+handler contract 和独立真实推理证据，不能仅以提高通过率为目标。
+同一旧样本中的 42 个资源筛查项继续为 `resource_unverified`；预算筛查不是实测 OOM。
+新 coverage 的下载预算使用包含显式依赖的 selected artifact plan，参数量只作为 conservative
+preflight evidence；超过预算或缺少必要大小证据时保持 `unverified`，并记录为什么没有测。
+
 候选解析参考 [vLLM 模型 registry](https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/models/registry.py)
 （Apache-2.0）的延迟入口、显式选择、独立检查和有条件回退；
 [worker 注册问题 #16228](https://github.com/vllm-project/vllm/issues/16228) 提醒解析结果必须传入执行进程。
@@ -1287,7 +1371,7 @@ MOSS 自动选择专用 adapter 和依赖锁，不需要修改主机 `.venv`。�
 
 ### 图像描述输出与兼容范围
 
-- CV 镜像固定 Transformers 4.57.6 并调用官方 `image-to-text` pipeline。升级前构建的镜像需重新构建；新的输出协议和依赖不会自动写入已存在的 Docker 镜像。
+- 默认 CV profile 使用 Transformers 4.57.6 的官方 `image-to-text` pipeline；最终 profile 的架构与 task registry 必须同时满足。5.6.0 缺少该 pipeline 时在预检返回 `runtime_task_unsupported`。镜像实际版本不符时按所选 lock 重建；新的代码和依赖不会自动写入已存在的 Docker 镜像。
 - `/predict` 返回 `task="image-to-text"`、`output_type="caption"`、`captions: string[]`、`n_results`、`output_length` 和可空的 `output_token_count`。一次请求输入一张图；若生成多条候选，`n_results` 为候选数，字符/token 指标为该请求所有候选之和。空字符串是有效输出，缺少 `generated_text`、非字符串内容或没有候选则报请求错误，不计为成功检测结果。
 - 输入 `params` 直接传给官方 pipeline，缺省时使用该 pipeline 与固定模型 revision 的默认生成配置。响应文本解析与重新分词属于原请求的后处理，计入 application/packet 延迟；不新增推理轮次。输出文本会增加相应响应字节，不能与旧版误标为 detection 的响应直接比较。
 - `input_scale` 仍是传入合成 RGB 图片相对 224 像素基准的缩放倍率。模型内部可能缩放到固定分辨率；输出 token 数也不能代表视觉编码器 FLOP。此实现覆盖官方旧 pipeline 可加载的图像描述模型，不扩展到多模态对话或所有模型架构。

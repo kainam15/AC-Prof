@@ -223,6 +223,13 @@ acprof coverage run internal-testing/coverage-sample.json \
 acprof coverage run internal-testing/coverage-sample.json --probe full \
   --cpus 2 --mems 4 --gpus off --timeout-seconds 300 \
   --output-dir internal-testing/coverage-runtime
+# 在下载前应用 conservative 预算；大小来自选中的制品而非整个仓库
+acprof coverage run internal-testing/coverage-sample.json --probe full \
+  --max-parameters 1000000000 --max-download-bytes 4294967296 \
+  --output-dir internal-testing/coverage-budgeted
+# 只读取已有结果，输出统一的 CSV、JSON 和 Markdown 报告
+acprof coverage report results/model-a results/model-b \
+  --output-dir internal-testing/coverage-recorded
 ```
 
 snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。
@@ -232,6 +239,19 @@ run 默认只做静态检查；full 验证时间限制不包含构建和下载�
 独立审阅的 `semantic_reference: {"task": "...", "source": "..."}` 才用于语义正确率；
 snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅样本的比率为 null。
 报告生成成功退出 0 不表示所有模型成功；逐模型失败保留在 rows 中，不生成正式性能 CSV。
+
+run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败列保留稳定的
+`reason_code` 及 evidence，质量警告单独保留在 `quality_checks`；TUI 的 `/report <coverage.json>`
+可读取两种报告。report 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
+full probe 成功只表示独立推理验证通过；已有采集是否完成由记录的 `full_profile_complete` 决定。
+
+`--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
+超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
+selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM 预测。
+`--timeout-seconds` 默认保持 300；例如复核 60 秒耗尽的条目，可用同一固定 manifest，显式传入
+`--timeout-seconds 600` 并选择新目录。每次只执行一次 probe，不自动无限重试。
+timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义见
+[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
 
 ### `run.py`
 
