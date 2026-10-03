@@ -368,6 +368,8 @@ acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snap
 截取前检查目标页面已经激活，避免把错误场景保存成基线。
 正式测量场景须显式设置接口解析与运行验证为 `passed`、测量为 `running`；
 不能只设置 `measurement_active=True` 而让阶段状态保留 `not_started`。
+测量中和清理未完成的场景还须模拟由应用管理、`poll()` 返回 `None` 的进程，
+并隔离停止操作；截取前断言停止按钮可用，不启动真实采集或向真实进程发送信号。
 
 先查看失败报告的 HTML / SVG 差异，再在预期变更或首次建立基线时对选定用例追加
 `--snapshot-update`；普通验证不更新基线。快照补充现有 unittest / evidence runner，
@@ -511,11 +513,9 @@ git diff --check
 让版本核对、adapter、精度和 remote-code 策略都绑定该 profile。共享同一依赖环境的不同任务仍
 各用合法 profile：5.6.0 的 NLP 与音频生成分别为 `nlp-transformers560-cpu` 和
 `multimodal-transformers560-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
-进程注册允许/拒绝 profile，生产信任策略不放宽；basic probe fixture 显式设置 backend。
+进程注册允许/拒绝 profile，生产信任策略不放宽；basic probe fixture 显式设置 backend、profile 和 adapter，
+避免继承主机环境或在导入测试前因缺少配置而失败。
 容器测试继续保留版本检查、禁网和 `--require-no-skips`。
-
-运行中 TUI 快照 fixture 必须持有 `poll() is None` 的进程，并先断言停止按钮可用后比较 SVG；
-偏好保存测试等待真实设置页事件生效。Headless 快照通过不代表真实终端显示已验收。
 
 本地入口：
 
@@ -761,6 +761,9 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 和 [Timer.stop](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/timer.py)（MIT），
 复用现有 API，不增加依赖或测量期刷新。
 页面切换、挂载和布局更新后等待框架处理事件，再判断点击和焦点，不用堆叠固定 `sleep` 掩盖竞态。
+设置持久化测试先进入实际设置页，按锁定版本的
+[Textual 测试流程](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/testing.md)
+等待初始化和控件变更事件完成，确认主题等偏好已应用后再保存并检查文件。
 `scripts/run_tui_validation.py` 在子进程结束后，通过 `call_after_refresh` 等待监控页显示且日志控件
 进入实际屏幕布局，再保存 `tui-finished.svg` 并返回退出码。排队的焦点事件若切回配置页，辅助入口
 会重新选中监控页并等待刷新；10 秒内未就绪则明确报错。`test_tui_validation_runner.py` 覆盖真实子进程、
