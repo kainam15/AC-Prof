@@ -589,6 +589,9 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 写入 case sidecar。资源矩阵退出时（包括中途失败或取消）保存根目录 `quality_checks.json`；失败的 probe 仍可由 audit 直接读取。
 quality 数据不进入 capability evidence；普通 warning 不改变 `full_profile_complete=true`。
 兼容性报告据此区分 `full_success` 与 `full_success_with_warnings`。
+审计和质量消费者只读取不超过 4 MiB 的 UTF-8 JSON 对象，并拒绝 NaN、Infinity 和溢出为无穷值的数字。
+损坏的运行元数据记为 `invalid_metadata` error；损坏的 canonical quality evidence 记为
+`quality_evidence_invalid` warning，同时保持 `quality_status=unknown` 且禁止自动选择。只读检查不重写原始证据。
 
 typed `failure` 包含 `stage`、`reason_code`、`detail`、`device`、`runtime_profile`、
 `retryability`、`evidence`、`exception_type`。`reason_code` 包括 task、dependency、precision、

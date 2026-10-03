@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, TextIO, cast
 
-MAX_STATIC_METADATA_BYTES = 4 * 1024 * 1024
+MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
 
 
 def _finite_json_number(raw: str) -> float:
@@ -17,6 +17,26 @@ def _finite_json_number(raw: str) -> float:
     if not math.isfinite(value):
         raise ValueError("non-finite number")
     return value
+
+
+def read_json_object(path: str | Path, *, label: str = "artifact") -> dict:
+    """Read one bounded, finite JSON object without altering the source artifact."""
+    source = Path(path)
+    with source.open("rb") as stream:
+        content = stream.read(MAX_JSON_ARTIFACT_BYTES + 1)
+    if len(content) > MAX_JSON_ARTIFACT_BYTES:
+        raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
+    try:
+        payload = json.loads(
+            content.decode("utf-8"),
+            parse_float=_finite_json_number,
+            parse_constant=_finite_json_number,
+        )
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"{source}: top-level JSON value must be an object")
+    return payload
 
 
 def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
@@ -41,20 +61,7 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
         if required:
             raise FileNotFoundError(path)
         return {}
-    with path.open("rb") as stream:
-        content = stream.read(MAX_STATIC_METADATA_BYTES + 1)
-    if len(content) > MAX_STATIC_METADATA_BYTES:
-        raise ValueError(f"{path}: static metadata exceeds the 4 MiB read limit")
-    try:
-        payload = json.loads(
-            content.decode("utf-8"),
-            parse_float=_finite_json_number,
-            parse_constant=_finite_json_number,
-        )
-    except (UnicodeError, ValueError, RecursionError) as exc:
-        raise ValueError(f"{path}: invalid static metadata JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: top-level JSON value must be an object")
+    payload = read_json_object(path, label="static metadata")
     require_schema_version(payload, STATIC_META_SCHEMA_VERSION, str(path))
     history = [key for key in payload if key.endswith(("_history", "_last_run"))]
     if history:

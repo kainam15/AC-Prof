@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from acprof.artifacts import read_json_object
+
 
 @dataclass(frozen=True)
 class QualityCheck:
@@ -41,7 +43,7 @@ def cli_exit_quality(exit_code, *, source: str) -> list[dict]:
 
 def write_quality(path: Path, checks: list[dict], *, append=False):
     from acprof.artifacts import atomic_write_json
-    previous = json.loads(path.read_text()).get("checks", []) if append and path.exists() else []
+    previous = read_json_object(path, label="quality evidence").get("checks", []) if append and path.exists() else []
     unique = {json.dumps(value, sort_keys=True): value for value in [*previous, *checks]}
     atomic_write_json(path, {"schema_version": 1, "checks": list(unique.values())})
 
@@ -52,13 +54,13 @@ def collect_quality(root: Path, case_csvs=()) -> list[dict]:
     checks = []
     validation_path = layout.path("runtime_validation.json")
     if validation_path.exists():
-        for device, result in json.loads(validation_path.read_text()).get("devices", {}).items():
+        for device, result in read_json_object(validation_path, label="runtime validation").get("devices", {}).items():
             for check in result.get("quality_checks", []):
                 checks.append({**check, "evidence": {**check["evidence"], "device": device}})
     for csv in case_csvs:
         path = case_sidecar(csv, "quality_checks")
         if path.exists():
-            checks.extend(json.loads(path.read_text())["checks"])
+            checks.extend(read_json_object(path, label="quality evidence")["checks"])
     write_quality(layout.path("quality_checks.json"), checks)
     return checks
 
@@ -113,9 +115,7 @@ def read_quality(source: str | Path, *, device: str | None = None) -> dict:
     if not path.exists():
         return summarize_quality(None)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("quality evidence must be an object")
+        payload = read_json_object(path, label="quality evidence")
         if path == quality_path:
             if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
                 raise ValueError("unsupported quality evidence schema")

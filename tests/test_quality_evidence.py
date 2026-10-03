@@ -54,7 +54,7 @@ class TestQualityEvidence:
         assert (gpu["quality_checks"][0]["evidence"]["source"]) == ("loader")
         assert (gpu["quality_checks"][0]["evidence"]["artifact"].endswith("runtime_validation.json"))
 
-    @pytest.mark.parametrize('payload', ('{broken', '[]', '{"schema_version":1}', '{"schema_version":1,"checks":[{"code":"x"}]}'))
+    @pytest.mark.parametrize('payload', ('{broken', '[]', '{"schema_version":1}', '{"schema_version":1,"checks":[{"code":"x"}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":NaN}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":1e999}]}'))
     def test_malformed_evidence_is_unknown_and_does_not_fall_back_to_success(self, payload):
         path = self.root / "quality_checks.json"
         path.write_text(payload)
@@ -62,6 +62,25 @@ class TestQualityEvidence:
         assert (report["quality_status"]) == ("unknown")
         assert not (report["auto_selection_eligible"])
         assert (report["quality_checks"][0]["code"]) == ("quality_evidence_invalid")
+
+    def test_invalid_utf8_quality_evidence_is_unknown_without_rewriting(self):
+        path = self.root / "quality_checks.json"
+        path.write_bytes(b"\xff")
+        report = read_quality(self.root)
+        assert (report["quality_status"]) == ("unknown")
+        assert (report["quality_checks"][0]["code"]) == ("quality_evidence_invalid")
+        assert (path.read_bytes()) == (b"\xff")
+
+    def test_oversized_quality_evidence_is_unknown_without_rewriting(self):
+        path = self.root / "quality_checks.json"
+        content = json.dumps({"schema_version": 1, "checks": [],
+                              "padding": "x" * (4 * 1024 * 1024)}).encode()
+        path.write_bytes(content)
+        report = read_quality(self.root)
+        assert (report["quality_status"]) == ("unknown")
+        assert (report["quality_checks"][0]["code"]) == ("quality_evidence_invalid")
+        assert ("4 MiB") in (report["quality_checks"][0]["observed"])
+        assert (path.stat().st_size) == (len(content))
 
     def test_compatibility_csv_keeps_attempt_and_unknown_quality_evidence(self):
         from acprof.analysis.compatibility import write_compatibility_report

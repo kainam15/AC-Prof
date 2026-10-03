@@ -9,7 +9,9 @@ from collections import Counter
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import read_json_object
 from acprof.capabilities import collection_outcomes
+from acprof.failures import Failure
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
@@ -114,13 +116,25 @@ def audit_result(source: str | Path) -> dict:
             artifact = layout.path(name)
             if not artifact.exists():
                 return {}
-            payload = json.loads(artifact.read_text())
-            if not isinstance(payload, dict):
-                raise ValueError("JSON 顶层应为对象")
-            return payload
+            return read_json_object(artifact, label=name)
         except (ValueError, OSError) as error:
             issue("invalid_metadata", f"{name}: {error}")
             return {}
+
+    def recorded_failure(name, location, value):
+        try:
+            if not isinstance(value, dict):
+                raise ValueError("typed failure must be an object")
+            failure = Failure(**value)
+            string_fields = (failure.stage, failure.detail, failure.device, failure.runtime_profile,
+                             failure.exception_type)
+            if (not failure.stage or not failure.detail or any(not isinstance(item, str) for item in string_fields)
+                    or not isinstance(failure.evidence, dict)):
+                raise ValueError("typed failure fields have invalid types")
+            return failure.to_dict()
+        except (TypeError, ValueError) as error:
+            issue("invalid_metadata", f"{name} {location}: {error}")
+            return None
 
     try:
         layout = ArtifactLayout.from_csv(path)
@@ -131,10 +145,30 @@ def audit_result(source: str | Path) -> dict:
     metadata = read_json("static_meta.json")
     validation = read_json("runtime_validation.json")
     resolution = read_json("model_resolution.json")
-    report["failures"] = [item["failure"] for item in validation.get("devices", {}).values() if item.get("failure")]
-    report["failures"].extend(read_json("runtime_failures.json").get("failures", []))
-    if resolution.get("failure"):
-        report["failures"].append(resolution["failure"])
+    report["failures"] = []
+    devices = validation.get("devices", {})
+    if not isinstance(devices, dict):
+        issue("invalid_metadata", "runtime_validation.json devices: expected an object")
+    else:
+        for device, item in devices.items():
+            if not isinstance(item, dict):
+                issue("invalid_metadata", f"runtime_validation.json devices.{device}: expected an object")
+            elif item.get("failure") is not None:
+                failure = recorded_failure("runtime_validation.json", f"devices.{device}.failure", item["failure"])
+                if failure is not None:
+                    report["failures"].append(failure)
+    recorded = read_json("runtime_failures.json").get("failures", [])
+    if not isinstance(recorded, list):
+        issue("invalid_metadata", "runtime_failures.json failures: expected a list")
+    else:
+        for index, value in enumerate(recorded):
+            failure = recorded_failure("runtime_failures.json", f"failures[{index}]", value)
+            if failure is not None:
+                report["failures"].append(failure)
+    if resolution.get("failure") is not None:
+        failure = recorded_failure("model_resolution.json", "failure", resolution["failure"])
+        if failure is not None:
+            report["failures"].append(failure)
     report.update(read_quality(path))
     for failure in report["failures"]:
         issue(failure["reason_code"], failure["detail"], failure=failure)

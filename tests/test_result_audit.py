@@ -68,6 +68,39 @@ class TestResultAudit:
         assert not (report["valid"])
         assert ("invalid_number") in ([issue["code"] for issue in report["issues"]])
 
+    @pytest.mark.parametrize(
+        "name,payload",
+        (
+            ("static_meta.json", b'{"schema_version": 7, "value": NaN}'),
+            ("static_meta.json", b'{"schema_version": 7, "value": 1e999}'),
+            ("static_meta.json", b"\xff"),
+            ("runtime_validation.json", b'{"devices": []}'),
+            ("runtime_validation.json", b'{"devices": {"off": []}}'),
+            ("runtime_failures.json", b'{"failures": {}}'),
+            ("runtime_failures.json", b'{"failures": [{"reason_code": "inference_failed"}]}'),
+            ("model_resolution.json", b'{"failure": []}'),
+        ),
+    )
+    def test_invalid_recorded_metadata_becomes_an_audit_issue(self, name, payload):
+        self.write(self.row())
+        path = self.root / name
+        path.write_bytes(payload)
+        report = audit_result(self.root)
+        assert not (report["valid"])
+        assert ("invalid_metadata") in ({issue["code"] for issue in report["issues"]})
+        assert (path.read_bytes()) == (payload)
+
+    def test_oversized_recorded_metadata_becomes_an_audit_issue_without_rewriting(self):
+        self.write(self.row())
+        path = self.root / "static_meta.json"
+        content = b" " * (4 * 1024 * 1024 + 1)
+        path.write_bytes(content)
+        report = audit_result(self.root)
+        assert not (report["valid"])
+        assert any(issue["code"] == "invalid_metadata" and "4 MiB" in issue["message"]
+                   for issue in report["issues"])
+        assert (path.stat().st_size) == (len(content))
+
     def test_plan_hash_and_row_coverage_are_checked(self):
         self.write(self.row())
         (self.root / "static_meta.json").write_text(json.dumps({"input_scale_plan_sha256": "0" * 64}))
