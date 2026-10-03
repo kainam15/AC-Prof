@@ -3,17 +3,18 @@ import json
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class ValidationRunnerTests(unittest.TestCase):
+class TestValidationRunner:
     def run_fixture(self, body, *options):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "test_sample.py").write_text("import unittest\n" + body)
+            (root / "test_sample.py").write_text("import pytest\n" + body)
             report = root / "report.json"
             process = subprocess.run([
                 sys.executable, str(ROOT / "scripts/run_tests.py"),
@@ -23,56 +24,57 @@ class ValidationRunnerTests(unittest.TestCase):
 
     def test_missing_runtime_fails_strict_job_and_records_reason(self):
         process, report = self.run_fixture(
-            "class Sample(unittest.TestCase):\n"
-            "    @unittest.skip('no runtime')\n"
+            "class TestSample:\n"
+            "    @pytest.mark.skip(reason='no runtime')\n"
             "    def test_runtime(self): pass\n", "--require-no-skips",
         )
-        self.assertEqual(process.returncode, 1, process.stderr)
-        self.assertEqual(report["counts"]["skipped"], 1)
-        self.assertFalse(report["successful"])
-        self.assertEqual(report["tests"][0]["reason"], "no runtime")
+        assert (process.returncode) == (1), process.stderr
+        assert (report["counts"]["skipped"]) == (1)
+        assert not (report["successful"])
+        assert (report["tests"][0]["reason"]) == ("no runtime")
 
     def test_optional_skip_remains_visible(self):
         process, report = self.run_fixture(
-            "class Sample(unittest.TestCase):\n"
-            "    @unittest.skip('no runtime')\n"
+            "class TestSample:\n"
+            "    @pytest.mark.skip(reason='no runtime')\n"
             "    def test_runtime(self): pass\n",
         )
-        self.assertEqual(process.returncode, 0, process.stderr)
-        self.assertIsNotNone(report)
-        self.assertTrue(report["successful"])
-        self.assertEqual(report["counts"]["passed"], 0)
+        assert (process.returncode) == (0), process.stderr
+        assert (report) is not None
+        assert (report["successful"])
+        assert (report["counts"]["passed"]) == (0)
 
     def test_empty_discovery_is_failure(self):
         process, report = self.run_fixture("")
-        self.assertEqual(process.returncode, 1, process.stderr)
-        self.assertEqual(report["counts"]["run"], 0)
+        assert (process.returncode) == (1), process.stderr
+        assert (report["counts"]["run"]) == (0)
 
     def test_missing_required_pattern_cannot_hide_behind_other_passing_tests(self):
         process, report = self.run_fixture(
-            "class Sample(unittest.TestCase):\n"
+            "class TestSample:\n"
             "    def test_runtime(self): pass\n",
             "--require-no-skips", "--pattern", "test_sample.py", "--pattern", "test_missing_runtime.py",
         )
-        self.assertEqual(process.returncode, 1, process.stderr)
-        self.assertFalse(report['successful'])
-        self.assertEqual(report['discovery_counts']['test_missing_runtime.py'], 0)
+        assert (process.returncode) == (1), process.stderr
+        assert not (report['successful'])
+        assert (report['discovery_counts']['test_missing_runtime.py']) == (0)
 
-    def test_failed_subtest_is_failure_and_has_evidence(self):
+    def test_failed_parameter_is_failure_and_has_evidence(self):
         process, report = self.run_fixture(
-            "class Sample(unittest.TestCase):\n"
-            "    def test_values(self):\n"
-            "        with self.subTest(value=2): self.assertEqual(1, 2)\n",
+            "class TestSample:\n"
+            "    @pytest.mark.parametrize('value', [2])\n"
+            "    def test_values(self, value):\n"
+            "        assert 1 == value\n",
         )
-        self.assertEqual(process.returncode, 1, process.stderr)
-        self.assertIsNotNone(report)
-        self.assertIn("1 != 2", report["tests"][0]["reason"])
+        assert (process.returncode) == (1), process.stderr
+        assert (report) is not None
+        assert ("1 == 2") in (report["tests"][0]["reason"])
 
     def test_shards_cover_every_test_once_and_preserve_failures(self):
         body = (
-            "class Sample(unittest.TestCase):\n"
+            "class TestSample:\n"
             "    def test_a(self): pass\n"
-            "    def test_b(self): self.fail('real failure')\n"
+            "    def test_b(self): pytest.fail('real failure')\n"
             "    def test_c(self): pass\n"
             "    def test_d(self): pass\n"
             "    def test_e(self): pass\n"
@@ -84,31 +86,26 @@ class ValidationRunnerTests(unittest.TestCase):
             process, report = self.run_fixture(
                 body, "--shard-index", str(index), "--shard-count", "3",
             )
-            self.assertIsNotNone(report, process.stderr)
+            assert (report) is not None, process.stderr
             selected.extend(test["id"] for test in report["tests"])
-            self.assertEqual(report["shard"]["index"], index)
-            self.assertEqual(report["shard"]["count"], 3)
-            self.assertEqual(report["shard"]["discovered"], 5)
-            self.assertEqual(report["shard"]["selected"], report["counts"]["run"])
-            self.assertEqual(report["shard"]["suite_sha256"], whole["shard"]["suite_sha256"])
-            self.assertEqual(process.returncode, 1 if index == 1 else 0, process.stderr)
-        self.assertEqual(set(selected), expected)
-        self.assertEqual(len(selected), len(expected))
+            assert (report["shard"]["index"]) == (index)
+            assert (report["shard"]["count"]) == (3)
+            assert (report["shard"]["discovered"]) == (5)
+            assert (report["shard"]["selected"]) == (report["counts"]["run"])
+            assert (report["shard"]["suite_sha256"]) == (whole["shard"]["suite_sha256"])
+            assert (process.returncode) == (1 if index == 1 else 0), process.stderr
+        assert (set(selected)) == (expected)
+        assert (len(selected)) == (len(expected))
 
-    def test_invalid_or_empty_shard_cannot_pass(self):
-        body = "class Sample(unittest.TestCase):\n    def test_one(self): pass\n"
-        for index, count in ((-1, 2), (2, 2), (0, 0)):
-            with self.subTest(index=index, count=count):
-                process, report = self.run_fixture(
-                    body, "--shard-index", str(index), "--shard-count", str(count),
-                )
-                self.assertEqual(process.returncode, 2)
-                self.assertIsNone(report)
+    @pytest.mark.parametrize('index,count', ((-1, 2), (2, 2), (0, 0)))
+    def test_invalid_or_empty_shard_cannot_pass(self, index, count):
+        body = "class TestSample:\n    def test_one(self): pass\n"
+        process, report = self.run_fixture(
+            body, "--shard-index", str(index), "--shard-count", str(count),
+        )
+        assert (process.returncode) == (2)
+        assert (report) is None
         process, report = self.run_fixture(body, "--shard-index", "1", "--shard-count", "2")
-        self.assertIsNotNone(report, process.stderr)
-        self.assertEqual(process.returncode, 1)
-        self.assertEqual(report["counts"]["run"], 0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (report) is not None, process.stderr
+        assert (process.returncode) == (1)
+        assert (report["counts"]["run"]) == (0)

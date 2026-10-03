@@ -132,9 +132,18 @@ output = "internal-testing/coverage/coverage.json"
 directory = "internal-testing/coverage/html"
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+addopts = "-p acprof.testing.plugin --strict-markers --import-mode=importlib"
 markers = [
     "unit: isolated tests without real hardware or external services",
     "wsl: WSL2 integration tests, skipped outside WSL2",
     "native_linux: tests requiring native Linux measurement semantics",
     "hardware: tests requiring real hardware and explicitly provisioned prerequisites",
+    "integration: opt-in external service or browser integration",
+    "runtime: tests requiring a selected container runtime's dependencies",
+    "visual: deterministic Textual SVG regression",
 ]

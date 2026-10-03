@@ -1,0 +1,7 @@
+# pytest 是唯一测试框架；依赖不进入主机或容器运行锁。
+-c host.lock
+-r runtime-test.in
+pytest-cov==7.0.0
+coverage[toml]==7.15.2
+pytest-textual-snapshot==1.1.0
+syrupy==4.8.0
