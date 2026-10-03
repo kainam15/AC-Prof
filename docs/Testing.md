@@ -576,7 +576,11 @@ UTC timestamp、discovery counts、完整 suite hash 和 shard 元数据。ID �
 失败为 `error`；同一 case 的各阶段合为一条记录并累计耗时，保留失败原因。
 xfail/xpass 分别对应 `expected_failure` / `unexpected_success`；后者始终使 evidence 失败。
 `--require-no-skips` 同时拒绝 skip 与 xfail。空 pattern、空分片、收集错误和中断不报告成功；
-`--collect-only` 输出的 `collected_ids` 可检查稳定性，但其 evidence 不代表测试已执行。
+`--collect-only`、`--setup-only` 与 `--setup-plan` 保留 pytest 的诊断退出码，
+但 evidence 的 `successful` 始终为 `false`；`collected_ids` 仍可检查选择与分片稳定性。
+只有取得 call 与 teardown 结果的 case 才能计入 `passed`；仅完成 setup 或中断清理的 case
+不填通过结果。已发生的 skip、`xfail(run=False)` 与 setup 失败仍保留原因；中断时保留
+已完成测试的部分证据，并由选中数与记录数的差异显示尚未完成的范围。
 筛选先于分片：对完整筛选后 node ID 排序，用 `index::count` 分配，SHA256 包含整个筛选集。
 新增测试或参数改变 suite hash；同一 revision、参数与依赖环境的重复收集必须一致。
 
@@ -925,6 +929,11 @@ profiler 调研了 [NVIDIA nsight-python](https://github.com/NVIDIA/nsight-pytho
 主机分片参考 [pytest plugin hooks](https://github.com/pytest-dev/pytest/blob/8.4.x/src/_pytest/hookspec.py)
 （MIT）和 [Textual 测试配置](https://github.com/Textualize/textual/blob/main/pyproject.toml)（MIT），
 复用官方维护的 collection/report/session hooks 与 async fixture 生命周期；不复制源码。
+阶段完成语义核对 [pytest 8.4.2 runner](https://github.com/pytest-dev/pytest/blob/8.4.2/src/_pytest/runner.py)
+与 [setup-plan](https://github.com/pytest-dev/pytest/blob/8.4.2/src/_pytest/setupplan.py)：
+fixture 诊断跳过 call，setup-plan 复用 setuponly；报告按实际 phase 判断完成状态。
+[pytest #11706](https://github.com/pytest-dev/pytest/issues/11706)说明退出时的 teardown 证据也必须保留。
+这些检查沿用已锁定的 MIT 依赖，不增加 runtime 依赖或正式测量开销。
 [pytest-asyncio 清理讨论](https://github.com/pytest-dev/pytest-asyncio/issues/222)提示需核对
 pending task、async generator 与 executor 的退出；锁定版本并保持 function loop scope。
 项目独立实现 schema v1 聚合与排序分片，避免新增通用报告依赖。所有开销只在测试进程中，

@@ -102,7 +102,10 @@ def test_xpass_without_reason():
     assert report["successful"] is False
 
 
-@pytest.mark.parametrize("mark", ["skip(reason='intentional')", "xfail(reason='known', strict=True)"])
+@pytest.mark.parametrize("mark", [
+    "skip(reason='intentional')", "xfail(reason='known', strict=True)",
+    "xfail(reason='known', run=False)",
+])
 def test_no_skips_rejects_skips_and_expected_failures(suite, mark):
     result, report = suite(f"import pytest\n@pytest.mark.{mark}\ndef test_case():\n    assert False\n",
                            "--require-no-skips")
@@ -161,6 +164,53 @@ def test_deselection_precedes_sharding_and_collection_only_is_not_execution(suit
     assert report["counts"]["run"] == 0
     assert report["shard"]["discovered"] == 1
     assert len(report["collected_ids"]) == 1
+
+
+@pytest.mark.parametrize("option", ["--setup-only", "--setup-plan"])
+@pytest.mark.parametrize("wrapper", [False, True])
+def test_setup_diagnostics_are_not_execution_evidence(suite, option, wrapper):
+    result, report = suite("def test_body():\n    assert False, 'body must not run'\n",
+                           option, wrapper=wrapper)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["successful"] is False
+    assert report["counts"]["run"] == report["counts"]["passed"] == 0
+    assert report["tests"] == []
+    assert report["shard"]["selected"] == report["shard"]["discovered"] == 1
+    assert len(report["collected_ids"]) == 1
+
+
+def test_xfail_without_call_keeps_its_expected_outcome(suite):
+    result, report = suite("import pytest\n@pytest.mark.xfail(run=False, reason='known defect')\n"
+                           "def test_case():\n    assert False, 'body must not run'\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["successful"] is True
+    assert report["counts"]["run"] == report["counts"]["expected_failures"] == 1
+    assert report["counts"]["passed"] == 0
+    assert "known defect" in report["tests"][0]["reason"]
+
+
+@pytest.mark.parametrize("phase", ["call", "teardown"])
+def test_interruption_preserves_only_completed_passes(suite, phase):
+    result, report = suite(f'''
+import pytest
+@pytest.fixture
+def lifecycle():
+    yield
+    if {phase!r} == "teardown":
+        raise KeyboardInterrupt
+def test_a_completed():
+    assert True
+def test_b_interrupted(lifecycle):
+    if {phase!r} == "call":
+        raise KeyboardInterrupt
+def test_c_unreached():
+    assert False, "must not run after interruption"
+''')
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert report["successful"] is False
+    assert report["shard"]["selected"] == report["shard"]["discovered"] == 3
+    assert report["counts"]["run"] == report["counts"]["passed"] == 1
+    assert [row["id"].split("::")[-1] for row in report["tests"]] == ["test_a_completed"]
 
 
 def test_measurement_root_is_isolated_for_direct_pytest_and_all_fixture_phases(suite):

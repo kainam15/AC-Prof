@@ -20,6 +20,7 @@ class Evidence:
         self.config = config
         self.started = time.perf_counter()
         self.records = {}
+        self.phases = {}
         self.collected = []
         self.selected = []
         self.discovery_counts = {}
@@ -27,6 +28,7 @@ class Evidence:
         self.collection_skips = []
 
     def record(self, report):
+        self.phases.setdefault(report.nodeid, set()).add(report.when)
         record = self.records.setdefault(report.nodeid, {
             "id": report.nodeid, "outcome": "passed", "reason": "", "duration_s": 0.0,
         })
@@ -53,15 +55,21 @@ class Evidence:
 
     def finish(self, session, exitstatus):
         config = self.config
-        records = [self.records[key] for key in sorted(self.records)]
+        # Successful fixture phases alone do not establish a completed test.
+        # Keep early skip/xfail/error outcomes, which legitimately lack a call.
+        records = [self.records[key] for key in sorted(self.records)
+                   if self.records[key]["outcome"] != "passed"
+                   or {"call", "teardown"} <= self.phases[key]]
+        executing = not (config.option.collectonly or config.getoption("setuponly", False))
         totals = Counter(OUTCOMES[row["outcome"]] for row in records)
         no_skips = config.getoption("require_no_skips")
-        successful = (exitstatus == 0 and bool(records) and len(records) == len(self.selected)
+        successful = (executing and exitstatus == 0 and bool(records)
+                      and len(records) == len(self.selected)
                       and not self.collection_errors and all(self.discovery_counts.values())
                       and not any(totals[key] for key in ("failed", "errors", "unexpected_successes"))
                       and not (no_skips and (totals["skipped"] or totals["expected_failures"]
                                             or self.collection_skips)))
-        if not config.option.collectonly and not successful and exitstatus in (0, 5):
+        if executing and not successful and exitstatus in (0, 5):
             session.exitstatus = 1
         report_path = config.getoption("report")
         if report_path:
