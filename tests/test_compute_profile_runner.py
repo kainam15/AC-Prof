@@ -3,13 +3,14 @@ import io
 import json
 import sys
 import types
-import unittest
 import weakref
 from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout
 from unittest.mock import patch
 
+import pytest
 
-class ComputeProfileRunnerITTTests(unittest.TestCase):
+
+class TestComputeProfileRunnerITT:
     def _import_runner(self):
         fake_torch = types.SimpleNamespace(
             cuda=types.SimpleNamespace(
@@ -66,9 +67,9 @@ class ComputeProfileRunnerITTTests(unittest.TestCase):
              patch.object(runner.ctypes, "CDLL", side_effect=fake_cdll):
             control = runner._ITTControl()
 
-        self.assertIsNotNone(control._lib)
-        self.assertIn(collector, loaded)
-        self.assertEqual(loaded[0], collector)
+        assert (control._lib) is not None
+        assert (collector) in (loaded)
+        assert (loaded[0]) == (collector)
 
     def test_itt_control_invokes_literal_itt_symbols(self):
         runner = self._import_runner()
@@ -88,21 +89,15 @@ class ComputeProfileRunnerITTTests(unittest.TestCase):
             control.resume()
             control.pause()
 
-        self.assertEqual(calls, ["resume", "pause"])
+        assert (calls) == (["resume", "pause"])
 
     def test_eager_load_option_is_isolated_from_vendor_modes(self):
         runner = self._import_runner()
 
-        self.assertEqual(
-            runner._load_options_for_profile_mode("torch_eager_cpu"),
-            {"attention_implementation": "eager"},
-        )
-        self.assertEqual(
-            runner._load_options_for_profile_mode("torch_eager_gpu"),
-            {"attention_implementation": "eager"},
-        )
-        self.assertIsNone(runner._load_options_for_profile_mode("cpu"))
-        self.assertIsNone(runner._load_options_for_profile_mode("gpu"))
+        assert (runner._load_options_for_profile_mode("torch_eager_cpu")) == ({"attention_implementation": "eager"})
+        assert (runner._load_options_for_profile_mode("torch_eager_gpu")) == ({"attention_implementation": "eager"})
+        assert (runner._load_options_for_profile_mode("cpu")) is None
+        assert (runner._load_options_for_profile_mode("gpu")) is None
 
     def test_eager_attention_verification_reads_loaded_model_config(self):
         runner = self._import_runner()
@@ -113,7 +108,7 @@ class ComputeProfileRunnerITTTests(unittest.TestCase):
             "pipeline": types.SimpleNamespace(model=model),
         }
 
-        self.assertEqual(runner._verify_eager_attention(model_ctx), "eager")
+        assert (runner._verify_eager_attention(model_ctx)) == ("eager")
 
     def test_eager_attention_verification_rejects_non_eager_model(self):
         runner = self._import_runner()
@@ -124,10 +119,7 @@ class ComputeProfileRunnerITTTests(unittest.TestCase):
             "pipeline": types.SimpleNamespace(model=model),
         }
 
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "expected=eager,actual=sdpa",
-        ):
+        with pytest.raises(RuntimeError, match="expected=eager,actual=sdpa"):
             runner._verify_eager_attention(model_ctx)
 
     @contextmanager
@@ -195,71 +187,64 @@ class ComputeProfileRunnerITTTests(unittest.TestCase):
             stack.enter_context(redirect_stdout(stdout))
             yield runner, stdout
 
-    def test_invalid_warmup_output_prevents_all_profiler_capture_and_success(self):
-        for mode in ("cpu", "gpu", "torch_eager_cpu"):
-            with self.subTest(mode=mode):
-                events = []
-                with self._main_context(mode, events, invalid_output=True) as (runner, stdout):
-                    with self.assertRaisesRegex(ValueError, "frame count differs"):
-                        runner.main()
-                self.assertEqual(events, ["load", "preprocess", "predict", "postprocess"])
-                self.assertEqual(stdout.getvalue(), "")
+    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu'))
+    def test_invalid_warmup_output_prevents_all_profiler_capture_and_success(self, mode):
+        events = []
+        with self._main_context(mode, events, invalid_output=True) as (runner, stdout):
+            with pytest.raises(ValueError, match="frame count differs"):
+                runner.main()
+        assert (events) == (["load", "preprocess", "predict", "postprocess"])
+        assert (stdout.getvalue()) == ("")
 
-    def test_warmup_postprocess_does_not_repeat_full_validation_under_profiler(self):
-        for mode in ("cpu", "gpu", "torch_eager_cpu"):
-            with self.subTest(mode=mode):
-                events = []
-                with self._main_context(mode, events) as (runner, stdout):
-                    runner.main()
-                self.assertEqual(events, [
-                    "load", "preprocess", "predict", "postprocess",
-                    "capture_start", "predict", "predict", "capture_end",
-                ])
-                result = json.loads(stdout.getvalue())
-                self.assertEqual(result["status"], "ok")
-                self.assertEqual(result["repeat"], 2)
+    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu'))
+    def test_warmup_postprocess_does_not_repeat_full_validation_under_profiler(self, mode):
+        events = []
+        with self._main_context(mode, events) as (runner, stdout):
+            runner.main()
+        assert (events) == ([
+            "load", "preprocess", "predict", "postprocess",
+            "capture_start", "predict", "predict", "capture_end",
+        ])
+        result = json.loads(stdout.getvalue())
+        assert (result["status"]) == ("ok")
+        assert (result["repeat"]) == (2)
 
-    def test_completed_outputs_are_released_before_the_next_profiled_request(self):
+    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu', 'torch_eager_gpu'))
+    def test_completed_outputs_are_released_before_the_next_profiled_request(self, mode):
         class Output:
             pass
 
-        for mode in ("cpu", "gpu", "torch_eager_cpu", "torch_eager_gpu"):
-            with self.subTest(mode=mode):
-                events, references = [], []
-                with self._main_context(mode, events) as (runner, stdout):
-                    handler = runner.HandlerRegistry.get()
+        events, references = [], []
+        with self._main_context(mode, events) as (runner, stdout):
+            handler = runner.HandlerRegistry.get()
 
-                    def predict(*_args):
-                        if references:
-                            self.assertIsNone(references[-1](), "previous output survives into the next inference")
-                        result = Output()
-                        references.append(weakref.ref(result))
-                        events.append("predict")
-                        return result
+            def predict(*_args):
+                if references:
+                    assert (references[-1]()) is None, "previous output survives into the next inference"
+                result = Output()
+                references.append(weakref.ref(result))
+                events.append("predict")
+                return result
 
-                    def complete(_context, output, *, timeout_s):
-                        self.assertIs(output, references[-1]())
-                        events.append("complete")
-                        return output
+            def complete(_context, output, *, timeout_s):
+                assert (output) is (references[-1]())
+                events.append("complete")
+                return output
 
-                    def postprocess(_context, output):
-                        self.assertIs(output, references[-1]())
-                        self.assertEqual(events[-1], "complete")
-                        events.append("postprocess")
-                        return {}
+            def postprocess(_context, output):
+                assert (output) is (references[-1]())
+                assert (events[-1]) == ("complete")
+                events.append("postprocess")
+                return {}
 
-                    handler.predict = predict
-                    handler.postprocess = postprocess
-                    runner.configured_execution.return_value[0].wait_for_completion = complete
-                    runner.main()
-                self.assertEqual(len(references), 3)
-                self.assertTrue(all(reference() is None for reference in references))
-                self.assertEqual(events, [
-                    "load", "preprocess", "predict", "complete", "postprocess",
-                    "capture_start", "predict", "complete", "predict", "complete", "capture_end",
-                ])
-                self.assertEqual(json.loads(stdout.getvalue())["repeat"], 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            handler.predict = predict
+            handler.postprocess = postprocess
+            runner.configured_execution.return_value[0].wait_for_completion = complete
+            runner.main()
+        assert (len(references)) == (3)
+        assert (all(reference() is None for reference in references))
+        assert (events) == ([
+            "load", "preprocess", "predict", "complete", "postprocess",
+            "capture_start", "predict", "complete", "predict", "complete", "capture_end",
+        ])
+        assert (json.loads(stdout.getvalue())["repeat"]) == (2)

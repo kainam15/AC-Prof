@@ -3,7 +3,6 @@ import importlib.util
 import json
 import sys
 import tempfile
-import unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
@@ -12,11 +11,13 @@ from threading import Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from acprof import dependency_locks, network_policy
 from acprof.host.network_preflight import artifact_size
 
 
-class DependencyDownloadCacheTests(unittest.TestCase):
+class TestDependencyDownloadCache:
     @contextmanager
     def artifact_server(self, payload):
         requests = []
@@ -61,27 +62,24 @@ class DependencyDownloadCacheTests(unittest.TestCase):
                      "url": base_url + "/artifact"}
             target = Path(directory) / "example.whl"
             with patch.object(helper, "_record_transfer") as recorded:
-                self.assertEqual(helper.cached_artifact(entry, target, "python"), target)
-                self.assertEqual(target.read_bytes(), payload)
-                self.assertEqual(recorded.call_args.args[2:], (len(payload), "127.0.0.1", "miss"))
-                self.assertEqual(helper.cached_artifact(entry, target, "python"), target)
-                self.assertEqual(recorded.call_args.args[2:], (0, "127.0.0.1", "hit"))
-            self.assertEqual([(method, path) for method, path, _ in requests],
-                             [("GET", "/artifact"), ("GET", "/payload")])
-            self.assertEqual(requests[0][2], requests[1][2])
-            self.assertEqual(json.loads(target.with_suffix(".whl.source.json").read_text()),
-                             {"actual_source_host": "127.0.0.1"})
-            self.assertFalse(target.with_suffix(".whl.part").exists())
+                assert (helper.cached_artifact(entry, target, "python")) == (target)
+                assert (target.read_bytes()) == (payload)
+                assert (recorded.call_args.args[2:]) == ((len(payload), "127.0.0.1", "miss"))
+                assert (helper.cached_artifact(entry, target, "python")) == (target)
+                assert (recorded.call_args.args[2:]) == ((0, "127.0.0.1", "hit"))
+            assert ([(method, path) for method, path, _ in requests]) == ([("GET", "/artifact"), ("GET", "/payload")])
+            assert (requests[0][2]) == (requests[1][2])
+            assert (json.loads(target.with_suffix(".whl.source.json").read_text())) == ({"actual_source_host": "127.0.0.1"})
+            assert not (target.with_suffix(".whl.part").exists())
 
     def test_preflight_identifies_client_through_redirect_without_getting_payload(self):
         payload = b"fixed dependency payload"
         with self.artifact_server(payload) as (base_url, requests):
-            self.assertEqual(artifact_size(base_url + "/artifact"), len(payload))
-            self.assertIsNone(artifact_size(base_url + "/forbidden"))
-            self.assertIsNone(artifact_size("invalid-url"))
-        self.assertEqual([(method, path) for method, path, _ in requests],
-                         [("HEAD", "/artifact"), ("HEAD", "/payload"), ("HEAD", "/forbidden")])
-        self.assertTrue(all(agent == requests[0][2] for _, _, agent in requests))
+            assert (artifact_size(base_url + "/artifact")) == (len(payload))
+            assert (artifact_size(base_url + "/forbidden")) is None
+            assert (artifact_size("invalid-url")) is None
+        assert ([(method, path) for method, path, _ in requests]) == ([("HEAD", "/artifact"), ("HEAD", "/payload"), ("HEAD", "/forbidden")])
+        assert (all(agent == requests[0][2] for _, _, agent in requests))
 
     def helper(self):
         path = Path(__file__).resolve().parents[1] / "dockerfiles/environment_tools.py"
@@ -100,9 +98,9 @@ class DependencyDownloadCacheTests(unittest.TestCase):
             target = Path(directory) / "example.whl"
             target.write_bytes(data)
             with patch.object(helper, "_record_transfer") as recorded, patch("urllib.request.build_opener") as network:
-                self.assertEqual(helper.cached_artifact(entry, target, "python"), target)
+                assert (helper.cached_artifact(entry, target, "python")) == (target)
                 network.assert_not_called()
-                self.assertEqual(recorded.call_args.args[2:], (0, None, "hit"))
+                assert (recorded.call_args.args[2:]) == ((0, None, "hit"))
 
     def test_download_is_verified_before_publishing_and_not_retried_on_hash_failure(self):
         helper = self.helper()
@@ -114,14 +112,14 @@ class DependencyDownloadCacheTests(unittest.TestCase):
             target = Path(directory) / "example.whl"
             opener = SimpleNamespace(open=lambda *a, **kw: stream)
             with patch("urllib.request.build_opener", return_value=opener), patch.object(helper, "_record_transfer"):
-                with self.assertRaisesRegex(ValueError, "SHA256"):
+                with pytest.raises(ValueError, match="SHA256"):
                     helper.cached_artifact(entry, target, "python")
-            self.assertFalse(target.exists())
-            self.assertEqual(list(Path(directory).iterdir()), [])
+            assert not (target.exists())
+            assert (list(Path(directory).iterdir())) == ([])
 
     def test_wheel_and_debian_redirects_cannot_silently_escalate_to_proxy(self):
         helper = self.helper()
         import urllib.request
         request = urllib.request.Request("https://hf-mirror.com/artifact")
-        with patch.dict("os.environ", {}, clear=True), self.assertRaises(network_policy.DownloadPolicyError):
+        with patch.dict("os.environ", {}, clear=True), pytest.raises(network_policy.DownloadPolicyError):
             helper.PolicyRedirectHandler().redirect_request(request, None, 302, "Found", {}, "https://files.pythonhosted.org/artifact")

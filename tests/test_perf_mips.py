@@ -1,18 +1,22 @@
 import io
 import math
-import unittest
 from contextlib import redirect_stderr
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.monitors import perf_mips
 
 
-class PerfMIPSTests(unittest.TestCase):
-    def setUp(self):
+class TestPerfMIPS:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         locator = patch.object(perf_mips.shutil, "which", return_value="/usr/bin/perf")
         locator.start()
-        self.addCleanup(locator.stop)
+        self._request.addfinalizer(partial(locator.stop))
 
     def test_start_uses_prepared_command_without_discovery(self):
         monitor = perf_mips.PerfMIPSMonitor("case")
@@ -24,11 +28,11 @@ class PerfMIPSTests(unittest.TestCase):
             perf_mips, "resolve_perf_command_prefix_for_pid", side_effect=AssertionError("window probe"),
         ), patch.object(perf_mips.subprocess, "Popen") as launch:
             monitor.start()
-        self.assertIn("1234", launch.call_args.args[0])
+        assert ("1234") in (launch.call_args.args[0])
 
     def test_unprepared_start_is_rejected_without_discovery(self):
         with patch.object(perf_mips.common, "docker_container_pid") as discover:
-            with self.assertRaisesRegex(perf_mips.MIPSProfilingError, "prepared"):
+            with pytest.raises(perf_mips.MIPSProfilingError, match="prepared"):
                 perf_mips.PerfMIPSMonitor("case").start()
         discover.assert_not_called()
 
@@ -40,11 +44,11 @@ class PerfMIPSTests(unittest.TestCase):
         with patch.object(perf_mips.shutil, 'which', return_value='/usr/bin/perf'), patch.object(
             perf_mips, 'run_command', side_effect=results,
         ) as run:
-            with self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'PID 1'):
+            with pytest.raises(perf_mips.MIPSProfilingError, match='PID 1'):
                 perf_mips.resolve_perf_command_prefix(env={'PATH': '/usr/bin'})
-        self.assertIn('-p', run.call_args.args[0])
-        self.assertEqual(run.call_args.kwargs['env'], {'PATH': '/usr/bin'})
-        self.assertTrue(all(call.args[0][0] == 'perf' for call in run.call_args_list))
+        assert ('-p') in (run.call_args.args[0])
+        assert (run.call_args.kwargs['env']) == ({'PATH': '/usr/bin'})
+        assert (all(call.args[0][0] == 'perf' for call in run.call_args_list))
 
     def test_real_cycles_and_ipc_use_scaled_pmu_counts(self):
         parsed = perf_mips.parse_perf_stat_output(
@@ -53,10 +57,10 @@ class PerfMIPSTests(unittest.TestCase):
             "400,,ref-cycles,200000,100.00,,\n",
             fallback_elapsed_s=0.2,
         )
-        self.assertEqual(getattr(parsed, "cycles_total", None), 600)
-        self.assertEqual(parsed.ref_cycles_total, 400)
-        self.assertEqual(parsed.ipc, 2.0)
-        self.assertEqual(parsed.running_pct, 50.0)
+        assert (getattr(parsed, "cycles_total", None)) == (600)
+        assert (parsed.ref_cycles_total) == (400)
+        assert (parsed.ipc) == (2.0)
+        assert (parsed.running_pct) == (50.0)
 
     def test_partial_hybrid_cycles_must_not_produce_ipc(self):
         parsed = perf_mips.parse_perf_stat_output(
@@ -67,9 +71,9 @@ class PerfMIPSTests(unittest.TestCase):
             "<not supported>,,ref-cycles/,0,0.00,,\n",
             fallback_elapsed_s=0.2,
         )
-        self.assertTrue(math.isnan(getattr(parsed, "ipc", 0.0)))
-        self.assertTrue(math.isnan(parsed.cycles_total))
-        self.assertTrue(math.isnan(parsed.ref_cycles_total))
+        assert (math.isnan(getattr(parsed, "ipc", 0.0)))
+        assert (math.isnan(parsed.cycles_total))
+        assert (math.isnan(parsed.ref_cycles_total))
 
     def test_missing_pmu_row_is_not_a_complete_cycle_total(self):
         parsed = perf_mips.parse_perf_stat_output(
@@ -78,8 +82,8 @@ class PerfMIPSTests(unittest.TestCase):
             "40,,cpu_core/cycles/,100,100.00,,\n",
             fallback_elapsed_s=0.2,
         )
-        self.assertTrue(math.isnan(parsed.cycles_total))
-        self.assertTrue(math.isnan(parsed.ipc))
+        assert (math.isnan(parsed.cycles_total))
+        assert (math.isnan(parsed.ipc))
 
     def test_parses_perf_stat_csv_output(self) -> None:
         parsed = perf_mips.parse_perf_stat_output(
@@ -93,12 +97,12 @@ class PerfMIPSTests(unittest.TestCase):
 """
         )
 
-        self.assertEqual(parsed.instructions_total, 123_456_789)
-        self.assertAlmostEqual(parsed.perf_elapsed_s, 1.25)
-        self.assertEqual(parsed.cache_references_total, 200_000)
-        self.assertEqual(parsed.cache_misses_total, 10_000)
-        self.assertEqual(parsed.dtlb_loads_total, 50_000)
-        self.assertEqual(parsed.dtlb_load_misses_total, 250)
+        assert (parsed.instructions_total) == (123_456_789)
+        assert (parsed.perf_elapsed_s) == (1.25) or round(abs((parsed.perf_elapsed_s) - (1.25)), 7) == 0
+        assert (parsed.cache_references_total) == (200_000)
+        assert (parsed.cache_misses_total) == (10_000)
+        assert (parsed.dtlb_loads_total) == (50_000)
+        assert (parsed.dtlb_load_misses_total) == (250)
 
     def test_parses_hybrid_pmu_event_labels(self) -> None:
         parsed = perf_mips.parse_perf_stat_output(
@@ -117,11 +121,11 @@ class PerfMIPSTests(unittest.TestCase):
             fallback_elapsed_s=0.25,
         )
 
-        self.assertEqual(parsed.instructions_total, 1_500)
-        self.assertEqual(parsed.cache_references_total, 300)
-        self.assertEqual(parsed.cache_misses_total, 30)
-        self.assertEqual(parsed.dtlb_loads_total, 75)
-        self.assertEqual(parsed.dtlb_load_misses_total, 7)
+        assert (parsed.instructions_total) == (1_500)
+        assert (parsed.cache_references_total) == (300)
+        assert (parsed.cache_misses_total) == (30)
+        assert (parsed.dtlb_loads_total) == (75)
+        assert (parsed.dtlb_load_misses_total) == (7)
 
     def test_optional_events_can_be_unsupported_or_zero(self) -> None:
         parsed = perf_mips.parse_perf_stat_output(
@@ -135,11 +139,11 @@ class PerfMIPSTests(unittest.TestCase):
             fallback_elapsed_s=0.25,
         )
 
-        self.assertTrue(math.isnan(parsed.cache_references_total))
-        self.assertTrue(math.isnan(parsed.cache_misses_total))
-        self.assertEqual(parsed.dtlb_loads_total, 0)
-        self.assertEqual(parsed.dtlb_load_misses_total, 0)
-        self.assertTrue(math.isnan(perf_mips._miss_rate_pct(0.0, 0.0)))
+        assert (math.isnan(parsed.cache_references_total))
+        assert (math.isnan(parsed.cache_misses_total))
+        assert (parsed.dtlb_loads_total) == (0)
+        assert (parsed.dtlb_load_misses_total) == (0)
+        assert (math.isnan(perf_mips._miss_rate_pct(0.0, 0.0)))
 
     def test_preflight_accepts_modern_perf_csv_without_elapsed_line(self) -> None:
         def fake_run(cmd, **kwargs):
@@ -157,7 +161,7 @@ class PerfMIPSTests(unittest.TestCase):
         ):
             prefix = perf_mips.resolve_perf_command_prefix()
 
-        self.assertEqual(prefix, ["perf"])
+        assert (prefix) == (["perf"])
 
     def test_monitor_uses_direct_perf_when_preflight_allows_it(self) -> None:
         popen_cmds = []
@@ -202,19 +206,19 @@ class PerfMIPSTests(unittest.TestCase):
             monitor.start()
             result = monitor.stop(repeat_in_window=2, latency_app_s=0.125)
 
-        self.assertEqual(popen_cmds[0][:5], ["/usr/bin/perf", "stat", "--no-big-num", "-x", ","])
-        self.assertIn("-p", popen_cmds[0])
-        self.assertIn("1234", popen_cmds[0])
-        self.assertIn(",".join(perf_mips.PERF_EVENTS), popen_cmds[0])
-        self.assertEqual(result.instructions_total, 500_000)
-        self.assertEqual(result.instructions_per_request, 250_000.0)
-        self.assertAlmostEqual(result.cpu_mips_app, 2.0)
-        self.assertEqual(result.cache_references_per_request, 10_000.0)
-        self.assertEqual(result.cache_misses_per_request, 500.0)
-        self.assertAlmostEqual(result.cache_miss_rate_pct, 5.0)
-        self.assertEqual(result.dtlb_loads_per_request, 2_000.0)
-        self.assertEqual(result.dtlb_load_misses_per_request, 20.0)
-        self.assertAlmostEqual(result.dtlb_load_miss_rate_pct, 1.0)
+        assert (popen_cmds[0][:5]) == (["/usr/bin/perf", "stat", "--no-big-num", "-x", ","])
+        assert ("-p") in (popen_cmds[0])
+        assert ("1234") in (popen_cmds[0])
+        assert (",".join(perf_mips.PERF_EVENTS)) in (popen_cmds[0])
+        assert (result.instructions_total) == (500_000)
+        assert (result.instructions_per_request) == (250_000.0)
+        assert (result.cpu_mips_app) == (2.0) or round(abs((result.cpu_mips_app) - (2.0)), 7) == 0
+        assert (result.cache_references_per_request) == (10_000.0)
+        assert (result.cache_misses_per_request) == (500.0)
+        assert (result.cache_miss_rate_pct) == (5.0) or round(abs((result.cache_miss_rate_pct) - (5.0)), 7) == 0
+        assert (result.dtlb_loads_per_request) == (2_000.0)
+        assert (result.dtlb_load_misses_per_request) == (20.0)
+        assert (result.dtlb_load_miss_rate_pct) == (1.0) or round(abs((result.dtlb_load_miss_rate_pct) - (1.0)), 7) == 0
 
     def test_monitor_does_not_start_when_pid_attach_is_denied(self):
         with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
@@ -222,7 +226,7 @@ class PerfMIPSTests(unittest.TestCase):
         ), patch.object(perf_mips, 'run_command', return_value=SimpleNamespace(
             returncode=1, stdout='', stderr='Permission denied',
         )), patch.object(perf_mips.subprocess, 'Popen') as popen:
-            with self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'Permission denied'):
+            with pytest.raises(perf_mips.MIPSProfilingError, match='Permission denied'):
                 perf_mips.PerfMIPSMonitor('case_container').prepare()
         popen.assert_not_called()
 
@@ -256,16 +260,16 @@ class PerfMIPSTests(unittest.TestCase):
             monitor.start()
             result = monitor.stop(repeat_in_window=2, latency_app_s=0.125)
 
-        self.assertEqual(result.instructions_total, 500_000)
-        self.assertAlmostEqual(result.perf_elapsed_s, 0.25)
+        assert (result.instructions_total) == (500_000)
+        assert (result.perf_elapsed_s) == (0.25) or round(abs((result.perf_elapsed_s) - (0.25)), 7) == 0
 
-    def test_monitor_rejects_legacy_sudo_command_prefix(self):
+    @pytest.mark.parametrize('prefix', (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']))
+    def test_monitor_rejects_legacy_sudo_command_prefix(self, prefix):
         with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
             perf_mips.subprocess, 'Popen',
         ) as popen:
-            for prefix in (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']):
-                with self.subTest(prefix=prefix), self.assertRaisesRegex(perf_mips.MIPSProfilingError, 'direct perf'):
-                    perf_mips.PerfMIPSMonitor('case_container', command_prefix=prefix).prepare()
+            with pytest.raises(perf_mips.MIPSProfilingError, match='direct perf'):
+                perf_mips.PerfMIPSMonitor('case_container', command_prefix=prefix).prepare()
         popen.assert_not_called()
 
     def test_preflight_cannot_gain_access_from_retired_password_setting(self):
@@ -273,10 +277,10 @@ class PerfMIPSTests(unittest.TestCase):
             perf_mips.shutil, 'which', return_value='/usr/bin/perf',
         ), patch.object(perf_mips, 'run_command', return_value=SimpleNamespace(
             returncode=1, stdout='', stderr='Permission denied',
-        )) as run, self.assertRaises(perf_mips.MIPSProfilingError):
+        )) as run, pytest.raises(perf_mips.MIPSProfilingError):
             perf_mips.resolve_perf_command_prefix()
-        self.assertEqual(run.call_count, 1)
-        self.assertEqual(run.call_args.kwargs['input'], '')
+        assert (run.call_count) == (1)
+        assert (run.call_args.kwargs['input']) == ('')
 
     def test_preflight_failure_prints_friendly_remediation(self) -> None:
         stderr = io.StringIO()
@@ -287,20 +291,16 @@ class PerfMIPSTests(unittest.TestCase):
         with patch("acprof.monitors.perf_mips.shutil.which", return_value="/usr/bin/perf"), patch(
             "acprof.monitors.perf_mips.run_command",
             side_effect=fake_run,
-        ), patch("acprof.monitors.perf_mips.read_perf_event_paranoid", return_value="4"), self.assertRaises(
+        ), patch("acprof.monitors.perf_mips.read_perf_event_paranoid", return_value="4"), pytest.raises(
             SystemExit
         ) as raised, redirect_stderr(stderr):
             perf_mips.require_mips_prerequisites()
 
-        self.assertEqual(raised.exception.code, 1)
+        assert (raised.value.code) == (1)
         message = stderr.getvalue()
-        self.assertIn("[mips][ERROR]", message)
-        self.assertIn("MIPS profiling requires Linux perf access", message)
-        self.assertIn("perf_event_paranoid=4", message)
-        self.assertIn("cap_perfmon=ep", message)
-        self.assertNotIn("ACPROF_SUDO_PASSWORD", message)
-        self.assertIn("Avoid `sudo acprof run ...`", message)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert ("[mips][ERROR]") in (message)
+        assert ("MIPS profiling requires Linux perf access") in (message)
+        assert ("perf_event_paranoid=4") in (message)
+        assert ("cap_perfmon=ep") in (message)
+        assert ("ACPROF_SUDO_PASSWORD") not in (message)
+        assert ("Avoid `sudo acprof run ...`") in (message)

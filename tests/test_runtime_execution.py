@@ -1,12 +1,10 @@
 import os
 import subprocess
 import sys
-import unittest
 
 
-class RuntimeExecutionTests(unittest.TestCase):
-    def test_generic_runner_import_does_not_import_torch(self):
-        result = subprocess.run([sys.executable, '-c', '''
+def test_generic_runner_import_does_not_import_torch():
+    result = subprocess.run([sys.executable, '-c', '''
 import importlib.abc, sys
 class NoTorch(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
@@ -16,10 +14,10 @@ sys.meta_path.insert(0, NoTorch())
 import acprof.container.compute_profile_runner
 assert "torch" not in sys.modules
 '''], text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+    assert (result.returncode) == (0), result.stderr
 
-    def test_selected_cpu_runtime_validation_needs_no_torch(self):
-        result = subprocess.run([sys.executable, '-c', '''
+def test_selected_cpu_runtime_validation_needs_no_torch():
+    result = subprocess.run([sys.executable, '-c', '''
 import sys, types
 from contextlib import nullcontext
 from unittest.mock import patch
@@ -37,11 +35,7 @@ assert result["status"] == "ok"
 assert result["validation"]["protocol"]["status"] == "verified"
 assert "torch" not in sys.modules
 '''], env={**os.environ, 'TASK_FAMILY': 'structured', 'TASK_TYPE': 'tabular-regression',
-          'RUNTIME_BACKEND': 'onnxruntime', 'MODEL_ID': 'local/fixture', 'MODEL_REVISION': 'fixture',
-          'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default'},
-          text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-
-if __name__ == '__main__':
-    unittest.main()
+      'RUNTIME_BACKEND': 'onnxruntime', 'MODEL_ID': 'local/fixture', 'MODEL_REVISION': 'fixture',
+      'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default'},
+      text=True, capture_output=True)
+    assert (result.returncode) == (0), result.stderr

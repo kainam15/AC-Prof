@@ -3,12 +3,12 @@ import io
 import json
 import logging
 import tempfile
-import unittest
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 from client_fixtures import patch_client
 
 from acprof.host import client, client_publication
@@ -18,57 +18,64 @@ from acprof.host.measurement_window import MonitorGroup
 from acprof.monitors import energy_cpu, resource_metrics
 
 
-class MonitorCleanupTests(unittest.TestCase):
-    def test_request_and_result_publication_wait_for_monitor_finish(self):
+class TestMonitorCleanup:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        from platform_fixtures import native_policy
+        native_policy(self._request)
+        self.runner = ClientRunner(ClientConfig())
+    @pytest.mark.parametrize('error_case', range(3), ids=['None', 'timeout', 'KeyboardInterrupt()'])
+    def test_request_and_result_publication_wait_for_monitor_finish(self, error_case):
         timeout = client.RequestTimeoutAbort("timed out", input_scale=1.0, request_id="one", timeout_s=1.0)
-        for error in (None, timeout, KeyboardInterrupt()):
-            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
-                events = []
-                window_logs = []
-                monitor = Mock()
-                monitor.start.side_effect = lambda: events.append("start")
-                monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics._nan_result(), "", [])
-                monitor.close.side_effect = lambda: events.append("close")
-                runner = ClientRunner(ClientConfig(out_csv=str(Path(directory) / "case.csv"),
-                    warmup=0, repeat=1, repeat_in_window=1, use_mips=False, gpu_mode="off"))
-                runner.cpu_energy_mod = None
-                runner.resource_usage_mod = SimpleNamespace(ResourceUsageMonitor=lambda **kwargs: monitor)
-                runner.input_scale_entries = [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
+        error = tuple((None, timeout, KeyboardInterrupt()))[error_case]
+        with tempfile.TemporaryDirectory() as directory:
+            events = []
+            window_logs = []
+            monitor = Mock()
+            monitor.start.side_effect = lambda: events.append("start")
+            monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics._nan_result(), "", [])
+            monitor.close.side_effect = lambda: events.append("close")
+            runner = ClientRunner(ClientConfig(out_csv=str(Path(directory) / "case.csv"),
+                warmup=0, repeat=1, repeat_in_window=1, use_mips=False, gpu_mode="off"))
+            runner.cpu_energy_mod = None
+            runner.resource_usage_mod = SimpleNamespace(ResourceUsageMonitor=lambda **kwargs: monitor)
+            runner.input_scale_entries = [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
 
-                def request(*args, **kwargs):
-                    self.assertEqual(events, ["start"])
-                    if error is not None:
-                        raise error
-                    return {"latency_app_s": 0.1, "effective_input_scale": 1.0}
+            def request(*args, **kwargs):
+                assert (events) == (["start"])
+                if error is not None:
+                    raise error
+                return {"latency_app_s": 0.1, "effective_input_scale": 1.0}
 
-                def publish(callback, label):
-                    def wrapped(*args, **kwargs):
-                        self.assertEqual(events[:3], ["start", "stop", "close"])
-                        events.append(label)
-                        return callback(*args, **kwargs)
-                    return wrapped
+            def publish(callback, label):
+                def wrapped(*args, **kwargs):
+                    assert (events[:3]) == (["start", "stop", "close"])
+                    events.append(label)
+                    return callback(*args, **kwargs)
+                return wrapped
 
-                def capture_log(record):
-                    if "start" in events and "stop" not in events:
-                        window_logs.append((record.name, record.getMessage()))
+            def capture_log(record):
+                if "start" in events and "stop" not in events:
+                    window_logs.append((record.name, record.getMessage()))
 
-                with patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200)), patch.object(
-                    runner, "_one_request", side_effect=request,
-                ), patch.object(client_publication, "_append_request_window", side_effect=publish(
-                    client_publication._append_request_window, "requests",
-                )), patch.object(client_publication, "_append_row", side_effect=publish(
-                    client_publication._append_row, "result",
-                )), patch.object(logging.Logger, "isEnabledFor", return_value=True), patch.object(
-                    logging.Logger, "handle", side_effect=capture_log,
-                ):
-                    if error is None:
+            with patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200)), patch.object(
+                runner, "_one_request", side_effect=request,
+            ), patch.object(client_publication, "_append_request_window", side_effect=publish(
+                client_publication._append_request_window, "requests",
+            )), patch.object(client_publication, "_append_row", side_effect=publish(
+                client_publication._append_row, "result",
+            )), patch.object(logging.Logger, "isEnabledFor", return_value=True), patch.object(
+                logging.Logger, "handle", side_effect=capture_log,
+            ):
+                if error is None:
+                    runner.main()
+                else:
+                    with pytest.raises(type(error)):
                         runner.main()
-                    else:
-                        with self.assertRaises(type(error)):
-                            runner.main()
-                self.assertEqual(events, ["start", "stop", "close", "requests"] +
-                                 (["result"] if error is None else []))
-                self.assertEqual(window_logs, [], "even enabled DEBUG handlers must stay outside sampling")
+            assert (events) == (["start", "stop", "close", "requests"] +
+                             (["result"] if error is None else []))
+            assert (window_logs) == ([]), "even enabled DEBUG handlers must stay outside sampling"
 
     def test_all_preparation_finishes_before_any_sampling(self):
         events = []
@@ -80,7 +87,7 @@ class MonitorCleanupTests(unittest.TestCase):
             group.add(name, monitor)
         group.start()
         group.finish(1, 1.0)
-        self.assertEqual(events, [f"{n}.prepare" for n in group.START_ORDER] +
+        assert (events) == ([f"{n}.prepare" for n in group.START_ORDER] +
                          [f"{n}.start" for n in group.START_ORDER])
 
     def test_prepare_failure_closes_all_without_starting_sampling(self):
@@ -90,7 +97,7 @@ class MonitorCleanupTests(unittest.TestCase):
         group.add("gpu", gpu)
         group.add("mips", mips)
         try:
-            with self.assertRaisesRegex(RuntimeError, "attach denied"):
+            with pytest.raises(RuntimeError, match="attach denied"):
                 group.start()
         finally:
             group.finish(0, float("nan"))
@@ -98,11 +105,6 @@ class MonitorCleanupTests(unittest.TestCase):
         mips.start.assert_not_called()
         gpu.close.assert_called_once()
         mips.close.assert_called_once()
-
-    def setUp(self):
-        from platform_fixtures import native_policy
-        native_policy(self)
-        self.runner = ClientRunner(ClientConfig())
 
     def run_failure(self, fault, *, request_error=None, journal_error=None):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
@@ -135,22 +137,22 @@ class MonitorCleanupTests(unittest.TestCase):
             request = stack.enter_context(patch_client(self.runner, "_one_request", side_effect=request_error,
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0,
                               "workload_contract": {"schema_version": 1, "actual_rows": 1}}))
-            expected_error = (self.assertRaises(type(request_error))
+            expected_error = (pytest.raises(type(request_error))
                               if request_error is not None and not isinstance(request_error, Exception)
-                              else self.assertRaisesRegex(RuntimeError, "cleanup"))
+                              else pytest.raises(RuntimeError, match="cleanup"))
             with redirect_stdout(io.StringIO()), expected_error:
                 self.runner.main()
-            self.assertEqual(request.call_count, 1, "cleanup failure must stop later windows")
+            assert (request.call_count) == (1), "cleanup failure must stop later windows"
             cpu.stop.assert_called_once()
             cpu.close.assert_called_once()
             resource.close.assert_called_once()
             if journal_error is not None:
                 return
             records = [json.loads(line) for line in Path(str(path) + ".requests.jsonl").read_text().splitlines()]
-            self.assertEqual(len(records), 1)
-            self.assertIn(fault, records[0]["error"])
+            assert (len(records)) == (1)
+            assert (fault) in (records[0]["error"])
             if request_error is not None:
-                self.assertIn(str(request_error), records[0]["error"])
+                assert (str(request_error)) in (records[0]["error"])
 
     def test_resource_stop_failure_closes_all_monitors_and_keeps_request_evidence(self):
         self.run_failure("resource.stop")
@@ -173,7 +175,7 @@ class MonitorCleanupTests(unittest.TestCase):
         cpu.start.side_effect = RuntimeError("partial start")
         group.add("cpu", cpu)
         group.add("resource", resource)
-        with self.assertRaisesRegex(RuntimeError, "partial start"):
+        with pytest.raises(RuntimeError, match="partial start"):
             try:
                 group.start()
             finally:
@@ -191,12 +193,8 @@ class MonitorCleanupTests(unittest.TestCase):
         group.add("resource", resource)
         group.start()
         group.finish(1, 0.1)
-        with self.assertRaises(KeyboardInterrupt):
+        with pytest.raises(KeyboardInterrupt):
             group.raise_if_failed()
         cpu.stop.assert_called_once()
         cpu.close.assert_called_once()
         resource.close.assert_called_once()
-
-
-if __name__ == "__main__":
-    unittest.main()

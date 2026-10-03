@@ -2,12 +2,10 @@
 import subprocess
 import sys
 import textwrap
-import unittest
 
 
-class RunSignalTests(unittest.TestCase):
-    def test_sigterm_unwinds_case_and_run_cleanup_and_restores_handler(self):
-        script = textwrap.dedent('''
+def test_sigterm_unwinds_case_and_run_cleanup_and_restores_handler():
+    script = textwrap.dedent('''
             import os
             import signal
             from unittest.mock import patch
@@ -34,12 +32,7 @@ class RunSignalTests(unittest.TestCase):
                     print('interrupted', flush=True)
             assert signal.getsignal(signal.SIGTERM) == previous
         ''')
-        result = subprocess.run([sys.executable, '-c', script], capture_output=True,
-                                text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(),
-                         ['case cleaned', 'cancelled', 'state closed', 'interrupted'])
-
-
-if __name__ == '__main__':
-    unittest.main()
+    result = subprocess.run([sys.executable, '-c', script], capture_output=True,
+                            text=True, timeout=30)
+    assert (result.returncode) == (0), result.stderr
+    assert (result.stdout.splitlines()) == (['case cleaned', 'cancelled', 'state closed', 'interrupted'])

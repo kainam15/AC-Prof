@@ -3,9 +3,11 @@ import hashlib
 import json
 import os
 import tempfile
-import unittest
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 import acprof.host.collection_history as host_collection_history
 import acprof.host.compute_profile_plan as host_compute_profile_plan
@@ -19,7 +21,15 @@ from acprof.host.compute_profile_plan import TORCH_LOGICAL_MFLOP_FIELD
 from acprof.platform import Environment
 
 
-class PosthocProfileTests(unittest.TestCase):
+class TestPosthocProfile:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        from platform_fixtures import native_policy
+        native_policy(self._request)
+        selection = patch('acprof.host.posthoc.service.pin_gpu_device')
+        self.pin_gpu = selection.start()
+        self._request.addfinalizer(partial(selection.stop))
     def test_v2_reuses_metadata_plans_and_preserves_backups_under_internal_directory(self):
         from acprof.artifact_layout import ArtifactLayout
         with tempfile.TemporaryDirectory() as temporary:
@@ -35,21 +45,14 @@ class PosthocProfileTests(unittest.TestCase):
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
                 "acprof.host.posthoc.service._validate_profiler_runtime", side_effect=AssertionError("should reuse")):
                 summary = posthoc.run_posthoc(root)
-            self.assertEqual(set(summary.reused_tools), {"ncu", "nsys", "massif"})
+            assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
             backup = Path(summary.backup_dir)
-            self.assertTrue(backup.is_relative_to(root / ".acprof/recovery/posthoc_backups"))
-            self.assertEqual((backup / "result_all.csv").read_bytes(), original)
-            self.assertTrue((root / "raw/posthoc_profiles/compute_profile_plan.json").is_file())
-            self.assertTrue((root / "metadata/collection_history.json").is_file())
-            self.assertFalse((root / "posthoc_profiles").exists())
-            self.assertFalse((root / "collection_history.json").exists())
-
-    def setUp(self):
-        from platform_fixtures import native_policy
-        native_policy(self)
-        selection = patch('acprof.host.posthoc.service.pin_gpu_device')
-        self.pin_gpu = selection.start()
-        self.addCleanup(selection.stop)
+            assert (backup.is_relative_to(root / ".acprof/recovery/posthoc_backups"))
+            assert ((backup / "result_all.csv").read_bytes()) == (original)
+            assert ((root / "raw/posthoc_profiles/compute_profile_plan.json").is_file())
+            assert ((root / "metadata/collection_history.json").is_file())
+            assert not ((root / "posthoc_profiles").exists())
+            assert not ((root / "collection_history.json").exists())
 
     def test_posthoc_validates_workload_in_separate_container_before_profiler(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -64,35 +67,36 @@ class PosthocProfileTests(unittest.TestCase):
             ) as validate:
                 host_posthoc_plans._validate_profiler_runtime(context, gpu_modes=['off'])
             kwargs = validate.call_args.kwargs
-            self.assertEqual(kwargs['gpu_list'], ['off'])
-            self.assertEqual(kwargs['image_info'].tag, context.image_tag)
-            self.assertEqual(kwargs['planned'].plan_file, str(context.input_scale_plan_path))
-            self.assertEqual(Path(kwargs['output_dir']), root / 'posthoc_profiles' / 'runtime_validation')
+            assert (kwargs['gpu_list']) == (['off'])
+            assert (kwargs['image_info'].tag) == (context.image_tag)
+            assert (kwargs['planned'].plan_file) == (str(context.input_scale_plan_path))
+            assert (Path(kwargs['output_dir'])) == (root / 'posthoc_profiles' / 'runtime_validation')
 
-    def test_posthoc_runtime_failure_and_oom_stop_before_profiler_or_result_write(self):
-        for validation_result in (RuntimeError('invalid task output'), {'status': 'resource_limited'}):
-            with self.subTest(result=validation_result), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                self._write_fixture(root)
-                path = root / host_posthoc_context.STATIC_META_NAME
-                metadata = json.loads(path.read_text())
-                metadata['runtime_environment'] = {'build_fingerprint': 'fixed'}
-                path.write_text(json.dumps(metadata))
-                before = {name: (root / name).read_bytes() for name in ('static_meta.json', 'result_all.csv')}
-                with patch('acprof.host.posthoc.service.find_active_processes', return_value=[]), patch(
-                    'acprof.host.preflight.require_native_linux_host',
-                ), patch('acprof.host.preflight.require_native_docker'), patch(
-                    'acprof.host.runtime_images.require_image_identity',
-                ), patch('acprof.host.runtime_validation.validate_runtime',
-                         side_effect=validation_result if isinstance(validation_result, Exception) else None,
-                         return_value=validation_result) as validate, patch(
-                    'acprof.host.posthoc.service._collect_execution_plan',
-                ) as collect, self.assertRaisesRegex(host_posthoc_context.PosthocError, 'validation|验证'):
-                    posthoc.run_posthoc(root, tools='massif', force_reprofile=True)
-                collect.assert_not_called()
-                validate.assert_called_once()
-                self.assertEqual(validate.call_args.kwargs['gpu_list'], ['off'])
-                self.assertEqual(before, {name: (root / name).read_bytes() for name in before})
+    @pytest.mark.parametrize('validation_result_case', range(2), ids=["RuntimeError('invalid task output')", "{'status': 'resource_limited'}"])
+    def test_posthoc_runtime_failure_and_oom_stop_before_profiler_or_result_write(self, validation_result_case):
+        validation_result = tuple((RuntimeError('invalid task output'), {'status': 'resource_limited'}))[validation_result_case]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_fixture(root)
+            path = root / host_posthoc_context.STATIC_META_NAME
+            metadata = json.loads(path.read_text())
+            metadata['runtime_environment'] = {'build_fingerprint': 'fixed'}
+            path.write_text(json.dumps(metadata))
+            before = {name: (root / name).read_bytes() for name in ('static_meta.json', 'result_all.csv')}
+            with patch('acprof.host.posthoc.service.find_active_processes', return_value=[]), patch(
+                'acprof.host.preflight.require_native_linux_host',
+            ), patch('acprof.host.preflight.require_native_docker'), patch(
+                'acprof.host.runtime_images.require_image_identity',
+            ), patch('acprof.host.runtime_validation.validate_runtime',
+                     side_effect=validation_result if isinstance(validation_result, Exception) else None,
+                     return_value=validation_result) as validate, patch(
+                'acprof.host.posthoc.service._collect_execution_plan',
+            ) as collect, pytest.raises(host_posthoc_context.PosthocError, match='validation|验证'):
+                posthoc.run_posthoc(root, tools='massif', force_reprofile=True)
+            collect.assert_not_called()
+            validate.assert_called_once()
+            assert (validate.call_args.kwargs['gpu_list']) == (['off'])
+            assert (before) == ({name: (root / name).read_bytes() for name in before})
 
     def test_load_context_uses_image_id_and_preserves_runtime_binding(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -105,10 +109,10 @@ class PosthocProfileTests(unittest.TestCase):
             path.write_text(json.dumps(metadata))
             before = path.read_bytes()
             context = host_posthoc_context.load_result_context(root)
-            self.assertEqual(context.image_tag, metadata["image_id"])
-            self.assertEqual(context.task_info.runtime_profile_id, "legacy-nlp")
-            self.assertEqual(path.read_bytes(), before)
-            self.assertNotIn("environment_id", context.static_meta["runtime_environment"])
+            assert (context.image_tag) == (metadata["image_id"])
+            assert (context.task_info.runtime_profile_id) == ("legacy-nlp")
+            assert (path.read_bytes()) == (before)
+            assert ("environment_id") not in (context.static_meta["runtime_environment"])
 
     def test_parser_defaults_to_reduced_execution_sampling(self):
         defaults = posthoc._build_parser().parse_args(["results/example"])
@@ -126,12 +130,12 @@ class PosthocProfileTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(defaults.massif_sampling, "per-scale")
-        self.assertEqual(defaults.nsys_sampling, "per-cpu-scale")
-        self.assertEqual(explicit.massif_sampling, "full")
-        self.assertEqual(explicit.nsys_sampling, "per-scale")
-        self.assertEqual(explicit.nsys_reference_cpu, 4)
-        self.assertEqual(explicit.nsys_reference_mem, 8)
+        assert (defaults.massif_sampling) == ("per-scale")
+        assert (defaults.nsys_sampling) == ("per-cpu-scale")
+        assert (explicit.massif_sampling) == ("full")
+        assert (explicit.nsys_sampling) == ("per-scale")
+        assert (explicit.nsys_reference_cpu) == (4)
+        assert (explicit.nsys_reference_mem) == (8)
 
     def _write_fixture(
         self,
@@ -393,13 +397,13 @@ class PosthocProfileTests(unittest.TestCase):
             self._write_fixture(root)
             context = host_posthoc_context.load_result_context(root)
 
-        self.assertEqual(context.task_info.model_id, "example/model")
-        self.assertEqual(context.resource_cases, [(2, 4, "off"), (2, 4, "on")])
+        assert (context.task_info.model_id) == ("example/model")
+        assert (context.resource_cases) == ([(2, 4, "off"), (2, 4, "on")])
         applicable, skipped = host_posthoc_plans.applicable_tools(
             context, ("torch", "ncu", "nsys", "massif")
         )
-        self.assertEqual(applicable, ("torch", "ncu", "nsys", "massif"))
-        self.assertEqual(skipped, ())
+        assert (applicable) == (("torch", "ncu", "nsys", "massif"))
+        assert (skipped) == (())
 
     def test_load_context_rejects_embedded_histories_without_rewriting(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -410,9 +414,9 @@ class PosthocProfileTests(unittest.TestCase):
             static_meta["timeout_retry_history"] = [{"completed_at": "2026-08-21T22:29:33+08:00"}]
             static_path.write_text(json.dumps(static_meta))
             before = static_path.read_bytes()
-            with self.assertRaisesRegex(host_posthoc_context.PosthocError, "collection_history"):
+            with pytest.raises(host_posthoc_context.PosthocError, match="collection_history"):
                 host_posthoc_context.load_result_context(root)
-            self.assertEqual(static_path.read_bytes(), before)
+            assert (static_path.read_bytes()) == (before)
 
     def test_backfill_updates_only_profiler_fields_for_applicable_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -429,20 +433,20 @@ class PosthocProfileTests(unittest.TestCase):
                 execution_plan=self._execution_plan(),
             )
 
-        self.assertEqual(set(fields), original_fields)
-        self.assertEqual(fields[-2:], ["marker", "status"])
+        assert (set(fields)) == (original_fields)
+        assert (fields[-2:]) == (["marker", "status"])
         cpu = next(row for row in rows if row["gpu_mode"] == "off")
         gpu = next(row for row in rows if row["gpu_mode"] == "on")
-        self.assertEqual(cpu["marker"], "cpu-original")
-        self.assertEqual(cpu[TORCH_LOGICAL_MFLOP_FIELD], "123.000000")
-        self.assertEqual(cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD], "1250.000000")
-        self.assertEqual(gpu["marker"], "gpu-original")
-        self.assertEqual(gpu[TORCH_LOGICAL_MFLOP_FIELD], "456.000000")
-        self.assertEqual(gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD], "100.000000")
-        self.assertEqual(gpu[host_posthoc_context.NCU_DERIVED_APP_FIELD], "250.000000")
-        self.assertEqual(gpu[host_posthoc_context.NCU_DERIVED_PACKET_FIELD], "200.000000")
-        self.assertEqual(gpu[host_execution_profile_plan.NSYS_HOST_WALL_TIME_FIELD], "20.000000")
-        self.assertEqual(updated, {"ncu": 1, "nsys": 1, "massif": 1})
+        assert (cpu["marker"]) == ("cpu-original")
+        assert (cpu[TORCH_LOGICAL_MFLOP_FIELD]) == ("123.000000")
+        assert (cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD]) == ("1250.000000")
+        assert (gpu["marker"]) == ("gpu-original")
+        assert (gpu[TORCH_LOGICAL_MFLOP_FIELD]) == ("456.000000")
+        assert (gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("100.000000")
+        assert (gpu[host_posthoc_context.NCU_DERIVED_APP_FIELD]) == ("250.000000")
+        assert (gpu[host_posthoc_context.NCU_DERIVED_PACKET_FIELD]) == ("200.000000")
+        assert (gpu[host_execution_profile_plan.NSYS_HOST_WALL_TIME_FIELD]) == ("20.000000")
+        assert (updated) == ({"ncu": 1, "nsys": 1, "massif": 1})
 
     def test_successful_existing_profile_is_preserved_without_force(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -458,8 +462,8 @@ class PosthocProfileTests(unittest.TestCase):
                 compute_plan=self._compute_plan(),
             )
 
-        self.assertEqual(rows[0][host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD], "777.000000")
-        self.assertEqual(updated, {"ncu": 0})
+        assert (rows[0][host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("777.000000")
+        assert (updated) == ({"ncu": 0})
 
     def test_torch_plan_backfills_cpu_gpu_rows_and_static_flops(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -479,19 +483,16 @@ class PosthocProfileTests(unittest.TestCase):
             rows = self._read_rows(root / "result_all.csv")
             cpu = next(row for row in rows if row["gpu_mode"] == "off")
             gpu = next(row for row in rows if row["gpu_mode"] == "on")
-            self.assertEqual(cpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD], "111.000000")
-            self.assertEqual(gpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD], "222.000000")
-            self.assertEqual(summary.reused_tools, ("torch",))
-            self.assertEqual(summary.updated_rows_by_tool, {"torch": 2})
+            assert (cpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("111.000000")
+            assert (gpu[host_compute_profile_plan.TORCH_LOGICAL_MFLOP_FIELD]) == ("222.000000")
+            assert (summary.reused_tools) == (("torch",))
+            assert (summary.updated_rows_by_tool) == ({"torch": 2})
 
             metadata = json.loads((root / "static_meta.json").read_text())
-            self.assertIn("torch_profiler_eager", metadata["compute_profile_tools"])
-            self.assertEqual(metadata["torch_version"], "test-torch")
-            self.assertEqual(metadata["static_flops"]["profile"], "gpu")
-            self.assertEqual(
-                metadata["static_flops"]["values"],
-                [{"input_scale": 8, "flops_per_request": 222_000_000}],
-            )
+            assert ("torch_profiler_eager") in (metadata["compute_profile_tools"])
+            assert (metadata["torch_version"]) == ("test-torch")
+            assert (metadata["static_flops"]["profile"]) == ("gpu")
+            assert (metadata["static_flops"]["values"]) == ([{"input_scale": 8, "flops_per_request": 222_000_000}])
 
     def test_torch_collector_uses_available_cpu_and_gpu_modes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -521,13 +522,13 @@ class PosthocProfileTests(unittest.TestCase):
                 )
 
         kwargs = collect.call_args.kwargs
-        self.assertEqual(kwargs["compute_profile_tool"], "torch")
-        self.assertEqual(kwargs["gpu_list"], ["off", "on"])
-        self.assertEqual(kwargs["torch_profiler_repeat"], 3)
-        self.assertEqual(kwargs["compute_profile_cpus"], 8)
-        self.assertEqual(kwargs["compute_profile_mem"], 16)
-        self.assertTrue(kwargs["resume_existing_ncu_profiles"])
-        self.assertTrue(host_posthoc_plans.compute_plan_covers_tool(plan, context, "torch"))
+        assert (kwargs["compute_profile_tool"]) == ("torch")
+        assert (kwargs["gpu_list"]) == (["off", "on"])
+        assert (kwargs["torch_profiler_repeat"]) == (3)
+        assert (kwargs["compute_profile_cpus"]) == (8)
+        assert (kwargs["compute_profile_mem"]) == (16)
+        assert (kwargs["resume_existing_ncu_profiles"])
+        assert (host_posthoc_plans.compute_plan_covers_tool(plan, context, "torch"))
 
     def test_torch_and_ncu_plans_merge_without_overwriting_each_other(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -539,15 +540,12 @@ class PosthocProfileTests(unittest.TestCase):
                 {"torch": self._torch_plan(), "ncu": self._compute_plan()},
             )
 
-        self.assertEqual(
-            merged["static_metadata"]["compute_profile_tools"],
-            ["torch_profiler_eager", "ncu"],
-        )
-        self.assertIn("torch_profiler_eager", merged["profiles"]["cpu"])
-        self.assertIn("torch_profiler_eager", merged["profiles"]["gpu"])
-        self.assertIn("ncu", merged["profiles"]["gpu"])
-        self.assertTrue(host_posthoc_plans.compute_plan_covers_tool(merged, context, "torch"))
-        self.assertTrue(host_posthoc_plans.compute_plan_covers_tool(merged, context, "ncu"))
+        assert (merged["static_metadata"]["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
+        assert ("torch_profiler_eager") in (merged["profiles"]["cpu"])
+        assert ("torch_profiler_eager") in (merged["profiles"]["gpu"])
+        assert ("ncu") in (merged["profiles"]["gpu"])
+        assert (host_posthoc_plans.compute_plan_covers_tool(merged, context, "torch"))
+        assert (host_posthoc_plans.compute_plan_covers_tool(merged, context, "ncu"))
 
     def test_representative_massif_plan_expands_to_all_cpu_cases(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -567,13 +565,10 @@ class PosthocProfileTests(unittest.TestCase):
             (profile["cpu_cores"], profile["mem_cap_gb"])
             for profile in expanded["profiles"]
         }
-        self.assertEqual(resources, {(2, 4), (8, 16)})
-        self.assertEqual(
-            expanded["static_metadata"]["massif_sampling_strategy"],
-            "representative_per_scale",
-        )
+        assert (resources) == ({(2, 4), (8, 16)})
+        assert (expanded["static_metadata"]["massif_sampling_strategy"]) == ("representative_per_scale")
         entry = expanded["profiles"][1]["tools"]["massif"]["entries"][0]
-        self.assertEqual(entry["profile_source_cpu_cores"], 2)
+        assert (entry["profile_source_cpu_cores"]) == (2)
 
     def test_one_command_reuses_plans_updates_original_names_and_keeps_backup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -605,38 +600,33 @@ class PosthocProfileTests(unittest.TestCase):
             ):
                 summary = posthoc.run_posthoc(root)
 
-            self.assertEqual(Path(summary.result_csv), root / "result_all.csv")
-            self.assertEqual(Path(summary.static_meta), root / "static_meta.json")
-            self.assertEqual(set(summary.reused_tools), {"ncu", "nsys", "massif"})
+            assert (Path(summary.result_csv)) == (root / "result_all.csv")
+            assert (Path(summary.static_meta)) == (root / "static_meta.json")
+            assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
             backup = Path(summary.backup_dir)
-            self.assertEqual((backup / "result_all.csv").read_bytes(), original_csv)
-            self.assertEqual((backup / "static_meta.json").read_bytes(), original_meta)
-            self.assertEqual(
-                (backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes(),
-                original_history,
-            )
+            assert ((backup / "result_all.csv").read_bytes()) == (original_csv)
+            assert ((backup / "static_meta.json").read_bytes()) == (original_meta)
+            assert ((backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes()) == (original_history)
 
             rows = self._read_rows(root / "result_all.csv")
             cpu = next(row for row in rows if row["gpu_mode"] == "off")
             gpu = next(row for row in rows if row["gpu_mode"] == "on")
-            self.assertEqual(cpu["marker"], "cpu-original")
-            self.assertEqual(gpu["marker"], "gpu-original")
-            self.assertEqual(gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD], "100.000000")
-            self.assertEqual(cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD], "1250.000000")
+            assert (cpu["marker"]) == ("cpu-original")
+            assert (gpu["marker"]) == ("gpu-original")
+            assert (gpu[host_compute_profile_plan.NCU_TOTAL_MFLOP_FIELD]) == ("100.000000")
+            assert (cpu[host_execution_profile_plan.MASSIF_HEAP_PEAK_TOTAL_FIELD]) == ("1250.000000")
 
             metadata = json.loads((root / "static_meta.json").read_text())
-            self.assertIn("ncu", metadata["compute_profile_tools"])
-            self.assertEqual(
-                set(metadata["execution_profile_tools"]), {"massif", "nsys"}
-            )
-            self.assertEqual(metadata["nsys_version"], "test-nsys")
-            self.assertEqual(metadata["massif_version"], "test-massif")
-            self.assertNotIn("posthoc_profile_history", metadata)
-            self.assertNotIn("posthoc_profile_last_run", metadata)
+            assert ("ncu") in (metadata["compute_profile_tools"])
+            assert (set(metadata["execution_profile_tools"])) == ({"massif", "nsys"})
+            assert (metadata["nsys_version"]) == ("test-nsys")
+            assert (metadata["massif_version"]) == ("test-massif")
+            assert ("posthoc_profile_history") not in (metadata)
+            assert ("posthoc_profile_last_run") not in (metadata)
             collection_history = json.loads(history_path.read_text())
-            self.assertEqual(len(collection_history["posthoc_profile_history"]), 1)
-            self.assertEqual(len(collection_history["timeout_retry_history"]), 1)
-            self.assertFalse((root / ".posthoc.lock").exists())
+            assert (len(collection_history["posthoc_profile_history"])) == (1)
+            assert (len(collection_history["timeout_retry_history"])) == (1)
+            assert not ((root / ".posthoc.lock").exists())
 
     def test_three_file_commit_restores_csv_and_meta_if_history_publish_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -680,7 +670,7 @@ class PosthocProfileTests(unittest.TestCase):
             with patch(
                 "acprof.host.posthoc.storage.os.replace",
                 side_effect=fail_history_publish,
-            ), self.assertRaisesRegex(OSError, "simulated history publish failure"):
+            ), pytest.raises(OSError, match="simulated history publish failure"):
                 host_posthoc_storage.commit_result_files(
                     context,
                     fieldnames=context.fieldnames,
@@ -690,10 +680,10 @@ class PosthocProfileTests(unittest.TestCase):
                     backup_dir=backup,
                 )
 
-            self.assertEqual(context.result_csv.read_bytes(), original_csv)
-            self.assertEqual(context.static_meta_path.read_bytes(), original_meta)
-            self.assertEqual(history_path.read_bytes(), original_history)
-            self.assertEqual(list(root.glob(".*.tmp")), [])
+            assert (context.result_csv.read_bytes()) == (original_csv)
+            assert (context.static_meta_path.read_bytes()) == (original_meta)
+            assert (history_path.read_bytes()) == (original_history)
+            assert (list(root.glob(".*.tmp"))) == ([])
 
     def test_gpu_only_collection_runs_ncu_and_nsys_but_skips_massif(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -712,15 +702,15 @@ class PosthocProfileTests(unittest.TestCase):
             ) as collect_execution:
                 summary = posthoc.run_posthoc(root)
 
-            self.assertEqual(set(summary.collected_tools), {"ncu", "nsys"})
+            assert (set(summary.collected_tools)) == ({"ncu", "nsys"})
             self.pin_gpu.assert_called_once_with("GPU-fixture")
-            self.assertIn("massif", summary.skipped_tools)
+            assert ("massif") in (summary.skipped_tools)
             validate_runtime.assert_called_once()
-            self.assertEqual(validate_runtime.call_args.kwargs['gpu_modes'], ['on'])
+            assert (validate_runtime.call_args.kwargs['gpu_modes']) == (['on'])
             collect_compute.assert_called_once()
-            self.assertEqual(collect_compute.call_args.kwargs["tool"], "ncu")
+            assert (collect_compute.call_args.kwargs["tool"]) == ("ncu")
             collect_execution.assert_called_once()
-            self.assertEqual(collect_execution.call_args.kwargs["tool"], "nsys")
+            assert (collect_execution.call_args.kwargs["tool"]) == ("nsys")
 
     def test_gpu_recollection_rejects_unknown_historical_device(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -733,11 +723,11 @@ class PosthocProfileTests(unittest.TestCase):
             original_csv = (root / "result_all.csv").read_bytes()
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
                 "acprof.host.posthoc.service._validate_profiler_runtime"
-            ) as validate, self.assertRaisesRegex(host_posthoc_context.PosthocError, "gpu_device.uuid"):
+            ) as validate, pytest.raises(host_posthoc_context.PosthocError, match="gpu_device.uuid"):
                 posthoc.run_posthoc(root, tools="ncu", force_reprofile=True)
             validate.assert_not_called()
             self.pin_gpu.assert_not_called()
-            self.assertEqual((root / "result_all.csv").read_bytes(), original_csv)
+            assert ((root / "result_all.csv").read_bytes()) == (original_csv)
 
     def test_dry_run_does_not_create_backup_or_change_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -749,10 +739,10 @@ class PosthocProfileTests(unittest.TestCase):
             ):
                 summary = posthoc.run_posthoc(root, dry_run=True)
 
-            self.assertIsNone(summary.backup_dir)
-            self.assertEqual(csv_path.read_bytes(), original)
-            self.assertFalse((root / host_posthoc_context.BACKUP_DIRNAME).exists())
-            self.assertFalse((root / host_posthoc_context.POSTHOC_DIRNAME).exists())
+            assert (summary.backup_dir) is None
+            assert (csv_path.read_bytes()) == (original)
+            assert not ((root / host_posthoc_context.BACKUP_DIRNAME).exists())
+            assert not ((root / host_posthoc_context.POSTHOC_DIRNAME).exists())
 
     def test_active_run_is_rejected_before_files_change(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -762,9 +752,5 @@ class PosthocProfileTests(unittest.TestCase):
                 "acprof.host.posthoc.service.find_active_processes",
                 return_value=[(123, "acprof run --model example/model")],
             ):
-                with self.assertRaisesRegex(posthoc.PosthocError, "still using"):
+                with pytest.raises(posthoc.PosthocError, match="still using"):
                     posthoc.run_posthoc(root)
-
-
-if __name__ == "__main__":
-    unittest.main()

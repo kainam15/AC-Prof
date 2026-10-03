@@ -1,17 +1,20 @@
 import math
 import os
 import tempfile
-import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.monitors import resource_metrics, resource_readers, resource_usage
 
 
-class ResourceUsageMonitorTests(unittest.TestCase):
-    def setUp(self):
+class TestResourceUsageMonitor:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
+        native_policy(self._request)
 
     def test_sampling_does_not_rediscover_cpu_topology(self):
         with patch.object(resource_readers, "_resolve_container_metric_readers", return_value=resource_readers._ContainerReaders()), patch.object(
@@ -72,26 +75,26 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             mem_limit_bytes=1000,
         )
 
-        self.assertEqual(result.resource_usage_iters, 3)
-        self.assertAlmostEqual(result.container_cpu_util_avg_pct, 75.0)
-        self.assertAlmostEqual(result.container_cpu_util_peak_pct, 100.0)
-        self.assertAlmostEqual(result.container_mem_usage_avg_bytes, 200.0)
-        self.assertAlmostEqual(result.container_mem_usage_peak_bytes, 300.0)
-        self.assertAlmostEqual(result.container_mem_util_avg_pct, 20.0)
-        self.assertAlmostEqual(result.container_mem_util_peak_pct, 30.0)
-        self.assertAlmostEqual(result.container_swap_usage_avg_bytes, 20.0)
-        self.assertAlmostEqual(result.container_swap_usage_peak_bytes, 30.0)
-        self.assertAlmostEqual(result.gpu_util_avg_pct, 20.0)
-        self.assertAlmostEqual(result.gpu_util_peak_pct, 30.0)
-        self.assertAlmostEqual(result.gpu_sm_clock_mhz, 1200.0)
-        self.assertAlmostEqual(result.gpu_memory_clock_mhz, 6000.0)
-        self.assertEqual(result.gpu_pstate, "P0")
-        self.assertAlmostEqual(result.gpu_temp_c, 52.0)
-        self.assertAlmostEqual(result.gpu_mem_used_avg_bytes, 2 * gib)
-        self.assertAlmostEqual(result.gpu_mem_used_peak_bytes, 3 * gib)
-        self.assertAlmostEqual(result.gpu_mem_util_avg_pct, 50.0)
-        self.assertAlmostEqual(result.gpu_mem_util_peak_pct, 75.0)
-        self.assertAlmostEqual(result.gpu_mem_total_bytes, 4 * gib)
+        assert (result.resource_usage_iters) == (3)
+        assert (result.container_cpu_util_avg_pct) == (75.0) or round(abs((result.container_cpu_util_avg_pct) - (75.0)), 7) == 0
+        assert (result.container_cpu_util_peak_pct) == (100.0) or round(abs((result.container_cpu_util_peak_pct) - (100.0)), 7) == 0
+        assert (result.container_mem_usage_avg_bytes) == (200.0) or round(abs((result.container_mem_usage_avg_bytes) - (200.0)), 7) == 0
+        assert (result.container_mem_usage_peak_bytes) == (300.0) or round(abs((result.container_mem_usage_peak_bytes) - (300.0)), 7) == 0
+        assert (result.container_mem_util_avg_pct) == (20.0) or round(abs((result.container_mem_util_avg_pct) - (20.0)), 7) == 0
+        assert (result.container_mem_util_peak_pct) == (30.0) or round(abs((result.container_mem_util_peak_pct) - (30.0)), 7) == 0
+        assert (result.container_swap_usage_avg_bytes) == (20.0) or round(abs((result.container_swap_usage_avg_bytes) - (20.0)), 7) == 0
+        assert (result.container_swap_usage_peak_bytes) == (30.0) or round(abs((result.container_swap_usage_peak_bytes) - (30.0)), 7) == 0
+        assert (result.gpu_util_avg_pct) == (20.0) or round(abs((result.gpu_util_avg_pct) - (20.0)), 7) == 0
+        assert (result.gpu_util_peak_pct) == (30.0) or round(abs((result.gpu_util_peak_pct) - (30.0)), 7) == 0
+        assert (result.gpu_sm_clock_mhz) == (1200.0) or round(abs((result.gpu_sm_clock_mhz) - (1200.0)), 7) == 0
+        assert (result.gpu_memory_clock_mhz) == (6000.0) or round(abs((result.gpu_memory_clock_mhz) - (6000.0)), 7) == 0
+        assert (result.gpu_pstate) == ("P0")
+        assert (result.gpu_temp_c) == (52.0) or round(abs((result.gpu_temp_c) - (52.0)), 7) == 0
+        assert (result.gpu_mem_used_avg_bytes) == (2 * gib) or round(abs((result.gpu_mem_used_avg_bytes) - (2 * gib)), 7) == 0
+        assert (result.gpu_mem_used_peak_bytes) == (3 * gib) or round(abs((result.gpu_mem_used_peak_bytes) - (3 * gib)), 7) == 0
+        assert (result.gpu_mem_util_avg_pct) == (50.0) or round(abs((result.gpu_mem_util_avg_pct) - (50.0)), 7) == 0
+        assert (result.gpu_mem_util_peak_pct) == (75.0) or round(abs((result.gpu_mem_util_peak_pct) - (75.0)), 7) == 0
+        assert (result.gpu_mem_total_bytes) == (4 * gib) or round(abs((result.gpu_mem_total_bytes) - (4 * gib)), 7) == 0
 
     def test_result_calculates_cpu_frequency_metrics(self) -> None:
         samples = [
@@ -123,8 +126,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             mem_limit_bytes=0.0,
         )
 
-        self.assertAlmostEqual(result.cpu_freq_avg_hz, 2_500_000_000.0)
-        self.assertAlmostEqual(result.cpu_freq_peak_hz, 3_200_000_000.0)
+        assert (result.cpu_freq_avg_hz) == (2_500_000_000.0) or round(abs((result.cpu_freq_avg_hz) - (2_500_000_000.0)), 7) == 0
+        assert (result.cpu_freq_peak_hz) == (3_200_000_000.0) or round(abs((result.cpu_freq_peak_hz) - (3_200_000_000.0)), 7) == 0
 
     def test_reads_cpu_frequency_from_sysfs_khz(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,8 +154,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 proc_cpuinfo_path=os.path.join(tmp, "missing_cpuinfo"),
             )()
 
-        self.assertAlmostEqual(avg_hz, 2_000_000_000.0)
-        self.assertAlmostEqual(peak_hz, 2_200_000_000.0)
+        assert (avg_hz) == (2_000_000_000.0) or round(abs((avg_hz) - (2_000_000_000.0)), 7) == 0
+        assert (peak_hz) == (2_200_000_000.0) or round(abs((peak_hz) - (2_200_000_000.0)), 7) == 0
 
     def test_peak_cpu_util_ignores_too_short_intervals(self) -> None:
         samples = [
@@ -169,8 +172,8 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             min_cpu_interval_s=0.05,
         )
 
-        self.assertAlmostEqual(result.container_cpu_util_avg_pct, (0.22 / 0.201) * 100.0)
-        self.assertAlmostEqual(result.container_cpu_util_peak_pct, 100.0)
+        assert (result.container_cpu_util_avg_pct) == ((0.22 / 0.201) * 100.0) or round(abs((result.container_cpu_util_avg_pct) - ((0.22 / 0.201) * 100.0)), 7) == 0
+        assert (result.container_cpu_util_peak_pct) == (100.0) or round(abs((result.container_cpu_util_peak_pct) - (100.0)), 7) == 0
 
     def test_resolves_cgroup_v2_resource_readers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -274,20 +277,20 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                     proc_root=proc_root,
                 )
 
-            self.assertIsNotNone(readers.cpu)
-            self.assertIsNotNone(readers.memory)
-            self.assertIsNotNone(readers.swap)
-            self.assertIsNotNone(readers.swap_limit)
-            self.assertIsNotNone(readers.io)
-            self.assertIsNotNone(readers.cpu_throttle)
-            self.assertIsNotNone(readers.memory_events)
-            self.assertIsNotNone(readers.cpu_pressure)
-            self.assertIsNotNone(readers.memory_pressure)
-            self.assertIsNotNone(readers.io_pressure)
-            self.assertIsNotNone(readers.memory_peak)
-            self.assertIsNotNone(readers.memory_stat)
-            self.assertIsNotNone(readers.io_operations)
-            self.assertIsNotNone(readers.pids)
+            assert (readers.cpu) is not None
+            assert (readers.memory) is not None
+            assert (readers.swap) is not None
+            assert (readers.swap_limit) is not None
+            assert (readers.io) is not None
+            assert (readers.cpu_throttle) is not None
+            assert (readers.memory_events) is not None
+            assert (readers.cpu_pressure) is not None
+            assert (readers.memory_pressure) is not None
+            assert (readers.io_pressure) is not None
+            assert (readers.memory_peak) is not None
+            assert (readers.memory_stat) is not None
+            assert (readers.io_operations) is not None
+            assert (readers.pids) is not None
             assert readers.cpu is not None
             assert readers.memory is not None
             assert readers.swap is not None
@@ -302,46 +305,31 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             assert readers.memory_stat is not None
             assert readers.io_operations is not None
             assert readers.pids is not None
-            self.assertEqual(readers.cpu(), 1.5)
-            self.assertEqual(readers.memory(), 12345)
-            self.assertEqual(readers.swap(), 2048)
-            self.assertEqual(readers.swap_limit(), 4096)
-            self.assertEqual(readers.io(), (400, 600))
-            self.assertEqual(readers.io_operations(), {"read_ops": 4.0, "write_ops": 6.0})
-            self.assertEqual(readers.memory_peak(), {"peak": 23456.0})
-            self.assertEqual(
-                readers.memory_stat(),
-                {
+            assert (readers.cpu()) == (1.5)
+            assert (readers.memory()) == (12345)
+            assert (readers.swap()) == (2048)
+            assert (readers.swap_limit()) == (4096)
+            assert (readers.io()) == ((400, 600))
+            assert (readers.io_operations()) == ({"read_ops": 4.0, "write_ops": 6.0})
+            assert (readers.memory_peak()) == ({"peak": 23456.0})
+            assert (readers.memory_stat()) == ({
                     "anon": 10000.0,
                     "file": 2000.0,
                     "slab": 300.0,
                     "pgfault": 40.0,
                     "pgmajfault": 2.0,
                     "workingset_refault": 7.0,
-                },
-            )
-            self.assertEqual(
-                readers.pids(),
-                {"current": 7.0, "peak": 9.0, "max_events": 1.0},
-            )
-            self.assertEqual(
-                readers.cpu_throttle(),
-                {
+                })
+            assert (readers.pids()) == ({"current": 7.0, "peak": 9.0, "max_events": 1.0})
+            assert (readers.cpu_throttle()) == ({
                     "nr_periods": 20.0,
                     "nr_throttled": 5.0,
                     "throttled_usec": 250000.0,
-                },
-            )
-            self.assertEqual(
-                readers.memory_events(),
-                {"high": 2.0, "max": 3.0, "oom": 1.0, "oom_kill": 1.0},
-            )
-            self.assertEqual(readers.cpu_pressure(), {"some": 1000.0, "full": 200.0})
-            self.assertEqual(
-                readers.memory_pressure(),
-                {"some": 2000.0, "full": 300.0},
-            )
-            self.assertEqual(readers.io_pressure(), {"some": 3000.0, "full": 400.0})
+                })
+            assert (readers.memory_events()) == ({"high": 2.0, "max": 3.0, "oom": 1.0, "oom_kill": 1.0})
+            assert (readers.cpu_pressure()) == ({"some": 1000.0, "full": 200.0})
+            assert (readers.memory_pressure()) == ({"some": 2000.0, "full": 300.0})
+            assert (readers.io_pressure()) == ({"some": 3000.0, "full": 400.0})
 
     def test_cgroup_v1_counters_are_not_used(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -436,7 +424,7 @@ class ResourceUsageMonitorTests(unittest.TestCase):
                 )
 
             for name in ("cpu", "memory", "swap", "swap_limit", "io", "cpu_throttle"):
-                self.assertIsNone(getattr(readers, name), name)
+                assert (getattr(readers, name)) is None, name
 
     def test_window_counter_metrics_calculate_deltas_and_psi_stalls(self) -> None:
         result = resource_metrics._nan_result(2)
@@ -502,39 +490,39 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             elapsed_s=2.0,
         )
 
-        self.assertEqual(result.container_cpu_nr_periods_delta, 10.0)
-        self.assertEqual(result.container_cpu_nr_throttled_delta, 2.0)
-        self.assertEqual(result.container_cpu_throttled_period_ratio_pct, 20.0)
-        self.assertEqual(result.container_cpu_throttled_time_s, 0.4)
-        self.assertEqual(result.container_cpu_pressure_some_stall_pct, 25.0)
-        self.assertEqual(result.container_cpu_pressure_full_stall_pct, 5.0)
-        self.assertEqual(result.container_mem_high_events_delta, 2.0)
-        self.assertEqual(result.container_mem_max_events_delta, 3.0)
-        self.assertEqual(result.container_mem_oom_events_delta, 1.0)
-        self.assertEqual(result.container_mem_oom_kill_events_delta, 1.0)
-        self.assertEqual(result.container_mem_pressure_some_stall_pct, 10.0)
-        self.assertEqual(result.container_mem_pressure_full_stall_pct, 2.0)
-        self.assertEqual(result.container_mem_peak_cgroup_bytes, 8192.0)
-        self.assertEqual(result.container_mem_anon_bytes_end, 1500.0)
-        self.assertEqual(result.container_mem_file_bytes_end, 300.0)
-        self.assertEqual(result.container_mem_slab_bytes_end, 75.0)
-        self.assertEqual(result.container_mem_pgfault_delta, 15.0)
-        self.assertEqual(result.container_mem_pgmajfault_delta, 2.0)
-        self.assertEqual(result.container_mem_workingset_refault_delta, 5.0)
-        self.assertEqual(result.container_io_read_ops, 6.0)
-        self.assertEqual(result.container_io_write_ops, 9.0)
-        self.assertEqual(result.container_io_pressure_some_stall_pct, 15.0)
-        self.assertEqual(result.container_io_pressure_full_stall_pct, 1.0)
-        self.assertEqual(result.container_pids_current_end, 7.0)
-        self.assertEqual(result.container_pids_peak_cgroup, 9.0)
-        self.assertEqual(result.container_pids_max_events_delta, 1.0)
+        assert (result.container_cpu_nr_periods_delta) == (10.0)
+        assert (result.container_cpu_nr_throttled_delta) == (2.0)
+        assert (result.container_cpu_throttled_period_ratio_pct) == (20.0)
+        assert (result.container_cpu_throttled_time_s) == (0.4)
+        assert (result.container_cpu_pressure_some_stall_pct) == (25.0)
+        assert (result.container_cpu_pressure_full_stall_pct) == (5.0)
+        assert (result.container_mem_high_events_delta) == (2.0)
+        assert (result.container_mem_max_events_delta) == (3.0)
+        assert (result.container_mem_oom_events_delta) == (1.0)
+        assert (result.container_mem_oom_kill_events_delta) == (1.0)
+        assert (result.container_mem_pressure_some_stall_pct) == (10.0)
+        assert (result.container_mem_pressure_full_stall_pct) == (2.0)
+        assert (result.container_mem_peak_cgroup_bytes) == (8192.0)
+        assert (result.container_mem_anon_bytes_end) == (1500.0)
+        assert (result.container_mem_file_bytes_end) == (300.0)
+        assert (result.container_mem_slab_bytes_end) == (75.0)
+        assert (result.container_mem_pgfault_delta) == (15.0)
+        assert (result.container_mem_pgmajfault_delta) == (2.0)
+        assert (result.container_mem_workingset_refault_delta) == (5.0)
+        assert (result.container_io_read_ops) == (6.0)
+        assert (result.container_io_write_ops) == (9.0)
+        assert (result.container_io_pressure_some_stall_pct) == (15.0)
+        assert (result.container_io_pressure_full_stall_pct) == (1.0)
+        assert (result.container_pids_current_end) == (7.0)
+        assert (result.container_pids_peak_cgroup) == (9.0)
+        assert (result.container_pids_max_events_delta) == (1.0)
 
     def test_cgroup_unlimited_limit_uses_negative_one_sentinel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             limit_path = os.path.join(tmp, "memory.swap.max")
             with open(limit_path, "w", encoding="utf-8") as f:
                 f.write("max\n")
-            self.assertEqual(resource_readers._read_cgroup_limit(limit_path), -1)
+            assert (resource_readers._read_cgroup_limit(limit_path)) == (-1)
 
     def test_monitor_collects_swap_and_window_io_delta(self) -> None:
         state = {
@@ -564,13 +552,13 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             result, error, samples = monitor.stop()
             monitor.close()
 
-        self.assertEqual(error, "")
-        self.assertEqual(len(samples), 2)
-        self.assertEqual(result.container_swap_limit_bytes, 4096.0)
-        self.assertEqual(result.container_swap_usage_avg_bytes, 20.0)
-        self.assertEqual(result.container_swap_usage_peak_bytes, 30.0)
-        self.assertEqual(result.container_io_read_bytes, 600.0)
-        self.assertEqual(result.container_io_write_bytes, 800.0)
+        assert (error) == ("")
+        assert (len(samples)) == (2)
+        assert (result.container_swap_limit_bytes) == (4096.0)
+        assert (result.container_swap_usage_avg_bytes) == (20.0)
+        assert (result.container_swap_usage_peak_bytes) == (30.0)
+        assert (result.container_io_read_bytes) == (600.0)
+        assert (result.container_io_write_bytes) == (800.0)
 
     def test_reads_gpu_utilization_and_memory_from_nvml(self) -> None:
         fake_nvml = SimpleNamespace(
@@ -601,20 +589,17 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             sample = monitor._read_sample(1.0)
             monitor.close()
 
-        self.assertEqual(sample.gpu_util_pct, 42.0)
-        self.assertEqual(sample.gpu_mem_used_bytes, 123)
-        self.assertEqual(sample.gpu_mem_total_bytes, 456)
-        self.assertEqual(sample.gpu_sm_clock_mhz, 1500.0)
-        self.assertEqual(sample.gpu_memory_clock_mhz, 7000.0)
-        self.assertEqual(sample.gpu_pstate, "P2")
-        self.assertEqual(sample.gpu_temp_c, 63.0)
+        assert (sample.gpu_util_pct) == (42.0)
+        assert (sample.gpu_mem_used_bytes) == (123)
+        assert (sample.gpu_mem_total_bytes) == (456)
+        assert (sample.gpu_sm_clock_mhz) == (1500.0)
+        assert (sample.gpu_memory_clock_mhz) == (7000.0)
+        assert (sample.gpu_pstate) == ("P2")
+        assert (sample.gpu_temp_c) == (63.0)
 
     def test_dominant_pstate_prefers_higher_performance_on_tie(self) -> None:
-        self.assertEqual(
-            resource_metrics._dominant_pstate(["P2", "p0", "P2", "P0"]),
-            "P0",
-        )
-        self.assertEqual(resource_metrics._dominant_pstate(["invalid"]), "nan")
+        assert (resource_metrics._dominant_pstate(["P2", "p0", "P2", "P0"])) == ("P0")
+        assert (resource_metrics._dominant_pstate(["invalid"])) == ("nan")
 
     def test_unavailable_container_keeps_nan_result_without_raising(self) -> None:
         fake_completed = SimpleNamespace(returncode=1, stdout="", stderr="missing")
@@ -630,30 +615,22 @@ class ResourceUsageMonitorTests(unittest.TestCase):
             result, err, samples = monitor.stop()
             monitor.close()
 
-        self.assertIn("missing", err)
-        self.assertEqual(samples, [])
-        self.assertEqual(result.resource_usage_iters, 0)
-        self.assertTrue(math.isnan(result.container_cpu_util_avg_pct))
-        self.assertTrue(math.isnan(result.container_mem_usage_avg_bytes))
-        self.assertTrue(math.isnan(result.container_swap_limit_bytes))
-        self.assertTrue(math.isnan(result.container_swap_usage_avg_bytes))
-        self.assertTrue(math.isnan(result.container_swap_usage_peak_bytes))
-        self.assertTrue(math.isnan(result.container_io_read_bytes))
-        self.assertTrue(math.isnan(result.container_io_write_bytes))
-        self.assertTrue(math.isnan(result.container_cpu_nr_periods_delta))
-        self.assertTrue(
-            math.isnan(result.container_cpu_throttled_period_ratio_pct)
-        )
-        self.assertTrue(math.isnan(result.container_mem_oom_kill_events_delta))
-        self.assertTrue(
-            math.isnan(result.container_mem_pressure_full_stall_pct)
-        )
-        self.assertTrue(math.isnan(result.gpu_util_avg_pct))
-        self.assertTrue(math.isnan(result.gpu_sm_clock_mhz))
-        self.assertTrue(math.isnan(result.gpu_memory_clock_mhz))
-        self.assertEqual(result.gpu_pstate, "nan")
-        self.assertTrue(math.isnan(result.gpu_temp_c))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert ("missing") in (err)
+        assert (samples) == ([])
+        assert (result.resource_usage_iters) == (0)
+        assert (math.isnan(result.container_cpu_util_avg_pct))
+        assert (math.isnan(result.container_mem_usage_avg_bytes))
+        assert (math.isnan(result.container_swap_limit_bytes))
+        assert (math.isnan(result.container_swap_usage_avg_bytes))
+        assert (math.isnan(result.container_swap_usage_peak_bytes))
+        assert (math.isnan(result.container_io_read_bytes))
+        assert (math.isnan(result.container_io_write_bytes))
+        assert (math.isnan(result.container_cpu_nr_periods_delta))
+        assert (math.isnan(result.container_cpu_throttled_period_ratio_pct))
+        assert (math.isnan(result.container_mem_oom_kill_events_delta))
+        assert (math.isnan(result.container_mem_pressure_full_stall_pct))
+        assert (math.isnan(result.gpu_util_avg_pct))
+        assert (math.isnan(result.gpu_sm_clock_mhz))
+        assert (math.isnan(result.gpu_memory_clock_mhz))
+        assert (result.gpu_pstate) == ("nan")
+        assert (math.isnan(result.gpu_temp_c))

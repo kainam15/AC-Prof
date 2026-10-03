@@ -4,373 +4,346 @@ import os
 import subprocess
 import sys
 import tempfile
-import unittest
 
 
-class MergePacketLatencyComputeTests(unittest.TestCase):
-    def test_recomputes_both_explicit_flop_rates_from_packet_latency(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            in_csv = os.path.join(tmp, "result.csv")
-            lat_json = os.path.join(tmp, "lat.json")
-            out_csv = os.path.join(tmp, "result.merged.csv")
-            fieldnames = [
-                "status",
-                "error",
-                "sniff_group_id",
-                "latency_s",
-                "model_logical_mflop_per_request_torch_profiler_eager",
-                "model_logical_mflops_app_torch_profiler_eager",
-                "model_logical_mflops_packet_torch_profiler_eager",
-                "gpu_executed_mflop_per_request_ncu",
-                "gpu_executed_mflops_app_ncu",
-                "gpu_executed_mflops_packet_ncu",
-                "extension_metric",
-            ]
-            with open(in_csv, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerow(
-                    {
-                        "status": "ok",
-                        "error": "",
-                        "sniff_group_id": "case_seq1_r0",
-                        "latency_s": "nan",
-                        "model_logical_mflop_per_request_torch_profiler_eager": "200",
-                        "model_logical_mflops_app_torch_profiler_eager": "400",
-                        "model_logical_mflops_packet_torch_profiler_eager": "nan",
-                        "gpu_executed_mflop_per_request_ncu": "100",
-                        "gpu_executed_mflops_app_ncu": "200",
-                        "gpu_executed_mflops_packet_ncu": "nan",
-                        "extension_metric": "preserved,quoted\nvalue",
-                    }
-                )
-            with open(lat_json, "w", encoding="utf-8") as f:
-                json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.25}}}, f)
-            with open(f"{in_csv}.requests.jsonl", "w", encoding="utf-8") as f:
-                f.write(json.dumps({"schema_version": 1, "sniff_group_id": "case_seq1_r0",
-                                    "latency_app_s": [0.3, 0.4], "status": "ok"}) + "\n")
-
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "acprof.packet.merge_packet_latency",
-                    in_csv,
-                    lat_json,
-                    out_csv,
-                ],
-                check=True,
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            )
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                reader = csv.DictReader(f)
-                row = next(reader)
-                output_fields = reader.fieldnames or []
-            with open(f"{in_csv}.requests.jsonl", encoding="utf-8") as f:
-                request_window = json.loads(f.readline())
-
-        self.assertEqual(output_fields[-3:], ["extension_metric", "status", "error"])
-        self.assertEqual(set(output_fields), set(fieldnames) - {"sniff_group_id"})
-        self.assertEqual(row["extension_metric"], "preserved,quoted\nvalue")
-        self.assertEqual(row["status"], "ok")
-        self.assertEqual(row["error"], "")
-        self.assertEqual(request_window.get("latency_packet_s"), [0.25, None])
-        self.assertEqual(request_window["latency_app_s"], [0.3, 0.4])
-        self.assertEqual(
-            row["model_logical_mflops_packet_torch_profiler_eager"],
-            "800.000000",
-        )
-        self.assertEqual(
-            row["model_logical_mflops_app_torch_profiler_eager"],
-            "400",
-        )
-        self.assertEqual(
-            row["gpu_executed_mflops_packet_ncu"],
-            "400.000000",
-        )
-        self.assertEqual(row["gpu_executed_mflops_app_ncu"], "200")
-
-    def test_recomputes_compute_mflops_from_packet_latency(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            in_csv = os.path.join(tmp, "result.csv")
-            lat_json = os.path.join(tmp, "lat.json")
-            out_csv = os.path.join(tmp, "result.merged.csv")
-            static_meta = os.path.join(tmp, "static_meta.json")
-
-            with open(static_meta, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": 7, "batch_size": 1,
-                           "latency_slo": {"threshold_s": 0.06, "source": "default"}}, f)
-
-            fieldnames = [
-                "sniff_group_id",
-                "latency_s",
-                "latency_p50_s",
-                "latency_p90_s",
-                "latency_p95_s",
-                "latency_slow_ratio",
-                "throughput_samples_per_s",
-                "model_logical_mflop_per_request_torch_profiler_eager",
-                "model_logical_mflops_packet_torch_profiler_eager",
-                "cpu_cores",
-                "container_cpu_util_avg_pct",
-                "cpu_freq_avg_hz",
-                "cpu_cycles_est_packet",
-                "cpu_instructions_per_request",
-                "cpu_mips_packet",
-            ]
-            with open(in_csv, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerow({
+def test_recomputes_both_explicit_flop_rates_from_packet_latency() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        fieldnames = [
+            "status",
+            "error",
+            "sniff_group_id",
+            "latency_s",
+            "model_logical_mflop_per_request_torch_profiler_eager",
+            "model_logical_mflops_app_torch_profiler_eager",
+            "model_logical_mflops_packet_torch_profiler_eager",
+            "gpu_executed_mflop_per_request_ncu",
+            "gpu_executed_mflops_app_ncu",
+            "gpu_executed_mflops_packet_ncu",
+            "extension_metric",
+        ]
+        with open(in_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "status": "ok",
+                    "error": "",
                     "sniff_group_id": "case_seq1_r0",
                     "latency_s": "nan",
-                    "latency_p50_s": "nan",
-                    "latency_p90_s": "nan",
-                    "latency_p95_s": "nan",
-                    "latency_slow_ratio": "nan",
-                    "throughput_samples_per_s": "2.000000",
-                    "model_logical_mflop_per_request_torch_profiler_eager": "200.000000",
-                    "model_logical_mflops_packet_torch_profiler_eager": "400.000000",
-                    "cpu_cores": "2",
-                    "container_cpu_util_avg_pct": "50.0",
-                    "cpu_freq_avg_hz": "3000000000",
-                    "cpu_cycles_est_packet": "nan",
-                    "cpu_instructions_per_request": "500000",
-                    "cpu_mips_packet": "nan",
-                })
+                    "model_logical_mflop_per_request_torch_profiler_eager": "200",
+                    "model_logical_mflops_app_torch_profiler_eager": "400",
+                    "model_logical_mflops_packet_torch_profiler_eager": "nan",
+                    "gpu_executed_mflop_per_request_ncu": "100",
+                    "gpu_executed_mflops_app_ncu": "200",
+                    "gpu_executed_mflops_packet_ncu": "nan",
+                    "extension_metric": "preserved,quoted\nvalue",
+                }
+            )
+        with open(lat_json, "w", encoding="utf-8") as f:
+            json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.25}}}, f)
+        with open(f"{in_csv}.requests.jsonl", "w", encoding="utf-8") as f:
+            f.write(json.dumps({"schema_version": 1, "sniff_group_id": "case_seq1_r0",
+                                "latency_app_s": [0.3, 0.4], "status": "ok"}) + "\n")
 
-            with open(lat_json, "w", encoding="utf-8") as f:
-                json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.25}, 'case_seq1_r0:1': {'latency_s': 0.25}}}, f)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "acprof.packet.merge_packet_latency",
+                in_csv,
+                lat_json,
+                out_csv,
+            ],
+            check=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+        )
+        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            row = next(reader)
+            output_fields = reader.fieldnames or []
+        with open(f"{in_csv}.requests.jsonl", encoding="utf-8") as f:
+            request_window = json.loads(f.readline())
 
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "acprof.packet.merge_packet_latency",
-                    in_csv,
-                    lat_json,
-                    out_csv,
-                ],
-                check=True,
-                cwd=os.path.dirname(os.path.dirname(__file__)),
+    assert (output_fields[-3:]) == (["extension_metric", "status", "error"])
+    assert (set(output_fields)) == (set(fieldnames) - {"sniff_group_id"})
+    assert (row["extension_metric"]) == ("preserved,quoted\nvalue")
+    assert (row["status"]) == ("ok")
+    assert (row["error"]) == ("")
+    assert (request_window.get("latency_packet_s")) == ([0.25, None])
+    assert (request_window["latency_app_s"]) == ([0.3, 0.4])
+    assert (row["model_logical_mflops_packet_torch_profiler_eager"]) == ("800.000000")
+    assert (row["model_logical_mflops_app_torch_profiler_eager"]) == ("400")
+    assert (row["gpu_executed_mflops_packet_ncu"]) == ("400.000000")
+    assert (row["gpu_executed_mflops_app_ncu"]) == ("200")
+
+def test_recomputes_compute_mflops_from_packet_latency() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        static_meta = os.path.join(tmp, "static_meta.json")
+
+        with open(static_meta, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 7, "batch_size": 1,
+                       "latency_slo": {"threshold_s": 0.06, "source": "default"}}, f)
+
+        fieldnames = [
+            "sniff_group_id",
+            "latency_s",
+            "latency_p50_s",
+            "latency_p90_s",
+            "latency_p95_s",
+            "latency_slow_ratio",
+            "throughput_samples_per_s",
+            "model_logical_mflop_per_request_torch_profiler_eager",
+            "model_logical_mflops_packet_torch_profiler_eager",
+            "cpu_cores",
+            "container_cpu_util_avg_pct",
+            "cpu_freq_avg_hz",
+            "cpu_cycles_est_packet",
+            "cpu_instructions_per_request",
+            "cpu_mips_packet",
+        ]
+        with open(in_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow({
+                "sniff_group_id": "case_seq1_r0",
+                "latency_s": "nan",
+                "latency_p50_s": "nan",
+                "latency_p90_s": "nan",
+                "latency_p95_s": "nan",
+                "latency_slow_ratio": "nan",
+                "throughput_samples_per_s": "2.000000",
+                "model_logical_mflop_per_request_torch_profiler_eager": "200.000000",
+                "model_logical_mflops_packet_torch_profiler_eager": "400.000000",
+                "cpu_cores": "2",
+                "container_cpu_util_avg_pct": "50.0",
+                "cpu_freq_avg_hz": "3000000000",
+                "cpu_cycles_est_packet": "nan",
+                "cpu_instructions_per_request": "500000",
+                "cpu_mips_packet": "nan",
+            })
+
+        with open(lat_json, "w", encoding="utf-8") as f:
+            json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.25}, 'case_seq1_r0:1': {'latency_s': 0.25}}}, f)
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "acprof.packet.merge_packet_latency",
+                in_csv,
+                lat_json,
+                out_csv,
+            ],
+            check=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+        )
+
+        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            fieldnames = reader.fieldnames or []
+
+    assert (rows[0]["latency_s"]) == ("0.250000")
+    assert (rows[0]["latency_p50_s"]) == ("0.250000")
+    assert (rows[0]["latency_p90_s"]) == ("0.250000")
+    assert (rows[0]["latency_p95_s"]) == ("0.250000")
+    assert (rows[0]["latency_slow_ratio"]) == ("1.000000")
+    assert (rows[0]["throughput_samples_per_s"]) == ("4.000000")
+    assert (rows[0]["model_logical_mflops_packet_torch_profiler_eager"]) == ("800.000000")
+    assert (rows[0]["cpu_cycles_est_packet"]) == ("750000000.000000")
+    assert (rows[0]["cpu_mips_packet"]) == ("2.000000")
+    assert ("sniff_group_id") not in (fieldnames)
+
+def test_merges_packet_latency_distribution_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+
+        fieldnames = [
+            "sniff_group_id",
+            "latency_s",
+            "latency_request_count",
+            "latency_p50_s",
+            "latency_p90_s",
+            "latency_p95_s",
+            "latency_std_s",
+            "latency_cv",
+            "latency_iqr_s",
+            "latency_max_s",
+            "latency_slow_ratio",
+        ]
+        with open(in_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow({
+                "sniff_group_id": "case_seq1_r0",
+                "latency_s": "nan",
+                "latency_request_count": "nan",
+                "latency_p50_s": "nan",
+                "latency_p90_s": "nan",
+                "latency_p95_s": "nan",
+                "latency_std_s": "nan",
+                "latency_cv": "nan",
+                "latency_iqr_s": "nan",
+                "latency_max_s": "nan",
+                "latency_slow_ratio": "nan",
+            })
+
+        with open(lat_json, "w", encoding="utf-8") as f:
+            json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.01}, 'case_seq1_r0:1': {'latency_s': 0.02}, 'case_seq1_r0:2': {'latency_s': 0.1}, 'case_seq1_r0:3': {'latency_s': 0.2}, 'case_seq1_r0:4': {'latency_s': 0.3}}}, f)
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "acprof.packet.merge_packet_latency",
+                in_csv,
+                lat_json,
+                out_csv,
+            ],
+            check=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+        )
+
+        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+    assert (rows[0]["latency_s"]) == ("0.126000")
+    assert (rows[0]["latency_request_count"]) == ("5.000000")
+    assert (rows[0]["latency_p50_s"]) == ("0.100000")
+    assert (rows[0]["latency_p90_s"]) == ("0.300000")
+    assert (rows[0]["latency_p95_s"]) == ("0.300000")
+    assert (rows[0]["latency_std_s"]) == ("0.110562")
+    assert (rows[0]["latency_cv"]) == ("0.877478")
+    assert (rows[0]["latency_iqr_s"]) == ("0.180000")
+    assert (rows[0]["latency_max_s"]) == ("0.300000")
+    assert (rows[0]["latency_slow_ratio"]) == ("nan")
+
+def test_merges_schema_v2_network_and_normalized_metrics() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        static_meta = os.path.join(tmp, "static_meta.json")
+        with open(static_meta, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 7, "batch_size": 2}, f)
+
+        fieldnames = [
+            "sniff_group_id",
+            "cpu_cores",
+            "input_scale",
+            "input_units_per_request",
+            "latency_s",
+            "latency_s_per_input_unit",
+            "throughput_samples_per_s",
+            "throughput_samples_per_s_per_cpu_core",
+            "packet_request_wire_bytes_per_request",
+            "packet_response_wire_bytes_per_request",
+            "packet_total_wire_bytes_per_request",
+            "packet_tcp_payload_bytes_per_request",
+            "packet_protocol_overhead_bytes_per_request",
+            "packet_protocol_overhead_ratio",
+        ]
+        with open(in_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow({
+                "sniff_group_id": "case_seq4_r0",
+                "cpu_cores": "2",
+                "input_scale": "4",
+                "input_units_per_request": "8",
+                **{field: "nan" for field in fieldnames[4:]},
+            })
+        with open(lat_json, "w", encoding="utf-8") as f:
+            json.dump(
+                {'schema_version': 2, 'requests': {'case_seq4_r0:1': {'latency_s': 0.4, 'request_wire_bytes': 300, 'response_wire_bytes': 500, 'total_wire_bytes': 800, 'tcp_payload_bytes': 600, 'protocol_overhead_bytes': 200, 'protocol_overhead_ratio': 0.25}, 'case_seq4_r0:2': {'latency_s': 0.6, 'request_wire_bytes': 400, 'response_wire_bytes': 600, 'total_wire_bytes': 1000, 'tcp_payload_bytes': 700, 'protocol_overhead_bytes': 300, 'protocol_overhead_ratio': 0.3}}},
+                f,
             )
 
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
-                fieldnames = reader.fieldnames or []
-
-        self.assertEqual(rows[0]["latency_s"], "0.250000")
-        self.assertEqual(rows[0]["latency_p50_s"], "0.250000")
-        self.assertEqual(rows[0]["latency_p90_s"], "0.250000")
-        self.assertEqual(rows[0]["latency_p95_s"], "0.250000")
-        self.assertEqual(rows[0]["latency_slow_ratio"], "1.000000")
-        self.assertEqual(rows[0]["throughput_samples_per_s"], "4.000000")
-        self.assertEqual(rows[0]["model_logical_mflops_packet_torch_profiler_eager"], "800.000000")
-        self.assertEqual(rows[0]["cpu_cycles_est_packet"], "750000000.000000")
-        self.assertEqual(rows[0]["cpu_mips_packet"], "2.000000")
-        self.assertNotIn("sniff_group_id", fieldnames)
-
-    def test_merges_packet_latency_distribution_fields(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            in_csv = os.path.join(tmp, "result.csv")
-            lat_json = os.path.join(tmp, "lat.json")
-            out_csv = os.path.join(tmp, "result.merged.csv")
-
-            fieldnames = [
-                "sniff_group_id",
-                "latency_s",
-                "latency_request_count",
-                "latency_p50_s",
-                "latency_p90_s",
-                "latency_p95_s",
-                "latency_std_s",
-                "latency_cv",
-                "latency_iqr_s",
-                "latency_max_s",
-                "latency_slow_ratio",
-            ]
-            with open(in_csv, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerow({
-                    "sniff_group_id": "case_seq1_r0",
-                    "latency_s": "nan",
-                    "latency_request_count": "nan",
-                    "latency_p50_s": "nan",
-                    "latency_p90_s": "nan",
-                    "latency_p95_s": "nan",
-                    "latency_std_s": "nan",
-                    "latency_cv": "nan",
-                    "latency_iqr_s": "nan",
-                    "latency_max_s": "nan",
-                    "latency_slow_ratio": "nan",
-                })
-
-            with open(lat_json, "w", encoding="utf-8") as f:
-                json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.01}, 'case_seq1_r0:1': {'latency_s': 0.02}, 'case_seq1_r0:2': {'latency_s': 0.1}, 'case_seq1_r0:3': {'latency_s': 0.2}, 'case_seq1_r0:4': {'latency_s': 0.3}}}, f)
-
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "acprof.packet.merge_packet_latency",
-                    in_csv,
-                    lat_json,
-                    out_csv,
-                ],
-                check=True,
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            )
-
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                rows = list(csv.DictReader(f))
-
-        self.assertEqual(rows[0]["latency_s"], "0.126000")
-        self.assertEqual(rows[0]["latency_request_count"], "5.000000")
-        self.assertEqual(rows[0]["latency_p50_s"], "0.100000")
-        self.assertEqual(rows[0]["latency_p90_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_p95_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_std_s"], "0.110562")
-        self.assertEqual(rows[0]["latency_cv"], "0.877478")
-        self.assertEqual(rows[0]["latency_iqr_s"], "0.180000")
-        self.assertEqual(rows[0]["latency_max_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_slow_ratio"], "nan")
-
-    def test_merges_schema_v2_network_and_normalized_metrics(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            in_csv = os.path.join(tmp, "result.csv")
-            lat_json = os.path.join(tmp, "lat.json")
-            out_csv = os.path.join(tmp, "result.merged.csv")
-            static_meta = os.path.join(tmp, "static_meta.json")
-            with open(static_meta, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": 7, "batch_size": 2}, f)
-
-            fieldnames = [
-                "sniff_group_id",
-                "cpu_cores",
-                "input_scale",
-                "input_units_per_request",
-                "latency_s",
-                "latency_s_per_input_unit",
-                "throughput_samples_per_s",
-                "throughput_samples_per_s_per_cpu_core",
-                "packet_request_wire_bytes_per_request",
-                "packet_response_wire_bytes_per_request",
-                "packet_total_wire_bytes_per_request",
-                "packet_tcp_payload_bytes_per_request",
-                "packet_protocol_overhead_bytes_per_request",
-                "packet_protocol_overhead_ratio",
-            ]
-            with open(in_csv, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerow({
-                    "sniff_group_id": "case_seq4_r0",
-                    "cpu_cores": "2",
-                    "input_scale": "4",
-                    "input_units_per_request": "8",
-                    **{field: "nan" for field in fieldnames[4:]},
-                })
-            with open(lat_json, "w", encoding="utf-8") as f:
-                json.dump(
-                    {'schema_version': 2, 'requests': {'case_seq4_r0:1': {'latency_s': 0.4, 'request_wire_bytes': 300, 'response_wire_bytes': 500, 'total_wire_bytes': 800, 'tcp_payload_bytes': 600, 'protocol_overhead_bytes': 200, 'protocol_overhead_ratio': 0.25}, 'case_seq4_r0:2': {'latency_s': 0.6, 'request_wire_bytes': 400, 'response_wire_bytes': 600, 'total_wire_bytes': 1000, 'tcp_payload_bytes': 700, 'protocol_overhead_bytes': 300, 'protocol_overhead_ratio': 0.3}}},
-                    f,
-                )
-
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "acprof.packet.merge_packet_latency",
-                    in_csv,
-                    lat_json,
-                    out_csv,
-                ],
-                check=True,
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            )
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                row = next(csv.DictReader(f))
-
-        self.assertEqual(row["latency_s"], "0.500000")
-        self.assertEqual(row["latency_s_per_input_unit"], "0.062500")
-        self.assertEqual(row["throughput_samples_per_s"], "4.000000")
-        self.assertEqual(
-            row["throughput_samples_per_s_per_cpu_core"],
-            "2.000000",
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "acprof.packet.merge_packet_latency",
+                in_csv,
+                lat_json,
+                out_csv,
+            ],
+            check=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
         )
-        self.assertEqual(
-            row["packet_request_wire_bytes_per_request"],
-            "350.000000",
+        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            row = next(csv.DictReader(f))
+
+    assert (row["latency_s"]) == ("0.500000")
+    assert (row["latency_s_per_input_unit"]) == ("0.062500")
+    assert (row["throughput_samples_per_s"]) == ("4.000000")
+    assert (row["throughput_samples_per_s_per_cpu_core"]) == ("2.000000")
+    assert (row["packet_request_wire_bytes_per_request"]) == ("350.000000")
+    assert (row["packet_response_wire_bytes_per_request"]) == ("550.000000")
+    assert (row["packet_total_wire_bytes_per_request"]) == ("900.000000")
+    assert (row["packet_tcp_payload_bytes_per_request"]) == ("650.000000")
+    assert (row["packet_protocol_overhead_bytes_per_request"]) == ("250.000000")
+    assert (row["packet_protocol_overhead_ratio"]) == ("0.277778")
+
+def test_merges_packet_latency_with_sidecar_when_csv_omits_sniff_group_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        static_meta = os.path.join(tmp, "static_meta.json")
+        sidecar = f"{in_csv}.sniff_groups.jsonl"
+
+        with open(static_meta, "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 7, "batch_size": 2}, f)
+
+        fieldnames = [
+            "latency_s",
+            "throughput_samples_per_s",
+            "model_logical_mflop_per_request_torch_profiler_eager",
+            "model_logical_mflops_packet_torch_profiler_eager",
+        ]
+        with open(in_csv, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow({
+                "latency_s": "nan",
+                "throughput_samples_per_s": "2.000000",
+                "model_logical_mflop_per_request_torch_profiler_eager": "200.000000",
+                "model_logical_mflops_packet_torch_profiler_eager": "400.000000",
+            })
+        with open(sidecar, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"sniff_group_id": "case_seq1_r0"}) + "\n")
+
+        with open(lat_json, "w", encoding="utf-8") as f:
+            json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.5}, 'case_seq1_r0:1': {'latency_s': 0.5}}}, f)
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "acprof.packet.merge_packet_latency",
+                in_csv,
+                lat_json,
+                out_csv,
+            ],
+            check=True,
+            cwd=os.path.dirname(os.path.dirname(__file__)),
         )
-        self.assertEqual(
-            row["packet_response_wire_bytes_per_request"],
-            "550.000000",
-        )
-        self.assertEqual(row["packet_total_wire_bytes_per_request"], "900.000000")
-        self.assertEqual(row["packet_tcp_payload_bytes_per_request"], "650.000000")
-        self.assertEqual(
-            row["packet_protocol_overhead_bytes_per_request"],
-            "250.000000",
-        )
-        self.assertEqual(row["packet_protocol_overhead_ratio"], "0.277778")
 
-    def test_merges_packet_latency_with_sidecar_when_csv_omits_sniff_group_id(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            in_csv = os.path.join(tmp, "result.csv")
-            lat_json = os.path.join(tmp, "lat.json")
-            out_csv = os.path.join(tmp, "result.merged.csv")
-            static_meta = os.path.join(tmp, "static_meta.json")
-            sidecar = f"{in_csv}.sniff_groups.jsonl"
+        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            output_fields = reader.fieldnames or []
 
-            with open(static_meta, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": 7, "batch_size": 2}, f)
-
-            fieldnames = [
-                "latency_s",
-                "throughput_samples_per_s",
-                "model_logical_mflop_per_request_torch_profiler_eager",
-                "model_logical_mflops_packet_torch_profiler_eager",
-            ]
-            with open(in_csv, "w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerow({
-                    "latency_s": "nan",
-                    "throughput_samples_per_s": "2.000000",
-                    "model_logical_mflop_per_request_torch_profiler_eager": "200.000000",
-                    "model_logical_mflops_packet_torch_profiler_eager": "400.000000",
-                })
-            with open(sidecar, "w", encoding="utf-8") as f:
-                f.write(json.dumps({"sniff_group_id": "case_seq1_r0"}) + "\n")
-
-            with open(lat_json, "w", encoding="utf-8") as f:
-                json.dump({'schema_version': 2, 'requests': {'case_seq1_r0:0': {'latency_s': 0.5}, 'case_seq1_r0:1': {'latency_s': 0.5}}}, f)
-
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "acprof.packet.merge_packet_latency",
-                    in_csv,
-                    lat_json,
-                    out_csv,
-                ],
-                check=True,
-                cwd=os.path.dirname(os.path.dirname(__file__)),
-            )
-
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
-                output_fields = reader.fieldnames or []
-
-        self.assertNotIn("sniff_group_id", output_fields)
-        self.assertEqual(rows[0]["latency_s"], "0.500000")
-        self.assertEqual(rows[0]["throughput_samples_per_s"], "4.000000")
-        self.assertEqual(rows[0]["model_logical_mflops_packet_torch_profiler_eager"], "400.000000")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    assert ("sniff_group_id") not in (output_fields)
+    assert (rows[0]["latency_s"]) == ("0.500000")
+    assert (rows[0]["throughput_samples_per_s"]) == ("4.000000")
+    assert (rows[0]["model_logical_mflops_packet_torch_profiler_eager"]) == ("400.000000")

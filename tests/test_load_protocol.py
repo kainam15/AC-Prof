@@ -2,9 +2,10 @@
 import json
 import threading
 import time
-import unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pytest
 
 
 @contextmanager
@@ -48,7 +49,7 @@ def server(*, fail=False, close=False):
         thread.join()
 
 
-class LoadProtocolTests(unittest.TestCase):
+class TestLoadProtocol:
     def run_load(self, url, **options):
         from acprof.host.load_protocol import LoadConfig, run_load
         return run_load(url, {}, LoadConfig(requests=8, timeout_seconds=2, **options), token="fixture")
@@ -57,46 +58,46 @@ class LoadProtocolTests(unittest.TestCase):
         from acprof.host.load_protocol import LoadConfig
         with server() as (url, ports, _):
             report = self.run_load(url, connections="reuse")
-            self.assertEqual(len(set(ports)), 1)
-            self.assertEqual(report["counts"]["succeeded"], 8)
-            self.assertEqual(report["connection_count"], 1)
+            assert (len(set(ports))) == (1)
+            assert (report["counts"]["succeeded"]) == (8)
+            assert (report["connection_count"]) == (1)
         with server() as (url, ports, _):
             self.run_load(url, connections="close")
-            self.assertEqual(len(set(ports)), 8)
-        self.assertNotEqual(LoadConfig().identity(), LoadConfig(connections="reuse").identity())
+            assert (len(set(ports))) == (8)
+        assert (LoadConfig().identity()) != (LoadConfig(connections="reuse").identity())
 
     def test_concurrent_closed_loop_respects_limit(self):
         with server() as (url, _, peak):
             report = self.run_load(url, scenario="concurrent", concurrency=3)
-        self.assertEqual(peak(), 3)
-        self.assertEqual(report["counts"]["succeeded"], 8)
-        self.assertTrue(all(row["planned_s"] <= row["sent_s"] <= row["completed_s"] for row in report["requests"]))
+        assert (peak()) == (3)
+        assert (report["counts"]["succeeded"]) == (8)
+        assert (all(row["planned_s"] <= row["sent_s"] <= row["completed_s"] for row in report["requests"]))
 
     def test_open_loop_keeps_schedule_when_service_is_slow(self):
         with server() as (url, _, _):
             report = self.run_load(url, scenario="arrival-rate", rate=10000, concurrency=1, max_pending=2)
-        self.assertGreater(report["counts"]["dropped"], 0)
-        self.assertEqual([row["planned_s"] for row in report["requests"]], [i / 10000 for i in range(8)])
-        self.assertEqual(report["counts"]["offered"], 8)
+        assert (report["counts"]["dropped"]) > (0)
+        assert ([row["planned_s"] for row in report["requests"]]) == ([i / 10000 for i in range(8)])
+        assert (report["counts"]["offered"]) == (8)
 
     def test_errors_do_not_become_successful_latency_samples(self):
         with server(fail=True) as (url, _, _):
             report = self.run_load(url)
-        self.assertEqual(report["counts"]["succeeded"], 0)
-        self.assertEqual(report["counts"]["failed"], 8)
-        self.assertIsNone(report["latency_s"]["p95"])
+        assert (report["counts"]["succeeded"]) == (0)
+        assert (report["counts"]["failed"]) == (8)
+        assert (report["latency_s"]["p95"]) is None
 
     def test_reuse_is_not_silently_reported_when_server_closes_connections(self):
         with server(close=True) as (url, _, _):
             report = self.run_load(url, connections="reuse")
-        self.assertFalse(report["successful"])
-        self.assertIn("reuse", report["requests"][0]["error"])
+        assert not (report["successful"])
+        assert ("reuse") in (report["requests"][0]["error"])
 
-    def test_poisson_plan_is_seeded_and_invalid_combinations_are_rejected(self):
+    @pytest.mark.parametrize('options', ({'concurrency': 2}, {'scenario': 'arrival-rate'}, {'rate': 2}, {'requests': 0}))
+    def test_poisson_plan_is_seeded_and_invalid_combinations_are_rejected(self, options):
         from acprof.host.load_protocol import LoadConfig
         config = LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=7)
-        self.assertEqual(config.schedule(), config.schedule())
-        self.assertNotEqual(config.schedule(), LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=8).schedule())
-        for options in ({"concurrency": 2}, {"scenario": "arrival-rate"}, {"rate": 2}, {"requests": 0}):
-            with self.subTest(options=options), self.assertRaises(ValueError):
-                LoadConfig(**options).validate()
+        assert (config.schedule()) == (config.schedule())
+        assert (config.schedule()) != (LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=8).schedule())
+        with pytest.raises(ValueError):
+            LoadConfig(**options).validate()

@@ -4,12 +4,13 @@ import json
 import math
 import os
 import tempfile
-import unittest
 from contextlib import ExitStack, redirect_stderr
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 from client_fixtures import patch_client
 
 from acprof.config import (
@@ -32,65 +33,67 @@ REMOVED_LEGACY_COMPUTE_FIELDS = (
 )
 
 
-class EffectiveEnergyWarningTests(unittest.TestCase):
-    def setUp(self):
+class TestEffectiveEnergyWarning:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.runner = ClientRunner(ClientConfig(out_csv=os.path.join(temporary.name, "result.csv")))
+        native_policy(self._request)
+        temporary = tmp_path
+        self.runner = ClientRunner(ClientConfig(out_csv=os.path.join(str(temporary), "result.csv")))
         gpu_uuid = patch_client(self.runner, "GPU_DEVICE_UUID", "GPU-fixture")
         gpu_uuid.start()
-        self.addCleanup(gpu_uuid.stop)
+        self._request.addfinalizer(partial(gpu_uuid.stop))
         for name in ("IDLE_SECONDS", "IDLE_COOLDOWN_SECONDS"):
             mocked = patch_client(self.runner, name, 0.0)
             mocked.start()
-            self.addCleanup(mocked.stop)
+            self._request.addfinalizer(partial(mocked.stop))
 
-    def test_append_respects_existing_column_order_and_rejects_invalid_headers(self):
+    @pytest.mark.parametrize('header_case', range(3))
+    def test_append_respects_existing_column_order_and_rejects_invalid_headers(self, header_case):
         reordered = ["status", "error", *[field for field in CSV_FIELDS
                                           if field not in {"status", "error"}]]
-        for fields, valid in ((reordered, True), (reordered[:-1], False),
-                              ([*reordered[:-1], reordered[0]], False)):
-            with self.subTest(fields=fields[-2:]), tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp, "result.csv")
-                original = dict.fromkeys(fields, "nan")
-                original.update(cpu_cores="1", status="ok", error="")
-                with path.open("w", newline="") as stream:
-                    writer = csv.DictWriter(stream, fieldnames=fields)
-                    writer.writeheader()
-                    writer.writerow(original)
-                before = path.read_bytes()
-                with ExitStack() as stack:
-                    for name, value in {
-                        "OUT_CSV": str(path), "CPU_CORES": "2", "GPU_MODE": "off",
-                        "USE_ENERGY": False, "USE_MIPS": False, "IDLE_DEBUG": False,
-                        "PROFILING_MODE": "full", "SNIFF_GROUPS_PATH": "",
-                        "input_scale_entries": [{"input_scale": 1.0}],
-                    }.items():
-                        stack.enter_context(patch_client(self.runner, name, value))
-                    ready = stack.enter_context(patch.object(
-                        client.requests, "get", side_effect=RuntimeError("offline fixture")))
-                    if valid:
+        (fields, valid) = (((reordered, True), (reordered[:-1], False), ([*reordered[:-1], reordered[0]], False)))[header_case]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "result.csv")
+            original = dict.fromkeys(fields, "nan")
+            original.update(cpu_cores="1", status="ok", error="")
+            with path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerow(original)
+            before = path.read_bytes()
+            with ExitStack() as stack:
+                for name, value in {
+                    "OUT_CSV": str(path), "CPU_CORES": "2", "GPU_MODE": "off",
+                    "USE_ENERGY": False, "USE_MIPS": False, "IDLE_DEBUG": False,
+                    "PROFILING_MODE": "full", "SNIFF_GROUPS_PATH": "",
+                    "input_scale_entries": [{"input_scale": 1.0}],
+                }.items():
+                    stack.enter_context(patch_client(self.runner, name, value))
+                ready = stack.enter_context(patch.object(
+                    client.requests, "get", side_effect=RuntimeError("offline fixture")))
+                if valid:
+                    self.runner.main()
+                else:
+                    with pytest.raises(RuntimeError, match="CSV.*columns"):
                         self.runner.main()
-                    else:
-                        with self.assertRaisesRegex(RuntimeError, "CSV.*columns"):
-                            self.runner.main()
-                        ready.assert_not_called()
-                        self.assertEqual(path.read_bytes(), before)
-                        self.assertEqual(list(Path(tmp).iterdir()), [path])
-                        continue
-                with path.open(newline="") as stream:
-                    reader = csv.DictReader(stream)
-                    rows = list(reader)
-                    self.assertEqual(reader.fieldnames, fields)
-                self.assertEqual(rows[0], original)
-                self.assertEqual(len(rows), 2)
-                self.assertEqual(rows[1]["cpu_cores"], "2")
-                self.assertEqual(rows[1]["status"], "error")
-                self.assertIn("offline fixture", rows[1]["error"])
+                    ready.assert_not_called()
+                    assert (path.read_bytes()) == (before)
+                    assert (list(Path(tmp).iterdir())) == ([path])
+                    return
+            with path.open(newline="") as stream:
+                reader = csv.DictReader(stream)
+                rows = list(reader)
+                assert (reader.fieldnames) == (fields)
+            assert (rows[0]) == (original)
+            assert (len(rows)) == (2)
+            assert (rows[1]["cpu_cores"]) == ("2")
+            assert (rows[1]["status"]) == ("error")
+            assert ("offline fixture") in (rows[1]["error"])
 
-    def test_frozen_scale_order_changes_execution_without_changing_payloads(self):
+    @pytest.mark.parametrize('invalid', ('[16,32]', '[16,32,32]', '[16,32,128]'))
+    def test_frozen_scale_order_changes_execution_without_changing_payloads(self, invalid):
         entries = [{"input_scale": scale, "payload": {"text": f"payload-{scale}"}}
                    for scale in (16, 32, 64)]
         with tempfile.TemporaryDirectory() as tmp:
@@ -99,87 +102,84 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             original = path.read_bytes()
             with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)), patch.object(self.runner.config, "input_scale_order", "[64,16,32]"):
                 loaded = self.runner._load_input_scale_entries()
-                self.assertEqual([e["input_scale"] for e in loaded], [64, 16, 32])
-                self.assertEqual([e["payload"]["text"] for e in loaded],
-                                 ["payload-64", "payload-16", "payload-32"])
-                self.assertEqual(path.read_bytes(), original)
-                for invalid in ("[16,32]", "[16,32,32]", "[16,32,128]"):
-                    with self.subTest(order=invalid), patch.object(self.runner.config, "input_scale_order", invalid):
-                        with self.assertRaisesRegex(ValueError, "frozen matrix input-scale"):
-                            self.runner._load_input_scale_entries()
+                assert ([e["input_scale"] for e in loaded]) == ([64, 16, 32])
+                assert ([e["payload"]["text"] for e in loaded]) == (["payload-64", "payload-16", "payload-32"])
+                assert (path.read_bytes()) == (original)
+                with patch.object(self.runner.config, "input_scale_order", invalid):
+                    with pytest.raises(ValueError, match="frozen matrix input-scale"):
+                        self.runner._load_input_scale_entries()
 
-    def test_full_client_dram_policy_and_separate_window_request_units(self):
-        for policy, available in (("auto", False), ("required", False), ("required", True)):
-            with self.subTest(policy=policy, available=available), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
-                result = energy_cpu._nan_result(cpu_idle_power_w=1.0)
-                result.cpu_energy_total_j = 12.0
-                result.vcpu_energy_eff_j = 6.0
-                if available:
-                    result.dram = energy_cpu.DRAMEnergyResult(
-                        window_energy_j=10.0, window_duration_s=2.0, avg_power_w=5.0,
-                        peak_power_w=7.0, idle_power_w=1.0,
-                        window_effective_energy_j=8.0, status="verified")
-                monitor = Mock()
-                monitor.idle_power_w = 1.0
-                monitor.idle_trace = {}
-                monitor.stop.return_value = (result, "", [])
-                path = Path(tmp, "result.csv")
-                settings = {
-                    "OUT_CSV": str(path), "PROFILING_MODE": "full", "DRAM_ENERGY": policy,
-                    "WARMUP": 0, "REPEAT": 1, "REPEAT_IN_WINDOW": 2,
-                    "USE_ENERGY": False, "USE_MIPS": False, "GPU_MODE": "off",
-                    "energy_mod": None, "resource_usage_mod": None,
-                    "cpu_energy_mod": SimpleNamespace(CPUEnergyMonitor=Mock(return_value=monitor)),
-                    "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
-                }
-                for name, value in settings.items():
-                    stack.enter_context(patch_client(self.runner, name, value))
-                stack.enter_context(patch.object(client.requests, "get",
-                    return_value=SimpleNamespace(status_code=200, text="ok")))
-                stack.enter_context(patch_client(self.runner, "_one_request",
-                    return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0}))
-                if policy == "required" and not available:
-                    with self.assertRaisesRegex(client.EnergyAbort, "required DRAM"):
-                        self.runner.main()
-                    continue
-                self.runner.main()
-                with path.open() as stream:
-                    row = next(csv.DictReader(stream))
-                self.assertEqual(row["status"], "ok", row["error"])
-                self.assertEqual(float(row["container_attributed_energy_eff_j"]), 3.0)
-                self.assertEqual(row["result_origin"], "formal_measurement")
-                if available:
-                    self.assertEqual(float(row["dram_window_energy_j"]), 10.0)
-                    self.assertEqual(float(row["dram_energy_per_request_j"]), 5.0)
-                    self.assertEqual(float(row["dram_effective_energy_per_request_j"]), 4.0)
-                else:
-                    self.assertEqual(row["dram_energy_status"], "unavailable")
-                    self.assertEqual(row["dram_window_energy_j"], "nan")
+    @pytest.mark.parametrize('dram_case', range(3))
+    def test_full_client_dram_policy_and_separate_window_request_units(self, dram_case):
+        (policy, available) = ((('auto', False), ('required', False), ('required', True)))[dram_case]
+        with tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+            result = energy_cpu._nan_result(cpu_idle_power_w=1.0)
+            result.cpu_energy_total_j = 12.0
+            result.vcpu_energy_eff_j = 6.0
+            if available:
+                result.dram = energy_cpu.DRAMEnergyResult(
+                    window_energy_j=10.0, window_duration_s=2.0, avg_power_w=5.0,
+                    peak_power_w=7.0, idle_power_w=1.0,
+                    window_effective_energy_j=8.0, status="verified")
+            monitor = Mock()
+            monitor.idle_power_w = 1.0
+            monitor.idle_trace = {}
+            monitor.stop.return_value = (result, "", [])
+            path = Path(tmp, "result.csv")
+            settings = {
+                "OUT_CSV": str(path), "PROFILING_MODE": "full", "DRAM_ENERGY": policy,
+                "WARMUP": 0, "REPEAT": 1, "REPEAT_IN_WINDOW": 2,
+                "USE_ENERGY": False, "USE_MIPS": False, "GPU_MODE": "off",
+                "energy_mod": None, "resource_usage_mod": None,
+                "cpu_energy_mod": SimpleNamespace(CPUEnergyMonitor=Mock(return_value=monitor)),
+                "input_scale_entries": [{"input_scale": 1.0, "scale_label": "one", "payload": {}}],
+            }
+            for name, value in settings.items():
+                stack.enter_context(patch_client(self.runner, name, value))
+            stack.enter_context(patch.object(client.requests, "get",
+                return_value=SimpleNamespace(status_code=200, text="ok")))
+            stack.enter_context(patch_client(self.runner, "_one_request",
+                return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0}))
+            if policy == "required" and not available:
+                with pytest.raises(client.EnergyAbort, match="required DRAM"):
+                    self.runner.main()
+                return
+            self.runner.main()
+            with path.open() as stream:
+                row = next(csv.DictReader(stream))
+            assert (row["status"]) == ("ok"), row["error"]
+            assert (float(row["container_attributed_energy_eff_j"])) == (3.0)
+            assert (row["result_origin"]) == ("formal_measurement")
+            if available:
+                assert (float(row["dram_window_energy_j"])) == (10.0)
+                assert (float(row["dram_energy_per_request_j"])) == (5.0)
+                assert (float(row["dram_effective_energy_per_request_j"])) == (4.0)
+            else:
+                assert (row["dram_energy_status"]) == ("unavailable")
+                assert (row["dram_window_energy_j"]) == ("nan")
 
-    def test_latency_metrics_use_the_explicit_slo_threshold(self) -> None:
+    @pytest.mark.parametrize('threshold_case', range(2), ids=['(0.05, 2 / 3)', '(0.1, 1 / 3)'])
+    def test_latency_metrics_use_the_explicit_slo_threshold(self, threshold_case) -> None:
         latencies = [0.01, 0.06, 0.2, float("nan"), float("inf")]
-        for threshold, expected in ((0.05, 2 / 3), (0.1, 1 / 3)):
-            with self.subTest(threshold=threshold):
-                self.assertAlmostEqual(
-                    client._latency_distribution_metrics(
-                        "latency_app", latencies, slow_latency_threshold_s=threshold,
-                    )[
-                        "latency_app_slow_ratio"
-                    ],
-                    expected,
-                )
+        (threshold, expected) = tuple(((0.05, 2 / 3), (0.1, 1 / 3)))[threshold_case]
+        assert (client._latency_distribution_metrics(
+                "latency_app", latencies, slow_latency_threshold_s=threshold,
+            )[
+                "latency_app_slow_ratio"
+            ]) == (expected) or round(abs((client._latency_distribution_metrics(
+                "latency_app", latencies, slow_latency_threshold_s=threshold,
+            )[
+                "latency_app_slow_ratio"
+            ]) - (expected)), 7) == 0
 
     def test_default_idle_diag_path_uses_dedicated_debug_directory(self) -> None:
         with patch_client(self.runner, "IDLE_DIAG_PATH", ""):
-            self.assertEqual(
-                self.runner._idle_diag_path("results/model/result_case.csv"),
-                os.path.join(
+            assert (self.runner._idle_diag_path("results/model/result_case.csv")) == (os.path.join(
                     "results",
                     "model",
                     "debug_idle_diag",
                     "result_case.csv.idle_diag.jsonl",
-                ),
-            )
+                ))
 
     def test_matched_control_starts_all_monitors_before_wait_and_applies_baselines(self) -> None:
         events = []
@@ -235,9 +235,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 monitors.add(name, monitor)
             run_matched_control_window(monitors, idle_seconds=2.0, trace=True)
 
-        self.assertEqual(
-            events,
-            [
+        assert (events) == ([
                 "start:gpu",
                 "start:cpu",
                 "start:resource",
@@ -249,35 +247,34 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 "stop:cpu",
                 "apply:gpu:True",
                 "apply:cpu:True",
-            ],
-        )
-        self.assertIsNotNone(gpu_monitor.applied)
-        self.assertIsNotNone(cpu_monitor.applied)
+            ])
+        assert (gpu_monitor.applied) is not None
+        assert (cpu_monitor.applied) is not None
 
     def test_csv_schema_uses_gpu_idle_power_w_field(self) -> None:
-        self.assertIn("gpu_idle_power_w", CSV_FIELDS)
-        self.assertIn("gpu_idle_measured_at", CSV_FIELDS)
-        self.assertIn("gpu_idle_rel_range_so_far", CSV_FIELDS)
-        self.assertNotIn("idle_power_w", CSV_FIELDS)
+        assert ("gpu_idle_power_w") in (CSV_FIELDS)
+        assert ("gpu_idle_measured_at") in (CSV_FIELDS)
+        assert ("gpu_idle_rel_range_so_far") in (CSV_FIELDS)
+        assert ("idle_power_w") not in (CSV_FIELDS)
         gpu_idle_index = CSV_FIELDS.index("gpu_idle_power_w")
-        self.assertEqual(CSV_FIELDS[gpu_idle_index + 1], "gpu_idle_measured_at")
-        self.assertEqual(CSV_FIELDS[gpu_idle_index + 2], "gpu_idle_rel_range_so_far")
+        assert (CSV_FIELDS[gpu_idle_index + 1]) == ("gpu_idle_measured_at")
+        assert (CSV_FIELDS[gpu_idle_index + 2]) == ("gpu_idle_rel_range_so_far")
 
     def test_schema_v6_includes_cgroup_swap_and_request_shape_metrics(self) -> None:
-        self.assertEqual(STATIC_META_SCHEMA_VERSION, 7)
-        self.assertIn("parameter_bytes", STATIC_META_FIELDS)
-        self.assertIn("model_cache_bytes", STATIC_META_FIELDS)
-        self.assertNotIn("model_weight_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_mem_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_swap_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_swap_used_bytes_at_start", STATIC_META_FIELDS)
-        self.assertIn("host_swap_type", STATIC_META_FIELDS)
-        self.assertIn("host_vm_swappiness", STATIC_META_FIELDS)
-        self.assertIn("docker_storage_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("workload", STATIC_META_FIELDS)
-        self.assertIn("input_scale_plan_sha256", STATIC_META_FIELDS)
-        self.assertIn("cgroup_version", STATIC_META_FIELDS)
-        self.assertIn("cgroup_collection_mode", STATIC_META_FIELDS)
+        assert (STATIC_META_SCHEMA_VERSION) == (7)
+        assert ("parameter_bytes") in (STATIC_META_FIELDS)
+        assert ("model_cache_bytes") in (STATIC_META_FIELDS)
+        assert ("model_weight_bytes") not in (STATIC_META_FIELDS)
+        assert ("host_mem_total_bytes") in (STATIC_META_FIELDS)
+        assert ("host_swap_total_bytes") in (STATIC_META_FIELDS)
+        assert ("host_swap_used_bytes_at_start") in (STATIC_META_FIELDS)
+        assert ("host_swap_type") in (STATIC_META_FIELDS)
+        assert ("host_vm_swappiness") in (STATIC_META_FIELDS)
+        assert ("docker_storage_total_bytes") in (STATIC_META_FIELDS)
+        assert ("workload") in (STATIC_META_FIELDS)
+        assert ("input_scale_plan_sha256") in (STATIC_META_FIELDS)
+        assert ("cgroup_version") in (STATIC_META_FIELDS)
+        assert ("cgroup_collection_mode") in (STATIC_META_FIELDS)
         expected = [
             "input_scale",
             "input_units_per_request",
@@ -296,9 +293,10 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "output_token_count_avg",
         ]
         start = CSV_FIELDS.index("input_scale")
-        self.assertEqual(CSV_FIELDS[start:start + len(expected)], expected)
+        assert (CSV_FIELDS[start:start + len(expected)]) == (expected)
 
-    def test_input_scale_plan_preserves_current_audio_metadata(self) -> None:
+    @pytest.mark.parametrize('plan_case', range(1))
+    def test_input_scale_plan_preserves_current_audio_metadata(self, plan_case) -> None:
         plans = [
             (
                 {
@@ -323,16 +321,15 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             ),
         ]
 
-        for plan, expected_metadata in plans:
-            with self.subTest(schema_version=plan.get("schema_version", 1)):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    path = os.path.join(tmp_dir, "input_scale_plan.json")
-                    with open(path, "w", encoding="utf-8") as f:
-                        json.dump(plan, f)
-                    with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", path):
-                        entries = self.runner._load_input_scale_entries()
+        (plan, expected_metadata) = tuple(plans)[plan_case]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = os.path.join(tmp_dir, "input_scale_plan.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(plan, f)
+            with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", path):
+                entries = self.runner._load_input_scale_entries()
 
-                self.assertEqual(entries[0]["input_metadata"], expected_metadata)
+        assert (entries[0]["input_metadata"]) == (expected_metadata)
 
     def test_one_request_reports_prepared_body_and_response_counts(self) -> None:
         class FakeResponse:
@@ -358,21 +355,18 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             result = self.runner._one_request(3.0, "req", payload_override=payload)
             first_predict_app_s = self.runner.first_predict_app_s
 
-        self.assertEqual(result["request_payload_bytes"], 14.0)
-        self.assertEqual(result["output_length"], 12.0)
-        self.assertEqual(result["output_token_count"], 5.0)
-        self.assertEqual(result["task_param"], '{"a":2,"z":1}')
-        self.assertEqual(first_predict_app_s, 0.25)
+        assert (result["request_payload_bytes"]) == (14.0)
+        assert (result["output_length"]) == (12.0)
+        assert (result["output_token_count"]) == (5.0)
+        assert (result["task_param"]) == ('{"a":2,"z":1}')
+        assert (first_predict_app_s) == (0.25)
 
     def test_task_param_includes_top_level_timeseries_prediction_length(self) -> None:
         payload = {
             "context": [[0.1, 0.2]],
             "prediction_length": 64,
         }
-        self.assertEqual(
-            client._canonical_task_param(payload),
-            '{"prediction_length":64}',
-        )
+        assert (client._canonical_task_param(payload)) == ('{"prediction_length":64}')
 
     def test_request_shape_metrics_are_averaged_per_window(self) -> None:
         responses = iter([
@@ -425,28 +419,22 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             with open(out_csv, "r", encoding="utf-8", newline="") as f:
                 row = next(csv.DictReader(f))
 
-        self.assertEqual(row["input_units_per_request"], "2.000000")
-        self.assertEqual(row["input_num_samples"], "16000.000000")
-        self.assertEqual(row["request_payload_bytes"], "102.000000")
-        self.assertEqual(row["output_length_avg"], "12.000000")
-        self.assertEqual(row["output_token_count_avg"], "4.000000")
-        self.assertEqual(row["latency_app_s_per_input_unit"], "0.075000")
-        self.assertEqual(
-            row["throughput_samples_per_s_per_cpu_core"],
-            "6.666667",
-        )
-        self.assertEqual(
-            row["task_param"],
-            '{"language":"english","task":"transcribe"}',
-        )
+        assert (row["input_units_per_request"]) == ("2.000000")
+        assert (row["input_num_samples"]) == ("16000.000000")
+        assert (row["request_payload_bytes"]) == ("102.000000")
+        assert (row["output_length_avg"]) == ("12.000000")
+        assert (row["output_token_count_avg"]) == ("4.000000")
+        assert (row["latency_app_s_per_input_unit"]) == ("0.075000")
+        assert (row["throughput_samples_per_s_per_cpu_core"]) == ("6.666667")
+        assert (row["task_param"]) == ('{"language":"english","task":"transcribe"}')
 
     def test_csv_schema_includes_idle_debug_fields_after_cpu_idle_power(self) -> None:
-        self.assertIn("cpu_idle_measured_at", CSV_FIELDS)
-        self.assertIn("cpu_idle_rel_range_so_far", CSV_FIELDS)
-        self.assertNotIn("idle_measured_at", CSV_FIELDS)
+        assert ("cpu_idle_measured_at") in (CSV_FIELDS)
+        assert ("cpu_idle_rel_range_so_far") in (CSV_FIELDS)
+        assert ("idle_measured_at") not in (CSV_FIELDS)
         cpu_idle_index = CSV_FIELDS.index("cpu_idle_power_w")
-        self.assertEqual(CSV_FIELDS[cpu_idle_index + 1], "cpu_idle_measured_at")
-        self.assertEqual(CSV_FIELDS[cpu_idle_index + 2], "cpu_idle_rel_range_so_far")
+        assert (CSV_FIELDS[cpu_idle_index + 1]) == ("cpu_idle_measured_at")
+        assert (CSV_FIELDS[cpu_idle_index + 2]) == ("cpu_idle_rel_range_so_far")
 
     def test_csv_schema_prefixes_gpu_energy_fields(self) -> None:
         expected = [
@@ -469,9 +457,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ]
 
         for field in expected:
-            self.assertIn(field, CSV_FIELDS)
+            assert (field) in (CSV_FIELDS)
         for field in old_names:
-            self.assertNotIn(field, CSV_FIELDS)
+            assert (field) not in (CSV_FIELDS)
 
     def test_csv_schema_includes_gpu_runtime_state_fields(self) -> None:
         expected = [
@@ -481,10 +469,10 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "gpu_temp_c",
         ]
 
-        self.assertEqual(GPU_RUNTIME_STATE_FIELDS, expected)
+        assert (GPU_RUNTIME_STATE_FIELDS) == (expected)
         start = CSV_FIELDS.index(expected[0])
-        self.assertEqual(CSV_FIELDS[start:start + len(expected)], expected)
-        self.assertEqual(CSV_FIELDS[start + len(expected)], "gpu_util_avg_pct")
+        assert (CSV_FIELDS[start:start + len(expected)]) == (expected)
+        assert (CSV_FIELDS[start + len(expected)]) == ("gpu_util_avg_pct")
 
     def test_gpu_runtime_metrics_normalize_pstate(self) -> None:
         metrics = client._gpu_runtime_metrics_from_result(
@@ -497,10 +485,10 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(metrics["gpu_sm_clock_mhz"], 1800.0)
-        self.assertEqual(metrics["gpu_memory_clock_mhz"], 7500.0)
-        self.assertEqual(metrics["gpu_pstate"], "P0")
-        self.assertEqual(metrics["gpu_temp_c"], 67.0)
+        assert (metrics["gpu_sm_clock_mhz"]) == (1800.0)
+        assert (metrics["gpu_memory_clock_mhz"]) == (7500.0)
+        assert (metrics["gpu_pstate"]) == ("P0")
+        assert (metrics["gpu_temp_c"]) == (67.0)
 
     def test_csv_schema_distinguishes_torch_logical_and_ncu_executed_flops(self) -> None:
         torch_fields = [
@@ -522,14 +510,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ]
 
         for field in [*torch_fields, *ncu_fields]:
-            self.assertIn(field, CSV_FIELDS)
+            assert (field) in (CSV_FIELDS)
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, CSV_FIELDS)
-        self.assertNotIn("gpu_profile_report_ncu", CSV_FIELDS)
-        self.assertLess(
-            CSV_FIELDS.index(torch_fields[0]),
-            CSV_FIELDS.index(ncu_fields[0]),
-        )
+            assert (field) not in (CSV_FIELDS)
+        assert ("gpu_profile_report_ncu") not in (CSV_FIELDS)
+        assert (CSV_FIELDS.index(torch_fields[0])) < (CSV_FIELDS.index(ncu_fields[0]))
 
     def test_csv_schema_includes_cpu_memory_behavior_metrics(self) -> None:
         fields = [
@@ -542,14 +527,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ]
 
         for field in fields:
-            self.assertIn(field, CSV_FIELDS)
-        self.assertEqual(
-            CSV_FIELDS[
+            assert (field) in (CSV_FIELDS)
+        assert (CSV_FIELDS[
                 CSV_FIELDS.index("cpu_perf_running_pct") + 1:
                 CSV_FIELDS.index("cpu_perf_running_pct") + 1 + len(fields)
-            ],
-            fields,
-        )
+            ]) == (fields)
 
     def test_csv_schema_includes_cgroup_pressure_metrics(self) -> None:
         fields = [
@@ -561,7 +543,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "container_cpu_pressure_full_stall_pct",
         ]
         start = CSV_FIELDS.index("container_cpu_util_peak_pct") + 1
-        self.assertEqual(CSV_FIELDS[start:start + len(fields)], fields)
+        assert (CSV_FIELDS[start:start + len(fields)]) == (fields)
 
     def test_csv_schema_includes_container_swap_and_io_metrics(self) -> None:
         fields = [
@@ -593,7 +575,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ]
 
         start = CSV_FIELDS.index("container_mem_util_peak_pct") + 1
-        self.assertEqual(CSV_FIELDS[start:start + len(fields)], fields)
+        assert (CSV_FIELDS[start:start + len(fields)]) == (fields)
 
     def test_csv_schema_includes_massif_and_nsys_execution_metrics(self) -> None:
         massif_fields = [
@@ -617,14 +599,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ]
 
         for field in [*massif_fields, *nsys_fields]:
-            self.assertIn(field, CSV_FIELDS)
-        self.assertEqual(
-            CSV_FIELDS[
+            assert (field) in (CSV_FIELDS)
+        assert (CSV_FIELDS[
                 CSV_FIELDS.index("compute_profile_error_ncu") + 1:
                 CSV_FIELDS.index("gpu_idle_power_w")
-            ],
-            [*massif_fields, *nsys_fields],
-        )
+            ]) == ([*massif_fields, *nsys_fields])
 
     def test_execution_profile_metrics_are_formatted_independently(self) -> None:
         metrics = client._execution_profile_row_metrics({
@@ -635,24 +614,12 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "compute_profile_error_nsys": "nsys_stats_failed",
         })
 
-        self.assertEqual(metrics["cpu_heap_peak_bytes_massif"], "4096.000000")
-        self.assertEqual(
-            metrics["host_inference_wall_time_ms_per_request_nsys"],
-            "2.500000",
-        )
-        self.assertEqual(
-            metrics["cuda_api_time_sum_ms_per_request_nsys"],
-            "1.250000",
-        )
-        self.assertEqual(metrics["compute_profile_error_massif"], "")
-        self.assertEqual(
-            metrics["compute_profile_error_nsys"],
-            "nsys_stats_failed",
-        )
-        self.assertEqual(
-            metrics["gpu_kernel_time_sum_ms_per_request_nsys"],
-            "nan",
-        )
+        assert (metrics["cpu_heap_peak_bytes_massif"]) == ("4096.000000")
+        assert (metrics["host_inference_wall_time_ms_per_request_nsys"]) == ("2.500000")
+        assert (metrics["cuda_api_time_sum_ms_per_request_nsys"]) == ("1.250000")
+        assert (metrics["compute_profile_error_massif"]) == ("")
+        assert (metrics["compute_profile_error_nsys"]) == ("nsys_stats_failed")
+        assert (metrics["gpu_kernel_time_sum_ms_per_request_nsys"]) == ("nan")
 
     def test_auto_repeat_window_prepares_each_scale_with_warmup_only(self) -> None:
         request_ids = []
@@ -677,19 +644,13 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 self.runner._prepare_repeat_window(2.0, "seq2", {}),
             ]
 
-        self.assertEqual(
-            repeat_counts,
-            [1, 1],
-        )
-        self.assertEqual(
-            request_ids,
-            [
+        assert (repeat_counts) == ([1, 1])
+        assert (request_ids) == ([
                 "case_seq1_auto_warmup0",
                 "case_seq1_auto_warmup1",
                 "case_seq2_auto_warmup0",
                 "case_seq2_auto_warmup1",
-            ],
-        )
+            ])
 
     def test_auto_repeat_window_continues_until_target_duration_when_requests_get_faster(self) -> None:
         measurement_req_ids = []
@@ -735,17 +696,14 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["repeat_in_window"], "5")
-        self.assertEqual(
-            measurement_req_ids,
-            [
+        assert (rows[0]["repeat_in_window"]) == ("5")
+        assert (measurement_req_ids) == ([
                 "case_seq1_r0:0",
                 "case_seq1_r0:1",
                 "case_seq1_r0:2",
                 "case_seq1_r0:3",
                 "case_seq1_r0:4",
-            ],
-        )
+            ])
 
     def test_latency_app_distribution_fields_are_written_per_window(self) -> None:
         latencies = iter([0.01, 0.02, 0.10, 0.20, 0.30])
@@ -792,24 +750,24 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-            self.assertTrue(os.path.isfile(f"{out_csv}.requests.jsonl"))
+            assert (os.path.isfile(f"{out_csv}.requests.jsonl"))
             with open(f"{out_csv}.requests.jsonl", encoding="utf-8") as requests_file:
                 request_windows = [json.loads(line) for line in requests_file]
 
-        self.assertEqual(request_windows[0]["latency_app_s"], [0.01, 0.02, 0.10, 0.20, 0.30])
-        self.assertEqual(request_windows[0]["sniff_group_id"], "case_seq1_r0")
-        self.assertEqual(request_windows[0]["status"], "ok")
-        self.assertEqual(rows[0]["latency_app_s"], "0.126000")
-        self.assertEqual(rows[0]["latency_app_request_count"], "5.000000")
-        self.assertEqual(rows[0]["latency_app_p50_s"], "0.100000")
-        self.assertEqual(rows[0]["latency_app_p90_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_app_p95_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_app_std_s"], "0.110562")
-        self.assertEqual(rows[0]["latency_app_cv"], "0.877478")
-        self.assertEqual(rows[0]["latency_app_iqr_s"], "0.180000")
-        self.assertEqual(rows[0]["latency_app_max_s"], "0.300000")
-        self.assertEqual(rows[0]["latency_app_slow_ratio"], "0.200000")
-        self.assertEqual(rows[0]["latency_app_tail_ratio"], "3.000000")
+        assert (request_windows[0]["latency_app_s"]) == ([0.01, 0.02, 0.10, 0.20, 0.30])
+        assert (request_windows[0]["sniff_group_id"]) == ("case_seq1_r0")
+        assert (request_windows[0]["status"]) == ("ok")
+        assert (rows[0]["latency_app_s"]) == ("0.126000")
+        assert (rows[0]["latency_app_request_count"]) == ("5.000000")
+        assert (rows[0]["latency_app_p50_s"]) == ("0.100000")
+        assert (rows[0]["latency_app_p90_s"]) == ("0.300000")
+        assert (rows[0]["latency_app_p95_s"]) == ("0.300000")
+        assert (rows[0]["latency_app_std_s"]) == ("0.110562")
+        assert (rows[0]["latency_app_cv"]) == ("0.877478")
+        assert (rows[0]["latency_app_iqr_s"]) == ("0.180000")
+        assert (rows[0]["latency_app_max_s"]) == ("0.300000")
+        assert (rows[0]["latency_app_slow_ratio"]) == ("0.200000")
+        assert (rows[0]["latency_app_tail_ratio"]) == ("3.000000")
 
     def test_efficiency_metrics_are_derived_without_new_measurements(self) -> None:
         metrics = client._derived_efficiency_metrics(
@@ -822,27 +780,12 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             input_units_per_request=8.0,
         )
 
-        self.assertAlmostEqual(
-            metrics["container_attributed_energy_eff_j"],
-            0.5,
-        )
-        self.assertAlmostEqual(
-            metrics["container_attributed_samples_per_j"],
-            4.0,
-        )
-        self.assertAlmostEqual(
-            metrics["container_attributed_edp_app_js"],
-            0.25,
-        )
-        self.assertAlmostEqual(metrics["output_tokens_per_s_app"], 20.0)
-        self.assertAlmostEqual(
-            metrics["container_attributed_j_per_output_token"],
-            0.05,
-        )
-        self.assertAlmostEqual(
-            metrics["container_attributed_j_per_input_unit"],
-            0.0625,
-        )
+        assert (metrics["container_attributed_energy_eff_j"]) == (0.5) or round(abs((metrics["container_attributed_energy_eff_j"]) - (0.5)), 7) == 0
+        assert (metrics["container_attributed_samples_per_j"]) == (4.0) or round(abs((metrics["container_attributed_samples_per_j"]) - (4.0)), 7) == 0
+        assert (metrics["container_attributed_edp_app_js"]) == (0.25) or round(abs((metrics["container_attributed_edp_app_js"]) - (0.25)), 7) == 0
+        assert (metrics["output_tokens_per_s_app"]) == (20.0) or round(abs((metrics["output_tokens_per_s_app"]) - (20.0)), 7) == 0
+        assert (metrics["container_attributed_j_per_output_token"]) == (0.05) or round(abs((metrics["container_attributed_j_per_output_token"]) - (0.05)), 7) == 0
+        assert (metrics["container_attributed_j_per_input_unit"]) == (0.0625) or round(abs((metrics["container_attributed_j_per_input_unit"]) - (0.0625)), 7) == 0
 
         missing_gpu = client._derived_efficiency_metrics(
             gpu_mode="on",
@@ -852,9 +795,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             gpu_energy_eff_j=float("nan"),
             vcpu_energy_eff_j=0.2,
         )
-        self.assertTrue(
-            math.isnan(missing_gpu["container_attributed_energy_eff_j"])
-        )
+        assert (math.isnan(missing_gpu["container_attributed_energy_eff_j"]))
 
     def test_cold_start_row_metrics_include_phases_and_first_predict(self) -> None:
         with patch_client(self.runner,
@@ -887,15 +828,15 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         ):
             metrics = self.runner._cold_start_row_metrics()
 
-        self.assertEqual(metrics["cold_start_container_launch_s"], "0.1")
-        self.assertEqual(metrics["cold_start_cuda_init_s"], "0.05")
-        self.assertEqual(metrics["cold_start_model_load_s"], "0.55")
-        self.assertEqual(metrics["cold_start_first_predict_app_s"], "0.250000")
-        self.assertEqual(metrics["cold_start_s"], "1.0")
+        assert (metrics["cold_start_container_launch_s"]) == ("0.1")
+        assert (metrics["cold_start_cuda_init_s"]) == ("0.05")
+        assert (metrics["cold_start_model_load_s"]) == ("0.55")
+        assert (metrics["cold_start_first_predict_app_s"]) == ("0.250000")
+        assert (metrics["cold_start_s"]) == ("1.0")
 
     def test_manual_repeat_in_window_skips_auto_warmup(self) -> None:
         def fake_one_request(scale_value, req_id, payload_override=None):
-            self.assertNotIn("_auto_warmup", req_id)
+            assert ("_auto_warmup") not in (req_id)
             return {
                 "latency_app_s": 0.5,
                 "effective_input_scale": float(scale_value),
@@ -931,8 +872,8 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["repeat_in_window"], "20")
-        self.assertEqual(one_request.call_count, 20)
+        assert (rows[0]["repeat_in_window"]) == ("20")
+        assert (one_request.call_count) == (20)
 
     def test_gpu_energy_uses_one_matched_control_baseline_per_workload(self) -> None:
         sleep_calls = []
@@ -1018,18 +959,18 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                     fieldnames = reader.fieldnames or []
                     rows = list(reader)
 
-        self.assertEqual(FakeGpuMonitor.apply_control_calls, 2)
-        self.assertEqual(sleep_calls, [2.5, 2.5])
-        self.assertIn("gpu_idle_power_w", fieldnames)
-        self.assertNotIn("idle_power_w", fieldnames)
-        self.assertIn("gpu_energy_iters", fieldnames)
-        self.assertNotIn("energy_iters", fieldnames)
-        self.assertIn("gpu_energy_eff_j", fieldnames)
-        self.assertNotIn("energy_eff_j", fieldnames)
-        self.assertEqual(rows[0]["gpu_idle_power_w"], "10.000000")
-        self.assertEqual(rows[0]["gpu_energy_eff_j"], "0.200000")
-        self.assertEqual(rows[0]["gpu_avg_power_total_w"], "12.000000")
-        self.assertNotIn("gpu_power_w", rows[0])
+        assert (FakeGpuMonitor.apply_control_calls) == (2)
+        assert (sleep_calls) == ([2.5, 2.5])
+        assert ("gpu_idle_power_w") in (fieldnames)
+        assert ("idle_power_w") not in (fieldnames)
+        assert ("gpu_energy_iters") in (fieldnames)
+        assert ("energy_iters") not in (fieldnames)
+        assert ("gpu_energy_eff_j") in (fieldnames)
+        assert ("energy_eff_j") not in (fieldnames)
+        assert (rows[0]["gpu_idle_power_w"]) == ("10.000000")
+        assert (rows[0]["gpu_energy_eff_j"]) == ("0.200000")
+        assert (rows[0]["gpu_avg_power_total_w"]) == ("12.000000")
+        assert ("gpu_power_w") not in (rows[0])
 
     def test_idle_cooldown_applies_before_cpu_idle_without_gpu(self) -> None:
         sleep_calls = []
@@ -1115,20 +1056,20 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             ):
                 self.runner.main()
 
-        self.assertEqual(FakeCPUMonitor.apply_control_calls, 2)
-        self.assertEqual(sleep_calls, [2.5, 2.5])
+        assert (FakeCPUMonitor.apply_control_calls) == (2)
+        assert (sleep_calls) == ([2.5, 2.5])
 
     def test_client_entrypoint_prints_friendly_energy_abort_without_traceback(self) -> None:
         stderr = io.StringIO()
         with patch_client(self.runner,
             "main",
             side_effect=client.EnergyAbort("gpu_idle_power_w failed"),
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             self.runner.run_cli()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertIn("[energy][ERROR] gpu_idle_power_w failed", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
+        assert (raised.value.code) == (1)
+        assert ("[energy][ERROR] gpu_idle_power_w failed") in (stderr.getvalue())
+        assert ("Traceback") not in (stderr.getvalue())
 
     def test_one_request_converts_http_timeout_to_case_abort(self) -> None:
         with patch_client(self.runner,
@@ -1138,20 +1079,20 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             client.requests,
             "post",
             side_effect=client.requests.exceptions.ReadTimeout("slow inference"),
-        ), self.assertRaises(client.RequestTimeoutAbort) as raised:
+        ), pytest.raises(client.RequestTimeoutAbort) as raised:
             self.runner._one_request(
                 10.0,
                 req_id="case_dur10_auto_warmup0",
                 payload_override={},
             )
 
-        message = str(raised.exception)
-        self.assertIn("inactivity timeout: 0.25s", message)
-        self.assertIn("input_scale=10", message)
-        self.assertIn("req_id=case_dur10_auto_warmup0", message)
-        self.assertEqual(raised.exception.input_scale, 10.0)
-        self.assertEqual(raised.exception.request_id, "case_dur10_auto_warmup0")
-        self.assertEqual(raised.exception.timeout_s, 0.25)
+        message = str(raised.value)
+        assert ("inactivity timeout: 0.25s") in (message)
+        assert ("input_scale=10") in (message)
+        assert ("req_id=case_dur10_auto_warmup0") in (message)
+        assert (raised.value.input_scale) == (10.0)
+        assert (raised.value.request_id) == ("case_dur10_auto_warmup0")
+        assert (raised.value.timeout_s) == (0.25)
 
     def test_measurement_timeout_escapes_row_level_error_handling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir, patch_client(self.runner,
@@ -1195,28 +1136,25 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "_one_request",
             side_effect=[{"latency_app_s": 0.25, "effective_input_scale": 10.0}, client.RequestTimeoutAbort("slow inference")],
         ):
-            with self.assertRaises(client.RequestTimeoutAbort):
+            with pytest.raises(client.RequestTimeoutAbort):
                 self.runner.main()
             with open(f"{tmp_dir}/result.csv.requests.jsonl", encoding="utf-8") as f:
                 window = json.loads(f.readline())
-            self.assertEqual(window["status"], "error")
-            self.assertEqual(window["latency_app_s"], [0.25])
-            self.assertEqual(window["failed_request_id"], "case_dur10_r0:1")
+            assert (window["status"]) == ("error")
+            assert (window["latency_app_s"]) == ([0.25])
+            assert (window["failed_request_id"]) == ("case_dur10_r0:1")
 
     def test_client_entrypoint_uses_dedicated_timeout_exit_code(self) -> None:
         stderr = io.StringIO()
         with patch_client(self.runner,
             "main",
             side_effect=client.RequestTimeoutAbort("slow inference"),
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             self.runner.run_cli()
 
-        self.assertEqual(
-            raised.exception.code,
-            client.CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
-        )
-        self.assertIn("[case][ERROR] slow inference", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
+        assert (raised.value.code) == (client.CLIENT_REQUEST_TIMEOUT_EXIT_CODE)
+        assert ("[case][ERROR] slow inference") in (stderr.getvalue())
+        assert ("Traceback") not in (stderr.getvalue())
 
     def test_client_entrypoint_persists_structured_timeout_context(self) -> None:
         stderr = io.StringIO()
@@ -1234,17 +1172,17 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             ), patch_client(self.runner,
                 "main",
                 side_effect=exc,
-            ), self.assertRaises(SystemExit), redirect_stderr(stderr):
+            ), pytest.raises(SystemExit), redirect_stderr(stderr):
                 self.runner.run_cli()
 
             with open(sidecar_path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
 
-        self.assertEqual(payload["error_type"], "client_request_timeout")
-        self.assertEqual(payload["input_scale"], 30.0)
-        self.assertEqual(payload["request_timeout_s"], 300.0)
-        self.assertEqual(payload["request_phase"], "auto_repeat_window_warmup")
-        self.assertEqual(payload["request_index_in_window"], 0)
+        assert (payload["error_type"]) == ("client_request_timeout")
+        assert (payload["input_scale"]) == (30.0)
+        assert (payload["request_timeout_s"]) == (300.0)
+        assert (payload["request_phase"]) == ("auto_repeat_window_warmup")
+        assert (payload["request_index_in_window"]) == (0)
 
     def test_sniff_group_id_is_hidden_from_csv_but_kept_for_packet_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1282,9 +1220,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             with open(f"{out_csv}.sniff_groups.jsonl", "r", encoding="utf-8") as f:
                 sidecar_rows = [json.loads(line) for line in f if line.strip()]
 
-        self.assertNotIn("sniff_group_id", fieldnames)
-        self.assertNotIn("sniff_group_id", rows[0])
-        self.assertEqual(sidecar_rows, [{"sniff_group_id": "case_seq1_r0"}])
+        assert ("sniff_group_id") not in (fieldnames)
+        assert ("sniff_group_id") not in (rows[0])
+        assert (sidecar_rows) == ([{"sniff_group_id": "case_seq1_r0"}])
 
     def test_negative_effective_metrics_are_reported_per_field(self) -> None:
         warnings = client._eff_negative_warnings(
@@ -1293,7 +1231,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             energy_eff_j=-0.001,
         )
 
-        self.assertEqual(warnings, ["gpu_avg_power_eff_w<0", "gpu_energy_eff_j<0"])
+        assert (warnings) == (["gpu_avg_power_eff_w<0", "gpu_energy_eff_j<0"])
 
     def test_cpu_vcpu_negative_effective_metrics_keep_full_field_names(self) -> None:
         warnings = client._named_negative_warnings({
@@ -1302,7 +1240,7 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
             "vcpu_energy_total_j": 1.0,
         })
 
-        self.assertEqual(warnings, ["cpu_energy_eff_j<0", "vcpu_avg_power_eff_w<0"])
+        assert (warnings) == (["cpu_energy_eff_j<0", "vcpu_avg_power_eff_w<0"])
 
     def test_cpu_monitor_unavailable_keeps_successful_row_ok(self) -> None:
         class FakeUnavailableCPUMonitor:
@@ -1344,9 +1282,9 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["error"], "")
-        self.assertEqual(rows[0]["cpu_energy_total_j"], "nan")
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["error"]) == ("")
+        assert (rows[0]["cpu_energy_total_j"]) == ("nan")
 
     def test_idle_debug_writes_csv_fields_and_diagnostic_jsonl(self) -> None:
         class FakeCPUMonitor:
@@ -1456,30 +1394,30 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(diag_path, "r", encoding="utf-8") as f:
                     diag_rows = [json.loads(line) for line in f if line.strip()]
 
-        self.assertEqual(rows[0]["cpu_idle_measured_at"], "2026-05-02T10:00:00+08:00")
-        self.assertEqual(rows[0]["gpu_idle_measured_at"], "nan")
-        self.assertEqual(rows[0]["gpu_idle_rel_range_so_far"], "nan")
-        self.assertEqual(rows[0]["cpu_idle_rel_range_so_far"], "0.000000")
-        self.assertEqual(rows[1]["cpu_idle_measured_at"], "2026-05-02T10:00:01+08:00")
-        self.assertEqual(rows[1]["gpu_idle_measured_at"], "nan")
-        self.assertEqual(rows[1]["gpu_idle_rel_range_so_far"], "nan")
-        self.assertEqual(rows[1]["cpu_idle_rel_range_so_far"], "0.095238")
-        self.assertEqual(FakeCPUMonitor.trace_intervals, [True, True])
-        self.assertEqual(len(diag_rows), 2)
-        self.assertEqual(diag_rows[1]["sniff_group_id"], "case_seq1_r1")
-        self.assertEqual(diag_rows[1]["cpu_idle_measured_at"], "2026-05-02T10:00:01+08:00")
-        self.assertEqual(diag_rows[1]["idle_trace_schema"], "cpu_rapl_idle_v1")
-        self.assertEqual(diag_rows[1]["actual_idle_duration_s"], 3.0)
-        self.assertEqual(diag_rows[1]["rapl_trace"]["interval_s"], 0.1)
-        self.assertEqual(diag_rows[1]["idle_proc_cpu_top"][0]["comm"], "python")
-        self.assertEqual(diag_rows[1]["idle_container_cpu_delta_s"], 0.01)
-        self.assertEqual(diag_rows[1]["cpu_idle_valid_count"], 2)
-        self.assertAlmostEqual(diag_rows[1]["cpu_idle_mean_w"], 5.25)
-        self.assertEqual(diag_rows[1]["snapshot_scope"], "after_idle")
-        self.assertEqual(diag_rows[1]["loadavg"], [0.1, 0.2, 0.3])
-        self.assertEqual(diag_rows[1]["top_cpu_processes"][0]["comm"], "python")
-        self.assertEqual(diag_rows[1]["docker_containers"][0]["name"], "case")
-        self.assertEqual(diag_rows[1]["docker_stats"][0]["cpu_perc"], "0.1%")
+        assert (rows[0]["cpu_idle_measured_at"]) == ("2026-05-02T10:00:00+08:00")
+        assert (rows[0]["gpu_idle_measured_at"]) == ("nan")
+        assert (rows[0]["gpu_idle_rel_range_so_far"]) == ("nan")
+        assert (rows[0]["cpu_idle_rel_range_so_far"]) == ("0.000000")
+        assert (rows[1]["cpu_idle_measured_at"]) == ("2026-05-02T10:00:01+08:00")
+        assert (rows[1]["gpu_idle_measured_at"]) == ("nan")
+        assert (rows[1]["gpu_idle_rel_range_so_far"]) == ("nan")
+        assert (rows[1]["cpu_idle_rel_range_so_far"]) == ("0.095238")
+        assert (FakeCPUMonitor.trace_intervals) == ([True, True])
+        assert (len(diag_rows)) == (2)
+        assert (diag_rows[1]["sniff_group_id"]) == ("case_seq1_r1")
+        assert (diag_rows[1]["cpu_idle_measured_at"]) == ("2026-05-02T10:00:01+08:00")
+        assert (diag_rows[1]["idle_trace_schema"]) == ("cpu_rapl_idle_v1")
+        assert (diag_rows[1]["actual_idle_duration_s"]) == (3.0)
+        assert (diag_rows[1]["rapl_trace"]["interval_s"]) == (0.1)
+        assert (diag_rows[1]["idle_proc_cpu_top"][0]["comm"]) == ("python")
+        assert (diag_rows[1]["idle_container_cpu_delta_s"]) == (0.01)
+        assert (diag_rows[1]["cpu_idle_valid_count"]) == (2)
+        assert (diag_rows[1]["cpu_idle_mean_w"]) == (5.25) or round(abs((diag_rows[1]["cpu_idle_mean_w"]) - (5.25)), 7) == 0
+        assert (diag_rows[1]["snapshot_scope"]) == ("after_idle")
+        assert (diag_rows[1]["loadavg"]) == ([0.1, 0.2, 0.3])
+        assert (diag_rows[1]["top_cpu_processes"][0]["comm"]) == ("python")
+        assert (diag_rows[1]["docker_containers"][0]["name"]) == ("case")
+        assert (diag_rows[1]["docker_stats"][0]["cpu_perc"]) == ("0.1%")
 
     def test_idle_debug_writes_gpu_idle_fields_and_diagnostics(self) -> None:
         class FakeGpuMonitor:
@@ -1570,21 +1508,21 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(diag_path, "r", encoding="utf-8") as f:
                     diag_rows = [json.loads(line) for line in f if line.strip()]
 
-        self.assertEqual(FakeGpuMonitor.trace_args, [True, True])
-        self.assertEqual(rows[0]["gpu_idle_measured_at"], "2026-05-02T10:00:00+08:00")
-        self.assertEqual(rows[0]["gpu_idle_rel_range_so_far"], "0.000000")
-        self.assertEqual(rows[1]["gpu_idle_measured_at"], "2026-05-02T10:00:01+08:00")
-        self.assertEqual(rows[1]["gpu_idle_rel_range_so_far"], "0.095238")
-        self.assertEqual(rows[1]["cpu_idle_measured_at"], "nan")
-        self.assertEqual(rows[1]["cpu_idle_rel_range_so_far"], "nan")
-        self.assertEqual(diag_rows[1]["gpu_idle_trace_schema"], "nvml_gpu_idle_v1")
-        self.assertEqual(diag_rows[1]["cpu_idle_measured_at"], "nan")
-        self.assertEqual(diag_rows[1]["gpu_idle_sample_count"], 2)
-        self.assertEqual(diag_rows[1]["gpu_idle_valid_count"], 2)
-        self.assertEqual(diag_rows[1]["gpu_idle_mean_w"], 10.5)
-        self.assertEqual(diag_rows[1]["gpu_snapshot_scope"], "after_gpu_idle")
-        self.assertEqual(diag_rows[1]["nvidia_smi_gpu"]["pstate"], "P0")
-        self.assertEqual(diag_rows[1]["nvidia_smi_pmon"][0]["command"], "Xorg")
+        assert (FakeGpuMonitor.trace_args) == ([True, True])
+        assert (rows[0]["gpu_idle_measured_at"]) == ("2026-05-02T10:00:00+08:00")
+        assert (rows[0]["gpu_idle_rel_range_so_far"]) == ("0.000000")
+        assert (rows[1]["gpu_idle_measured_at"]) == ("2026-05-02T10:00:01+08:00")
+        assert (rows[1]["gpu_idle_rel_range_so_far"]) == ("0.095238")
+        assert (rows[1]["cpu_idle_measured_at"]) == ("nan")
+        assert (rows[1]["cpu_idle_rel_range_so_far"]) == ("nan")
+        assert (diag_rows[1]["gpu_idle_trace_schema"]) == ("nvml_gpu_idle_v1")
+        assert (diag_rows[1]["cpu_idle_measured_at"]) == ("nan")
+        assert (diag_rows[1]["gpu_idle_sample_count"]) == (2)
+        assert (diag_rows[1]["gpu_idle_valid_count"]) == (2)
+        assert (diag_rows[1]["gpu_idle_mean_w"]) == (10.5)
+        assert (diag_rows[1]["gpu_snapshot_scope"]) == ("after_gpu_idle")
+        assert (diag_rows[1]["nvidia_smi_gpu"]["pstate"]) == ("P0")
+        assert (diag_rows[1]["nvidia_smi_pmon"][0]["command"]) == ("Xorg")
 
     def test_idle_debug_disabled_fills_nan_and_does_not_write_diag_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1619,11 +1557,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["cpu_idle_measured_at"], "nan")
-        self.assertEqual(rows[0]["gpu_idle_measured_at"], "nan")
-        self.assertEqual(rows[0]["gpu_idle_rel_range_so_far"], "nan")
-        self.assertEqual(rows[0]["cpu_idle_rel_range_so_far"], "nan")
-        self.assertFalse(os.path.exists(diag_path))
+        assert (rows[0]["cpu_idle_measured_at"]) == ("nan")
+        assert (rows[0]["gpu_idle_measured_at"]) == ("nan")
+        assert (rows[0]["gpu_idle_rel_range_so_far"]) == ("nan")
+        assert (rows[0]["cpu_idle_rel_range_so_far"]) == ("nan")
+        assert not (os.path.exists(diag_path))
 
     def test_resource_usage_metrics_are_written_to_successful_row(self) -> None:
         class FakeResourceUsageMonitor:
@@ -1722,79 +1660,43 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["resource_usage_iters"], "2.000000")
-        self.assertEqual(rows[0]["container_cpu_util_avg_pct"], "25.000000")
-        self.assertEqual(rows[0]["container_cpu_nr_periods_delta"], "10.000000")
-        self.assertEqual(rows[0]["container_cpu_nr_throttled_delta"], "2.000000")
-        self.assertEqual(
-            rows[0]["container_cpu_throttled_period_ratio_pct"],
-            "20.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_cpu_throttled_time_s_per_request"],
-            "0.200000",
-        )
-        self.assertEqual(
-            rows[0]["container_cpu_pressure_some_stall_pct"],
-            "12.500000",
-        )
-        self.assertEqual(rows[0]["cpu_freq_avg_hz"], "3000000000.000000")
-        self.assertEqual(rows[0]["cpu_freq_peak_hz"], "3200000000.000000")
-        self.assertEqual(rows[0]["cpu_cycles_est_app"], "375000000.000000")
-        self.assertEqual(rows[0]["cpu_cycles_est_packet"], "nan")
-        self.assertEqual(rows[0]["gpu_sm_clock_mhz"], "1500.000000")
-        self.assertEqual(rows[0]["gpu_memory_clock_mhz"], "7000.000000")
-        self.assertEqual(rows[0]["gpu_pstate"], "P2")
-        self.assertEqual(rows[0]["gpu_temp_c"], "61.000000")
-        self.assertEqual(rows[0]["gpu_util_avg_pct"], "30.000000")
-        self.assertEqual(rows[0]["container_swap_limit_bytes"], "4096.000000")
-        self.assertEqual(rows[0]["container_mem_high_events_delta"], "3.000000")
-        self.assertEqual(
-            rows[0]["container_mem_peak_cgroup_bytes"],
-            "4096.000000",
-        )
-        self.assertEqual(rows[0]["container_mem_pgfault_delta"], "30.000000")
-        self.assertEqual(rows[0]["container_mem_pgmajfault_delta"], "2.000000")
-        self.assertEqual(rows[0]["container_mem_oom_events_delta"], "1.000000")
-        self.assertEqual(
-            rows[0]["container_mem_pressure_full_stall_pct"],
-            "0.500000",
-        )
-        self.assertEqual(
-            rows[0]["container_swap_usage_avg_bytes"],
-            "128.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_swap_usage_peak_bytes"],
-            "256.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_io_read_bytes_per_request"],
-            "512.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_io_write_bytes_per_request"],
-            "1024.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_io_read_ops_per_request"],
-            "3.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_io_write_ops_per_request"],
-            "4.000000",
-        )
-        self.assertEqual(
-            rows[0]["container_io_pressure_full_stall_pct"],
-            "0.250000",
-        )
-        self.assertEqual(rows[0]["container_pids_current_end"], "7.000000")
-        self.assertEqual(rows[0]["container_pids_peak_cgroup"], "9.000000")
-        self.assertEqual(rows[0]["container_pids_max_events_delta"], "1.000000")
-        self.assertNotIn("gpu_power_w", rows[0])
-        self.assertNotIn("gpu_util_percent", rows[0])
-        self.assertNotIn("gpu_mem_total_bytes", rows[0])
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["resource_usage_iters"]) == ("2.000000")
+        assert (rows[0]["container_cpu_util_avg_pct"]) == ("25.000000")
+        assert (rows[0]["container_cpu_nr_periods_delta"]) == ("10.000000")
+        assert (rows[0]["container_cpu_nr_throttled_delta"]) == ("2.000000")
+        assert (rows[0]["container_cpu_throttled_period_ratio_pct"]) == ("20.000000")
+        assert (rows[0]["container_cpu_throttled_time_s_per_request"]) == ("0.200000")
+        assert (rows[0]["container_cpu_pressure_some_stall_pct"]) == ("12.500000")
+        assert (rows[0]["cpu_freq_avg_hz"]) == ("3000000000.000000")
+        assert (rows[0]["cpu_freq_peak_hz"]) == ("3200000000.000000")
+        assert (rows[0]["cpu_cycles_est_app"]) == ("375000000.000000")
+        assert (rows[0]["cpu_cycles_est_packet"]) == ("nan")
+        assert (rows[0]["gpu_sm_clock_mhz"]) == ("1500.000000")
+        assert (rows[0]["gpu_memory_clock_mhz"]) == ("7000.000000")
+        assert (rows[0]["gpu_pstate"]) == ("P2")
+        assert (rows[0]["gpu_temp_c"]) == ("61.000000")
+        assert (rows[0]["gpu_util_avg_pct"]) == ("30.000000")
+        assert (rows[0]["container_swap_limit_bytes"]) == ("4096.000000")
+        assert (rows[0]["container_mem_high_events_delta"]) == ("3.000000")
+        assert (rows[0]["container_mem_peak_cgroup_bytes"]) == ("4096.000000")
+        assert (rows[0]["container_mem_pgfault_delta"]) == ("30.000000")
+        assert (rows[0]["container_mem_pgmajfault_delta"]) == ("2.000000")
+        assert (rows[0]["container_mem_oom_events_delta"]) == ("1.000000")
+        assert (rows[0]["container_mem_pressure_full_stall_pct"]) == ("0.500000")
+        assert (rows[0]["container_swap_usage_avg_bytes"]) == ("128.000000")
+        assert (rows[0]["container_swap_usage_peak_bytes"]) == ("256.000000")
+        assert (rows[0]["container_io_read_bytes_per_request"]) == ("512.000000")
+        assert (rows[0]["container_io_write_bytes_per_request"]) == ("1024.000000")
+        assert (rows[0]["container_io_read_ops_per_request"]) == ("3.000000")
+        assert (rows[0]["container_io_write_ops_per_request"]) == ("4.000000")
+        assert (rows[0]["container_io_pressure_full_stall_pct"]) == ("0.250000")
+        assert (rows[0]["container_pids_current_end"]) == ("7.000000")
+        assert (rows[0]["container_pids_peak_cgroup"]) == ("9.000000")
+        assert (rows[0]["container_pids_max_events_delta"]) == ("1.000000")
+        assert ("gpu_power_w") not in (rows[0])
+        assert ("gpu_util_percent") not in (rows[0])
+        assert ("gpu_mem_total_bytes") not in (rows[0])
 
     def test_mips_metrics_are_written_to_successful_row(self) -> None:
         class FakeMIPSMonitor:
@@ -1856,27 +1758,21 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["cpu_instructions_per_request"], "500000.000000")
-        self.assertEqual(rows[0]["cpu_mips_app"], "1.000000")
-        self.assertEqual(rows[0]["cpu_mips_packet"], "nan")
-        self.assertEqual(rows[0]["cpu_cycles_per_request"], "250000.000000")
-        self.assertEqual(rows[0]["cpu_ref_cycles_per_request"], "200000.000000")
-        self.assertEqual(rows[0]["cpu_ipc"], "2.000000")
-        self.assertEqual(rows[0]["cpu_perf_running_pct"], "80.000000")
-        self.assertEqual(rows[0]["cpu_perf_elapsed_s"], "0.250000")
-        self.assertEqual(
-            rows[0]["cpu_cache_references_per_request"],
-            "10000.000000",
-        )
-        self.assertEqual(rows[0]["cpu_cache_misses_per_request"], "500.000000")
-        self.assertEqual(rows[0]["cpu_cache_miss_rate_pct"], "5.000000")
-        self.assertEqual(rows[0]["cpu_dtlb_loads_per_request"], "2000.000000")
-        self.assertEqual(
-            rows[0]["cpu_dtlb_load_misses_per_request"],
-            "20.000000",
-        )
-        self.assertEqual(rows[0]["cpu_dtlb_load_miss_rate_pct"], "1.000000")
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["cpu_instructions_per_request"]) == ("500000.000000")
+        assert (rows[0]["cpu_mips_app"]) == ("1.000000")
+        assert (rows[0]["cpu_mips_packet"]) == ("nan")
+        assert (rows[0]["cpu_cycles_per_request"]) == ("250000.000000")
+        assert (rows[0]["cpu_ref_cycles_per_request"]) == ("200000.000000")
+        assert (rows[0]["cpu_ipc"]) == ("2.000000")
+        assert (rows[0]["cpu_perf_running_pct"]) == ("80.000000")
+        assert (rows[0]["cpu_perf_elapsed_s"]) == ("0.250000")
+        assert (rows[0]["cpu_cache_references_per_request"]) == ("10000.000000")
+        assert (rows[0]["cpu_cache_misses_per_request"]) == ("500.000000")
+        assert (rows[0]["cpu_cache_miss_rate_pct"]) == ("5.000000")
+        assert (rows[0]["cpu_dtlb_loads_per_request"]) == ("2000.000000")
+        assert (rows[0]["cpu_dtlb_load_misses_per_request"]) == ("20.000000")
+        assert (rows[0]["cpu_dtlb_load_miss_rate_pct"]) == ("1.000000")
 
     def test_resource_usage_unavailable_keeps_successful_row_ok(self) -> None:
         class FakeUnavailableResourceUsageMonitor:
@@ -1936,16 +1832,16 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["error"], "")
-        self.assertEqual(rows[0]["container_cpu_util_avg_pct"], "nan")
-        self.assertEqual(rows[0]["gpu_util_avg_pct"], "nan")
-        self.assertEqual(rows[0]["gpu_sm_clock_mhz"], "nan")
-        self.assertEqual(rows[0]["gpu_memory_clock_mhz"], "nan")
-        self.assertEqual(rows[0]["gpu_pstate"], "nan")
-        self.assertEqual(rows[0]["gpu_temp_c"], "nan")
-        self.assertNotIn("gpu_power_w", rows[0])
-        self.assertNotIn("gpu_util_percent", rows[0])
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["error"]) == ("")
+        assert (rows[0]["container_cpu_util_avg_pct"]) == ("nan")
+        assert (rows[0]["gpu_util_avg_pct"]) == ("nan")
+        assert (rows[0]["gpu_sm_clock_mhz"]) == ("nan")
+        assert (rows[0]["gpu_memory_clock_mhz"]) == ("nan")
+        assert (rows[0]["gpu_pstate"]) == ("nan")
+        assert (rows[0]["gpu_temp_c"]) == ("nan")
+        assert ("gpu_power_w") not in (rows[0])
+        assert ("gpu_util_percent") not in (rows[0])
 
     def test_flat_compute_plan_is_rejected_without_emitting_generic_columns(
         self,
@@ -2000,17 +1896,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
+        assert (rows[0]["status"]) == ("ok")
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, rows[0])
-        self.assertEqual(
-            rows[0]["model_logical_mflop_per_request_torch_profiler_eager"],
-            "nan",
-        )
-        self.assertIn(
-            "unsupported_profile_layout:cpu",
-            rows[0]["compute_profile_error_torch_profiler_eager"],
-        )
+            assert (field) not in (rows[0])
+        assert (rows[0]["model_logical_mflop_per_request_torch_profiler_eager"]) == ("nan")
+        assert ("unsupported_profile_layout:cpu") in (rows[0]["compute_profile_error_torch_profiler_eager"])
 
     def test_compute_plan_writes_independent_torch_and_ncu_metrics(self) -> None:
         plan = {
@@ -2076,33 +1966,18 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     row = next(csv.DictReader(f))
 
-        self.assertEqual(row["status"], "ok")
+        assert (row["status"]) == ("ok")
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, row)
-        self.assertEqual(
-            row["model_logical_mflop_per_request_torch_profiler_eager"],
-            "200.000000",
-        )
-        self.assertEqual(
-            row["model_logical_mflops_app_torch_profiler_eager"],
-            "400.000000",
-        )
-        self.assertEqual(
-            row["model_logical_mflops_packet_torch_profiler_eager"],
-            "400.000000",
-        )
-        self.assertEqual(
-            row["gpu_executed_mflop_per_request_ncu"],
-            "100.000000",
-        )
-        self.assertEqual(row["gpu_executed_mflops_app_ncu"], "200.000000")
-        self.assertEqual(
-            row["gpu_executed_mflops_packet_ncu"],
-            "200.000000",
-        )
-        self.assertNotIn("gpu_profile_report_ncu", row)
-        self.assertEqual(row["compute_profile_error_torch_profiler_eager"], "")
-        self.assertEqual(row["compute_profile_error_ncu"], "")
+            assert (field) not in (row)
+        assert (row["model_logical_mflop_per_request_torch_profiler_eager"]) == ("200.000000")
+        assert (row["model_logical_mflops_app_torch_profiler_eager"]) == ("400.000000")
+        assert (row["model_logical_mflops_packet_torch_profiler_eager"]) == ("400.000000")
+        assert (row["gpu_executed_mflop_per_request_ncu"]) == ("100.000000")
+        assert (row["gpu_executed_mflops_app_ncu"]) == ("200.000000")
+        assert (row["gpu_executed_mflops_packet_ncu"]) == ("200.000000")
+        assert ("gpu_profile_report_ncu") not in (row)
+        assert (row["compute_profile_error_torch_profiler_eager"]) == ("")
+        assert (row["compute_profile_error_ncu"]) == ("")
 
     def test_compute_profile_failures_are_isolated(self) -> None:
         profile = {
@@ -2120,20 +1995,11 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
         row_metrics = client._compute_profile_row_metrics(profile, 0.5)
 
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, row_metrics)
-        self.assertEqual(
-            row_metrics["compute_profile_error_torch_profiler_eager"],
-            "torch_failed",
-        )
-        self.assertEqual(
-            row_metrics["gpu_executed_mflop_per_request_ncu"],
-            "100.000000",
-        )
-        self.assertEqual(
-            row_metrics["gpu_executed_mflops_app_ncu"],
-            "200.000000",
-        )
-        self.assertEqual(row_metrics["compute_profile_error_ncu"], "")
+            assert (field) not in (row_metrics)
+        assert (row_metrics["compute_profile_error_torch_profiler_eager"]) == ("torch_failed")
+        assert (row_metrics["gpu_executed_mflop_per_request_ncu"]) == ("100.000000")
+        assert (row_metrics["gpu_executed_mflops_app_ncu"]) == ("200.000000")
+        assert (row_metrics["compute_profile_error_ncu"]) == ("")
 
     def test_missing_compute_profile_keeps_successful_row_ok_with_nan_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -2169,18 +2035,8 @@ class EffectiveEnergyWarningTests(unittest.TestCase):
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        self.assertEqual(rows[0]["status"], "ok")
+        assert (rows[0]["status"]) == ("ok")
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, rows[0])
-        self.assertEqual(
-            rows[0]["model_logical_mflop_per_request_torch_profiler_eager"],
-            "nan",
-        )
-        self.assertIn(
-            "compute_profile_plan_not_found",
-            rows[0]["compute_profile_error_torch_profiler_eager"],
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (field) not in (rows[0])
+        assert (rows[0]["model_logical_mflop_per_request_torch_profiler_eager"]) == ("nan")
+        assert ("compute_profile_plan_not_found") in (rows[0]["compute_profile_error_torch_profiler_eager"])

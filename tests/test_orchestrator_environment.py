@@ -1,12 +1,15 @@
 import csv
 import json
 import os
+import re
 import tempfile
-import unittest
 from contextlib import redirect_stderr
+from functools import partial
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.config import (
     CSV_FIELDS,
@@ -67,16 +70,17 @@ def _write_cpu_case_csv(path: str, idle_power_values: list[float], gpu_mode: str
             writer.writerow(row)
 
 
-class DetectEnvironmentTests(unittest.TestCase):
-    def setUp(self):
+class TestDetectEnvironment:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
+        native_policy(self._request)
         conditions = patch("acprof.host.orchestrator.record_case_conditions")
         conditions.start()
-        self.addCleanup(conditions.stop)
-        output = tempfile.TemporaryDirectory()
-        self.addCleanup(output.cleanup)
-        self.output_dir = output.name
+        self._request.addfinalizer(partial(conditions.stop))
+        output = tmp_path
+        self.output_dir = str(output)
 
     def test_host_mem_total_bytes_uses_physical_page_count(self) -> None:
         values = {
@@ -90,7 +94,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             total = static_metadata._host_mem_total_bytes()
 
-        self.assertEqual(total, 32_768_000_000)
+        assert (total) == (32_768_000_000)
 
     def test_host_swap_metadata_reads_capacity_usage_type_and_swappiness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,10 +116,10 @@ class DetectEnvironmentTests(unittest.TestCase):
                 swappiness_path=swappiness_path,
             )
 
-        self.assertEqual(metadata["host_swap_total_bytes"], 2_147_479_552)
-        self.assertEqual(metadata["host_swap_used_bytes_at_start"], 1_048_576)
-        self.assertEqual(metadata["host_swap_type"], "file")
-        self.assertEqual(metadata["host_vm_swappiness"], 60)
+        assert (metadata["host_swap_total_bytes"]) == (2_147_479_552)
+        assert (metadata["host_swap_used_bytes_at_start"]) == (1_048_576)
+        assert (metadata["host_swap_type"]) == ("file")
+        assert (metadata["host_vm_swappiness"]) == (60)
 
     def test_host_swap_metadata_reports_none_when_swap_is_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -136,10 +140,10 @@ class DetectEnvironmentTests(unittest.TestCase):
                 swappiness_path=swappiness_path,
             )
 
-        self.assertEqual(metadata["host_swap_total_bytes"], 0)
-        self.assertEqual(metadata["host_swap_used_bytes_at_start"], 0)
-        self.assertEqual(metadata["host_swap_type"], "none")
-        self.assertEqual(metadata["host_vm_swappiness"], 0)
+        assert (metadata["host_swap_total_bytes"]) == (0)
+        assert (metadata["host_swap_used_bytes_at_start"]) == (0)
+        assert (metadata["host_swap_type"]) == ("none")
+        assert (metadata["host_vm_swappiness"]) == (0)
 
     def test_docker_storage_metadata_uses_daemon_root_backing_filesystem(self) -> None:
         with patch(
@@ -158,18 +162,16 @@ class DetectEnvironmentTests(unittest.TestCase):
             metadata = static_metadata._docker_storage_metadata()
 
         disk_usage.assert_called_once_with("/var/lib/docker")
-        self.assertEqual(
-            metadata,
-            {
+        assert (metadata) == ({
                 "docker_storage_total_bytes": 1_000,
                 "docker_storage_available_bytes_at_start": 600,
                 "docker_storage_filesystem": "ext4",
                 "docker_storage_device": "/dev/nvme0n1p2",
                 "docker_storage_type": "nvme_ssd",
-            },
-        )
+            })
 
-    def test_block_device_type_uses_transport_and_rotational_flag(self) -> None:
+    @pytest.mark.parametrize('device_metadata_case', range(4))
+    def test_block_device_type_uses_transport_and_rotational_flag(self, device_metadata_case) -> None:
         cases = (
             ({"tran": "nvme", "rota": False}, "nvme_ssd"),
             ({"tran": "sata", "rota": False}, "ssd"),
@@ -180,19 +182,16 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.static_metadata.shutil.which",
             return_value="/usr/bin/lsblk",
         ):
-            for device_metadata, expected in cases:
-                with self.subTest(expected=expected), patch(
-                    "acprof.host.command.run_command",
-                    return_value=SimpleNamespace(
-                        returncode=0,
-                        stdout=json.dumps({"blockdevices": [device_metadata]}),
-                        stderr="",
-                    ),
-                ):
-                    self.assertEqual(
-                        static_metadata._block_device_storage_type("/dev/test"),
-                        expected,
-                    )
+            (device_metadata, expected) = tuple(cases)[device_metadata_case]
+            with patch(
+                "acprof.host.command.run_command",
+                return_value=SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps({"blockdevices": [device_metadata]}),
+                    stderr="",
+                ),
+            ):
+                assert (static_metadata._block_device_storage_type("/dev/test")) == (expected)
 
     def test_docker_storage_metadata_is_unknown_when_daemon_root_is_unavailable(self) -> None:
         with patch(
@@ -204,9 +203,9 @@ class DetectEnvironmentTests(unittest.TestCase):
             metadata = static_metadata._docker_storage_metadata()
 
         disk_usage.assert_not_called()
-        self.assertIsNone(metadata["docker_storage_total_bytes"])
-        self.assertIsNone(metadata["docker_storage_available_bytes_at_start"])
-        self.assertEqual(metadata["docker_storage_type"], "unknown")
+        assert (metadata["docker_storage_total_bytes"]) is None
+        assert (metadata["docker_storage_available_bytes_at_start"]) is None
+        assert (metadata["docker_storage_type"]) == ("unknown")
 
     def test_select_nlp_torch_index_url_uses_cu124_for_cuda_12_4_driver(self) -> None:
         with patch("acprof.host.runtime_images.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
@@ -217,10 +216,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 stderr="",
             ),
         ):
-            self.assertEqual(
-                runtime_images.select_nlp_torch_index_url(),
-                runtime_images.CUDA124_NLP_TORCH_INDEX_URL,
-            )
+            assert (runtime_images.select_nlp_torch_index_url()) == (runtime_images.CUDA124_NLP_TORCH_INDEX_URL)
 
     def test_select_nlp_torch_index_url_respects_explicit_override(self) -> None:
         with patch.dict(
@@ -228,10 +224,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             {"ACPROF_NLP_TORCH_INDEX_URL": "https://example.invalid/torch"},
             clear=True,
         ):
-            self.assertEqual(
-                runtime_images.select_nlp_torch_index_url(),
-                "https://example.invalid/torch",
-            )
+            assert (runtime_images.select_nlp_torch_index_url()) == ("https://example.invalid/torch")
 
 
     def test_runtime_container_is_offline_and_does_not_receive_hf_token(self) -> None:
@@ -274,12 +267,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             )
 
         docker_run = next(cmd for cmd in commands if cmd[:3] == ["docker", "run", "-d"])
-        self.assertEqual(docker_run[docker_run.index("-p") + 1], "127.0.0.1:8104:8002")
-        self.assertIn("HF_HUB_OFFLINE=1", docker_run)
-        self.assertIn("TRANSFORMERS_OFFLINE=1", docker_run)
-        self.assertIn("MODEL_LOCAL_PATH=/models/model-snapshot", docker_run)
-        self.assertNotIn("HF_TOKEN", docker_run)
-        self.assertNotIn("HUGGING_FACE_HUB_TOKEN", docker_run)
+        assert (docker_run[docker_run.index("-p") + 1]) == ("127.0.0.1:8104:8002")
+        assert ("HF_HUB_OFFLINE=1") in (docker_run)
+        assert ("TRANSFORMERS_OFFLINE=1") in (docker_run)
+        assert ("MODEL_LOCAL_PATH=/models/model-snapshot") in (docker_run)
+        assert ("HF_TOKEN") not in (docker_run)
+        assert ("HUGGING_FACE_HUB_TOKEN") not in (docker_run)
 
     def test_cold_start_breakdown_uses_container_startup_timestamps(self) -> None:
         metrics = docker_runtime._cold_start_breakdown(
@@ -297,13 +290,13 @@ class DetectEnvironmentTests(unittest.TestCase):
             ready_received_at_epoch_s=105.0,
         )
 
-        self.assertEqual(metrics["cold_start_container_launch_s"], 1.0)
-        self.assertEqual(metrics["cold_start_server_setup_s"], 0.5)
-        self.assertEqual(metrics["cold_start_cuda_init_s"], 0.25)
-        self.assertEqual(metrics["cold_start_model_load_s"], 2.25)
-        self.assertEqual(metrics["cold_start_ready_wait_s"], 1.0)
-        self.assertNotEqual(metrics["cold_start_started_at"], "nan")
-        self.assertNotEqual(metrics["cold_start_ready_at"], "nan")
+        assert (metrics["cold_start_container_launch_s"]) == (1.0)
+        assert (metrics["cold_start_server_setup_s"]) == (0.5)
+        assert (metrics["cold_start_cuda_init_s"]) == (0.25)
+        assert (metrics["cold_start_model_load_s"]) == (2.25)
+        assert (metrics["cold_start_ready_wait_s"]) == (1.0)
+        assert (metrics["cold_start_started_at"]) != ("nan")
+        assert (metrics["cold_start_ready_at"]) != ("nan")
 
     def test_start_container_session_reports_oom_before_ready_timeout(self) -> None:
         task_info = TaskInfo(
@@ -342,7 +335,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "requests.get",
             side_effect=ConnectionError("connection refused"),
         ):
-            with self.assertRaises(RuntimeError) as raised:
+            with pytest.raises(RuntimeError) as raised:
                 docker_runtime.start_container_session(
                     task_info=task_info,
                     cpu=1,
@@ -353,14 +346,11 @@ class DetectEnvironmentTests(unittest.TestCase):
                     log_prefix="[test]",
                 )
 
-        message = str(raised.exception)
-        self.assertIn("container_oom_killed", message)
-        self.assertIn("memory_limit=2g", message)
-        self.assertIn("exit_code=137", message)
-        self.assertIn(
-            ["docker", "rm", "-f", "b" * 64],
-            commands,
-        )
+        message = str(raised.value)
+        assert ("container_oom_killed") in (message)
+        assert ("memory_limit=2g") in (message)
+        assert ("exit_code=137") in (message)
+        assert (["docker", "rm", "-f", "b" * 64]) in (commands)
 
     def test_windows_process_is_not_relabelled_from_docker_wsl_kernel(self) -> None:
         with patch("acprof.host.static_metadata.platform.system", return_value="Windows"), patch(
@@ -373,7 +363,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 stderr="",
             ),
         ):
-            self.assertEqual(static_metadata._detect_environment(), "windows11")
+            assert (static_metadata._detect_environment()) == ("windows11")
 
     def test_detect_environment_linux_ubuntu_without_wsl(self) -> None:
         with patch("acprof.host.static_metadata.platform.system", return_value="Linux"), patch(
@@ -383,7 +373,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.command.run_command",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="docker unavailable"),
         ):
-            self.assertEqual(static_metadata._detect_environment(), "ubuntu24.04")
+            assert (static_metadata._detect_environment()) == ("ubuntu24.04")
 
     def test_collect_static_meta_includes_environment(self) -> None:
         task_info = TaskInfo(
@@ -464,105 +454,78 @@ class DetectEnvironmentTests(unittest.TestCase):
                     "model_download": {"endpoint": "https://hf-mirror.com"},
                 }),
             )
-            self.assertEqual(cache_size.call_count, previous_calls)
+            assert (cache_size.call_count) == (previous_calls)
 
-        self.assertEqual(mounted_meta.model_storage_mode, "mounted")
-        self.assertEqual(mounted_meta.model_cache_bytes, 2345)
-        self.assertEqual(mounted_meta.model_artifact_bytes, 2345)
-        self.assertEqual(mounted_meta.runtime_image_bytes, 456)
-        self.assertEqual(mounted_meta.total_deployment_bytes, 2801)
-        self.assertEqual(meta.model_storage_mode, "baked")
-        self.assertIsNone(meta.model_artifact_bytes)
-        self.assertIsNone(meta.runtime_image_bytes)
-        self.assertEqual(meta.total_deployment_bytes, 456)
-        self.assertEqual(meta.environment, "windows11+wsl")
-        self.assertEqual(meta.model_resolution, task_info.model_resolution)
-        self.assertIsNot(meta.model_resolution, task_info.model_resolution)
-        self.assertEqual(
-            meta.run_command,
-            "acprof run --model google-bert/bert-base-uncased",
-        )
-        self.assertEqual(meta.gpu_mem_total_bytes, 987654321)
-        self.assertEqual(meta.host_mem_total_bytes, 64_000_000_000)
-        self.assertEqual(meta.host_swap_total_bytes, 2_000_000_000)
-        self.assertEqual(meta.host_swap_used_bytes_at_start, 100_000_000)
-        self.assertEqual(meta.host_swap_type, "file")
-        self.assertEqual(meta.host_vm_swappiness, 60)
-        self.assertEqual(meta.docker_storage_total_bytes, 1_000_000)
-        self.assertEqual(meta.docker_storage_available_bytes_at_start, 600_000)
-        self.assertEqual(meta.docker_storage_filesystem, "ext4")
-        self.assertEqual(meta.docker_storage_device, "/dev/nvme0n1p2")
-        self.assertEqual(meta.docker_storage_type, "nvme_ssd")
-        self.assertEqual(meta.cpu_power_source, "rapl")
-        self.assertEqual(meta.vcpu_power_method, "rapl_cgroup_cpu_share")
-        self.assertEqual(meta.cpu_governor, "performance")
-        self.assertEqual(meta.cpu_boost, "on")
-        self.assertEqual(meta.cgroup_version, "v2")
-        self.assertEqual(meta.cgroup_collection_mode, "strict_v2")
-        self.assertEqual(meta.parameter_count, 110_106_428)
-        self.assertEqual(meta.parameter_bytes, 440_425_712)
-        self.assertEqual(meta.model_cache_bytes, 123)
-        self.assertEqual(meta.precision_dtype, "FP32")
-        self.assertEqual(
-            meta.inference_precision_by_device,
-            {"cpu": "FP32", "gpu": "FP16"},
-        )
-        self.assertFalse(meta.quantized)
-        self.assertEqual(meta.model_license, "apache-2.0")
-        self.assertEqual(
-            meta.input_format["json_schema"]["required"],
-            ["text"],
-        )
-        self.assertIn(
-            "n_results",
-            meta.output_format["json_schema"]["properties"],
-        )
-        self.assertEqual(disabled_meta.compute_profile_tools, [])
-        self.assertFalse(disabled_meta.compute_profiles_retained)
-        self.assertEqual(disabled_meta.compute_profile_provenance, "disabled")
-        self.assertEqual(meta.execution_profile_schema_version, 1)
-        self.assertEqual(meta.execution_profile_tools, [])
-        self.assertFalse(meta.execution_profiles_retained)
-        self.assertEqual(meta.execution_profile_provenance, "disabled")
+        assert (mounted_meta.model_storage_mode) == ("mounted")
+        assert (mounted_meta.model_cache_bytes) == (2345)
+        assert (mounted_meta.model_artifact_bytes) == (2345)
+        assert (mounted_meta.runtime_image_bytes) == (456)
+        assert (mounted_meta.total_deployment_bytes) == (2801)
+        assert (meta.model_storage_mode) == ("baked")
+        assert (meta.model_artifact_bytes) is None
+        assert (meta.runtime_image_bytes) is None
+        assert (meta.total_deployment_bytes) == (456)
+        assert (meta.environment) == ("windows11+wsl")
+        assert (meta.model_resolution) == (task_info.model_resolution)
+        assert (meta.model_resolution) is not (task_info.model_resolution)
+        assert (meta.run_command) == ("acprof run --model google-bert/bert-base-uncased")
+        assert (meta.gpu_mem_total_bytes) == (987654321)
+        assert (meta.host_mem_total_bytes) == (64_000_000_000)
+        assert (meta.host_swap_total_bytes) == (2_000_000_000)
+        assert (meta.host_swap_used_bytes_at_start) == (100_000_000)
+        assert (meta.host_swap_type) == ("file")
+        assert (meta.host_vm_swappiness) == (60)
+        assert (meta.docker_storage_total_bytes) == (1_000_000)
+        assert (meta.docker_storage_available_bytes_at_start) == (600_000)
+        assert (meta.docker_storage_filesystem) == ("ext4")
+        assert (meta.docker_storage_device) == ("/dev/nvme0n1p2")
+        assert (meta.docker_storage_type) == ("nvme_ssd")
+        assert (meta.cpu_power_source) == ("rapl")
+        assert (meta.vcpu_power_method) == ("rapl_cgroup_cpu_share")
+        assert (meta.cpu_governor) == ("performance")
+        assert (meta.cpu_boost) == ("on")
+        assert (meta.cgroup_version) == ("v2")
+        assert (meta.cgroup_collection_mode) == ("strict_v2")
+        assert (meta.parameter_count) == (110_106_428)
+        assert (meta.parameter_bytes) == (440_425_712)
+        assert (meta.model_cache_bytes) == (123)
+        assert (meta.precision_dtype) == ("FP32")
+        assert (meta.inference_precision_by_device) == ({"cpu": "FP32", "gpu": "FP16"})
+        assert not (meta.quantized)
+        assert (meta.model_license) == ("apache-2.0")
+        assert (meta.input_format["json_schema"]["required"]) == (["text"])
+        assert ("n_results") in (meta.output_format["json_schema"]["properties"])
+        assert (disabled_meta.compute_profile_tools) == ([])
+        assert not (disabled_meta.compute_profiles_retained)
+        assert (disabled_meta.compute_profile_provenance) == ("disabled")
+        assert (meta.execution_profile_schema_version) == (1)
+        assert (meta.execution_profile_tools) == ([])
+        assert not (meta.execution_profiles_retained)
+        assert (meta.execution_profile_provenance) == ("disabled")
 
     def test_static_meta_compute_profile_fields_follow_host_metadata(self) -> None:
-        self.assertEqual(STATIC_META_SCHEMA_VERSION, 7)
-        self.assertIn("parameter_bytes", STATIC_META_FIELDS)
-        self.assertIn("model_cache_bytes", STATIC_META_FIELDS)
-        self.assertNotIn("model_weight_bytes", STATIC_META_FIELDS)
-        self.assertIn("gpu_mem_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_mem_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_swap_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("host_swap_used_bytes_at_start", STATIC_META_FIELDS)
-        self.assertIn("host_swap_type", STATIC_META_FIELDS)
-        self.assertIn("host_vm_swappiness", STATIC_META_FIELDS)
-        self.assertIn("docker_storage_total_bytes", STATIC_META_FIELDS)
-        self.assertIn("cgroup_version", STATIC_META_FIELDS)
-        self.assertIn("cgroup_collection_mode", STATIC_META_FIELDS)
-        self.assertLess(
-            STATIC_META_FIELDS.index("gpu_mem_total_bytes"),
-            STATIC_META_FIELDS.index("environment"),
-        )
-        self.assertLess(
-            STATIC_META_FIELDS.index("docker_storage_type"),
-            STATIC_META_FIELDS.index("environment"),
-        )
-        self.assertLess(
-            STATIC_META_FIELDS.index("cgroup_collection_mode"),
-            STATIC_META_FIELDS.index("cpu_power_source"),
-        )
-        self.assertLess(
-            STATIC_META_FIELDS.index("cpu_boost"),
-            STATIC_META_FIELDS.index("compute_profile_tools"),
-        )
-        self.assertNotIn("compute_profile_schema_version", STATIC_META_FIELDS)
-        self.assertLess(
-            STATIC_META_FIELDS.index("compute_profile_provenance"),
-            STATIC_META_FIELDS.index("execution_profile_schema_version"),
-        )
-        self.assertIn("massif_sampling_strategy", STATIC_META_FIELDS)
-        self.assertIn("nsys_sampling_strategy", STATIC_META_FIELDS)
-        self.assertEqual(STATIC_META_FIELDS[-1], "execution_profile_provenance")
+        assert (STATIC_META_SCHEMA_VERSION) == (7)
+        assert ("parameter_bytes") in (STATIC_META_FIELDS)
+        assert ("model_cache_bytes") in (STATIC_META_FIELDS)
+        assert ("model_weight_bytes") not in (STATIC_META_FIELDS)
+        assert ("gpu_mem_total_bytes") in (STATIC_META_FIELDS)
+        assert ("host_mem_total_bytes") in (STATIC_META_FIELDS)
+        assert ("host_swap_total_bytes") in (STATIC_META_FIELDS)
+        assert ("host_swap_used_bytes_at_start") in (STATIC_META_FIELDS)
+        assert ("host_swap_type") in (STATIC_META_FIELDS)
+        assert ("host_vm_swappiness") in (STATIC_META_FIELDS)
+        assert ("docker_storage_total_bytes") in (STATIC_META_FIELDS)
+        assert ("cgroup_version") in (STATIC_META_FIELDS)
+        assert ("cgroup_collection_mode") in (STATIC_META_FIELDS)
+        assert (STATIC_META_FIELDS.index("gpu_mem_total_bytes")) < (STATIC_META_FIELDS.index("environment"))
+        assert (STATIC_META_FIELDS.index("docker_storage_type")) < (STATIC_META_FIELDS.index("environment"))
+        assert (STATIC_META_FIELDS.index("cgroup_collection_mode")) < (STATIC_META_FIELDS.index("cpu_power_source"))
+        assert (STATIC_META_FIELDS.index("cpu_boost")) < (STATIC_META_FIELDS.index("compute_profile_tools"))
+        assert ("compute_profile_schema_version") not in (STATIC_META_FIELDS)
+        assert (STATIC_META_FIELDS.index("compute_profile_provenance")) < (STATIC_META_FIELDS.index("execution_profile_schema_version"))
+        assert ("massif_sampling_strategy") in (STATIC_META_FIELDS)
+        assert ("nsys_sampling_strategy") in (STATIC_META_FIELDS)
+        assert (STATIC_META_FIELDS[-1]) == ("execution_profile_provenance")
 
     def test_enrich_static_meta_preserves_native_json_types(self) -> None:
         base = static_metadata.StaticMeta(
@@ -608,16 +571,10 @@ class DetectEnvironmentTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(
-            enriched.compute_profile_tools,
-            ["torch_profiler_eager", "ncu"],
-        )
-        self.assertEqual(
-            enriched.ncu_metrics,
-            ["gpu__time_duration.sum", "metric.sum"],
-        )
-        self.assertTrue(enriched.compute_profiles_retained)
-        self.assertEqual(enriched.run_command, base.run_command)
+        assert (enriched.compute_profile_tools) == (["torch_profiler_eager", "ncu"])
+        assert (enriched.ncu_metrics) == (["gpu__time_duration.sum", "metric.sum"])
+        assert (enriched.compute_profiles_retained)
+        assert (enriched.run_command) == (base.run_command)
 
         execution_enriched = static_metadata.enrich_static_meta(
             enriched,
@@ -628,16 +585,10 @@ class DetectEnvironmentTests(unittest.TestCase):
                 "execution_profile_provenance": "collected",
             },
         )
-        self.assertEqual(execution_enriched.execution_profile_schema_version, 1)
-        self.assertEqual(
-            execution_enriched.execution_profile_tools,
-            ["massif", "nsys"],
-        )
-        self.assertTrue(execution_enriched.execution_profiles_retained)
-        self.assertEqual(
-            execution_enriched.execution_profile_provenance,
-            "collected",
-        )
+        assert (execution_enriched.execution_profile_schema_version) == (1)
+        assert (execution_enriched.execution_profile_tools) == (["massif", "nsys"])
+        assert (execution_enriched.execution_profiles_retained)
+        assert (execution_enriched.execution_profile_provenance) == ("collected")
 
     def test_write_static_meta_json_includes_enriched_fields_atomically(self) -> None:
         meta = static_metadata.StaticMeta(
@@ -695,34 +646,28 @@ class DetectEnvironmentTests(unittest.TestCase):
                 if name.startswith(".static_meta.json.")
             ]
 
-        self.assertEqual(list(payload), STATIC_META_FIELDS)
-        self.assertEqual(payload["model_resolution"], {})
-        self.assertNotIn("compute_profile_schema_version", payload)
-        self.assertEqual(payload["parameter_count"], 42)
-        self.assertEqual(payload["parameter_bytes"], 168)
-        self.assertEqual(payload["model_cache_bytes"], 456)
-        self.assertNotIn("model_weight_bytes", payload)
-        self.assertEqual(payload["host_mem_total_bytes"], 1_024)
-        self.assertEqual(payload["host_swap_total_bytes"], 512)
-        self.assertEqual(payload["host_swap_used_bytes_at_start"], 64)
-        self.assertEqual(payload["host_swap_type"], "file")
-        self.assertEqual(payload["host_vm_swappiness"], 60)
-        self.assertEqual(payload["docker_storage_total_bytes"], 10_000)
-        self.assertEqual(payload["cgroup_version"], "v2")
-        self.assertEqual(payload["cgroup_collection_mode"], "strict_v2")
-        self.assertEqual(
-            payload["docker_storage_available_bytes_at_start"],
-            4_000,
-        )
-        self.assertEqual(payload["docker_storage_type"], "nvme_ssd")
-        self.assertEqual(payload["parameter_dtype_counts"], {"FP32": 42})
-        self.assertFalse(payload["quantized"])
-        self.assertEqual(
-            payload["compute_profile_tools"],
-            ["torch_profiler_eager", "ncu"],
-        )
-        self.assertEqual(payload["compute_profile_provenance"], "direct")
-        self.assertEqual(leftovers, [])
+        assert (list(payload)) == (STATIC_META_FIELDS)
+        assert (payload["model_resolution"]) == ({})
+        assert ("compute_profile_schema_version") not in (payload)
+        assert (payload["parameter_count"]) == (42)
+        assert (payload["parameter_bytes"]) == (168)
+        assert (payload["model_cache_bytes"]) == (456)
+        assert ("model_weight_bytes") not in (payload)
+        assert (payload["host_mem_total_bytes"]) == (1_024)
+        assert (payload["host_swap_total_bytes"]) == (512)
+        assert (payload["host_swap_used_bytes_at_start"]) == (64)
+        assert (payload["host_swap_type"]) == ("file")
+        assert (payload["host_vm_swappiness"]) == (60)
+        assert (payload["docker_storage_total_bytes"]) == (10_000)
+        assert (payload["cgroup_version"]) == ("v2")
+        assert (payload["cgroup_collection_mode"]) == ("strict_v2")
+        assert (payload["docker_storage_available_bytes_at_start"]) == (4_000)
+        assert (payload["docker_storage_type"]) == ("nvme_ssd")
+        assert (payload["parameter_dtype_counts"]) == ({"FP32": 42})
+        assert not (payload["quantized"])
+        assert (payload["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
+        assert (payload["compute_profile_provenance"]) == ("direct")
+        assert (leftovers) == ([])
 
     def test_compute_plan_adds_static_flops_by_input_scale(self) -> None:
         meta = static_metadata.StaticMeta(
@@ -783,9 +728,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 path,
             )
 
-        self.assertEqual(
-            enriched.static_flops,
-            {
+        assert (enriched.static_flops) == ({
                 "source": "torch_profiler_eager",
                 "profile": "gpu",
                 "semantics": "logical_operator_shape_flops",
@@ -796,9 +739,8 @@ class DetectEnvironmentTests(unittest.TestCase):
                     {"input_scale": 64, "flops_per_request": 12_500_000},
                     {"input_scale": 128, "flops_per_request": 25_250_000},
                 ],
-            },
-        )
-        self.assertIsNone(enriched.static_macs)
+            })
+        assert (enriched.static_macs) is None
 
     def test_cpu_frequency_policy_metadata_reads_governor_and_boost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -819,10 +761,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 f.write("1\n")
 
             with patch("acprof.host.static_metadata.CPU_SYSFS_ROOT", tmp):
-                self.assertEqual(
-                    static_metadata._cpu_frequency_policy_metadata(),
-                    ("performance", "on"),
-                )
+                assert (static_metadata._cpu_frequency_policy_metadata()) == (("performance", "on"))
 
     def test_manual_nlp_scales_write_effective_scale_plan(self) -> None:
         task_info = TaskInfo(
@@ -866,18 +805,19 @@ class DetectEnvironmentTests(unittest.TestCase):
                 input_scales="64",
             )
 
-            self.assertEqual(planned.scales, [254.0])
-            self.assertEqual(planned.source, "manual")
-            self.assertIsNotNone(planned.plan_file)
+            assert (planned.scales) == ([254.0])
+            assert (planned.source) == ("manual")
+            assert (planned.plan_file) is not None
             assert planned.plan_file is not None
-            self.assertTrue(os.path.exists(planned.plan_file))
+            assert (os.path.exists(planned.plan_file))
             with open(planned.plan_file, "r", encoding="utf-8") as f:
                 plan = json.load(f)
 
-        self.assertEqual(plan["entries"][0]["input_scale"], 254.0)
-        self.assertEqual(plan["entries"][0]["payload"], {"text": "hello [MASK]", "params": {}})
+        assert (plan["entries"][0]["input_scale"]) == (254.0)
+        assert (plan["entries"][0]["payload"]) == ({"text": "hello [MASK]", "params": {}})
 
-    def test_manual_non_nlp_scales_write_reusable_payload_plan(self) -> None:
+    @pytest.mark.parametrize('task_family', ('cv', 'timeseries'))
+    def test_manual_non_nlp_scales_write_reusable_payload_plan(self, task_family) -> None:
         class FakeWorkloadGenerator:
             def generate(self, scale: float) -> dict:
                 return {"value": float(scale)}
@@ -895,67 +835,60 @@ class DetectEnvironmentTests(unittest.TestCase):
             def max_input_scale(self) -> float:
                 return 2048.0
 
-        for task_family in ("cv", "timeseries"):
-            with self.subTest(task_family=task_family), tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.workloads.get_generator",
-                return_value=FakeWorkloadGenerator(),
-            ), patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-                input_plan, "stop_container_session"
-            ), patch.object(input_plan, "_request_scale_meta", return_value={
-                "max_effective_input_scale": 512, "input_scale_type": "context_length",
-                "reason": "test model context limit",
-            }
-            ):
-                task_info = TaskInfo(
-                    model_id=f"test/{task_family}",
-                    pipeline_tag="image-classification" if task_family == "cv" else "time-series-forecasting",
-                    task_family=task_family,
-                    runtime_backend="transformers_pipeline" if task_family == "cv" else "chronos",
-                    library_name="transformers",
-                    model_revision="main",
-                    detection_method="unit",
-                )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "acprof.workloads.get_generator",
+            return_value=FakeWorkloadGenerator(),
+        ), patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
+            input_plan, "stop_container_session"
+        ), patch.object(input_plan, "_request_scale_meta", return_value={
+            "max_effective_input_scale": 512, "input_scale_type": "context_length",
+            "reason": "test model context limit",
+        }
+        ):
+            task_info = TaskInfo(
+                model_id=f"test/{task_family}",
+                pipeline_tag="image-classification" if task_family == "cv" else "time-series-forecasting",
+                task_family=task_family,
+                runtime_backend="transformers_pipeline" if task_family == "cv" else "chronos",
+                library_name="transformers",
+                model_revision="main",
+                detection_method="unit",
+            )
 
-                planned = input_plan.plan_input_scales(
-                    task_info=task_info,
-                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                    cpu_list=[1],
-                    mem_list=[4],
-                    gpu_list=["off"],
-                    batch_size=1,
-                    output_dir=tmp,
-                    input_scales="1,2",
-                )
+            planned = input_plan.plan_input_scales(
+                task_info=task_info,
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
+                cpu_list=[1],
+                mem_list=[4],
+                gpu_list=["off"],
+                batch_size=1,
+                output_dir=tmp,
+                input_scales="1,2",
+            )
 
-                self.assertEqual(planned.scales, [1.0, 2.0])
-                self.assertEqual(planned.source, "manual")
-                self.assertEqual(
-                    planned.plan_file,
-                    os.path.join(tmp, "input_scale_plan.json"),
-                )
-                assert planned.plan_file is not None
-                with open(planned.plan_file, "r", encoding="utf-8") as f:
-                    plan = json.load(f)
+            assert (planned.scales) == ([1.0, 2.0])
+            assert (planned.source) == ("manual")
+            assert (planned.plan_file) == (os.path.join(tmp, "input_scale_plan.json"))
+            assert planned.plan_file is not None
+            with open(planned.plan_file, "r", encoding="utf-8") as f:
+                plan = json.load(f)
 
-                self.assertEqual(
-                    plan["entries"],
-                    [
-                        {
-                            "input_scale": 1.0,
-                            "scale_label": "scale1",
-                            "input_metadata": {},
-                            "payload": {"value": 1.0},
-                        },
-                        {
-                            "input_scale": 2.0,
-                            "scale_label": "scale2",
-                            "input_metadata": {},
-                            "payload": {"value": 2.0},
-                        },
-                    ],
-                )
-                self.assertEqual(plan["schema_version"], 2)
-                self.assertRegex(planned.plan_sha256, r"^[0-9a-f]{64}$")
+            assert (plan["entries"]) == ([
+                    {
+                        "input_scale": 1.0,
+                        "scale_label": "scale1",
+                        "input_metadata": {},
+                        "payload": {"value": 1.0},
+                    },
+                    {
+                        "input_scale": 2.0,
+                        "scale_label": "scale2",
+                        "input_metadata": {},
+                        "payload": {"value": 2.0},
+                    },
+                ])
+            assert (plan["schema_version"]) == (2)
+            assert re.search(r"^[0-9a-f]{64}$", planned.plan_sha256)
 
     def test_auto_audio_scales_use_workload_manifest_defaults(self) -> None:
         class FakeWorkloadGenerator:
@@ -995,11 +928,8 @@ class DetectEnvironmentTests(unittest.TestCase):
                 output_dir=tmp,
             )
 
-        self.assertIs(planned, expected)
-        self.assertEqual(
-            plan_audio.call_args.kwargs["scales"],
-            [1.0, 2.0, 5.0, 10.0, 20.0, 30.0],
-        )
+        assert (planned) is (expected)
+        assert (plan_audio.call_args.kwargs["scales"]) == ([1.0, 2.0, 5.0, 10.0, 20.0, 30.0])
 
     def test_audio_scale_meta_records_fixed_frontend_and_decoder_limit(self) -> None:
         response = {
@@ -1030,11 +960,11 @@ class DetectEnvironmentTests(unittest.TestCase):
         ):
             metadata = input_plan._request_audio_scale_meta(session, {})
 
-        self.assertTrue(metadata["short_form_fixed_padding"])
-        self.assertEqual(metadata["fixed_frontend_num_samples"], 480000)
-        self.assertEqual(metadata["fixed_frontend_num_frames"], 3000)
-        self.assertEqual(metadata["frontend_feature_bins"], 128)
-        self.assertEqual(metadata["decoder_output_token_limit"], 448)
+        assert (metadata["short_form_fixed_padding"])
+        assert (metadata["fixed_frontend_num_samples"]) == (480000)
+        assert (metadata["fixed_frontend_num_frames"]) == (3000)
+        assert (metadata["frontend_feature_bins"]) == (128)
+        assert (metadata["decoder_output_token_limit"]) == (448)
 
     def test_audio_output_schema_describes_effective_scale_and_nullable_tokens(self) -> None:
         task_info = TaskInfo(
@@ -1050,11 +980,8 @@ class DetectEnvironmentTests(unittest.TestCase):
         _, output_format = model_schema._model_io_formats(task_info)
         properties = output_format["json_schema"]["properties"]
 
-        self.assertEqual(properties["effective_input_scale"], {"type": "number"})
-        self.assertEqual(
-            properties["output_token_count"],
-            {"type": ["integer", "null"]},
-        )
+        assert (properties["effective_input_scale"]) == ({"type": "number"})
+        assert (properties["output_token_count"]) == ({"type": ["integer", "null"]})
 
     def test_workload_spec_is_rejected_for_unimplemented_families(self) -> None:
         task_info = TaskInfo(
@@ -1066,10 +993,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             model_revision="main",
             detection_method="unit",
         )
-        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
-            ValueError,
-            "workload-spec is not declared for time-series-forecasting",
-        ):
+        with tempfile.TemporaryDirectory() as tmp, pytest.raises(ValueError, match="workload-spec is not declared for time-series-forecasting"):
             input_plan.plan_input_scales(
                 task_info=task_info,
                 image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
@@ -1094,10 +1018,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             input_plan,
             "_start_probe_session",
-        ) as start_probe, self.assertRaisesRegex(
-            ValueError,
-            "long-form workload",
-        ):
+        ) as start_probe, pytest.raises(ValueError, match="long-form workload"):
             input_plan._plan_audio_scales(
                 task_info=task_info,
                 image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
@@ -1155,18 +1076,12 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(planned.plan_file, "r", encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
-        self.assertEqual(plan["schema_version"], 2)
-        self.assertEqual(plan["workload"], {"workload_id": "fixture-v1"})
-        self.assertEqual(plan["model_constraints"], constraints)
-        self.assertEqual(
-            plan["entries"][0]["input_metadata"]["input_num_samples"],
-            100,
-        )
-        self.assertEqual(
-            planned.workload["model_constraints"],
-            constraints,
-        )
-        self.assertRegex(planned.plan_sha256, r"^[0-9a-f]{64}$")
+        assert (plan["schema_version"]) == (2)
+        assert (plan["workload"]) == ({"workload_id": "fixture-v1"})
+        assert (plan["model_constraints"]) == (constraints)
+        assert (plan["entries"][0]["input_metadata"]["input_num_samples"]) == (100)
+        assert (planned.workload["model_constraints"]) == (constraints)
+        assert re.search(r"^[0-9a-f]{64}$", planned.plan_sha256)
 
     def test_run_single_case_passes_container_name_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1222,19 +1137,13 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(
-            captured_env["CONTAINER_NAME"],
-            "case_google-bert--bert-base-uncased_1c_4g_off",
-        )
-        self.assertEqual(captured_env["USE_MIPS"], "1")
-        self.assertEqual(
-            captured_env["COLD_START_STARTED_AT"],
-            "2026-08-23T10:00:00.000+08:00",
-        )
-        self.assertEqual(captured_env["COLD_START_CONTAINER_LAUNCH_S"], "0.1")
-        self.assertEqual(captured_env["COLD_START_MODEL_LOAD_S"], "0.6")
-        self.assertEqual(captured_env["COLD_START_READY_WAIT_S"], "0.1")
-        self.assertNotIn("ACPROF_WECOM_WEBHOOK_URL", captured_env)
+        assert (captured_env["CONTAINER_NAME"]) == ("case_google-bert--bert-base-uncased_1c_4g_off")
+        assert (captured_env["USE_MIPS"]) == ("1")
+        assert (captured_env["COLD_START_STARTED_AT"]) == ("2026-08-23T10:00:00.000+08:00")
+        assert (captured_env["COLD_START_CONTAINER_LAUNCH_S"]) == ("0.1")
+        assert (captured_env["COLD_START_MODEL_LOAD_S"]) == ("0.6")
+        assert (captured_env["COLD_START_READY_WAIT_S"]) == ("0.1")
+        assert ("ACPROF_WECOM_WEBHOOK_URL") not in (captured_env)
 
     def test_run_single_case_passes_compute_profile_plan_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1281,10 +1190,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(
-            captured_env["COMPUTE_PROFILE_PLAN_FILE"],
-            "results/test-unit/compute_profile_plan.json",
-        )
+        assert (captured_env["COMPUTE_PROFILE_PLAN_FILE"]) == ("results/test-unit/compute_profile_plan.json")
 
     def test_run_single_case_passes_execution_profile_plan_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1339,10 +1245,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(
-            captured_env["EXECUTION_PROFILE_PLAN_FILE"],
-            "results/test-unit/execution_profile_plan.json",
-        )
+        assert (captured_env["EXECUTION_PROFILE_PLAN_FILE"]) == ("results/test-unit/execution_profile_plan.json")
 
     def test_run_single_case_passes_idle_debug_settings_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1390,16 +1293,13 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(captured_env["IDLE_DEBUG"], "1")
-        self.assertEqual(captured_env["IDLE_COOLDOWN_SECONDS"], "4.5")
-        self.assertEqual(
-            captured_env["IDLE_DIAG_PATH"],
-            os.path.join(
+        assert (captured_env["IDLE_DEBUG"]) == ("1")
+        assert (captured_env["IDLE_COOLDOWN_SECONDS"]) == ("4.5")
+        assert (captured_env["IDLE_DIAG_PATH"]) == (os.path.join(
                 os.path.dirname(captured_env["OUT_CSV"]),
                 "debug_idle_diag",
                 os.path.basename(captured_env["OUT_CSV"]) + ".idle_diag.jsonl",
-            ),
-        )
+            ))
 
     def test_run_single_case_passes_auto_repeat_window_settings_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1447,10 +1347,10 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(captured_env["REPEAT_IN_WINDOW"], "0")
-        self.assertEqual(captured_env["REPEAT_WINDOW_SECONDS"], "10.0")
-        self.assertEqual(captured_env["REQUEST_TIMEOUT_SECONDS"], "123.5")
-        self.assertEqual(start_container.call_args.kwargs["request_timeout_seconds"], 123.5)
+        assert (captured_env["REPEAT_IN_WINDOW"]) == ("0")
+        assert (captured_env["REPEAT_WINDOW_SECONDS"]) == ("10.0")
+        assert (captured_env["REQUEST_TIMEOUT_SECONDS"]) == ("123.5")
+        assert (start_container.call_args.kwargs["request_timeout_seconds"]) == (123.5)
 
     def test_run_single_case_preserves_manual_repeat_window_to_client(self) -> None:
         task_info = TaskInfo(
@@ -1497,10 +1397,11 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertEqual(captured_env["REPEAT_IN_WINDOW"], "1000")
-        self.assertEqual(captured_env["REPEAT_WINDOW_SECONDS"], "10.0")
+        assert (captured_env["REPEAT_IN_WINDOW"]) == ("1000")
+        assert (captured_env["REPEAT_WINDOW_SECONDS"]) == ("10.0")
 
-    def test_run_single_case_aborts_when_client_exits_nonzero(self) -> None:
+    @pytest.mark.parametrize('recorded_failure_case', range(2), ids=['None', "Failure('predict', 'inference_failed', 'typed inference error')"])
+    def test_run_single_case_aborts_when_client_exits_nonzero(self, recorded_failure_case) -> None:
         from acprof.artifact_layout import case_sidecar
         from acprof.failures import Failure, RuntimeFailure
         recorded_failure = None
@@ -1536,28 +1437,28 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.orchestrator.container_runtime_oom_error",
             return_value=None,
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
-            for recorded_failure in (None, Failure("predict", "inference_failed", "typed inference error")):
-                with self.subTest(failure=recorded_failure), self.assertRaises(
-                    RuntimeFailure if recorded_failure else orchestrator.EnergyProfilingError
-                ) as raised:
-                    orchestrator.run_single_case(
-                        task_info=task_info,
-                        cpu=1,
-                        mem=4,
-                        gpu="on",
-                        image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                        output_dir=self.output_dir,
-                        project_dir=".",
-                        warmup=0,
-                        repeat=1,
-                        repeat_in_window=0,
-                        input_scales="64",
-                        require_packet_latency=False,
-                    )
-                if recorded_failure:
-                    self.assertEqual(raised.exception.failure, recorded_failure)
-                else:
-                    self.assertIn("client.py exited with code 7", str(raised.exception))
+            recorded_failure = tuple((None, Failure('predict', 'inference_failed', 'typed inference error')))[recorded_failure_case]
+            with pytest.raises(
+                RuntimeFailure if recorded_failure else orchestrator.EnergyProfilingError
+            ) as raised:
+                orchestrator.run_single_case(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu="on",
+                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
+                    output_dir=self.output_dir,
+                    project_dir=".",
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=0,
+                    input_scales="64",
+                    require_packet_latency=False,
+                )
+            if recorded_failure:
+                assert (raised.value.failure) == (recorded_failure)
+            else:
+                assert ("client.py exited with code 7") in (str(raised.value))
 
     def test_run_single_case_records_runtime_oom_before_mips_failure(self) -> None:
         task_info = TaskInfo(
@@ -1657,16 +1558,16 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["error"], "")
-        self.assertEqual(rows[1]["status"], "error")
-        self.assertIn("RemoteDisconnected", rows[1]["error"])
-        self.assertIn("container_runtime_oom", rows[1]["error"])
-        self.assertEqual(rows[2]["status"], "error")
-        self.assertIn("container_runtime_oom", rows[2]["error"])
-        self.assertIn("docker_oom_killed=true", rows[2]["error"])
-        self.assertIn("container_exit_code=137", rows[2]["error"])
+        assert (len(rows)) == (3)
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["error"]) == ("")
+        assert (rows[1]["status"]) == ("error")
+        assert ("RemoteDisconnected") in (rows[1]["error"])
+        assert ("container_runtime_oom") in (rows[1]["error"])
+        assert (rows[2]["status"]) == ("error")
+        assert ("container_runtime_oom") in (rows[2]["error"])
+        assert ("docker_oom_killed=true") in (rows[2]["error"])
+        assert ("container_exit_code=137") in (rows[2]["error"])
         inspect_state.assert_called_once_with(
             "case_google-bert--bert-base-uncased_2c_2g_on"
         )
@@ -1712,7 +1613,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
-            with self.assertRaises(orchestrator.MIPSProfilingError):
+            with pytest.raises(orchestrator.MIPSProfilingError):
                 orchestrator.run_single_case(
                     task_info=task_info,
                     cpu=1,
@@ -1802,29 +1703,16 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
-        self.assertEqual(len(rows), 6)
-        self.assertEqual({row["status"] for row in rows}, {"error"})
-        self.assertTrue(
-            all("client_request_timeout" in row["error"] for row in rows)
-        )
+        assert (len(rows)) == (6)
+        assert ({row["status"] for row in rows}) == ({"error"})
+        assert (all("client_request_timeout" in row["error"] for row in rows))
         trigger_rows = [row for row in rows if float(row["input_scale"]) == 64.0]
         skipped_rows = [row for row in rows if float(row["input_scale"]) == 128.0]
-        self.assertTrue(
-            all("reason=triggering_scale_probe_timed_out" in row["error"] for row in trigger_rows)
-        )
-        self.assertTrue(
-            all("triggering_request_latency_s>120" in row["error"] for row in trigger_rows)
-        )
-        self.assertTrue(
-            all("reason=skipped_after_prior_scale_timeout" in row["error"] for row in skipped_rows)
-        )
-        self.assertTrue(
-            all("planned_request_attempted=false" in row["error"] for row in skipped_rows)
-        )
-        self.assertEqual(
-            sorted({float(row["input_scale"]) for row in rows}),
-            [64.0, 128.0],
-        )
+        assert (all("reason=triggering_scale_probe_timed_out" in row["error"] for row in trigger_rows))
+        assert (all("triggering_request_latency_s>120" in row["error"] for row in trigger_rows))
+        assert (all("reason=skipped_after_prior_scale_timeout" in row["error"] for row in skipped_rows))
+        assert (all("planned_request_attempted=false" in row["error"] for row in skipped_rows))
+        assert (sorted({float(row["input_scale"]) for row in rows})) == ([64.0, 128.0])
         stop_container.assert_called_once()
 
     def test_run_single_case_preserves_completed_rows_before_request_timeout(self) -> None:
@@ -1920,17 +1808,17 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["input_scale"], "64")
-        self.assertEqual(rows[0]["latency_app_s"], "12.5")
-        self.assertEqual(rows[0]["status"], "ok")
-        self.assertEqual(rows[0]["error"], "")
-        self.assertEqual(rows[1]["input_scale"], "128")
-        self.assertEqual(rows[1]["status"], "error")
-        self.assertIn("client_request_timeout", rows[1]["error"])
-        self.assertIn("planned_request_attempted=true", rows[1]["error"])
-        self.assertIn("measurement_row_completed=false", rows[1]["error"])
-        self.assertIn("triggering_request_latency_s>300", rows[1]["error"])
+        assert (len(rows)) == (2)
+        assert (rows[0]["input_scale"]) == ("64")
+        assert (rows[0]["latency_app_s"]) == ("12.5")
+        assert (rows[0]["status"]) == ("ok")
+        assert (rows[0]["error"]) == ("")
+        assert (rows[1]["input_scale"]) == ("128")
+        assert (rows[1]["status"]) == ("error")
+        assert ("client_request_timeout") in (rows[1]["error"])
+        assert ("planned_request_attempted=true") in (rows[1]["error"])
+        assert ("measurement_row_completed=false") in (rows[1]["error"])
+        assert ("triggering_request_latency_s>300") in (rows[1]["error"])
 
     def test_run_single_case_writes_error_rows_when_container_start_fails(self) -> None:
         task_info = TaskInfo(
@@ -1966,33 +1854,25 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
-        self.assertEqual(len(rows), 6)
-        self.assertEqual({row["status"] for row in rows}, {"error"})
-        self.assertTrue(all(row["cpu_cores"] == "1" for row in rows))
-        self.assertTrue(all(row["mem_cap_gb"] == "2" for row in rows))
-        self.assertTrue(all(row["gpu_mode"] == "on" for row in rows))
-        self.assertEqual(
-            sorted({float(row["input_scale"]) for row in rows}),
-            [85.0, 170.0],
-        )
-        self.assertEqual(
-            sorted((row["warmup"], row["repeat_idx"]) for row in rows),
-            [
+        assert (len(rows)) == (6)
+        assert ({row["status"] for row in rows}) == ({"error"})
+        assert (all(row["cpu_cores"] == "1" for row in rows))
+        assert (all(row["mem_cap_gb"] == "2" for row in rows))
+        assert (all(row["gpu_mode"] == "on" for row in rows))
+        assert (sorted({float(row["input_scale"]) for row in rows})) == ([85.0, 170.0])
+        assert (sorted((row["warmup"], row["repeat_idx"]) for row in rows)) == ([
                 ("0", "0"),
                 ("0", "0"),
                 ("0", "1"),
                 ("0", "1"),
                 ("1", "0"),
                 ("1", "0"),
-            ],
-        )
-        self.assertTrue(
-            all(
+            ])
+        assert (all(
                 "container_start_failed: container_oom_killed during startup"
                 in row["error"]
                 for row in rows
-            )
-        )
+            ))
 
     def test_run_single_case_accepts_stable_idle_power_case_csv(self) -> None:
         task_info = TaskInfo(
@@ -2036,7 +1916,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 require_packet_latency=False,
             )
 
-        self.assertTrue(csv_path.endswith(".csv"))
+        assert (csv_path.endswith(".csv"))
 
     def test_run_single_case_warns_when_gpu_idle_power_csv_is_unstable(self) -> None:
         task_info = TaskInfo(
@@ -2082,13 +1962,13 @@ class DetectEnvironmentTests(unittest.TestCase):
             )
 
         message = stdout.getvalue()
-        self.assertTrue(csv_path.endswith(".csv"))
-        self.assertIn("[energy][WARN]", message)
-        self.assertIn("gpu_idle_power_w", message)
-        self.assertIn("6.8%", message)
-        self.assertIn("5.0%", message)
-        self.assertIn("--idle-seconds", message)
-        self.assertIn("GPU processes", message)
+        assert (csv_path.endswith(".csv"))
+        assert ("[energy][WARN]") in (message)
+        assert ("gpu_idle_power_w") in (message)
+        assert ("6.8%") in (message)
+        assert ("5.0%") in (message)
+        assert ("--idle-seconds") in (message)
+        assert ("GPU processes") in (message)
 
     def test_run_single_case_warns_when_cpu_idle_power_csv_is_unstable(self) -> None:
         task_info = TaskInfo(
@@ -2134,13 +2014,13 @@ class DetectEnvironmentTests(unittest.TestCase):
             )
 
         message = stdout.getvalue()
-        self.assertTrue(csv_path.endswith(".csv"))
-        self.assertIn("[energy][WARN]", message)
-        self.assertIn("cpu_idle_power_w", message)
-        self.assertIn("7.7%", message)
-        self.assertIn("5.0%", message)
-        self.assertIn("--idle-seconds", message)
-        self.assertIn("host background processes", message)
+        assert (csv_path.endswith(".csv"))
+        assert ("[energy][WARN]") in (message)
+        assert ("cpu_idle_power_w") in (message)
+        assert ("7.7%") in (message)
+        assert ("5.0%") in (message)
+        assert ("--idle-seconds") in (message)
+        assert ("host background processes") in (message)
 
     def test_resolve_packet_latency_runtime_requires_local_linux_tools(self) -> None:
         with patch("acprof.host.packet_capture.shutil.which", return_value=None):
@@ -2150,7 +2030,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 sniff_iface="docker0",
             )
 
-        self.assertIsNone(runtime)
+        assert (runtime) is None
 
     def test_resolve_packet_latency_runtime_uses_tcpdump_without_sudo_when_capable(self) -> None:
         def fake_which(name: str) -> str | None:
@@ -2178,11 +2058,11 @@ class DetectEnvironmentTests(unittest.TestCase):
                 sniff_iface="docker0",
             )
 
-        self.assertIsNotNone(runtime)
+        assert (runtime) is not None
         assert runtime is not None
-        self.assertEqual(runtime.mode, "local")
-        self.assertEqual(runtime.tcpdump_cmd[0], "/usr/bin/tcpdump")
-        self.assertNotIn("sudo", runtime.tcpdump_cmd)
+        assert (runtime.mode) == ("local")
+        assert (runtime.tcpdump_cmd[0]) == ("/usr/bin/tcpdump")
+        assert ("sudo") not in (runtime.tcpdump_cmd)
 
     def test_resolve_packet_latency_runtime_requires_administrator_setup(self):
         with patch('acprof.host.packet_capture.shutil.which', side_effect=lambda name: '/usr/bin/' + name), patch(
@@ -2190,10 +2070,10 @@ class DetectEnvironmentTests(unittest.TestCase):
         ), patch('acprof.host.command.run_command', return_value=SimpleNamespace(
             returncode=0, stdout='', stderr='',
         )) as run:
-            with self.assertRaisesRegex(packet_capture.PacketLatencyError, 'capture capability'):
+            with pytest.raises(packet_capture.PacketLatencyError, match='capture capability'):
                 packet_capture._resolve_packet_latency_runtime('/repo', '/tmp/test.pcap', 'docker0')
-        self.assertEqual(run.call_args_list[0].args[0], ['getcap', '/usr/bin/tcpdump'])
-        self.assertEqual(run.call_count, 1)
+        assert (run.call_args_list[0].args[0]) == (['getcap', '/usr/bin/tcpdump'])
+        assert (run.call_count) == (1)
 
     def test_run_single_case_fails_when_packet_latency_runtime_unavailable(self) -> None:
         task_info = TaskInfo(
@@ -2217,7 +2097,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_container_session"
         ):
-            with self.assertRaises(packet_capture.PacketLatencyError) as raised:
+            with pytest.raises(packet_capture.PacketLatencyError) as raised:
                 orchestrator.run_single_case(
                     task_info=task_info,
                     cpu=1,
@@ -2232,11 +2112,11 @@ class DetectEnvironmentTests(unittest.TestCase):
                     input_scales="64",
                 )
 
-        message = str(raised.exception)
-        self.assertIn("packet latency is required", message)
-        self.assertIn("tcpdump", message)
-        self.assertIn("tshark", message)
-        self.assertIn("sudo setcap", message)
+        message = str(raised.value)
+        assert ("packet latency is required") in (message)
+        assert ("tcpdump") in (message)
+        assert ("tshark") in (message)
+        assert ("sudo setcap") in (message)
 
     def test_assert_packet_latency_csv_complete_rejects_nan_latency(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2244,10 +2124,10 @@ class DetectEnvironmentTests(unittest.TestCase):
             with open(csv_path, "w", encoding="utf-8", newline="") as f:
                 f.write("latency_s,status\nnan,ok\n")
 
-            with self.assertRaises(packet_capture.PacketLatencyError) as raised:
+            with pytest.raises(packet_capture.PacketLatencyError) as raised:
                 orchestrator._assert_packet_latency_csv_complete(csv_path)
 
-        self.assertIn("latency_s is missing", str(raised.exception))
+        assert ("latency_s is missing") in (str(raised.value))
 
     def test_assert_packet_latency_csv_complete_ignores_timeout_error_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2259,7 +2139,3 @@ class DetectEnvironmentTests(unittest.TestCase):
                 csv_path,
                 ignore_error_rows=True,
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

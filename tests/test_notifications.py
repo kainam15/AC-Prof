@@ -1,7 +1,7 @@
-import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import requests
 
 from acprof.notifications import (
@@ -21,7 +21,7 @@ WEBHOOK_URL = (
 )
 
 
-class WeComNotificationTests(unittest.TestCase):
+class TestWeComNotification:
     def _event(self, **overrides) -> NotificationEvent:
         values = {
             "status": "success",
@@ -38,8 +38,9 @@ class WeComNotificationTests(unittest.TestCase):
         values.update(overrides)
         return NotificationEvent(**values)
 
-    def test_validate_accepts_only_wecom_group_robot_endpoint(self) -> None:
-        self.assertEqual(validate_wecom_webhook_url(WEBHOOK_URL), WEBHOOK_URL)
+    @pytest.mark.parametrize('value_case', range(6))
+    def test_validate_accepts_only_wecom_group_robot_endpoint(self, value_case) -> None:
+        assert (validate_wecom_webhook_url(WEBHOOK_URL)) == (WEBHOOK_URL)
 
         invalid_urls = (
             "",
@@ -49,18 +50,18 @@ class WeComNotificationTests(unittest.TestCase):
             "https://qyapi.weixin.qq.com/cgi-bin/webhook/send",
             "https://qyapi.weixin.qq.com:invalid/cgi-bin/webhook/send?key=x",
         )
-        for value in invalid_urls:
-            with self.subTest(value=value), self.assertRaises(NotificationConfigError):
-                validate_wecom_webhook_url(value)
+        value = tuple(invalid_urls)[value_case]
+        with pytest.raises(NotificationConfigError):
+            validate_wecom_webhook_url(value)
 
     def test_from_env_requires_configuration_without_echoing_secret(self) -> None:
-        with self.assertRaises(NotificationConfigError) as raised:
+        with pytest.raises(NotificationConfigError) as raised:
             WeComWebhookNotifier.from_env({})
-        self.assertIn(WECOM_WEBHOOK_ENV, str(raised.exception))
+        assert (WECOM_WEBHOOK_ENV) in (str(raised.value))
 
         notifier = WeComWebhookNotifier.from_env({WECOM_WEBHOOK_ENV: WEBHOOK_URL})
-        self.assertNotIn(WEBHOOK_KEY, repr(notifier))
-        self.assertIn("<redacted>", repr(notifier))
+        assert (WEBHOOK_KEY) not in (repr(notifier))
+        assert ("<redacted>") in (repr(notifier))
 
     def test_render_includes_partial_counts_and_redacts_webhook(self) -> None:
         text = render_notification_text(
@@ -71,12 +72,12 @@ class WeComNotificationTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("采集部分完成", text)
-        self.assertIn("资源组合：2/2", text)
-        self.assertIn("异常行：2", text)
-        self.assertNotIn(WEBHOOK_KEY, text)
-        self.assertIn("key=<redacted>", text)
-        self.assertNotIn(WEBHOOK_KEY, redact_notification_secrets(WEBHOOK_URL))
+        assert ("采集部分完成") in (text)
+        assert ("资源组合：2/2") in (text)
+        assert ("异常行：2") in (text)
+        assert (WEBHOOK_KEY) not in (text)
+        assert ("key=<redacted>") in (text)
+        assert (WEBHOOK_KEY) not in (redact_notification_secrets(WEBHOOK_URL))
 
     def test_render_progress_reports_elapsed_case_and_percentage(self) -> None:
         text = render_notification_text(
@@ -92,12 +93,12 @@ class WeComNotificationTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("AC-Prof 采集进度", text)
-        self.assertIn("耗时：1小时1分1秒", text)
-        self.assertIn("资源组合：1/4（25.0%）", text)
-        self.assertIn("当前 case 结果行：7", text)
-        self.assertIn("当前 case 异常行：1", text)
-        self.assertIn("CPU=2, MEM=4GB, GPU=off", text)
+        assert ("AC-Prof 采集进度") in (text)
+        assert ("耗时：1小时1分1秒") in (text)
+        assert ("资源组合：1/4（25.0%）") in (text)
+        assert ("当前 case 结果行：7") in (text)
+        assert ("当前 case 异常行：1") in (text)
+        assert ("CPU=2, MEM=4GB, GPU=off") in (text)
 
     def test_render_started_includes_command_and_redacts_webhook(self) -> None:
         text = render_notification_text(
@@ -117,44 +118,38 @@ class WeComNotificationTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("AC-Prof 实验开始", text)
-        self.assertIn("状态：已启动", text)
-        self.assertIn("指令：acprof run --model 'org/model with space'", text)
-        self.assertIn("正在执行环境预检", text)
-        self.assertNotIn(WEBHOOK_KEY, text)
-        self.assertIn("key=<redacted>", text)
+        assert ("AC-Prof 实验开始") in (text)
+        assert ("状态：已启动") in (text)
+        assert ("指令：acprof run --model 'org/model with space'") in (text)
+        assert ("正在执行环境预检") in (text)
+        assert (WEBHOOK_KEY) not in (text)
+        assert ("key=<redacted>") in (text)
 
-    def test_render_profiler_outcomes_and_sample_counts(self) -> None:
-        for status, label in (
-            ("success", "成功"),
-            ("partial", "部分失败"),
-            ("failed", "失败"),
-            ("no_results", "无结果"),
-        ):
-            with self.subTest(status=status):
-                text = render_notification_text(
-                    NotificationEvent(
-                        status=f"profiler_{status}",
-                        model_id="org/model",
-                        output_dir="/tmp/results/org--model",
-                        elapsed_seconds=3661.0,
-                        profiler="GPU Torch",
-                        profile_elapsed_seconds=65.0,
-                        profile_samples=4,
-                        profile_error_samples=1,
-                        detail=f"failed request: {WEBHOOK_URL}",
-                    )
-                )
-                self.assertIn(f"状态：{label}", text)
-                self.assertIn("Profiler：GPU Torch", text)
-                self.assertIn("阶段耗时：1分5秒", text)
-                self.assertIn("耗时：1小时1分1秒", text)
-                self.assertIn("采样项：4", text)
-                self.assertIn("失败采样项：1", text)
-                self.assertNotIn("结果行", text)
-                self.assertNotIn("资源组合", text)
-                self.assertNotIn(WEBHOOK_KEY, text)
-                self.assertIn("key=<redacted>", text)
+    @pytest.mark.parametrize('status,label', (('success', '成功'), ('partial', '部分失败'), ('failed', '失败'), ('no_results', '无结果')))
+    def test_render_profiler_outcomes_and_sample_counts(self, status, label) -> None:
+        text = render_notification_text(
+            NotificationEvent(
+                status=f"profiler_{status}",
+                model_id="org/model",
+                output_dir="/tmp/results/org--model",
+                elapsed_seconds=3661.0,
+                profiler="GPU Torch",
+                profile_elapsed_seconds=65.0,
+                profile_samples=4,
+                profile_error_samples=1,
+                detail=f"failed request: {WEBHOOK_URL}",
+            )
+        )
+        assert (f"状态：{label}") in (text)
+        assert ("Profiler：GPU Torch") in (text)
+        assert ("阶段耗时：1分5秒") in (text)
+        assert ("耗时：1小时1分1秒") in (text)
+        assert ("采样项：4") in (text)
+        assert ("失败采样项：1") in (text)
+        assert ("结果行") not in (text)
+        assert ("资源组合") not in (text)
+        assert (WEBHOOK_KEY) not in (text)
+        assert ("key=<redacted>") in (text)
 
     def test_send_posts_text_payload_with_short_timeout(self) -> None:
         response = SimpleNamespace(status_code=200, json=lambda: {"errcode": 0})
@@ -172,10 +167,10 @@ class WeComNotificationTests(unittest.TestCase):
 
         post.assert_called_once()
         args, kwargs = post.call_args
-        self.assertEqual(args, (WEBHOOK_URL,))
-        self.assertEqual(kwargs["timeout"], 3.0)
-        self.assertEqual(kwargs["json"]["msgtype"], "text")
-        self.assertIn("AC-Prof 采集完成", kwargs["json"]["text"]["content"])
+        assert (args) == ((WEBHOOK_URL,))
+        assert (kwargs["timeout"]) == (3.0)
+        assert (kwargs["json"]["msgtype"]) == ("text")
+        assert ("AC-Prof 采集完成") in (kwargs["json"]["text"]["content"])
 
     def test_send_retries_then_succeeds(self) -> None:
         response = SimpleNamespace(status_code=200, json=lambda: {"errcode": 0})
@@ -191,7 +186,7 @@ class WeComNotificationTests(unittest.TestCase):
         ) as post, patch("acprof.notifications.time.sleep") as sleep:
             notifier.send(self._event())
 
-        self.assertEqual(post.call_count, 2)
+        assert (post.call_count) == (2)
         sleep.assert_called_once_with(0.5)
 
     def test_request_failure_never_exposes_webhook(self) -> None:
@@ -204,11 +199,11 @@ class WeComNotificationTests(unittest.TestCase):
         with patch(
             "acprof.notifications.requests.post",
             side_effect=unsafe_error,
-        ), self.assertRaises(NotificationDeliveryError) as raised:
+        ), pytest.raises(NotificationDeliveryError) as raised:
             notifier.send(self._event())
 
-        self.assertNotIn(WEBHOOK_KEY, str(raised.exception))
-        self.assertIn("ConnectionError", str(raised.exception))
+        assert (WEBHOOK_KEY) not in (str(raised.value))
+        assert ("ConnectionError") in (str(raised.value))
 
     def test_api_error_is_reported_without_request_url(self) -> None:
         response = SimpleNamespace(
@@ -220,12 +215,8 @@ class WeComNotificationTests(unittest.TestCase):
         with patch(
             "acprof.notifications.requests.post",
             return_value=response,
-        ), self.assertRaises(NotificationDeliveryError) as raised:
+        ), pytest.raises(NotificationDeliveryError) as raised:
             notifier.send(self._event())
 
-        self.assertIn("errcode=93000", str(raised.exception))
-        self.assertNotIn(WEBHOOK_KEY, str(raised.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert ("errcode=93000") in (str(raised.value))
+        assert (WEBHOOK_KEY) not in (str(raised.value))

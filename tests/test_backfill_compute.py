@@ -2,7 +2,8 @@ import csv
 import json
 import os
 import tempfile
-import unittest
+
+import pytest
 
 from acprof.cli.backfill_compute import (
     COMPUTE_PROFILE_FIELDS,
@@ -23,7 +24,7 @@ OBSOLETE_RESULT_FIELDS = (
 )
 
 
-class BackfillComputeProfileTests(unittest.TestCase):
+class TestBackfillComputeProfile:
     def _write_csv(self, path, fieldnames, rows):
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -146,12 +147,9 @@ class BackfillComputeProfileTests(unittest.TestCase):
 
         profile = find_compute_profile_entry(plan, "on", 1)
 
-        self.assertEqual(profile["compute_profile_error_torch_profiler_eager"], "")
-        self.assertEqual(profile["compute_profile_error_ncu"], "")
-        self.assertEqual(
-            profile["model_logical_mflop_per_request_torch_profiler_eager"],
-            10.0,
-        )
+        assert (profile["compute_profile_error_torch_profiler_eager"]) == ("")
+        assert (profile["compute_profile_error_ncu"]) == ("")
+        assert (profile["model_logical_mflop_per_request_torch_profiler_eager"]) == (10.0)
 
     def test_vendor_cpu_is_not_mislabeled_as_torch_profile(self):
         plan = {
@@ -174,17 +172,14 @@ class BackfillComputeProfileTests(unittest.TestCase):
 
         profile = find_compute_profile_entry(plan, "off", 64)
 
-        self.assertNotIn("tool", profile)
-        self.assertNotIn("model_mflop_per_request", profile)
-        self.assertNotIn("error", profile)
+        assert ("tool") not in (profile)
+        assert ("model_mflop_per_request") not in (profile)
+        assert ("error") not in (profile)
         logical = profile[
             "model_logical_mflop_per_request_torch_profiler_eager"
         ]
-        self.assertNotEqual(logical, logical)
-        self.assertEqual(
-            profile["compute_profile_error_torch_profiler_eager"],
-            "",
-        )
+        assert (logical) != (logical)
+        assert (profile["compute_profile_error_torch_profiler_eager"]) == ("")
 
     def test_backfills_cpu_and_gpu_and_preserves_other_values_and_order(self):
         fields = [
@@ -251,42 +246,22 @@ class BackfillComputeProfileTests(unittest.TestCase):
             with open(input_csv, "rb") as f:
                 unchanged_input = f.read()
 
-        self.assertEqual(summary.row_count, 2)
-        self.assertEqual(summary.diagnostic_count, 0)
-        self.assertEqual(
-            output_fields,
-            [field for field in fields if field not in OBSOLETE_RESULT_FIELDS],
-        )
-        self.assertTrue(
-            all(
+        assert (summary.row_count) == (2)
+        assert (summary.diagnostic_count) == (0)
+        assert (output_fields) == ([field for field in fields if field not in OBSOLETE_RESULT_FIELDS])
+        assert (all(
                 field not in row
                 for row in output_rows
                 for field in OBSOLETE_RESULT_FIELDS
-            )
-        )
-        self.assertEqual(unchanged_input, original_input)
-        self.assertEqual(
-            [(row["row_marker"], row["status"]) for row in output_rows],
-            [("first", "ok"), ("second", "ok")],
-        )
-        self.assertEqual(
-            output_rows[0][
+            ))
+        assert (unchanged_input) == (original_input)
+        assert ([(row["row_marker"], row["status"]) for row in output_rows]) == ([("first", "ok"), ("second", "ok")])
+        assert (output_rows[0][
                 "model_logical_mflop_per_request_torch_profiler_eager"
-            ],
-            "nan",
-        )
-        self.assertEqual(
-            output_rows[1]["gpu_executed_mflop_per_request_ncu"],
-            "100.000000",
-        )
-        self.assertEqual(
-            output_rows[1]["gpu_executed_mflops_app_ncu"],
-            "250.000000",
-        )
-        self.assertEqual(
-            output_rows[1]["gpu_executed_mflops_packet_ncu"],
-            "250.000000",
-        )
+            ]) == ("nan")
+        assert (output_rows[1]["gpu_executed_mflop_per_request_ncu"]) == ("100.000000")
+        assert (output_rows[1]["gpu_executed_mflops_app_ncu"]) == ("250.000000")
+        assert (output_rows[1]["gpu_executed_mflops_packet_ncu"]) == ("250.000000")
 
     def test_dual_tool_plan_backfills_only_explicit_metrics(self):
         fields = [
@@ -328,34 +303,19 @@ class BackfillComputeProfileTests(unittest.TestCase):
             with open(output_csv, "r", encoding="utf-8", newline="") as f:
                 output_rows = list(csv.DictReader(f))
 
-        self.assertEqual(summary.diagnostic_count, 0)
+        assert (summary.diagnostic_count) == (0)
         cpu_row, gpu_row = output_rows
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, cpu_row)
-            self.assertNotIn(field, gpu_row)
-        self.assertEqual(
-            cpu_row["model_logical_mflops_packet_torch_profiler_eager"],
-            "400.000000",
-        )
-        self.assertEqual(
-            cpu_row["gpu_executed_mflop_per_request_ncu"],
-            "nan",
-        )
-        self.assertEqual(cpu_row["compute_profile_error_ncu"], "")
+            assert (field) not in (cpu_row)
+            assert (field) not in (gpu_row)
+        assert (cpu_row["model_logical_mflops_packet_torch_profiler_eager"]) == ("400.000000")
+        assert (cpu_row["gpu_executed_mflop_per_request_ncu"]) == ("nan")
+        assert (cpu_row["compute_profile_error_ncu"]) == ("")
 
-        self.assertEqual(
-            gpu_row["model_logical_mflops_packet_torch_profiler_eager"],
-            "1200.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_executed_mflop_per_request_ncu"],
-            "100.000000",
-        )
-        self.assertEqual(gpu_row["gpu_executed_mflops_app_ncu"], "200.000000")
-        self.assertEqual(
-            gpu_row["gpu_executed_mflops_packet_ncu"],
-            "400.000000",
-        )
+        assert (gpu_row["model_logical_mflops_packet_torch_profiler_eager"]) == ("1200.000000")
+        assert (gpu_row["gpu_executed_mflop_per_request_ncu"]) == ("100.000000")
+        assert (gpu_row["gpu_executed_mflops_app_ncu"]) == ("200.000000")
+        assert (gpu_row["gpu_executed_mflops_packet_ncu"]) == ("400.000000")
 
     def test_ncu_summary_overrides_gpu_rows_only_with_numeric_scale_matching(self):
         fields = [
@@ -422,44 +382,23 @@ class BackfillComputeProfileTests(unittest.TestCase):
             with open(output_csv, "r", encoding="utf-8", newline="") as f:
                 output_rows = list(csv.DictReader(f))
 
-        self.assertEqual(summary.row_count, 2)
-        self.assertEqual(summary.diagnostic_count, 0)
+        assert (summary.row_count) == (2)
+        assert (summary.diagnostic_count) == (0)
         cpu_row, gpu_row = output_rows
-        self.assertEqual(cpu_row["row_marker"], "cpu")
-        self.assertEqual(cpu_row["gpu_executed_mflop_per_request_ncu"], "nan")
-        self.assertEqual(cpu_row["compute_profile_error_ncu"], "")
+        assert (cpu_row["row_marker"]) == ("cpu")
+        assert (cpu_row["gpu_executed_mflop_per_request_ncu"]) == ("nan")
+        assert (cpu_row["compute_profile_error_ncu"]) == ("")
 
-        self.assertEqual(gpu_row["row_marker"], "gpu")
-        self.assertEqual(
-            gpu_row["gpu_executed_mflop_per_request_ncu"],
-            "120.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_executed_tensor_mflop_per_request_ncu"],
-            "100.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_executed_scalar_mflop_per_request_ncu"],
-            "20.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_executed_tensor_share_pct_ncu"],
-            "83.333333",
-        )
-        self.assertEqual(gpu_row["gpu_executed_mflops_app_ncu"], "240.000000")
-        self.assertEqual(
-            gpu_row["gpu_executed_mflops_packet_ncu"],
-            "480.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_kernel_launch_count_per_request_ncu"],
-            "7.000000",
-        )
-        self.assertEqual(
-            gpu_row["gpu_kernel_time_sum_ms_per_request_ncu"],
-            "2.500000",
-        )
-        self.assertNotIn("gpu_profile_report_ncu", gpu_row)
+        assert (gpu_row["row_marker"]) == ("gpu")
+        assert (gpu_row["gpu_executed_mflop_per_request_ncu"]) == ("120.000000")
+        assert (gpu_row["gpu_executed_tensor_mflop_per_request_ncu"]) == ("100.000000")
+        assert (gpu_row["gpu_executed_scalar_mflop_per_request_ncu"]) == ("20.000000")
+        assert (gpu_row["gpu_executed_tensor_share_pct_ncu"]) == ("83.333333")
+        assert (gpu_row["gpu_executed_mflops_app_ncu"]) == ("240.000000")
+        assert (gpu_row["gpu_executed_mflops_packet_ncu"]) == ("480.000000")
+        assert (gpu_row["gpu_kernel_launch_count_per_request_ncu"]) == ("7.000000")
+        assert (gpu_row["gpu_kernel_time_sum_ms_per_request_ncu"]) == ("2.500000")
+        assert ("gpu_profile_report_ncu") not in (gpu_row)
 
     def test_missing_scale_writes_nan_metrics_and_diagnostic(self):
         fields = [
@@ -496,21 +435,15 @@ class BackfillComputeProfileTests(unittest.TestCase):
                 output_fields = reader.fieldnames or []
                 output_row = next(reader)
 
-        self.assertEqual(summary.diagnostic_count, 1)
-        self.assertEqual(output_fields, fields + list(COMPUTE_PROFILE_FIELDS))
-        self.assertEqual(output_row["note"], "keep me")
+        assert (summary.diagnostic_count) == (1)
+        assert (output_fields) == (fields + list(COMPUTE_PROFILE_FIELDS))
+        assert (output_row["note"]) == ("keep me")
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, output_row)
-        self.assertEqual(
-            output_row[
+            assert (field) not in (output_row)
+        assert (output_row[
                 "model_logical_mflop_per_request_torch_profiler_eager"
-            ],
-            "nan",
-        )
-        self.assertEqual(
-            output_row["compute_profile_error_torch_profiler_eager"],
-            "compute_profile_missing_scale:65",
-        )
+            ]) == ("nan")
+        assert (output_row["compute_profile_error_torch_profiler_eager"]) == ("compute_profile_missing_scale:65")
 
     def test_existing_output_is_not_overwritten_without_explicit_permission(self):
         fields = ["gpu_mode", "input_scale", "latency_app_s"]
@@ -525,7 +458,7 @@ class BackfillComputeProfileTests(unittest.TestCase):
             with open(output_csv, "w", encoding="utf-8") as f:
                 f.write("do not replace")
 
-            with self.assertRaises(FileExistsError):
+            with pytest.raises(FileExistsError):
                 backfill_compute_profile_csv(
                     input_csv,
                     plan_path,
@@ -534,7 +467,7 @@ class BackfillComputeProfileTests(unittest.TestCase):
             with open(output_csv, "r", encoding="utf-8") as f:
                 output_contents = f.read()
 
-        self.assertEqual(output_contents, "do not replace")
+        assert (output_contents) == ("do not replace")
 
     def test_explicit_overwrite_can_atomically_replace_input_path(self):
         fields = ["gpu_mode", "input_scale", "latency_app_s"]
@@ -556,26 +489,13 @@ class BackfillComputeProfileTests(unittest.TestCase):
                 output_row = next(csv.DictReader(f))
 
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
-            self.assertNotIn(field, output_row)
-        self.assertEqual(
-            output_row[
+            assert (field) not in (output_row)
+        assert (output_row[
                 "model_logical_mflop_per_request_torch_profiler_eager"
-            ],
-            "200.000000",
-        )
-        self.assertEqual(
-            output_row[
+            ]) == ("200.000000")
+        assert (output_row[
                 "model_logical_mflops_app_torch_profiler_eager"
-            ],
-            "400.000000",
-        )
-        self.assertEqual(
-            output_row[
+            ]) == ("400.000000")
+        assert (output_row[
                 "model_logical_mflops_packet_torch_profiler_eager"
-            ],
-            "400.000000",
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            ]) == ("400.000000")

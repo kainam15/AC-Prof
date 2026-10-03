@@ -4,10 +4,11 @@ import importlib
 import io
 import json
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
 from acprof.host.dependency_images import runtime_fingerprint
@@ -22,119 +23,108 @@ from acprof.runtime_profiles import RuntimeProfile
 from acprof.tui.settings import load_settings
 
 
-class CurrentContractTests(unittest.TestCase):
-    def test_retired_tui_imports_fail(self):
-        for suffix in ("core", "settings", "i18n", "input", "log", "scrollbar", "themes"):
-            with self.subTest(suffix=suffix), self.assertRaises(ModuleNotFoundError):
-                importlib.import_module("acprof.cli.tui_" + suffix)
+@pytest.mark.parametrize('suffix', ('core', 'settings', 'i18n', 'input', 'log', 'scrollbar', 'themes'))
+def test_retired_tui_imports_fail(suffix):
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("acprof.cli.tui_" + suffix)
 
-    def test_current_version_with_retired_settings_field_fails(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "tui.json"
-            path.write_text(json.dumps({"version": 4, "run_defaults": {"allow_cgroup_v1": False}}))
-            original = path.read_bytes()
-            with self.assertRaisesRegex(ValueError, "allow_cgroup_v1"):
-                load_settings(path, Path(temporary))
-            self.assertEqual(path.read_bytes(), original)
+def test_current_version_with_retired_settings_field_fails():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "tui.json"
+        path.write_text(json.dumps({"version": 4, "run_defaults": {"allow_cgroup_v1": False}}))
+        original = path.read_bytes()
+        with pytest.raises(ValueError, match="allow_cgroup_v1"):
+            load_settings(path, Path(temporary))
+        assert (path.read_bytes()) == (original)
 
-    def test_missing_baked_snapshot_does_not_fall_back_to_hub(self):
-        with self.assertRaisesRegex(FileNotFoundError, "snapshot"):
-            resolve_model_source("example/model", "/missing/acprof/model-snapshot")
+def test_missing_baked_snapshot_does_not_fall_back_to_hub():
+    with pytest.raises(FileNotFoundError, match="snapshot"):
+        resolve_model_source("example/model", "/missing/acprof/model-snapshot")
 
-    def test_retired_extension_routing_exports_fail_explicitly(self):
-        import importlib
-        retired = {
-            "acprof.config": ("DEFAULT_BACKEND", "LIBRARY_TO_BACKEND", "PIPELINE_TAG_TO_FAMILY", "ARCHITECTURE_TO_TASK"),
-            "acprof.runtime_profiles": ("MOSS_MODEL_ID", "MOSS_ADAPTER", "MOSS_PROMPT", "ARCHITECTURE_PROFILES", "MODEL_PROFILES"),
-        }
-        for module, names in retired.items():
-            for name in names:
-                with self.subTest(module=module, name=name), self.assertRaises(AttributeError):
-                    getattr(importlib.import_module(module), name)
-        from acprof.extensions import CATALOG
-        with self.assertRaises(AttributeError):
-            getattr(CATALOG, "default_backend")
+@pytest.mark.parametrize('module,name', [('acprof.config', 'DEFAULT_BACKEND'), ('acprof.config', 'LIBRARY_TO_BACKEND'), ('acprof.config', 'PIPELINE_TAG_TO_FAMILY'), ('acprof.config', 'ARCHITECTURE_TO_TASK'), ('acprof.runtime_profiles', 'MOSS_MODEL_ID'), ('acprof.runtime_profiles', 'MOSS_ADAPTER'), ('acprof.runtime_profiles', 'MOSS_PROMPT'), ('acprof.runtime_profiles', 'ARCHITECTURE_PROFILES'), ('acprof.runtime_profiles', 'MODEL_PROFILES')])
+def test_retired_extension_routing_exports_fail_explicitly(module, name):
+    import importlib
+    with pytest.raises(AttributeError):
+        getattr(importlib.import_module(module), name)
+    from acprof.extensions import CATALOG
+    with pytest.raises(AttributeError):
+        getattr(CATALOG, "default_backend")
 
-    def test_unknown_backend_does_not_choose_another_family_handler(self):
-        with patch.dict(HandlerRegistry._handlers, {"test:current": object()}, clear=True):
-            with self.assertRaisesRegex(ValueError, "backend"):
-                HandlerRegistry.get("test", "retired")
+def test_unknown_backend_does_not_choose_another_family_handler():
+    with patch.dict(HandlerRegistry._handlers, {"test:current": object()}, clear=True):
+        with pytest.raises(ValueError, match="backend"):
+            HandlerRegistry.get("test", "retired")
 
-    def test_old_ncu_counters_are_not_selected(self):
-        self.assertEqual(_select_ncu_flop_metrics(["flop_count_sp", "flop_count_dp"]), [])
+def test_old_ncu_counters_are_not_selected():
+    assert (_select_ncu_flop_metrics(["flop_count_sp", "flop_count_dp"])) == ([])
 
-    def test_failed_ncu_query_does_not_guess_a_metric_list(self):
-        failed = SimpleNamespace(returncode=1, stdout="", stderr="query unavailable")
-        with patch("acprof.host.profilers.ncu.run_command", return_value=failed):
-            metrics, error = _resolve_ncu_metrics("ncu")
-        self.assertEqual(metrics, [])
-        self.assertIn("query unavailable", error)
+def test_failed_ncu_query_does_not_guess_a_metric_list():
+    failed = SimpleNamespace(returncode=1, stdout="", stderr="query unavailable")
+    with patch("acprof.host.profilers.ncu.run_command", return_value=failed):
+        metrics, error = _resolve_ncu_metrics("ncu")
+    assert (metrics) == ([])
+    assert ("query unavailable") in (error)
 
-    def test_removed_cli_options_fail_during_argument_parsing(self):
-        for arguments in (["--no-compute-profile"], ["--compute-profile-tool", "auto"],
-                          ["--allow-cgroup-v1"]):
-            with self.subTest(arguments=arguments), contextlib.redirect_stderr(io.StringIO()):
-                with self.assertRaises(SystemExit) as caught:
-                    build_parser().parse_args(["--model", "example/model", *arguments])
-                self.assertEqual(caught.exception.code, 2)
+@pytest.mark.parametrize('arguments', (['--no-compute-profile'], ['--compute-profile-tool', 'auto'], ['--allow-cgroup-v1']))
+def test_removed_cli_options_fail_during_argument_parsing(arguments):
+    with contextlib.redirect_stderr(io.StringIO()):
+        with pytest.raises(SystemExit) as caught:
+            build_parser().parse_args(["--model", "example/model", *arguments])
+        assert (caught.value.code) == (2)
 
-    def test_old_settings_fail_without_overwriting_the_file(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            path = root / "tui.json"
-            for payload in ({}, {"version": 1}, {"version": 2}, {"version": 3}):
-                path.write_text(json.dumps(payload))
-                original = path.read_bytes()
-                with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, "version|版本"):
-                    load_settings(path, root)
-                self.assertEqual(path.read_bytes(), original)
+@pytest.mark.parametrize('payload', ({}, {'version': 1}, {'version': 2}, {'version': 3}))
+def test_old_settings_fail_without_overwriting_the_file(payload):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        path = root / "tui.json"
+        path.write_text(json.dumps(payload))
+        original = path.read_bytes()
+        with pytest.raises(ValueError, match="version|版本"):
+            load_settings(path, root)
+        assert (path.read_bytes()) == (original)
 
-    def test_old_input_plan_is_rejected_and_current_payload_is_preserved(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "input_scale_plan.json"
-            entry = {"input_scale": 1, "payload": {"text": "exact input"}, "input_metadata": {}}
-            for version in (None, 1, True, 99):
-                payload = {"entries": [entry]}
-                if version is not None:
-                    payload["schema_version"] = version
-                path.write_text(json.dumps(payload))
-                with self.subTest(version=version), self.assertRaisesRegex(ValueError, "schema_version"):
-                    load_input_scale_plan_entries(str(path))
-            path.write_text(json.dumps({"schema_version": 2, "entries": [entry]}))
-            self.assertEqual(load_input_scale_plan_entries(str(path))[0]["payload"], entry["payload"])
+@pytest.mark.parametrize('version', (None, 1, True, 99))
+def test_old_input_plan_is_rejected_and_current_payload_is_preserved(version):
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "input_scale_plan.json"
+        entry = {"input_scale": 1, "payload": {"text": "exact input"}, "input_metadata": {}}
+        payload = {"entries": [entry]}
+        if version is not None:
+            payload["schema_version"] = version
+        path.write_text(json.dumps(payload))
+        with pytest.raises(ValueError, match="schema_version"):
+            load_input_scale_plan_entries(str(path))
+        path.write_text(json.dumps({"schema_version": 2, "entries": [entry]}))
+        assert (load_input_scale_plan_entries(str(path))[0]["payload"]) == (entry["payload"])
 
-    def test_unlocked_runtime_is_rejected_before_building(self):
-        with self.assertRaisesRegex(ValueError, "锁|lock"):
-            runtime_fingerprint(RuntimeProfile("unlocked", "nlp"))
+def test_unlocked_runtime_is_rejected_before_building():
+    with pytest.raises(ValueError, match="锁|lock"):
+        runtime_fingerprint(RuntimeProfile("unlocked", "nlp"))
 
-    def test_unmanaged_image_cannot_skip_runtime_validation(self):
-        with patch("subprocess.run") as run, self.assertRaisesRegex(ValueError, "runtime_environment|运行环境"):
-            validate_runtime(task_info=None, image_info=SimpleNamespace(runtime_environment={}),
-                             planned=None, cpu_list=[1], mem_list=[4], gpu_list=["off"], output_dir="unused")
-        run.assert_not_called()
+def test_unmanaged_image_cannot_skip_runtime_validation():
+    with patch("subprocess.run") as run, pytest.raises(ValueError, match="runtime_environment|运行环境"):
+        validate_runtime(task_info=None, image_info=SimpleNamespace(runtime_environment={}),
+                         planned=None, cpu_list=[1], mem_list=[4], gpu_list=["off"], output_dir="unused")
+    run.assert_not_called()
 
-    def test_static_metadata_stand_in_is_rejected(self):
-        with self.assertRaises(TypeError):
-            enrich_static_meta_from_input_plan(object(), SimpleNamespace(workload={}, plan_sha256=""))
+def test_static_metadata_stand_in_is_rejected():
+    with pytest.raises(TypeError):
+        enrich_static_meta_from_input_plan(object(), SimpleNamespace(workload={}, plan_sha256=""))
 
-    def test_packet_flat_map_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "schema_version|schema v2"):
-            _request_records({"request-1": 0.25})
-        self.assertEqual(_request_records({"schema_version": 2, "requests": {
-            "request-1": {"latency_s": 0.25}}}), {"request-1": {"latency_s": 0.25}})
+def test_packet_flat_map_is_rejected():
+    with pytest.raises(ValueError, match="schema_version|schema v2"):
+        _request_records({"request-1": 0.25})
+    assert (_request_records({"schema_version": 2, "requests": {
+        "request-1": {"latency_s": 0.25}}})) == ({"request-1": {"latency_s": 0.25}})
 
-    def test_legacy_csv_fields_and_static_csv_fail_without_rewriting(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "result_all.csv"
-            original = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,status,warmup,energy_eff_j\n1,4,on,1,ok,0,2\n"
-            path.write_text(original)
-            with self.assertRaisesRegex(ValueError, "energy_eff_j"):
-                prepare_df(str(path))
-            self.assertEqual(path.read_text(), original)
-            (path.parent / "static_meta.csv").write_text("batch_size\n1\n")
-            with self.assertRaisesRegex(ValueError, "static_meta.csv"):
-                read_static_meta(str(path))
-
-
-if __name__ == "__main__":
-    unittest.main()
+def test_legacy_csv_fields_and_static_csv_fail_without_rewriting():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "result_all.csv"
+        original = "cpu_cores,mem_cap_gb,gpu_mode,input_scale,status,warmup,energy_eff_j\n1,4,on,1,ok,0,2\n"
+        path.write_text(original)
+        with pytest.raises(ValueError, match="energy_eff_j"):
+            prepare_df(str(path))
+        assert (path.read_text()) == (original)
+        (path.parent / "static_meta.csv").write_text("batch_size\n1\n")
+        with pytest.raises(ValueError, match="static_meta.csv"):
+            read_static_meta(str(path))

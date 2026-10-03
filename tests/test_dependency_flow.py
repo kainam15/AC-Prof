@@ -1,8 +1,8 @@
 """Static dependency planning must prove branches without executing model code."""
 import copy
-import unittest
 from unittest.mock import Mock
 
+import pytest
 import test_model_contract as fixture
 
 from acprof.host.detect import TaskInfo
@@ -11,7 +11,7 @@ from acprof.model_dependencies import resolve_dependencies
 from acprof.model_source_analysis import dependency_candidates
 
 
-class DependencyFlowTests(unittest.TestCase):
+class TestDependencyFlow:
     def analyze(self, source, *, config=None, sources=None, files=(), metadata=None):
         config = {**copy.deepcopy(fixture.CONFIG), **(config or {})}
         documents = {"pipeline.py": fixture.SOURCE + "\n" + source, **(sources or {})}
@@ -32,11 +32,10 @@ if config.audio_model_id is not None:
     AutoModel.from_pretrained(config.audio_model_id)
 AutoFeatureExtractor.from_pretrained(config.audio_model_id or config.audio_config._name_or_path)
 ''', config={"audio_model_id": None, "audio_config": {"_name_or_path": "example/audio"}})
-        self.assertEqual(report["status"], "resolved", report["fields"].get("dependencies"))
+        assert (report["status"]) == ("resolved"), report["fields"].get("dependencies")
         candidates = report["dependency_candidates"]
-        self.assertEqual([(c["role"], c["activation"]) for c in candidates],
-                         [("weights", "inactive"), ("processor", "active")])
-        self.assertEqual(report["draft_spec"]["dependencies"], [{"repo_id": "example/audio",
+        assert ([(c["role"], c["activation"]) for c in candidates]) == ([("weights", "inactive"), ("processor", "active")])
+        assert (report["draft_spec"]["dependencies"]) == ([{"repo_id": "example/audio",
             "revision": "b" * 40, "allow_patterns": ["config.json", "preprocessor_config.json"]}])
         lookup.assert_called_once_with("example/audio", "main")
 
@@ -49,9 +48,8 @@ else:
 if dynamic_training_mode():
     AutoModel.from_pretrained("example/potential")
 ''', config={"enabled": True})
-        self.assertEqual({c["repo_id"]: c["activation"] for c in report["dependency_candidates"]},
-                         {"example/active": "active", "example/inactive": "inactive", "example/potential": "unknown"})
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert ({c["repo_id"]: c["activation"] for c in report["dependency_candidates"]}) == ({"example/active": "active", "example/inactive": "inactive", "example/potential": "unknown"})
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_called_once_with("example/active", "main")
 
     def test_unknown_and_false_does_not_load_weights(self):
@@ -59,8 +57,8 @@ if dynamic_training_mode():
 if dynamic_training_mode() and config.audio_model_id is not None:
     AutoModel.from_pretrained("example/unused")
 ''', config={"audio_model_id": None})
-        self.assertEqual(report["status"], "resolved")
-        self.assertEqual(report["dependency_candidates"][0]["activation"], "inactive")
+        assert (report["status"]) == ("resolved")
+        assert (report["dependency_candidates"][0]["activation"]) == ("inactive")
         lookup.assert_not_called()
 
     def test_wrapper_arguments_and_keyword_only_revision_are_bound(self):
@@ -73,11 +71,11 @@ load_tokenizer(config.text_model_id, revision="{revision}")
         candidates = dependency_candidates(source, "helpers.py", {"text_model_id": "example/text"}, "example/main")
         lookup = Mock(return_value={"revision": revision, "files": ["tokenizer.json"]})
         deps, errors = resolve_dependencies(candidates, lookup)
-        self.assertFalse(errors, errors)
-        self.assertEqual(deps, [{"repo_id": "example/text", "revision": revision,
+        assert not (errors), errors
+        assert (deps) == ([{"repo_id": "example/text", "revision": revision,
                                  "allow_patterns": ["tokenizer.json"]}])
-        self.assertEqual(candidates[0]["activation"], "active")
-        self.assertGreaterEqual(len(candidates[0]["call_chain"]), 2)
+        assert (candidates[0]["activation"]) == ("active")
+        assert (len(candidates[0]["call_chain"])) >= (2)
 
     def test_relative_wrapper_star_args_keep_call_site_identity(self):
         report, lookup = self.analyze('''
@@ -87,7 +85,7 @@ load(config.text_model_id)
 def tokenizer(*args, **kwargs):
     return AutoTokenizer.from_pretrained(*args, **kwargs)
 '''})
-        self.assertEqual(report["status"], "resolved", report["fields"].get("dependencies"))
+        assert (report["status"]) == ("resolved"), report["fields"].get("dependencies")
         lookup.assert_called_once_with("example/text", "main")
 
     def test_wrapper_unknown_kwargs_do_not_discard_a_revision(self):
@@ -96,7 +94,7 @@ def tokenizer(*args, **kwargs):
     return AutoTokenizer.from_pretrained(*args, **kwargs)
 tokenizer("example/text", **dynamic_options())
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_declared_main_model_super_forwarding_is_not_a_dependency(self):
@@ -107,10 +105,10 @@ class ExampleModel(PreTrainedModel):
     def from_pretrained(cls, *args, **kwargs):
         return super().from_pretrained(*args, **kwargs)
 '''})
-        self.assertEqual(report["status"], "resolved", report["fields"].get("dependencies"))
+        assert (report["status"]) == ("resolved"), report["fields"].get("dependencies")
         main = [c for c in report["dependency_candidates"] if c.get("dependency_kind") == "main_model"]
-        self.assertEqual(len(main), 1)
-        self.assertEqual(main[0]["repo_id"], "example/main")
+        assert (len(main)) == (1)
+        assert (main[0]["repo_id"]) == ("example/main")
         lookup.assert_not_called()
 
     def test_unrelated_super_forwarding_is_not_mistaken_for_main_model(self):
@@ -120,29 +118,24 @@ class OtherLoader:
         return super().from_pretrained(*args, **kwargs)
 OtherLoader().from_pretrained("example/other")
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
-    def test_primary_tokenizer_files_deactivate_only_its_fallback(self):
+    @pytest.mark.parametrize('files,metadata,inactive', ((('tokenizer.json', 'tokenizer_config.json'), {'tokenizer_config.json': {'tokenizer_class': 'PreTrainedTokenizerFast'}}, True), (('tokenizer_config.json',), {'tokenizer_config.json': {'tokenizer_class': 'PreTrainedTokenizerFast'}}, False), (('tokenizer.json', 'tokenizer_config.json'), {'tokenizer_config.json': {'auto_map': {'AutoTokenizer': ['custom.Tokenizer', None]}}}, False)))
+    def test_primary_tokenizer_files_deactivate_only_its_fallback(self, files, metadata, inactive):
         source = '''
 try:
     tokenizer = AutoTokenizer.from_pretrained(config._name_or_path)
 except Exception:
     tokenizer = AutoTokenizer.from_pretrained("example/fallback")
 '''
-        for files, metadata, inactive in (
-            (("tokenizer.json", "tokenizer_config.json"), {"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}}, True),
-            (("tokenizer_config.json",), {"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}}, False),
-            (("tokenizer.json", "tokenizer_config.json"), {"tokenizer_config.json": {"auto_map": {"AutoTokenizer": ["custom.Tokenizer", None]}}}, False),
-        ):
-            with self.subTest(files=files, metadata=metadata):
-                report, lookup = self.analyze(source, files=files, metadata=metadata,
-                                             sources={"custom.py": "class Tokenizer:\n    pass\n"})
-                fallback = next(c for c in report["dependency_candidates"] if c["repo_id"] == "example/fallback")
-                self.assertEqual(fallback["activation"], "inactive" if inactive else "unknown")
-                self.assertEqual(fallback["alternative"]["branch"], "fallback")
-                self.assertEqual(report["status"], "resolved" if inactive else "needs_confirmation")
-                lookup.assert_not_called()
+        report, lookup = self.analyze(source, files=files, metadata=metadata,
+                                     sources={"custom.py": "class Tokenizer:\n    pass\n"})
+        fallback = next(c for c in report["dependency_candidates"] if c["repo_id"] == "example/fallback")
+        assert (fallback["activation"]) == ("inactive" if inactive else "unknown")
+        assert (fallback["alternative"]["branch"]) == ("fallback")
+        assert (report["status"]) == ("resolved" if inactive else "needs_confirmation")
+        lookup.assert_not_called()
 
     def test_additional_fallible_statement_keeps_fallback_unknown(self):
         report, lookup = self.analyze('''
@@ -153,7 +146,7 @@ except Exception:
     tokenizer = AutoTokenizer.from_pretrained("example/fallback")
 ''', files=("tokenizer.json", "tokenizer_config.json"),
             metadata={"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}})
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_transparent_wrapper_preserves_primary_fallback_proof(self):
@@ -166,31 +159,16 @@ except Exception:
     result = tokenizer("example/fallback")
 ''', files=("tokenizer.json", "tokenizer_config.json"),
             metadata={"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}})
-        self.assertEqual(report["status"], "resolved", report["fields"].get("dependencies"))
-        self.assertEqual(next(c for c in report["dependency_candidates"] if c["repo_id"] == "example/fallback")["activation"], "inactive")
+        assert (report["status"]) == ("resolved"), report["fields"].get("dependencies")
+        assert (next(c for c in report["dependency_candidates"] if c["repo_id"] == "example/fallback")["activation"]) == ("inactive")
         lookup.assert_not_called()
 
-    def test_primary_dynamic_keyword_or_wrapper_side_effect_keeps_fallback_unknown(self):
-        for source in ('''
-try:
-    result = AutoTokenizer.from_pretrained(config._name_or_path, local_files_only=dynamic_option())
-except Exception:
-    result = AutoTokenizer.from_pretrained("example/fallback")
-''', '''
-def tokenizer(repo):
-    result = AutoTokenizer.from_pretrained(repo)
-    result.add_special_tokens(dynamic_options())
-    return result
-try:
-    result = tokenizer(config._name_or_path)
-except Exception:
-    result = tokenizer("example/fallback")
-'''):
-            with self.subTest(source=source):
-                report, lookup = self.analyze(source, files=("tokenizer.json", "tokenizer_config.json"),
-                    metadata={"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}})
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+    @pytest.mark.parametrize('source', ('\ntry:\n    result = AutoTokenizer.from_pretrained(config._name_or_path, local_files_only=dynamic_option())\nexcept Exception:\n    result = AutoTokenizer.from_pretrained("example/fallback")\n', '\ndef tokenizer(repo):\n    result = AutoTokenizer.from_pretrained(repo)\n    result.add_special_tokens(dynamic_options())\n    return result\ntry:\n    result = tokenizer(config._name_or_path)\nexcept Exception:\n    result = tokenizer("example/fallback")\n'))
+    def test_primary_dynamic_keyword_or_wrapper_side_effect_keeps_fallback_unknown(self, source):
+        report, lookup = self.analyze(source, files=("tokenizer.json", "tokenizer_config.json"),
+            metadata={"tokenizer_config.json": {"tokenizer_class": "PreTrainedTokenizerFast"}})
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_known_config_can_be_invalidated_by_assignment(self):
         report, lookup = self.analyze('''
@@ -198,7 +176,7 @@ config.audio_model_id = dynamic_repo()
 if config.audio_model_id is not None:
     AutoModel.from_pretrained(config.audio_model_id)
 ''', config={"audio_model_id": None})
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_recursive_wrapper_stays_unresolved_without_execution(self):
@@ -207,20 +185,19 @@ def recursive(repo):
     return recursive(repo)
 recursive("example/text")
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_short_circuit_loader_is_not_lost_after_unknown_value(self):
         report, lookup = self.analyze('tokenizer = existing_tokenizer() or AutoTokenizer.from_pretrained("example/maybe")')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
-    def test_decorated_and_async_wrappers_cannot_prove_downloads(self):
-        for header in ('@dynamic_decorator\ndef load(repo):', 'async def load(repo):'):
-            with self.subTest(header=header):
-                report, lookup = self.analyze(header + '\n    return AutoTokenizer.from_pretrained(repo)\nload("example/text")')
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+    @pytest.mark.parametrize('header', ('@dynamic_decorator\ndef load(repo):', 'async def load(repo):'))
+    def test_decorated_and_async_wrappers_cannot_prove_downloads(self, header):
+        report, lookup = self.analyze(header + '\n    return AutoTokenizer.from_pretrained(repo)\nload("example/text")')
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_unknown_keyword_binding_cannot_use_default_repository(self):
         report, lookup = self.analyze('''
@@ -228,16 +205,14 @@ def load(repo="example/default"):
     return AutoTokenizer.from_pretrained(repo)
 load(**dynamic_options())
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
-    def test_unknown_loop_or_match_cannot_prove_following_repository(self):
-        for statement in ('for item in dynamic_items():\n    repo = "example/text"',
-                          'match dynamic_mode():\n    case "train":\n        repo = "example/text"'):
-            with self.subTest(statement=statement):
-                report, lookup = self.analyze('repo = None\n' + statement + '\nAutoTokenizer.from_pretrained(repo)')
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+    @pytest.mark.parametrize('statement', ('for item in dynamic_items():\n    repo = "example/text"', 'match dynamic_mode():\n    case "train":\n        repo = "example/text"'))
+    def test_unknown_loop_or_match_cannot_prove_following_repository(self, statement):
+        report, lookup = self.analyze('repo = None\n' + statement + '\nAutoTokenizer.from_pretrained(repo)')
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_mutation_through_helper_cannot_leave_stale_config_proof(self):
         report, lookup = self.analyze('''
@@ -248,29 +223,25 @@ change(config)
 if config.audio_model_id is not None:
     AutoModel.from_pretrained(config.audio_model_id)
 ''', config={"audio_model_id": None})
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
-    def test_loader_name_and_main_repository_do_not_bypass_unknown_loader(self):
-        for source in ('from unrelated import AutoTokenizer\nAutoTokenizer.from_pretrained("example/text")',
-                       'AutoTokenizer = dynamic_loader()\nAutoTokenizer.from_pretrained("example/text")',
-                       'CustomLoader.from_pretrained(config._name_or_path)',
-                       'AutoTokenizer.from_pretrained(config._name_or_path, **dynamic_options())'):
-            with self.subTest(source=source):
-                report, lookup = self.analyze(source)
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+    @pytest.mark.parametrize('source', ('from unrelated import AutoTokenizer\nAutoTokenizer.from_pretrained("example/text")', 'AutoTokenizer = dynamic_loader()\nAutoTokenizer.from_pretrained("example/text")', 'CustomLoader.from_pretrained(config._name_or_path)', 'AutoTokenizer.from_pretrained(config._name_or_path, **dynamic_options())'))
+    def test_loader_name_and_main_repository_do_not_bypass_unknown_loader(self, source):
+        report, lookup = self.analyze(source)
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_main_repository_with_different_revision_is_external(self):
         report, lookup = self.analyze('AutoTokenizer.from_pretrained(config._name_or_path, revision="release")')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_dict_comprehension_cannot_hide_a_loader(self):
         report, lookup = self.analyze('''
 options = {key: AutoModel.from_pretrained("example/base") for key in items() if key in ["dtype"]}
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
 
     def test_unknown_weights_and_active_processor_in_same_repo_stay_separate(self):
@@ -279,9 +250,8 @@ if dynamic_training_mode():
     AutoModel.from_pretrained("example/shared")
 AutoFeatureExtractor.from_pretrained("example/shared")
 ''')
-        self.assertEqual(report["status"], "needs_confirmation")
-        self.assertEqual(report["draft_spec"]["dependencies"][0]["allow_patterns"],
-                         ["config.json", "preprocessor_config.json"])
+        assert (report["status"]) == ("needs_confirmation")
+        assert (report["draft_spec"]["dependencies"][0]["allow_patterns"]) == (["config.json", "preprocessor_config.json"])
         lookup.assert_called_once_with("example/shared", "main")
 
     def test_transformers_phases_keep_training_unknown_and_load_configured_backbone(self):
@@ -306,20 +276,16 @@ class CompositeModel(transformers.PreTrainedModel):
     def from_pretrained(cls, *args, **kwargs):
         return super().from_pretrained(*args, **kwargs)
 '''})
-        self.assertEqual(report["status"], "resolved", report["fields"].get("dependencies"))
+        assert (report["status"]) == ("resolved"), report["fields"].get("dependencies")
         states = {c["activation"] for c in report["dependency_candidates"] if c["repo_id"] == "example/text"}
-        self.assertEqual(states, {"active", "inactive"})
-        self.assertIn("model.safetensors", report["draft_spec"]["dependencies"][0]["allow_patterns"])
+        assert (states) == ({"active", "inactive"})
+        assert ("model.safetensors") in (report["draft_spec"]["dependencies"][0]["allow_patterns"])
         lookup.assert_called_once_with("example/text", "main")
 
-    def test_custom_initialization_dispatch_cannot_be_bypassed(self):
-        for method, body in (
-            ("_initialize_weights", 'if dynamic_training_mode():\n            self._init_weights(module)'),
-            ("initialize_weights", 'if dynamic_training_mode():\n            self._init_weights(self)'),
-        ):
-            with self.subTest(method=method):
-                report, lookup = self.analyze('', config={"auto_map": {"AutoModel": "model.CompositeModel"}},
-                    sources={"model.py": f'''
+    @pytest.mark.parametrize('method,body', (('_initialize_weights', 'if dynamic_training_mode():\n            self._init_weights(module)'), ('initialize_weights', 'if dynamic_training_mode():\n            self._init_weights(self)')))
+    def test_custom_initialization_dispatch_cannot_be_bypassed(self, method, body):
+        report, lookup = self.analyze('', config={"auto_map": {"AutoModel": "model.CompositeModel"}},
+            sources={"model.py": f'''
 import transformers
 class CompositeModel(transformers.PreTrainedModel):
     def {method}(self, module=None):
@@ -327,28 +293,27 @@ class CompositeModel(transformers.PreTrainedModel):
     def _init_weights(self, module):
         AutoModel.from_pretrained("example/potential")
 '''})
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_boolean_numeric_equality_obeys_python_config_semantics(self):
         report, lookup = self.analyze('''
 if config.enabled == 1:
     AutoTokenizer.from_pretrained("example/text")
 ''', config={"enabled": True})
-        self.assertEqual(report["status"], "resolved")
+        assert (report["status"]) == ("resolved")
         lookup.assert_called_once_with("example/text", "main")
 
-    def test_kwargs_mutation_does_not_hide_an_unknown_revision(self):
-        for mutation in ('kwargs.update(dynamic_options())', 'kwargs.update({"revision": "release"})'):
-            with self.subTest(mutation=mutation):
-                report, lookup = self.analyze(f'''
+    @pytest.mark.parametrize('mutation', ('kwargs.update(dynamic_options())', 'kwargs.update({"revision": "release"})'))
+    def test_kwargs_mutation_does_not_hide_an_unknown_revision(self, mutation):
+        report, lookup = self.analyze(f'''
 def load(repo, **kwargs):
     {mutation}
     return AutoTokenizer.from_pretrained(repo, **kwargs)
 load("example/text")
 ''')
-                self.assertEqual(report["status"], "needs_confirmation")
-                lookup.assert_not_called()
+        assert (report["status"]) == ("needs_confirmation")
+        lookup.assert_not_called()
 
     def test_decorated_model_class_cannot_prove_its_loading_context(self):
         report, lookup = self.analyze('', config={"auto_map": {"AutoModel": "model.CompositeModel"}}, sources={"model.py": '''
@@ -358,9 +323,5 @@ class CompositeModel(transformers.PreTrainedModel):
     def __init__(self, config):
         AutoModel.from_pretrained("example/potential")
 '''})
-        self.assertEqual(report["status"], "needs_confirmation")
+        assert (report["status"]) == ("needs_confirmation")
         lookup.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

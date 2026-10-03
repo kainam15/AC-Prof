@@ -1,21 +1,25 @@
 """Controlled async backend: protocol evidence, not a GPU benchmark."""
 import os
 import types
-import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
+from functools import partial
 from importlib import import_module
 from threading import Event
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container.handlers import BaseHandler
 from acprof.container.runtime_validate import validate
 
 
-class RequestCompletionTests(unittest.TestCase):
-    def setUp(self):
+class TestRequestCompletion:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         self.contexts = ExitStack()
-        self.addCleanup(self.contexts.close)
+        self._request.addfinalizer(partial(self.contexts.close))
 
     def setup_backend(self, future, events, entered):
         class AsyncHandler(BaseHandler):
@@ -71,41 +75,37 @@ class RequestCompletionTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             request = executor.submit(self.run_request)
             try:
-                self.assertTrue(entered.wait(1), 'execution completion hook was not called')
-                self.assertFalse(request.done())
-                self.assertEqual(events, ['submitted'])
+                assert (entered.wait(1)), 'execution completion hook was not called'
+                assert not (request.done())
+                assert (events) == (['submitted'])
             finally:
                 future.set_result([[3.]])
-            self.assertEqual(request.result(timeout=2)['status'], 'ok')
-        self.assertEqual(events, ['submitted', 'completed', 'postprocessed', 'validated'])
+            assert (request.result(timeout=2)['status']) == ('ok')
+        assert (events) == (['submitted', 'completed', 'postprocessed', 'validated'])
 
     def test_background_exception_is_not_converted_to_success(self):
         future, events = Future(), []
         future.set_exception(RuntimeError('background inference failed'))
         self.setup_backend(future, events, Event())
-        with self.assertRaisesRegex(RuntimeError, 'background inference failed'):
+        with pytest.raises(RuntimeError, match='background inference failed'):
             self.run_request()
-        self.assertEqual(events, ['submitted'])
+        assert (events) == (['submitted'])
 
     def test_timeout_never_reaches_output_validation(self):
         events = []
         self.setup_backend(Future(), events, Event())
-        with self.assertRaises(TimeoutError):
+        with pytest.raises(TimeoutError):
             self.run_request()
-        self.assertEqual(events, ['submitted'])
+        assert (events) == (['submitted'])
 
-    def test_undeclared_or_unresolved_async_output_is_rejected(self):
+    @pytest.mark.parametrize('runtime_case', range(2), ids=['types.SimpleNamespace()', 'types.SimpleNamespace(wait_for_completion=lambda context, output, **kwargs: outp'])
+    def test_undeclared_or_unresolved_async_output_is_rejected(self, runtime_case):
         from acprof.container.execution import complete_prediction
-        for runtime in (types.SimpleNamespace(), types.SimpleNamespace(
-                wait_for_completion=lambda context, output, **kwargs: output)):
-            with self.subTest(runtime=runtime), self.assertRaisesRegex(TypeError, 'wait_for_completion'):
-                complete_prediction(runtime, {}, Future())
+        runtime = tuple((types.SimpleNamespace(), types.SimpleNamespace(wait_for_completion=lambda context, output, **kwargs: output)))[runtime_case]
+        with pytest.raises(TypeError, match='wait_for_completion'):
+            complete_prediction(runtime, {}, Future())
 
     def test_synchronous_existing_runtime_keeps_raw_output(self):
         from acprof.container.execution import complete_prediction
         output = [[3.]]
-        self.assertIs(complete_prediction(types.SimpleNamespace(), {}, output), output)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        assert (complete_prediction(types.SimpleNamespace(), {}, output)) is (output)

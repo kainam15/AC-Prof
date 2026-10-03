@@ -3,16 +3,17 @@ import hashlib
 import json
 import os
 import tempfile
-import unittest
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from scripts import measure_overhead
 
 
-class OverheadEntrypointTests(unittest.TestCase):
+class TestOverheadEntrypoint:
     def run_case(self, fail=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)
@@ -40,9 +41,9 @@ class OverheadEntrypointTests(unittest.TestCase):
             session = SimpleNamespace(name="owned", base_url="http://fixture.invalid",
                                       gpu_device={"uuid": "GPU-recorded", "index": 3})
             def launch(*_args, **kwargs):
-                self.assertEqual(kwargs, {"cpuset_cpus": "1-2", "request_timeout_seconds": 17})
-                self.assertEqual(os.environ["ACPROF_GPU_DEVICE"], "GPU-recorded")
-                self.assertEqual(os.environ["ACPROF_RUNTIME_THREADS"], "2")
+                assert (kwargs) == ({"cpuset_cpus": "1-2", "request_timeout_seconds": 17})
+                assert (os.environ["ACPROF_GPU_DEVICE"]) == ("GPU-recorded")
+                assert (os.environ["ACPROF_RUNTIME_THREADS"]) == ("2")
                 return session
             start = stack.enter_context(patch("acprof.host.docker_runtime.start_container_session", side_effect=launch))
             stop = stack.enter_context(patch("acprof.host.docker_runtime.stop_container_session"))
@@ -58,21 +59,21 @@ class OverheadEntrypointTests(unittest.TestCase):
             arguments = [str(source), "--gpu", "on", "--rounds", "3", "--requests", "2", "--modes", "none,basic",
                          "--sample-hz", "20", "--output-dir", str(output)]
             if fail:
-                with self.assertRaisesRegex(RuntimeError, "fixture request failure"):
+                with pytest.raises(RuntimeError, match="fixture request failure"):
                     measure_overhead.main(arguments)
             else:
-                self.assertEqual(measure_overhead.main(arguments), 0)
+                assert (measure_overhead.main(arguments)) == (0)
             start.assert_called_once()
             stop.assert_called_once_with(session, "[overhead]")
             query.assert_called_once_with("GPU-recorded")
-            self.assertEqual(post.call_args.kwargs["timeout"], 17)
-            self.assertEqual(os.environ["ACPROF_GPU_DEVICE"], "GPU-caller")
+            assert (post.call_args.kwargs["timeout"]) == (17)
+            assert (os.environ["ACPROF_GPU_DEVICE"]) == ("GPU-caller")
             report = json.loads((output / "overhead.json").read_text())
-            self.assertEqual(report["successful"], not fail)
-            self.assertEqual(report["cpuset_cpus"], "1-2")
-            self.assertEqual(report["gpu_device_uuid"], "GPU-recorded")
+            assert (report["successful"]) == (not fail)
+            assert (report["cpuset_cpus"]) == ("1-2")
+            assert (report["gpu_device_uuid"]) == ("GPU-recorded")
             if not fail:
-                self.assertEqual(len(report["rounds"]), 6)
+                assert (len(report["rounds"])) == (6)
 
     def test_entrypoint_restores_constraints_and_saves_successful_report(self):
         self.run_case()

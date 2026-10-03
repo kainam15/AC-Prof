@@ -3,7 +3,6 @@ import io
 import json
 import os
 import tempfile
-import unittest
 from contextlib import ExitStack, nullcontext, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +11,7 @@ from unittest.mock import Mock, patch
 from acprof.container import runtime_validate
 
 
-class ValidationStageTests(unittest.TestCase):
+class TestValidationStage:
     def fixtures(self, stack, *, failed=None):
         handler = Mock()
         handler.load.return_value = {}
@@ -37,10 +36,9 @@ class ValidationStageTests(unittest.TestCase):
         with ExitStack() as stack:
             self.fixtures(stack)
             result = runtime_validate.validate({"text": "hello"})
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual([item["stage"] for item in result["stages"]],
-                         ["execution", "load", "preprocess", "predict", "completion", "postprocess", "validate_output", "metadata"])
-        self.assertTrue(all(item["status"] == "verified" for item in result["stages"]))
+        assert (result["status"]) == ("ok")
+        assert ([item["stage"] for item in result["stages"]]) == (["execution", "load", "preprocess", "predict", "completion", "postprocess", "validate_output", "metadata"])
+        assert (all(item["status"] == "verified" for item in result["stages"]))
 
     def test_preprocess_failure_is_reported_without_running_prediction(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -51,12 +49,12 @@ class ValidationStageTests(unittest.TestCase):
             output = io.StringIO()
             stack.enter_context(redirect_stdout(output))
             stack.enter_context(patch("acprof.container.runtime_validate.traceback.print_exc"))
-            self.assertEqual(runtime_validate.main(), 1)
+            assert (runtime_validate.main()) == (1)
             record = json.loads(output.getvalue().split(runtime_validate.RESULT_PREFIX)[1])
             handler.predict.assert_not_called()
-        self.assertEqual(record["failed_stage"], "preprocess")
-        self.assertEqual(record["stages"][-1]["status"], "error")
-        self.assertIn("ValueError: bad input contract", record["error"])
+        assert (record["failed_stage"]) == ("preprocess")
+        assert (record["stages"][-1]["status"]) == ("error")
+        assert ("ValueError: bad input contract") in (record["error"])
 
     def test_completion_timeout_records_actual_request_budget(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -68,14 +66,10 @@ class ValidationStageTests(unittest.TestCase):
             stack.enter_context(patch("acprof.container.execution.complete_prediction", side_effect=TimeoutError("fixture timeout")))
             stack.enter_context(patch("acprof.container.runtime_validate.traceback.print_exc"))
             output = stack.enter_context(redirect_stdout(io.StringIO()))
-            self.assertEqual(runtime_validate.main(), 1)
+            assert (runtime_validate.main()) == (1)
             record = json.loads(output.getvalue().split(runtime_validate.RESULT_PREFIX)[1])
             handler.postprocess.assert_not_called()
-        self.assertEqual(record["failure"]["reason_code"], "request_timeout")
-        self.assertEqual(record["failure"]["evidence"]["timeout_seconds"], 2.5)
-        self.assertEqual(record["failure"]["evidence"]["request_phase"], "completion")
-        self.assertIs(record["failure"]["evidence"]["model_loaded"], True)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (record["failure"]["reason_code"]) == ("request_timeout")
+        assert (record["failure"]["evidence"]["timeout_seconds"]) == (2.5)
+        assert (record["failure"]["evidence"]["request_phase"]) == ("completion")
+        assert (record["failure"]["evidence"]["model_loaded"]) is (True)

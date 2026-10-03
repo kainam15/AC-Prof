@@ -1,9 +1,11 @@
 import json
 import os
 import tempfile
-import unittest
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+import pytest
 
 from acprof.host import execution_profile, profiler_support
 from acprof.host.detect import TaskInfo
@@ -69,46 +71,48 @@ heap_tree=peak
 """
 
 
-class ExecutionProfileTests(unittest.TestCase):
-    def setUp(self):
+class TestExecutionProfile:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={'uuid': 'GPU-fixture'})
         selection.start()
-        self.addCleanup(selection.stop)
+        self._request.addfinalizer(partial(selection.stop))
 
-    def test_current_input_plan_reuses_the_exact_payload(self) -> None:
+    @pytest.mark.parametrize('schema_version', (2,))
+    def test_current_input_plan_reuses_the_exact_payload(self, schema_version) -> None:
         payload = {
             "audio_base64": "UklGRg==",
             "audio_format": "wav",
             "sample_rate": 16000,
             "params": {"asr_task": "transcribe"},
         }
-        for schema_version in (2,):
-            with self.subTest(schema_version=schema_version), tempfile.TemporaryDirectory() as tmp:
-                path = os.path.join(tmp, "input_scale_plan.json")
-                plan = {"schema_version": 2,
-                    "entries": [
-                        {
-                            "input_scale": 1.0,
-                            "scale_label": "dur1s",
-                            "payload": payload,
-                        }
-                    ]
-                }
-                if schema_version == 2:
-                    plan.update({
-                        "schema_version": 2,
-                        "workload": {"workload_id": "fixture"},
-                        "model_constraints": {"max_short_form_duration_s": 30},
-                    })
-                    plan["entries"][0]["input_metadata"] = {
-                        "input_num_samples": 16000
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "input_scale_plan.json")
+            plan = {"schema_version": 2,
+                "entries": [
+                    {
+                        "input_scale": 1.0,
+                        "scale_label": "dur1s",
+                        "payload": payload,
                     }
-                with open(path, "w", encoding="utf-8") as plan_file:
-                    json.dump(plan, plan_file)
+                ]
+            }
+            if schema_version == 2:
+                plan.update({
+                    "schema_version": 2,
+                    "workload": {"workload_id": "fixture"},
+                    "model_constraints": {"max_short_form_duration_s": 30},
+                })
+                plan["entries"][0]["input_metadata"] = {
+                    "input_num_samples": 16000
+                }
+            with open(path, "w", encoding="utf-8") as plan_file:
+                json.dump(plan, plan_file)
 
-                entries = execution_profile.load_input_scale_plan_entries(path)
+            entries = execution_profile.load_input_scale_plan_entries(path)
 
-                self.assertEqual(entries[0]["payload"], payload)
+            assert (entries[0]["payload"]) == (payload)
 
     def test_parse_massif_native_snapshots_uses_independent_and_total_peaks(
         self,
@@ -148,11 +152,11 @@ heap_tree=peak
                 report_file.write(report)
             parsed = execution_parsers.parse_massif_output(report_path)
 
-        self.assertEqual(parsed["cpu_heap_peak_bytes_massif"], 150)
-        self.assertEqual(parsed["cpu_heap_extra_peak_bytes_massif"], 90)
-        self.assertEqual(parsed["cpu_stack_peak_bytes_massif"], 100)
-        self.assertEqual(parsed["cpu_heap_peak_total_bytes_massif"], 250)
-        self.assertEqual(parsed["cpu_heap_peak_at_ms_massif"], 3)
+        assert (parsed["cpu_heap_peak_bytes_massif"]) == (150)
+        assert (parsed["cpu_heap_extra_peak_bytes_massif"]) == (90)
+        assert (parsed["cpu_stack_peak_bytes_massif"]) == (100)
+        assert (parsed["cpu_heap_peak_total_bytes_massif"]) == (250)
+        assert (parsed["cpu_heap_peak_at_ms_massif"]) == (3)
 
     def test_parse_nsys_reports_normalizes_units_repeat_and_memcpy_only(
         self,
@@ -192,34 +196,13 @@ heap_tree=peak
             repeat=2,
         )
 
-        self.assertAlmostEqual(
-            parsed["cuda_api_time_sum_ms_per_request_nsys"],
-            0.75,
-        )
-        self.assertAlmostEqual(
-            parsed["cuda_api_call_count_per_request_nsys"],
-            2.0,
-        )
-        self.assertAlmostEqual(
-            parsed["gpu_kernel_time_sum_ms_per_request_nsys"],
-            2.0,
-        )
-        self.assertAlmostEqual(
-            parsed["gpu_kernel_launch_count_per_request_nsys"],
-            2.0,
-        )
-        self.assertAlmostEqual(
-            parsed["gpu_memcpy_time_sum_ms_per_request_nsys"],
-            3.0,
-        )
-        self.assertAlmostEqual(
-            parsed["gpu_memcpy_count_per_request_nsys"],
-            2.0,
-        )
-        self.assertAlmostEqual(
-            parsed["gpu_memcpy_bytes_per_request_nsys"],
-            1024.0,
-        )
+        assert (parsed["cuda_api_time_sum_ms_per_request_nsys"]) == (0.75) or round(abs((parsed["cuda_api_time_sum_ms_per_request_nsys"]) - (0.75)), 7) == 0
+        assert (parsed["cuda_api_call_count_per_request_nsys"]) == (2.0) or round(abs((parsed["cuda_api_call_count_per_request_nsys"]) - (2.0)), 7) == 0
+        assert (parsed["gpu_kernel_time_sum_ms_per_request_nsys"]) == (2.0) or round(abs((parsed["gpu_kernel_time_sum_ms_per_request_nsys"]) - (2.0)), 7) == 0
+        assert (parsed["gpu_kernel_launch_count_per_request_nsys"]) == (2.0) or round(abs((parsed["gpu_kernel_launch_count_per_request_nsys"]) - (2.0)), 7) == 0
+        assert (parsed["gpu_memcpy_time_sum_ms_per_request_nsys"]) == (3.0) or round(abs((parsed["gpu_memcpy_time_sum_ms_per_request_nsys"]) - (3.0)), 7) == 0
+        assert (parsed["gpu_memcpy_count_per_request_nsys"]) == (2.0) or round(abs((parsed["gpu_memcpy_count_per_request_nsys"]) - (2.0)), 7) == 0
+        assert (parsed["gpu_memcpy_bytes_per_request_nsys"]) == (1024.0) or round(abs((parsed["gpu_memcpy_bytes_per_request_nsys"]) - (1024.0)), 7) == 0
 
     def test_run_nsys_stats_requests_csv_and_discards_sqlite_cache(
         self,
@@ -243,19 +226,19 @@ heap_tree=peak
                     "/opt/nsight/bin/nsys",
                     report_path,
                 )
-            self.assertFalse(os.path.exists(sqlite_path))
+            assert not (os.path.exists(sqlite_path))
 
-        self.assertEqual(set(outputs), set(execution_parsers.NSYS_REPORTS))
-        self.assertEqual(len(commands), len(execution_parsers.NSYS_REPORTS))
+        assert (set(outputs)) == (set(execution_parsers.NSYS_REPORTS))
+        assert (len(commands)) == (len(execution_parsers.NSYS_REPORTS))
         for command in commands:
-            self.assertEqual(command[command.index("--format") + 1], "csv")
-            self.assertEqual(command[command.index("--timeunit") + 1], "nsec")
-            self.assertEqual(command[command.index("--output") + 1], "-")
-        self.assertIn("--force-export=true", commands[0])
-        self.assertEqual(commands[0][-1], report_path)
+            assert (command[command.index("--format") + 1]) == ("csv")
+            assert (command[command.index("--timeunit") + 1]) == ("nsec")
+            assert (command[command.index("--output") + 1]) == ("-")
+        assert ("--force-export=true") in (commands[0])
+        assert (commands[0][-1]) == (report_path)
         for command in commands[1:]:
-            self.assertNotIn("--force-export=true", command)
-            self.assertEqual(command[-1], sqlite_path)
+            assert ("--force-export=true") not in (command)
+            assert (command[-1]) == (sqlite_path)
 
     def test_run_nsys_stats_discards_sqlite_cache_after_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -274,13 +257,13 @@ heap_tree=peak
             with patch(
                 "acprof.host.profilers.nsys.run_command",
                 side_effect=fake_run,
-            ), self.assertRaisesRegex(RuntimeError, "nsys_stats_failed"):
+            ), pytest.raises(RuntimeError, match="nsys_stats_failed"):
                 nsys._run_nsys_stats(
                     "/opt/nsight/bin/nsys",
                     report_path,
                 )
 
-            self.assertFalse(os.path.exists(sqlite_path))
+            assert not (os.path.exists(sqlite_path))
 
     def test_nsys_no_memops_keeps_api_and_kernel_metrics(self) -> None:
         reports = {
@@ -305,26 +288,11 @@ heap_tree=peak
             repeat=2,
         )
 
-        self.assertEqual(
-            parsed["cuda_api_time_sum_ms_per_request_nsys"],
-            0.5,
-        )
-        self.assertEqual(
-            parsed["gpu_kernel_time_sum_ms_per_request_nsys"],
-            0.25,
-        )
-        self.assertEqual(
-            parsed["gpu_memcpy_time_sum_ms_per_request_nsys"],
-            0.0,
-        )
-        self.assertEqual(
-            parsed["gpu_memcpy_count_per_request_nsys"],
-            0.0,
-        )
-        self.assertEqual(
-            parsed["gpu_memcpy_bytes_per_request_nsys"],
-            0.0,
-        )
+        assert (parsed["cuda_api_time_sum_ms_per_request_nsys"]) == (0.5)
+        assert (parsed["gpu_kernel_time_sum_ms_per_request_nsys"]) == (0.25)
+        assert (parsed["gpu_memcpy_time_sum_ms_per_request_nsys"]) == (0.0)
+        assert (parsed["gpu_memcpy_count_per_request_nsys"]) == (0.0)
+        assert (parsed["gpu_memcpy_bytes_per_request_nsys"]) == (0.0)
 
     def test_nsys_discovery_recurses_and_mounts_whole_version_directory(
         self,
@@ -346,11 +314,8 @@ heap_tree=peak
                 os.path.join(tmp, "nsight-systems")
             )
 
-        self.assertEqual(discovered, os.path.realpath(nsys_bin))
-        self.assertEqual(
-            execution_profile.find_nsys_mount_root(discovered),
-            os.path.realpath(version_root),
-        )
+        assert (discovered) == (os.path.realpath(nsys_bin))
+        assert (execution_profile.find_nsys_mount_root(discovered)) == (os.path.realpath(version_root))
 
     def test_nsys_container_runtime_preflight_runs_importer(self) -> None:
         commands = []
@@ -381,10 +346,10 @@ heap_tree=peak
                     )
                 )
 
-        self.assertEqual(version, "NVIDIA Nsight Systems test importer")
-        self.assertEqual(commands[0][0:3], ["docker", "run", "--rm"])
-        self.assertIn(f"{tmp}:{tmp}:ro", commands[0])
-        self.assertEqual(commands[0][-2:], [importer, "--version"])
+        assert (version) == ("NVIDIA Nsight Systems test importer")
+        assert (commands[0][0:3]) == (["docker", "run", "--rm"])
+        assert (f"{tmp}:{tmp}:ro") in (commands[0])
+        assert (commands[0][-2:]) == ([importer, "--version"])
 
     def test_execution_probe_does_not_force_compute_profiler_threads(
         self,
@@ -407,12 +372,10 @@ heap_tree=peak
             "acprof-test:latest",
         ])
 
-        self.assertIn("MODEL_ID=test", command)
+        assert ("MODEL_ID=test") in (command)
         for name in profiler_support.COMPUTE_THREAD_ENV_NAMES:
-            self.assertFalse(
-                any(value.startswith(f"{name}=") for value in command)
-            )
-        self.assertEqual(command[-1], "acprof-test:latest")
+            assert not (any(value.startswith(f"{name}=") for value in command))
+        assert (command[-1]) == ("acprof-test:latest")
 
     def test_massif_resume_reuses_report_and_collects_only_missing_scale(
         self,
@@ -433,7 +396,7 @@ heap_tree=peak
             def fake_collect(**kwargs):
                 input_scale = float(kwargs["entry"]["input_scale"])
                 collected.append(input_scale)
-                self.assertEqual(input_scale, 16.0)
+                assert (input_scale) == (16.0)
                 report_path, checkpoint_path = (
                     massif._massif_artifact_paths(
                         profile_root=profile_root,
@@ -480,13 +443,13 @@ heap_tree=peak
                     resume_existing=True,
                 )
 
-            self.assertEqual(collected, [16.0])
-            self.assertTrue(all(
+            assert (collected) == ([16.0])
+            assert (all(
                 massif._massif_entry_complete(entry)
                 for entry in result["entries"]
             ))
             for scale in (8, 16):
-                self.assertTrue(os.path.isfile(os.path.join(
+                assert (os.path.isfile(os.path.join(
                     profile_root,
                     f"massif_cpu_8_mem_16_scale_{scale}.checkpoint.json",
                 )))
@@ -524,54 +487,35 @@ heap_tree=peak
             with open(plan_path, "r", encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
-        self.assertEqual(plan["schema_version"], 1)
-        self.assertEqual(len(plan["profiles"]), 8)
-        self.assertEqual(
-            plan["static_metadata"]["execution_profile_tools"],
-            ["massif", "nsys"],
-        )
-        self.assertEqual(profile_massif.call_count, 1)
-        self.assertEqual(profile_nsys.call_count, 2)
-        self.assertEqual(
-            [(event.profiler, event.status, event.total_samples,
-              event.error_samples) for event in events],
-            [("Massif", "failed", 2, 2), ("Nsys", "failed", 4, 4)],
-        )
-        self.assertEqual(
-            plan["static_metadata"]["massif_sampling_strategy"],
-            "representative_per_scale",
-        )
-        self.assertEqual(
-            plan["static_metadata"]["nsys_sampling_strategy"],
-            "representative_per_cpu_scale",
-        )
+        assert (plan["schema_version"]) == (1)
+        assert (len(plan["profiles"])) == (8)
+        assert (plan["static_metadata"]["execution_profile_tools"]) == (["massif", "nsys"])
+        assert (profile_massif.call_count) == (1)
+        assert (profile_nsys.call_count) == (2)
+        assert ([(event.profiler, event.status, event.total_samples,
+              event.error_samples) for event in events]) == ([("Massif", "failed", 2, 2), ("Nsys", "failed", 4, 4)])
+        assert (plan["static_metadata"]["massif_sampling_strategy"]) == ("representative_per_scale")
+        assert (plan["static_metadata"]["nsys_sampling_strategy"]) == ("representative_per_cpu_scale")
         for profile in plan["profiles"]:
-            self.assertEqual(len(profile["tools"]), 1)
+            assert (len(profile["tools"])) == (1)
             tool = "massif" if profile["gpu_mode"] == "off" else "nsys"
             tool_profile = profile["tools"][tool]
-            self.assertEqual(len(tool_profile["entries"]), 2)
+            assert (len(tool_profile["entries"])) == (2)
             for entry in tool_profile["entries"]:
                 expected_source_cpu = (
                     2 if tool == "massif" else profile["cpu_cores"]
                 )
-                self.assertEqual(
-                    entry["profile_source_cpu_cores"],
-                    expected_source_cpu,
-                )
-                self.assertEqual(entry["profile_source_mem_cap_gb"], 8)
-                self.assertTrue(entry["error"])
+                assert (entry["profile_source_cpu_cores"]) == (expected_source_cpu)
+                assert (entry["profile_source_mem_cap_gb"]) == (8)
+                assert (entry["error"])
                 if tool == "massif":
-                    self.assertIsNone(
-                        entry["cpu_heap_peak_total_bytes_massif"]
-                    )
-                    self.assertTrue(entry["compute_profile_error_massif"])
+                    assert (entry["cpu_heap_peak_total_bytes_massif"]) is None
+                    assert (entry["compute_profile_error_massif"])
                 else:
-                    self.assertIsNone(
-                        entry[
+                    assert (entry[
                             "host_inference_wall_time_ms_per_request_nsys"
-                        ]
-                    )
-                    self.assertTrue(entry["compute_profile_error_nsys"])
+                        ]) is None
+                    assert (entry["compute_profile_error_nsys"])
 
     def test_full_sampling_profiles_every_resource_case(self) -> None:
         events = []
@@ -611,27 +555,17 @@ heap_tree=peak
             with open(plan_path, "r", encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
-        self.assertEqual(profile_massif.call_count, 4)
-        self.assertEqual(profile_nsys.call_count, 4)
-        self.assertEqual([event.profiler for event in events], ["Massif", "Nsys"])
-        self.assertTrue(all(event.total_samples == 8 for event in events))
-        self.assertEqual(
-            plan["static_metadata"]["massif_sampling_strategy"],
-            "full_resource_matrix",
-        )
-        self.assertEqual(
-            plan["static_metadata"]["nsys_sampling_strategy"],
-            "full_resource_matrix",
-        )
+        assert (profile_massif.call_count) == (4)
+        assert (profile_nsys.call_count) == (4)
+        assert ([event.profiler for event in events]) == (["Massif", "Nsys"])
+        assert (all(event.total_samples == 8 for event in events))
+        assert (plan["static_metadata"]["massif_sampling_strategy"]) == ("full_resource_matrix")
+        assert (plan["static_metadata"]["nsys_sampling_strategy"]) == ("full_resource_matrix")
         for profile in plan["profiles"]:
             tool = "massif" if profile["gpu_mode"] == "off" else "nsys"
             entry = profile["tools"][tool]["entries"][0]
-            self.assertEqual(
-                entry["profile_source_cpu_cores"], profile["cpu_cores"]
-            )
-            self.assertEqual(
-                entry["profile_source_mem_cap_gb"], profile["mem_cap_gb"]
-            )
+            assert (entry["profile_source_cpu_cores"]) == (profile["cpu_cores"])
+            assert (entry["profile_source_mem_cap_gb"]) == (profile["mem_cap_gb"])
 
     def test_completion_follows_all_tool_samples_before_next_tool(self) -> None:
         timeline = []
@@ -689,13 +623,10 @@ heap_tree=peak
                 for scale in (8.0, 16.0)
             )
             expected.append((tool, "completed"))
-        self.assertEqual(timeline, expected)
-        self.assertEqual(
-            [(event.status, event.total_samples, event.error_samples,
-              event.elapsed_seconds) for event in events],
-            [("partial", 8, 4, 8.0), ("success", 8, 0, 8.0)],
-        )
-        self.assertEqual(len(plan["profiles"]), 8)
+        assert (timeline) == (expected)
+        assert ([(event.status, event.total_samples, event.error_samples,
+              event.elapsed_seconds) for event in events]) == ([("partial", 8, 4, 8.0), ("success", 8, 0, 8.0)])
+        assert (len(plan["profiles"])) == (8)
 
     def test_explicit_sampling_references_select_requested_resources(self) -> None:
         massif = execution_profile._sampled_resource_cases(
@@ -723,13 +654,10 @@ heap_tree=peak
             reference_mem=4,
         )
 
-        self.assertEqual(massif, ([(2, 4)], 2, 4))
-        self.assertEqual(
-            nsys_per_cpu,
-            ([(1, 4), (2, 4), (8, 4)], None, 4),
-        )
-        self.assertEqual(nsys_one, ([(2, 4)], 2, 4))
-        with self.assertRaisesRegex(ValueError, "not present"):
+        assert (massif) == (([(2, 4)], 2, 4))
+        assert (nsys_per_cpu) == (([(1, 4), (2, 4), (8, 4)], None, 4))
+        assert (nsys_one) == (([(2, 4)], 2, 4))
+        with pytest.raises(ValueError, match="not present"):
             execution_profile._sampled_resource_cases(
                 tool="nsys",
                 cpus=[1, 2, 8],
@@ -764,51 +692,41 @@ heap_tree=peak
             with open(plan_path, "r", encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
-            self.assertFalse(
-                os.path.exists(
+            assert not (os.path.exists(
                     os.path.join(
                         tmp,
                         execution_profile.EXECUTION_PROFILE_DIRNAME,
                     )
-                )
-            )
+                ))
 
         require_image.assert_not_called()
         find_nsys.assert_not_called()
-        self.assertEqual(events, [])
-        self.assertEqual(plan["profiles"], [])
-        self.assertEqual(
-            plan["static_metadata"]["execution_profile_tools"],
-            [],
-        )
-        self.assertFalse(
-            plan["static_metadata"]["execution_profiles_retained"]
-        )
-        self.assertEqual(
-            plan["static_metadata"]["execution_profile_provenance"],
-            "disabled",
-        )
+        assert (events) == ([])
+        assert (plan["profiles"]) == ([])
+        assert (plan["static_metadata"]["execution_profile_tools"]) == ([])
+        assert not (plan["static_metadata"]["execution_profiles_retained"])
+        assert (plan["static_metadata"]["execution_profile_provenance"]) == ("disabled")
 
-    def test_inapplicable_tools_do_not_report_completion(self) -> None:
-        for tool_mode, gpu_mode in (("massif", "on"), ("nsys", "off")):
-            with self.subTest(tool_mode=tool_mode), tempfile.TemporaryDirectory() as tmp:
-                events = []
-                plan_path = execution_profile.collect_execution_profile_plan(
-                    task_info=_task_info(),
-                    image_tag="acprof-test:latest",
-                    cpu_list=[1],
-                    mem_list=[4],
-                    gpu_list=[gpu_mode],
-                    output_dir=tmp,
-                    input_scale_plan_file=_write_input_scale_plan(tmp),
-                    project_dir=os.path.dirname(os.path.dirname(__file__)),
-                    tool_mode=tool_mode,
-                    progress_callback=events.append,
-                )
-                with open(plan_path, "r", encoding="utf-8") as plan_file:
-                    plan = json.load(plan_file)
-                self.assertEqual(events, [])
-                self.assertEqual(plan["profiles"], [])
+    @pytest.mark.parametrize('tool_mode,gpu_mode', (('massif', 'on'), ('nsys', 'off')))
+    def test_inapplicable_tools_do_not_report_completion(self, tool_mode, gpu_mode) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            events = []
+            plan_path = execution_profile.collect_execution_profile_plan(
+                task_info=_task_info(),
+                image_tag="acprof-test:latest",
+                cpu_list=[1],
+                mem_list=[4],
+                gpu_list=[gpu_mode],
+                output_dir=tmp,
+                input_scale_plan_file=_write_input_scale_plan(tmp),
+                project_dir=os.path.dirname(os.path.dirname(__file__)),
+                tool_mode=tool_mode,
+                progress_callback=events.append,
+            )
+            with open(plan_path, "r", encoding="utf-8") as plan_file:
+                plan = json.load(plan_file)
+            assert (events) == ([])
+            assert (plan["profiles"]) == ([])
 
     def test_nsys_collection_enables_unregistered_nvtx_capture(self) -> None:
         reports = {
@@ -879,25 +797,19 @@ heap_tree=peak
                 )
 
         command = commands[0]
-        self.assertIn("NSYS_NVTX_PROFILER_REGISTER_ONLY=0", command)
-        self.assertIn("--trace=cuda,nvtx", command)
-        self.assertNotIn("--trace=cuda,nvtx,osrt", command)
-        self.assertIn("--capture-range=nvtx", command)
-        self.assertIn("--nvtx-capture=acprof_compute", command)
-        self.assertIn("--capture-range-end=stop", command)
-        self.assertIn("--sample=none", command)
-        self.assertIn("--cpuctxsw=none", command)
-        self.assertEqual(
-            result["host_inference_wall_time_ms_per_request_nsys"],
-            10.0,
-        )
-        self.assertEqual(
-            result["report"],
-            os.path.join(
+        assert ("NSYS_NVTX_PROFILER_REGISTER_ONLY=0") in (command)
+        assert ("--trace=cuda,nvtx") in (command)
+        assert ("--trace=cuda,nvtx,osrt") not in (command)
+        assert ("--capture-range=nvtx") in (command)
+        assert ("--nvtx-capture=acprof_compute") in (command)
+        assert ("--capture-range-end=stop") in (command)
+        assert ("--sample=none") in (command)
+        assert ("--cpuctxsw=none") in (command)
+        assert (result["host_inference_wall_time_ms_per_request_nsys"]) == (10.0)
+        assert (result["report"]) == (os.path.join(
                 "execution_profiles",
                 "nsys_cpu_2_mem_4_scale_8.nsys-rep",
-            ),
-        )
+            ))
 
     def test_nsys_missing_report_discards_large_raw_stream(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -944,13 +856,6 @@ heap_tree=peak
                 )
             raw_stream_exists_after = os.path.exists(raw_stream)
 
-        self.assertFalse(raw_stream_exists_after)
-        self.assertEqual(
-            result["compute_profile_error_nsys"],
-            "nsys_import_failed:report_not_found:"
-            "discarded_qdstrm_bytes=4096",
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert not (raw_stream_exists_after)
+        assert (result["compute_profile_error_nsys"]) == ("nsys_import_failed:report_not_found:"
+            "discarded_qdstrm_bytes=4096")

@@ -1,9 +1,9 @@
 """依赖和平台选择回归：构建身份必须覆盖锁与基础镜像。"""
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from runtime_fixture import ROOT, copy_dependency_tree
 
 from acprof.host.dependency_images import runtime_fingerprint
@@ -11,7 +11,7 @@ from acprof.host.detect import TaskInfo
 from acprof.runtime_profiles import select_runtime_profile
 
 
-class DependencyLockTests(unittest.TestCase):
+class TestDependencyLock:
     def task(self, family='nlp'):
         task, backend = {
             'nlp': ('fill-mask', 'transformers_pipeline'),
@@ -34,16 +34,15 @@ class DependencyLockTests(unittest.TestCase):
             first = runtime_fingerprint(environment, root)
             lock = root / environment.requirements_lock
             lock.write_text('# Same dependency environment, reviewed again.\n' + lock.read_text())
-            self.assertEqual(first, runtime_fingerprint(environment, root))
+            assert (first) == (runtime_fingerprint(environment, root))
 
-    def test_every_family_defaults_to_complete_lock_and_digest(self):
-        for family in ('nlp', 'cv', 'audio', 'diffusion', 'structured', 'timeseries', 'multimodal'):
-            with self.subTest(family=family):
-                environment = select_runtime_profile(self.task(family)).environment
-                self.assertIn('@sha256:', environment.platform.python_base_image)
-                locked = (ROOT / environment.requirements_lock).read_text()
-                self.assertIn('# torch==', locked)
-                self.assertIn('# flask==3.0.2', locked)
+    @pytest.mark.parametrize('family', ('nlp', 'cv', 'audio', 'diffusion', 'structured', 'timeseries', 'multimodal'))
+    def test_every_family_defaults_to_complete_lock_and_digest(self, family):
+        environment = select_runtime_profile(self.task(family)).environment
+        assert ('@sha256:') in (environment.platform.python_base_image)
+        locked = (ROOT / environment.requirements_lock).read_text()
+        assert ('# torch==') in (locked)
+        assert ('# flask==3.0.2') in (locked)
 
     def test_driver_selection_preserves_cuda124_with_pinned_wheel(self):
         from acprof.host.runtime_images import configure_runtime_profile
@@ -51,9 +50,9 @@ class DependencyLockTests(unittest.TestCase):
         with patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                    return_value='https://download.pytorch.org/whl/cu124'):
             profile = configure_runtime_profile(task)
-        self.assertEqual(profile.profile_id, 'nlp-cu124')
-        self.assertEqual(select_runtime_profile(task), profile)
-        self.assertIn('torch==2.6.0+cu124', (ROOT / profile.environment.requirements_lock).read_text())
+        assert (profile.profile_id) == ('nlp-cu124')
+        assert (select_runtime_profile(task)) == (profile)
+        assert ('torch==2.6.0+cu124') in ((ROOT / profile.environment.requirements_lock).read_text())
 
     def test_shared_lock_conflict_is_rejected_before_image_reuse(self):
         environment = select_runtime_profile(self.task()).environment
@@ -62,9 +61,5 @@ class DependencyLockTests(unittest.TestCase):
             copy_dependency_tree(root)
             common = root / environment.platform.requirements_lock
             common.write_text(common.read_text().replace('filelock-3.32.6-', 'filelock-3.32.7-'))
-            with self.assertRaisesRegex(ValueError, '父层'):
+            with pytest.raises(ValueError, match='父层'):
                 runtime_fingerprint(environment, root)
-
-
-if __name__ == '__main__':
-    unittest.main()

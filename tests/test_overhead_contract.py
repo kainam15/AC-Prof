@@ -1,13 +1,13 @@
 """Exercise the real full diagnostic orchestration; only hardware and HTTP are fake."""
 import json
 import tempfile
-import unittest
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 from test_overhead import group
 
 from scripts import measure_overhead as overhead
@@ -18,7 +18,7 @@ class PerfValue:
     instructions_total: float = 100.0
 
 
-class OverheadContractTests(unittest.TestCase):
+class TestOverheadContract:
     def window(self, failure=""):
         events = []
         monitors = {}
@@ -79,37 +79,37 @@ class OverheadContractTests(unittest.TestCase):
                     {"payload": {}}, scenario="full", rate=20, count=1, name="owned-container",
                     cpu=2, mem=4, gpu="on", token="full", output=output, options=options)
             if failure:
-                with self.assertRaisesRegex(RuntimeError, "control collector failed" if failure == "control" else "request failed"):
+                with pytest.raises(RuntimeError, match="control collector failed" if failure == "control" else "request failed"):
                     call()
             else:
                 result = call()
-                self.assertEqual(result["packet_request_count"], 1)
-                self.assertEqual(result["request_count"], 1)
-                self.assertTrue(pcap.with_suffix(".packets.json").exists())
+                assert (result["packet_request_count"]) == (1)
+                assert (result["request_count"]) == (1)
+                assert (pcap.with_suffix(".packets.json").exists())
             for monitor in monitors.values():
                 monitor.close.assert_called_once()
-                self.assertEqual(monitor.start.call_count, 1 if failure == "control" else 2)
-                self.assertEqual(monitor.stop.call_count, monitor.start.call_count)
+                assert (monitor.start.call_count) == (1 if failure == "control" else 2)
+                assert (monitor.stop.call_count) == (monitor.start.call_count)
             capture.terminate.assert_called_once()
         return events
 
     def test_full_runs_control_requests_cleanup_and_packet_report(self):
         events = self.window()
-        self.assertEqual(events[:8], ["gpu.start", "cpu.start", "resource.start", "mips.start",
+        assert (events[:8]) == (["gpu.start", "cpu.start", "resource.start", "mips.start",
                                       "mips.stop", "resource.stop", "gpu.stop", "cpu.stop"])
-        self.assertLess(events.index("cpu.baseline"), events.index("request"))
+        assert (events.index("cpu.baseline")) < (events.index("request"))
 
     def test_control_failure_closes_every_collector_and_capture_before_request(self):
-        self.assertNotIn("request", self.window("control"))
+        assert ("request") not in (self.window("control"))
 
     def test_request_failure_stops_every_collector_and_capture(self):
-        self.assertIn("request", self.window("request"))
+        assert ("request") in (self.window("request"))
 
     def test_partial_start_is_stopped_even_when_start_raises(self):
         cpu, resource = Mock(), Mock()
         cpu.stop.return_value = resource.stop.return_value = (None, "", [1, 2])
         resource.start.side_effect = RuntimeError("partial start")
-        with self.assertRaisesRegex(RuntimeError, "partial start"):
+        with pytest.raises(RuntimeError, match="partial start"):
             overhead.measure_window("http://fixture.invalid", {}, count=1,
                                     monitors=group(cpu, resource), token="fail")
         for monitor in (cpu, resource):

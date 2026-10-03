@@ -1,9 +1,9 @@
 import dataclasses
 import json
 import tempfile
-import unittest
 from pathlib import Path
 
+import pytest
 from runtime_fixture import copy_dependency_tree
 
 from acprof.host.dependency_images import runtime_fingerprint
@@ -12,80 +12,71 @@ from acprof.host.runtime_images import model_fingerprint, request_fingerprint
 from acprof.runtime_profiles import select_runtime_profile
 
 
-class ImageLayerIdentityTests(unittest.TestCase):
-    def test_host_and_ui_changes_preserve_service_identity(self):
-        task = TaskInfo("example/model", "fill-mask", "nlp", "transformers_pipeline",
-                        "transformers", "a" * 40, "test")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            copy_dependency_tree(root)
-            for name in ("host/client.py", "tui/i18n.py", "container/server.py"):
-                path = root / "acprof" / name
-                path.parent.mkdir(exist_ok=True)
-                path.write_text("original = 1\n")
-            original = request_fingerprint(task, root)
-            for name in ("host/client.py", "tui/i18n.py"):
-                (root / "acprof" / name).write_text("changed = 2\n")
-                self.assertEqual(original, request_fingerprint(task, root))
-            (root / "acprof/container/server.py").write_text("changed = 2\n")
-            self.assertNotEqual(original, request_fingerprint(task, root))
+def test_host_and_ui_changes_preserve_service_identity():
+    task = TaskInfo("example/model", "fill-mask", "nlp", "transformers_pipeline",
+                    "transformers", "a" * 40, "test")
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        copy_dependency_tree(root)
+        for name in ("host/client.py", "tui/i18n.py", "container/server.py"):
+            path = root / "acprof" / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_text("original = 1\n")
+        original = request_fingerprint(task, root)
+        for name in ("host/client.py", "tui/i18n.py"):
+            (root / "acprof" / name).write_text("changed = 2\n")
+            assert (original) == (request_fingerprint(task, root))
+        (root / "acprof/container/server.py").write_text("changed = 2\n")
+        assert (original) != (request_fingerprint(task, root))
 
-    def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(self):
-        task = TaskInfo(model_id="example/bert", model_revision="a" * 40, pipeline_tag="fill-mask",
-                        task_family="nlp", runtime_backend="transformers_pipeline", library_name="transformers",
-                        detection_method="test")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            copy_dependency_tree(root)
-            (root / "acprof/container").mkdir()
-            for relative, content in {
-                "acprof/container/download_model.py": "downloader = 1\n",
-                "acprof/container/model_files.py": "selector = 1\n",
-                "acprof/model_spec.py": "spec = 1\n",
-                "acprof/handler.py": "handler = 1\n",
-                "dockerfiles/runtime-model.Dockerfile": "FROM runtime\nCOPY downloader /opt\n",
-                "dockerfiles/runtime.Dockerfile": "FROM python\nRUN install-locked-deps\n",
-            }.items():
-                (root / relative).write_text(content)
-            profile = select_runtime_profile(task)
-            runtime = runtime_fingerprint(profile.environment, root)
-            model = model_fingerprint(task, "sha256:" + "b" * 64, root)
-            final = request_fingerprint(task, root)
-            (root / "acprof/handler.py").write_text("handler = 2\n")
-            self.assertEqual(runtime, runtime_fingerprint(profile.environment, root))
-            self.assertEqual(model, model_fingerprint(task, "sha256:" + "b" * 64, root))
-            self.assertNotEqual(final, request_fingerprint(task, root))
-            final = request_fingerprint(task, root)
-            (root / "NOTICE").write_text("Updated attribution\n")
-            self.assertNotEqual(final, request_fingerprint(task, root))
-            self.assertEqual(model, model_fingerprint(task, "sha256:" + "b" * 64, root))
-            self.assertEqual(runtime, runtime_fingerprint(profile.environment, root))
-            # 筛选规则与模型声明解析变更影响模型和最终层，不重新安装依赖。
-            changed_model = model
-            for relative, content in (
-                ("acprof/container/model_files.py", "selector = 2\n"),
-                ("acprof/model_spec.py", "spec = 2\n"),
-            ):
-                with self.subTest(source=relative):
-                    previous_model = changed_model
-                    previous_final = request_fingerprint(task, root)
-                    (root / relative).write_text(content)
-                    self.assertEqual(runtime, runtime_fingerprint(profile.environment, root))
-                    changed_model = model_fingerprint(task, "sha256:" + "b" * 64, root)
-                    self.assertNotEqual(previous_model, changed_model)
-                    self.assertNotEqual(previous_final, request_fingerprint(task, root))
-            # 新 commit、下载策略或真实运行环境都不得复用旧模型层。
-            for changed in (dataclasses.replace(task, model_revision="c" * 40),
-                            dataclasses.replace(task, model_download_policy="full")):
-                self.assertNotEqual(changed_model, model_fingerprint(changed, "sha256:" + "b" * 64, root))
-            self.assertNotEqual(changed_model, model_fingerprint(task, "sha256:" + "c" * 64, root))
-            changed_platform = dataclasses.replace(profile.environment.platform, python_base_image="python:3.10-slim@sha256:" + "c" * 64)
-            lock = root / changed_platform.system_lock
-            data = json.loads(lock.read_text())
-            data["base_image"] = changed_platform.python_base_image
-            lock.write_text(json.dumps(data))
-            self.assertNotEqual(runtime, runtime_fingerprint(dataclasses.replace(profile.environment, platform=changed_platform), root))
-
-
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize('relative,content', (('acprof/container/model_files.py', 'selector = 2\n'), ('acprof/model_spec.py', 'spec = 2\n')))
+def test_code_changes_reuse_runtime_and_model_but_refresh_final_image(relative, content):
+    task = TaskInfo(model_id="example/bert", model_revision="a" * 40, pipeline_tag="fill-mask",
+                    task_family="nlp", runtime_backend="transformers_pipeline", library_name="transformers",
+                    detection_method="test")
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        copy_dependency_tree(root)
+        (root / "acprof/container").mkdir()
+        for fixture_path, fixture_content in {
+            "acprof/container/download_model.py": "downloader = 1\n",
+            "acprof/container/model_files.py": "selector = 1\n",
+            "acprof/model_spec.py": "spec = 1\n",
+            "acprof/handler.py": "handler = 1\n",
+            "dockerfiles/runtime-model.Dockerfile": "FROM runtime\nCOPY downloader /opt\n",
+            "dockerfiles/runtime.Dockerfile": "FROM python\nRUN install-locked-deps\n",
+        }.items():
+            (root / fixture_path).write_text(fixture_content)
+        profile = select_runtime_profile(task)
+        runtime = runtime_fingerprint(profile.environment, root)
+        model = model_fingerprint(task, "sha256:" + "b" * 64, root)
+        final = request_fingerprint(task, root)
+        (root / "acprof/handler.py").write_text("handler = 2\n")
+        assert (runtime) == (runtime_fingerprint(profile.environment, root))
+        assert (model) == (model_fingerprint(task, "sha256:" + "b" * 64, root))
+        assert (final) != (request_fingerprint(task, root))
+        final = request_fingerprint(task, root)
+        (root / "NOTICE").write_text("Updated attribution\n")
+        assert (final) != (request_fingerprint(task, root))
+        assert (model) == (model_fingerprint(task, "sha256:" + "b" * 64, root))
+        assert (runtime) == (runtime_fingerprint(profile.environment, root))
+        # 筛选规则与模型声明解析变更影响模型和最终层，不重新安装依赖。
+        changed_model = model
+        previous_model = changed_model
+        previous_final = request_fingerprint(task, root)
+        (root / relative).write_text(content)
+        assert (runtime) == (runtime_fingerprint(profile.environment, root))
+        changed_model = model_fingerprint(task, "sha256:" + "b" * 64, root)
+        assert (previous_model) != (changed_model)
+        assert (previous_final) != (request_fingerprint(task, root))
+        # 新 commit、下载策略或真实运行环境都不得复用旧模型层。
+        for changed in (dataclasses.replace(task, model_revision="c" * 40),
+                        dataclasses.replace(task, model_download_policy="full")):
+            assert (changed_model) != (model_fingerprint(changed, "sha256:" + "b" * 64, root))
+        assert (changed_model) != (model_fingerprint(task, "sha256:" + "c" * 64, root))
+        changed_platform = dataclasses.replace(profile.environment.platform, python_base_image="python:3.10-slim@sha256:" + "c" * 64)
+        lock = root / changed_platform.system_lock
+        data = json.loads(lock.read_text())
+        data["base_image"] = changed_platform.python_base_image
+        lock.write_text(json.dumps(data))
+        assert (runtime) != (runtime_fingerprint(dataclasses.replace(profile.environment, platform=changed_platform), root))

@@ -2,7 +2,6 @@
 import runpy
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -10,7 +9,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class BuildHookTests(unittest.TestCase):
+class TestBuildHook:
     def make_hook(self, root):
         # Hatchling is an isolated build dependency, not a host test dependency.
         interface = ModuleType("hatchling.builders.hooks.plugin.interface")
@@ -26,7 +25,7 @@ class BuildHookTests(unittest.TestCase):
         build_data = {"force_include": {}}
         hook.initialize("editable", build_data)
         try:
-            self.assertEqual(build_data["force_include"], {})
+            assert (build_data["force_include"]) == ({})
         finally:
             hook.finalize("editable", build_data, "unused.whl")
 
@@ -50,15 +49,11 @@ class BuildHookTests(unittest.TestCase):
             build_data = {"force_include": {}}
             hook.initialize("standard", build_data)
             try:
-                self.assertEqual(list(build_data["force_include"].values()), ["acprof/_bundle"])
+                assert (list(build_data["force_include"].values())) == (["acprof/_bundle"])
                 bundle = Path(next(iter(build_data["force_include"])))
                 files = {path.relative_to(bundle).as_posix(): path.read_text(encoding="utf-8")
                          for path in bundle.rglob("*") if path.is_file()}
-                self.assertEqual(files, {relative: relative for relative in resources})
+                assert (files) == ({relative: relative for relative in resources})
             finally:
                 hook.finalize("standard", build_data, "unused.whl")
-            self.assertFalse(bundle.exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert not (bundle.exists())

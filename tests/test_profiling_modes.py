@@ -2,12 +2,12 @@ import csv
 import io
 import json
 import tempfile
-import unittest
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 from client_fixtures import patch_client
 
 from acprof.host import client, orchestrator
@@ -18,16 +18,18 @@ from acprof.host.docker_runtime import RunningContainer
 from acprof.host.runtime_images import ImageInfo
 
 
-class ProfilingModeTests(unittest.TestCase):
-    def setUp(self):
+class TestProfilingMode:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
+        native_policy(self._request)
         self.runner = ClientRunner(ClientConfig())
 
     def test_basic_refuses_missing_required_resource_collector(self):
         with tempfile.TemporaryDirectory() as root, patch_client(self.runner, "OUT_CSV", str(Path(root) / "result.csv")), patch_client(self.runner, "PROFILING_MODE", "basic"), patch_client(self.runner, "resource_usage_mod", None), patch_client(self.runner, "input_scale_entries", [{"input_scale": 1.0, "scale_label": "one", "payload": {}}]
         ), patch.object(client.requests, "get", side_effect=AssertionError("must fail before server request")):
-            with self.assertRaisesRegex(RuntimeError, "CPU.*memory"):
+            with pytest.raises(RuntimeError, match="CPU.*memory"):
                 self.runner.main()
 
     def test_basic_matrix_preserves_resource_sweep_and_skips_capture(self):
@@ -46,11 +48,11 @@ class ProfilingModeTests(unittest.TestCase):
             stack.enter_context(patch.object(orchestrator, "_check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
             stack.enter_context(redirect_stdout(output))
             paths = orchestrator.run_matrix(task, ImageInfo(tag="test"), [1, 2], [1], ["off"], root, ".", profiling_mode="basic", input_scales="1")
-        self.assertEqual(len(paths), 2)
-        self.assertEqual([env["CPU_CORES"] for env in captured], ["1", "2"])
-        self.assertTrue(all(env["USE_MIPS"] == "0" and env["PROFILING_MODE"] == "basic" for env in captured))
-        self.assertIn("packet_latency=not_requested (profiling_mode=basic)", output.getvalue())
-        self.assertNotIn("tcpdump/tshark unavailable", output.getvalue())
+        assert (len(paths)) == (2)
+        assert ([env["CPU_CORES"] for env in captured]) == (["1", "2"])
+        assert (all(env["USE_MIPS"] == "0" and env["PROFILING_MODE"] == "basic" for env in captured))
+        assert ("packet_latency=not_requested (profiling_mode=basic)") in (output.getvalue())
+        assert ("tcpdump/tshark unavailable") not in (output.getvalue())
 
     def test_resume_legacy_options_mean_full_and_reject_basic(self):
         from acprof.host.run_state import RunState, RunStateError
@@ -59,7 +61,7 @@ class ProfilingModeTests(unittest.TestCase):
             state.close()
             state = RunState(root, {"model": "test", "profiling_mode": "full"}, resume=True, project_dir=".")
             state.close()
-            with self.assertRaisesRegex(RunStateError, "参数"):
+            with pytest.raises(RunStateError, match="参数"):
                 RunState(root, {"model": "test", "profiling_mode": "basic"}, resume=True, project_dir=".")
 
     def test_basic_client_skips_energy_and_perf_but_preserves_app_latency(self):
@@ -101,18 +103,18 @@ class ProfilingModeTests(unittest.TestCase):
             self.runner.main()
             with path.open() as stream:
                 row = next(csv.DictReader(stream))
-        self.assertEqual(row["status"], "ok", row["error"])
-        self.assertEqual(row["latency_app_s"], "0.500000")
-        self.assertEqual(row["latency_s"], "nan")
-        self.assertEqual(row["throughput_samples_per_s"], "2.000000")
-        self.assertEqual(row["container_mem_usage_avg_bytes"], "1024.000000")
-        self.assertEqual(json.loads(row["workload_contract"]), {
+        assert (row["status"]) == ("ok"), row["error"]
+        assert (row["latency_app_s"]) == ("0.500000")
+        assert (row["latency_s"]) == ("nan")
+        assert (row["throughput_samples_per_s"]) == ("2.000000")
+        assert (row["container_mem_usage_avg_bytes"]) == ("1024.000000")
+        assert (json.loads(row["workload_contract"])) == ({
             "schema_version": 1, "request_count": 1,
             "variants": [{"count": 1, "contract": {"schema_version": 1, "actual_rows": 1}}],
         })
-        self.assertEqual(row["cpu_energy_total_j"], "nan")
-        self.assertEqual(row["gpu_energy_total_j"], "nan")
-        self.assertEqual(events, ["resource_start", "resource_stop", "resource_close"])
+        assert (row["cpu_energy_total_j"]) == ("nan")
+        assert (row["gpu_energy_total_j"]) == ("nan")
+        assert (events) == (["resource_start", "resource_stop", "resource_close"])
 
     def test_basic_cli_does_not_probe_packet_rapl_or_perf(self):
         from acprof.cli import run
@@ -125,9 +127,5 @@ class ProfilingModeTests(unittest.TestCase):
                 stack.enter_context(patch.object(run, name, side_effect=AssertionError("basic called " + name)))
             stack.enter_context(patch("acprof.host.detect.detect_task", side_effect=RuntimeError("reached task detection")))
             stack.enter_context(redirect_stdout(io.StringIO()))
-            with self.assertRaisesRegex(RuntimeError, "reached task detection"):
+            with pytest.raises(RuntimeError, match="reached task detection"):
                 run._run_main()
-
-
-if __name__ == "__main__":
-    unittest.main()

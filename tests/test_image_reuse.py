@@ -1,10 +1,12 @@
 import io
 import json
 import subprocess
-import unittest
 from contextlib import redirect_stdout
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container.model_files import seal_plan
 from acprof.host import runtime_images
@@ -17,20 +19,15 @@ from acprof.host.runtime_images import (
 )
 
 
-class PrepareImageTests(unittest.TestCase):
-    def test_explicit_driver_override_changes_request_fingerprint(self):
-        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.4'}):
-            before = request_fingerprint(self.task, self.project_dir)
-        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.8'}):
-            after = request_fingerprint(self.task, self.project_dir)
-        self.assertNotEqual(before, after)
-
-    def setUp(self):
+class TestPrepareImage:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         self.project_dir = str(Path(__file__).resolve().parents[1])
         driver = patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                        return_value='https://download.pytorch.org/whl/cu128')
         driver.start()
-        self.addCleanup(driver.stop)
+        self._request.addfinalizer(partial(driver.stop))
         self.task = TaskInfo(
             model_id='Org/Model.v1', pipeline_tag='fill-mask', task_family='nlp',
             runtime_backend='transformers_pipeline', library_name='transformers',
@@ -79,12 +76,18 @@ class PrepareImageTests(unittest.TestCase):
                        'org.acprof.environment': self.manifest['environment_id'],
                        'org.acprof.platform-build-fingerprint': self.manifest['platform_build_fingerprint'],
                        'org.acprof.environment-build-fingerprint': self.manifest['environment_build_fingerprint']}
+    def test_explicit_driver_override_changes_request_fingerprint(self):
+        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.4'}):
+            before = request_fingerprint(self.task, self.project_dir)
+        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.8'}):
+            after = request_fingerprint(self.task, self.project_dir)
+        assert (before) != (after)
 
     def existing_image(self, command, **kwargs):
         if command[:3] == ['docker', 'image', 'inspect']:
             payload = {'image_id': self.image_id, 'labels': self.labels}
         else:
-            self.assertEqual(command[-2:], [self.image_id, '/app/runtime_environment.json'])
+            assert (command[-2:]) == ([self.image_id, '/app/runtime_environment.json'])
             payload = self.manifest
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload), stderr='')
 
@@ -93,11 +96,11 @@ class PrepareImageTests(unittest.TestCase):
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), patch("acprof.host.runtime_images.build_runtime_image",
         ) as build, redirect_stdout(stdout):
             image = runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
-        self.assertEqual(image.tag, self.image_id)
-        self.assertEqual(image.name, self.tag)
-        self.assertEqual(image.runtime_environment, self.manifest)
+        assert (image.tag) == (self.image_id)
+        assert (image.name) == (self.tag)
+        assert (image.runtime_environment) == (self.manifest)
         build.assert_not_called()
-        self.assertIn('跳过构建并复用', stdout.getvalue())
+        assert ('跳过构建并复用') in (stdout.getvalue())
 
     def test_missing_image_is_announced_before_building(self):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr='Error: No such image: expected')
@@ -105,59 +108,56 @@ class PrepareImageTests(unittest.TestCase):
         built = runtime_images.ImageInfo(tag=self.image_id)
 
         def build_image(task, project_dir):
-            self.assertIs(task, self.task)
-            self.assertEqual(project_dir, self.project_dir)
-            self.assertIn(self.tag, stdout.getvalue())
-            self.assertIn('自动构建', stdout.getvalue())
+            assert (task) is (self.task)
+            assert (project_dir) == (self.project_dir)
+            assert (self.tag) in (stdout.getvalue())
+            assert ('自动构建') in (stdout.getvalue())
             return built
 
         with patch("acprof.host.command.run_command", return_value=query), patch("acprof.host.runtime_images.build_runtime_image", side_effect=build_image,
         ), redirect_stdout(stdout):
             image = runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
-        self.assertIs(image, built)
+        assert (image) is (built)
 
-    def test_docker_query_errors_stop_without_building(self):
-        for error in ('Cannot connect to the Docker daemon', 'permission denied'):
-            with self.subTest(error=error):
-                query = subprocess.CompletedProcess([], 1, stdout='', stderr=error)
-                with patch("acprof.host.command.run_command", return_value=query), patch("acprof.host.runtime_images.build_runtime_image",
-                ) as build, self.assertRaisesRegex(RuntimeError, error):
-                    runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
-                build.assert_not_called()
+    @pytest.mark.parametrize('error', ('Cannot connect to the Docker daemon', 'permission denied'))
+    def test_docker_query_errors_stop_without_building(self, error):
+        query = subprocess.CompletedProcess([], 1, stdout='', stderr=error)
+        with patch("acprof.host.command.run_command", return_value=query), patch("acprof.host.runtime_images.build_runtime_image",
+        ) as build, pytest.raises(RuntimeError, match=error):
+            runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
+        build.assert_not_called()
 
     def test_retagged_or_wrong_revision_image_is_rejected(self):
         self.manifest['model_revision'] = 'another-revision'
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), patch("acprof.host.runtime_images.build_runtime_image",
-        ) as build, self.assertRaisesRegex(RuntimeError, 'revision'):
+        ) as build, pytest.raises(RuntimeError, match='revision'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
         build.assert_not_called()
 
     def test_actual_snapshot_must_match_declared_revision(self):
         self.manifest['model_snapshot_revision'] = '2' * 40
-        with patch("acprof.host.command.run_command", side_effect=self.existing_image), self.assertRaisesRegex(RuntimeError, 'revision'):
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='revision'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
-    def test_new_build_requires_environment_identity_and_immutable_parents(self):
-        for field in ('environment_id', 'platform_id', 'platform_image_id', 'environment_image_id', 'model_image_id'):
-            with self.subTest(field=field):
-                value = self.manifest.pop(field)
-                try:
-                    with patch("acprof.host.command.run_command", side_effect=self.existing_image), self.assertRaises(RuntimeError):
-                        runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
-                finally:
-                    self.manifest[field] = value
+    @pytest.mark.parametrize('field', ('environment_id', 'platform_id', 'platform_image_id', 'environment_image_id', 'model_image_id'))
+    def test_new_build_requires_environment_identity_and_immutable_parents(self, field):
+        value = self.manifest.pop(field)
+        try:
+            with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError):
+                runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
+        finally:
+            self.manifest[field] = value
 
     def test_changed_parent_requires_a_different_service_fingerprint(self):
         self.manifest['model_image_id'] = 'sha256:' + 'e' * 64
-        with patch("acprof.host.command.run_command", side_effect=self.existing_image), self.assertRaisesRegex(RuntimeError, '父镜像'):
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='父镜像'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
-    def test_missing_or_changed_download_plan_is_rejected(self):
-        for plan in (None, {'schema_version': 1, 'plan_sha256': 'wrong'}):
-            with self.subTest(plan=plan):
-                self.manifest['model_download'] = plan
-                with patch("acprof.host.command.run_command", side_effect=self.existing_image), self.assertRaisesRegex(RuntimeError, '文件清单'):
-                    runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
+    @pytest.mark.parametrize('plan', (None, {'schema_version': 1, 'plan_sha256': 'wrong'}))
+    def test_missing_or_changed_download_plan_is_rejected(self, plan):
+        self.manifest['model_download'] = plan
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='文件清单'):
+            runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
     def test_extra_offline_dependency_is_rejected_even_with_valid_hashes(self):
         plan = self.manifest['model_download']
@@ -167,7 +167,7 @@ class PrepareImageTests(unittest.TestCase):
         plan.update(selected_bytes=1, total_selected_bytes=2,
                     dependencies=[{'repo_id': 'example/base', 'revision': 'd' * 40, 'download': child}])
         seal_plan(plan)
-        with patch("acprof.host.command.run_command", side_effect=self.existing_image), self.assertRaisesRegex(RuntimeError, '离线模型依赖'):
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='离线模型依赖'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
     def test_mutable_revision_is_resolved_before_choosing_image(self):
@@ -178,11 +178,11 @@ class PrepareImageTests(unittest.TestCase):
         ):
             runtime_images.prepare_image(self.task, self.project_dir)
         lookup.assert_called_once_with(self.task.model_id, revision='main')
-        self.assertEqual(self.task.model_revision, '3' * 40)
+        assert (self.task.model_revision) == ('3' * 40)
 
     def test_unlabelled_legacy_image_cannot_be_reused_as_managed_image(self):
         query = subprocess.CompletedProcess([], 0, stdout=json.dumps({'image_id': self.image_id, 'labels': {}}), stderr='')
-        with patch("acprof.host.command.run_command", return_value=query), self.assertRaisesRegex(RuntimeError, '指纹'):
+        with patch("acprof.host.command.run_command", return_value=query), pytest.raises(RuntimeError, match='指纹'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
     def test_without_reuse_builds_without_querying_image_store(self):
@@ -190,10 +190,6 @@ class PrepareImageTests(unittest.TestCase):
         with patch("acprof.host.command.run_command") as docker, patch("acprof.host.runtime_images.build_runtime_image", return_value=built,
         ) as build:
             image = runtime_images.prepare_image(self.task, self.project_dir)
-        self.assertIs(image, built)
+        assert (image) is (built)
         docker.assert_not_called()
         build.assert_called_once_with(self.task, self.project_dir)
-
-
-if __name__ == '__main__':
-    unittest.main()

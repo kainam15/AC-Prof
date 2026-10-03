@@ -2,9 +2,11 @@ import csv
 import json
 import os
 import tempfile
-import unittest
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
 import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
@@ -51,74 +53,67 @@ def _ncu_resume_csv_text() -> str:
     ])
 
 
-class ComputeProfileTests(unittest.TestCase):
-    def setUp(self):
+class TestComputeProfile:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={'uuid': 'GPU-fixture'})
         selection.start()
-        self.addCleanup(selection.stop)
+        self._request.addfinalizer(partial(selection.stop))
 
     def test_transformers_handler_forces_eager_only_when_requested(self) -> None:
-        self.assertEqual(transformers_pipeline_load_kwargs(None), {})
-        self.assertEqual(
-            transformers_pipeline_load_kwargs({
+        assert (transformers_pipeline_load_kwargs(None)) == ({})
+        assert (transformers_pipeline_load_kwargs({
                 "attention_implementation": "eager",
-            }),
-            {"model_kwargs": {"attn_implementation": "eager"}},
-        )
-        with self.assertRaisesRegex(ValueError, "must be 'eager'"):
+            })) == ({"model_kwargs": {"attn_implementation": "eager"}})
+        with pytest.raises(ValueError, match="must be 'eager'"):
             transformers_pipeline_load_kwargs({
                 "attention_implementation": "sdpa",
             })
 
     def test_input_scale_plan_is_required(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "input_scale_plan_file is required",
-        ):
+        with pytest.raises(ValueError, match="input_scale_plan_file is required"):
             compute_profile.load_input_scale_plan_entries("")
 
         with tempfile.TemporaryDirectory() as tmp:
             missing = os.path.join(tmp, "input_scale_plan.json")
-            with self.assertRaisesRegex(
-                FileNotFoundError,
-                "input scale plan not found",
-            ):
+            with pytest.raises(FileNotFoundError, match="input scale plan not found"):
                 compute_profile.load_input_scale_plan_entries(missing)
 
-    def test_current_input_plan_reuses_the_exact_payload(self) -> None:
+    @pytest.mark.parametrize('schema_version', (2,))
+    def test_current_input_plan_reuses_the_exact_payload(self, schema_version) -> None:
         payload = {
             "audio_base64": "UklGRg==",
             "audio_format": "wav",
             "sample_rate": 16000,
             "params": {"asr_task": "transcribe"},
         }
-        for schema_version in (2,):
-            with self.subTest(schema_version=schema_version), tempfile.TemporaryDirectory() as tmp:
-                path = os.path.join(tmp, "input_scale_plan.json")
-                plan = {"schema_version": 2,
-                    "entries": [
-                        {
-                            "input_scale": 1.0,
-                            "scale_label": "dur1s",
-                            "payload": payload,
-                        }
-                    ]
-                }
-                if schema_version == 2:
-                    plan.update({
-                        "schema_version": 2,
-                        "workload": {"workload_id": "fixture"},
-                        "model_constraints": {"max_short_form_duration_s": 30},
-                    })
-                    plan["entries"][0]["input_metadata"] = {
-                        "input_num_samples": 16000
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "input_scale_plan.json")
+            plan = {"schema_version": 2,
+                "entries": [
+                    {
+                        "input_scale": 1.0,
+                        "scale_label": "dur1s",
+                        "payload": payload,
                     }
-                with open(path, "w", encoding="utf-8") as plan_file:
-                    json.dump(plan, plan_file)
+                ]
+            }
+            if schema_version == 2:
+                plan.update({
+                    "schema_version": 2,
+                    "workload": {"workload_id": "fixture"},
+                    "model_constraints": {"max_short_form_duration_s": 30},
+                })
+                plan["entries"][0]["input_metadata"] = {
+                    "input_num_samples": 16000
+                }
+            with open(path, "w", encoding="utf-8") as plan_file:
+                json.dump(plan, plan_file)
 
-                entries = compute_profile.load_input_scale_plan_entries(path)
+            entries = compute_profile.load_input_scale_plan_entries(path)
 
-                self.assertEqual(entries[0]["payload"], payload)
+            assert (entries[0]["payload"]) == (payload)
 
     def test_compute_container_is_offline_and_does_not_receive_hf_token(self) -> None:
         task_info = TaskInfo(
@@ -149,19 +144,16 @@ class ComputeProfileTests(unittest.TestCase):
                 tool_mount_roots=(),
             )
 
-        self.assertIn(
-            f"{os.path.abspath(payload_file)}:/payloads/input_scale_plan.json:ro",
-            cmd,
-        )
+        assert (f"{os.path.abspath(payload_file)}:/payloads/input_scale_plan.json:ro") in (cmd)
         package_root = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "acprof"
         )
-        self.assertIn(f"{package_root}:/app/acprof:ro", cmd)
-        self.assertIn("HF_HUB_OFFLINE=1", cmd)
-        self.assertIn("TRANSFORMERS_OFFLINE=1", cmd)
-        self.assertIn("MODEL_LOCAL_PATH=/models/model-snapshot", cmd)
-        self.assertNotIn("HF_TOKEN", cmd)
-        self.assertNotIn("HUGGING_FACE_HUB_TOKEN", cmd)
+        assert (f"{package_root}:/app/acprof:ro") in (cmd)
+        assert ("HF_HUB_OFFLINE=1") in (cmd)
+        assert ("TRANSFORMERS_OFFLINE=1") in (cmd)
+        assert ("MODEL_LOCAL_PATH=/models/model-snapshot") in (cmd)
+        assert ("HF_TOKEN") not in (cmd)
+        assert ("HUGGING_FACE_HUB_TOKEN") not in (cmd)
 
     def test_parse_advisor_report_sums_self_gflop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -172,10 +164,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow({"Function": "a", "Self GFLOP": "1.5"})
                 writer.writerow({"Function": "b", "Self GFLOP": "2.25"})
 
-            self.assertAlmostEqual(
-                compute_parsers.parse_advisor_self_gflop_csv(report_path),
-                3.75,
-            )
+            assert (compute_parsers.parse_advisor_self_gflop_csv(report_path)) == (3.75) or round(abs((compute_parsers.parse_advisor_self_gflop_csv(report_path)) - (3.75)), 7) == 0
 
     def test_parse_advisor_report_skips_native_csv_preamble(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,10 +180,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow({"ID": "2", "Self GFLOP": "< 0.001", "Module": "libtorch_cpu.so"})
                 writer.writerow({"ID": "3", "Self GFLOP": "2.25", "Module": "libtorch_cpu.so"})
 
-            self.assertAlmostEqual(
-                compute_parsers.parse_advisor_self_gflop_csv(report_path),
-                3.75,
-            )
+            assert (compute_parsers.parse_advisor_self_gflop_csv(report_path)) == (3.75) or round(abs((compute_parsers.parse_advisor_self_gflop_csv(report_path)) - (3.75)), 7) == 0
 
     def test_parse_ncu_raw_csv_sums_flop_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,10 +232,7 @@ class ComputeProfileTests(unittest.TestCase):
                     "Metric Value": "10",
                 })
 
-            self.assertAlmostEqual(
-                host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"],
-                3500.0,
-            )
+            assert (host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) == (3500.0) or round(abs((host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) - (3500.0)), 7) == 0
 
     def test_parse_ncu_raw_csv_weights_sass_fma_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -273,10 +256,7 @@ class ComputeProfileTests(unittest.TestCase):
                     "Metric Value": "10",
                 })
 
-            self.assertAlmostEqual(
-                host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"],
-                30.0,
-            )
+            assert (host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) == (30.0) or round(abs((host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) - (30.0)), 7) == 0
 
     def test_parse_ncu_wide_csv_sums_metric_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -294,10 +274,7 @@ class ComputeProfileTests(unittest.TestCase):
                 writer.writerow(["0", "kernel_a", "10", "20", "100"])
                 writer.writerow(["1", "kernel_b", "1K", "2K", "200"])
 
-            self.assertAlmostEqual(
-                host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"],
-                10 + 20 * 2 + 1000 + 2000 * 2,
-            )
+            assert (host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) == (10 + 20 * 2 + 1000 + 2000 * 2) or round(abs((host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) - (10 + 20 * 2 + 1000 + 2000 * 2)), 7) == 0
 
     def test_parse_ncu_long_csv_returns_normalized_structured_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -338,15 +315,12 @@ class ComputeProfileTests(unittest.TestCase):
                 repeat=2,
             )
 
-        self.assertAlmostEqual(parsed["scalar_flops_per_request"], 80.0)
-        self.assertAlmostEqual(parsed["tensor_flops_per_request"], 200.0)
-        self.assertAlmostEqual(parsed["total_flops_per_request"], 280.0)
-        self.assertAlmostEqual(
-            parsed["tensor_share_pct"],
-            (400.0 / 560.0) * 100.0,
-        )
-        self.assertAlmostEqual(parsed["kernel_launch_count_per_request"], 1.0)
-        self.assertAlmostEqual(parsed["kernel_time_sum_ms_per_request"], 1.5)
+        assert (parsed["scalar_flops_per_request"]) == (80.0) or round(abs((parsed["scalar_flops_per_request"]) - (80.0)), 7) == 0
+        assert (parsed["tensor_flops_per_request"]) == (200.0) or round(abs((parsed["tensor_flops_per_request"]) - (200.0)), 7) == 0
+        assert (parsed["total_flops_per_request"]) == (280.0) or round(abs((parsed["total_flops_per_request"]) - (280.0)), 7) == 0
+        assert (parsed["tensor_share_pct"]) == ((400.0 / 560.0) * 100.0) or round(abs((parsed["tensor_share_pct"]) - ((400.0 / 560.0) * 100.0)), 7) == 0
+        assert (parsed["kernel_launch_count_per_request"]) == (1.0) or round(abs((parsed["kernel_launch_count_per_request"]) - (1.0)), 7) == 0
+        assert (parsed["kernel_time_sum_ms_per_request"]) == (1.5) or round(abs((parsed["kernel_time_sum_ms_per_request"]) - (1.5)), 7) == 0
 
     def test_parse_ncu_wide_csv_normalizes_duration_and_launches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -371,13 +345,13 @@ class ComputeProfileTests(unittest.TestCase):
                 repeat=2,
             )
 
-        self.assertAlmostEqual(parsed["scalar_flops_per_request"], 30.0)
-        self.assertAlmostEqual(parsed["tensor_flops_per_request"], 150.0)
-        self.assertAlmostEqual(parsed["total_flops_per_request"], 180.0)
-        self.assertAlmostEqual(parsed["kernel_launch_count_per_request"], 1.0)
-        self.assertAlmostEqual(parsed["kernel_time_sum_ms_per_request"], 0.002)
-        self.assertEqual(parsed["gpu_compute_capability"], "8.9")
-        self.assertEqual(parsed["gpu_sm_count"], 24.0)
+        assert (parsed["scalar_flops_per_request"]) == (30.0) or round(abs((parsed["scalar_flops_per_request"]) - (30.0)), 7) == 0
+        assert (parsed["tensor_flops_per_request"]) == (150.0) or round(abs((parsed["tensor_flops_per_request"]) - (150.0)), 7) == 0
+        assert (parsed["total_flops_per_request"]) == (180.0) or round(abs((parsed["total_flops_per_request"]) - (180.0)), 7) == 0
+        assert (parsed["kernel_launch_count_per_request"]) == (1.0) or round(abs((parsed["kernel_launch_count_per_request"]) - (1.0)), 7) == 0
+        assert (parsed["kernel_time_sum_ms_per_request"]) == (0.002) or round(abs((parsed["kernel_time_sum_ms_per_request"]) - (0.002)), 7) == 0
+        assert (parsed["gpu_compute_capability"]) == ("8.9")
+        assert (parsed["gpu_sm_count"]) == (24.0)
 
     def test_torch_profile_rejects_unverified_eager_result(self) -> None:
         task_info = TaskInfo(
@@ -418,10 +392,8 @@ class ComputeProfileTests(unittest.TestCase):
                 repeat=1,
             )
 
-        self.assertIsNone(
-            entry["model_logical_mflop_per_request_torch_profiler_eager"]
-        )
-        self.assertIn("attention_implementation_not_verified", entry["error"])
+        assert (entry["model_logical_mflop_per_request_torch_profiler_eager"]) is None
+        assert ("attention_implementation_not_verified") in (entry["error"])
 
     def test_ncu_entry_exposes_exact_csv_metric_keys_and_relative_report(self) -> None:
         task_info = TaskInfo(
@@ -490,33 +462,16 @@ class ComputeProfileTests(unittest.TestCase):
                     repeat=2,
                 )
 
-            self.assertTrue(
-                os.path.isfile(os.path.join(profile_root, "ncu_scale_8.csv"))
-            )
+            assert (os.path.isfile(os.path.join(profile_root, "ncu_scale_8.csv")))
 
-        self.assertAlmostEqual(
-            result["gpu_executed_mflop_per_request_ncu"],
-            0.00023,
-        )
-        self.assertAlmostEqual(
-            result["gpu_executed_tensor_mflop_per_request_ncu"],
-            0.0002,
-        )
-        self.assertAlmostEqual(
-            result["gpu_executed_scalar_mflop_per_request_ncu"],
-            0.00003,
-        )
-        self.assertAlmostEqual(
-            result["gpu_executed_tensor_share_pct_ncu"],
-            (400.0 / 460.0) * 100.0,
-        )
-        self.assertEqual(result["gpu_kernel_launch_count_per_request_ncu"], 1.0)
-        self.assertEqual(result["gpu_kernel_time_sum_ms_per_request_ncu"], 1.5)
-        self.assertNotIn("gpu_profile_report_ncu", result)
-        self.assertEqual(
-            result["report"],
-            os.path.join("compute_profiles", "ncu_scale_8.csv"),
-        )
+        assert (result["gpu_executed_mflop_per_request_ncu"]) == (0.00023) or round(abs((result["gpu_executed_mflop_per_request_ncu"]) - (0.00023)), 7) == 0
+        assert (result["gpu_executed_tensor_mflop_per_request_ncu"]) == (0.0002) or round(abs((result["gpu_executed_tensor_mflop_per_request_ncu"]) - (0.0002)), 7) == 0
+        assert (result["gpu_executed_scalar_mflop_per_request_ncu"]) == (0.00003) or round(abs((result["gpu_executed_scalar_mflop_per_request_ncu"]) - (0.00003)), 7) == 0
+        assert (result["gpu_executed_tensor_share_pct_ncu"]) == ((400.0 / 460.0) * 100.0) or round(abs((result["gpu_executed_tensor_share_pct_ncu"]) - ((400.0 / 460.0) * 100.0)), 7) == 0
+        assert (result["gpu_kernel_launch_count_per_request_ncu"]) == (1.0)
+        assert (result["gpu_kernel_time_sum_ms_per_request_ncu"]) == (1.5)
+        assert ("gpu_profile_report_ncu") not in (result)
+        assert (result["report"]) == (os.path.join("compute_profiles", "ncu_scale_8.csv"))
 
     def test_ncu_parse_failure_preserves_report_until_artifacts_are_discarded(self) -> None:
         task_info = TaskInfo(
@@ -565,9 +520,9 @@ class ComputeProfileTests(unittest.TestCase):
                 )
 
             report = os.path.join("compute_profiles", "ncu_scale_8.csv")
-            self.assertNotIn("gpu_profile_report_ncu", result)
-            self.assertEqual(result["report"], report)
-            self.assertTrue(os.path.isfile(os.path.join(tmp, report)))
+            assert ("gpu_profile_report_ncu") not in (result)
+            assert (result["report"]) == (report)
+            assert (os.path.isfile(os.path.join(tmp, report)))
 
             profiles = {
                 "gpu": {
@@ -579,8 +534,8 @@ class ComputeProfileTests(unittest.TestCase):
             }
             compute_profile._strip_discarded_profile_paths(profiles)
 
-        self.assertNotIn("gpu_profile_report_ncu", result)
-        self.assertIsNone(result["report"])
+        assert ("gpu_profile_report_ncu") not in (result)
+        assert (result["report"]) is None
 
     def test_select_ncu_metrics_combines_sass_and_float_tensor_aggregates(self) -> None:
         fadd = "smsp__sass_thread_inst_executed_op_fadd_pred_on"
@@ -597,7 +552,7 @@ class ComputeProfileTests(unittest.TestCase):
             "sm__ops_path_tensor_src_int8_dst_int32.sum",
         ])
 
-        self.assertEqual(metrics, [fadd, f"{ffma}.sum", tensor])
+        assert (metrics) == ([fadd, f"{ffma}.sum", tensor])
 
     def test_resolve_ncu_metrics_reports_privilege_failure(self) -> None:
         calls = []
@@ -626,9 +581,9 @@ class ComputeProfileTests(unittest.TestCase):
         with patch("acprof.host.profilers.ncu.run_command", side_effect=fake_run):
             metrics, error = ncu._resolve_ncu_metrics("/opt/ncu")
 
-        self.assertEqual(metrics, [])
-        self.assertIn("ERR_NVGPUCTRPERM", error)
-        self.assertEqual(len(calls), 2)
+        assert (metrics) == ([])
+        assert ("ERR_NVGPUCTRPERM") in (error)
+        assert (len(calls)) == (2)
 
     def test_resolve_ncu_metrics_retries_query_in_gpu_container(self) -> None:
         calls = []
@@ -679,19 +634,16 @@ class ComputeProfileTests(unittest.TestCase):
                 container_base_cmd=container_base_cmd,
             )
 
-        self.assertEqual(metrics, [fadd, tensor])
-        self.assertEqual(error, "")
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(
-            calls[-1],
-            [
+        assert (metrics) == ([fadd, tensor])
+        assert (error) == ("")
+        assert (len(calls)) == (3)
+        assert (calls[-1]) == ([
                 *container_base_cmd,
                 "/opt/ncu",
                 "--query-metrics",
                 "--query-metrics-mode",
                 "all",
-            ],
-        )
+            ])
 
     def test_gpu_profile_builds_privileged_container_for_metric_query(self) -> None:
         task_info = TaskInfo(
@@ -735,16 +687,13 @@ class ComputeProfileTests(unittest.TestCase):
                 repeat=1,
             )
 
-        self.assertEqual(
-            query["ncu_bin"],
-            "/opt/nvidia/nsight-compute/2025.1.0/ncu",
-        )
+        assert (query["ncu_bin"]) == ("/opt/nvidia/nsight-compute/2025.1.0/ncu")
         container_base_cmd = query["container_base_cmd"]
-        self.assertIn("--gpus", container_base_cmd)
-        self.assertIn("--cap-add=SYS_ADMIN", container_base_cmd)
-        self.assertIn("--cap-add=SYS_PTRACE", container_base_cmd)
-        self.assertIn("--security-opt=seccomp=unconfined", container_base_cmd)
-        self.assertEqual(container_base_cmd[-1], "acprof-test:latest")
+        assert ("--gpus") in (container_base_cmd)
+        assert ("--cap-add=SYS_ADMIN") in (container_base_cmd)
+        assert ("--cap-add=SYS_PTRACE") in (container_base_cmd)
+        assert ("--security-opt=seccomp=unconfined") in (container_base_cmd)
+        assert (container_base_cmd[-1]) == ("acprof-test:latest")
 
     def test_ncu_resume_reuses_csv_recovers_report_and_collects_only_missing(self) -> None:
         task_info = TaskInfo(
@@ -778,7 +727,7 @@ class ComputeProfileTests(unittest.TestCase):
                 f.write(b"existing report")
 
             def fake_export(**kwargs):
-                self.assertTrue(kwargs["report_base"].endswith("ncu_scale_20"))
+                assert (kwargs["report_base"].endswith("ncu_scale_20"))
                 ncu._write_text_atomic(
                     kwargs["host_csv"],
                     _ncu_resume_csv_text(),
@@ -788,7 +737,7 @@ class ComputeProfileTests(unittest.TestCase):
             def fake_collect(**kwargs):
                 scale = float(kwargs["entry"]["input_scale"])
                 collected.append(scale)
-                self.assertEqual(scale, 30.0)
+                assert (scale) == (30.0)
                 _report_base, host_csv, _host_report, _checkpoint = (
                     ncu._ncu_artifact_paths(profile_root, scale)
                 )
@@ -835,18 +784,15 @@ class ComputeProfileTests(unittest.TestCase):
                     resume_existing=True,
                 )
 
-            self.assertEqual(collected, [30.0])
-            self.assertEqual(export_report.call_count, 1)
-            self.assertEqual(
-                [entry["input_scale"] for entry in result["entries"]],
-                [1.0, 20.0, 30.0],
-            )
-            self.assertTrue(all(
+            assert (collected) == ([30.0])
+            assert (export_report.call_count) == (1)
+            assert ([entry["input_scale"] for entry in result["entries"]]) == ([1.0, 20.0, 30.0])
+            assert (all(
                 ncu._ncu_entry_complete(entry)
                 for entry in result["entries"]
             ))
             for scale in (1, 20, 30):
-                self.assertTrue(os.path.isfile(os.path.join(
+                assert (os.path.isfile(os.path.join(
                     profile_root,
                     f"ncu_scale_{scale}.checkpoint.json",
                 )))
@@ -898,7 +844,7 @@ class ComputeProfileTests(unittest.TestCase):
                 repeat=2,
             )
 
-        self.assertIsNone(resumed)
+        assert (resumed) is None
 
     def test_vendor_mode_missing_tools_write_nan_profiles_with_errors(self) -> None:
         task_info = TaskInfo(
@@ -936,30 +882,19 @@ class ComputeProfileTests(unittest.TestCase):
 
             with open(plan_path, "r", encoding="utf-8") as f:
                 plan = json.load(f)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "compute_profiles")))
-            self.assertFalse(
-                os.path.exists(
+            assert not (os.path.exists(os.path.join(tmp, "compute_profiles")))
+            assert not (os.path.exists(
                     os.path.join(tmp, "compute_profile_payloads.json")
-                )
-            )
+                ))
 
-        self.assertIn(
-            "advisor_not_found",
-            plan["profiles"]["cpu"]["intel_advisor"]["error"],
-        )
-        self.assertIn("ncu_not_found", plan["profiles"]["gpu"]["ncu"]["error"])
-        self.assertEqual(
-            plan["profiles"]["cpu"]["intel_advisor"]["entries"][0][
+        assert ("advisor_not_found") in (plan["profiles"]["cpu"]["intel_advisor"]["error"])
+        assert ("ncu_not_found") in (plan["profiles"]["gpu"]["ncu"]["error"])
+        assert (plan["profiles"]["cpu"]["intel_advisor"]["entries"][0][
                 "model_mflop_per_request"
-            ],
-            None,
-        )
-        self.assertEqual(
-            plan["profiles"]["gpu"]["ncu"]["entries"][0][
+            ]) is (None)
+        assert (plan["profiles"]["gpu"]["ncu"]["entries"][0][
                 "gpu_executed_mflop_per_request_ncu"
-            ],
-            None,
-        )
+            ]) is (None)
 
     def test_default_compute_profile_mode_writes_disabled_plan_without_probes(self) -> None:
         task_info = TaskInfo(
@@ -997,15 +932,13 @@ class ComputeProfileTests(unittest.TestCase):
             )
             with open(plan_path, "r", encoding="utf-8") as f:
                 plan = json.load(f)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "compute_profiles")))
+            assert not (os.path.exists(os.path.join(tmp, "compute_profiles")))
 
-        self.assertEqual(plan["compute_profile_tool_mode"], "none")
-        self.assertEqual(plan["profiles"], {})
-        self.assertEqual(plan["static_metadata"]["compute_profile_tools"], [])
-        self.assertFalse(plan["static_metadata"]["compute_profiles_retained"])
-        self.assertEqual(
-            plan["static_metadata"]["compute_profile_provenance"], "disabled"
-        )
+        assert (plan["compute_profile_tool_mode"]) == ("none")
+        assert (plan["profiles"]) == ({})
+        assert (plan["static_metadata"]["compute_profile_tools"]) == ([])
+        assert not (plan["static_metadata"]["compute_profiles_retained"])
+        assert (plan["static_metadata"]["compute_profile_provenance"]) == ("disabled")
 
     def test_both_compute_profile_uses_torch_on_each_device_and_gpu_ncu(self) -> None:
         task_info = TaskInfo(
@@ -1089,23 +1022,17 @@ class ComputeProfileTests(unittest.TestCase):
             with open(plan_path, "r", encoding="utf-8") as f:
                 plan = json.load(f)
 
-        self.assertEqual(
-            calls,
-            [
+        assert (calls) == ([
                 ("find", ("ncu", "nv-nsight-cu-cli")),
                 ("torch", "cpu", False),
                 ("torch", "gpu", True),
                 ("gpu", "/opt/nvidia/nsight-compute/2024.1.1/ncu"),
-            ],
-        )
-        self.assertEqual(plan["compute_profile_tool_mode"], "both")
-        self.assertEqual(
-            plan["profiles"]["cpu"]["torch_profiler_eager"]["tool"],
-            "torch_profiler_eager",
-        )
-        self.assertEqual(plan["profiles"]["gpu"]["ncu"]["tool"], "ncu")
-        self.assertNotIn("tool", plan["profiles"]["cpu"])
-        self.assertNotIn("tool", plan["profiles"]["gpu"])
+            ])
+        assert (plan["compute_profile_tool_mode"]) == ("both")
+        assert (plan["profiles"]["cpu"]["torch_profiler_eager"]["tool"]) == ("torch_profiler_eager")
+        assert (plan["profiles"]["gpu"]["ncu"]["tool"]) == ("ncu")
+        assert ("tool") not in (plan["profiles"]["cpu"])
+        assert ("tool") not in (plan["profiles"]["gpu"])
 
 
     def test_both_mode_keeps_torch_and_ncu_failures_independent(self) -> None:
@@ -1168,28 +1095,19 @@ class ComputeProfileTests(unittest.TestCase):
             with open(plan_path, "r", encoding="utf-8") as f:
                 plan = json.load(f)
 
-        self.assertEqual(calls, [("torch", "cpu"), ("torch", "gpu"), ("ncu", 3)])
-        self.assertNotIn("schema_version", plan)
-        self.assertIn(
-            "torch_profiler_eager_failed",
-            plan["profiles"]["gpu"]["torch_profiler_eager"]["error"],
-        )
-        self.assertEqual(
-            plan["profiles"]["gpu"]["ncu"]["entries"][0][
+        assert (calls) == ([("torch", "cpu"), ("torch", "gpu"), ("ncu", 3)])
+        assert ("schema_version") not in (plan)
+        assert ("torch_profiler_eager_failed") in (plan["profiles"]["gpu"]["torch_profiler_eager"]["error"])
+        assert (plan["profiles"]["gpu"]["ncu"]["entries"][0][
                 "gpu_executed_mflop_per_request_ncu"
-            ],
-            42.0,
-        )
+            ]) == (42.0)
         metadata = plan["static_metadata"]
-        self.assertNotIn("compute_profile_schema_version", metadata)
-        self.assertEqual(
-            metadata["compute_profile_tools"],
-            ["torch_profiler_eager", "ncu"],
-        )
-        self.assertEqual(metadata["torch_profiler_eager_repeat_cpu"], 2)
-        self.assertEqual(metadata["torch_profiler_eager_repeat_gpu"], 2)
-        self.assertEqual(metadata["ncu_repeat"], 3)
-        self.assertFalse(metadata["compute_profiles_retained"])
+        assert ("compute_profile_schema_version") not in (metadata)
+        assert (metadata["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
+        assert (metadata["torch_profiler_eager_repeat_cpu"]) == (2)
+        assert (metadata["torch_profiler_eager_repeat_gpu"]) == (2)
+        assert (metadata["ncu_repeat"]) == (3)
+        assert not (metadata["compute_profiles_retained"])
 
     def test_vendor_compute_profile_mode_keeps_missing_tool_errors(self) -> None:
         task_info = TaskInfo(
@@ -1228,11 +1146,8 @@ class ComputeProfileTests(unittest.TestCase):
             with open(plan_path, "r", encoding="utf-8") as f:
                 plan = json.load(f)
 
-        self.assertIn(
-            "advisor_not_found",
-            plan["profiles"]["cpu"]["intel_advisor"]["error"],
-        )
-        self.assertIn("ncu_not_found", plan["profiles"]["gpu"]["ncu"]["error"])
+        assert ("advisor_not_found") in (plan["profiles"]["cpu"]["intel_advisor"]["error"])
+        assert ("ncu_not_found") in (plan["profiles"]["gpu"]["ncu"]["error"])
 
     def test_compute_profile_resource_overrides_are_used(self) -> None:
         task_info = TaskInfo(
@@ -1282,7 +1197,7 @@ class ComputeProfileTests(unittest.TestCase):
                 compute_profile_tool="vendor",
             )
 
-        self.assertEqual(calls, [("cpu", 8, 16), ("gpu", 8, 16)])
+        assert (calls) == ([("cpu", 8, 16), ("gpu", 8, 16)])
 
     def test_compute_profile_default_resources_use_host_capacity(self) -> None:
         task_info = TaskInfo(
@@ -1329,7 +1244,7 @@ class ComputeProfileTests(unittest.TestCase):
                 compute_profile_tool="vendor",
             )
 
-        self.assertEqual(calls, [("cpu", 12, 48)])
+        assert (calls) == ([("cpu", 12, 48)])
 
     def test_find_executable_searches_default_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.object(
@@ -1343,23 +1258,14 @@ class ComputeProfileTests(unittest.TestCase):
             with open(advisor_path, "w", encoding="utf-8") as f:
                 f.write("#!/bin/sh\n")
 
-            self.assertEqual(
-                compute_profile.find_executable(None, ("advisor", "advixe-cl")),
-                advisor_path,
-            )
+            assert (compute_profile.find_executable(None, ("advisor", "advixe-cl"))) == (advisor_path)
 
     def test_tool_mount_root_uses_profiler_install_root(self) -> None:
         advisor_bin = "/opt/intel/oneapi/advisor/2025.5/bin64/advisor"
         ncu_bin = "/opt/nvidia/nsight-compute/2025.1.0/ncu"
 
-        self.assertEqual(
-            host_profilers_tool_discovery.tool_mount_root(advisor_bin, None),
-            "/opt/intel/oneapi/advisor/2025.5",
-        )
-        self.assertEqual(
-            host_profilers_tool_discovery.tool_mount_root(ncu_bin, None),
-            "/opt/nvidia/nsight-compute/2025.1.0",
-        )
+        assert (host_profilers_tool_discovery.tool_mount_root(advisor_bin, None)) == ("/opt/intel/oneapi/advisor/2025.5")
+        assert (host_profilers_tool_discovery.tool_mount_root(ncu_bin, None)) == ("/opt/nvidia/nsight-compute/2025.1.0")
 
     def test_debian_ncu_mount_roots_include_target_symlink_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1374,13 +1280,10 @@ class ComputeProfileTests(unittest.TestCase):
             with open(ncu_path, "w", encoding="utf-8") as f:
                 f.write("#!/bin/sh\n")
 
-            self.assertEqual(
-                tool_discovery.tool_mount_roots(ncu_path, None),
-                [lib_root, arch_root],
-            )
+            assert (tool_discovery.tool_mount_roots(ncu_path, None)) == ([lib_root, arch_root])
 
 
-class ComputeProfileProgressTests(unittest.TestCase):
+class TestComputeProfileProgress:
     def _collect(self, directory, **kwargs):
         input_plan = _write_input_scale_plan(directory)
         with open(input_plan, "r", encoding="utf-8") as f:
@@ -1478,10 +1381,10 @@ class ComputeProfileProgressTests(unittest.TestCase):
                 ("released", profiler),
                 ("complete", profiler),
             ])
-        self.assertEqual(order, expected)
-        self.assertEqual([event.elapsed_seconds for event in completions], [5.0] * 3)
-        self.assertEqual([event.total_samples for event in completions], [2] * 3)
-        self.assertEqual([event.status for event in completions], ["success"] * 3)
+        assert (order) == (expected)
+        assert ([event.elapsed_seconds for event in completions]) == ([5.0] * 3)
+        assert ([event.total_samples for event in completions]) == ([2] * 3)
+        assert ([event.status for event in completions]) == (["success"] * 3)
 
     def test_missing_vendor_tools_still_notify_each_failed_stage(self):
         completions = []
@@ -1490,12 +1393,12 @@ class ComputeProfileProgressTests(unittest.TestCase):
                 tmp, compute_profile_tool="vendor", progress_callback=completions.append,
             )
 
-        self.assertEqual([event.profiler for event in completions], ["CPU Advisor", "NCU"])
-        self.assertEqual([event.status for event in completions], ["failed", "failed"])
-        self.assertEqual([event.total_samples for event in completions], [2, 2])
-        self.assertEqual([event.error_samples for event in completions], [2, 2])
-        self.assertEqual(plan["profiles"]["cpu"]["intel_advisor"]["error"], "advisor_not_found")
-        self.assertEqual(plan["profiles"]["gpu"]["ncu"]["error"], "ncu_not_found")
+        assert ([event.profiler for event in completions]) == (["CPU Advisor", "NCU"])
+        assert ([event.status for event in completions]) == (["failed", "failed"])
+        assert ([event.total_samples for event in completions]) == ([2, 2])
+        assert ([event.error_samples for event in completions]) == ([2, 2])
+        assert (plan["profiles"]["cpu"]["intel_advisor"]["error"]) == ("advisor_not_found")
+        assert (plan["profiles"]["gpu"]["ncu"]["error"]) == ("ncu_not_found")
 
     def test_raised_tool_failure_notifies_and_continues_to_next_device(self):
         completions = []
@@ -1512,11 +1415,11 @@ class ComputeProfileProgressTests(unittest.TestCase):
                 tmp, compute_profile_tool="torch", progress_callback=completions.append,
             )
 
-        self.assertEqual([event.profiler for event in completions], ["CPU Torch", "GPU Torch"])
-        self.assertEqual([event.status for event in completions], ["failed", "success"])
-        self.assertIn("CPU probe failed", completions[0].detail)
-        self.assertEqual(completions[0].error_samples, 2)
-        self.assertEqual(plan["profiles"]["gpu"][torch.TORCH_PROFILER_TOOL]["error"], "")
+        assert ([event.profiler for event in completions]) == (["CPU Torch", "GPU Torch"])
+        assert ([event.status for event in completions]) == (["failed", "success"])
+        assert ("CPU probe failed") in (completions[0].detail)
+        assert (completions[0].error_samples) == (2)
+        assert (plan["profiles"]["gpu"][torch.TORCH_PROFILER_TOOL]["error"]) == ("")
 
     def test_notification_failure_does_not_change_plan_or_stop_next_stage(self):
         attempted = []
@@ -1533,28 +1436,24 @@ class ComputeProfileProgressTests(unittest.TestCase):
                 tmp, compute_profile_tool="torch", progress_callback=broken_callback,
             )
 
-        self.assertEqual(attempted, ["CPU Torch", "GPU Torch"])
-        self.assertEqual(actual, expected)
+        assert (attempted) == (["CPU Torch", "GPU Torch"])
+        assert (actual) == (expected)
 
-    def test_disabled_and_inapplicable_tools_do_not_notify(self):
-        for mode, gpu_list in (("none", ["off", "on"]), ("ncu", ["off"])):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp, patch.object(
-                torch, "_profile_torch_entries",
-            ) as torch_call, patch.object(
-                ncu, "_profile_gpu_entries",
-            ) as ncu_call, patch.object(
-                advisor, "_profile_cpu_entries",
-            ) as advisor_call:
-                completions = []
-                self._collect(
-                    tmp, compute_profile_tool=mode, gpu_list=gpu_list,
-                    progress_callback=completions.append,
-                )
-                self.assertEqual(completions, [])
-                torch_call.assert_not_called()
-                ncu_call.assert_not_called()
-                advisor_call.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()
+    @pytest.mark.parametrize('mode,gpu_list', (('none', ['off', 'on']), ('ncu', ['off'])))
+    def test_disabled_and_inapplicable_tools_do_not_notify(self, mode, gpu_list):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            torch, "_profile_torch_entries",
+        ) as torch_call, patch.object(
+            ncu, "_profile_gpu_entries",
+        ) as ncu_call, patch.object(
+            advisor, "_profile_cpu_entries",
+        ) as advisor_call:
+            completions = []
+            self._collect(
+                tmp, compute_profile_tool=mode, gpu_list=gpu_list,
+                progress_callback=completions.append,
+            )
+            assert (completions) == ([])
+            torch_call.assert_not_called()
+            ncu_call.assert_not_called()
+            advisor_call.assert_not_called()

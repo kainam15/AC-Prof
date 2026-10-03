@@ -4,10 +4,12 @@ import os
 import sys
 import tempfile
 import time
-import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+import pytest
 
 from acprof.cli import run
 from acprof.host import input_plan, orchestrator, runtime_images
@@ -16,16 +18,17 @@ from acprof.host.profiler_progress import ProfilerProgress
 from acprof.notifications import NotificationConfigError, NotificationEvent
 
 
-class RunNotificationLifecycleTests(unittest.TestCase):
-    def setUp(self):
+class TestRunNotificationLifecycle:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         selection = patch('acprof.host.gpu_device.resolve_gpu_device', return_value={
             'uuid': 'GPU-fixture', 'index': 1, 'name': 'Fixture', 'memory_total_bytes': 8 * 1024 ** 3,
             'pci_bus_id': '00000000:02:00.0',
         })
         selection.start()
-        self.addCleanup(selection.stop)
-
-    def tearDown(self) -> None:
+        self._request.addfinalizer(partial(selection.stop))
+        yield
         run._ACTIVE_RUN_NOTIFICATION = None
         run._ACTIVE_TMUX_TERMINAL_LOG = None
 
@@ -57,7 +60,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
 
     def test_default_mode_auto_enables_configured_wecom(self) -> None:
         notifier = Mock()
-        self.assertEqual(run.DEFAULT_NOTIFY_PROVIDER, "auto")
+        assert (run.DEFAULT_NOTIFY_PROVIDER) == ("auto")
 
         with patch(
             "acprof.cli.run.WeComWebhookNotifier.from_env",
@@ -72,8 +75,8 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             )
 
         from_env.assert_called_once_with()
-        self.assertIsNotNone(run._ACTIVE_RUN_NOTIFICATION)
-        self.assertIs(run._ACTIVE_RUN_NOTIFICATION.notifier, notifier)
+        assert (run._ACTIVE_RUN_NOTIFICATION) is not None
+        assert (run._ACTIVE_RUN_NOTIFICATION.notifier) is (notifier)
 
     def test_default_mode_stays_silent_without_wecom_config(self) -> None:
         stderr = io.StringIO()
@@ -89,8 +92,8 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 run_command="acprof run --model org/model",
             )
 
-        self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION)
-        self.assertEqual(stderr.getvalue(), "")
+        assert (run._ACTIVE_RUN_NOTIFICATION) is None
+        assert (stderr.getvalue()) == ("")
 
     def test_start_notification_contains_current_command(self) -> None:
         captured = []
@@ -102,15 +105,16 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         run._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
         run._notify_run_started()
 
-        self.assertEqual(len(captured), 1)
+        assert (len(captured)) == (1)
         event = captured[0]
-        self.assertEqual(event.status, "started")
-        self.assertEqual(event.run_command, "acprof run --model org/model")
-        self.assertIn("环境预检", event.detail)
-        self.assertGreaterEqual(event.elapsed_seconds, 0.0)
-        self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION.event)
+        assert (event.status) == ("started")
+        assert (event.run_command) == ("acprof run --model org/model")
+        assert ("环境预检") in (event.detail)
+        assert (event.elapsed_seconds) >= (0.0)
+        assert (run._ACTIVE_RUN_NOTIFICATION.event) is None
 
-    def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self) -> None:
+    @pytest.mark.parametrize('allowed', (False, True))
+    def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self, allowed) -> None:
         argv = [
             "acprof run",
             "--model",
@@ -133,8 +137,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             )
 
         def policy(*, profiling_mode, compute_tool, execution_tool, dram_energy):
-            self.assertEqual((profiling_mode, compute_tool, execution_tool, dram_energy),
-                             ("full", "none", "none", "auto"))
+            assert ((profiling_mode, compute_tool, execution_tool, dram_energy)) == (("full", "none", "none", "auto"))
             order.append(("policy", None))
             if not allowed:
                 raise RuntimeError("stop after ordering check")
@@ -143,38 +146,37 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             order.append(("preflight", None))
             raise RuntimeError("stop after ordering check")
 
-        for allowed in (False, True):
-            order.clear()
-            with self.subTest(policy_allowed=allowed), patch.object(sys, "argv", argv), patch(
-                "acprof.cli.run.bootstrap_project_env"
-            ), patch(
-                "acprof.cli.run._activate_run_notification",
-                side_effect=activate,
-            ), patch(
-                "acprof.cli.run.start_terminal_log",
-                side_effect=lambda *_args: order.append(("tmux", None)),
-            ), patch(
-                "acprof.cli.run._notify_run_started",
-                side_effect=lambda: order.append(("started", None)),
-            ), patch(
-                "acprof.host.detect.detect_task",
-                side_effect=resolve,
-            ), patch(
-                "acprof.cli.run.require_collection_host",
-                side_effect=policy,
-            ), patch(
-                "acprof.cli.run.require_native_docker",
-                side_effect=preflight,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "ordering check"):
-                    run._run_main()
+        order.clear()
+        with patch.object(sys, "argv", argv), patch(
+            "acprof.cli.run.bootstrap_project_env"
+        ), patch(
+            "acprof.cli.run._activate_run_notification",
+            side_effect=activate,
+        ), patch(
+            "acprof.cli.run.start_terminal_log",
+            side_effect=lambda *_args: order.append(("tmux", None)),
+        ), patch(
+            "acprof.cli.run._notify_run_started",
+            side_effect=lambda: order.append(("started", None)),
+        ), patch(
+            "acprof.host.detect.detect_task",
+            side_effect=resolve,
+        ), patch(
+            "acprof.cli.run.require_collection_host",
+            side_effect=policy,
+        ), patch(
+            "acprof.cli.run.require_native_docker",
+            side_effect=preflight,
+        ):
+            with pytest.raises(RuntimeError, match="ordering check"):
+                run._run_main()
 
-                self.assertEqual(order, [("policy", None)] + ([
-                    ("activate", expected_command),
-                    ("started", None),
-                    ("resolution", "org/model with space"),
-                    ("preflight", None),
-                ] if allowed else []))
+            assert (order) == ([("policy", None)] + ([
+                ("activate", expected_command),
+                ("started", None),
+                ("resolution", "org/model with space"),
+                ("preflight", None),
+            ] if allowed else []))
 
     def test_completion_marks_error_rows_as_partial(self) -> None:
         notifier = Mock()
@@ -193,10 +195,10 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             )
 
         event = run._ACTIVE_RUN_NOTIFICATION.event
-        self.assertIsNotNone(event)
-        self.assertEqual(event.status, "partial")
-        self.assertEqual(event.result_rows, 2)
-        self.assertEqual(event.error_rows, 1)
+        assert (event) is not None
+        assert (event.status) == ("partial")
+        assert (event.result_rows) == (2)
+        assert (event.error_rows) == (1)
         notifier.send.assert_not_called()
 
     def test_case_progress_reports_current_case_after_csv_is_complete(self) -> None:
@@ -225,53 +227,53 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(len(captured), 1)
+        assert (len(captured)) == (1)
         event = captured[0]
-        self.assertEqual(event.status, "progress")
-        self.assertEqual(event.completed_cases, 1)
-        self.assertEqual(event.total_cases, 2)
-        self.assertEqual(event.result_rows, 1)
-        self.assertEqual(event.error_rows, 0)
-        self.assertIn("CPU=2, MEM=4GB, GPU=off", event.detail)
+        assert (event.status) == ("progress")
+        assert (event.completed_cases) == (1)
+        assert (event.total_cases) == (2)
+        assert (event.result_rows) == (1)
+        assert (event.error_rows) == (0)
+        assert ("CPU=2, MEM=4GB, GPU=off") in (event.detail)
 
-    def test_profiler_completion_preserves_status_counts_and_final_event(self) -> None:
+    @pytest.mark.parametrize('status_case', range(4))
+    def test_profiler_completion_preserves_status_counts_and_final_event(self, status_case) -> None:
         cases = (
             ("success", 3, 0, ""),
             ("partial", 3, 1, "one scale failed"),
             ("failed", 3, 3, "probe failed"),
             ("no_results", 0, 0, ""),
         )
-        for status, total_samples, error_samples, detail in cases:
-            with self.subTest(status=status):
-                notifier = Mock()
-                context = self._context(notifier)
-                final_event = self._success_event()
-                context.event = final_event
-                run._ACTIVE_RUN_NOTIFICATION = context
+        (status, total_samples, error_samples, detail) = tuple(cases)[status_case]
+        notifier = Mock()
+        context = self._context(notifier)
+        final_event = self._success_event()
+        context.event = final_event
+        run._ACTIVE_RUN_NOTIFICATION = context
 
-                run._notify_profiler_completion(
-                    ProfilerProgress(
-                        profiler="CPU Torch",
-                        status=status,
-                        elapsed_seconds=0.25,
-                        total_samples=total_samples,
-                        error_samples=error_samples,
-                        detail=detail,
-                    )
-                )
+        run._notify_profiler_completion(
+            ProfilerProgress(
+                profiler="CPU Torch",
+                status=status,
+                elapsed_seconds=0.25,
+                total_samples=total_samples,
+                error_samples=error_samples,
+                detail=detail,
+            )
+        )
 
-                notifier.send.assert_called_once()
-                event = notifier.send.call_args.args[0]
-                self.assertEqual(event.status, f"profiler_{status}")
-                self.assertEqual(event.profiler, "CPU Torch")
-                self.assertEqual(event.profile_elapsed_seconds, 0.25)
-                self.assertEqual(event.profile_samples, total_samples)
-                self.assertEqual(event.profile_error_samples, error_samples)
-                self.assertEqual(event.detail, detail or None)
-                self.assertEqual(event.model_id, context.model_id)
-                self.assertEqual(event.output_dir, context.output_dir)
-                self.assertGreaterEqual(event.elapsed_seconds, 1.0)
-                self.assertIs(context.event, final_event)
+        notifier.send.assert_called_once()
+        event = notifier.send.call_args.args[0]
+        assert (event.status) == (f"profiler_{status}")
+        assert (event.profiler) == ("CPU Torch")
+        assert (event.profile_elapsed_seconds) == (0.25)
+        assert (event.profile_samples) == (total_samples)
+        assert (event.profile_error_samples) == (error_samples)
+        assert (event.detail) == (detail or None)
+        assert (event.model_id) == (context.model_id)
+        assert (event.output_dir) == (context.output_dir)
+        assert (event.elapsed_seconds) >= (1.0)
+        assert (context.event) is (final_event)
 
     def test_profiler_completion_is_silent_without_active_notifier(self) -> None:
         run._ACTIVE_RUN_NOTIFICATION = None
@@ -301,9 +303,9 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             )
 
         notifier.send.assert_called_once()
-        self.assertIs(context.event, final_event)
-        self.assertIn("RuntimeError", stderr.getvalue())
-        self.assertNotIn(unsafe_key, stderr.getvalue())
+        assert (context.event) is (final_event)
+        assert ("RuntimeError") in (stderr.getvalue())
+        assert (unsafe_key) not in (stderr.getvalue())
 
     def test_main_wires_profiler_notifications_before_matrix_with_resolved_model(self) -> None:
         self._assert_main_profiler_notifications(provider="auto")
@@ -400,26 +402,19 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             None if provider == "none" else run._notify_profiler_completion
         )
         for collector in (compute, execution):
-            self.assertIs(
-                collector.call_args.kwargs["progress_callback"], expected_callback,
-            )
+            assert (collector.call_args.kwargs["progress_callback"]) is (expected_callback)
         if provider == "none":
             from_env.assert_not_called()
             notifier.send.assert_not_called()
-            self.assertEqual(order, ["matrix"])
+            assert (order) == (["matrix"])
         else:
             from_env.assert_called_once_with()
-            self.assertEqual(
-                order,
-                ["started", "CPU Torch", "GPU Torch", "NCU", "Massif", "Nsys", "matrix", "no_results"],
-            )
+            assert (order) == (["started", "CPU Torch", "GPU Torch", "NCU", "Massif", "Nsys", "matrix", "no_results"])
             for event in events[1:]:
-                self.assertEqual(event.model_id, task_info.model_id)
-                self.assertEqual(
-                    event.output_dir, os.path.join(tmp_dir, "org--resolved-model"),
-                )
-            self.assertTrue(all(event.status == "profiler_success" for event in events[1:-1]))
-            self.assertEqual(events[-1].total_cases, 2)
+                assert (event.model_id) == (task_info.model_id)
+                assert (event.output_dir) == (os.path.join(tmp_dir, "org--resolved-model"))
+            assert (all(event.status == "profiler_success" for event in events[1:-1]))
+            assert (events[-1].total_cases) == (2)
 
     def test_matrix_progress_callback_runs_after_each_case(self) -> None:
         order = []
@@ -449,11 +444,9 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 progress_callback=progress,
             )
 
-        self.assertEqual(len(result_csvs), 4)
-        self.assertEqual(len(progress_events), 4)
-        self.assertEqual(
-            order,
-            [
+        assert (len(result_csvs)) == (4)
+        assert (len(progress_events)) == (4)
+        assert (order) == ([
                 ("case", 1, "off"),
                 ("progress", 1, "off"),
                 ("case", 1, "on"),
@@ -462,10 +455,9 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 ("progress", 2, "off"),
                 ("case", 2, "on"),
                 ("progress", 2, "on"),
-            ],
-        )
-        self.assertEqual(progress_events[-1].completed_cases, 4)
-        self.assertEqual(progress_events[-1].total_cases, 4)
+            ])
+        assert (progress_events[-1].completed_cases) == (4)
+        assert (progress_events[-1].total_cases) == (4)
 
     def test_matrix_ignores_progress_callback_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch(
@@ -484,7 +476,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 progress_callback=Mock(side_effect=RuntimeError("notify failed")),
             )
 
-        self.assertEqual(result_csvs, ["/tmp/result.csv"])
+        assert (result_csvs) == (["/tmp/result.csv"])
 
     def test_main_finalizes_tmux_before_sending_success(self) -> None:
         order = []
@@ -504,7 +496,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             run._ACTIVE_TMUX_TERMINAL_LOG = terminal_log
 
         def stop_log(value):
-            self.assertEqual(value, terminal_log)
+            assert (value) == (terminal_log)
             order.append("tmux")
             return True
 
@@ -514,8 +506,8 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         ):
             run.main()
 
-        self.assertEqual(order, ["tmux", "notify"])
-        self.assertEqual(captured[0].terminal_log, terminal_log[2])
+        assert (order) == (["tmux", "notify"])
+        assert (captured[0].terminal_log) == (terminal_log[2])
 
     def test_main_preserves_runtime_error_and_sends_failure(self) -> None:
         captured = []
@@ -529,12 +521,12 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             raise RuntimeError("profiling failed")
 
         with patch("acprof.cli.run._run_main", side_effect=fail_run):
-            with self.assertRaisesRegex(RuntimeError, "profiling failed"):
+            with pytest.raises(RuntimeError, match="profiling failed"):
                 run.main()
 
-        self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0].status, "failed")
-        self.assertIn("RuntimeError: profiling failed", captured[0].detail)
+        assert (len(captured)) == (1)
+        assert (captured[0].status) == ("failed")
+        assert ("RuntimeError: profiling failed") in (captured[0].detail)
 
     def test_main_preserves_system_exit_code_and_sends_failure(self) -> None:
         captured = []
@@ -548,12 +540,12 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             raise SystemExit(7)
 
         with patch("acprof.cli.run._run_main", side_effect=fail_run):
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.main()
 
-        self.assertEqual(raised.exception.code, 7)
-        self.assertEqual(captured[0].status, "failed")
-        self.assertIn("退出码 7", captured[0].detail)
+        assert (raised.value.code) == (7)
+        assert (captured[0].status) == ("failed")
+        assert ("退出码 7") in (captured[0].detail)
 
     def test_unknown_delivery_error_does_not_change_success_result(self) -> None:
         unsafe_key = "secret-webhook-key"
@@ -577,10 +569,6 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         ):
             result = run.main()
 
-        self.assertEqual(result, 23)
-        self.assertIn("RuntimeError", stderr.getvalue())
-        self.assertNotIn(unsafe_key, stderr.getvalue())
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (result) == (23)
+        assert ("RuntimeError") in (stderr.getvalue())
+        assert (unsafe_key) not in (stderr.getvalue())

@@ -3,10 +3,12 @@ import json
 import os
 import sys
 import tempfile
-import unittest
 from contextlib import redirect_stderr
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+import pytest
 
 import acprof.host.preflight as host_preflight
 from acprof.cli import run
@@ -14,94 +16,95 @@ from acprof.host import input_plan, orchestrator, runtime_images
 from acprof.host.detect import TaskInfo
 
 
-class TmuxTerminalLogTests(unittest.TestCase):
-    def test_terminal_log_is_not_started_outside_tmux(self) -> None:
-        with patch.dict(
-            "acprof.cli.run.os.environ",
-            {},
-            clear=True,
-        ), patch("acprof.cli.terminal_log.run_command") as mock_run:
-            terminal_log = run.start_terminal_log(
-                "/tmp/acprof-results",
-                ["acprof run", "--model", "dummy-model"],
-            )
+def test_terminal_log_is_not_started_outside_tmux() -> None:
+    with patch.dict(
+        "acprof.cli.run.os.environ",
+        {},
+        clear=True,
+    ), patch("acprof.cli.terminal_log.run_command") as mock_run:
+        terminal_log = run.start_terminal_log(
+            "/tmp/acprof-results",
+            ["acprof run", "--model", "dummy-model"],
+        )
 
-        self.assertIsNone(terminal_log)
-        mock_run.assert_not_called()
+    assert (terminal_log) is None
+    mock_run.assert_not_called()
 
-    def test_terminal_log_records_and_atomically_finalizes_tmux_output(self) -> None:
-        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
-        pipe_status = SimpleNamespace(returncode=0, stdout="0\n", stderr="")
-        commands = []
+def test_terminal_log_records_and_atomically_finalizes_tmux_output() -> None:
+    completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+    pipe_status = SimpleNamespace(returncode=0, stdout="0\n", stderr="")
+    commands = []
 
-        def fake_run(command, **_kwargs):
-            commands.append(command)
-            if command[1] == "display-message":
-                return pipe_status
-            return completed
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        if command[1] == "display-message":
+            return pipe_status
+        return completed
 
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(
-            "acprof.cli.run.os.environ",
-            {
-                "TMUX": "/tmp/tmux-1000/default,123,0",
-                "TMUX_PANE": "%7",
-            },
-            clear=True,
-        ), patch(
-            "acprof.cli.terminal_log.run_command",
-            side_effect=fake_run,
-        ):
-            output_dir = os.path.join(tmp, "results", "org--model")
-            terminal_log = run.start_terminal_log(
-                output_dir,
-                ["acprof run", "--model", "org/model"],
-            )
-            self.assertIsNotNone(terminal_log)
-            pane_id, partial_path, log_path = terminal_log
+    with tempfile.TemporaryDirectory() as tmp, patch.dict(
+        "acprof.cli.run.os.environ",
+        {
+            "TMUX": "/tmp/tmux-1000/default,123,0",
+            "TMUX_PANE": "%7",
+        },
+        clear=True,
+    ), patch(
+        "acprof.cli.terminal_log.run_command",
+        side_effect=fake_run,
+    ):
+        output_dir = os.path.join(tmp, "results", "org--model")
+        terminal_log = run.start_terminal_log(
+            output_dir,
+            ["acprof run", "--model", "org/model"],
+        )
+        assert (terminal_log) is not None
+        pane_id, partial_path, log_path = terminal_log
 
-            with open(partial_path, "a", encoding="utf-8") as f:
-                f.write("experiment output\n")
+        with open(partial_path, "a", encoding="utf-8") as f:
+            f.write("experiment output\n")
 
-            finalized = run.stop_terminal_log(terminal_log)
+        finalized = run.stop_terminal_log(terminal_log)
 
-            self.assertTrue(finalized)
-            self.assertEqual(pane_id, "%7")
-            self.assertFalse(os.path.exists(partial_path))
-            with open(log_path, "r", encoding="utf-8") as f:
-                terminal_text = f.read()
+        assert (finalized)
+        assert (pane_id) == ("%7")
+        assert not (os.path.exists(partial_path))
+        with open(log_path, "r", encoding="utf-8") as f:
+            terminal_text = f.read()
 
-        self.assertIn("$ acprof run --model org/model", terminal_text)
-        self.assertIn("experiment output", terminal_text)
-        self.assertEqual(commands[0][1], "display-message")
-        self.assertEqual(commands[1][1], "pipe-pane")
-        self.assertIn("-O", commands[1])
-        self.assertEqual(commands[2], ["tmux", "pipe-pane", "-t", "%7"])
+    assert ("$ acprof run --model org/model") in (terminal_text)
+    assert ("experiment output") in (terminal_text)
+    assert (commands[0][1]) == ("display-message")
+    assert (commands[1][1]) == ("pipe-pane")
+    assert ("-O") in (commands[1])
+    assert (commands[2]) == (["tmux", "pipe-pane", "-t", "%7"])
 
-    def test_main_finalizes_tmux_log_when_profiling_raises(self) -> None:
-        terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
+def test_main_finalizes_tmux_log_when_profiling_raises() -> None:
+    terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
 
-        def fail_after_starting_log():
-            run._ACTIVE_TMUX_TERMINAL_LOG = terminal_log
-            raise RuntimeError("profiling failed")
+    def fail_after_starting_log():
+        run._ACTIVE_TMUX_TERMINAL_LOG = terminal_log
+        raise RuntimeError("profiling failed")
 
-        with patch(
-            "acprof.cli.run._run_main",
-            side_effect=fail_after_starting_log,
-        ), patch(
-            "acprof.cli.run.stop_terminal_log",
-            return_value=True,
-        ) as stop_log:
-            with self.assertRaisesRegex(RuntimeError, "profiling failed"):
-                run.main()
+    with patch(
+        "acprof.cli.run._run_main",
+        side_effect=fail_after_starting_log,
+    ), patch(
+        "acprof.cli.run.stop_terminal_log",
+        return_value=True,
+    ) as stop_log:
+        with pytest.raises(RuntimeError, match="profiling failed"):
+            run.main()
 
-        stop_log.assert_called_once_with(terminal_log)
-        self.assertIsNone(run._ACTIVE_TMUX_TERMINAL_LOG)
+    stop_log.assert_called_once_with(terminal_log)
+    assert (run._ACTIVE_TMUX_TERMINAL_LOG) is None
 
 
-class NativeDockerGuardTests(unittest.TestCase):
-    def setUp(self) -> None:
+class TestNativeDockerGuard:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
+        native_policy(self._request)
         self.resolved_task = TaskInfo(
             model_id="dummy-model",
             pipeline_tag="fill-mask",
@@ -116,14 +119,14 @@ class NativeDockerGuardTests(unittest.TestCase):
             'pci_bus_id': '00000000:02:00.0',
         })
         selection.start()
-        self.addCleanup(selection.stop)
+        self._request.addfinalizer(partial(selection.stop))
         # Local developer credentials must never make CLI tests send messages.
         notification_env = patch.dict(
             "acprof.cli.run.os.environ",
             {"ACPROF_WECOM_WEBHOOK_URL": ""},
         )
         notification_env.start()
-        self.addCleanup(notification_env.stop)
+        self._request.addfinalizer(partial(notification_env.stop))
 
     def test_native_linux_host_allows_ubuntu(self) -> None:
         with patch("acprof.platform.platform.system", return_value="Linux"), patch(
@@ -143,14 +146,14 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.preflight.os.environ",
             {"WSL_DISTRO_NAME": "Ubuntu"},
             clear=True,
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             host_preflight.require_native_linux_host()
 
-        self.assertEqual(raised.exception.code, 1)
+        assert (raised.value.code) == (1)
         message = stderr.getvalue()
-        self.assertIn("native Linux host", message)
-        self.assertIn("WSL2 / PARTIAL", message)
-        self.assertIn("acprof run", message)
+        assert ("native Linux host") in (message)
+        assert ("WSL2 / PARTIAL") in (message)
+        assert ("acprof run") in (message)
 
     def test_native_linux_host_rejects_windows(self) -> None:
         stderr = io.StringIO()
@@ -160,11 +163,11 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.preflight.os.environ",
             {},
             clear=True,
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             host_preflight.require_native_linux_host()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertIn("unknown / UNKNOWN", stderr.getvalue())
+        assert (raised.value.code) == (1)
+        assert ("unknown / UNKNOWN") in (stderr.getvalue())
 
     def test_detect_cgroup_version_distinguishes_v2_and_v1(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,40 +183,34 @@ class NativeDockerGuardTests(unittest.TestCase):
             with open(proc_self_cgroup, "w", encoding="utf-8") as f:
                 f.write("0::/user.slice/test.scope\n")
 
-            self.assertEqual(
-                host_preflight.detect_cgroup_version(
+            assert (host_preflight.detect_cgroup_version(
                     cgroup_root=cgroup_root,
                     proc_self_cgroup_path=proc_self_cgroup,
-                ),
-                "v2",
-            )
+                )) == ("v2")
 
             os.remove(os.path.join(cgroup_root, "cgroup.controllers"))
             with open(proc_self_cgroup, "w", encoding="utf-8") as f:
                 f.write("2:cpu,cpuacct:/docker/test\n")
                 f.write("3:memory:/docker/test\n")
 
-            self.assertEqual(
-                host_preflight.detect_cgroup_version(
+            assert (host_preflight.detect_cgroup_version(
                     cgroup_root=cgroup_root,
                     proc_self_cgroup_path=proc_self_cgroup,
-                ),
-                "v1",
-            )
+                )) == ("v1")
 
     def test_cgroup_preflight_requires_v2_by_default(self) -> None:
         stderr = io.StringIO()
         with patch(
             "acprof.host.preflight.detect_cgroup_version",
             return_value="v1",
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_cgroup_prerequisites()
 
-        self.assertEqual(raised.exception.code, 1)
+        assert (raised.value.code) == (1)
         message = stderr.getvalue()
-        self.assertIn("requires unified cgroup v2", message)
-        self.assertIn("detected v1", message)
-        self.assertNotIn("--allow-cgroup-v1", message)
+        assert ("requires unified cgroup v2") in (message)
+        assert ("detected v1") in (message)
+        assert ("--allow-cgroup-v1") not in (message)
 
 
     def test_partial_results_require_matching_cgroup_provenance(self) -> None:
@@ -226,17 +223,17 @@ class NativeDockerGuardTests(unittest.TestCase):
                 json.dump({"cgroup_version": "v1"}, f)
 
             stderr = io.StringIO()
-            with self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+            with pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
                 run.require_result_cgroup_compatibility(
                     tmp,
                     cgroup_version="v2",
                 )
 
-            self.assertEqual(raised.exception.code, 1)
+            assert (raised.value.code) == (1)
             message = stderr.getvalue()
-            self.assertIn("Current cgroup_version:  v2", message)
-            self.assertIn("Existing cgroup_version: v1", message)
-            self.assertIn("will not mix", message)
+            assert ("Current cgroup_version:  v2") in (message)
+            assert ("Existing cgroup_version: v1") in (message)
+            assert ("will not mix") in (message)
 
             run.require_result_cgroup_compatibility(
                 tmp,
@@ -252,7 +249,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             ) as f:
                 f.write("status\nok\n")
 
-            with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            with pytest.raises(SystemExit), redirect_stderr(io.StringIO()):
                 run.require_result_cgroup_compatibility(
                     tmp,
                     cgroup_version="v2",
@@ -277,10 +274,10 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.host.detect.detect_task",
             side_effect=AssertionError("task detection must follow cgroup preflight"),
         ):
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.main()
 
-        self.assertEqual(raised.exception.code, 2)
+        assert (raised.value.code) == (2)
         preflight.assert_not_called()
 
     def test_cpu_energy_preflight_exits_with_remediation_when_unavailable(self) -> None:
@@ -289,16 +286,16 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch("acprof.monitors.energy_cpu.detect_cpu_power_source", return_value="unavailable"), patch(
             "acprof.monitors.energy_cpu.detect_vcpu_power_method",
             return_value="unavailable",
-        ), self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ), pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_cpu_energy_prerequisites()
 
-        self.assertEqual(raised.exception.code, 1)
+        assert (raised.value.code) == (1)
         message = stderr.getvalue()
-        self.assertIn("[cpu-energy][ERROR]", message)
-        self.assertIn("CPU/vCPU energy profiling is required", message)
-        self.assertIn("cpu_power_source=unavailable", message)
-        self.assertIn("sudo chmod a+r /sys/class/powercap/intel-rapl:*/energy_uj", message)
-        self.assertIn("/etc/tmpfiles.d/acprof-rapl.conf", message)
+        assert ("[cpu-energy][ERROR]") in (message)
+        assert ("CPU/vCPU energy profiling is required") in (message)
+        assert ("cpu_power_source=unavailable") in (message)
+        assert ("sudo chmod a+r /sys/class/powercap/intel-rapl:*/energy_uj") in (message)
+        assert ("/etc/tmpfiles.d/acprof-rapl.conf") in (message)
 
     def test_cpu_energy_preflight_allows_rapl_cgroup_share(self) -> None:
         with patch("acprof.monitors.energy_cpu.detect_cpu_power_source", return_value="rapl"), patch(
@@ -334,10 +331,10 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run._prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before CPU energy preflight"),
         ):
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.main()
 
-        self.assertEqual(raised.exception.code, 3)
+        assert (raised.value.code) == (3)
         detect.assert_called_once()
         preflight.assert_called_once_with()
 
@@ -368,10 +365,10 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run._prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before MIPS preflight"),
         ):
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.main()
 
-        self.assertEqual(raised.exception.code, 4)
+        assert (raised.value.code) == (4)
         detect.assert_called_once()
         preflight.assert_called_once_with()
 
@@ -384,14 +381,14 @@ class NativeDockerGuardTests(unittest.TestCase):
         ) as mock_run, patch(
             "builtins.print"
         ) as mock_print:
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.require_native_docker()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertEqual(mock_run.call_count, 1)
+        assert (raised.value.code) == (1)
+        assert (mock_run.call_count) == (1)
         message = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
-        self.assertIn("Docker Desktop", message)
-        self.assertIn("native Docker", message)
+        assert ("Docker Desktop") in (message)
+        assert ("native Docker") in (message)
 
     def test_docker_desktop_info_exits_with_native_docker_hint(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="default\n", stderr="")
@@ -416,14 +413,14 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "builtins.print"
         ) as mock_print:
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.require_native_docker()
 
-        self.assertEqual(raised.exception.code, 1)
+        assert (raised.value.code) == (1)
         message = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
-        self.assertIn("Docker Desktop", message)
-        self.assertIn("native Docker", message)
-        self.assertIn("DOCKER_HOST=unix:///var/run/docker.sock", message)
+        assert ("Docker Desktop") in (message)
+        assert ("native Docker") in (message)
+        assert ("DOCKER_HOST=unix:///var/run/docker.sock") in (message)
 
     def test_native_linux_docker_info_is_allowed(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="default\n", stderr="")
@@ -460,13 +457,13 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.dict("acprof.host.preflight.os.environ", {}, clear=True), patch(
             "acprof.host.preflight.run_command",
             side_effect=[context, endpoint],
-        ) as mock_run, self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ) as mock_run, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_native_docker()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertEqual(mock_run.call_count, 2)
-        self.assertIn("tcp://192.0.2.10:2376", stderr.getvalue())
-        self.assertIn("/var/run/docker.sock", stderr.getvalue())
+        assert (raised.value.code) == (1)
+        assert (mock_run.call_count) == (2)
+        assert ("tcp://192.0.2.10:2376") in (stderr.getvalue())
+        assert ("/var/run/docker.sock") in (stderr.getvalue())
 
     def test_wsl_native_socket_override_is_rejected(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="default\n", stderr="")
@@ -479,12 +476,12 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.host.preflight.run_command",
             return_value=context,
-        ) as mock_run, self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ) as mock_run, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             run.require_native_docker()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertEqual(mock_run.call_count, 1)
-        self.assertIn("docker-native.sock", stderr.getvalue())
+        assert (raised.value.code) == (1)
+        assert (mock_run.call_count) == (1)
+        assert ("docker-native.sock") in (stderr.getvalue())
 
     def test_main_invokes_native_linux_guard_after_parsing_args(self) -> None:
         with patch.object(
@@ -500,7 +497,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
         ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
-            with self.assertRaisesRegex(RuntimeError, "host guard called"):
+            with pytest.raises(RuntimeError, match="host guard called"):
                 run.main()
         detect.assert_not_called()
 
@@ -517,7 +514,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
         ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
-            with self.assertRaisesRegex(RuntimeError, "guard called"):
+            with pytest.raises(RuntimeError, match="guard called"):
                 run.main()
         detect.assert_called_once()
 
@@ -542,10 +539,10 @@ class NativeDockerGuardTests(unittest.TestCase):
             "acprof.cli.run._prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before packet latency preflight"),
         ):
-            with self.assertRaises(SystemExit) as raised:
+            with pytest.raises(SystemExit) as raised:
                 run.main()
 
-        self.assertEqual(raised.exception.code, 2)
+        assert (raised.value.code) == (2)
         detect.assert_called_once()
         preflight.assert_called_once_with(sniff_iface="docker0")
 
@@ -564,7 +561,7 @@ class NativeDockerGuardTests(unittest.TestCase):
 
         def collect_metadata(**kwargs):
             build_image.assert_called_once_with(task_info, run.PROJECT_DIR)
-            self.assertIs(kwargs["image_info"], built_image)
+            assert (kwargs["image_info"]) is (built_image)
             return SimpleNamespace()
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch.object(
@@ -630,23 +627,21 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.host.orchestrator.run_matrix",
             side_effect=orchestrator.EnergyProfilingError("gpu_idle_power_w unstable"),
-        ) as run_matrix, self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+        ) as run_matrix, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
             run.main()
 
-        self.assertEqual(raised.exception.code, 1)
-        self.assertIn("[energy][ERROR] gpu_idle_power_w unstable", stderr.getvalue())
+        assert (raised.value.code) == (1)
+        assert ("[energy][ERROR] gpu_idle_power_w unstable") in (stderr.getvalue())
         _, kwargs = run_matrix.call_args
-        self.assertIs(kwargs["image_info"], built_image)
-        self.assertEqual(kwargs["repeat_in_window"], 0)
-        self.assertEqual(kwargs["repeat_window_seconds"], 10.0)
-        self.assertEqual(kwargs["request_timeout_seconds"], 300.0)
-        self.assertEqual(kwargs["idle_seconds"], 20.0)
-        self.assertEqual(kwargs["idle_cooldown_seconds"], 5.0)
-        self.assertEqual(kwargs["compute_profile_plan_file"], "")
-        self.assertTrue(kwargs["prune_startup_oom"])
-        self.assertFalse(
-            collect_static_meta.call_args.kwargs["compute_profile_enabled"]
-        )
+        assert (kwargs["image_info"]) is (built_image)
+        assert (kwargs["repeat_in_window"]) == (0)
+        assert (kwargs["repeat_window_seconds"]) == (10.0)
+        assert (kwargs["request_timeout_seconds"]) == (300.0)
+        assert (kwargs["idle_seconds"]) == (20.0)
+        assert (kwargs["idle_cooldown_seconds"]) == (5.0)
+        assert (kwargs["compute_profile_plan_file"]) == ("")
+        assert (kwargs["prune_startup_oom"])
+        assert not (collect_static_meta.call_args.kwargs["compute_profile_enabled"])
 
     def test_main_can_enable_dual_compute_profiles_and_keep_artifacts(self) -> None:
         task_info = TaskInfo(
@@ -731,15 +726,12 @@ class NativeDockerGuardTests(unittest.TestCase):
             run.main()
 
         _, kwargs = collect_compute_profile_plan.call_args
-        self.assertEqual(kwargs["compute_profile_tool"], "both")
-        self.assertEqual(kwargs["torch_profiler_repeat"], 1)
-        self.assertEqual(kwargs["ncu_repeat"], 1)
-        self.assertTrue(kwargs["keep_profiles"])
-        self.assertFalse(run_matrix.call_args.kwargs["prune_startup_oom"])
-        self.assertEqual(
-            run_matrix.call_args.kwargs["request_timeout_seconds"],
-            123.5,
-        )
+        assert (kwargs["compute_profile_tool"]) == ("both")
+        assert (kwargs["torch_profiler_repeat"]) == (1)
+        assert (kwargs["ncu_repeat"]) == (1)
+        assert (kwargs["keep_profiles"])
+        assert not (run_matrix.call_args.kwargs["prune_startup_oom"])
+        assert (run_matrix.call_args.kwargs["request_timeout_seconds"]) == (123.5)
 
     def test_main_rejects_invalid_request_timeout(self) -> None:
         with patch.object(
@@ -755,10 +747,10 @@ class NativeDockerGuardTests(unittest.TestCase):
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
-        ), self.assertRaises(SystemExit) as raised:
+        ), pytest.raises(SystemExit) as raised:
             run.main()
 
-        self.assertEqual(raised.exception.code, 2)
+        assert (raised.value.code) == (2)
 
     def test_main_records_invocation_command_in_static_meta(self) -> None:
         task_info = TaskInfo(
@@ -838,28 +830,12 @@ class NativeDockerGuardTests(unittest.TestCase):
             run.main()
 
         _, kwargs = collect_static_meta.call_args
-        self.assertEqual(
-            kwargs["run_command"],
-            "acprof run --model dummy-model --skip-build --compute-profile-tool none "
+        assert (kwargs["run_command"]) == ("acprof run --model dummy-model --skip-build --compute-profile-tool none "
             "--cpus 1 --mems 2 --gpus off --output-dir "
-            + tmp_dir,
-        )
-        self.assertEqual(kwargs["cgroup_version"], "v2")
-        self.assertEqual(kwargs["cgroup_collection_mode"], "strict_v2")
-        self.assertTrue(write_static_meta_json.called)
-        self.assertEqual(
-            write_static_meta_json.call_args_list[0].args[1],
-            os.path.join(tmp_dir, "dummy-model", "static_meta.json"),
-        )
-        self.assertEqual(
-            write_collection_history_json.call_args.args[1],
-            os.path.join(tmp_dir, "dummy-model", "metadata", "collection_history.json"),
-        )
-        self.assertEqual(
-            write_collection_history_json.call_args.args[0]["schema_version"],
-            1,
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            + tmp_dir)
+        assert (kwargs["cgroup_version"]) == ("v2")
+        assert (kwargs["cgroup_collection_mode"]) == ("strict_v2")
+        assert (write_static_meta_json.called)
+        assert (write_static_meta_json.call_args_list[0].args[1]) == (os.path.join(tmp_dir, "dummy-model", "static_meta.json"))
+        assert (write_collection_history_json.call_args.args[1]) == (os.path.join(tmp_dir, "dummy-model", "metadata", "collection_history.json"))
+        assert (write_collection_history_json.call_args.args[0]["schema_version"]) == (1)

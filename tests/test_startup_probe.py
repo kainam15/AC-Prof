@@ -1,9 +1,10 @@
 import csv
 import json
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from acprof.host import (
     container_state,
@@ -16,8 +17,10 @@ from acprof.host.detect import TaskInfo
 from acprof.host.matrix_plan import matrix_identity
 
 
-class StartupProbeTests(unittest.TestCase):
-    def setUp(self):
+class TestStartupProbe:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         self.task = TaskInfo('org/model', 'fill-mask', 'nlp', 'transformers_pipeline',
                              'transformers', 'a' * 40, 'manual')
         self.session = docker.RunningContainer('probe-owned', 'http://localhost', 1234, 0.1, container_id='b' * 64)
@@ -33,12 +36,13 @@ class StartupProbeTests(unittest.TestCase):
              patch.object(orchestrator, 'run_single_case', side_effect=AssertionError('formal collection')):
             report = startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
                                                       request_timeout_seconds=45)
-            self.assertEqual([p.name for p in Path(tmp).iterdir()], ['startup_oom_pruning.json'])
-            self.assertEqual(report['attempts'][0]['outcome'], 'startup_feasible')
-            self.assertEqual(len(report['attempts']), 1)
+            assert ([p.name for p in Path(tmp).iterdir()]) == (['startup_oom_pruning.json'])
+            assert (report['attempts'][0]['outcome']) == ('startup_feasible')
+            assert (len(report['attempts'])) == (1)
             stop.assert_called_once()
 
-    def test_only_contiguous_explicit_docker_oom_can_prune(self):
+    @pytest.mark.parametrize('failure_case', range(9))
+    def test_only_contiguous_explicit_docker_oom_can_prune(self, failure_case):
         oom = container_state.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})
         failures = [RuntimeError('container_oom_killed during startup'),
                     RuntimeError('CUDA out of memory'), RuntimeError('runtime OOM'),
@@ -51,27 +55,25 @@ class StartupProbeTests(unittest.TestCase):
                         state={'OOMKilled': True, 'Running': True}),
                     container_state.ContainerStartupError('exit 137', state={'OOMKilled': False, 'ExitCode': 137}),
                     container_state.ContainerStartupError('unknown state')]
-        for failure in failures:
-            with self.subTest(error=str(failure)), tempfile.TemporaryDirectory() as tmp, \
-                 patch("acprof.host.docker_runtime.start_container_session", side_effect=[oom, failure, oom]) as start, \
-                 patch.object(docker, 'stop_container_session'):
-                report = startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
-                                                          request_timeout_seconds=45)
-                self.assertEqual(startup_probe.startup_oom_prefixes(report), {'off': [2]})
-                self.assertEqual(start.call_count, 2)
-                self.assertTrue(all(r['cpu_cores'] == 1 for r in report['attempts']))
+        failure = tuple(failures)[failure_case]
+        with tempfile.TemporaryDirectory() as tmp, patch("acprof.host.docker_runtime.start_container_session", side_effect=[oom, failure, oom]) as start, patch.object(docker, 'stop_container_session'):
+            report = startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
+                                                      request_timeout_seconds=45)
+            assert (startup_probe.startup_oom_prefixes(report)) == ({'off': [2]})
+            assert (start.call_count) == (2)
+            assert (all(r['cpu_cores'] == 1 for r in report['attempts']))
 
     def test_probe_precedes_frozen_plan_and_formal_rows(self):
         def start(*args, **kwargs):
-            self.assertFalse((Path(directory) / 'matrix_plan.json').exists())
-            self.assertEqual(list(Path(directory).glob('result*.csv')), [])
+            assert not ((Path(directory) / 'matrix_plan.json').exists())
+            assert (list(Path(directory).glob('result*.csv'))) == ([])
             if kwargs['mem'] == 2:
                 raise container_state.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})
             return self.session
 
         def formal(**kwargs):
-            self.assertTrue((Path(directory) / 'matrix_plan.json').is_file())
-            self.assertEqual(kwargs['mem'], 4)
+            assert ((Path(directory) / 'matrix_plan.json').is_file())
+            assert (kwargs['mem']) == (4)
             return ''
 
         with tempfile.TemporaryDirectory() as directory, \
@@ -82,15 +84,15 @@ class StartupProbeTests(unittest.TestCase):
             result = orchestrator.run_matrix(self.task, self.image, [2, 1], [4, 2], ['off'],
                 directory, directory, warmup=0, repeat=1, input_scales='64',
                 prune_startup_oom=True, matrix_order='declared')
-            self.assertEqual(case.call_count, 2)
-            self.assertEqual(len(result), 2)
+            assert (case.call_count) == (2)
+            assert (len(result)) == (2)
             for path in result:
                 with open(path) as stream:
                     row = next(csv.DictReader(stream))
-                self.assertIn('result_origin=inferred_not_measured', row['error'])
-                self.assertEqual(row['result_origin'], 'inferred_not_measured')
+                assert ('result_origin=inferred_not_measured') in (row['error'])
+                assert (row['result_origin']) == ('inferred_not_measured')
             report = json.loads((Path(directory) / 'startup_oom_pruning.json').read_text())
-            self.assertEqual(report['status'], 'complete')
+            assert (report['status']) == ('complete')
             with patch("acprof.host.docker_runtime.start_container_session", side_effect=AssertionError('reprobe')):
                 orchestrator.run_matrix(self.task, self.image, [2, 1], [4, 2], ['off'],
                     directory, directory, warmup=0, repeat=1, input_scales='64',
@@ -101,12 +103,12 @@ class StartupProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.object(docker, 'stop_container_session'), \
              patch("acprof.host.container_state.inspect_container_state", return_value={'Running': True}):
             with patch("acprof.host.docker_runtime.start_container_session", side_effect=[oom, KeyboardInterrupt()]):
-                with self.assertRaises(KeyboardInterrupt):
+                with pytest.raises(KeyboardInterrupt):
                     startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
                                                      request_timeout_seconds=45)
             with patch("acprof.host.docker_runtime.start_container_session", return_value=self.session) as start:
                 report = startup_probe.run_startup_probes(tmp, self.identity, self.task, self.image,
                                                           request_timeout_seconds=45)
-                self.assertEqual(start.call_args.kwargs['mem'], 4)
+                assert (start.call_args.kwargs['mem']) == (4)
                 start.assert_called_once()
-                self.assertEqual(startup_probe.startup_oom_prefixes(report), {'off': [2]})
+                assert (startup_probe.startup_oom_prefixes(report)) == ({'off': [2]})
