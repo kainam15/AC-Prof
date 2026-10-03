@@ -422,7 +422,6 @@ ENGLISH: dict[str, str] = {
     "基础 CPU Smoke": "Basic CPU smoke",
     "主矩阵（分析器关闭）": "Main matrix (profilers off)",
     "完整默认": "Full defaults",
-    "预设自动填充 · 下方可打开高级参数": "Presets fill the form · Advanced options below",
     "CPU 列表": "CPU list",
     "内存 GB": "Memory (GB)",
     "GPU 模式": "GPU mode",

@@ -90,7 +90,6 @@ Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:fo
     border: solid $accent;
 }
 
-#preset-hint { height: 3; content-align: left middle; color: $text-muted; }
 #config-summary { color: $text-muted; }
 #command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }
 #command-preview { height: auto; max-height: 8; overflow-y: auto; padding: 0 1; }
@@ -320,7 +319,6 @@ AcprofTui.narrow #image-actions Button { min-width: 7; padding: 0; }
 
 /* Terminal cells, not pixels: stack fields when labels would squeeze inputs. */
 AcprofTui.narrow .form-grid { grid-size: 2; grid-columns: 18 1fr; }
-AcprofTui.narrow #preset-hint, AcprofTui.narrow #preset-hint-label { display: none; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
 AcprofTui.narrow #status-grid { grid-columns: 11 1fr 9 1fr; }

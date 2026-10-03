@@ -180,8 +180,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         allow_blank=False,
                         id="run-preset",
                     )
-                    yield app._localized_widget(Label("", id="preset-hint-label"))
-                    yield app._localized_widget(Static("预设自动填充 · 下方可打开高级参数", id="preset-hint", markup=False))
 
                     yield app._localized_widget(Label("CPU 列表"))
                     yield app._localized_widget(Input(
