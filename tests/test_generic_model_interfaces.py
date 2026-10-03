@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import numpy as np
 import pytest
@@ -141,7 +141,7 @@ def test_mirror_metadata_failure_does_not_contact_undeclared_endpoint():
     ) as download, pytest.raises(LocalEntryNotFoundError):
         _download_metadata("unseen/encoder", "config.json", "a" * 40)
     download.assert_called_once_with(repo_id="unseen/encoder", filename="config.json",
-                                     revision="a" * 40, endpoint="https://mirror.example")
+                                     revision="a" * 40, endpoint="https://mirror.example", dry_run=True)
 
 def test_offline_metadata_miss_does_not_retry_another_endpoint():
     from huggingface_hub.errors import LocalEntryNotFoundError
@@ -151,6 +151,8 @@ def test_offline_metadata_miss_does_not_retry_another_endpoint():
     with patch("huggingface_hub.hf_hub_download", side_effect=LocalEntryNotFoundError("offline miss")) as download:
         metadata = _repository_metadata("unseen/encoder", "c" * 40, hub)
     assert (download.call_count) == (1)
+    assert download.call_args.kwargs["revision"] == "c" * 40
+    assert download.call_args.kwargs["dry_run"] is True
     assert ("offline miss") in (metadata["metadata_errors"][0])
 
 def test_mirror_metadata_redirect_uses_official_hub_at_same_commit():
@@ -165,12 +167,22 @@ def test_mirror_metadata_redirect_uses_official_hub_at_same_commit():
         with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch.dict(
             "os.environ", {"HF_DOWNLOAD_MODE": "mirror-preferred", "ACPROF_ALLOW_PROXY_FALLBACK": "1",
                            "HF_ENDPOINT": "https://hf-mirror.com", "HF_FALLBACK_ENDPOINTS": "https://huggingface.co"}, clear=True,
-        ), patch("huggingface_hub.hf_hub_download", side_effect=[error, str(config)]) as download:
+        ), patch("huggingface_hub.hf_hub_download", side_effect=[
+            error,
+            SimpleNamespace(commit_hash="c" * 40, file_size=config.stat().st_size),
+            str(config),
+        ]) as download:
             info = detect_task("unseen/encoder")
     assert not (info.metadata_errors)
     assert (info.model_config["model_type"]) == ("bert")
-    assert (download.call_args.kwargs["endpoint"]) == ("https://huggingface.co")
-    assert (download.call_args.kwargs["revision"]) == ("c" * 40)
+    assert download.call_args_list == [
+        call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
+             endpoint="https://hf-mirror.com", dry_run=True),
+        call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
+             endpoint="https://huggingface.co", dry_run=True),
+        call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
+             endpoint="https://huggingface.co"),
+    ]
 
 def test_metadata_failure_is_not_reported_as_unsupported_task():
     info = TestModelResolution.task(metadata_errors=("config.json: connection failed",))
@@ -197,12 +209,18 @@ def test_detection_reads_configuration_at_resolved_revision():
                               sha="b" * 40, config={}, tags=[],
                               siblings=[SimpleNamespace(rfilename="config.json")])
         with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch(
-            "huggingface_hub.hf_hub_download", return_value=str(config),
+            "huggingface_hub.hf_hub_download", side_effect=[
+                SimpleNamespace(commit_hash="b" * 40, file_size=config.stat().st_size),
+                str(config),
+            ],
         ) as download:
             info = detect_task("unseen/forecaster")
     assert (info.runtime_backend) == ("chronos")
     assert (info.model_config["chronos_pipeline_class"]) == ("Chronos2Pipeline")
-    assert (download.call_args.kwargs["revision"]) == ("b" * 40)
+    assert download.call_count == 2
+    assert [entry.kwargs["revision"] for entry in download.call_args_list] == ["b" * 40] * 2
+    assert download.call_args_list[0].kwargs["dry_run"] is True
+    assert "dry_run" not in download.call_args_list[1].kwargs
 
 
 class TestModelResolution:

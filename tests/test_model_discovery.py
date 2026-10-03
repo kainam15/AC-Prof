@@ -39,7 +39,10 @@ class TestModelDiscovery:
 
             def download(**kwargs):
                 assert (kwargs.get("revision")) == (REVISION)
-                return str(root / kwargs["filename"])
+                path = root / kwargs["filename"]
+                if kwargs.get("dry_run"):
+                    return SimpleNamespace(commit_hash=REVISION, file_size=path.stat().st_size)
+                return str(path)
 
             with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch(
                 "huggingface_hub.hf_hub_download", side_effect=download,

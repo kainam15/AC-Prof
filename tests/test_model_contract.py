@@ -46,8 +46,11 @@ class TestModelContract:
 
             def download(**kwargs):
                 assert (kwargs["revision"]) == (SHA if revision == SHA else revision)
+                path = root / kwargs["filename"]
+                if kwargs.get("dry_run"):
+                    return SimpleNamespace(commit_hash=revision, file_size=path.stat().st_size)
                 self.downloads.append(kwargs["filename"])
-                return str(root / kwargs["filename"])
+                return str(path)
 
             def model_info(repo_id, **kwargs):
                 # Route all Hub reads through one mock so dependency responses

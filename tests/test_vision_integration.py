@@ -3,7 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
@@ -73,12 +73,20 @@ def test_missing_diffusers_tag_uses_pinned_native_pipeline_class(pipeline, task)
         path = Path(tmp) / "model_index.json"
         path.write_text(json.dumps({"_class_name": pipeline}))
         with patch("huggingface_hub.HfApi.model_info", return_value=SimpleNamespace(
-            pipeline_tag=None, library_name="diffusers", sha="pinned-revision",
-        )), patch("huggingface_hub.hf_hub_download", return_value=str(path)) as download:
+            pipeline_tag=None, library_name="diffusers", sha="a" * 40,
+        )), patch("huggingface_hub.hf_hub_download", side_effect=[
+            SimpleNamespace(commit_hash="a" * 40, file_size=path.stat().st_size),
+            str(path),
+        ]) as download:
             result = detect.detect_task("example/model")
         assert (result.pipeline_tag) == (task)
-        assert (result.model_revision) == ("pinned-revision")
-        download.assert_called_once_with(repo_id="example/model", filename="model_index.json", revision="pinned-revision", endpoint="https://hf-mirror.com")
+        assert (result.model_revision) == ("a" * 40)
+        assert download.call_args_list == [
+            call(repo_id="example/model", filename="model_index.json", revision="a" * 40,
+                 endpoint="https://hf-mirror.com", dry_run=True),
+            call(repo_id="example/model", filename="model_index.json", revision="a" * 40,
+                 endpoint="https://hf-mirror.com"),
+        ]
 
 def test_cv_manifest_reaches_materialized_plan_and_preserves_parameters():
     with tempfile.TemporaryDirectory() as tmp:

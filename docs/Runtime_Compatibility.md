@@ -329,7 +329,20 @@ Chronos 沿用其 [`from_pretrained` 参数协议](https://github.com/amazon-sci
 主机只读取同一完整 commit SHA 下的 JSON、README 和 Python 文本。config fallback 必须取得
 Hub cache 的固定 snapshot 后才分析内容。AST 沿声明文件和相对 import 读取，最多 32 个源文件、
 总计 2 MiB、单文件 256 KiB、单个 AST 20,000 个节点；不会 import、eval 或执行模型代码。
-结构化 JSON 的读取上限为 1 MiB。
+结构化 JSON 的读取上限为 1 MiB；依赖索引保留 4 MiB 上限。已经固定完整 SHA 的静态文件
+先通过 Hub `hf_hub_download(dry_run=True)` 查询大小和 commit，未知或超限大小、SHA 不一致
+直接拒绝，不请求文件正文；实际下载和镜像回退继续使用同一 SHA。缓存命中也检查大小，
+下载后再次核对文件大小，并在解析前执行有界读取。固定版本的 config、Diffusers
+`model_index.json`、依赖索引和源码均使用此边界。
+
+尚未固定 revision 的 config fallback 保留 SDK 的分支／tag 解析与 ref 写入，确保首次下载后
+仍能按默认分支离线复用；返回路径仍须通过固定 snapshot 检查。此 fallback 在下载后、
+解析前限制文件大小，首次网络下载量暂不具备同样的下载前上限；不把它描述为有界下载。
+
+此边界采用现有 `huggingface_hub>=1.0` 的公开 API，参照
+[Hub v1.0.0 下载实现](https://github.com/huggingface/huggingface_hub/blob/v1.0.0/src/huggingface_hub/file_download.py)
+及 [dry-run PR #3407](https://github.com/huggingface/huggingface_hub/pull/3407)（Apache-2.0）。
+不使用 `local_dir` 或上游私有下载实现，不增加依赖；额外预检只发生在准备阶段。
 
 自动解析限于可确认的 Pipeline 子集：
 

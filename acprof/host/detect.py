@@ -59,12 +59,20 @@ def _architecture_metadata(config: Any) -> dict[str, Any]:
     return metadata
 
 
-def _download_metadata(model_id: str, name: str, revision: str | None = None) -> str:
+METADATA_MAX_BYTES = 1024 * 1024
+
+
+def _download_metadata(
+    model_id: str, name: str, revision: str | None = None, *,
+    max_bytes: int = METADATA_MAX_BYTES,
+) -> str:
+    """Bound pinned downloads and preserve the SDK's mutable-ref fallback cache."""
     from huggingface_hub import hf_hub_download
     from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
 
     from acprof.hf_endpoints import hf_endpoints
     from acprof.hf_transport import configure_hf_transport
+    from acprof.model_evidence import pinned_revision
     from acprof.network_policy import require_source_transition
 
     configure_hf_transport()
@@ -76,12 +84,36 @@ def _download_metadata(model_id: str, name: str, revision: str | None = None) ->
         if index:
             require_source_transition(endpoints[index - 1], endpoint)
         try:
-            return hf_hub_download(**kwargs, endpoint=endpoint)
+            size = None
+            if pinned_revision(revision):
+                metadata = hf_hub_download(**kwargs, endpoint=endpoint, dry_run=True)
+                size = getattr(metadata, "file_size", None)
+                if type(size) is not int or not 0 <= size <= max_bytes:
+                    raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
+                if getattr(metadata, "commit_hash", None) != revision:
+                    raise ValueError("metadata preflight returned a different model revision")
+            # Mutable-ref fallback must let the SDK record its ref for offline use.
+            # A dry-run followed by a SHA download would leave a fresh ref absent.
+            path = hf_hub_download(**kwargs, endpoint=endpoint)
+            actual_size = Path(path).stat().st_size
+            if actual_size > max_bytes:
+                raise ValueError(f"{name} exceeds {max_bytes} bytes")
+            if size is not None and actual_size != size:
+                raise ValueError(f"{name} size changed after metadata preflight")
+            return path
         except LocalEntryNotFoundError as exc:
             # Retry missing metadata headers only on explicitly configured endpoints.
             if not isinstance(exc.__cause__, FileMetadataError) or index == len(endpoints) - 1:
                 raise
     raise AssertionError("endpoint policy must contain a primary endpoint")
+
+
+def _read_json_metadata(path: str, *, max_bytes: int = METADATA_MAX_BYTES) -> Any:
+    with open(path, "rb") as stream:
+        data = stream.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"{Path(path).name} exceeds {max_bytes} bytes")
+    return json.loads(data.decode("utf-8"))
 
 
 def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, Any]:
@@ -101,11 +133,7 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
                 continue
             try:
                 path = _download_metadata(model_id, name, revision)
-                with open(path, encoding="utf-8") as stream:
-                    text = stream.read(1024 * 1024 + 1)
-                    if len(text.encode()) > 1024 * 1024:
-                        raise ValueError(f"{name} exceeds 1 MiB metadata limit")
-                    metadata[name] = json.loads(text)
+                metadata[name] = _read_json_metadata(path)
                 expected = list if name == "modules.json" else dict
                 if not isinstance(metadata[name], expected):
                     del metadata[name]
@@ -129,17 +157,8 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
             if not pinned_revision(info.sha):
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)
-            records = api.get_paths_info(repo_id, paths=[name], revision=info.sha, repo_type="model")
-            size = (getattr(records[0], "size", None) if len(records) == 1
-                    and getattr(records[0], "path", None) == name else None)
-            if type(size) is not int or not 0 <= size <= 4 * 1024 * 1024:
-                raise ValueError(f"metadata size is unknown or exceeds 4 MiB: {name}")
-            path = _download_metadata(repo_id, name, info.sha)
-            with open(path, "rb") as stream:
-                data = stream.read(4 * 1024 * 1024 + 1)
-            if len(data) > 4 * 1024 * 1024:
-                raise ValueError(f"{name} exceeds 4 MiB metadata limit")
-            return json.loads(data)
+            path = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024)
+            return _read_json_metadata(path, max_bytes=4 * 1024 * 1024)
         return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []],
                 "read_json": read_json}
     except Exception as exc:
@@ -152,7 +171,7 @@ def read_model_source(model_id: str, name: str, revision: str) -> str:
     if not pinned_revision(revision):
         raise ValueError("source analysis requires a fixed commit SHA")
     try:
-        path = _download_metadata(model_id, name, revision)
+        path = _download_metadata(model_id, name, revision, max_bytes=MAX_SOURCE_BYTES)
         with open(path, "rb") as stream:
             data = stream.read(MAX_SOURCE_BYTES + 1)
         if len(data) > MAX_SOURCE_BYTES:
@@ -408,8 +427,7 @@ def _diffusers_task_from_index(
     """Read native pipeline metadata only; never execute repository code."""
     try:
         path = _download_metadata(model_id, "model_index.json", revision)
-        with open(path, "r", encoding="utf-8") as stream:
-            class_name = json.load(stream).get("_class_name")
+        class_name = _read_json_metadata(path).get("_class_name")
         task = _DIFFUSERS_PIPELINE_TASKS.get(class_name) if isinstance(class_name, str) else None
         if task is None:
             _record_failure(diagnostics, "model_index", f"unsupported pipeline class: {class_name!r}")
@@ -511,8 +529,7 @@ def _detect_from_config(
             raise ValueError("config fallback requires a pinned snapshot commit SHA")
         if pinned_revision(requested_revision) and revision != requested_revision:
             raise ValueError("config fallback returned a different model revision")
-        with open(config_path, "r", encoding="utf-8") as f:
-            config_data = json.load(f)
+        config_data = _read_json_metadata(config_path)
         architectures = config_data.get("architectures") or []
         if not architectures:
             _record_failure(diagnostics, "config_json", "config.json has no architectures field")

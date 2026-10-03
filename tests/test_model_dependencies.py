@@ -165,12 +165,14 @@ def test_unknown_or_oversized_index_is_rejected_before_download(size_case):
     hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index)])
     size = tuple((None, -1, '100', 4 * 1024 * 1024 + 1))[size_case]
     with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
-        'huggingface_hub.HfApi.get_paths_info', return_value=[SimpleNamespace(path=index, size=size)],
-    ), patch('acprof.host.detect._download_metadata', side_effect=AssertionError('index download started before size validation')) as download:
+        'huggingface_hub.hf_hub_download',
+        return_value=SimpleNamespace(file_size=size, commit_hash='a' * 40),
+    ) as download:
         metadata = dependency_metadata('fixture/model', 'main')
-        with pytest.raises(ValueError, match='metadata size'):
+        with pytest.raises(ValueError, match='size'):
             metadata['read_json'](index)
-        download.assert_not_called()
+        assert download.call_count == 1
+        assert download.call_args.kwargs['dry_run'] is True
 
 def test_valid_index_budget_lookup_is_lazy_and_uses_the_pinned_revision():
     import tempfile
@@ -182,12 +184,14 @@ def test_valid_index_budget_lookup_is_lazy_and_uses_the_pinned_revision():
     hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index)])
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / index
-        path.write_text('{"weight_map":{"a":"custom.safetensors"}}')
+        path.write_text(' ' * (1024 * 1024) + '{"weight_map":{"a":"custom.safetensors"}}')
         with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
-            'huggingface_hub.HfApi.get_paths_info', return_value=[SimpleNamespace(path=index, size=path.stat().st_size)],
-        ) as lookup, patch('acprof.host.detect._download_metadata', return_value=str(path)) as download:
+            'huggingface_hub.hf_hub_download',
+            side_effect=[SimpleNamespace(file_size=path.stat().st_size, commit_hash='a' * 40), str(path)],
+        ) as download:
             metadata = dependency_metadata('fixture/model', 'main')
-            lookup.assert_not_called()
+            download.assert_not_called()
             assert (metadata['read_json'](index)['weight_map']) == ({'a': 'custom.safetensors'})
-            lookup.assert_called_once_with('fixture/model', paths=[index], revision='a' * 40, repo_type='model')
-            download.assert_called_once_with('fixture/model', index, 'a' * 40)
+            assert download.call_count == 2
+            assert download.call_args_list[0].kwargs['dry_run'] is True
+            assert all(call.kwargs['revision'] == 'a' * 40 for call in download.call_args_list)
