@@ -50,6 +50,22 @@ class TestCatalogWorkflow:
         self.fixture = catalog_fixture.CatalogFixture()
         self.fixture.build(self._request, self.fixture_root)
 
+
+    @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1e999"])
+    def test_nonfinite_artifact_is_warned_and_cannot_resume(self, token):
+        path = self.fixture.record("nonfinite")
+        state_path = path / "run_state.json"
+        content = state_path.read_text()
+        state_path.write_text(content[:-1] + f', "nested": {{"poison": {token}}}}}')
+
+        catalog = scan_experiments([path])
+        record = catalog.records[0]
+
+        assert record.state == {}
+        assert not record.can_resume
+        assert any("run_state.json" in warning and "metadata_non_finite_number" in warning
+                   for warning in catalog.warnings)
+
     async def test_search_failed_run_reuse_full_config_and_confirm_frozen_resume(self):
         root = self.fixture.root
         path = self.fixture.record('batch-18', status='failed')

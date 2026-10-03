@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from collections import deque
 from dataclasses import dataclass, fields, replace
@@ -17,6 +18,13 @@ from acprof.installation import cli_command
 
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
+
+
+def _finite_json_number(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("metadata_non_finite_number")
+    return value
 
 
 @dataclass(frozen=True)
@@ -67,7 +75,7 @@ def read_artifact(path: Path) -> dict:
         content = stream.read(MAX_JSON_BYTES + 1)
     if len(content) > MAX_JSON_BYTES:
         raise ValueError(f'{path.name}: metadata_size_limit')
-    value = json.loads(content)
+    value = json.loads(content, parse_float=_finite_json_number, parse_constant=_finite_json_number)
     if not isinstance(value, dict):
         raise ValueError(f'{path.name}: metadata_object_required')
     return value
