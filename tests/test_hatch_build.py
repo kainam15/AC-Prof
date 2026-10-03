@@ -16,7 +16,7 @@ class BuildHookTests(unittest.TestCase):
         interface = ModuleType("hatchling.builders.hooks.plugin.interface")
         interface.BuildHookInterface = object
         with patch.dict(sys.modules, {interface.__name__: interface}):
-            hook_type = runpy.run_path(str(ROOT / "hatch_build.py"))["CustomBuildHook"]
+            hook_type = runpy.run_path(str(ROOT / "packaging/hatch_build.py"))["CustomBuildHook"]
         hook = hook_type()
         hook.root = str(root)
         return hook
