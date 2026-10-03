@@ -13,6 +13,18 @@ from acprof.host.runtime_validation import validate_runtime
 
 
 class ModelProbeTests(unittest.TestCase):
+    def probe_command(self, response):
+        def run(command, **kwargs):
+            if command[:2] == ["docker", "run"]:
+                cidfile = Path(command[command.index("--cidfile") + 1])
+                cidfile.write_text("c" * 64)
+                stdout = "ACPROF_RUNTIME_VALIDATION=" + json.dumps(response)
+            else:
+                self.assertIn(command[1], {"ps", "rm"})
+                stdout = ""
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        return run
+
     def test_empty_device_set_and_mutable_image_cannot_claim_verification(self):
         with tempfile.TemporaryDirectory() as directory:
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
@@ -26,8 +38,7 @@ class ModelProbeTests(unittest.TestCase):
         response = {"status": "ok", "mode": "basic", "stages": [
             {"stage": stage, "status": "verified"} for stage in ("import", "signature")], "inference": "not_run"}
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
-                stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr=""),
+            "acprof.host.runtime_validation.run_command", side_effect=self.probe_command(response),
         ) as run, patch("acprof.host.container_state.inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
@@ -35,7 +46,7 @@ class ModelProbeTests(unittest.TestCase):
             report = validate_runtime(**options)
             self.assertEqual(report["mode"], "basic")
             self.assertEqual(task.model_resolution["contract"]["runtime_validation"]["status"], "basic_verified")
-            command = run.call_args_list[0].args[0]
+            command = next(call.args[0] for call in run.call_args_list if call.args[0][:2] == ["docker", "run"])
             self.assertIn("ACPROF_CONTRACT_PROBE_MODE=basic", command)
             self.assertNotIn("--gpus", command)
             with self.assertRaises(ValueError):
@@ -47,9 +58,10 @@ class ModelProbeTests(unittest.TestCase):
                   ("load", "preprocess", "predict", "postprocess", "validate_output")]
         response = {"status": "ok", "stages": stages, "validation": {
             "protocol": {"status": "verified"}, "task": {"status": "verified"}}}
+        execute = self.probe_command(response)
         def run(command, **kwargs):
             commands.append(command)
-            return subprocess.CompletedProcess(command, 0, stdout="ACPROF_RUNTIME_VALIDATION=" + json.dumps(response), stderr="")
+            return execute(command, **kwargs)
         with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.runtime_validation.run_command", side_effect=run,
         ), patch("acprof.host.container_state.inspect_container_state", return_value={}):
@@ -57,7 +69,7 @@ class ModelProbeTests(unittest.TestCase):
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
             options.update(task_info=task, gpu_list=["off"])
             validate_runtime(**options)
-            command = commands[0]
+            command = next(command for command in commands if command[:2] == ["docker", "run"])
             self.assertIn("--read-only", command)
             self.assertIn("no-new-privileges", command)
             self.assertNotIn("--gpus", command)
@@ -69,8 +81,7 @@ class ModelProbeTests(unittest.TestCase):
 
     def test_incomplete_runtime_record_never_becomes_verified(self):
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.run_command", return_value=subprocess.CompletedProcess([], 0,
-                    stdout='ACPROF_RUNTIME_VALIDATION={"status":"ok"}', stderr=""),
+            "acprof.host.runtime_validation.run_command", side_effect=self.probe_command({"status": "ok"}),
         ), patch("acprof.host.container_state.inspect_container_state", return_value={}):
             task = contract_fixture.ModelContractTests().discover()
             options = runtime_fixture.RuntimeValidationTests().fixture(Path(directory))
