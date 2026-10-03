@@ -350,6 +350,10 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
 `catalog_actions` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
+选择器在同一个空闲 worker 中检查搜索目录，显示有效路径摘要，并在悬停提示中保留完整路径及跳过原因；
+父子路径合并只用于摘要，不改变有深度上限和实验目录边界的实际扫描入口。借鉴
+[pytest 的 collection 路径规范化](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py)（MIT）思路，
+使用标准库 `pathlib` 与已有 Textual worker 实现，不复制其扫描策略、不新增依赖或测量期活动。
 根级 `acprof.run_args` 集中维护 CLI、共享配置与 TUI 使用的纯参数声明、下载参数和冻结参数序列化；
 它只依赖低层常量与 argparse，不反向导入 CLI。CLI 的 `download_args` 仅负责执行时应用环境变量。
 `run_args.arguments_from_options` 从同一 parser 定义序列化冻结参数；`RunConfig.extra_options` 仅保留未显式映射的公共选项，

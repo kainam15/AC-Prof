@@ -79,6 +79,12 @@ ENGLISH: dict[str, str] = {
 
     '选择实验': 'Find experiment',
     '搜索范围': 'Search roots',
+    '正在检查搜索目录……': 'Checking search directories…',
+    '无可用目录': 'No available directories',
+    '已跳过的搜索路径': 'Skipped search paths',
+    '目录不存在或不是目录：{0}': 'Directory missing or not a directory: {0}',
+    '无法检查目录 {0}：{1}': 'Cannot inspect directory {0}: {1}',
+    '已跳过 {0} 个不可用目录；悬停查看详情。': 'Skipped {0} unavailable directories; hover for details.',
     '日期': 'Date',
     '设备': 'Device',
     '选入路径': 'Use path',

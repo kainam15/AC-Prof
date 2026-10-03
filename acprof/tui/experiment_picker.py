@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
+from rich.text import Text
 from textual import on, work
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
+from acprof.messages import message
 from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -51,6 +54,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     #picker-dialog { width: 96%; max-width: 140; height: 92%; border: round $accent; background: $surface; padding: 0 1; }
     #picker-title { height: 1; text-style: bold; }
     #picker-scope { height: 1; color: $text-muted; }
+    #picker-scope-note { display: none; height: 1; color: $text-muted; }
     #picker-status { height: auto; max-height: 2; color: $text-muted; }
     #picker-search { height: 3; }
     #picker-table { height: 1fr; min-height: 3; }
@@ -61,7 +65,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     def __init__(self, title: str, columns: tuple[str, ...], loader: Callable,
                  *, query: str = '', actions: tuple[str, ...] = ('view', 'reuse', 'resume'),
-                 loading_changed: Callable[[bool], None] = lambda busy: None, scope: tuple = ()):
+                 loading_changed: Callable[[bool], None] = lambda busy: None, scope: tuple = (),
+                 project_dir: Path | None = None):
         super().__init__()
         self._compositor = CjkCompositor()
         self.title_text, self.columns, self.loader = title, columns, loader
@@ -72,15 +77,14 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.warnings: tuple[str, ...] = ()
         self._owner = None
         self.scope = scope
+        self.project_dir = project_dir if project_dir is not None else Path.cwd()
 
     def compose(self):
         tr = self.app.tr
         with Vertical(id='picker-dialog'):
             yield Static(tr(self.title_text), id='picker-title', markup=False)
-            scope = tr('搜索范围') + ': ' + ' · '.join(map(str, self.scope))
-            scope_widget = Static(scope, id='picker-scope', markup=False)
-            scope_widget.tooltip = scope
-            yield scope_widget
+            yield Static(tr('正在检查搜索目录……'), id='picker-scope', markup=False)
+            yield Static('', id='picker-scope-note', markup=False)
             yield Input(self.initial_query, placeholder=tr('搜索模型、日期、设备或状态'), id='picker-search')
             yield Static(tr('正在读取已知目录内的实验……'), id='picker-status', markup=False)
             yield DataTable(id='picker-table', cursor_type='row', fixed_columns=1)
@@ -99,14 +103,16 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     @work(thread=True, exclusive=True, exit_on_error=False)
     def load_choices(self):
+        roots, skipped = (), ()
         try:
+            roots, skipped = self.read_scope()
             choices, warnings = self.loader(self.cancelled.is_set)
         except InterruptedError:
             choices, warnings = (), ()
         except Exception as exc:
             choices, warnings = (), (str(exc),)
         try:
-            self._owner.call_from_thread(self.loaded, choices, warnings)
+            self._owner.call_from_thread(self.loaded, choices, warnings, roots, skipped)
         except RuntimeError:
             # The app exited while an already-cancelled bounded read completed.
             pass
@@ -114,11 +120,53 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     def on_unmount(self):
         self.cancelled.set()
 
-    def loaded(self, choices, warnings):
+    def read_scope(self) -> tuple[tuple[Path, ...], tuple[str, ...]]:
+        """Inspect display paths in the worker; keep explicit scan roots intact."""
+        roots, skipped, seen = [], [], set()
+        for source in self.scope:
+            if self.cancelled.is_set():
+                raise InterruptedError('search scope inspection cancelled')
+            path = Path(source)
+            try:
+                path = path.expanduser()
+                if not path.is_absolute():
+                    path = self.project_dir / path
+                path = path.resolve()
+                if path in seen:
+                    continue
+                seen.add(path)
+                if path.is_dir():
+                    roots.append(path)
+                else:
+                    skipped.append(message('目录不存在或不是目录：{0}', str(path)))
+            except (OSError, RuntimeError, ValueError) as exc:
+                skipped.append(message('无法检查目录 {0}：{1}', str(path), str(exc)))
+        return tuple(roots), tuple(skipped)
+
+    def show_scope(self, roots: tuple[Path, ...], skipped: tuple[str, ...]) -> None:
+        tr = self.app.tr
+        # Parent roots summarize the display only: bounded scans may need an
+        # explicitly selected child beyond the parent's depth or record boundary.
+        summary = [path for path in roots if not any(parent in path.parents for parent in roots)]
+        labels = [str(path.relative_to(self.project_dir)) if path.is_relative_to(self.project_dir)
+                  else str(path) for path in summary]
+        scope = self.query_one('#picker-scope', Static)
+        scope.update(tr('搜索范围') + ': ' + (' · '.join(labels) or tr('无可用目录')))
+        details = [tr('搜索范围') + ':', *(str(path) for path in roots)]
+        if skipped:
+            details.extend(('', tr('已跳过的搜索路径') + ':', *(tr(reason) for reason in skipped)))
+        scope.tooltip = Text('\n'.join(details))
+        note = self.query_one('#picker-scope-note', Static)
+        note.display = bool(skipped)
+        note.update(tr(message('已跳过 {0} 个不可用目录；悬停查看详情。', len(skipped))))
+        note.tooltip = scope.tooltip
+
+    def loaded(self, choices, warnings, roots, skipped):
         self.loading_changed(False)
         if not self.is_mounted or self.cancelled.is_set():
             return
         self.choices, self.warnings = tuple(choices), tuple(warnings)
+        self.show_scope(roots, skipped)
         self.filter_choices()
 
     @on(Input.Changed, '#picker-search')

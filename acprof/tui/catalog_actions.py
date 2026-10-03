@@ -56,6 +56,7 @@ class CatalogActions(MessagePump):
     def _open_experiment_picker(self: AcprofTui, target: str) -> None:
         if not self._allow_operation('catalog'):
             return
+        from acprof.tui.app import PROJECT_DIR
         roots, token = self._catalog_roots(), object()
         def loader(cancelled):
             catalog = scan_experiments(roots, cancelled=cancelled)
@@ -63,7 +64,7 @@ class CatalogActions(MessagePump):
         self._picker_open = True
         self._set_busy(True)
         self.push_screen(SearchPickerScreen('选择实验', ('模型', '日期', '设备', '状态', 'Run ID'), loader,
-            actions=('select', 'view', 'reuse', 'resume'), scope=roots,
+            actions=('select', 'view', 'reuse', 'resume'), scope=roots, project_dir=PROJECT_DIR,
             loading_changed=lambda busy: self._picker_loading(token, busy)),
             lambda choice: self._experiment_selected(target, choice))
 

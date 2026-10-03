@@ -77,7 +77,7 @@ class ModelActions(MessagePump):
         self._picker_open = True
         self._set_busy(True)
         self.push_screen(SearchPickerScreen('模型候选', ('模型', 'Revision', '验证状态', '设备'), loader,
-            query=self._input('model'), actions=('use', 'view'), scope=(*roots, cache_root),
+            query=self._input('model'), actions=('use', 'view'), scope=(*roots, cache_root), project_dir=PROJECT_DIR,
             loading_changed=lambda busy: self._picker_loading(token, busy)),
             lambda choice: self._model_candidate_selected(choice, models))
 

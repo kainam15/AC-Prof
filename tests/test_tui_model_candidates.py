@@ -2,15 +2,18 @@
 import json
 import unittest
 from dataclasses import replace
+from typing import cast
 from unittest.mock import patch
 
 import test_model_candidates as candidate_fixture
-from textual.widgets import Button, Input
+from rich.text import Text
+from textual.widgets import Button, Input, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.model_candidates import record_conditions
+from acprof.tui.settings import TuiSettings, save_settings
 
 
 class ModelInputTests(unittest.IsolatedAsyncioTestCase):
@@ -18,6 +21,37 @@ class ModelInputTests(unittest.IsolatedAsyncioTestCase):
         self.fixture = candidate_fixture.ModelCandidateTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
+
+    async def test_saved_missing_result_is_hidden_without_rewriting_settings(self):
+        root = self.fixture.fixture.root
+        results, store = root / 'results', root / 'store'
+        results.mkdir()
+        store.mkdir()
+        stale = results / 'google--gemma-4-26B-A4B-it'
+        settings_path = root / 'settings.json'
+        save_settings(settings_path, TuiSettings(last_result_dir=str(stale),
+            last_result_csv=str(stale / 'result_all.csv')), root)
+        original_settings = settings_path.read_bytes()
+        config = replace(RunConfig.smoke('asdf'), output_dir=str(results), model_store=str(store))
+        with patch('acprof.tui.app.PROJECT_DIR', root):
+            app = AcprofTui(config, settings_path=settings_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                app.query_one('#model', Input).focus()
+                await pilot.press('f4')
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, SearchPickerScreen)
+                screen = cast(SearchPickerScreen, app.screen)
+                scope = screen.query_one('#picker-scope', Static)
+                self.assertEqual(scope.content, '搜索范围: results · store')
+                self.assertIn(str(stale), cast(Text, scope.tooltip).plain)
+                self.assertEqual(screen.query_one('#picker-scope-note', Static).content,
+                    '已跳过 1 个不可用目录；悬停查看详情。')
+                self.assertEqual(screen.choices, ())
+                await pilot.press('escape')
+                await pilot.pause()
+                self.assertEqual(app.query_one('#model', Input).value, 'asdf')
+        self.assertEqual(settings_path.read_bytes(), original_settings)
 
     async def test_same_input_searches_pins_revision_and_changes_conditions(self):
         record = self.fixture.recorded()
