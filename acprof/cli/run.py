@@ -483,7 +483,7 @@ def _resource_matrix(args, parser):
 def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_list,
                      gpu_list, run_command, cgroup_version, cgroup_collection_mode,
                      rapl_topology, preflight_measurements, latency_slo,
-                     require_full_validation=False, workflow=None) -> _PreparedRuntime:
+                     workflow=None) -> _PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
@@ -518,11 +518,16 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         workflow.emit("runtime", "passed" if validation_status == "ok" else
                       "not_started" if validation_status == "not_run" else "failed",
                       detail=f"restored immutable runtime; saved validation: {validation_status}")
-        if (require_full_validation or workflow.interactive) and validation_status != "ok":
+        if validation_status != "ok":
             raise RuntimeError("saved runtime validation is not successful: " + str(validation_status)
                                + "; start a new experiment to validate without changing frozen resume evidence")
     else:
         task_info.model_download_policy = args.model_download_policy
+        from acprof.host.interface_probe import probe_interface
+        from acprof.host.runtime_images import configure_runtime_profile
+        workflow.run("interface", configure_runtime_profile, task_info)
+        workflow.run("interface", probe_interface, task_info, output_dir,
+                     timeout_seconds=args.request_timeout_seconds)
         try:
             image_info = workflow.run("image", prepare_image,
                 task_info, PROJECT_DIR, reuse_existing=args.skip_build and not workflow.rebuild_environment,
@@ -605,8 +610,8 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                     cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
                     timeout_seconds=args.request_timeout_seconds,
                 )
-                if (require_full_validation or workflow.interactive) and report.get("status") != "ok":
-                    raise RuntimeError("collection requires successful full validation on every requested device: "
+                if report.get("status") != "ok":
+                    raise RuntimeError("collection requires successful runtime validation on every requested device: "
                                        + str(report.get("status")))
             except Exception:
                 if workflow.interactive:
@@ -918,7 +923,6 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
                 run_command=run_command, cgroup_version=cgroup_version,
                 cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
                 preflight_measurements=preflight_measurements, latency_slo=latency_slo,
-                require_full_validation=prepared_task is not None,
                 workflow=workflow,
             )
         except RebuildEnvironment:

@@ -32,6 +32,27 @@ class TestCollectionWorkflow:
         self.run = recovery.RunRecoveryFixture()
         self.run.build(self._request, self.fixture_root)
 
+    @pytest.mark.parametrize("status", ["resource_limit", "resource_limited", "inconclusive", "error"])
+    def test_cli_never_measures_after_unsuccessful_validation(self, status):
+        with pytest.raises(SystemExit):
+            self.run.invoke(validation=lambda **kwargs: {"status": status})
+        assert self.run.calls == []
+
+    @pytest.mark.parametrize("failed", ["postprocess", "validate_output"])
+    def test_output_failure_stops_before_matrix(self, failed):
+        from contextlib import ExitStack
+
+        from test_validation_stages import TestValidationStage
+
+        from acprof.container.runtime_validate import validate
+        with ExitStack() as stack:
+            handler = TestValidationStage().fixtures(stack, failed=failed)
+            with pytest.raises(SystemExit):
+                self.run.invoke(validation=lambda **kwargs: validate({"text": "hello"}))
+        handler.predict.assert_called_once()
+        assert self.run.calls == []
+        assert not list(self.run.directory.rglob("*.csv"))
+
     def test_start_resolves_and_validates_before_measurement_without_questions(self):
         output = io.StringIO()
         with patch.dict(os.environ, {"ACPROF_INTERACTIVE_PREPARATION": "1"}), patch("sys.stdin", io.StringIO()):
@@ -99,7 +120,16 @@ class TestCollectionWorkflow:
             raise KeyboardInterrupt()
 
         with pytest.raises(KeyboardInterrupt):
-            self.run.invoke(case=interrupted, validation=lambda **_kwargs: {"status": "resource_limit"})
+            self.run.invoke(case=interrupted)
+        meta_path = self.run.directory / "static_meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta["runtime_validation"] = {"status": "resource_limit"}
+        meta_path.write_text(json.dumps(meta))
+        from acprof.host.run_state import file_sha256
+        state_path = self.run.directory / ".acprof/run_state.json"
+        state = json.loads(state_path.read_text())
+        state["artifacts"]["static_meta.json"] = file_sha256(meta_path)
+        state_path.write_text(json.dumps(state))
         output = io.StringIO()
         with patch.dict(os.environ, {"ACPROF_INTERACTIVE_PREPARATION": "1"}), patch("sys.stdin", io.StringIO()):
             with pytest.raises(RuntimeError, match="saved runtime validation is not successful"):
@@ -129,10 +159,10 @@ class TestCollectionWorkflow:
         answer = {"multimodal.inputs.turns": {"template": [{"role": "user", "content": {"from": "text"}}]}}
         workflow = PreparationWorkflow(interactive=True, cache_dir=self.run.root / "decisions")
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
-            workflow, "ask", return_value={"action": "answer", "answers": answer},
+            workflow, "ask", side_effect=[{"action": "answer", "answers": answer}, {"action": "confirm"}],
         ) as ask, patch("sys.stdout", io.StringIO()):
             reviewed = workflow.resolve(self.args())
-            ask.assert_called_once()
+            assert ask.call_count == 2
         assert (task_model_spec(reviewed)["multimodal"]["inputs"]["turns"]) == (answer["multimodal.inputs.turns"])
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(workflow, "ask") as ask, patch("sys.stdout", io.StringIO()):
             cached = workflow.resolve(self.args())
@@ -200,10 +230,10 @@ class TestCollectionWorkflow:
         assert (task.model_resolution["status"]) == ("ambiguous")
         workflow = PreparationWorkflow(interactive=True)
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
-            workflow, "ask", return_value={"action": "answer", "answers": {"task": "text-classification"}},
+            workflow, "ask", side_effect=[{"action": "answer", "answers": {"task": "text-classification"}}, {"action": "confirm"}],
         ) as ask, patch("sys.stdout", io.StringIO()):
             result = workflow.resolve(self.args())
-        assert ([item["path"] for item in ask.call_args.kwargs["questions"]]) == (["task"])
+        assert ([item["path"] for item in ask.call_args_list[0].kwargs["questions"]]) == (["task"])
         assert (result.pipeline_tag) == ("text-classification")
         assert (result.model_resolution["user_decisions"]["answers"]) == ({"task": "text-classification"})
     def test_resolution_failure_preserves_typed_error_in_preparation_request(self):

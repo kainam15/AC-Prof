@@ -102,6 +102,7 @@ def test_main_finalizes_tmux_log_when_profiling_raises() -> None:
 class TestNativeDockerGuard:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
+        monkeypatch.setattr("acprof.host.interface_probe.probe_interface", Mock(return_value={"status": "ok"}))
         self._request = request
         from platform_fixtures import native_policy
         native_policy(self._request)
@@ -614,7 +615,7 @@ class TestNativeDockerGuard:
             enrich_static_meta_from_input_plan=Mock(side_effect=lambda meta, planned: meta),
             enrich_static_meta=Mock(side_effect=lambda meta, values: meta),
         ), patch(
-            "acprof.host.runtime_validation.validate_runtime", return_value={}
+            "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json"
         ), patch(
@@ -706,7 +707,7 @@ class TestNativeDockerGuard:
             enrich_static_meta_from_input_plan=Mock(side_effect=lambda meta, planned: meta),
             enrich_static_meta=Mock(side_effect=lambda meta, values: meta),
         ), patch(
-            "acprof.host.runtime_validation.validate_runtime", return_value={}
+            "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json"
         ), patch(
@@ -811,7 +812,7 @@ class TestNativeDockerGuard:
             enrich_static_meta_from_input_plan=Mock(side_effect=lambda meta, planned: meta),
             enrich_static_meta=Mock(side_effect=lambda meta, values: meta),
         ), patch(
-            "acprof.host.runtime_validation.validate_runtime", return_value={}
+            "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json"
         ) as write_static_meta_json, patch(

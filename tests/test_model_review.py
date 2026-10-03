@@ -78,6 +78,15 @@ def test_review_of_unknown_loader_still_preserves_source_revision():
         apply_review(task, {"dependencies": [{"repo_id": "example/base", "role": "weights"}]})
     lookup.assert_not_called()
 
+
+def test_review_reenters_the_contract_resolver():
+    from acprof.model_contract import resolve_model_contract
+    task = fixture.TestModelContract().discover(fixture.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]'))
+    with patch("acprof.model_contract.resolve_model_contract", wraps=resolve_model_contract) as resolve:
+        reviewed = apply_review(task, {"multimodal.inputs.turns": "text"})
+    assert resolve.call_count == 1
+    assert reviewed.model_resolution["contract"]["status"] == "resolved"
+
 @pytest.mark.parametrize('answers', ({}, {'task': 'text-generation'}, {'multimodal.inputs.turns': {'python': 'eval(text)'}}))
 def test_review_cannot_change_known_fields_or_accept_empty_invalid_draft(answers):
     task = fixture.TestModelContract().discover(fixture.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]'))

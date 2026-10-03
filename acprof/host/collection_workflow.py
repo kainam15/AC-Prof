@@ -9,6 +9,7 @@ import copy
 import json
 import os
 import sys
+import traceback
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
@@ -79,7 +80,9 @@ class PreparationWorkflow:
             self.rebuild_environment = True
             self.emit("runtime", "not_started")
             raise RebuildEnvironment()
-        expected = "answer" if kind == "review" else "retry"
+        if kind == "review" and reply.get("action") == "revise":
+            return reply
+        expected = ("confirm" if fields.get("resolved") else "answer") if kind == "review" else "retry"
         if reply.get("action") != expected:
             raise ValueError("unexpected preparation action")
         return reply
@@ -92,10 +95,14 @@ class PreparationWorkflow:
             except (Exception, SystemExit) as exc:
                 if isinstance(exc, SystemExit) and exc.code in (0, None):
                     raise
-                detail = f"{type(exc).__name__}: {exc}"
+                detail = traceback.format_exc()[-24000:]
                 if not self.interactive:
                     raise
                 fields = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                failure = getattr(exc, "failure", None)
+                fields["failed_stage"] = getattr(failure, "stage", getattr(exc, "stage", stage))
+                if failure is not None:
+                    fields["failure"] = failure.to_dict()
                 self.ask(stage, "error", detail=detail, **fields)
             else:
                 self.emit(stage, "passed")
@@ -115,6 +122,8 @@ class PreparationWorkflow:
         if task.metadata_errors:
             return []
         questions = review_questions(task)
+        if any(item["path"] == "dependencies" and item.get("read_only") for item in questions):
+            return []  # Access failures are retried, not accepted as user choices.
         if questions and not any(item.get("read_only") for item in questions):
             return questions
         resolution = task.model_resolution
@@ -126,14 +135,54 @@ class PreparationWorkflow:
                 and resolution.get("status") in {"ambiguous", "needs_configuration"}):
             return [{"path": "task", "value": None, "options": candidates,
                      "reason": "; ".join(resolution.get("conflicts", []) + resolution.get("missing", []))}]
+        if questions or resolution.get("status") in {"ambiguous", "needs_configuration"}:
+            return [{"path": "model_spec", "value": "", "kind": "path",
+                     "reason": "需要本地模型声明以补充接口信息。"}]
         return []
+
+    @staticmethod
+    def review_details(task, questions) -> dict:
+        from acprof.host.model_inspection import explain_resolution
+        pending = {item["path"] for item in questions}
+        values = {"Model": task.model_id, "Revision": task.model_revision,
+                  "Task": task.pipeline_tag, "Backend": task.runtime_backend,
+                  "Adapter / Interface": task.model_adapter}
+        fields = {key: value for key, value in values.items() if value and value != "unknown" and key.lower() not in pending}
+        candidates = task.model_resolution.get("candidates", [])
+        tasks = sorted({item["task"] for item in candidates if not item.get("unsupported_reason")})
+        backends = sorted({item["backend"] for item in candidates if item.get("backend") not in {None, "unknown"}})
+        advanced = [{"path": "task", "value": task.pipeline_tag, "options": tasks or [task.pipeline_tag]},
+                    {"path": "backend", "value": task.runtime_backend, "options": backends or [task.runtime_backend]},
+                    {"path": "model_spec", "value": "", "kind": "path", "optional": True}]
+        return {"fields": fields, "advanced": advanced, "summary": explain_resolution(task, explain=True)}
+
+    @staticmethod
+    def _revise(task, overrides, args):
+        from acprof.host.detect import detect_task
+        if (not isinstance(overrides, dict) or not overrides
+                or set(overrides) - {"task", "backend", "model_spec"}
+                or any(not isinstance(value, str) for value in overrides.values())):
+            raise ValueError("invalid model selection changes")
+        updated = copy.copy(args)
+        for name, value in overrides.items():
+            if value:
+                setattr(updated, name, value)
+        resolved = detect_task(model_id=task.model_id, revision=task.model_revision,
+                              override_tag=updated.task, override_family=updated.task_family,
+                              override_backend=updated.backend, model_spec_path=updated.model_spec)
+        # Persist only resolver inputs, never write a final contract from the UI.
+        for name in overrides:
+            setattr(args, name, getattr(updated, name))
+        return resolved
 
     def _apply(self, task, answers: dict, args):
         from acprof.host.detect import dependency_metadata
         from acprof.model_review import apply_review
         def lookup(repo, revision):
             return self.run("dependencies", dependency_metadata, repo, revision)
-        if set(answers) != {"task"}:
+        if set(answers) == {"model_spec"}:
+            result = self._revise(task, answers, args)
+        elif set(answers) != {"task"}:
             result = apply_review(task, answers, resolve_repository=lookup)
         else:
             from acprof.host.detect import read_model_source
@@ -154,7 +203,6 @@ class PreparationWorkflow:
 
     def resolve(self, args, *, initial=None):
         from acprof.host.detect import detect_task
-        from acprof.host.model_inspection import explain_resolution
         from acprof.host.task_support import require_task_support
 
         def resolve_once():
@@ -188,11 +236,25 @@ class PreparationWorkflow:
                     # A stale decision cannot force an incompatible route.
                     pass
             error = ""
-            while self.interactive and (questions := self.questions(task, args)):
+            reviewed = False
+            while self.interactive:
+                questions = self.questions(task, args)
+                if not questions and not reviewed:
+                    break
+                if not questions:
+                    require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
                 reply = self.ask("resolution", "review", questions=questions,
-                                 detail=error, summary=explain_resolution(task))
+                                 detail=error, resolved=not questions, **self.review_details(task, questions))
+                if reply.get("action") == "confirm":
+                    if questions:
+                        raise ValueError("unresolved model cannot be confirmed")
+                    break
                 self.emit("resolution", "running")
                 try:
+                    if reply.get("action") == "revise":
+                        task = self._revise(task, reply.get("overrides"), args)
+                        cache, decisions, reviewed, error = None, [], True, ""
+                        continue
                     answers = reply.get("answers")
                     if not isinstance(answers, dict) or set(answers) != {item["path"] for item in questions}:
                         raise ValueError("answers must cover exactly the unresolved fields")
@@ -201,7 +263,7 @@ class PreparationWorkflow:
                     error = str(exc)
                     continue
                 decisions.append(answers)
-                error = ""
+                reviewed, error = True, ""
             self._explicit(task, args)
             require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
             if cache and decisions:

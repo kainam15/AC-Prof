@@ -368,6 +368,10 @@ class TestRunNotificationLifecycle:
         ) as from_env, patch(
             "acprof.host.detect.detect_task", return_value=task_info,
         ), patch(
+            "acprof.host.interface_probe.probe_interface", return_value={"status": "ok"},
+        ), patch(
+            "acprof.host.runtime_images.configure_runtime_profile",
+        ), patch(
             "acprof.host.runtime_images.prepare_image",
             return_value=runtime_images.ImageInfo(tag="acprof-nlp-org--resolved-model:latest"),
         ), patch(
@@ -377,7 +381,7 @@ class TestRunNotificationLifecycle:
             enrich_static_meta_from_input_plan=Mock(side_effect=lambda meta, planned: meta),
             enrich_static_meta=Mock(side_effect=lambda meta, values: meta),
         ), patch(
-            "acprof.host.runtime_validation.validate_runtime", return_value={}
+            "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json",
         ), patch(

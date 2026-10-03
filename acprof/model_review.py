@@ -129,18 +129,27 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
             target = target.setdefault(part, {})
         target[key] = copy.deepcopy(value)
     validate_model_spec(draft)
-    previous = {name: report["fields"][name] for name in report["unresolved_fields"]}
-    report.setdefault("reviews", []).append({"revision": task.model_revision, "answers": copy.deepcopy(answers),
-                                              "previous_fields": previous})
-    for name in report["unresolved_fields"]:
-        report["fields"].pop(name)
-    for name, value in answers.items():
-        report["fields"][name] = {"value": copy.deepcopy(draft["dependencies"] if name == "dependencies" else value),
-                                  "state": "declared", "sources": ["user.review"]}
-    report.update(draft_spec=draft, status="resolved", unresolved_fields=[], runtime_validation="not_run")
-    report["cache_key"] = content_digest({"previous": report["cache_key"], "answers": answers, "draft_spec": draft})
+    # Decisions are resolver inputs. Never clear unresolved fields or force a
+    # final status on the previous contract.
+    from acprof.host.detect import read_model_source
+    from acprof.model_contract import apply_model_contract
+    previous = report
     task.model_spec = draft
     task.model_resolution = discover_model_candidates(task)
-    task.model_resolution["contract"] = report
-    require_task_support(task)
+    def source(name):
+        if name not in task.repository_sources:
+            task.repository_sources[name] = read_model_source(task.model_id, name, task.model_revision)
+        return task.repository_sources[name]
+    apply_model_contract(task, source, resolve_repository=resolve_repository,
+                         selected_pipeline=draft.get("pipeline_task"))
+    report = task.model_resolution["contract"]
+    report["reviews"] = [*previous.get("reviews", []),
+        {"revision": task.model_revision, "answers": copy.deepcopy(answers),
+         "previous_cache_key": previous["cache_key"]}]
+    for path, value in answers.items():
+        report["fields"][path] = {"value": copy.deepcopy(draft["dependencies"] if path == "dependencies" else value),
+                                  "state": "declared", "sources": ["user.review"]}
+    report["cache_key"] = content_digest({"resolved": report["cache_key"], "reviews": report["reviews"]})
+    if report["status"] == "resolved":
+        require_task_support(task)
     return task
