@@ -2,12 +2,38 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from acprof.analysis.audit import audit_result
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.run_state import load_run_state
+from acprof.messages import Message, join_messages, message
+
+MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
+
+
+def _finite_json_number(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError(message("包含非有限数值"))
+    return value
+
+
+def _read_capability_report(path: Path) -> dict:
+    with path.open("rb") as stream:
+        content = stream.read(MAX_CAPABILITY_REPORT_BYTES + 1)
+    if len(content) > MAX_CAPABILITY_REPORT_BYTES:
+        raise ValueError(message("超过 4 MiB 读取上限"))
+    try:
+        value = json.loads(content, parse_float=_finite_json_number,
+                           parse_constant=_finite_json_number)
+    except json.JSONDecodeError as exc:
+        raise ValueError(message("JSON 格式无效")) from exc
+    if not isinstance(value, dict):
+        raise ValueError(message("最外层必须是 JSON 对象"))
+    return value
 
 
 def _stamp(path: Path) -> tuple[int, int, int, int] | None:
@@ -83,9 +109,17 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     partial = state.get("outcome") == "partial" or bool(counts.get("error") or counts.get("warn"))
     capability_path = layout.path("capability_report.json")
     capability = {}
+    capability_issue = ""
     if capability_path.is_file():
-        capability = json.loads(capability_path.read_text(encoding="utf-8"))
+        try:
+            capability = _read_capability_report(capability_path)
+        except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+            reason = exc.args[0] if exc.args and isinstance(exc.args[0], Message) else str(exc)
+            capability_issue = message("能力报告 {0} 无效：{1}", capability_path.name, reason)
     partial |= capability.get("requested_measurements_complete") is not True
+    details = [issue["message"] for issue in audit.get("issues", [])
+               if issue.get("severity") == "error"]
+    if capability_issue:
+        details.append(capability_issue)
     return RunResult(True, complete, partial, current_csv, len(completed), total, new_cases,
-                     "; ".join(str(issue["message"]) for issue in audit.get("issues", [])
-                               if issue.get("severity") == "error"), str(layout.root))
+                     join_messages("; ", details), str(layout.root))

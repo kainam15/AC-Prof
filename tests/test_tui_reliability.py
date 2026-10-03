@@ -18,6 +18,7 @@ from acprof.artifact_layout import ArtifactLayout
 from acprof.experiment import RunConfig
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.diagnostics import quick_preflight, summarize_result_csv
+from acprof.tui.i18n import translate
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.run_form import infer_preset, matches_preset
 from acprof.tui.run_results import RunArtifacts, inspect_run_result
@@ -95,6 +96,38 @@ class TestRunAttribution:
     def test_zero_exit_with_missing_requested_metrics_is_partial(self):
         self.layout.path("capability_report.json").write_text(json.dumps({"requested_measurements_complete": False}))
         assert (inspect_run_result(self.before, 123).stage(0, False, "")) == ("部分完成")
+
+    @pytest.mark.parametrize(("content", "reason", "english"), [
+        ("{", "JSON 格式无效", "Invalid JSON"),
+        ("[]", "最外层必须是 JSON 对象", "A JSON object is required at the top level"),
+        ('{"requested_measurements_complete": NaN}', "包含非有限数值", "Contains a non-finite number"),
+        ('{"requested_measurements_complete": 1e999}', "包含非有限数值", "Contains a non-finite number"),
+    ])
+    def test_invalid_capability_evidence_retains_attributed_results(self, content, reason, english):
+        self.layout.path("capability_report.json").write_text(content)
+
+        result = inspect_run_result(self.before, 123)
+
+        assert result.belongs_to_attempt
+        assert (result.result_csv) == (str(self.layout.result_csv))
+        assert (result.stage(0, False, "")) == ("部分完成")
+        assert reason in result.detail
+        assert english in translate(result.detail, "en")
+
+    def test_oversized_capability_evidence_is_not_read_as_complete(self):
+        content = json.dumps({
+            "requested_measurements_complete": True,
+            "padding": "x" * (4 * 1024 * 1024),
+        })
+        self.layout.path("capability_report.json").write_text(content)
+
+        result = inspect_run_result(self.before, 123)
+
+        assert result.belongs_to_attempt
+        assert (result.result_csv) == (str(self.layout.result_csv))
+        assert (result.stage(0, False, "")) == ("部分完成")
+        assert "超过 4 MiB 读取上限" in result.detail
+        assert "Exceeds the 4 MiB read limit" in translate(result.detail, "en")
 
     def test_preflight_failure_and_unchanged_resume_never_promote_history(self):
         before = RunArtifacts.read(self.root)
