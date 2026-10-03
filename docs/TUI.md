@@ -12,20 +12,17 @@ TUI 提供实验配置、运行监控、绘图、统计、补采、镜像管理�
 
 ## 启动和页面
 
-通过[发行包方式](Distribution.md)安装后使用 `acprof tui`；可同样传入 `--model`、`--preset`、`--output-dir` 和颜色参数。
 首次 clone 可以运行 `./setup.sh`，完成安装和 basic 环境检查后自动进入入门配置。
-下面的 `./acprof-tui` 示例适用于已经安装项目 `.venv` 的源码开发环境。
-
-不想反复输入长命令时，可以从项目根目录启动全屏 TUI：
+通过此脚本或其他[发行包方式](Distribution.md)安装后，统一使用 `acprof tui` 启动全屏 TUI：
 
 ```bash
-./acprof-tui
+acprof tui
 ```
 
 也可以预填模型并直接加载最小 smoke 配置：
 
 ```bash
-./acprof-tui --model google-bert/bert-base-uncased --preset smoke
+acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
 smoke 预设使用 `basic`、CPU、1 核、4 GB、输入规模 64、无 warmup 和单次请求，关闭独立 profiler 与通知。

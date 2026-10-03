@@ -84,7 +84,7 @@ Windows Terminal、VS Code 集成终端等支持真彩色的客户端，通过 S
 `COLORTERM`，默认模式也保留 RGB 输出。颜色模式仅作用于 TUI 渲染器，不修改 shell 配置、
 环境变量或采集子进程的环境，也不启动终端探测或刷新定时器。
 
-确实只支持 256 色的终端可运行 `./acprof-tui --color-system 256`，颜色按扩展调色板近似，
+确实只支持 256 色的终端可运行 `acprof tui --color-system 256`，颜色按扩展调色板近似，
 不能精确还原 RGB。`--color-system auto` 恢复 Textual 的环境检测：通常由 `TERM` 和
 `COLORTERM` 决定色深；显式设置的 `TEXTUAL_COLOR_SYSTEM` 也只在此模式下沿用。
 `NO_COLOR` 在所有模式下仍由 Textual 转为单色显示。颜色模式只影响本次启动，不写入 `tui.json`。
@@ -480,9 +480,9 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 `--baseline <config_id>` 预选配置，单配置 run 也可直接使用 run ID。无需 GUI 或 Web 服务，
 不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](Metrics.md#交互式配置比较报告)。
 
-`plot.py` 接收结果 CSV 路径，`tui.py` 可用 `--model` 预填模型、用 `--preset` 选择预设。
-`audit.py <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
-用于验收新实验。`stats.py <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
+`acprof plot` 接收结果 CSV 路径，`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
+`acprof audit <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
+用于验收新实验。`acprof stats <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
 `--confidence`、`--resamples`、`--seed`、`--block-size`；定义见[结果分析](Metrics.md)。
 省略输出选项时向 stdout 输出报告 JSON。`--output FILE` 保存到指定新文件，禁止覆盖；
 `--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
@@ -503,13 +503,13 @@ TUI“统计报告”页的“计算统计”使用目录模式和默认统计�
 各入口的完整帮助可直接运行：
 
 ```bash
-.venv/bin/python run.py --help
-.venv/bin/python probe.py --help
-.venv/bin/python profile.py --help
-.venv/bin/python plot.py --help
-.venv/bin/python audit.py --help
-.venv/bin/python stats.py --help
-.venv/bin/python tui.py --help
+acprof run --help
+acprof probe --help
+acprof profile --help
+acprof plot --help
+acprof audit --help
+acprof stats --help
+acprof tui --help
 ```
 
 ### 独立比较与负载

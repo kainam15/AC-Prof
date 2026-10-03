@@ -78,7 +78,8 @@ flowchart TD
 继续逐条登记，不给予整个子系统无限制豁免。`latency_model` 的 analysis/plotting 边界同样保留
 现有条目，后续按职责处理，不以消除下划线数量为目标。
 
-`run.py`、`probe.py`、`profile.py`、`plot.py`、`tui.py` 和 `acprof-tui` 仍使用原命令。
+用户统一使用 `acprof <command>`，TUI 的正式入口为 `acprof tui`，由 `acprof.cli.main:main` 分发。
+根目录的 Python 脚本用于源码开发；`acprof.cli.tui` 是 TUI 命令的内部实现模块。
 `profile.py` 在被 Python 导入时继续代理标准库 `profile`，使 `cProfile` 正常工作。
 `acprof.host.client`、容器 server/runner 和 packet 命令的模块路径保持原样。
 

@@ -76,9 +76,14 @@ To install and check the environment without opening the TUI:
 ./setup.sh --no-tui
 ```
 
-After installation, use `acprof` in a new terminal, or use the full executable path printed by the script in your current terminal.
-From the repository, you can also run `./acprof-tui --preset smoke`. This launcher supports both the project `.venv` and the installed tool environment;
-see [launcher selection](docs/Distribution.md#clone-后初始化) for the order of preference.
+After installation, open a new terminal and start the TUI with the standard command:
+
+```bash
+acprof tui
+```
+
+Use `acprof tui --preset smoke` to load the introductory preset. In your current terminal, use the full executable path printed by the script;
+see [installation and command paths](docs/Distribution.md#clone-后初始化).
 You can then launch AC-Prof from any working directory; output paths are relative to that directory. The setup script starts it from the repository root.
 Model runtime dependencies reuse verified GHCR images when available; any local-build fallback is visible and must satisfy the source policy. Budgeted runs stop on pull failure and require a new preflight. Model weights are downloaded as needed into the shared Model Store.
 For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures proxies, notifications, and profiling permissions.
