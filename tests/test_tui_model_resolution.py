@@ -7,6 +7,7 @@ from textual.widgets import Button, Collapsible, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
+from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.preparation import PreparationScreen
 
 
@@ -88,5 +89,38 @@ async def test_runtime_error_replaces_wait_in_same_dialog_and_details_are_collap
             await pilot.pause()
             assert app.screen is screen
             assert '"action": "retry"' in process.stdin.getvalue()
+        finally:
+            app._lifecycle.process = None
+
+
+@pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-Infinity", "1e999"])
+async def test_nonfinite_json_answer_stays_editable_until_valid(tmp_path, invalid):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    process = Mock(stdin=io.StringIO())
+    process.poll.return_value = None
+    async with app.run_test(size=(100, 30)) as pilot:
+        app._lifecycle.process = process
+        try:
+            event = {"stage": "resolution", "status": "waiting", "request": {
+                "id": 7, "kind": "review", "questions": [
+                    {"path": "temperature", "kind": "json", "value": 1.0},
+                ], "fields": {"Model": "demo/model"}, "resolved": False,
+            }}
+            app._preparation_event(event)
+            await pilot.pause()
+            field = app.screen.query_one("#preparation-answer-0", Input)
+            field.value = invalid
+            assert await pilot.click("#preparation-apply")
+            await pilot.pause()
+            assert process.stdin.getvalue() == ""
+            assert app._preparation_request == (process, 7)
+            assert app.screen is app._preparation_screen
+            assert app.screen.query_one("#preparation-error", Static).content
+
+            field.value = "0.5"
+            app.screen.apply_answers()
+            await pilot.pause()
+            assert '"temperature": 0.5' in process.stdin.getvalue()
+            assert app._preparation_request is None
         finally:
             app._lifecycle.process = None

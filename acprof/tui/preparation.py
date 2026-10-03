@@ -8,6 +8,7 @@ from textual.widgets import Button, Collapsible, Label, Static
 
 from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
+from acprof.preparation_events import encode_reply
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
 
@@ -156,6 +157,7 @@ class PreparationScreen(ModalScreen):
     def apply_answers(self):
         try:
             answers = review_answers(self, self.event["request"].get("questions", []), prefix="preparation-answer")
+            encode_reply(self.event["request"]["id"], "answer", answers=answers)
         except (ValueError, TypeError) as exc:
             self.query_one("#preparation-error", Static).update(str(exc))
             return
@@ -165,6 +167,7 @@ class PreparationScreen(ModalScreen):
     def revise(self):
         try:
             overrides = review_answers(self, self.event["request"]["advanced"], prefix="preparation-advanced")
+            encode_reply(self.event["request"]["id"], "revise", overrides=overrides)
         except (ValueError, TypeError) as exc:
             self.query_one("#preparation-error", Static).update(str(exc))
             return
