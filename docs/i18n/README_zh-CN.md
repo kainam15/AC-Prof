@@ -23,10 +23,22 @@ AC-Prof 用来比较 Hugging Face 模型在不同 CPU、内存、GPU 配置和�
 
 ## 快速开始
 
+用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，然后启动 AC-Prof：
+
+```bash
+uv tool install acprof
+acprof
+```
+
+如果 shell 找不到 `acprof`，执行 `uv tool update-shell` 后重新打开终端。
+已激活的虚拟环境中也可使用 `uv pip install acprof` 或 `pip install acprof`。
+工具安装通过 `uv tool upgrade acprof` 升级；环境安装使用 `uv pip install -U acprof`。
+源码 checkout 使用下方的[开发安装](#项目结构与开发)。
+
 ### 1. 准备主机
 
 FULL 采集需要 Native Linux x86_64、本机 Docker Engine 和统一 cgroup v2，推荐 Ubuntu 24.04。
-下面的安装脚本会自动准备 uv 和 Python；也可使用无需源码的 [standalone](../Distribution.md#linux-standalone)。
+AC-Prof 要求 Python 3.10+，uv 可按需准备 Python；[standalone](../Distribution.md#linux-standalone) 已内置解释器。
 当前用户应能直接运行 `docker info`，并能访问 Hugging Face 及依赖下载源。
 WSL2 支持开发及 `--profiling-mode basic` 的 PARTIAL 采集，详见 [WSL2 支持范围](../platforms/wsl2.md)。
 Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集。
@@ -45,41 +57,29 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集�
 
 ### 2. 安装 AC-Prof 并检查环境
 
-准备好 Git 和 Docker 后执行：
+检查安装版本和主机前置条件：
 
 ```bash
-git clone https://github.com/kainam15/AC-Prof.git
-cd AC-Prof
-./setup.sh
+acprof --version
+acprof --help
+acprof doctor --profiling-mode basic --gpus off
 ```
 
-脚本安装当前源码版本，运行 `doctor`，通过后在交互终端打开 TUI。
-已预填 BERT、basic CPU、单次请求和新的结果目录；点击“开始采集”并核对确认页即可体验。
-Docker 或基础采集条件缺失时会给出处理建议，修复后可重新执行。
-
-只安装和检查、不自动打开界面：
-
-```bash
-./setup.sh --no-tui
-```
-
-安装完成后，打开新终端，使用统一命令启动 TUI：
-
-```bash
-acprof tui
-```
+运行 `acprof` 或 `acprof tui` 打开 TUI。
+界面默认使用简体中文，可按 `F2` 在 **界面语言 / Language** 中选择 `English`。
+选择模型和采集模式，点击“开始采集”并核对确认页。
+Docker 或其他前置条件缺失时，`doctor` 会报告缺项及处理建议。
 
 源码开发与安装环境的公开入口均为 `acprof <command>`。
 使用 `acprof --help` 或 `acprof <command> --help` 查看命令与参数。
 
-需要入门预设时运行 `acprof tui --preset smoke`。当前终端可使用脚本输出的完整路径命令，
-详见[安装与命令路径说明](../Distribution.md#clone-后初始化)。
-后续可从任意工作目录启动，结果写入该目录；`setup.sh` 启动的工作目录为源码根目录。
+需要小规模预设时运行 `acprof tui --preset smoke`；下方 CPU 示例需选择 `basic`。
+可从任意工作目录启动，输出路径相对于该目录。
 模型推理依赖优先复用经过核验的 GHCR 预构建镜像；回退本机构建会明确显示，并须符合来源策略。预算模式下 pull 失败会停止，需重新预检；模型权重按需下载到共享 Model Store。
 私有或 gated 模型可在 TUI 按 `F2` → **连接与权限**填写 `HF_TOKEN`；同处可配置代理、通知和采集权限。
 连接配置保存到当前工作目录的 `.env.local`（仅当前用户可读写），该文件及其备份应加入 Git 忽略。
 默认以 `mirror-only` 连接 `https://hf-mirror.com`，禁用 Xet，镜像失败或未允许的重定向直接停止。使用 `--max-download 5GB` 在大下载前检查预算；大小未知时预算模式也会停止。详见[下载与 Model Store 策略](../Runtime_Compatibility.md#下载网络与-model-store)和[来源配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
-详见[认证配置](../Getting_Started.md#hugging-face-认证)、[开发环境安装](../Getting_Started.md#2-安装-python-依赖)和[发行包说明](../Distribution.md)。
+详见[认证配置](../Getting_Started.md#hugging-face-认证)、[安装方式](../Getting_Started.md#安装)和[发行包说明](../Distribution.md)。
 
 ### 3. 跑通第一个 CPU 实验
 
@@ -110,8 +110,8 @@ acprof run --model google-bert/bert-base-uncased \
 
 ## 查看结果
 
-上面命令行示例的主要文件位于下方目录。通过 `setup.sh` 启动时，输出目录为
-`results/first-run-<时间>-<随机后缀>/`，以界面显示的路径替换以下命令中的 `results/first-run`。
+上面命令行示例的主要文件位于下方目录。
+通过 TUI 运行时，以界面显示的输出路径替换以下命令中的 `results/first-run`。
 
 ```text
 results/first-run/google-bert--bert-base-uncased/
@@ -185,6 +185,21 @@ acprof tui --model google-bert/bert-base-uncased --preset smoke
 | 查采集协议和其他专题 | [完整文档索引](../README.md) |
 
 ## 项目结构与开发
+
+开发或构建未发布版本时获取源码：
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+source .venv/bin/activate
+acprof --version
+```
+
+开发环境继续以现有带哈希的 requirements 为准。
+需要将 checkout 安装为隔离工具并检查主机时，可使用可选的 [`setup.sh` 辅助脚本](../Distribution.md#clone-后初始化)。
 
 [`pyproject.toml`](../../pyproject.toml) 声明主机依赖；[`requirements/`](../../requirements/) 集中保存 `host`、`dev` 和 `tui-snapshot` 的输入与锁文件。
 模块职责见[代码架构](../Architecture.md)，开发依赖、pre-commit 和测试入口见[测试指南](../Testing.md#开发质量检查)。

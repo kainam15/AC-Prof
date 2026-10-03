@@ -1,12 +1,55 @@
 # 安装与运行指南
 
-首次使用可先按[中文首页的快速开始](i18n/README_zh-CN.md#快速开始)，执行 `./setup.sh` 后在 TUI 跑通一个 basic CPU 实验。
-脚本参数、重复执行和安装路径见[Clone 后初始化](Distribution.md#clone-后初始化)。
-本文保留完整主机检查、认证配置，以及 full、GPU、ONNX 和资源矩阵示例。
-下文保留源码目录和 `.venv` 的开发方式；安装后的 `acprof` 命令可从任意工作目录执行。
-隔离工具安装、standalone 下载及发布方式见[发行包说明](Distribution.md)。
+普通用户从 PyPI 安装带版本 Tag 的发行包，统一运行 `acprof <command>`，无需获取源码。
+本文提供安装、主机检查、认证配置，以及 basic、full、GPU、ONNX 和资源矩阵示例。
+源码方式放在文末的[开发安装](#开发安装)；standalone 下载及发布方式见[发行包说明](Distribution.md)。
 
 [文档导航](README.md) · [CLI 参数](CLI_Reference.md) · [运行排障](Troubleshooting.md)
+
+## 安装
+
+### uv tool install（推荐）
+
+准备 [uv](https://docs.astral.sh/uv/getting-started/installation/) 后执行：
+
+```bash
+uv tool install acprof
+acprof --version
+acprof --help
+acprof
+```
+
+工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.10+。
+若找不到命令，执行 `uv tool update-shell`，按提示刷新 PATH 或重新打开终端。
+`acprof` 默认启动 TUI，等同于 `acprof tui`；查看版本和帮助不会启动采集。
+
+### uv pip install / pip install
+
+已有虚拟环境时激活后直接安装；新环境可使用：
+
+```bash
+uv venv --python 3.10
+source .venv/bin/activate
+uv pip install acprof
+acprof --version
+```
+
+使用 pip 的环境中执行 `pip install acprof`，随后同样运行 `acprof`。
+安装包可以脱离仓库运行，Docker、驱动及采集工具仍由主机提供。
+
+### 升级与固定版本
+
+```bash
+uv tool upgrade acprof
+# 当前虚拟环境安装：
+uv pip install -U acprof
+# 使用 pip 时：
+pip install -U acprof
+acprof --version
+```
+
+复现实验应将安装命令中的 `acprof` 改为 `acprof==<已发布版本>`，并保留实验产物中的
+runtime、模型 revision 和环境身份。发布版本与 Git Tag 的对应规则见[版本策略](Distribution.md#版本策略与失败恢复)。
 
 ## 快速开始
 
@@ -19,7 +62,7 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采�
 
 必需条件：
 
-- Python 3.10+；`setup.sh` 可自动准备，standalone 已内置。
+- Python 3.10+；uv 可按需准备，standalone 已内置。
 - 当前用户可以直接访问 `unix:///var/run/docker.sock`，无需使用 `sudo docker`。
 - Host 使用统一 cgroup v2；`/sys/fs/cgroup/cgroup.controllers` 必须存在。
 - Hugging Face Hub 可访问；私有或 gated 模型还需要 `HF_TOKEN`。
@@ -118,33 +161,21 @@ AC-Prof 使用 `tcpdump -p` 关闭 promiscuous mode，不要求 `CAP_NET_ADMIN`�
 和 [libpcap Linux 权限说明](https://github.com/the-tcpdump-group/libpcap/blob/master/pcap.3pcap.in)，
 仅使用系统已有 capability 机制，不新增采集依赖或测量窗口内的授权操作。
 
-### 2. 安装 Python 依赖
+### 2. 检查安装
 
-首次获取源码：
-
-```bash
-git clone https://github.com/kainam15/AC-Prof.git
-cd AC-Prof
-```
-
-在仓库根目录安装主机依赖；已有 `.venv` 时直接激活并安装：
+完成上方的[安装](#安装)后，在要保存实验结果的工作目录执行：
 
 ```bash
-# 仅在 .venv 不存在时执行下一行
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --require-hashes -r requirements/host.lock
-python -m pip install --no-deps -e .
+acprof --version
+acprof doctor --profiling-mode basic --gpus off
+acprof tui
 ```
 
-主机依赖集合与兼容区间统一在 `pyproject.toml` 声明；`requirements/host.in` 只保存已验证版本约束。
-主机、开发工具和 TUI 快照的输入与锁文件统一放在 `requirements/`，安装直接指定对应 `.lock`。
-发行安装继续使用 `setup.sh`；开发工具单独按[测试指南](Testing.md#开发质量检查)安装。
+采集前先核对 TUI 中的模型、模式及输出目录；认证配置和输出路径相对于当前工作目录。
 
 容器运行依赖由独立的平台和完整制品锁管理：7 个任务族的逻辑 profile 共享依赖环境，
 当前数量和版本统一见[当前配置](Runtime_Compatibility.md#当前配置)，其中 `onnxruntime-cpu` 完全不安装 Torch。
-镜像按需构建和复用；只读检查可运行 `python scripts/compile_locks.py --check`，
-分层及锁更新命令见[运行兼容](Runtime_Compatibility.md#当前配置)。
+镜像按需构建和复用，分层及锁更新命令见[运行兼容](Runtime_Compatibility.md#当前配置)。
 
 ### Hugging Face 认证
 
@@ -349,3 +380,27 @@ acprof run --help
 - 长请求可设置 `--request-timeout-seconds 1800`；它限制单次请求，不限制整个矩阵。默认值与适用阶段见[CLI 参数](CLI_Reference.md#请求窗口与采样)。
 
 通知配置见[企业微信通知](CLI_Reference.md#企业微信通知)，补采流程见[补采已有结果](Profilers.md#补采已有结果)。
+
+<a id="2-安装-python-依赖"></a>
+
+## 开发安装
+
+开发或构建未发布版本才需要 Git clone。使用已有 `.venv` 时跳过创建环境：
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+source .venv/bin/activate
+acprof --version
+```
+
+主机兼容区间由 `pyproject.toml` 声明，已验证版本由 `requirements/host.in` 及带哈希的
+`requirements/host.lock` 管理；开发和 TUI 快照有独立锁。这里沿用 `uv pip` 安装现有锁，
+不引入与 requirements 重复维护的 `uv.lock` / `uv sync` 路径。
+开发检查和 Git hooks 见[测试指南](Testing.md#开发质量检查)。
+需要隔离工具安装当前 checkout 时可运行 `uv tool install .`，或使用
+[`setup.sh`](Distribution.md#clone-后初始化) 完成安装和主机诊断。
+容器锁的只读检查为 `python scripts/compile_locks.py --check`；构建发行包运行 `uv build`。

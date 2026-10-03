@@ -1,7 +1,8 @@
-# 安装包、standalone 与发布
+# 安装包、PyPI、standalone 与发布
 
-AC-Prof 支持源码开发、`uv tool install` 隔离安装和 Linux x86_64 standalone。
-三种安装方式通过 `acprof <command>` 执行相同的主机采集代码；Docker Engine、cgroup v2、GPU driver 和采集工具仍由主机提供。
+普通用户推荐 `uv tool install acprof`，也支持虚拟环境内的 `uv pip install acprof` / `pip install acprof`，
+以及 Linux x86_64 standalone；源码安装用于开发。所有方式通过 `acprof <command>` 执行相同的主机代码；
+Docker Engine、cgroup v2、GPU driver 和采集工具仍由主机提供。
 安装与首次运行见[安装指南](Getting_Started.md)，环境检查参数见 [doctor](CLI_Reference.md#acprof-doctor)。
 
 分发包的 `License-Expression` 为 `Apache-2.0 AND CC-BY-4.0`：项目代码采用 Apache-2.0，
@@ -29,7 +30,24 @@ runtime profile 的严格版本锁独立维护。
 部署需求，应为每种组合增加隔离安装与实际 CLI smoke，同时继续生成完整 host hashed lock。
 代码路径拆分不改变依赖许可证，也不把容器模型框架移入 host 默认安装。
 
-## Clone 后初始化
+## Python 工具安装
+
+安装、升级与固定版本命令集中在[安装指南](Getting_Started.md#安装)。distribution name 为 `acprof`，
+console script 为 `acprof = "acprof.cli.main:main"`。`acprof` 默认打开 TUI，也可明确运行
+`acprof doctor`、`acprof tui` 或 `acprof run ...`；全部子命令见 [CLI 参数](CLI_Reference.md#cli-参数)。
+安装后的运行不依赖 Git、源码 checkout、`tests/` 或 `docs/`。
+
+开发者可以安装本地 wheel：`uv tool install ./dist/acprof-<version>-py3-none-any.whl`，
+或在源码目录执行 `uv tool install .`。源码开发使用 editable 包，入口仍为 `acprof <command>`。
+根目录不包含 Python 文件或额外启动器；顶层帮助和版本查询不会加载 Textual、绘图库或推理框架。
+Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境和按发行依赖范围解析的干净环境。
+
+## 从源码安装（开发者）
+
+日常开发按[开发安装](Getting_Started.md#开发安装)创建 `.venv` 并 editable 安装。
+下方脚本是把当前 checkout 安装成隔离工具的可选辅助入口。
+
+### Clone 后初始化
 
 准备原生 Linux x86_64、本机 Docker Engine/Buildx、cgroup v2 和 Git 后：
 
@@ -72,33 +90,6 @@ acprof tui
 定位已安装的 `acprof`，直接调用其 `tui` 子命令，支持自定义 `UV_TOOL_BIN_DIR`。
 当前终端尚未刷新 PATH 时，使用脚本输出的完整路径命令；隔离安装无需创建项目 `.venv`。
 
-## Python 工具安装
-
-在包含 `pyproject.toml` 的源码目录中：
-
-```bash
-uv tool install .
-uv tool update-shell
-```
-
-重新打开终端或按 uv 提示刷新 `PATH` 后运行：
-
-```bash
-acprof --version
-acprof doctor --profiling-mode basic
-acprof tui
-```
-
-也可以安装 Release 的 wheel：`uv tool install ./acprof-0.2.0-py3-none-any.whl`。
-远端源码包含本版本后，可直接运行
-`uv tool install git+https://github.com/kainam15/AC-Prof.git`；复现实验应固定 Git tag 或 commit。
-这里只使用源码和 Release 制品，不假设 PyPI 已有同名官方发行包。
-
-唯一公开入口是 `acprof <command>`；子命令见 [CLI 参数](CLI_Reference.md#cli-参数)。
-源码开发先安装 editable 包，再使用同一入口。根目录不包含 Python 文件或额外启动器。
-`run --help` 等命令沿用各自的参数定义；顶层帮助和版本查询不会加载 Textual、绘图库或推理框架。
-Python 依赖声明位于 `pyproject.toml`；开发和 Release 构建采用 `requirements/host.lock` 中已验证的制品。
-
 ## 工作目录与资源
 
 输出目录、用户 workload 相对路径及 `.env` / `.env.local` 相对于**启动时的当前工作目录**。
@@ -109,7 +100,8 @@ wheel 内置 Dockerfile、平台/环境锁、扩展声明、音频素材及构�
 `installation.resource_root()` 定位这些只读资源；它不是输出目录。
 唯一 custom build hook 位于 `packaging/hatch_build.py`，由 wheel target 的 `hooks.custom.path` 指定，
 并随 `packaging/` 进入 sdist。它使用临时目录复制 `acprof/`、`dockerfiles/`、`assets/`、`examples/`，
-按原有文件后缀白名单筛选，排除 `.env`、`AGENTS.md`、`__pycache__` 与嵌套 `_bundle`。
+按文件后缀白名单筛选，排除 `.env`、`AGENTS.md`、`__pycache__`、嵌套 `_bundle`，以及
+任意层级的 `tests/`、`docs/`、`.git/`、`.github/`、`.codex/`；wheel 主包也排除这些开发文件。
 `.dockerignore`、`LICENSE`、`NOTICE`、`licenses/CC-BY-4.0.txt` 一并复制，通过
 `build_data["force_include"]` 写入 wheel 的 `acprof/_bundle`；构建结束清理临时目录。
 Docker 模型层仍由本机按固定 revision 下载，令牌经 BuildKit secret 传入。
@@ -124,16 +116,21 @@ editable 安装（`uv pip install -e .`）直接从当前 checkout 读取这些�
 
 ### 发行包验证
 
-使用独立的构建环境安装 `build` 后执行 `python -m build`，生成 sdist 并从该 sdist 构建 wheel；
-另用 `python -m build --wheel --outdir <direct-wheel-dir>` 验证直接从 checkout 构建的 wheel。
-两份 wheel 分别安装到全新 venv，依赖使用 `requirements/host.lock`，从仓库外的空目录执行：
+`uv build` 在隔离构建环境中先生成 sdist，再从 sdist 构建待发布 wheel。
+Release workflow 将它们与 `SHA256SUMS` 保存为唯一的 `python-dist` artifact；后续 job 下载并核对这份制品。
+`verify-dist` 使用未附加仓库 lock 的依赖解析，分别验证 `uv pip` 安装、`uv tool` 安装，
+以及从仓库外重新构建 sdist 后用 pip 安装。验证用的重建 wheel 留在 runner 临时目录，绝不替换待发布制品。
+已有 CI 与 standalone 环境仍安装 `requirements/host.lock`，保留已验证版本的回归范围。
+
+本地构建后，在独立 venv 安装 wheel，再从仓库外执行：
 
 ```bash
 <venv>/bin/python -I <checkout>/scripts/check_distribution.py \
-  --wheel <wheel-file> --sdist <sdist-file> --report <evidence-file>
+  --wheel <wheel-file> --sdist <sdist-file> \
+  --expected-version <version> --report <evidence-file>
 ```
 
-此检查通过真实 console script 运行所有公共命令的帮助，检查 wheel 资源与 sdist 的 hook、
+此检查核对 wheel/sdist metadata、安装包与 CLI 的版本，通过真实 console script 运行所有公共命令的帮助，检查 wheel 资源与 sdist 的 hook、
 根目录约束，确认安装包来源位于 venv 内，并实际暂存 Docker service context、核对源文件指纹。
 同时验证缺少 Docker 时的 doctor JSON、离线 HTML 与 packet worker。context 暂存不代表镜像构建或推理成功。
 checkout 与 editable 从同一源码树取资源；两种 wheel 从 `_bundle` 取资源，相同输入应生成相同的
@@ -180,12 +177,64 @@ Release 的平台范围分发。wheel/standalone 的 smoke 验证不能替代真
 
 ## 发布入口与范围
 
-维护者更新 `acprof.__version__`，验证后推送对应 `v<version>` tag：
+普通分支 push（包括 `main`）只执行 CI。只有 `push` 事件的 `v*` Tag 可以发布；
+Release 的 PR 检查和 `workflow_dispatch` 仅构建、验证和保存 artifacts，不上传 PyPI 或创建 GitHub Release。
 
-- `release.yml` 构建 sdist、wheel、standalone 与 SHA256 清单；tag 发布还必须等待同一提交调用的
-  `ci.yml` 完成 lint、全部主机分片、ONNX CPU 和 runtime 容器测试，以及隔离安装/worker 验证。
-- `runtime-images.yml` 先构建/核验 4 个平台，再让 24 个环境 job 拉取已发布平台，构建、核验并发布环境。
-- 手动运行 Release workflow 只构建并保存 Actions artifacts；手动运行 GHCR workflow 会发布镜像。
+`release.yml` 在构建前要求 Tag 精确等于 `v` + `acprof.__version__`，不一致直接失败。
+发布流程如下：
+
+```text
+同一提交的 ci.yml ─────────────────────────────────────┐
+uv build → python-dist → verify-dist → standalone ────┤
+                                                     ├→ GitHub Release
+                                                     └→ PyPI → 安装与哈希回查
+```
+
+GitHub Release 与 PyPI job 下载同一份 `python-dist`，发布前各自核对 SHA256，不重新构建。
+PyPI 目录仅包含 wheel/sdist，standalone、校验和与 `verification.json` 只作为 GitHub Release 资产。
+PyPI 发布成功后，`pypi-smoke` 最多尝试 5 次（间隔 15 秒），核对 PyPI JSON 中的制品 SHA256，
+再执行 `uv tool install acprof==<version>`、版本及帮助检查。失败显示告警，不能触发重新发布。
+
+### 首次配置 Trusted Publishing
+
+先在 [PyPI 项目页](https://pypi.org/project/acprof/) 和 [JSON API](https://pypi.org/pypi/acprof/json)
+检查 distribution name。404 仅表示未查询到公开项目；保留名或已删除名称等限制仍以 PyPI 创建结果为准。
+若名称被第三方占用，先确定新的 distribution name，再同步包 metadata 和安装文档；CLI 保持 `acprof`。
+
+在 GitHub 仓库 Settings → Environments 创建 `pypi`，将部署来源限制为所用版本 Tags。
+在 PyPI 账户的 [Publishing 设置](https://pypi.org/manage/account/publishing/) 添加 pending publisher；
+项目已由自己持有时，在项目 Publishing 设置中添加同样的 publisher：
+
+| 字段 | 值 |
+| --- | --- |
+| PyPI project name | `acprof` |
+| Owner | `kainam15` |
+| Repository | `AC-Prof` |
+| Workflow filename | `release.yml` |
+| Environment | `pypi` |
+
+pending publisher 在首次成功发布时创建项目，不提前占用名称。
+仓库、workflow 文件名与 environment 必须精确匹配，不使用本地 checkout 名称或旧 remote URL。
+`pypi` job 使用 `id-token: write` 与官方 PyPA action，通过 GitHub OIDC 获取短期授权；
+不配置 `PYPI_TOKEN` / `PYPI_PASSWORD`。它不 checkout 源码、不构建，也不执行已安装包。
+`id-token` 权限只授予发布 job。账户侧配置完成与远端同一 Tag 的成功运行才构成 Trusted Publishing 验收。
+
+### 版本策略与失败恢复
+
+版本继续显式维护在 `acprof/__init__.py`，不引入自动递增工具。开发阶段新一批功能递增 minor
+（如 `0.3.0` → `0.4.0`），修复递增 patch（如 `0.4.0` → `0.4.1`）；稳定后再进入 `1.0.0`。
+每个发布版本只能对应一个源码 Tag。修改版本、提交并验证后，维护者再创建并推送新的 `v<version>` Tag。
+已有 Tag 不移动、不覆盖；即使某个旧 Tag 未发布到 PyPI，也不能把当前不同代码按该版本重新发布。
+
+PyPI 版本发布后不可用另一份代码覆盖。上传失败时先检查 PyPI 已接受的文件及 SHA256；
+如果已经部分或全部发布，不删除版本后重传，也不启用 `skip-existing` 掩盖冲突。
+代码或制品需要变化时使用新版本、新 Tag。GitHub Release 单独失败时，可以使用保留的原始 artifact
+恢复 GitHub 资产；不得因恢复 Release 而重跑已经成功的 PyPI 上传。
+
+`v0.4.0` Tag、GitHub Release `v0.4.0` 和 PyPI `acprof 0.4.0` 一一对应。
+PyPI 项目描述来自同一制品的 README，metadata 的 Changelog 链接指向 GitHub Releases，发布说明在该版本 Release 维护。
+实验 `static_meta.json` 中的 `platform_runtime.acprof_version` 保存执行包版本，源码开发态另外保留
+`git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](Profiling_Protocol.md#环境身份与能力支持)。
 
 Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据范围。硬件报告仅关联同一 SHA
 上成功的 `hardware.yml` run，且 `hardware` artifact 尚未过期；否则明确标为 `not_verified`。
@@ -193,8 +242,10 @@ Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据�
 复用工作流遵循 [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)，
 本地相对路径保证执行同一提交；普通 CI 处理分支 push，tag 的 CI 由 release 调用，避免重复运行。
 
-工作流文件存在不代表远端资产已发布。实际发布需要仓库中的 Actions 正常完成，以及 GitHub 的
-`contents: write` / `packages: write` 权限。GHCR package 首次发布后，维护者需在 package 设置中
+工作流文件存在不代表远端资产已发布。GitHub Release 需要 `contents: write`，PyPI 需要上述
+Trusted Publisher 配置。GHCR 使用独立的 `runtime-images.yml` 和 `packages: write`：版本 Tag 自动发布，
+手动运行该 GHCR workflow 也会发布镜像。它先构建/核验 4 个平台，再让 24 个环境 job 发布依赖环境。
+GHCR package 首次发布后，维护者需在 package 设置中
 确认 public 可见性，匿名用户才能直接拉取；私有 package 需要先 `docker login ghcr.io`。
 
 GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或包含令牌的层。
@@ -203,6 +254,13 @@ GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或
 
 ## 参考实现与取舍
 
+- [PyPA publish action](https://github.com/pypa/gh-action-pypi-publish)（BSD-3-Clause）：
+  采用其构建/发布分 job、OIDC 与同份 artifact 的官方模式，固定 `v1.14.2` 对应的完整 commit SHA。
+  [Issue #283](https://github.com/pypa/gh-action-pypi-publish/issues/283) 记录了 reusable workflow 的身份/attestation 限制，
+  因此 PyPI job 直接留在 `release.yml`，仅测试调用 reusable CI。由 PyPA 持续维护，无需自行实现上传或保存长期凭据；
+  action 及其依赖仅用于 CI，不进入 host 安装依赖或测量窗口。
+- [uv build 源码与文档](https://github.com/astral-sh/uv/blob/main/docs/concepts/projects/build.md)
+  明确默认先构建 sdist 再构建 wheel；沿用已有 uv 工具链，并在独立 job 重建验证，避免维护第二套构建配置。
 - [uv tools](https://github.com/astral-sh/uv/blob/main/docs/guides/tools.md)（MIT / Apache-2.0）：
   采用标准 console script 与隔离工具环境。`setup.sh` 只串联安装和已有诊断；uv 引导使用
   [官方 installer](https://docs.astral.sh/uv/reference/installer/) 的 `UV_INSTALL_DIR` / `UV_NO_MODIFY_PATH`，

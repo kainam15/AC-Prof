@@ -30,12 +30,24 @@ The [metrics guide](docs/Metrics.md#采集能力概览) explains what each metri
 
 ## Quick start
 
+Install the latest published release with [uv](https://docs.astral.sh/uv/getting-started/installation/), then launch AC-Prof:
+
+```bash
+uv tool install acprof
+acprof
+```
+
+If your shell cannot find `acprof`, run `uv tool update-shell` and reopen the terminal.
+For an activated virtual environment, use `uv pip install acprof` or `pip install acprof`.
+Upgrade with `uv tool upgrade acprof`, or `uv pip install -U acprof` for an environment installation.
+Source checkouts use the [development installation](#project-structure-and-development) below.
+
 <a id="1-准备主机"></a>
 
 ### 1. Prepare the host
 
 FULL collection requires Native Linux x86_64, a local Docker Engine, and unified cgroup v2. Ubuntu 24.04 is recommended.
-The setup script below installs uv and Python as needed; a [standalone distribution](docs/Distribution.md#linux-standalone) is also available without a source checkout.
+AC-Prof requires Python 3.10+; uv can provision Python when needed. A [standalone distribution](docs/Distribution.md#linux-standalone) also includes the interpreter.
 Your user account must be able to run `docker info` directly and access Hugging Face and dependency download sources.
 WSL2 supports development and PARTIAL collection using `--profiling-mode basic`. See [WSL2 support](docs/platforms/wsl2.md).
 Docker Desktop, remote Docker daemons, Windows, and macOS are not supported collection hosts.
@@ -56,43 +68,29 @@ The `full` mode also requires readable RAPL counters, working `perf instructions
 
 ### 2. Install AC-Prof and check the environment
 
-With Git and Docker available, run:
+Check the installed version and the host prerequisites:
 
 ```bash
-git clone https://github.com/kainam15/AC-Prof.git
-cd AC-Prof
-./setup.sh
+acprof --version
+acprof --help
+acprof doctor --profiling-mode basic --gpus off
 ```
 
-The script installs the current source version, runs `doctor`, and opens the TUI in an interactive terminal when the checks pass.
-It prefills BERT, basic CPU profiling, a single request, and a new output directory.
+Run `acprof` or `acprof tui` to open the TUI.
 The interface defaults to Simplified Chinese. Press `F2` and select `English` under **界面语言 / Language** to switch languages.
-Click **Start run** and review the confirmation screen to begin.
-If Docker or another basic profiling requirement is missing, the script provides guidance; rerun it after resolving the issue.
-
-To install and check the environment without opening the TUI:
-
-```bash
-./setup.sh --no-tui
-```
-
-After installation, open a new terminal and start the TUI with the standard command:
-
-```bash
-acprof tui
-```
+Choose a model and profiling mode, then click **Start run** and review the confirmation screen.
+If Docker or another prerequisite is missing, `doctor` reports the missing requirement and a suggested fix.
 
 The public interface is `acprof <command>` in both source and installed environments.
 Use `acprof --help` or `acprof <command> --help` to discover commands and options.
 
-Use `acprof tui --preset smoke` to load the introductory preset. In your current terminal, use the full executable path printed by the script;
-see [installation and command paths](docs/Distribution.md#clone-后初始化).
-You can then launch AC-Prof from any working directory; output paths are relative to that directory. The setup script starts it from the repository root.
+Use `acprof tui --preset smoke` to load the small preset; select `basic` for the CPU example below.
+You can launch AC-Prof from any working directory; output paths are relative to that directory.
 Model runtime dependencies reuse verified GHCR images when available; any local-build fallback is visible and must satisfy the source policy. Budgeted runs stop on pull failure and require a new preflight. Model weights are downloaded as needed into the shared Model Store.
 For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures proxies, notifications, and profiling permissions.
 Connection settings are stored in `.env.local` in the working directory, readable and writable only by the current user. Exclude this file and its backups from Git.
 AC-Prof defaults to `mirror-only` at `https://hf-mirror.com`, disables Xet, and stops on mirror failure or unapproved redirects. Use `--max-download 5GB` to enforce a budget before bulk downloads; unknown sizes stop budgeted runs. See [download and Model Store policy](docs/Runtime_Compatibility.md#下载网络与-model-store) and [source configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
-See [authentication](docs/Getting_Started.md#hugging-face-认证), [development environment setup](docs/Getting_Started.md#2-安装-python-依赖), and [distribution options](docs/Distribution.md) for details.
+See [authentication](docs/Getting_Started.md#hugging-face-认证), [installation options](docs/Getting_Started.md#安装), and [distribution details](docs/Distribution.md).
 
 <a id="3-跑通第一个-cpu-实验"></a>
 
@@ -131,8 +129,7 @@ See the [CLI reference](docs/CLI_Reference.md) and [energy guide](docs/Energy_Me
 ## View results
 
 The command-line example above writes its main artifacts to the directory below.
-When launched through `setup.sh`, the output directory is `results/first-run-<timestamp>-<random-suffix>/`;
-replace `results/first-run` in the following commands with the path shown in the interface.
+For a TUI run, replace `results/first-run` in the following commands with the output path shown in the interface.
 
 ```text
 results/first-run/google-bert--bert-base-uncased/
@@ -226,6 +223,21 @@ See [estimating run time](docs/Profiling_Protocol.md#结果行数和时间成本
 <a id="项目结构与开发"></a>
 
 ## Project structure and development
+
+Clone the repository only for development or building an unpublished version:
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+source .venv/bin/activate
+acprof --version
+```
+
+The existing hashed requirements remain the source of truth for development environments.
+To install a checkout as an isolated tool with host checks, use the optional [`setup.sh` helper](docs/Distribution.md#clone-后初始化).
 
 [`pyproject.toml`](pyproject.toml) declares host dependencies; [`requirements/`](requirements/) contains the `host`, `dev`, and `tui-snapshot` inputs and locks.
 See [architecture](docs/Architecture.md) for module responsibilities and the [testing guide](docs/Testing.md#开发质量检查) for development dependencies, pre-commit, and test commands.

@@ -29,7 +29,7 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 
 ## 文档、规则与流程的分工
 
-[安装包、standalone 与发布](Distribution.md)维护 wheel 资源、工作目录、GitHub Release 和 GHCR 发布约定。
+[安装包、standalone 与发布](Distribution.md)维护 wheel 资源、工作目录、PyPI Trusted Publishing、GitHub Release 和 GHCR 发布约定。
 
 | 层级 | 内容 | 读取时机 |
 | --- | --- | --- |
