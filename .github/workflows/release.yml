@@ -1,13 +1,17 @@
-name: 安装包与 Linux standalone
+name: 安装包、PyPI 与 Linux standalone
 on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'requirements/**', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', '.github/workflows/release.yml', '.github/workflows/ci.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'requirements/**', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'tests/test_release_gate.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   verify:
@@ -16,43 +20,148 @@ jobs:
 
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: 在构建前核对 tag 与 package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from acprof import __version__
+          tag = os.environ['RELEASE_TAG']
+          if tag and tag != 'v' + __version__:
+              raise SystemExit('tag and package version differ')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={__version__}\n')
+          PY
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.12.13'
           python-version: '3.10'
+      # uv first builds the sdist, then builds the release wheel from that sdist.
       - run: uv build
-      - name: 安装 wheel 并从空目录验证
-        run: |
-          uv venv .release-venv --python 3.10
-          uv pip install --python .release-venv/bin/python -r requirements/host.lock
-          uv pip install --python .release-venv/bin/python --no-deps dist/*.whl
-          .release-venv/bin/python scripts/check_distribution.py --report evidence/wheel.json
-          uv tool install --python 3.10 --constraint requirements/host.lock --from dist/*.whl acprof
-          uv tool run acprof --version
-      - name: 构建并验证 standalone
-        run: |
-          uv pip install --python .release-venv/bin/python 'pyinstaller==6.22.3'
-          .release-venv/bin/python -m PyInstaller --noconfirm --clean packaging/acprof.spec
-          .release-venv/bin/python scripts/check_distribution.py --binary dist/acprof --report evidence/standalone.json
-          mv dist/acprof dist/acprof-linux-x86_64
-          cd dist
-          sha256sum acprof-linux-x86_64 *.whl *.tar.gz > SHA256SUMS
+      - name: 固定待发布制品的 SHA256
+        working-directory: dist
+        run: sha256sum *.whl *.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-dist
+          name: python-dist
           path: dist/
+          if-no-files-found: error
+
+  verify-dist:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+      - run: cd dist && sha256sum --check SHA256SUMS
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.13'
+          python-version: '3.10'
+      - name: uv pip 安装发布 wheel 并验证完整 CLI 与资源
+        run: |
+          uv venv .release-venv --python 3.10
+          uv pip install --python .release-venv/bin/python dist/*.whl
+          uv pip check --python .release-venv/bin/python
+          .release-venv/bin/python -I scripts/check_distribution.py \
+            --wheel dist/*.whl --sdist dist/*.tar.gz --expected-version "$RELEASE_VERSION" \
+            --report evidence/wheel.json
+      - name: 从 sdist 独立重建并用 pip 安装（不替换发布制品）
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv build --wheel "$GITHUB_WORKSPACE"/dist/*.tar.gz --out-dir "$RUNNER_TEMP/rebuilt-dist"
+          uv venv "$RUNNER_TEMP/sdist-venv" --python 3.10 --seed
+          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip install "$RUNNER_TEMP"/rebuilt-dist/*.whl
+          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip check
+          "$RUNNER_TEMP/sdist-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_distribution.py" \
+            --wheel "$RUNNER_TEMP"/rebuilt-dist/*.whl --sdist "$GITHUB_WORKSPACE"/dist/*.tar.gz \
+            --expected-version "$RELEASE_VERSION" --report "$GITHUB_WORKSPACE/evidence/sdist.json"
+      - name: uv tool 隔离安装及命令发现
+        working-directory: ${{ runner.temp }}
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/acprof-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/acprof-bin
+        run: |
+          uv tool install --python 3.10 "$GITHUB_WORKSPACE"/dist/*.whl
+          export PATH="$UV_TOOL_BIN_DIR:$PATH"
+          test "$(acprof --version)" = "AC-Prof $RELEASE_VERSION"
+          acprof --help
+      - name: 核对两种 wheel 的 Docker context 身份
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          def fingerprint(name):
+              checks = json.loads(Path(f'evidence/{name}.json').read_text())['checks']
+              return next(item['fingerprint'] for item in checks if item.get('check') == 'installed_docker_context')
+          assert fingerprint('wheel') == fingerprint('sdist'), 'rebuilt Docker context differs'
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: distribution-evidence
           path: evidence/
 
+  standalone:
+    needs: [build, verify-dist]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+      - run: cd dist && sha256sum --check SHA256SUMS
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.13'
+          python-version: '3.10'
+      - name: 从同一 wheel 准备锁定的 standalone 环境
+        run: |
+          uv venv .release-venv --python 3.10
+          uv pip install --python .release-venv/bin/python --require-hashes -r requirements/host.lock
+          uv pip install --python .release-venv/bin/python --no-deps dist/*.whl
+      - name: 构建并验证 standalone
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          uv pip install --python .release-venv/bin/python 'pyinstaller==6.22.3'
+          .release-venv/bin/python -m PyInstaller --noconfirm --clean packaging/acprof.spec
+          .release-venv/bin/python scripts/check_distribution.py --binary dist/acprof \
+            --expected-version "$RELEASE_VERSION" --report evidence/standalone.json
+          mv dist/acprof dist/acprof-linux-x86_64
+          cd dist
+          sha256sum acprof-linux-x86_64 > STANDALONE-SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: standalone-dist
+          path: |
+            dist/acprof-linux-x86_64
+            dist/STANDALONE-SHA256SUMS
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: standalone-evidence
+          path: evidence/
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [build, verify]
+    needs: [build, verify, verify-dist, standalone]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -61,8 +170,19 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-dist
+          name: python-dist
           path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: standalone-dist
+          path: dist/
+      - name: 核对并合并发布校验和
+        run: |
+          cd dist
+          sha256sum --check SHA256SUMS
+          sha256sum --check STANDALONE-SHA256SUMS
+          cat STANDALONE-SHA256SUMS >> SHA256SUMS
+          rm STANDALONE-SHA256SUMS
       - name: 关联当前提交的验证范围与硬件验收
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,7 +211,7 @@ jobs:
                           'artifact_url': run['html_url'] + '/artifacts/' + str(artifact['id']),
                           'scope': 'Only the devices, model and profilers recorded by this hardware artifact.'}
           evidence = {'schema_version': 1, 'commit': sha,
-                      'ci': {'status': 'passed', 'required_jobs': ['lint', 'host', 'onnx-cpu', 'runtime', 'build'],
+                      'ci': {'status': 'passed', 'required_jobs': ['lint', 'host', 'onnx-cpu', 'runtime', 'build', 'verify-dist', 'standalone'],
                              'run_url': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY']
                                         + '/actions/runs/' + os.environ['GITHUB_RUN_ID']},
                       'hardware': hardware}
@@ -101,10 +221,89 @@ jobs:
           PY
           cd dist
           sha256sum verification.json >> SHA256SUMS
-      - name: 核对 tag 版本并发布 Release
+      - name: 发布 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          python3 -c 'import os; from acprof import __version__; assert os.environ["RELEASE_TAG"] == "v" + __version__, "tag and package version differ"'
           gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --notes-file verification-notes.md
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: [build, verify, verify-dist, standalone]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/acprof/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+      - name: 核对制品并仅暂存 wheel 与 sdist
+        run: |
+          cd dist
+          sha256sum --check SHA256SUMS
+          mkdir ../pypi-dist
+          cp -- *.whl *.tar.gz ../pypi-dist/
+      - name: 使用 GitHub OIDC 发布到 PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: pypi-dist/
+          print-hash: true
+
+  pypi-smoke:
+    needs: [build, pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    env:
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.13'
+          python-version: '3.10'
+      - name: 等待 PyPI 可见并核对安装和制品哈希
+        working-directory: ${{ runner.temp }}
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/acprof-pypi-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/acprof-pypi-bin
+        run: |
+          check_pypi_hashes() {
+            python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+          version = os.environ['RELEASE_VERSION']
+          with urllib.request.urlopen(f'https://pypi.org/pypi/acprof/{version}/json', timeout=30) as response:
+              release = json.load(response)
+          remote = {item['filename']: item['digests']['sha256'] for item in release['urls']}
+          dist = Path(os.environ['GITHUB_WORKSPACE']) / 'dist'
+          wheels, sdists = list(dist.glob('*.whl')), list(dist.glob('*.tar.gz'))
+          assert len(wheels) == len(sdists) == 1, 'expected one wheel and one sdist'
+          for path in [*wheels, *sdists]:
+              assert remote.get(path.name) == hashlib.sha256(path.read_bytes()).hexdigest(), path.name
+          PY
+          }
+          export PATH="$UV_TOOL_BIN_DIR:$PATH"
+          for attempt in 1 2 3 4 5; do
+            if check_pypi_hashes && uv tool install --python 3.10 --refresh \
+              --index-url https://pypi.org/simple "acprof==$RELEASE_VERSION"; then
+              test "$(acprof --version)" = "AC-Prof $RELEASE_VERSION"
+              acprof --help
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep 15; fi
+          done
+          echo '::warning::PyPI installation verification failed after 5 attempts; inspect the published version, never overwrite it.'
+          exit 1
