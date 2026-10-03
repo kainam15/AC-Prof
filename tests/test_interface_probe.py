@@ -140,6 +140,65 @@ def test_static_graph_includes_package_initializers_and_imported_submodules():
     assert set(graph) == set(sources)
 
 
+def test_static_graph_accepts_name_exported_by_package_initializer():
+    from acprof.model_evidence import ModelEvidence
+    from acprof.model_metadata_analysis import collect_source_evidence
+    task = contracts.TestModelContract().discover()
+    sources = {
+        "pipeline.py": "from . import RATE\n",
+        "__init__.py": "from .constants import RATE\n",
+        "constants.py": "RATE = 16000\n",
+    }
+    task.repository_files = tuple(sources)
+    evidence = ModelEvidence(task.model_id, task.model_revision)
+    graph = collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
+    assert set(graph) == set(sources)
+
+
+def test_static_graph_accepts_name_defined_by_package_initializer():
+    from acprof.model_evidence import ModelEvidence
+    from acprof.model_metadata_analysis import collect_source_evidence
+    task = contracts.TestModelContract().discover()
+    sources = {
+        "pipeline.py": "from . import RATE\n",
+        "__init__.py": "RATE = 16000\n",
+    }
+    task.repository_files = tuple(sources)
+    evidence = ModelEvidence(task.model_id, task.model_revision)
+    graph = collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
+    assert set(graph) == set(sources)
+
+
+def test_static_graph_rejects_unbound_package_name():
+    from acprof.model_evidence import ModelEvidence
+    from acprof.model_metadata_analysis import collect_source_evidence
+    task = contracts.TestModelContract().discover()
+    sources = {
+        "pipeline.py": "from . import MISSING\n",
+        "__init__.py": "RATE = 16000\n",
+    }
+    task.repository_files = tuple(sources)
+    evidence = ModelEvidence(task.model_id, task.model_revision)
+    with pytest.raises(ValueError, match="relative source module is missing"):
+        collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
+
+
+@pytest.mark.parametrize("initializer", [
+    "if True:\n    RATE = 16000\n",
+    "RATE = 16000\ndel RATE\n",
+    "from . import RATE\n",
+])
+def test_static_graph_does_not_treat_unproven_initializer_bindings_as_exports(initializer):
+    from acprof.model_evidence import ModelEvidence
+    from acprof.model_metadata_analysis import collect_source_evidence
+    task = contracts.TestModelContract().discover()
+    sources = {"pipeline.py": "from . import RATE\n", "__init__.py": initializer}
+    task.repository_files = tuple(sources)
+    evidence = ModelEvidence(task.model_id, task.model_revision)
+    with pytest.raises(ValueError, match="relative source module is missing"):
+        collect_source_evidence(task, evidence, contracts.CONFIG, sources.__getitem__)
+
+
 def test_bundle_rejects_graph_with_missing_declared_dependency():
     task = contracts.TestModelContract().discover()
     task.model_resolution["contract"]["sources"]["helpers.py"] = {"sha256": "a" * 64}

@@ -47,11 +47,12 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
     for name, metadata in task_info.repository_metadata.items():
         if name != "config.json" and isinstance(metadata, dict):
             queue.extend(custom_code_files(metadata))
-    sources, total = {}, 0
-    while queue:
-        filename = queue.pop(0)
-        if filename in sources:
-            continue
+    sources, trees, processed, total = {}, {}, set(), 0
+
+    def load_source(filename: str) -> ast.Module:
+        nonlocal total
+        if filename in trees:
+            return trees[filename]
         if filename not in files:
             raise ValueError(f"custom code is absent from pinned snapshot: {filename}")
         if len(sources) >= MAX_SOURCE_FILES:
@@ -62,8 +63,49 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
             raise ValueError("custom source graph exceeds 2 MiB")
         tree = parse_source(source, filename)
         sources[filename] = source
+        trees[filename] = tree
         task_info.repository_sources[filename] = source
         evidence.source(filename, source.encode())
+        return tree
+
+    def initializer_binds(module_path: PurePosixPath, name: str) -> bool:
+        initializer = str(module_path / "__init__.py")
+        if initializer not in files:
+            return False
+        queue.append(initializer)
+        tree = load_source(initializer)
+        bound = set()
+        for statement in tree.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.add(statement.name)
+            elif isinstance(statement, ast.Assign):
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        bound.add(target.id)
+            elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                if isinstance(statement.target, ast.Name):
+                    bound.add(statement.target.id)
+            elif isinstance(statement, ast.Import):
+                for alias in statement.names:
+                    bound.add(alias.asname or alias.name.split(".")[0])
+            elif isinstance(statement, ast.ImportFrom):
+                if statement.level and not statement.module:
+                    continue
+                for alias in statement.names:
+                    if alias.name != "*":
+                        bound.add(alias.asname or alias.name)
+            elif isinstance(statement, ast.Delete):
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        bound.discard(target.id)
+        return name in bound
+
+    while queue:
+        filename = queue.pop(0)
+        if filename in processed:
+            continue
+        tree = load_source(filename)
+        processed.add(filename)
         # Follow local imports only. This is syntax inspection, never importlib.
         def enqueue_module(module_path, *, required=False):
             choices = (str(module_path) + ".py", str(module_path / "__init__.py"))
@@ -94,8 +136,13 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
                 enqueue_module(module_path, required=bool(node.level))
             for alias in node.names:
                 if alias.name != "*":
-                    # An imported name can be a class/function or a submodule.
-                    enqueue_module(module_path / alias.name, required=bool(node.level and not node.module))
+                    # A bare relative from-list first looks for a package attribute,
+                    # then a same-named submodule. Only waive the submodule
+                    # requirement when the initializer proves that binding.
+                    required = bool(node.level and not node.module)
+                    if required and initializer_binds(module_path, alias.name):
+                        required = False
+                    enqueue_module(module_path / alias.name, required=required)
     from acprof.model_dependency_flow import analyze_dependencies
     from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())
