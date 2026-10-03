@@ -1,0 +1,4 @@
+# 独立 HTML 浏览器验证；不加入主机或 runtime 依赖。
+-c host.lock
+plotly==7.1.0
+playwright==1.63.0

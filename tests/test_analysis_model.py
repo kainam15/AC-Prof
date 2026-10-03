@@ -1,6 +1,7 @@
 """Historical CSV analysis, provenance and the offline visualization entry point."""
 import csv
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -123,7 +124,8 @@ class AnalysisModelTests(unittest.TestCase):
         self.assertIsNone(metrics["observed_energy_per_request_j"]["value"])
         self.assertEqual(metrics["qps"]["value"], 2)
         self.assertEqual(metrics["cpu_ipc"]["value"], 0)
-        self.assertEqual(len(data.summary[0]), 19)
+        self.assertEqual(data.summary[0]["status"], "ok")
+        self.assertEqual(data.summary[0]["observed_energy_j"], None)
 
     def test_v2_metadata_and_blank_csv_handling(self):
         from acprof.analysis.model import load_analysis
@@ -140,3 +142,65 @@ class AnalysisModelTests(unittest.TestCase):
         layout.result_csv.write_text("cpu_cores,status,warmup\n\n\n")
         with self.assertRaisesRegex(ValueError, "no measurement rows"):
             load_analysis([layout.root])
+
+    def test_quality_evidence_survives_summary_without_hiding_observations(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.quality import loading_quality
+        path = self.source([self.row()])
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader")
+        (path.parent / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
+        model = load_analysis([path])
+        config = model.configs[0]
+        self.assertEqual(config["status"], "ok")
+        self.assertEqual(config["quality_status"], "blocked")
+        self.assertFalse(config["auto_selection_eligible"])
+        self.assertIn("weights_reinitialized", config["quality_reasons"])
+        self.assertEqual(config["metrics"]["latency_app_p95_s"]["value"], .04)
+        self.assertEqual(model.summary[0]["quality_checks"][0]["evidence"]["source"], "loader")
+        self.assertEqual(model.sources[0]["quality_status"], "blocked")
+
+    def test_legacy_quality_is_unknown_even_with_successful_rows(self):
+        from acprof.analysis.model import load_analysis
+        model = load_analysis([self.source([self.row()])])
+        self.assertEqual(model.configs[0]["quality_status"], "unknown")
+        self.assertFalse(model.configs[0]["auto_selection_eligible"])
+        self.assertIn("quality_evidence_missing", model.configs[0]["quality_reasons"])
+        self.assertEqual(model.configs[0]["measurement_status"], "unknown")
+
+    def test_moving_recorded_or_legacy_experiment_preserves_configuration_identity(self):
+        from acprof.analysis.model import load_analysis
+        for recorded in (True, False):
+            with self.subTest(recorded=recorded):
+                source = self.source([self.row()], directory=f"original-{recorded}")
+                if recorded:
+                    (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+                before = load_analysis([source]).configs[0]["config_id"]
+                moved = self.root / f"renamed-{recorded}"
+                source.parent.rename(moved)
+                after = load_analysis([moved]).configs[0]["config_id"]
+                self.assertEqual(after, before)
+
+    def test_backup_is_rejected_as_duplicate_instead_of_another_configuration(self):
+        from acprof.analysis.model import load_analysis
+        source = self.source([self.row()])
+        (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        copy = self.root / "backup"
+        shutil.copytree(source.parent, copy)
+        with self.assertRaisesRegex(ValueError, "duplicate measurement.*stable-run"):
+            load_analysis([source, copy])
+
+    def test_same_recorded_measurement_with_changed_values_is_a_content_conflict(self):
+        from acprof.analysis.model import load_analysis
+        source = self.source([self.row()])
+        other = self.source([self.row(latency_app_p95_s=".02")], directory="edited-backup")
+        for path in (source, other):
+            (path.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        with self.assertRaisesRegex(ValueError, "conflicting measurement.*stable-run"):
+            load_analysis([source, other])
+
+    def test_recorded_csv_run_id_cannot_override_run_state(self):
+        from acprof.analysis.model import load_analysis
+        source = self.source([self.row(run_id="another-run")])
+        (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        with self.assertRaisesRegex(ValueError, "inconsistent run_id"):
+            load_analysis([source])

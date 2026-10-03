@@ -363,3 +363,10 @@ Warmup 和 Repeat 分别输入，次数、Hz 和 s 放在输入框右侧。采�
 实际删除已经开始时先完成锁内收尾，再处理关闭请求；运行和测量期间不能打开清理面板。
 
 Model Store 清理命令和 lease/LRU 语义见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。真实终端效果需另验，headless 交互不代替 SSH/VS Code 客户端验证。
+
+### 结果质量证据
+
+读取结果摘要或窗口统计报告时，界面分别显示运行状态、正式窗口完整性和质量状态。
+`weights_reinitialized` 等影响输出且未确认合理的证据会显示 `blocked` 并暂停默认自动优选；
+缺少历史证据或无法解释的告警显示 `unknown`。原数值、质量原因和来源继续可查，运行成功不掩盖质量问题。
+质量字段与独立比较定义见[指标与结果分析](Metrics.md#跨独立实验比较)。

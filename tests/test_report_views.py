@@ -60,6 +60,19 @@ class ReportViewTests(unittest.TestCase):
         self.assertEqual(view.rows, ())
         self.assertIn("0 项", str(view.title))
 
+    def test_quality_state_and_source_remain_visible_in_both_languages(self):
+        from acprof.quality import loading_quality, summarize_quality
+        data = {**self.window, "run_status": "complete", "measurement_status": "incomplete",
+                **summarize_quality(loading_quality({"missing_keys": ["head.weight"]}, source="loader-log"))}
+        view = self.read(data)
+        for language in ("zh", "en"):
+            note = translate(view.note, language)
+            self.assertIn("blocked", note)
+            self.assertIn("incomplete", note)
+            self.assertIn("weights_reinitialized", note)
+            self.assertIn("loader-log", note)
+        self.assertIn("Automatic selection: Withheld", translate(view.note, "en"))
+
     def test_ui_comparison_keeps_headless_and_terminal_scopes_distinct(self):
         data = dict(schema_version=1, kind="ui_overhead", successful=True, ui="headless",
                     pairs=[{"round": 0}, {"round": 1}, {"round": 2}], paired_mean_change_pct=-0.16,

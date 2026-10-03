@@ -12,6 +12,7 @@ from acprof.artifact_layout import ArtifactLayout
 from acprof.capabilities import collection_outcomes
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.platform import native_only_metric, recorded_identity
+from acprof.quality import read_quality, summarize_quality
 from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
 
 MISSING = {"", "nan", "none", "null", "n/a"}
@@ -98,10 +99,10 @@ def audit_result(source: str | Path) -> dict:
     path = Path(source)
     if path.is_dir():
         path /= "result_all.csv"
-    report = {"schema_version": 1, "result_csv": str(path.resolve()),
+    report = {**summarize_quality(None), "schema_version": 1, "result_csv": str(path.resolve()),
               "valid": True, "issues": [], "missing_metrics": {},
               "counts": {"rows": 0, "formal_ok": 0, "warmup": 0, "warn": 0, "error": 0},
-              "completion": "unknown", "coverage": None}
+              "completion": "unknown", "measurement_status": "unknown", "run_status": "unknown", "coverage": None}
 
     def issue(code, message, *, severity="error", **detail):
         report["issues"].append({"code": code, "message": str(message), "severity": severity, **detail})
@@ -134,9 +135,7 @@ def audit_result(source: str | Path) -> dict:
     report["failures"].extend(read_json("runtime_failures.json").get("failures", []))
     if resolution.get("failure"):
         report["failures"].append(resolution["failure"])
-    report["quality_checks"] = read_json("quality_checks.json").get("checks", [])
-    if not report["quality_checks"]:
-        report["quality_checks"] = [check for item in validation.get("devices", {}).values() for check in item.get("quality_checks", [])]
+    report.update(read_quality(path))
     for failure in report["failures"]:
         issue(failure["reason_code"], failure["detail"], failure=failure)
     for check in report["quality_checks"]:
@@ -221,4 +220,11 @@ def audit_result(source: str | Path) -> dict:
                 if actual_value is not None and not math.isclose(actual_value, expected_value, rel_tol=2e-5, abs_tol=2e-6):
                     issue("formula_mismatch", f"{field}: 实际 {actual_value:g}，应为 {expected_value:g}", row=index, field=field)
     report["missing_metrics"] = {name: dict(reasons) for name, reasons in missing.items()}
+    coverage = report["coverage"]
+    if coverage is not None:
+        formal = report["counts"]["rows"] - report["counts"]["warmup"]
+        report["measurement_status"] = (
+            "complete" if report["completion"] == "complete" and not coverage["missing"]
+            and not coverage["unexpected"] and formal > 0 and formal == report["counts"]["formal_ok"]
+            else "incomplete")
     return report

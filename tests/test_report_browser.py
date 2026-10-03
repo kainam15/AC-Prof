@@ -5,7 +5,9 @@ import os
 import shutil
 import tempfile
 import unittest
+from importlib.metadata import version
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 
 @unittest.skipUnless(os.environ.get("ACPROF_BROWSER_TESTS") == "1", "opt-in headless browser test")
@@ -19,6 +21,18 @@ class ReportBrowserTests(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.root = Path(cls.temporary.name)
+        import test_result_comparison as comparison_fixture
+        fixture = comparison_fixture.ResultComparisonTests()
+        fixture.setUp()
+        cls.addClassCleanup(fixture.doCleanups)
+        shutil.copytree(fixture.left, cls.root, dirs_exist_ok=True)
+        fixture.change_json(cls.root, "run_state.json", lambda state: (state.pop("runtime"),
+            state["options"].update(cpus="2,4,8", mems="4,8")))
+        fixture.change_json(cls.root, "input_scale_plan.json", lambda plan:
+            plan["entries"][0].update(input_scale=32))
+        hardware = json.loads((cls.root / "hardware_conditions.json").read_text())["cases"]["1c_4g_off"]
+        contract = fixture.contract
+        contract["input"].update(planned_scale=32, actual_scale=32)
         rows = []
         for cpu, mem, latency, energy in [(2, 4, .10, 4), (4, 4, .04, 5), (8, 4, .08, 6),
                                           (2, 8, .09, 4), (4, 8, .03, 5)]:
@@ -28,33 +42,74 @@ class ReportBrowserTests(unittest.TestCase):
                          "cpu_energy_total_j": energy, "repeat_in_window": 2,
                          "container_mem_usage_peak_bytes": mem * 1024, "cpu_ipc": 2,
                          "cold_start_s": 1, "concurrency": 1})
+            rows[-1].update(environment_class="native_linux", workload_contract=json.dumps({
+                "schema_version": 1, "request_count": 2, "variants": [{"count": 2, "contract": contract}]}))
         csv_path = cls.root / "result_all.csv"
         with csv_path.open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
-        (cls.root / "static_meta.json").write_text(json.dumps({
-            "model_name": "fixture/model", "runtime_backend": "torch", "batch_size": 1}))
-        cls.report = write_report(load_analysis([csv_path]), cls.root / "report.html")
+        fixture.change_json(cls.root, "static_meta.json", lambda meta: meta.update(
+            model_name="fixture/model", runtime_backend="torch", batch_size=1, pipeline_tag="tabular-regression"))
+        fixture.write_json(cls.root, "hardware_conditions.json", {"schema_version": 1, "cases": {
+            f"{row['cpu_cores']}c_{row['mem_cap_gb']}g_off": hardware for row in rows}})
+        (cls.root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": []}))
+        cls.model = load_analysis([csv_path])
+        cls.report = write_report(cls.model, cls.root / "report.html", comparison_purpose="resource-scaling")
         cls.playwright = sync_playwright().start()
         cls.addClassCleanup(cls.playwright.stop)
-        executable = os.environ.get("ACPROF_BROWSER_EXECUTABLE") or shutil.which("google-chrome") or shutil.which("chromium")
+        cls.artifacts = Path(os.environ["ACPROF_BROWSER_ARTIFACT_DIR"]).resolve() if os.environ.get("ACPROF_BROWSER_ARTIFACT_DIR") else None
+        if cls.artifacts:
+            cls.artifacts.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cls.report, cls.artifacts / "report.html")
+        executable = os.environ.get("ACPROF_BROWSER_EXECUTABLE")
         cls.browser = cls.playwright.chromium.launch(executable_path=executable, headless=True,
                                                      args=["--no-sandbox", "--disable-gpu"])
         cls.addClassCleanup(cls.browser.close)
+        if cls.artifacts:
+            (cls.artifacts / "browser-info.json").write_text(json.dumps({
+                "playwright": version("playwright"), "chromium": cls.browser.version,
+                "explicit_executable_override": executable, "network_mode": "offline",
+            }, indent=2), encoding="utf-8")
 
     def setUp(self):
         self.context = self.browser.new_context(offline=True, viewport={"width": 1440, "height": 1000})
         self.addCleanup(self.context.close)
+        if self.artifacts:
+            self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
         self.page = self.context.new_page()
-        self.errors = []
+        self.errors, self.remote_requests, self.console = [], [], []
+        self.addCleanup(self.save_failure_evidence)
+        self.page.on("console", lambda msg: self.console.append({"type": msg.type, "text": msg.text}))
+        self.page.on("request", lambda request: self.remote_requests.append(request.url)
+                     if request.url.startswith(("http://", "https://")) else None)
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         self.page.goto(self.report.as_uri())
         self.settled()
 
+    def save_failure_evidence(self):
+        if not self.artifacts:
+            return
+        result = self._outcome.result
+        failed = any(test is self for test, _ in [*result.errors, *result.failures])
+        if failed:
+            target = self.artifacts / self._testMethodName
+            target.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(target / "page.png"), full_page=True)
+            (target / "page.html").write_text(self.page.content(), encoding="utf-8")
+            (target / "browser.json").write_text(json.dumps({"page_errors": self.errors,
+                "remote_requests": self.remote_requests, "console": self.console}, ensure_ascii=False, indent=2))
+            current = urlsplit(self.page.url)
+            if current.scheme == "file":
+                shutil.copyfile(unquote(current.path), target / "report.html")
+            self.context.tracing.stop(path=str(target / "trace.zip"))
+        else:
+            self.context.tracing.stop()
+
     def settled(self):
         self.page.wait_for_function("document.body.dataset.ready === 'true' && document.body.dataset.busy === 'false'")
         self.assertEqual(self.errors, [])
+        self.assertEqual(self.remote_requests, [])
         self.assertTrue(self.page.locator("#error").is_hidden())
 
     def test_baseline_sort_filter_and_shared_selection(self):
@@ -65,7 +120,7 @@ class ReportBrowserTests(unittest.TestCase):
         self.page.select_option("#baseline", config)
         self.settled()
         self.assertIn("Δ 0 s · 0%", row.inner_text())
-        row.click()
+        row.locator("td").first.click()
         self.settled()
         self.assertIn(config[-8:], self.page.locator("#selection").inner_text())
         self.page.locator("#matrix th button").first.click()
@@ -81,19 +136,23 @@ class ReportBrowserTests(unittest.TestCase):
 
     def test_pareto_direction_ties_missing_and_neutral(self):
         result = self.page.evaluate("""() => {
+          const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
           const make = (id, x, y, extra={}) => ({config_id:id, run_id:'run', environment_class:'unknown',
-            task:'task', input_case:'case', status:'ok', metrics:{x:{value:x}, y:{value:y}}, ...extra});
+            task:'task', input_case:'case', status:'ok', auto_selection_eligible:true, comparison_profiles:profiles,
+            metrics:{x:{value:x}, y:{value:y}}, ...extra});
           const rows = [make('a', 10, 4), make('b', 20, 5), make('c', 15, 6), make('tie', 20, 5),
             make('missing', null, 0), make('failure', 100, 0, {status:'failed'}),
-            make('other', 100, 0, {environment_class:'native_linux'})];
+            make('bad-output',100,0,{auto_selection_eligible:false}),
+            make('legacy',100,0,{auto_selection_eligible:undefined}),
+            make('other', 100, 0, {comparison_profiles:{}})];
           const registry = {x:{direction:'higher'}, y:{direction:'lower'}};
           return {front: ACProfViews.pareto(rows,'x','y',registry),
             neutral: ACProfViews.pareto(rows,'x','y',{...registry,y:{direction:'neutral'}}),
-            lower: ACProfViews.score(1,[1,9],{direction:'lower',scale:'linear'}),
-            higher: ACProfViews.score(9,[1,9],{direction:'higher',scale:'linear'}),
-            logZero: ACProfViews.score(0,[0,9],{direction:'lower',scale:'log'})};
+            lower: ACProfViews.score(1,ACProfViews.range([1,9],{scale:'linear'}),{direction:'lower',scale:'linear'}),
+            higher: ACProfViews.score(9,ACProfViews.range([1,9],{scale:'linear'}),{direction:'higher',scale:'linear'}),
+            logZero: ACProfViews.score(0,ACProfViews.range([0,9],{scale:'log'}),{direction:'lower',scale:'log'})};
         }""")
-        self.assertEqual(set(result["front"]), {"a", "b", "tie", "other"})
+        self.assertEqual(set(result["front"]), {"a", "b", "tie"})
         self.assertEqual(result["neutral"], [])
         self.assertEqual(result["lower"], 1)
         self.assertEqual(result["higher"], 1)
@@ -101,18 +160,21 @@ class ReportBrowserTests(unittest.TestCase):
 
     def test_zero_baseline_and_environment_isolation(self):
         result = self.page.evaluate("""() => {
-          const a = {run_id:'a', environment_class:'unknown', task:'x', input_case:'x', metrics:{x:{value:0}}};
+          const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
+          const a = {run_id:'a', environment_class:'native_linux', comparison_profiles:profiles, metrics:{x:{value:0}}};
           const b = {...a,metrics:{x:{value:4}}};
+          const changed = structuredClone(profiles);
+          changed['same-hardware'].checks.comparability_class.value = 'other-environment';
           return {zero:ACProfViews.delta(b,a,'x'),
-            mixed:ACProfViews.delta({...b,environment_class:'native_linux'},a,'x'),
-            unknown:ACProfViews.delta({...b,run_id:'b'},a,'x'),
+            mixed:ACProfViews.delta({...b,comparison_profiles:changed},a,'x'),
+            unknown:ACProfViews.delta({...b,comparison_profiles:{}},a,'x'),
             sorted:ACProfViews.sort([{...a,config_id:'zero'}, {...b,config_id:'four'},
               {...a,config_id:'missing',metrics:{x:{value:null}}}], 'x', true).map(c=>c.config_id)};
         }""")
         self.assertEqual(result["zero"]["delta"], 4)
         self.assertIsNone(result["zero"]["percent"])
-        self.assertEqual(result["mixed"]["reason"], "different_conditions")
-        self.assertEqual(result["unknown"]["reason"], "different_conditions")
+        self.assertEqual(result["mixed"]["reason"], "incompatible")
+        self.assertEqual(result["unknown"]["reason"], "unknown")
         self.assertEqual(result["sorted"], ["four", "zero", "missing"])
 
     def test_scaling_keeps_other_resources_fixed_and_clicks_link_back(self):
@@ -150,3 +212,170 @@ class ReportBrowserTests(unittest.TestCase):
         self.settled()
         self.assertTrue(self.page.locator("#matrix-empty").is_visible())
         self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+
+    def test_quality_filter_preserves_observations_and_displays_loader_evidence(self):
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        from acprof.quality import loading_quality
+        root = self.root / "quality"
+        root.mkdir()
+        with (self.root / "result_all.csv").open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, row = reader.fieldnames, next(reader)
+        with (root / "result_all.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fields)
+            writer.writeheader()
+            writer.writerow(row)
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="fixture-loader")
+        (root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
+        output = write_report(load_analysis([self.root / "result_all.csv", root]), root / "report.html")
+        self.page.goto(output.as_uri())
+        self.settled()
+        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 6)
+        self.page.locator("#matrix tbody tr").filter(has_text="weights_reinitialized").locator("td").first.click()
+        self.settled()
+        self.page.locator("#quality-evidence summary").click()
+        evidence = self.page.locator("#quality-detail").inner_text()
+        self.assertIn("fixture-loader", evidence)
+        self.assertIn('"quality_status": "blocked"', evidence)
+        self.page.select_option("#quality-filter", "eligible")
+        self.settled()
+        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 5)
+        self.assertIn("当前筛选隐藏", self.page.locator("#selection").inner_text())
+        self.page.select_option("#quality-filter", "all")
+        self.settled()
+        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 6)
+
+    def test_input_order_mismatch_blocks_delta_and_baseline_frontier_but_retains_points(self):
+        import test_result_comparison as comparison_fixture
+
+        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.model import load_analysis
+        from acprof.plotting.report import write_report
+        fixture = comparison_fixture.ResultComparisonTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        for directory, latency, energy in ((fixture.left, .1, 4), (fixture.right, .05, 2)):
+            path = directory / "result_all.csv"
+            with path.open(newline="") as stream:
+                reader = csv.DictReader(stream)
+                fields, row = reader.fieldnames, next(reader)
+            row.update(latency_app_p95_s=latency, cpu_energy_total_j=energy, repeat_in_window=3)
+            with path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fields)
+                writer.writeheader()
+                writer.writerow(row)
+            fixture.write_json(directory, "quality_checks.json", {"schema_version": 1, "checks": []})
+        fixture.change_json(fixture.right, "input_scale_plan.json", lambda plan:
+                            plan["entries"][0]["payload"]["features"].reverse())
+        self.assertEqual(compare_results(fixture.left, fixture.right)["status"], "incompatible")
+        model = load_analysis([fixture.left, fixture.right])
+        output = write_report(model, fixture.root / "incompatible.html", baseline=model.configs[0]["config_id"])
+        self.page.goto(output.as_uri())
+        self.settled()
+        row = self.page.locator(f'tr[data-config-id="{model.configs[1]["config_id"]}"]')
+        self.assertIn("planned_inputs", row.inner_text())
+        self.assertNotIn("-50%", row.inner_text())
+        self.assertNotIn("Δ", row.inner_text())
+        self.assertIn("incompatible: 1", self.page.locator("#comparison-note").inner_text())
+        self.page.click("[data-view=pareto]")
+        self.settled()
+        self.assertIn("2 个有效点", self.page.locator("#pareto-note").inner_text())
+        self.assertIn("1 个非支配点", self.page.locator("#pareto-note").inner_text())
+
+    def test_browser_and_python_agree_on_exact_workload_distributions(self):
+        from copy import deepcopy
+
+        import test_result_comparison as comparison_fixture
+
+        from acprof.analysis.conditions import compare_profiles, workload_case_profile
+        base = comparison_fixture.ResultComparisonTests()
+        base.setUp()
+        self.addCleanup(base.doCleanups)
+        contract = base.contract
+        other = deepcopy(contract)
+        other["input"]["feature_dim"] = 9
+
+        def profile(contracts, counts):
+            evidence = workload_case_profile({"request_count": sum(counts), "variants": [
+                {"contract": item, "count": count} for item, count in zip(contracts, counts)]})
+            return {"purpose": "same-hardware", "valid": True, "checks": {}, "workload": {"case": evidence}}
+
+        generation = deepcopy(contract)
+        generation["task"] = "text-generation"
+        changed_output = deepcopy(generation)
+        changed_output["output"]["count"] = 99
+        partial = deepcopy(contract)
+        partial["output"]["shape"] = None
+        changed_partial = deepcopy(partial)
+        changed_partial["input"]["feature_dim"] = 9
+        pairs = [(profile([contract, other], [99, 1]), profile([contract, other], [1, 99]), "incompatible"),
+                 (profile([contract, other], [99, 1]), profile([contract, other], [990, 10]), "compatible"),
+                 (profile([partial], [1]), profile([partial], [2]), "unknown"),
+                 (profile([partial], [1]), profile([changed_partial], [2]), "incompatible"),
+                 (profile([generation], [1]), profile([changed_output], [2]), "unknown")]
+        for a, b, expected in pairs:
+            self.assertEqual(compare_profiles(a, b)["status"], expected)
+        actual = self.page.evaluate("pairs => pairs.map(([a,b]) => ACProfViews.compareProfiles(a,b).status)", pairs)
+        self.assertEqual(actual, [expected for _, _, expected in pairs])
+
+    def test_color_ranges_read_each_group_metric_once_and_preserve_normalization(self):
+        result = self.page.evaluate("""() => {
+          let reads = 0;
+          const registry = {x:{direction:'lower',scale:'linear'}, y:{direction:'higher',scale:'log'}};
+          const rows = Array.from({length:200}, (_,i) => ({config_id:String(i), auto_selection_eligible:true,
+            comparison_profiles:{'same-hardware':{status:'compatible',cohort:String(i % 2)}},
+            metrics:{get x(){reads++; return {value:i+1}},get y(){reads++; return {value:10 ** (i % 3)}}}}));
+          const ranges = ACProfViews.colorRanges(rows, ['x','y'], registry);
+          return {reads,groups:ranges.size,
+            first:ACProfViews.score(1,ranges.get('0').x,registry.x),
+            last:ACProfViews.score(199,ranges.get('0').x,registry.x),
+            log:ACProfViews.score(10,ranges.get('0').y,registry.y),
+            zero:ACProfViews.score(0,ranges.get('0').y,registry.y),
+            neutral:ACProfViews.score(1,ranges.get('0').x,{direction:'neutral',scale:'linear'})};
+        }""")
+        self.assertEqual(result, {"reads": 400, "groups": 2, "first": 1, "last": 0,
+                                  "log": .5, "zero": None, "neutral": None})
+
+    def test_synthetic_matrix_growth_keeps_sort_colors_and_filter_values(self):
+        from copy import deepcopy
+
+        from acprof.analysis.model import DEFAULT_MATRIX, AnalysisModel
+        from acprof.plotting.report import write_report
+        measurements = []
+        for count in (100, 400, 1000):
+            configs = []
+            for index in range(count):
+                config = deepcopy(self.model.configs[0])
+                config.update(config_id=f"synthetic-{index}", run_id=f"synthetic-run-{index}",
+                              experiment_batch="even" if index % 2 == 0 else "odd")
+                for metric in DEFAULT_MATRIX:
+                    config["metrics"][metric]["value"] = (index + 1) / 100
+                configs.append(config)
+            model = AnalysisModel(self.model.sources, [], configs)
+            output = write_report(model, self.root / f"synthetic-{count}.html")
+            self.page.goto(output.as_uri())
+            self.settled()
+            ready_ms = self.page.evaluate("performance.now()")
+            self.assertEqual(self.page.locator("#matrix tbody tr").count(), count)
+            row = self.page.locator('tr[data-config-id="synthetic-2"] td:nth-child(2)')
+            original_color = row.evaluate("cell => getComputedStyle(cell).backgroundColor")
+            started = self.page.evaluate("performance.now()")
+            self.page.locator("#matrix th button").first.click()
+            self.settled()
+            sorted_ms = self.page.evaluate("performance.now()") - started
+            self.assertEqual(row.evaluate("cell => getComputedStyle(cell).backgroundColor"), original_color)
+            self.assertEqual(row.inner_text(), "0.03")
+            started = self.page.evaluate("performance.now()")
+            self.page.select_option("#filter-experiment_batch", "even")
+            self.settled()
+            filtered_ms = self.page.evaluate("performance.now()") - started
+            self.assertEqual(self.page.locator("#matrix tbody tr").count(), count // 2)
+            self.assertEqual(row.inner_text(), "0.03")
+            measurements.append({"configs": count, "metrics": len(DEFAULT_MATRIX), "ready_ms": ready_ms,
+                                 "sort_ms": sorted_ms, "filter_ms": filtered_ms})
+        if self.artifacts:
+            (self.artifacts / "matrix-scaling.json").write_text(json.dumps({"browser": self.browser.version,
+                "scope": "synthetic offline report rendering; not inference or formal measurement",
+                "timing": "navigation to readiness, then interactions to readiness; shared development host",
+                "measurements": measurements}, indent=2))

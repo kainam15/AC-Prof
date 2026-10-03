@@ -75,6 +75,24 @@ def _text(value, fallback: str = "") -> str:
     return value
 
 
+def render_quality_summary(payload: dict) -> str:
+    """Keep state, observed-window completeness and output quality separate."""
+    if "quality_reasons" not in payload:
+        from acprof.quality import combine_quality, summarize_quality
+        quality = summarize_quality(payload.get("quality_checks"))
+        if payload.get("quality_status") == "unknown":
+            quality = combine_quality([quality, summarize_quality(None)])
+        payload = {**payload, **quality}
+    lines = [message("运行：{0} · 测量完整性：{1} · 质量：{2}", payload.get("run_status", "unknown"),
+                     payload.get("measurement_status", "unknown"), payload.get("quality_status", "unknown")),
+             message("自动优选：{0} · 原因：{1}", message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
+                     ", ".join(payload.get("quality_reasons", ["quality_evidence_missing"])) or "—")]
+    for check in payload.get("quality_checks", []):
+        lines.append(message("质量证据：{0} · {1} · 来源：{2}", check.get("code", "unknown"),
+                             check.get("detail", ""), json.dumps(check.get("evidence", {}), ensure_ascii=False)))
+    return join_messages("\n", lines)
+
+
 def _windows(source: Path, data: dict) -> ReportView:
     confidence = _number(data.get("confidence"))
     if not 0 < confidence < 1 or data.get("filter") != "status=ok and warmup=0":
@@ -118,6 +136,7 @@ def _windows(source: Path, data: dict) -> ReportView:
         STATUS_LEGEND,
         message("仅统计正式成功窗口；少量窗口的区间可能不稳定。"),
         message("数据来源：{0}", origin),
+        render_quality_summary(data),
     ))
     return ReportView(source, message("窗口统计 · {0:g}% 置信区间 · {1} 项", confidence * 100, len(rows)),
                       ("资源/输入", "指标", "均值", message("{0:g}% 区间", confidence * 100),
@@ -185,7 +204,8 @@ def read_report(path: str | Path) -> ReportView:
         for row in _objects(data.get("rows")):
             failure = row.get("failure") or {}
             rows.append(ReportRow((row["model_id"], result_status(row), failure.get("reason_code", "")),
-                json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", [])}, ensure_ascii=False, indent=2)))
+                join_messages("\n", (render_quality_summary(row),
+                    json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", [])}, ensure_ascii=False, indent=2)))))
         note = message("读取已有结果，不重新执行模型。") if data["scope"] == "recorded_results; no_reexecution" else message("仅覆盖所选样本的独立验证，不代表正式采集完成。")
         return ReportView(source, message("兼容性报告"), ("模型", "状态", "reason_code"), tuple(rows), note)
     raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))

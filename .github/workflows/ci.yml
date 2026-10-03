@@ -180,6 +180,39 @@ jobs:
           name: wheel
           path: evidence/
 
+  report-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements/browser.lock
+      - name: 安装独立锁定浏览器验证环境
+        run: |
+          python -m venv .venv-browser
+          .venv-browser/bin/python -m pip install --require-hashes -r requirements/browser.lock
+          .venv-browser/bin/python -m pip check
+          .venv-browser/bin/python -m playwright install --with-deps chromium
+      - name: 离线执行 HTML 交互测试（不允许 skip）
+        shell: bash
+        env:
+          ACPROF_BROWSER_TESTS: '1'
+          ACPROF_BROWSER_ARTIFACT_DIR: evidence/browser
+          ACPROF_WECOM_WEBHOOK_URL: ''
+        run: |
+          mkdir -p evidence/browser
+          .venv-browser/bin/python scripts/run_tests.py --pattern test_report_browser.py \
+            --report evidence/browser/tests.json --require-no-skips 2>&1 | tee evidence/browser/tests.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: report-browser
+          path: evidence/browser/
+          if-no-files-found: error
+
   tui-snapshots:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

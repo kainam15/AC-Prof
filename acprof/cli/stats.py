@@ -7,8 +7,10 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from acprof.analysis.audit import audit_result
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json
+from acprof.quality import QUALITY_FIELDS
 from acprof.result_csv import read_result_csv
 
 
@@ -67,6 +69,10 @@ def main(argv=None):
             raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")
         report["result_sha256"] = before
         report["result_csv"] = str(path.resolve())
+        audit = audit_result(path)
+        report.update({key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")})
+        if hashlib.sha256(path.read_bytes()).hexdigest() != before:
+            raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")
     except (ValueError, OSError, csv.Error) as error:
         parser.exit(1, f"统计失败：{error}\n")
     try:

@@ -130,6 +130,25 @@ class ResultComparisonTests(unittest.TestCase):
         self.assertFalse(report["valid"])
         self.assertTrue(any(issue["code"] == "unsupported_wsl_metric" for issue in report["issues"]))
 
+    def test_quality_and_measurement_evidence_are_distinct_from_comparability(self):
+        from acprof.analysis.audit import audit_result
+        from acprof.quality import loading_quality
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader")
+        self.write_json(self.right, "quality_checks.json", {"schema_version": 1, "checks": checks})
+        report = self.compare()
+        self.assertEqual(report["status"], "compatible")
+        right = report["experiments"]["right"]
+        self.assertEqual(right["run_status"], "complete")
+        self.assertEqual(right["measurement_status"], "complete")
+        self.assertEqual(right["quality_status"], "blocked")
+        self.assertFalse(right["auto_selection_eligible"])
+        self.assertIn("weights_reinitialized", right["quality_reasons"])
+        audit = audit_result(self.right)
+        self.assertEqual(audit["quality_status"], "blocked")
+        self.assertEqual(audit["quality_checks"][0]["evidence"]["source"], "loader")
+        self.change_json(self.right, "run_state.json", lambda state: state["options"].update(repeat=2))
+        self.assertEqual(audit_result(self.right)["measurement_status"], "incomplete")
+
     def test_expected_backend_identity_changes_do_not_prevent_comparison(self):
         report = self.compare()
         self.assertEqual(report["status"], "compatible")
@@ -182,6 +201,78 @@ class ResultComparisonTests(unittest.TestCase):
     def test_auto_window_request_counts_do_not_change_per_request_work(self):
         self.write_rows(self.right, self.contract, count=9)
         self.assertEqual(self.compare()["conditions"]["actual_workload"]["status"], "compatible")
+
+    def write_distribution(self, directory, counts, *, output_only=False, task=None):
+        variants = []
+        for index, count in enumerate(counts):
+            contract = copy.deepcopy(self.contract)
+            if task:
+                contract["task"] = task
+            section, name = ("output", "count") if output_only else ("input", "actual_scale")
+            contract[section][name] = index + 1
+            variants.append({"count": count, "contract": contract})
+        with (directory / "result_all.csv").open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        rows[0]["workload_contract"] = json.dumps({"schema_version": 1,
+            "request_count": sum(counts), "variants": variants})
+        with (directory / "result_all.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, CSV_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def test_reversed_variant_distribution_is_not_equivalent(self):
+        self.write_distribution(self.left, [99, 1])
+        self.write_distribution(self.right, [1, 99])
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "incompatible")
+        self.assertEqual(actual["reason"], "per_request_distribution_changed")
+        self.assertIn("input.actual_scale", actual["changed_dimensions"])
+        case = next(iter(actual["left"].values()))
+        self.assertEqual(case["request_count"], 100)
+        self.assertEqual([v["count"] for v in case["variants"]], [99, 1])
+
+    def test_missing_output_fact_does_not_hide_known_input_change(self):
+        contract = copy.deepcopy(self.contract)
+        contract["output"]["shape"] = None
+        self.write_rows(self.left, contract)
+        contract["input"]["actual_scale"] = 9
+        self.write_rows(self.right, contract)
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "incompatible")
+        self.assertIn("input.actual_scale", actual["changed_dimensions"])
+
+    def test_equal_incomplete_contracts_remain_unknown_with_counts_retained(self):
+        contract = copy.deepcopy(self.contract)
+        contract["output"]["shape"] = None
+        self.write_rows(self.left, contract)
+        self.write_rows(self.right, contract, count=9)
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "unknown")
+        self.assertEqual(actual["reason"], "actual_workload_evidence_incomplete")
+        self.assertTrue(actual["request_counts_changed"])
+
+    def test_proportional_variant_counts_keep_distribution(self):
+        self.write_distribution(self.left, [99, 1])
+        self.write_distribution(self.right, [990, 10])
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "compatible")
+        self.assertTrue(actual["request_counts_changed"])
+        self.assertEqual(actual["changed_dimensions"], {})
+
+    def test_variable_task_output_difference_requires_equivalence_evidence(self):
+        self.write_distribution(self.left, [99, 1], output_only=True, task="text-generation")
+        self.write_distribution(self.right, [1, 99], output_only=True, task="text-generation")
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "unknown")
+        self.assertEqual(actual["reason"], "output_distribution_equivalence_unverified")
+        self.assertIn("output.count", actual["changed_dimensions"])
+
+    def test_fixed_task_output_difference_is_incompatible(self):
+        self.write_distribution(self.left, [99, 1], output_only=True)
+        self.write_distribution(self.right, [1, 99], output_only=True)
+        actual = self.compare()["conditions"]["actual_workload"]
+        self.assertEqual(actual["status"], "incompatible")
+        self.assertIn("output.count", actual["changed_dimensions"])
 
     def test_equivalent_csv_numeric_spelling_uses_existing_measurement_keys(self):
         path = self.right / "result_all.csv"

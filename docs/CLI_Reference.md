@@ -516,6 +516,9 @@ acprof tui --help
 
 `acprof compare --left <实验> --right <实验>` 支持重复指定两侧独立实验，输出差值、比值和跨实验区间；
 参数与统计假设见[跨独立实验比较](Metrics.md#跨独立实验比较)。
+`--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
+`audit --compare` 和 `report` 使用同名取值的 `--comparison-purpose`；HTML 可在生成后切换用途。
+资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](Metrics.md#跨独立实验比较)。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](Profiling_Protocol.md#独立非流式负载)。

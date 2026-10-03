@@ -14,15 +14,19 @@
 <p>比较已有实验的观测结果，查看配置取舍与扩容趋势。</p></div><div id="counts" aria-live="polite"></div></div>
 <section class="card" aria-label="统一筛选"><div class="section-heading"><h2>筛选实验</h2><button id="reset">重置筛选</button></div><div id="filters" class="filters"></div></section>
 <div class="controls card"><label class="grow">Baseline<select id="baseline" aria-label="Baseline"></select></label>
+<label>比较用途<select id="comparison-purpose"><option value="same-hardware">相同硬件</option><option value="cross-hardware">跨硬件</option><option value="resource-scaling">资源扩容（CPU / 内存）</option></select></label>
+<label>质量范围<select id="quality-filter"><option value="all">全部观测</option><option value="eligible">满足质量要求的候选</option></select></label>
 <label>指标预设<select id="preset" aria-label="指标预设"></select></label>
 <details><summary>自定义指标</summary><select id="metrics" multiple aria-label="自定义指标"></select></details></div>
-<div class="notice">仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。变化值为描述性比较，未验证跨实验硬件和负载等价性。</div>
+<div class="notice">仅汇总正式成功窗口；缺失值显示 —，失败与推断配置保留状态。P50/P95 为窗口分位数的均值，CPU/GPU 占用率无默认优劣方向。条件检查与严格比较共用规则；变化值仍是描述性比较，不含独立实验置信区间。自动优选暂停使用质量 blocked/unknown 或条件证据不足的配置；告警与证据保留，passed 只表示已记录的检查无问题，不代表模型准确率合格。</div>
+<p id="comparison-note" class="notice" aria-live="polite"></p>
 <nav class="tabs" aria-label="分析视图">
 <button data-view="matrix" aria-pressed="true">Comparison Matrix</button>
 <button data-view="pareto" aria-pressed="false">Pareto / Trade-off</button>
 <button data-view="scaling" aria-pressed="false">Scaling</button>
 </nav>
 <p id="selection" aria-live="polite">点击表格行或图中数据点，可在三个视图中定位同一配置。</p>
+<details class="card evidence" id="quality-evidence"><summary>所选配置的质量证据</summary><pre id="quality-detail">选择配置后查看状态、原因和原始证据。</pre></details>
 <section id="matrix-panel" class="card">
 <div class="section-heading"><h2>配置比较</h2><span class="muted">点击列名排序 · 浅红 → 浅绿：由差到好 · 灰色：无方向或缺失</span></div>
 <div class="table-scroll"><table id="matrix"><thead></thead><tbody></tbody></table></div>
@@ -50,7 +54,7 @@
 <p>配置状态 ok 只描述已写入的正式窗口，不证明整个实验计划已完成；完成度仍以原始 run state 和 audit 验收为准。</p>
 <p>原始 CSV 保持完整。CPU package + GPU 总能量仅覆盖成功请求窗口；CPU 配置只计 package，GPU 配置须同时具有 package 与所选 GPU 的记录。没有加入 DRAM、启动或 idle 时段，也不等同于整机墙插能耗。</p>
 <p>窗口总能量按每行 energy/request × 实际请求数求和；energy/request 按请求数加权。其他均值等权汇总窗口，峰值取最大值。Cold start 按启动时间去重；缺少启动身份时仅接受一致的复用值。</p>
-<p>QPS 仅展示显式记录的 request/s；不会从 samples/s 推断。不同环境和 input case 分别计算颜色与 frontier，unknown 环境不参与跨 run baseline。未提供 CI 或重新计算合并请求分位数。</p>
+<p>QPS 仅展示显式记录的 request/s；不会从 samples/s 推断。颜色与 frontier 按当前用途下已核验的条件分组；不兼容和证据不足只保留绝对值、原始证据与散点。未提供 CI 或重新计算合并请求分位数。</p>
 </details>
 <details class="evidence"><summary>Plotly.js 许可</summary><pre>__LICENSE__</pre></details>
 <p id="error" role="alert" hidden></p>

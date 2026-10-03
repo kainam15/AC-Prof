@@ -36,6 +36,11 @@ def translate(source: str, language: str) -> str:
 
 
 ENGLISH: dict[str, str] = {
+    "运行：{0} · 测量完整性：{1} · 质量：{2}": "Run: {0} · Measurement completeness: {1} · Quality: {2}",
+    "自动优选：{0} · 原因：{1}": "Automatic selection: {0} · Reasons: {1}",
+    "可参与": "Eligible",
+    "暂停": "Withheld",
+    "质量证据：{0} · {1} · 来源：{2}": "Quality evidence: {0} · {1} · Source: {2}",
     "兼容性报告": "Compatibility report",
     "模型": "Model",
     "读取已有结果，不重新执行模型。": "Read recorded results without rerunning models.",

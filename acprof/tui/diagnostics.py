@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 from concurrent.futures import CancelledError
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -252,6 +252,7 @@ class ResultSummary:
     cases: int
     groups: tuple[dict, ...] = ()
     grouping_detail: str = ""
+    quality: dict = field(default_factory=dict)
 
 
 SUMMARY_METRICS = (
@@ -290,20 +291,26 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
                                group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
     else:
         detail = message("没有可统计的正式成功窗口。")
+    from acprof.analysis.audit import audit_result
+    from acprof.quality import QUALITY_FIELDS
+    audit = audit_result(path)
+    quality = {key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
     return ResultSummary(
         rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
         error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
         warmup_rows=sum(str(row.get("warmup", "0")).strip() == "1" for row in rows),
         cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
-        groups=groups, grouping_detail=detail,
+        groups=groups, grouping_detail=detail, quality=quality,
     )
 
 
 def result_summary_text(summary: ResultSummary, path: Path) -> str:
+    from acprof.tui.reports import render_quality_summary
     lines: list[str] = [message("当前选择：{0}", path), message(
         "结果已读取\n行数：{0}（成功 {1} / 错误 {2}）\n资源 case：{3}\nWarmup 行：{4}（统计排除）",
         summary.rows, summary.ok_rows, summary.error_rows, summary.cases, summary.warmup_rows),
         message("按 CPU / 内存上限 / GPU / 输入规模 / 环境分组；仅统计正式成功窗口。")]
+    lines.append(render_quality_summary(summary.quality))
     if summary.grouping_detail:
         lines.append(summary.grouping_detail)
     labels = {"latency_app_s": "应用延迟", "throughput_samples_per_s": "吞吐量",

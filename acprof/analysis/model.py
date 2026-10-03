@@ -11,14 +11,20 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from acprof.analysis.audit import audit_result
+from acprof.analysis.comparison import load_comparison_snapshot
+from acprof.analysis.conditions import PURPOSES, comparison_profile
 from acprof.artifact_layout import ArtifactLayout
 from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
+from acprof.quality import QUALITY_FIELDS, read_quality
+from acprof.result_csv import measurement_key
 
 DIMENSIONS = ("run_id", "model", "runtime", "device", "cpu", "memory", "gpu", "concurrency",
               "environment_class", "task", "input_case", "experiment_batch")
 SUMMARY_FIELDS = ("config_id", "model", "runtime", "device", "cpu", "memory", "gpu",
-                  *[name for name in VIEW_METRICS if ANALYSIS_METRICS[name].summary], "status")
+                  *[name for name in VIEW_METRICS if ANALYSIS_METRICS[name].summary], "status",
+                  "run_status", "measurement_status", "comparability", *QUALITY_FIELDS)
 DEFAULT_MATRIX = ("latency_app_p95_s", "throughput_samples_per_s", "container_mem_usage_peak_bytes",
                   "observed_energy_per_request_j", "cpu_ipc", "cold_start_s")
 
@@ -162,7 +168,8 @@ class AnalysisModel:
         return [{**{key: entry[key] for key in DIMENSIONS}, "config_id": entry["config_id"],
                  "metric": name, "value": value, "unit": ANALYSIS_METRICS[name].unit,
                  "evidence": _evidence(name, entry["row"]), "eligible": entry["eligible"],
-                 "source": entry["source"], "source_row": entry["source_row"]}
+                 "source": entry["source"], "source_row": entry["source_row"],
+                 **{key: entry[key] for key in QUALITY_FIELDS}}
                 for entry in self.raw_rows for name, value in entry["values"].items()]
 
     @property
@@ -177,7 +184,8 @@ class AnalysisModel:
 
 def load_analysis(sources) -> AnalysisModel:
     """Accept current/legacy CSV without rewriting, renaming or guessing retired metrics."""
-    snapshots, entries, groups, seen_paths, seen_keys = [], [], defaultdict(list), set(), set()
+    snapshots, entries, groups, seen_paths, seen_keys = [], [], defaultdict(list), set(), {}
+    condition_snapshots = {}
     for source in sources:
         path = Path(source).expanduser().resolve()
         layout = ArtifactLayout.discover(path) if path.is_dir() else ArtifactLayout.from_csv(path)
@@ -190,8 +198,14 @@ def load_analysis(sources) -> AnalysisModel:
         meta = _json(layout.path("static_meta.json"))
         state = _json(layout.path("run_state.json"))
         run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
-        snapshots.append({"path": str(path), "sha256": digest, "run_id": run_id,
-                          "run_state": state.get("status", "unknown"), "metadata": meta})
+        audit = audit_result(path)
+        condition_snapshots[str(path)] = load_comparison_snapshot(path)
+        evidence = {"run_status": state.get("status", "unknown"),
+                    "measurement_status": audit["measurement_status"],
+                    "missing_metrics": audit["missing_metrics"], **read_quality(path)}
+        snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
+                          "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
+        device_quality = {}
         reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")), strict=True)
         fields = [name.strip() for name in (reader.fieldnames or [])]
         if not fields or any(not name for name in fields) or len(fields) != len(set(fields)):
@@ -202,19 +216,34 @@ def load_analysis(sources) -> AnalysisModel:
             if None in raw or any(value is None for value in raw.values()):
                 raise ValueError(f"malformed CSV row: {path}:{line}")
             row = {key: value.strip() for key, value in raw.items()}
-            identity = _identity(row, meta, run_id, path.parent.name)
-            config_id = identity["run_id"] + ":" + _digest(identity)
+            if (_text(state.get("run_id")) != "unknown" and _text(row.get("run_id")) != "unknown"
+                    and row["run_id"] != state["run_id"]):
+                raise ValueError(f"inconsistent run_id between CSV and run state: {path}:{line}")
+            identity = _identity(row, meta, run_id, "unknown")
+            # A batch label and artifact location are presentation, not recorded
+            # experimental conditions. Moving a result must not create a run.
+            stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
+            config_id = identity["run_id"] + ":" + _digest(stable_identity)
             repeat = number(row.get("repeat_idx"))
             warmup = number(row.get("warmup"))
             if repeat is not None:
-                key = (config_id, warmup, repeat)
+                recorded_run = _text(state.get("run_id")) != "unknown" or _text(row.get("run_id")) != "unknown"
+                key = ((identity["run_id"], measurement_key(row)) if recorded_run
+                       else (config_id, warmup, repeat))
+                signature = _digest({"row": row, "identity": stable_identity})
                 if key in seen_keys:
-                    raise ValueError(f"duplicate measurement: {path}:{line}")
-                seen_keys.add(key)
+                    previous_signature, previous = seen_keys[key]
+                    kind = "duplicate" if signature == previous_signature else "conflicting"
+                    raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
+                seen_keys[key] = (signature, f"{path}:{line}")
             eligible = (row.get("status", "").lower() == "ok" and warmup == 0
                         and row.get("result_origin") != "inferred_not_measured")
+            mode = row.get("gpu_mode")
+            if mode not in device_quality:
+                device_quality[mode] = read_quality(path, device=mode)
             entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
-                     "row": dict(raw), "eligible": eligible, "values": _values(row, identity["device"])}
+                     "row": dict(raw), "eligible": eligible, "values": _values(row, identity["device"]),
+                     **evidence, **device_quality[mode]}
             groups[config_id].append(entry)
             entries.append(entry)
         if len(entries) == first_entry:
@@ -229,6 +258,14 @@ def load_analysis(sources) -> AnalysisModel:
         status = ("ok" if valid and valid == len(formal) else "partial" if valid else
                   "inferred_not_measured" if inferred else "failed" if formal else "no_formal_windows")
         config = {key: rows[0][key] for key in DIMENSIONS}
+        config.update({key: rows[0][key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status", "missing_metrics")})
+        try:
+            case = measurement_key(rows[0]["row"])[:4]
+        except ValueError:
+            case = None
+        config["comparison_profiles"] = {purpose: comparison_profile(condition_snapshots[rows[0]["source"]],
+            purpose=purpose, case=case) for purpose in PURPOSES}
+        config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
         config.update(config_id=config_id, status=status, valid_windows=valid,
                       excluded_rows=len(rows) - valid, source=rows[0]["source"],
                       metrics={name: _summarize(rows, name) for name in VIEW_METRICS})

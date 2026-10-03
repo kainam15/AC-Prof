@@ -283,6 +283,12 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 不能用当前主机身份补全历史实验。相邻 `static_meta.json` 按已有明确字段读取，不要求历史 schema
 升级；未知列完整保留，但已废弃且归因不明的能耗/计算字段不自动映射为当前指标。
 
+`config_id` 使用记录的 run ID 和配置条件摘要；目录名和 `experiment_batch` 展示标签不参与身份。
+移动或重命名原始目录不会改变配置 ID，来源路径和目录展示名仍保留。
+同时导入原件与副本时，同一记录的 `run_id + measurement_key` 明确拒绝为重复；数据或配置条件
+不同则报告内容冲突，并给出两个 CSV 的行号。旧 CSV 的内容标识仅能识别完全相同的已知内容，
+不能推断缺失的真实 run ID。CSV 与 run state 各自记录的 run ID 不一致时也拒绝导入。
+
 `summary` 默认提供 19 列：配置 ID、model/runtime/device、CPU quota、memory cap、GPU 身份，
 应用 P50/P95、samples/s、QPS、CPU/memory/GPU/VRAM peak、cold start、观测总能量、
 观测 energy/request 和 status。完整长表及原始字段仍可由同一模型访问。
@@ -335,18 +341,24 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 - **Comparison Matrix**：默认六项 latency/throughput/memory/energy/IPC/startup；显示实际值、
   单位、状态和窗口数。列标题按数值排序，空值始终置后；可选 Summary、六个指标组或自定义指标。
   同条件内逐列着色，lower/higher 从 Registry 读取，neutral 与 unavailable 保持灰色；颜色不是跨指标总分。
+  每次筛选按“比较组 × 指标”预计算一次颜色范围，单元格仅做常数时间归一化；该部分为 O(MN)，
+  不因单元格逐一重扫整组。排序不改变颜色范围，筛选后按剩余符合条件的观测重新计算。
 - **Baseline**：从任意配置选择，显示绝对值、`current - baseline` 和相对百分比。
-  baseline 为 0 时保留绝对差、百分比 unavailable。不同环境、task 或 input case 不计算差值；
-  unknown 环境限制在同 run 内。`--baseline` 接受 config ID，只有单配置 run 才能直接用 run ID。
+  baseline 为 0 时保留绝对差、百分比 unavailable。按所选用途共用严格比较的条件规则；
+  不兼容或证据不足时显示原因，保留绝对值，不计算改善比例。
+  `--baseline` 接受 config ID，只有单配置 run 才能直接用 run ID。
 - **Pareto / Trade-off**：四种 latency/throughput 与 energy/memory/VRAM 预设，X/Y 可选，
-  点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较同环境、task、input case
-  下的完整成功配置；unknown 不跨 run，缺失坐标和 partial/failed 不参与支配判断，重复最优点全部保留。
+  点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较当前用途下条件已核验
+  且质量允许优选的成功配置；选择 baseline 后还需与之可比。缺失坐标和 partial/failed 不参与支配判断，重复最优点全部保留。
   neutral 轴只画 scatter，不自动指定优化方向。筛选变化后重新计算 frontier。
 - **Scaling**：CPU cores、memory、concurrency 可作资源轴，其他指标作 Y 轴；按 model/runtime、
   环境和输入条件分面。每条线固定其他资源、device、GPU 和 run，空值处断线；不跨配置条件连线。
   历史 CSV 没有 concurrency 时明确显示缺少该资源轴，不推断为 1。
 
-这些比较用于探索已记录数据，不证明不同模型的质量等价、跨实验硬件条件一致或统计显著性。
+HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置选择物化输入与实际 workload；
+浏览器只比较归一化证据和精确有理数分布，不自行放宽 task 或硬件策略。
+`--comparison-purpose` 指定初始用途，报告内也可切换。没有 baseline 时按完整证据分组；选择后立即显示成对原因。
+这些比较用于探索已记录数据，不证明不同模型质量等价、持续硬件隔离或统计显著性。
 独立实验的条件审计和 CI 继续使用[跨独立实验比较](#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
 首期未接入 TUI Results、Run Detail/Profile、原始证据交互钻取或完整 CSV 导出工作流。
 
@@ -402,6 +414,12 @@ Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不�
 .venv/bin/python audit.py results/left --compare results/right \
   --comparison-purpose cross-hardware --require-comparable --json
 ```
+
+`resource-scaling` 明确允许 CPU 和内存配额不同，报告写入
+`allowed_resource_dimensions=["cpu","memory"]`；GPU 模式/身份、batch、实际输入输出分布、
+有效线程、affinity、电源策略、环境与测量协议仍严格检查。它是描述性资源对比，CPU 与内存同时
+变化不能归因到单独一个轴。不同资源坐标只在该用途下投影，不能绕过实际 workload 检查；
+一个完整矩阵内不同资源 case 的 workload 不一致时，整体资格保留 unknown，HTML 每配置检查仍能定位差异。
 
 硬件证据来自每个正式 case 开始前的 `hardware_conditions.json`，字段、范围与未知值见
 [硬件条件证据](Profiling_Protocol.md#硬件条件证据)。缺失值始终为 `unknown`；
@@ -476,6 +494,15 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 物化输入、实际 Workload Contract、线程和硬件条件；`--purpose cross-hardware` 允许已知的硬件差异。
 不兼容或条件未知时仍输出审计、失败／缺失统计，但差值、比值与区间为 `null`。
 
+实际 workload 按资源和输入尺度累计每个 variant 的请求计数，以精确约分后的比例比较分布。
+`99:1` 与 `1:99` 不等价；`99:1` 与 `990:10` 分布相同，仅 `request_counts_changed=true`。
+单一 workload 的自动窗口执行次数不同仍可比较；请求总数不充当单请求工作量。
+`conditions.actual_workload` 保留两侧全部计数、比例、`reason` 和 `changed_dimensions` 的输入／输出维度分布。
+固定输出定义的 tabular／time-series 任务发生输出分布变化时不兼容；生成、检测或未声明固定输出的任务
+若只有输出观测变化，则为 `unknown` / `output_distribution_equivalence_unverified`，不假设随机差异无害，
+也不引入任意统计容差。输入、请求上限、任务或场景变化仍不兼容。
+部分输出维度未知时仍保留全部 variant 及计数，并报告可观察的输入差异；相同的未知值不构成等价证据。
+
 每个资源与尺度先对单个实验的正式 `status=ok,warmup=0` 窗口均值等权平均，再对各实验均值
 等权平均。`repeat_in_window` 不作为权重。差值定义为右组减左组，单位与原指标一致；
 比值为右组除左组，无单位，左组均值不大于零时不可用。95% percentile bootstrap 在左右两组
@@ -485,6 +512,23 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 报告 `kind=independent_experiment_comparison`、schema v1，逐项包含有效／请求的实验数、缺失实验、
 失败与缺失窗口、各次均值、标准差、差值／比值及区间；保留完整条件检查和源文件 SHA256。
 统计期间源产物变化会拒绝结果。只对成功窗口的估计可能存在选择偏差，失败计数必须一起报告。
+即使组间使用 `cross-hardware` 或 `resource-scaling`，每组内部也必须通过 `same-hardware`
+复验；`condition_checks` 用 `group`、`within_group` 标识组内问题。
+独立 `resource-scaling` 按 device/input 配对，每次实验在每个 device/input 下只能有一个资源配置，
+否则明确拒绝，避免把多个配置当成独立样本。`resource_coordinates.left/right` 保留双方 CPU/内存，
+原 group 顶层坐标仍为左侧 baseline；每个 run 保留自己的坐标。
+质量证据单独贯通 `audit`、`compare`、`stats`、配置摘要、TUI 和 HTML：
+`run_status` 是原运行状态，`measurement_status` 根据计划覆盖和正式成功窗口分为 complete/incomplete/unknown；
+这里的 complete 仅表示这些窗口完整，不代表所有硬件指标可用，缺失指标及原因继续保留。
+比较报告的 `status` / 每组 `comparability` 仍只表示条件可比性，不由质量告警覆盖。
+`quality_status` 为 passed（明确记录的检查为空）、warning（已解释的未使用 checkpoint 权重）、
+blocked（weights_reinitialized 或 error）、unknown（历史缺证据、损坏或尚未解释的 warning）。
+passed 不是模型准确率合格证明；warning 保留 detail、observed、threshold 和原始 source/artifact。
+`quality_checks` 保存全部原证据；`quality_reasons` 解释 `auto_selection_eligible` 的决定。
+blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保留；独立比较保留每个实验、每侧和每个 run 的证据，
+顶层 `quality.left/right` 提供聚合质量状态。读到部分历史缺证据时整组继续 unknown，不能由其他成功 run 覆盖。
+`quality_checks.json` 与回退来源 `runtime_validation.json` 纳入比较的源 SHA256，一旦变化便拒绝报告。
+
 该入口读取正式实验；独立的 `load.json` 不可作为 `result_all.csv` 输入混入统计。
 
 ### 非流式负载报告
@@ -503,6 +547,11 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 连接模式、并发数、调度、随机种子、超时、队列上限、请求数、预热数、抓包与源设备条件都进入身份。
 服务返回的 Workload Contract 描述单请求工作量；真实客户端调度以报告的 `protocol` 为准。
 本报告不采集能耗，不输出 token 首响应或间隔，也不与正式串行关闭连接的 CSV 合并。
+
+HTML 默认显示全部观测；“质量范围”可筛选满足质量要求的候选，“质量状态”可单独筛选。
+配置行分开展示运行、完整性、可比性和质量状态；选中行后可展开完整原始质量证据。
+矩阵优劣配色与 Pareto frontier 排除 blocked/unknown 候选，不隐藏其原始数值。
+HTML 条件资格与严格比较一致，数值变化仍是描述性汇总；跨独立实验区间使用 `acprof compare`。
 
 ### 绘图入口
 

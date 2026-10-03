@@ -3,10 +3,18 @@ import unittest
 from pathlib import Path
 
 from acprof.cli.run_args import build_parser
-from acprof.platform import Environment
 
 
 class HardwareConditionsTests(unittest.TestCase):
+    def comparison_snapshot(self):
+        from test_result_comparison import ResultComparisonTests
+
+        from acprof.analysis.comparison import load_comparison_snapshot
+        fixture = ResultComparisonTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return load_comparison_snapshot(fixture.left)
+
     def test_cpu_set_is_optional_and_equivalent_spellings_are_canonical(self):
         from acprof.cpu_affinity import normalize_cpu_set
         self.assertEqual(normalize_cpu_set(""), "")
@@ -24,12 +32,10 @@ class HardwareConditionsTests(unittest.TestCase):
         from unittest.mock import patch
 
         from acprof.analysis.comparison import compare_results
-        snapshot = {**Environment("native_linux").metadata(), "metric_availability": {},
-                    "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                    "conditions": {"inputs": "same", "comparability_class": "native_linux"},
-                    "identity": {}, "hardware": {}}
+        snapshot = self.comparison_snapshot()
+        snapshot["hardware"] = dict.fromkeys(snapshot["hardware"])
         with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.analysis.comparison._snapshot", return_value=snapshot
+            "acprof.analysis.comparison.load_comparison_snapshot", return_value=snapshot
         ):
             report = compare_results(Path(directory), Path(directory), purpose="same-hardware")
         self.assertEqual(report["status"], "unknown")
@@ -41,19 +47,15 @@ class HardwareConditionsTests(unittest.TestCase):
         from unittest.mock import patch
 
         from acprof.analysis.comparison import compare_results
-        from acprof.host.hardware_conditions import HARDWARE_FIELDS
-        left = {**Environment("native_linux").metadata(), "metric_availability": {},
-                "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                "conditions": {"inputs": "same", "comparability_class": "native_linux"}, "identity": {},
-                "hardware": dict.fromkeys(HARDWARE_FIELDS, "same")}
+        left = self.comparison_snapshot()
         right = deepcopy(left)
-        right["hardware"]["cpu_model"] = "different CPU"
+        right["hardware"]["cpu_model"]["1c_4g_off"] = ["different CPU"]
         for purpose, expected in (("same-hardware", "incompatible"), ("cross-hardware", "compatible")):
-            with patch("acprof.analysis.comparison._snapshot", side_effect=[left, right]):
+            with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
                 report = compare_results("a", "b", purpose=purpose)
             self.assertEqual(report["status"], expected)
         right["hardware"]["gpu"] = None
-        with patch("acprof.analysis.comparison._snapshot", side_effect=[left, right]):
+        with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
             self.assertEqual(compare_results("a", "b", purpose="cross-hardware")["status"], "unknown")
 
     def test_requested_affinity_failure_is_recorded_and_stops_before_measurement(self):
@@ -75,15 +77,11 @@ class HardwareConditionsTests(unittest.TestCase):
         from unittest.mock import patch
 
         from acprof.analysis.comparison import compare_results
-        from acprof.host.hardware_conditions import HARDWARE_FIELDS
-        left = {**Environment("native_linux").metadata(), "metric_availability": {},
-                "run_id": "a", "result_csv": "a.csv", "valid": True, "issues": [],
-                "conditions": {"inputs": "same", "comparability_class": "native_linux"}, "identity": {},
-                "hardware": dict.fromkeys(HARDWARE_FIELDS, "same")}
+        left = self.comparison_snapshot()
         right = deepcopy(left)
-        left["hardware"]["gpu"] = {"model": "A", "power_limit_w": None}
-        right["hardware"]["gpu"] = {"model": "B", "power_limit_w": 100}
-        with patch("acprof.analysis.comparison._snapshot", side_effect=[left, right]):
+        left["hardware"]["gpu"]["1c_4g_off"] = {"model": "A", "power_limit_w": None}
+        right["hardware"]["gpu"]["1c_4g_off"] = {"model": "B", "power_limit_w": 100}
+        with patch("acprof.analysis.comparison.load_comparison_snapshot", side_effect=[left, right]):
             report = compare_results("a", "b", purpose="cross-hardware")
         self.assertEqual(report["conditions"]["hardware_gpu"]["status"], "unknown")
         self.assertEqual(report["status"], "unknown")

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from acprof.failures import compatibility_status
+from acprof.quality import combine_quality, read_quality, summarize_quality
 
 
 def result_status(row):
@@ -22,7 +23,8 @@ def result_status(row):
 
 def write_compatibility_report(root: Path, rows: list[dict]):
     fields = ("model_id", "revision", "status", "stage", "reason_code", "detail", "device",
-              "runtime_profile", "retryability", "evidence", "full_profile_complete", "quality_status", "quality_checks")
+              "runtime_profile", "retryability", "evidence", "full_profile_complete", "quality_status", "quality_checks",
+              "quality_reasons", "auto_selection_eligible", "attempt_id", "attempt_path", "configuration_sha256")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields)
     writer.writeheader()
@@ -30,10 +32,17 @@ def write_compatibility_report(root: Path, rows: list[dict]):
              "| Model | Status | reason_code | Detail |", "| --- | --- | --- | --- |"]
     for row in rows:
         failure = row.get("failure") or {}
-        checks = row.get("quality_checks", [])
+        quality = summarize_quality(row.get("quality_checks"))
+        if row.get("quality_status") == "unknown":
+            quality = combine_quality([quality, summarize_quality(None)])
+        if "quality_reasons" in row:
+            quality.update({key: row[key] for key in quality if key in row})
+        row = {**row, **quality}
+        checks = row["quality_checks"]
         values = {key: failure.get(key, row.get(key, "")) for key in fields}
         values.update(status=result_status(row), evidence=json.dumps(failure.get("evidence", row.get("evidence", {})), ensure_ascii=False),
-                      quality_checks=json.dumps(checks, ensure_ascii=False))
+                      quality_checks=json.dumps(checks, ensure_ascii=False),
+                      quality_reasons=json.dumps(row["quality_reasons"], ensure_ascii=False))
         writer.writerow(values)
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
@@ -54,7 +63,7 @@ def report_results(sources: list[Path], output: Path) -> dict:
             path = layout.path(name)
             return json.loads(path.read_text()) if path.is_file() else {}
         metadata, resolution = read("static_meta.json"), read("model_resolution.json")
-        capability, quality = read("capability_report.json"), read("quality_checks.json")
+        capability = read("capability_report.json")
         validation = read("runtime_validation.json")
         if not any((metadata, resolution, capability, validation)):
             raise ValueError(f"No recorded compatibility evidence: {source}")
@@ -62,14 +71,13 @@ def report_results(sources: list[Path], output: Path) -> dict:
         failures.extend(value["failure"] for value in validation.get("devices", {}).values() if value.get("failure"))
         if resolution.get("failure"):
             failures.append(resolution["failure"])
-        checks = quality.get("checks", [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])])
+        quality = read_quality(source)
         rows.append({"model_id": metadata.get("model_id", resolution.get("model_id", source.name)),
                      "revision": metadata.get("model_revision", resolution.get("model_revision", "unknown")),
                      "runtime_profile": metadata.get("runtime_profile_id", resolution.get("runtime_profile", "")),
                      "full_profile_complete": capability.get("full_profile_complete") is True,
                      "runtime_status": validation.get("status", "unverified"),
-                     "quality_status": "recorded" if quality or checks else "unknown",
-                     "quality_checks": checks, "failure": failures[0] if failures else None,
+                     **quality, "failure": failures[0] if failures else None,
                      "failures": failures, "evidence": {"result_directory": str(source.resolve())}})
     output.mkdir(parents=True, exist_ok=False)
     report = {"schema_version": 1, "scope": "recorded_results; no_reexecution", "rows": rows}

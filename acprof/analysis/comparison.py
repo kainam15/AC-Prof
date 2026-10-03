@@ -3,12 +3,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
+from fractions import Fraction
 from pathlib import Path
 
 from acprof.analysis.audit import audit_result, number
+from acprof.analysis.conditions import (
+    ALLOWED_RESOURCE_DIMENSIONS,
+    PURPOSES,
+    compare_profiles,
+    compare_workload_profiles,
+    comparison_profile,
+    workload_case_profile,
+)
 from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
+from acprof.quality import QUALITY_FIELDS
 from acprof.result_csv import measurement_key, read_result_csv
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
@@ -52,8 +63,8 @@ def _condition(left, right) -> dict:
 
 
 def _actual_workload(rows: list[dict]) -> dict | None:
-    """Compare per-request facts, not auto-window throughput-dependent counts."""
-    facts: dict[str, set[str]] = {}
+    """Pool observed request counts per case without losing the mixture weights."""
+    facts: dict[str, Counter] = {}
     for row in rows:
         row_key = measurement_key(row)
         if row.get("status") not in {"ok", "warn"} or row_key[4] != "0":
@@ -64,23 +75,86 @@ def _actual_workload(rows: list[dict]) -> dict | None:
         summary = json.loads(raw)
         if not isinstance(summary, dict) or summary.get("schema_version") != 1:
             return None
-        variants = summary.get("variants")
-        if not isinstance(variants, list) or not variants:
+        variants, total = summary.get("variants"), summary.get("request_count")
+        if not isinstance(variants, list) or not variants or type(total) is not int or total <= 0:
+            return None
+        counts: list[int] = []
+        for variant in variants:
+            count = variant.get("count") if isinstance(variant, dict) else None
+            if type(count) is not int or count <= 0:
+                return None
+            counts.append(count)
+        if sum(counts) != total:
             return None
         key = _canonical(row_key[:4])
         for variant in variants:
-            contract = variant.get("contract") if isinstance(variant, dict) else None
+            contract = variant.get("contract")
             if not isinstance(contract, dict) or contract.get("schema_version") != 1:
                 return None
-            # Backend parameters are reported separately; they are not workload semantics.
+            # Backend parameters are identity evidence, not workload semantics.
             contract = {name: item for name, item in contract.items() if name != "runtime"}
-            if _unknown(contract):
-                return None
-            facts.setdefault(key, set()).add(_canonical(contract))
-    return {key: sorted(values) for key, values in sorted(facts.items())} or None
+            facts.setdefault(key, Counter())[_canonical(contract)] += variant["count"]
+    return {key: {"request_count": sum(counts.values()), "variants": [
+        {"contract": json.loads(contract), "count": count,
+         "proportion": str(Fraction(count, sum(counts.values())))}
+        for contract, count in sorted(counts.items())]}
+        for key, counts in sorted(facts.items())} or None
 
 
-def _snapshot(source: str | Path) -> dict:
+def _distribution(case, projection=lambda contract: contract):
+    counts = Counter()
+    for variant in case["variants"]:
+        counts[_canonical(projection(variant["contract"]))] += variant["count"]
+    total = case["request_count"]
+    return {value: str(Fraction(count, total)) for value, count in sorted(counts.items())}
+
+
+def _dimensions(contract, prefix=""):
+    result = {}
+    for key, value in contract.items():
+        name = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            result.update(_dimensions(value, name))
+        else:
+            result[name] = value
+    return result
+
+
+def _workload_condition(left, right):
+    result = {"status": "unknown", "left": left, "right": right,
+              "request_counts_changed": None, "changed_dimensions": {},
+              "reason": "actual_workload_evidence_missing"}
+    if left is None or right is None:
+        return result
+    if left.keys() != right.keys():
+        return {**result, "status": "incompatible", "reason": "workload_cases_changed"}
+    result["request_counts_changed"] = any(left[key]["request_count"] != right[key]["request_count"] for key in left)
+    incomplete = any(_unknown(v["contract"]) for cases in (left, right) for case in cases.values() for v in case["variants"])
+    changed = {}
+    differing_cases = [key for key in left if _distribution(left[key]) != _distribution(right[key])]
+    if not differing_cases:
+        return {**result, "status": "unknown" if incomplete else "compatible",
+                "reason": "actual_workload_evidence_incomplete" if incomplete else "same_per_request_distribution"}
+    profile_status = compare_workload_profiles(*({key: workload_case_profile(case) for key, case in cases.items()}
+                                                for cases in (left, right)))
+    for key in differing_cases:
+        a, b = left[key], right[key]
+        names = set().union(*(_dimensions(v["contract"]).keys() for c in (a, b) for v in c["variants"]))
+        for name in sorted(names):
+            lhs = _distribution(a, lambda c, name=name: _dimensions(c).get(name))
+            rhs = _distribution(b, lambda c, name=name: _dimensions(c).get(name))
+            if lhs != rhs:
+                changed.setdefault(name, {})[key] = {"left": lhs, "right": rhs}
+    # Equal marginal distributions may still hide different joint mixtures.
+    if not changed:
+        changed["joint_distribution"] = {key: {"left": _distribution(left[key]), "right": _distribution(right[key])}
+                                         for key in differing_cases}
+    return {**result, "status": profile_status, "changed_dimensions": changed,
+            "reason": ("per_request_distribution_changed" if profile_status == "incompatible" else
+                       "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
+
+
+def load_comparison_snapshot(source: str | Path) -> dict:
     source = Path(source)
     directory = source if source.is_dir() else source.parent
     audit = audit_result(source)
@@ -179,7 +253,12 @@ def _snapshot(source: str | Path) -> dict:
                                            for row in measured_rows)
                                 for name, metric in METRICS.items() if metric.kind == "number"},
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
+        "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
+        "missing_metrics": audit["missing_metrics"],
+        **{key: audit[key] for key in QUALITY_FIELDS},
         "valid": audit["valid"] and not issues, "issues": issues,
+        "planned_input_entries": ([{key: entry[key] for key in ("input_scale", "payload")} for entry in entries]
+                                  if inputs is not None else None),
         "conditions": {
             "comparability_class": recorded_identity(metadata)["comparability_class"],
             "task_semantics": {key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
@@ -210,12 +289,27 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
     Quality constraints describe a shared target, not proof that either model
     meets it. Missing legacy evidence is unknown and never reconstructed.
     """
-    if purpose not in {"same-hardware", "cross-hardware"}:
-        raise ValueError("comparison purpose must be same-hardware or cross-hardware")
-    snapshots = {"left": _snapshot(left), "right": _snapshot(right)}
+    if purpose not in PURPOSES:
+        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+    snapshots = {"left": load_comparison_snapshot(left), "right": load_comparison_snapshot(right)}
     lhs, rhs = snapshots.values()
     conditions = {name: _condition(value, rhs["conditions"][name])
                   for name, value in lhs["conditions"].items()}
+    conditions["actual_workload"] = _workload_condition(lhs["conditions"]["actual_workload"],
+                                                        rhs["conditions"]["actual_workload"])
+    if purpose == "resource-scaling":
+        def resource_workload(cases):
+            if cases is None:
+                return None
+            normalized = {}
+            for key, value in cases.items():
+                projected = _canonical(json.loads(key)[2:])
+                if projected in normalized and workload_case_profile(normalized[projected]) != workload_case_profile(value):
+                    return None
+                normalized[projected] = value
+            return normalized
+        conditions["actual_workload"] = _workload_condition(resource_workload(lhs["conditions"]["actual_workload"]),
+                                                            resource_workload(rhs["conditions"]["actual_workload"]))
     for name in HARDWARE_FIELDS:
         left_value, right_value = lhs["hardware"].get(name), rhs["hardware"].get(name)
         item = _condition(left_value, right_value)
@@ -228,10 +322,14 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
     # Observed formal-server threads supersede independent-probe approximations.
     if not _unknown(lhs["hardware"].get("runtime_threads")) and not _unknown(rhs["hardware"].get("runtime_threads")):
         conditions["runtime_threads"] = conditions["hardware_runtime_threads"]
-    statuses = {item["status"] for item in conditions.values()}
+    profiles = {side: comparison_profile(snapshot, purpose=purpose) for side, snapshot in snapshots.items()}
+    qualification = compare_profiles(profiles["left"], profiles["right"])
+    for name, item in conditions.items():
+        statuses = {value for key, value in qualification["checks"].items() if key == name or key.startswith(name + ".")}
+        item["status"] = ("incompatible" if "incompatible" in statuses else "unknown" if "unknown" in statuses else
+                          "expected_difference" if "expected_difference" in statuses else "compatible")
     valid = lhs["valid"] and rhs["valid"]
-    status = ("incompatible" if not valid or "incompatible" in statuses
-              else "unknown" if "unknown" in statuses else "compatible")
+    status = qualification["status"]
     differences = {name: {"left": value, "right": rhs["identity"][name]}
                    for name, value in lhs["identity"].items() if value != rhs["identity"][name]}
     environment_condition = conditions["comparability_class"]
@@ -251,12 +349,16 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
                        "conditions_" + status if status != "compatible" else ""),
         }
     return {"schema_version": 2, "purpose": purpose, "status": status, "valid": valid,
+            "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
+            "comparison_reasons": qualification["reasons"],
             "warnings": warnings, "metric_comparability": metric_comparability,
             "native_baseline_eligible": status == "compatible" and lhs["comparability_class"] == "native_linux",
             "scope": "recorded_comparison_conditions_not_model_quality_or_resume_identity",
             "limitations": ["hardware conditions are boundary observations, not proof of continuous isolation or identical thermal state",
+                            "resource-scaling allows CPU and memory quotas; changing both cannot isolate either causal effect",
                             "missing hardware or effective thread evidence remains unknown; affinity does not prove exclusive CPU use",
                             "matching quality constraints do not prove either model meets them"],
             "conditions": conditions, "expected_differences": differences,
-            "experiments": {side: {key: snapshot[key] for key in ("run_id", "result_csv", "valid", "issues", "environment_class")}
+            "experiments": {side: {key: snapshot[key] for key in ("run_id", "result_csv", "valid", "issues", "environment_class",
+                    "run_status", "measurement_status", "missing_metrics", *QUALITY_FIELDS)}
                             for side, snapshot in snapshots.items()}}

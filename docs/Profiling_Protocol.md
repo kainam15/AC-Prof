@@ -243,6 +243,8 @@ startup pruning schema v1、损坏或被改写的计划均明确拒绝恢复，�
 序列化本行已完成请求的摘要：`request_count` 保存总请求数，`variants` 保存各不同 contract 及其 `count`。
 相同事实在窗口结束后合并，避免快速模型的重复 JSON 超过 CSV 单字段限制；不同输出数量保留分布，
 不把它们简单改写成计划上限。这是工作量计数，不保存请求时间顺序。
+比较时保留 variant 计数并比较归一化的联合分布，不能降为不含频率的集合；
+分布不同与窗口请求总数不同分别记录，详见[跨独立实验比较](Metrics.md#跨独立实验比较)。
 未知事实为 JSON `null` 并保留可用性说明，旧 CSV 缺此扩展列继续可读，不补造历史 workload。
 
 输入计划是 planned，原请求上限是 requested，Handler 观测的张量尺寸、token 数与输出数量是

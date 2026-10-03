@@ -201,19 +201,36 @@ git diff --check
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
 
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
-分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互使用 opt-in 测试：
+分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立
+`report-browser` job 执行，Python 3.12、Playwright 和绘图依赖锁在 `requirements/browser.lock`，
+不安装到共享 `.venv` 或 runtime。锁使用现有 uv 0.12.13 生成：
 
 ```bash
-# 使用已有 Chrome/Chromium；Playwright 只用于开发验证，不是主机运行依赖。
-.venv/bin/uv pip install --python .venv/bin/python playwright==1.63.0
-ACPROF_BROWSER_TESTS=1 .venv/bin/python scripts/run_tests.py \
-  --pattern test_report_browser.py --report internal-testing/report-browser-tests.json
+.venv/bin/uv pip compile requirements/browser.in --python-version 3.12 \
+  --generate-hashes --no-annotate --no-header -o requirements/browser.lock
+.venv/bin/uv venv internal-testing/browser-venv --python .venv/bin/python
+.venv/bin/uv pip install --python internal-testing/browser-venv/bin/python \
+  --require-hashes -r requirements/browser.lock
+internal-testing/browser-venv/bin/python -m playwright install chromium
+ACPROF_BROWSER_TESTS=1 ACPROF_BROWSER_ARTIFACT_DIR=internal-testing/browser-evidence \
+  internal-testing/browser-venv/bin/python scripts/run_tests.py --pattern test_report_browser.py \
+  --report internal-testing/browser-evidence/tests.json --require-no-skips
 ```
 
-`ACPROF_BROWSER_EXECUTABLE` 可指定浏览器；默认寻找 google-chrome/chromium，未找到时使用
-Playwright 已安装的 Chromium。测试以离线模式检查排序、baseline=0、mixed-direction Pareto、
-条件隔离、Scaling 分组和窄屏联动；未设置环境变量时明确 skip。headless Chrome 证据不等于
-实际 Windows 浏览器验收，也不证明 Docker/GPU 采集正确。所有验证均避开正式测量锁。
+CI 在准备阶段用 `playwright install --with-deps chromium` 安装锁定 Playwright 对应的 Chromium。
+默认使用这份浏览器；`ACPROF_BROWSER_EXECUTABLE` 仅供显式验证其他浏览器版本时覆盖，不自动选择系统 Chrome。
+测试使用 `offline=True`，页面不得产生 HTTP(S) 请求或 JavaScript 异常；覆盖原有五项 baseline、筛选、
+排序、跨图选择、Pareto、窄屏交互，以及质量筛选和原始证据展示。未设置 `ACPROF_BROWSER_TESTS=1` 时
+普通主机测试明确 skip，浏览器 job 使用 `--require-no-skips` 要求实际执行。
+报告固定保存在 artifact 目录，测试失败另保存页面截图、DOM、console/page error、原报告和 Playwright trace。
+测试报告和日志无论成功失败均由 CI 上传。浏览器安装需要网络，页面交互本身离线。
+条件回归检查输入顺序不匹配时保留散点但暂停改善比例及 baseline frontier，并对照 Python/JavaScript
+的精确 workload 分布判断。颜色范围回归检查 200 个配置、2 个指标只读取 400 次数值，验证线性/log、
+neutral、零值和分组。合成页面依次渲染 100、400、1000 个配置的六指标矩阵，检查排序颜色及筛选数值，
+将首次就绪、排序与筛选耗时写入 `matrix-scaling.json`；这些时间包含浏览器与共享开发机开销，
+不是模型性能数据，也不设脆弱的跨机器绝对时限。当前范围保留完整表格；更大规模是否分页或虚拟化需另行实测。
+Headless Chromium 证据不等于实际 Windows 浏览器验收，也不证明 Docker/GPU 采集正确。
+所有验证均避开正式测量窗口。
 
 ### 渐进类型检查与边界回归
 

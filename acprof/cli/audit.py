@@ -17,7 +17,8 @@ def main(argv=None):
     parser.add_argument("--require-complete", action="store_true", help="要求有 complete 状态及完整计划")
     parser.add_argument("--require-ok", action="store_true", help="要求所有正式行成功且至少有一行")
     parser.add_argument("--compare", type=Path, help="只读比较另一组结果的输入、资源、质量约束与测量口径")
-    parser.add_argument("--comparison-purpose", choices=("same-hardware", "cross-hardware"), default="same-hardware",
+    from acprof.analysis.conditions import PURPOSES
+    parser.add_argument("--comparison-purpose", choices=PURPOSES, default="same-hardware",
                         help="Compare on the same hardware, or allow recorded hardware differences")
     parser.add_argument("--require-comparable", action="store_true", help="要求 --compare 的全部比较条件已知且一致")
     args = parser.parse_args(argv)
@@ -59,6 +60,10 @@ def main(argv=None):
             print(f"比较条件：{report['comparison']['status']}；不表示模型质量已验证。")
             for name, condition in report["comparison"]["conditions"].items():
                 print(f"  {name}: {condition['status']}")
+                if condition.get("reason"):
+                    print(f"    reason: {condition['reason']}")
+                for dimension in condition.get("changed_dimensions", {}):
+                    print(f"    changed: {dimension}")
             for name in ("cpu_energy_total_j", "dram_window_energy_j", "gpu_energy_total_j"):
                 check = report["comparison"]["metric_comparability"][name]
                 print(f"  {name}: {check['status']} ({check['reason']})")

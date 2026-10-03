@@ -133,6 +133,22 @@ class StatisticsOutputTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertEqual(target.read_bytes(), original)
 
+    def test_stats_and_tui_summary_preserve_output_quality_evidence(self):
+        from acprof.quality import loading_quality
+        from acprof.tui.diagnostics import result_summary_text, summarize_result_csv
+        from acprof.tui.i18n import translate
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader-log")
+        (self.directory / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            self.assertEqual(main([str(self.csv), "--metric", "latency_app_s", "--resamples", "30"]), 0)
+        report = json.loads(stream.getvalue())
+        self.assertEqual(report["quality_status"], "blocked")
+        self.assertFalse(report["auto_selection_eligible"])
+        summary = result_summary_text(summarize_result_csv(self.csv), self.csv)
+        self.assertIn("weights_reinitialized", str(summary))
+        self.assertIn("loader-log", translate(summary, "en"))
+
 
 if __name__ == "__main__":
     unittest.main()

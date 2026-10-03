@@ -3,6 +3,7 @@ import csv
 import json
 import shutil
 import unittest
+from unittest.mock import patch
 
 import test_result_comparison as comparison_fixture
 
@@ -86,3 +87,35 @@ class IndependentComparisonTests(unittest.TestCase):
         report = self.compare([left], [right])
         self.assertEqual(report["status"], "incompatible")
         self.assertIsNone(report["groups"][0]["difference"])
+
+    def test_quality_reaches_run_and_side_without_changing_statistics(self):
+        from acprof.quality import loading_quality
+        left = self.replicate("left", 0, [2])
+        right = self.replicate("right", 0, [3])
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader")
+        self.fixture.write_json(right, "quality_checks.json", {"schema_version": 1, "checks": checks})
+        report = self.compare([left], [right])
+        self.assertEqual(report["status"], "compatible")
+        side = report["groups"][0]["right"]
+        self.assertEqual(side["mean"], 3)
+        self.assertEqual(side["quality_status"], "blocked")
+        self.assertFalse(side["auto_selection_eligible"])
+        self.assertEqual(side["runs"][0]["quality_status"], "blocked")
+        self.assertEqual(report["quality"]["right"]["quality_checks"][0]["code"], "weights_reinitialized")
+        self.assertIn(str(right / "quality_checks.json"), report["source_sha256"])
+
+    def test_quality_change_during_comparison_invalidates_snapshot(self):
+        from acprof.analysis.comparison import compare_results
+        left = self.replicate("left", 0, [2])
+        right = self.replicate("right", 0, [3])
+        self.fixture.write_json(right, "quality_checks.json", {"schema_version": 1, "checks": []})
+
+        def change_after_read(a, b, **kwargs):
+            result = compare_results(a, b, **kwargs)
+            if b == right:
+                self.fixture.write_json(right, "quality_checks.json", {"schema_version": 1, "checks": [], "changed": True})
+            return result
+
+        with patch("acprof.analysis.independent_comparison.compare_results", side_effect=change_after_read):
+            with self.assertRaisesRegex(ValueError, "experiment changed.*quality_checks"):
+                self.compare([left], [right])

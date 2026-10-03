@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
+from acprof.analysis.conditions import PURPOSES
 from acprof.analysis.independent_comparison import compare_experiments
 from acprof.artifacts import atomic_write_json
 
@@ -12,7 +13,7 @@ def main(argv=None):
     parser.add_argument("--left", type=Path, action="append", required=True, help="左组独立实验，可重复")
     parser.add_argument("--right", type=Path, action="append", required=True, help="右组独立实验，可重复")
     parser.add_argument("--metric", action="append")
-    parser.add_argument("--purpose", choices=("same-hardware", "cross-hardware"), default="same-hardware")
+    parser.add_argument("--purpose", choices=PURPOSES, default="same-hardware")
     parser.add_argument("--confidence", type=float, default=0.95)
     parser.add_argument("--resamples", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=0)
