@@ -10,8 +10,11 @@ from unittest.mock import patch
 
 import test_model_contract as contracts
 import test_run_recovery as recovery
+from huggingface_hub.errors import RepositoryNotFoundError
+from test_model_lookup import hub_error
 
 from acprof.host.collection_workflow import PreparationWorkflow
+from acprof.host.detect import detect_task
 from acprof.host.model_inspection import explain_resolution
 from acprof.model_spec import task_model_spec
 
@@ -22,6 +25,18 @@ def events(output):
 
 
 class CollectionWorkflowTests(unittest.TestCase):
+    def test_resolution_failure_preserves_typed_error_in_preparation_request(self):
+        output = io.StringIO()
+        workflow = PreparationWorkflow(interactive=True)
+        with patch("huggingface_hub.HfApi.model_info", side_effect=hub_error(RepositoryNotFoundError, 404)), patch(
+            "sys.stdin", io.StringIO('{"id":1,"action":"cancel"}\n'),
+        ), patch("sys.stdout", output), self.assertRaises(KeyboardInterrupt):
+            workflow.run("resolution", detect_task, "asdf")
+        request = next(item["request"] for item in events(output) if item.get("request"))
+        self.assertEqual(request["model_error"]["reason_code"], "repository_unavailable")
+        self.assertEqual(request["model_error"]["model_id"], "asdf")
+        self.assertNotIn("SystemExit", request["detail"])
+
     def setUp(self):
         self.run = recovery.RunRecoveryTests()
         self.run.setUp()

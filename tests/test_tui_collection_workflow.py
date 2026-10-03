@@ -6,6 +6,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Select, Static
@@ -30,6 +31,26 @@ class PreparationProgressTests(unittest.TestCase):
 
 
 class TuiCollectionWorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_model_lookup_error_is_translated_in_preparation_dialog(self):
+        from acprof.host.model_errors import ModelLookupError
+        from acprof.tui.preparation import PreparationScreen
+
+        error = ModelLookupError("asdf", "repository_unavailable", detail="RepositoryNotFoundError: fixture")
+        event = {"stage": "resolution", "request": {"id": 1, "kind": "error", "detail": str(error),
+                                                   "model_error": error.to_dict()}}
+        with tempfile.TemporaryDirectory() as directory:
+            app = AcprofTui(RunConfig(model="asdf"), settings_path=Path(directory, "settings.json"))
+            async with app.run_test(size=(80, 24)) as pilot:
+                app.query_one("#ui-language", Select).value = "en"
+                await pilot.pause()
+                await app.push_screen(PreparationScreen(event, "pending"))
+                await pilot.pause()
+                detail = cast(str, app.screen.query_one("#preparation-detail", Static).content)
+                self.assertIn("not found", detail)
+                self.assertIn("asdf", detail)
+                self.assertNotIn("未找到", detail)
+                self.assertNotIn("SystemExit", detail)
+
     async def test_start_button_keeps_real_child_alive_through_answer_and_retry(self):
         script = textwrap.dedent('''
             import os

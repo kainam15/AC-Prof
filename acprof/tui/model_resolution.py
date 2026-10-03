@@ -10,6 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Label, Static
 
 from acprof.artifacts import atomic_write_json
+from acprof.host.model_errors import ModelLookupError, model_lookup_error
 from acprof.host.model_inspection import explain_resolution
 from acprof.model_contract import write_model_resolution
 from acprof.model_review import apply_review, review_questions
@@ -18,7 +19,7 @@ from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
 
 
-class ModelResolutionScreen(ModalScreen):
+class ModelResolutionScreen(ModalScreen[dict | None]):
     BINDINGS = [("escape", "close", "关闭")]
     DEFAULT_CSS = """
     ModelResolutionScreen { align: center middle; }
@@ -38,6 +39,7 @@ class ModelResolutionScreen(ModalScreen):
         self.config = config
         self.task_info = task
         self.error = ""
+        self.lookup_failure: ModelLookupError | None = None
 
     def compose(self):
         tr = self.app.tr
@@ -45,10 +47,13 @@ class ModelResolutionScreen(ModalScreen):
         questions = review_questions(self.task_info) if self.task_info else []
         ready = contract.get("status") == "resolved"
         editable = bool(questions) and not any(item.get("read_only") for item in questions)
+        failure = self.lookup_failure
         with Vertical(id="resolution-dialog"):
-            yield Label(tr("模型契约解析"), id="resolution-title")
+            yield Label(tr("模型检查失败" if failure else "模型契约解析"), id="resolution-title")
             with VerticalScroll(id="resolution-scroll"):
-                yield Static(explain_resolution(self.task_info) if self.task_info else tr("正在读取模型证据……"),
+                body = tr(failure.summary) if failure else (
+                    explain_resolution(self.task_info) if self.task_info else tr("正在读取模型证据……"))
+                yield Static(body,
                              id="resolution-body", markup=False)
                 for index, item in enumerate(questions):
                     yield Label(item["path"])
@@ -63,15 +68,21 @@ class ModelResolutionScreen(ModalScreen):
                 if self.task_info:
                     with Collapsible(title=tr("已解析字段与证据"), collapsed=True):
                         yield Static(explain_resolution(self.task_info, explain=True), id="resolution-details", markup=False)
-                yield Static(tr("Probe 使用 CPU 2 核、4 GiB、300 秒上限；可能构建镜像和下载模型。"), markup=False)
-                yield Static(self.error, id="resolution-error", markup=False)
+                if not failure:
+                    yield Static(tr("Probe 使用 CPU 2 核、4 GiB、300 秒上限；可能构建镜像和下载模型。"), markup=False)
+                yield Static(tr(failure.hint) if failure else self.error, id="resolution-error", markup=False)
+                if failure:
+                    with Collapsible(title=tr("错误详情"), collapsed=True):
+                        yield Static(failure.detail, id="resolution-error-details", markup=False)
             with Horizontal(classes="resolution-buttons"):
                 yield Button(tr("应用字段"), id="resolution-apply", disabled=not editable)
                 yield Button("basic Probe", id="resolution-basic", disabled=not ready)
                 yield Button("full Probe", id="resolution-full", disabled=not ready)
             with Horizontal(classes="resolution-buttons"):
                 yield Button(tr("使用契约"), id="resolution-use", disabled=not ready, variant="primary")
-                yield Button(tr("关闭"), id="resolution-close")
+                if failure and failure.retryable:
+                    yield Button(tr("重试"), id="resolution-retry", variant="primary")
+                yield Button(tr("返回修改" if failure else "关闭"), id="resolution-close")
 
     def on_mount(self):
         if self.task_info is None:
@@ -89,14 +100,23 @@ class ModelResolutionScreen(ModalScreen):
                                model_spec_path=self.config.model_spec or None)
             error = ""
         except (Exception, SystemExit) as exc:
-            task, error = None, str(exc)
+            task, error = None, model_lookup_error(self.config.model, exc, revision=self.config.revision)
         self.app.call_from_thread(self.resolved, task, error)
 
     def resolved(self, task, error):
         if not self.is_mounted:
             return
-        self.task_info, self.error = task, error
+        self.lookup_failure = error if isinstance(error, ModelLookupError) else None
+        self.task_info, self.error = task, str(error)
         self.refresh(recompose=True)
+
+    @on(Button.Pressed, "#resolution-retry")
+    def retry(self):
+        if not self.lookup_failure or not self.lookup_failure.retryable:
+            return
+        self.lookup_failure, self.error = None, ""
+        self.refresh(recompose=True)
+        self.resolve()
 
     @on(Button.Pressed, "#resolution-apply")
     def apply_answers(self):
@@ -135,4 +155,4 @@ class ModelResolutionScreen(ModalScreen):
 
     @on(Button.Pressed, "#resolution-close")
     def action_close(self):
-        self.dismiss(None)
+        self.dismiss({"action": "edit_model"} if self.lookup_failure else None)

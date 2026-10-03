@@ -6,6 +6,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Label, Static
 
+from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
@@ -51,7 +52,14 @@ class PreparationScreen(ModalScreen):
                 yield Static(tr(self.summary), markup=False)
                 yield Static(tr("确认后继续当前采集，无需重新开始。" if review else
                                 "修复下列问题后重试；已完成的阶段保留。"), markup=False)
-                yield Static(self.request.get("detail", ""), id="preparation-detail", markup=False)
+                model_error = self.request.get("model_error")
+                if model_error:
+                    failure = ModelLookupError(**model_error)
+                    yield Static(f"{tr(failure.summary)}\n{tr(failure.hint)}", id="preparation-detail", markup=False)
+                    with Collapsible(title=tr("错误详情"), collapsed=True):
+                        yield Static(failure.detail, markup=False)
+                else:
+                    yield Static(self.request.get("detail", ""), id="preparation-detail", markup=False)
                 if not review and self.stage == "runtime":
                     yield Static(tr("若修复涉及镜像内文件或依赖，请重新准备环境。"), markup=False)
                 for index, question in enumerate(self.request.get("questions", [])):

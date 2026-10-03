@@ -3,16 +3,79 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
+import httpx
 import test_model_contract as fixture
-from textual.widgets import Button, Select, Static
+from huggingface_hub.errors import RepositoryNotFoundError
+from test_model_lookup import hub_error
+from textual.widgets import Button, Collapsible, Input, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 
 
 class TuiModelResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_network_failure_can_retry_and_clears_the_previous_error(self):
+        task = fixture.ModelContractTests().discover()
+        for language, retry, hint in (("zh", "重试", "检查网络"), ("en", "Retry", "network")):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory, patch(
+                "acprof.host.env_utils.bootstrap_project_env",
+            ), patch("acprof.host.detect.detect_task", side_effect=[httpx.ReadTimeout("fixture timeout"), task]) as detect:
+                app = AcprofTui(RunConfig(model=task.model_id), settings_path=Path(directory, "settings.json"))
+                async with app.run_test(size=(80, 24)) as pilot:
+                    app.query_one("#ui-language", Select).value = language
+                    await pilot.pause()
+                    app.inspect_model()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertIn(hint, cast(str, app.screen.query_one("#resolution-error", Static).content))
+                    self.assertEqual(str(app.screen.query_one("#resolution-retry", Button).label), retry)
+                    self.assertTrue(await pilot.click("#resolution-retry"))
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    self.assertEqual(detect.call_count, 2)
+                    self.assertEqual(app.screen.query_one("#resolution-error", Static).content, "")
+                    self.assertFalse(app.screen.query_one("#resolution-use", Button).disabled)
+
+    async def test_missing_model_replaces_loading_and_returns_to_model_field(self):
+        for language, size, title, hint, back in (
+            ("zh", (80, 24), "模型检查失败", "未找到模型", "返回修改"),
+            ("en", (120, 30), "Model check failed", "not found", "Edit model ID"),
+        ):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory, patch(
+                "acprof.host.env_utils.bootstrap_project_env",
+            ), patch("huggingface_hub.HfApi.model_info", side_effect=hub_error(RepositoryNotFoundError, 404)), patch(
+                "acprof.host.detect._download_metadata", side_effect=OSError("missing"),
+            ):
+                app = AcprofTui(RunConfig(model="asdf"), settings_path=Path(directory, "settings.json"))
+                async with app.run_test(size=size) as pilot:
+                    app.query_one("#ui-language", Select).value = language
+                    await pilot.pause()
+                    app.inspect_model()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    screen = app.screen
+                    self.assertNotEqual(screen.query_one("#resolution-error", Static).content, "1")
+                    self.assertEqual(screen.query_one("#resolution-title", Static).content, title)
+                    self.assertIn(hint, cast(str, screen.query_one("#resolution-body", Static).content))
+                    text = "\n".join(content for widget in screen.query(Static)
+                                     if isinstance(content := widget.content, str))
+                    self.assertNotIn("正在读取", text)
+                    self.assertNotIn("Reading model evidence", text)
+                    self.assertNotIn("300", text)
+                    self.assertTrue(screen.query_one("#resolution-basic", Button).disabled)
+                    self.assertTrue(screen.query_one("#resolution-use", Button).disabled)
+                    self.assertTrue(screen.query_one(Collapsible).collapsed)
+                    self.assertEqual(str(screen.query_one("#resolution-close", Button).label), back)
+                    self.assertTrue(await pilot.click("#resolution-close"))
+                    await pilot.pause()
+                    model = app.query_one("#model", Input)
+                    self.assertEqual(model.value, "asdf")
+                    self.assertIs(app.focused, model)
+                    self.assertFalse(app._is_busy())
+
     async def test_probe_uses_managed_process_and_preserves_reviewed_revision(self):
         task = fixture.ModelContractTests().discover()
         with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task) as detect, patch(

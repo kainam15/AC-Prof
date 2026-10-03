@@ -303,6 +303,8 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `review_inputs` 为模型检查与准备阶段提供同一套候选选择／JSON 输入，不复制模型裁决规则。
+`host.model_errors` 保留模型查找失败的类型、身份和诊断；`detect` 抛出业务异常，公共 CLI dispatcher
+将其转换为退出码。模型检查与准备弹窗翻译同一组结构化提示，原始诊断放入折叠详情。
 `run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
 `app` 继续持有控件、busy/measurement 状态、确认框、报告加载与显示，不把 `self.query_*()` 搬到新 controller。

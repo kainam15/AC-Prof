@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
+from acprof.host.model_errors import ModelLookupError
 from acprof.model_evidence import content_digest, pinned_revision
 from acprof.preparation_events import MAX_MESSAGE, encode_event
 
@@ -94,7 +95,8 @@ class PreparationWorkflow:
                 detail = f"{type(exc).__name__}: {exc}"
                 if not self.interactive:
                     raise
-                self.ask(stage, "error", detail=detail)
+                fields = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                self.ask(stage, "error", detail=detail, **fields)
             else:
                 self.emit(stage, "passed")
                 return value

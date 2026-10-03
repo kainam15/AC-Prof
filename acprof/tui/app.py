@@ -1635,10 +1635,15 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._set_busy(True)
         self.push_screen(ModelResolutionScreen(config, task=task), self._resolution_closed)
 
-    def _resolution_closed(self, result) -> None:
+    def _resolution_closed(self, result: dict | None) -> None:
         self._resolution_open = False
         self._set_busy(False)
         if not result:
+            return
+        if result.get("action") == "edit_model":
+            model = self.query_one("#model", Input)
+            model.scroll_visible(animate=False, immediate=True)
+            model.focus()
             return
         self._last_resolution = result
         self.query_one("#model-spec", Input).value = str(result["spec"])
