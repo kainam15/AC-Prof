@@ -25,6 +25,7 @@ from acprof.config import (
 )
 from acprof.host import command as host_command
 from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
+from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.container_state import container_runtime_oom_error
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -340,6 +341,11 @@ def run_single_case(
             request_timeout_seconds=request_timeout_seconds,
             cpuset_cpus=cpuset_cpus,
         )
+    except ContainerCleanupError as exc:
+        from acprof.artifacts import atomic_write_json
+        atomic_write_json(case.sidecar("cleanup_error"), exc.to_dict())
+        emit_event("case_finished", case_name, status="error")
+        raise
     except RuntimeError as exc:
         error = f"container_start_failed: {exc}"
         print(f"[case] {error}", file=sys.stderr)
@@ -537,6 +543,7 @@ def run_single_case(
         case_status = "cancelled"
         raise
     finally:
+        run_error = sys.exc_info()[1]
         try:
             try:
                 if tcpdump_proc is not None and tcpdump_proc.poll() is None:
@@ -546,6 +553,10 @@ def run_single_case(
         except BaseException as exc:
             _LOG.debug("case cleanup failed: case=%s error_type=%s", case_name, type(exc).__name__)
             case_status = "error"
+            if isinstance(exc, ContainerCleanupError):
+                from acprof.artifacts import atomic_write_json
+                exc.run_error = run_error or exc.run_error
+                atomic_write_json(case.sidecar("cleanup_error"), exc.to_dict())
             raise
         finally:
             emit_event("case_finished", case_name, status=case_status)

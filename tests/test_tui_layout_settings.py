@@ -457,8 +457,11 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
                 config = RunConfig.smoke("demo/edited")
                 app = AcprofTui(config, settings_path=self.settings_path)
                 async with app.run_test(size=(120, 30)) as pilot:
+                    await pilot.press("f2")
+                    await pilot.pause()
                     app.query_one("#ui-theme", Select).value = "acprof-dark"
-                    await pilot.pause(0.12)
+                    await pilot.pause()
+                    self.assertEqual(app.ui_preferences.theme, "acprof-dark")
                     app._save_settings(remember_run=remember_run)
                 saved, warning = load_settings(self.settings_path, PROJECT_DIR)
                 self.assertEqual(warning, "")

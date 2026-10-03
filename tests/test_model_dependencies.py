@@ -85,3 +85,114 @@ class ModelDependencyTests(unittest.TestCase):
                                         ["tokenizer.json"])
             self.assertFalse(task_model_spec(task))
             lookup.assert_not_called()
+
+
+class DependencyCheckpointTests(unittest.TestCase):
+    def test_custom_index_shards_match_primary_checkpoint_selection(self):
+        from acprof.container.model_files import plan_download
+        from acprof.model_dependencies import dependency_files
+        index = 'model.safetensors.index.json'
+        names = ['config.json', index, 'weights/encoder.safetensors', 'weights/decoder.safetensors', 'pytorch_model.bin']
+        metadata = {'config.json': {'model_type': 'bert'}, index: {
+            'weight_map': {'encoder': names[2], 'decoder': names[3]}}}
+        expected = sorted(names[:-1])
+        self.assertEqual(dependency_files(names, {'weights'}, read_json=metadata.__getitem__), expected)
+        plan = plan_download(model_id='fixture/model', revision='a' * 40, family='nlp',
+            backend='transformers_pipeline', files={name: {'size': 1} for name in names},
+            read_json=metadata.__getitem__, native_model_types={'bert'})
+        self.assertEqual([item['path'] for item in plan['files']], expected)
+
+    def test_missing_shard_does_not_fall_back_to_incomplete_numbered_files(self):
+        from acprof.model_dependencies import dependency_files
+        index = 'model.safetensors.index.json'
+        first = 'model-00001-of-00002.safetensors'
+        missing = 'model-00002-of-00002.safetensors'
+        with self.assertRaisesRegex(ValueError, 'missing checkpoint shards'):
+            dependency_files(['config.json', index, first, 'pytorch_model.bin'], {'weights'},
+                             read_json=lambda _: {'weight_map': {'a': first, 'b': missing}})
+
+    def test_invalid_index_paths_and_selection_limit_still_fail(self):
+        from acprof.model_dependencies import dependency_files
+        index = 'model.safetensors.index.json'
+        for name in ('../outside.safetensors', '/outside.safetensors', 'bad\\name.safetensors'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'invalid model file path'):
+                dependency_files(['config.json', index], {'weights'}, read_json=lambda _: {'weight_map': {'a': name}})
+        shards = [f'shard{i}.safetensors' for i in range(127)]
+        with self.assertRaisesRegex(ValueError, '128 files'):
+            dependency_files(['config.json', index, *shards], {'weights'},
+                             read_json=lambda _: {'weight_map': dict(enumerate(shards))})
+
+    def test_declared_dependency_is_checked_before_weight_download(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from acprof.container.download_model import _prepare_repository_plan
+        index = 'model.safetensors.index.json'
+        names = ['config.json', index, 'first.safetensors']
+        hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=name, size=100) for name in names])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / index
+            path.write_text(json.dumps({'weight_map': {'a': 'first.safetensors', 'b': 'missing.safetensors'}}))
+            with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
+                'huggingface_hub.hf_hub_download', return_value=str(path),
+            ) as downloaded, self.assertRaisesRegex(ValueError, 'missing checkpoint shards'):
+                _prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
+                                         dependency={'allow_patterns': names}, native_types=set(), library_versions={})
+            self.assertTrue(all(call.args[1] == index for call in downloaded.call_args_list))
+
+
+    def test_metadata_byte_limit_is_checked_after_download(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from acprof.container.download_model import _prepare_repository_plan
+        index = 'model.safetensors.index.json'
+        hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index, size=100)])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / index
+            path.write_bytes(b' ' * (4 * 1024 * 1024) + b'{"weight_map":{"a":"missing"}}')
+            with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
+                'huggingface_hub.hf_hub_download', return_value=str(path),
+            ), self.assertRaisesRegex(ValueError, 'invalid model metadata'):
+                _prepare_repository_plan('https://fixture.invalid', 'fixture/model', 'a' * 40,
+                                         dependency={'allow_patterns': [index]}, native_types=set(), library_versions={})
+
+
+class DependencyMetadataBudgetTests(unittest.TestCase):
+    def test_unknown_or_oversized_index_is_rejected_before_download(self):
+        from unittest.mock import patch
+
+        from acprof.host.detect import dependency_metadata
+        index = 'model.safetensors.index.json'
+        hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index)])
+        for size in (None, -1, '100', 4 * 1024 * 1024 + 1):
+            with self.subTest(size=size), patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
+                'huggingface_hub.HfApi.get_paths_info', return_value=[SimpleNamespace(path=index, size=size)],
+            ), patch('acprof.host.detect._download_metadata', side_effect=AssertionError('index download started before size validation')) as download:
+                metadata = dependency_metadata('fixture/model', 'main')
+                with self.assertRaisesRegex(ValueError, 'metadata size'):
+                    metadata['read_json'](index)
+                download.assert_not_called()
+
+    def test_valid_index_budget_lookup_is_lazy_and_uses_the_pinned_revision(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from acprof.host.detect import dependency_metadata
+        index = 'model.safetensors.index.json'
+        hub = SimpleNamespace(sha='a' * 40, siblings=[SimpleNamespace(rfilename=index)])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / index
+            path.write_text('{"weight_map":{"a":"custom.safetensors"}}')
+            with patch('huggingface_hub.HfApi.model_info', return_value=hub), patch(
+                'huggingface_hub.HfApi.get_paths_info', return_value=[SimpleNamespace(path=index, size=path.stat().st_size)],
+            ) as lookup, patch('acprof.host.detect._download_metadata', return_value=str(path)) as download:
+                metadata = dependency_metadata('fixture/model', 'main')
+                lookup.assert_not_called()
+                self.assertEqual(metadata['read_json'](index)['weight_map'], {'a': 'custom.safetensors'})
+                lookup.assert_called_once_with('fixture/model', paths=[index], revision='a' * 40, repo_type='model')
+                download.assert_called_once_with('fixture/model', index, 'a' * 40)

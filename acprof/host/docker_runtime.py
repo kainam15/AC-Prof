@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import math
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -19,7 +20,11 @@ from acprof.config import (
     SERVER_PORT,
 )
 from acprof.host import command as host_command, container_state
-from acprof.host.container_lifecycle import container_owner_labels, recover_abandoned_containers
+from acprof.host.container_lifecycle import (
+    container_owner_labels,
+    recover_abandoned_containers,
+    remove_owned_container,
+)
 from acprof.host.container_state import (
     ContainerStartupError,
 )
@@ -148,7 +153,7 @@ def _launch_container(command: List[str]) -> str:
         except BaseException:
             identifier = cidfile.read_text().strip() if cidfile.is_file() else ""
             if re.fullmatch(r"[0-9a-f]{64}", identifier):
-                host_command.run_command(['docker', 'rm', '-f', identifier], check=False)
+                remove_owned_container(identifier, host_command.run_command)
             raise
 
 
@@ -221,8 +226,11 @@ def start_container_session(
 
     def fail_startup(reason: str, *, timed_out: bool = False) -> None:
         state = container_state.inspect_container_state(container_id)
-        logs = host_command.run_command(['docker', 'logs', container_id, '--tail', '200'], check=False)
-        diagnostic = ((logs.stdout or "") + "\n" + (logs.stderr or "")).strip()
+        try:
+            logs = host_command.run_command(['docker', 'logs', container_id, '--tail', '200'], check=False, timeout=15)
+            diagnostic = ((logs.stdout or "") + "\n" + (logs.stderr or "")).strip()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            diagnostic = f"container log unavailable: {type(exc).__name__}"
         if diagnostic:
             print(diagnostic[-8000:], file=sys.stderr)
         raise ContainerStartupError(
@@ -301,7 +309,7 @@ def start_container_session(
             timed_out=True,
         )
     except BaseException:
-        host_command.run_command(['docker', 'rm', '-f', container_id], check=False)
+        remove_owned_container(container_id, host_command.run_command)
         raise
 
 
@@ -310,7 +318,4 @@ def stop_container_session(session: RunningContainer, log_prefix: Optional[str] 
         raise ValueError("refusing to remove a container without its owned immutable ID")
     if log_prefix:
         print(f"{log_prefix} Stopping container...")
-    try:
-        host_command.run_command(['docker', 'stop', session.container_id], check=False)
-    finally:
-        host_command.run_command(['docker', 'rm', '-f', session.container_id], check=False)
+    remove_owned_container(session.container_id, host_command.run_command, stop=True)

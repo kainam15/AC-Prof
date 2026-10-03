@@ -354,6 +354,12 @@ Warmup 和 Repeat 分别输入，次数、Hz 和 s 放在输入框右侧。采�
 
 实验参数中的“下载与 Model Store”提供下载源模式、`max-download`、Model Store 路径和容量上限，保存实验默认配置后会恢复这些字段。连接配置也可保存对应环境变量。开始准备后，在大下载前展示 expected / DIRECT / PROXY、模型缓存、runtime 来源与磁盘余量；DIRECT/PROXY 是预期分类，不是已验证的 VPN 分流。存在待下载量或未知量时弹出计划确认；预算未知/超限时先报错，不能通过确认绕过预算。该过程全部在正式测量前，测量窗口不扫描磁盘、不查询下载源。
 
-下载完成后同一区域显示已校验的新增模型 payload、cache savings；未知 wire bytes 不显示成零。“Model Store 占用与清理”按需展示总量、各模型、free space 和 LRU 删除预览，确认后才清理，活动 lease 与预览后新增的模型会保留。关闭面板后恢复实验操作，运行和测量期间不能打开清理面板。
+下载完成后同一区域显示已校验的新增模型 payload、cache savings；未知 wire bytes 不显示成零。
+“Model Store 占用与清理”先显示总量、各模型和 free space，再加载 LRU 删除预览。
+若缓存锁由另一任务持有，面板显示等待原因；关闭按钮或 Esc 可以取消等待与扫描，无需等下载任务结束。
+后台读取释放资源后关闭面板并恢复实验操作，避免残留扫描与随后启动的测量重叠。
+
+清理仍需确认，删除前在锁内复检活动 lease、共享权重和批准范围，预览后新增的模型会保留。
+实际删除已经开始时先完成锁内收尾，再处理关闭请求；运行和测量期间不能打开清理面板。
 
 Model Store 清理命令和 lease/LRU 语义见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。真实终端效果需另验，headless 交互不代替 SSH/VS Code 客户端验证。

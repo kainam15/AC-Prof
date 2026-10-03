@@ -15,6 +15,38 @@
 独立接口验证与 startup probe 可能预热宿主机文件缓存。冷启动描述全新容器的进程和模型初始化，
 不承诺磁盘冷缓存；`cold_start_first_predict_app_s` 不计入 `/ready` 前的分段和，也不新增推理请求。
 
+### 容器清理与失败证据
+
+正式 case、startup probe 和独立 runtime validation 使用同一组 owner 标签（主机、用户、
+boot、PID 与进程 starttime），并通过 Docker 的 `--cidfile` 或成功启动返回的完整容器 ID
+确定清理对象。名称只用于显示；进程被强杀后，下一次启动只回收可证明 owner 已退出的本机容器。
+启动前若发现完整 owner 标签仍属于当前进程的容器（包括已退出但尚未删除的容器），
+直接记录 `preflight` 清理问题并拒绝启动，不删除活 owner 的容器。同一 PID 捕获异常后显式重试
+也必须先解决残留；其他活 owner 的容器继续保留，PID 相同但 boot/starttime 不同仍按原规则核验。
+
+清理在测量窗口结束后执行：`stop --time 10` 的 CLI 上限为 15 秒，`rm -f` 为 30 秒，
+状态 inspect 为 15 秒。stop 失败但 rm 成功仍算清理完成；rm 失败或超时后必须 inspect，
+只有明确的该 ID 不存在响应才视为完成。容器仍存在或 Docker 状态无法确认时中止后续 case。
+恢复遗留容器也使用同一移除规则，不根据删除命令中的任意 “No such” 文本推断成功。
+
+失败 case 的 `cleanup_error.json`（flat 布局为 `<case.csv>.cleanup_error.json`）保存 schema v1：
+`status=incomplete`、不可变 `container_id`、`final_state=present/unknown`、可用的 `docker_state`、
+各命令的 `operations`（操作、秒数上限、返回码或异常）及原始 `run_error`（类型与详情）。
+独立验证将同一结构放在 `runtime_validation.json` 的 `devices.<device>.cleanup_error`；
+启动前拒绝则保存到顶层 `cleanup_error` 并设置 `cleanup_status=incomplete`，尚未产生设备验证结果。
+原推理失败记录继续保留；清理不完整不会被成功验证覆盖。Docker 超时后 cidfile 缺失、损坏或不可读
+同样记为 `unknown`，保留原超时阶段和预算证据，不根据容器名称猜测归属或执行删除。
+历史结果缺此 sidecar 表示未记录该项证据，
+不能据此推断容器清理成功。续跑将失败 case 的清理 sidecar 与原始运行证据一起归档，
+新 attempt 不覆盖旧失败。诊断不改变 CSV 指标和冷启动计算。
+
+重试已有 cleanup debt 前，调用方先核对原主机与 Docker daemon 身份，并持有测量锁；
+`recover_cleanup_debt` 复用上述 abandoned-owner 恢复，再对旧错误中的完整容器 ID 逐一做有界 inspect。
+另一活 owner 的容器即使被安全恢复跳过，也不能算已清理；缺失或非法 ID 时必须再次确认
+同主机、同用户的 lifecycle 标签范围为空。查询超时、返回损坏或仍有容器时保留旧 debt 并拒绝后续工作。
+成功证据记录 `status=complete`、`verified_container_ids`、`recovered_container_ids`、
+`owner_scope`、必要时的 `scoped_inventory_empty` 与核验 `operations`；原失败证据继续归档。
+
 ### Measurement preparation 与窗口副作用
 
 每个窗口在第一个 monitor 采样前完成 preparation。已有 CPU/RAPL、NVML 和 cgroup reader

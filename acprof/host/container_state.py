@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from typing import Any, Dict, Optional
 
 from acprof.host.command import run_command
+from acprof.host.container_lifecycle import INSPECT_TIMEOUT_S
 
 _LOG = logging.getLogger(__name__)
 
@@ -38,10 +40,11 @@ def inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=INSPECT_TIMEOUT_S,
             encoding="utf-8",
             errors="replace",
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         _LOG.debug("container inspect unavailable: error_type=%s", type(exc).__name__)
         return None
 

@@ -149,6 +149,37 @@ jobs:
           name: host-summary
           path: evidence/host-summary.json
 
+  wheel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.13'
+          python-version: '3.12'
+      - name: 构建并隔离安装当前提交的 wheel
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/wheel-dist"
+          uv venv "$RUNNER_TEMP/acprof-wheel" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --require-hashes -r requirements/host.lock
+          uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --no-deps "$RUNNER_TEMP"/wheel-dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/acprof-wheel/bin/python"
+      - name: 从空目录验证安装包、公共入口、报告资源与子进程
+        shell: bash
+        run: |
+          mkdir -p evidence
+          cp scripts/check_distribution.py "$RUNNER_TEMP/check_distribution.py"
+          cd "$(mktemp -d)"
+          env -u PYTHONPATH "$RUNNER_TEMP/acprof-wheel/bin/python" -I "$RUNNER_TEMP/check_distribution.py" --report "$GITHUB_WORKSPACE/evidence/wheel.json" 2>&1 | tee "$GITHUB_WORKSPACE/evidence/wheel.log"
+        env:
+          ACPROF_WECOM_WEBHOOK_URL: ''
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: wheel
+          path: evidence/
+
   tui-snapshots:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -226,7 +257,8 @@ jobs:
           if [ "${{ matrix.profile }}" = custom-multimodal-cpu ]; then
             python scripts/check_runtime.py --profile custom-multimodal-cpu --test-pattern test_custom_multimodal_runtime.py --output-dir evidence/custom-multimodal || runtime_check_status=1
           elif [ -n "${{ matrix.profile }}" ]; then
-            python scripts/check_runtime.py --profile "${{ matrix.profile }}" --test-pattern test_transformers5_runtime.py --test-pattern test_audio_generation_runtime.py --output-dir evidence/transformers5 || runtime_check_status=1
+            python scripts/check_runtime.py --profile "${{ matrix.profile }}" --test-pattern test_transformers5_runtime.py --output-dir evidence/transformers5 || runtime_check_status=1
+            python scripts/check_runtime.py --profile multimodal-transformers560-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
           fi
           exit "$runtime_check_status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

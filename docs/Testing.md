@@ -416,7 +416,12 @@ PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 安装分发修改除普通回归外，还需构建 sdist/wheel，在隔离环境从空目录执行
 `scripts/check_distribution.py`；standalone 用 `--binary <path>` 执行相同验收。
 该脚本核对全部公共帮助入口、参数错误、无 Docker 时的 doctor JSON、内置资源和 packet worker 的实际输出。
-CI 另执行真实 `uv tool install`，构建步骤见[发行包说明](Distribution.md#linux-standalone)。
+日常 CI 的独立 `wheel` job 构建当前提交，并在新的 venv 中按 `host.lock` 安装依赖及 wheel。
+验证脚本复制到源码树外，从空目录执行，清除 `PYTHONPATH` 并使用 Python `-I`；同时核对
+`acprof.__file__` 位于安装环境内，拒绝意外使用源码或 editable 安装。公共入口从安装包 dispatcher
+读取，包含 `compare`、`load`、`model-store`；实际生成离线 HTML 并运行 packet worker，验证
+静态资源和子进程随包完整分发。报告和日志作为 `wheel` artifact 保存。
+standalone 和真实 `uv tool install` 保留在发布或按需流程；构建步骤见[发行包说明](Distribution.md#linux-standalone)。
 这些检查不代替 Docker/GPU 推理和完整 profiling。
 
 初始化入口修改运行 `test_setup.py` 和 `test_tui_onboarding.py`，覆盖缺失 uv、安装/诊断失败、
@@ -501,6 +506,16 @@ git diff --check
 再经过共享 Auto 加载、原生音频消息、真实 `generate` 和输出验证；逐参数核对加载权重，防止
 组合模型的前缀处理丢失权重。4.57.6 验证 Voxtral/Qwen2 Audio；5.6.0 另验证 Omni 文本子模型。
 这些随机权重验证接口，不证明完整 checkpoint 的容量、质量或正式 profiling 指标。
+
+`check_runtime.py` 将所选 `ACPROF_RUNTIME_PROFILE` 与 `ACPROF_MODEL_ADAPTER` 显式传入容器，
+让版本核对、adapter、精度和 remote-code 策略都绑定该 profile。共享同一依赖环境的不同任务仍
+各用合法 profile：5.6.0 的 NLP 与音频生成分别为 `nlp-transformers560-cpu` 和
+`multimodal-transformers560-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
+进程注册允许/拒绝 profile，生产信任策略不放宽；basic probe fixture 显式设置 backend。
+容器测试继续保留版本检查、禁网和 `--require-no-skips`。
+
+运行中 TUI 快照 fixture 必须持有 `poll() is None` 的进程，并先断言停止按钮可用后比较 SVG；
+偏好保存测试等待真实设置页事件生效。Headless 快照通过不代表真实终端显示已验收。
 
 本地入口：
 

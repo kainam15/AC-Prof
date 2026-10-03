@@ -79,7 +79,7 @@ class TuiDownloadTests(unittest.IsolatedAsyncioTestCase):
                         await pilot.pause()
                         applications = [call for call in prune.call_args_list if call.kwargs.get("apply")]
                         self.assertEqual(len(applications), 1)
-                        self.assertEqual(applications[0].kwargs["keep"], {"new"})
+                        self.assertEqual(applications[0].kwargs["approved_entries"], {"old"})
                         await pilot.click("#store-close")
                         await pilot.pause()
                         self.assertFalse(app._is_busy())

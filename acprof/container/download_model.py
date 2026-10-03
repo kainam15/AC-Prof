@@ -9,7 +9,12 @@ import json
 import os
 from pathlib import Path
 
-from acprof.container.model_files import ModelFilesError, plan_download, seal_plan
+from acprof.container.model_files import (
+    ModelFilesError,
+    plan_download,
+    resolve_checkpoint,
+    seal_plan,
+)
 from acprof.hf_transport import configure_hf_transport
 
 CACHE_DIR = None
@@ -54,7 +59,11 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
             raise ModelFilesError(f"metadata size is unknown or exceeds 4 MiB: {name}")
         path = hf_hub_download(model_id, name, revision=info.sha, cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint)
         try:
-            return json.loads(Path(path).read_text())
+            with Path(path).open("rb") as stream:
+                data = stream.read(4 * 1024 * 1024 + 1)
+            if len(data) > 4 * 1024 * 1024:
+                raise ModelFilesError(f"metadata exceeds 4 MiB: {name}")
+            return json.loads(data)
         except (ValueError, UnicodeError) as exc:
             raise ModelFilesError(f"invalid model metadata: {name}") from exc
 
@@ -66,6 +75,10 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
         files = selected
         if not files:
             raise ModelFilesError(f"dependency patterns select no files: {model_id}")
+    if dependency is not None:
+        # Explicit declarations also need completeness checks before weights or builds.
+        # Metadata-only dependencies have no checkpoint and remain valid.
+        resolve_checkpoint(set(files), read_json)
     plan = plan_download(
         model_id=model_id, revision=info.sha, family=(task.task_family if task else os.getenv("TASK_FAMILY", "")) if dependency is None else "dependency",
         backend=task.runtime_backend if task else os.getenv("RUNTIME_BACKEND", ""), files=files, read_json=read_json,

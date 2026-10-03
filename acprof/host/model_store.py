@@ -5,14 +5,20 @@ CPU/GPU builds share bytes and retain independent pinned dependency refs.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
 import re
 import shutil
+import stat
 import tempfile
-from contextlib import contextmanager
+import time
+from collections import Counter
+from collections.abc import Callable
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from threading import Event
 
 from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
 from acprof.dependency_locks import content_digest
@@ -27,7 +33,17 @@ from acprof.network_policy import (
     require_source_transition,
 )
 
+ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
 _LEASES: dict[str, object] = {}
+
+
+class ModelStoreCancelled(RuntimeError):
+    """The caller cancelled preparation or lock waiting before a GC mutation."""
+
+
+def _check_cancelled(cancel: Event | None) -> None:
+    if cancel is not None and cancel.is_set():
+        raise ModelStoreCancelled("Model Store operation cancelled")
 
 
 def store_root() -> Path:
@@ -66,10 +82,27 @@ def _json(path: Path, value: dict) -> None:
 
 
 @contextmanager
-def store_lock(root: Path):
+def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[], None] | None = None):
+    _check_cancelled(cancel)
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".lock").open("a") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        if cancel is None and on_wait is None:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+        else:
+            while True:
+                _check_cancelled(cancel)
+                try:
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if on_wait is not None:
+                        on_wait()
+                        on_wait = None
+                    if cancel is not None:
+                        cancel.wait(0.1)
+                    else:
+                        time.sleep(0.1)
+        _check_cancelled(cancel)
         yield
 
 
@@ -77,10 +110,33 @@ def read_entry(key: str, root: Path | None = None) -> dict | None:
     root = root or store_root()
     if not re.fullmatch(r"[a-f0-9]{64}", key):
         raise ValueError("invalid Model Store entry ID")
-    path = root / "entries" / key / PLAN_FILENAME
-    if not path.is_file():
+    try:
+        with ExitStack() as stack:
+            directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            stack.callback(os.close, directory)
+            # Anchor each component to its opened parent so a concurrent rename
+            # cannot redirect a metadata read through a replacement symlink.
+            for name in ("entries", key):
+                directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                stack.callback(os.close, directory)
+            descriptor = os.open(PLAN_FILENAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            stack.callback(os.close, descriptor)
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("Model Store metadata path must be a regular file")
+            if metadata.st_size > ENTRY_METADATA_MAX_BYTES:
+                raise ValueError("Model Store entry metadata exceeds the 4 MiB limit")
+            stream = stack.enter_context(os.fdopen(descriptor, "rb", closefd=False))
+            data = stream.read(ENTRY_METADATA_MAX_BYTES + 1)
+    except FileNotFoundError:
         return None
-    plan = json.loads(path.read_text())
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise ValueError("Invalid Model Store metadata path: symlink or non-directory component") from exc
+        raise
+    if len(data) > ENTRY_METADATA_MAX_BYTES:
+        raise ValueError("Model Store entry metadata exceeds the 4 MiB limit")
+    plan = json.loads(data.decode("utf-8"))
     validate_plan(plan)
     if plan.get("verification") != "sha256":
         raise ValueError("Model Store entry is not verified")
@@ -157,20 +213,34 @@ def model_sources(plan: dict, root: Path | None = None) -> list[DownloadSource]:
     return result
 
 
-def disk_report(root: Path | None = None) -> dict:
+def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dict:
+    _check_cancelled(cancel)
     root = root or store_root()
     existing = root
     while not existing.exists():
         existing = existing.parent
     free = shutil.disk_usage(existing).free
-    files = [path for path in root.rglob("*") if path.is_file() and not path.is_symlink()] if root.exists() else []
-    used = sum(path.stat().st_size for path in files)
+    used = 0
+    for path in root.rglob("*"):
+        _check_cancelled(cancel)
+        try:
+            if path.is_file() and not path.is_symlink():
+                used += path.stat().st_size
+        except FileNotFoundError:
+            continue  # Unlocked capacity summaries may overlap another task's cleanup.
     models = []
     for path in sorted((root / "entries").glob(f"*/{PLAN_FILENAME}")):
-        plan = read_entry(path.parent.name, root)
-        models.append({"entry_id": path.parent.name, "model_id": plan["model_id"],
-            "model_revision": plan["model_revision"], "model_artifact_bytes": plan.get("total_selected_bytes", plan["selected_bytes"]),
-            "last_used": (path.parent / "last-used").stat().st_mtime if (path.parent / "last-used").exists() else path.stat().st_mtime})
+        _check_cancelled(cancel)
+        try:
+            plan = read_entry(path.parent.name, root)
+            if plan is None:
+                continue
+            stamp = path.parent / "last-used"
+            models.append({"entry_id": path.parent.name, "model_id": plan["model_id"],
+                "model_revision": plan["model_revision"], "model_artifact_bytes": plan.get("total_selected_bytes", plan["selected_bytes"]),
+                "last_used": stamp.stat().st_mtime if stamp.exists() else path.stat().st_mtime})
+        except FileNotFoundError:
+            continue
     return {"path": str(root), "total_bytes": used, "free_bytes": free, "models": models,
             "capacity_bytes": parse_bytes(os.environ.get("ACPROF_MODEL_STORE_MAX"))}
 
@@ -290,54 +360,79 @@ def verify_entry(manifest: dict, root: Path | None = None) -> None:
     root = _recorded_root(record, root)
     mount_args(manifest, root)  # Acquire a lease before reading the snapshot.
     plan = read_entry(record["entry_id"], root)
+    if plan is None:
+        raise RuntimeError("Model Store entry disappeared after acquiring its lease")
     for repo in repository_plans(plan):
         snapshot = root / "entries" / record["entry_id"] / "hf" / ("models--" + repo["model_id"].replace("/", "--")) / "snapshots" / repo["model_revision"]
         verify_download(snapshot, repo)
 
 
-def prune_candidates(root: Path | None = None, keep: set[str] | None = None) -> dict:
+def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
+                     target_bytes: str | int | None = None, approved_entries: set[str] | None = None,
+                     cancel: Event | None = None) -> dict:
+    """Scan entry/blob references once, then decrement references in LRU order."""
     root = root or store_root()
     keep = keep or set()
-    candidates, pinned = [], set()
+    target = parse_bytes(target_bytes)
+    candidates, entry_blobs = [], {}
+    references: Counter[Path] = Counter()
     for path in (root / "entries").glob(f"*/{PLAN_FILENAME}"):
+        _check_cancelled(cancel)
         key = path.parent.name
+        leased = False
         try:
             with (root / (key + ".lease")).open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            keep.add(key)
-        if key in keep:
-            pinned.update(p.resolve() for p in (path.parent / "hf").rglob("*") if p.is_symlink())
-        else:
+            leased = True
+        links = set()
+        for link in (path.parent / "hf").rglob("*"):
+            _check_cancelled(cancel)
+            if link.is_symlink():
+                links.add(link.resolve())
+        entry_blobs[key] = links
+        references.update(links)
+        if not leased and key not in keep and (approved_entries is None or key in approved_entries):
             stamp = path.parent / "last-used"
             candidates.append((stamp.stat().st_mtime if stamp.exists() else 0, key))
-    blobs = [p for p in (root / "hf").glob("models--*/blobs/*") if p.is_file() and p.resolve() not in pinned]
-    return {"entries": [key for _, key in sorted(candidates)],
-            "reclaimable_bytes": sum(p.stat().st_size for p in blobs), "blobs": blobs}
+    blobs = {}
+    for path in (root / "hf").glob("models--*/blobs/*"):
+        _check_cancelled(cancel)
+        if path.is_file() and not path.is_symlink():
+            blobs[path.resolve()] = (path, path.stat().st_size)
+    unused = {blob for blob in blobs if not references[blob]}
+    reclaimed = sum(blobs[blob][1] for blob in unused)
+    used = disk_report(root, cancel=cancel)["total_bytes"] if target is not None else 0
+    selected = []
+    for _, key in sorted(candidates):
+        _check_cancelled(cancel)
+        if target is not None and used - reclaimed <= target:
+            break
+        selected.append(key)
+        for blob in entry_blobs[key]:
+            references[blob] -= 1
+            if references[blob] == 0 and blob in blobs:
+                unused.add(blob)
+                reclaimed += blobs[blob][1]
+    return {"entries": selected, "reclaimable_bytes": reclaimed,
+            "blobs": [blobs[blob][0] for blob in sorted(unused)]}
 
 
 def prune_store(*, root: Path | None = None, apply: bool = False, keep: set[str] | None = None,
-                target_bytes: str | int | None = None) -> dict:
+                target_bytes: str | int | None = None, approved_entries: set[str] | None = None,
+                cancel: Event | None = None, on_wait: Callable[[], None] | None = None) -> dict:
     root = root or store_root()
-    with store_lock(root):
-        result = prune_candidates(root, keep)
-        target = parse_bytes(target_bytes)
-        if target is not None:
-            used = disk_report(root)["total_bytes"]
-            ordered = result["entries"]
-            selected = set()
-            result = prune_candidates(root, set(ordered) | (keep or set()))
-            for key in ordered:
-                if used - result["reclaimable_bytes"] <= target:
-                    break
-                selected.add(key)
-                result = prune_candidates(root, (set(ordered) - selected) | (keep or set()))
+    with store_lock(root, cancel=cancel, on_wait=on_wait):
+        # Preview is advisory. Every application rechecks leases and shared blobs
+        # under the same lock used when publishing entries or acquiring leases.
+        result = prune_candidates(root, keep, target_bytes=target_bytes, approved_entries=approved_entries, cancel=cancel)
+        _check_cancelled(cancel)
         if apply:
+            # Once deletion begins, finish before releasing the lock/UI busy state.
             for key in result["entries"]:
                 shutil.rmtree(root / "entries" / key)
             for path in result["blobs"]:
                 path.unlink()
-            # Dangling Hub snapshot links contain no weights and must not masquerade as cache hits.
             for path in (root / "hf").rglob("*"):
                 if path.is_symlink() and not path.exists():
                     path.unlink()

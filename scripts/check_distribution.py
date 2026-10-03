@@ -31,9 +31,22 @@ def main(argv=None) -> int:
                 raise RuntimeError(f"{arguments}: exit={result.returncode}\n{result.stdout}\n{result.stderr}")
             return result
 
+        if not args.binary:
+            # Reject source/editable imports even if a .pth file bypasses PYTHONPATH isolation.
+            origin = subprocess.run([sys.executable, "-I", "-c",
+                "import acprof,json,sys; from acprof.cli.main import COMMANDS; "
+                "print(json.dumps({'path':acprof.__file__,'prefix':sys.prefix,'commands':list(COMMANDS)}))"],
+                cwd=workspace, env=environment, text=True, capture_output=True, timeout=30, check=True)
+            installed = json.loads(origin.stdout)
+            assert Path(installed["path"]).resolve().is_relative_to(Path(installed["prefix"]).resolve()), installed
+            evidence.append({"check": "installed_package_origin", "path": installed["path"]})
+            commands = installed["commands"]
+        else:
+            commands = ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto",
+                        "coverage", "report", "compare", "load", "model-store")
         run(["--version"])
         run(["--help"])
-        for command in ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto", "coverage", "report"):
+        for command in commands:
             run([command, "--help"])
         run(["invalid-command"], accepted=(2,))
         # Simulate a machine without Docker; JSON must still include valid bundled resources.

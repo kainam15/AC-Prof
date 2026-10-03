@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from acprof.artifacts import atomic_write_json
 from acprof.host import container_state, docker_runtime, runtime_identity
+from acprof.host.container_lifecycle import ContainerCleanupError
 
 PROBE_NAME = "startup_oom_pruning.json"
 
@@ -27,6 +28,8 @@ def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds, cpuset
         record.update(ready=True, outcome="startup_feasible", container_name=session.name,
                       container_id=session.container_id,
                       docker_state=container_state.inspect_container_state(session.container_id))
+    except ContainerCleanupError:
+        raise
     except container_state.ContainerStartupError as exc:
         record.update(outcome=exc.outcome, docker_state=exc.state, diagnostic=str(exc))
         if exc.container_name:

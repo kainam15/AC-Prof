@@ -16,6 +16,13 @@ from typing import Any
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
 from acprof.host.command import run_command
+from acprof.host.container_lifecycle import (
+    ContainerCleanupError,
+    container_owner_labels,
+    owned_container_id,
+    recover_abandoned_containers,
+    remove_owned_container,
+)
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
 
@@ -42,7 +49,7 @@ def validate_runtime(
         raise ValueError("镜像缺少 runtime_environment；请使用当前版本重新构建运行环境")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_info.tag):
         raise ValueError("runtime validation requires an immutable image ID")
-    from acprof.artifacts import require_schema_version
+    from acprof.artifacts import atomic_write_json, require_schema_version
     from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
     from acprof.host.model_store import mount_args
@@ -69,13 +76,23 @@ def validate_runtime(
     layout = ArtifactLayout.discover(root)
     failure = None
     structured_failure = None
+    cleanup_failure = None
+    owner = container_owner_labels()
+    try:
+        recover_abandoned_containers(owner, run_command)
+    except ContainerCleanupError as exc:
+        report.update(status="error", cleanup_status="incomplete", cleanup_error=exc.to_dict())
+        atomic_write_json(layout.path("runtime_validation.json"), report)
+        raise
+    labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
     with tempfile.TemporaryDirectory(prefix="acprof-runtime-validation-") as temporary:
         payload = Path(temporary) / "payload.json"
         payload.write_bytes(encoded)
         for device_mode in dict.fromkeys(gpu_list):
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
+            cidfile = Path(temporary) / f"{device_mode}.cid"
             command = [
-                "docker", "run", "--name", name, "--network", "none",
+                "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
                 "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",
                 "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
                 f"--cpus={max(cpu_list)}", f"--memory={max(mem_list)}g",
@@ -99,11 +116,15 @@ def validate_runtime(
             command += ["--entrypoint", "python", image_info.tag, "-m", "acprof.container.runtime_validate", "/validation-input.json"]
             print(f"[runtime-check] {device_mode}: {mode} 契约验证（独立容器）", flush=True)
             log = ""
+            run_error = None
             try:
                 result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
                 log = (result.stdout or "") + "\n" + (result.stderr or "")
                 records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines() if line.startswith(RESULT_PREFIX)]
-                state = inspect_container_state(name) or {}
+                identifier = owned_container_id(cidfile)
+                if not identifier and result.returncode == 0:
+                    raise ContainerCleanupError("", [{"operation": "run", "detail": "Docker returned without a cidfile"}])
+                state = (inspect_container_state(identifier) or {}) if identifier else {}
                 if state.get("OOMKilled"):
                     device_result = {"status": "resource_limit", "error": "validation_container_oom", "mem_cap_gb": max(mem_list)}
                     device_result["failure"] = Failure("runtime_validation", "resource_limit", "validation_container_oom",
@@ -141,7 +162,11 @@ def validate_runtime(
                             "request_id": name, "input_scale": entry["input_scale"]})
                         device_result["status"] = "inconclusive"
                     device_result["failure"] = value.to_dict()
+            except ContainerCleanupError as exc:
+                cleanup_failure = exc
+                device_result = {"status": "error", "error": str(exc)}
             except subprocess.TimeoutExpired as exc:
+                run_error = exc
                 _LOG.debug("runtime validation timeout: mode=%s timeout_s=%s", device_mode, timeout_seconds)
                 def decoded(value):
                     return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
@@ -156,7 +181,17 @@ def validate_runtime(
                                 stages.append(record)
                         except ValueError:
                             pass
-                state = inspect_container_state(name) or {}
+                try:
+                    identifier = owned_container_id(cidfile)
+                except ContainerCleanupError as cid_error:
+                    cleanup_failure = cid_error
+                    identifier = ""
+                if not identifier and cleanup_failure is None:
+                    cleanup_failure = ContainerCleanupError("", [{"operation": "read_cidfile",
+                        "detail": "no immutable ID after Docker timeout; container absence is unconfirmed"}])
+                if cleanup_failure is not None:
+                    cleanup_failure.run_error = exc
+                state = (inspect_container_state(identifier) or {}) if identifier else {}
                 detail = f"runtime_validation_timeout ({timeout_seconds:g}s); compatibility budget exhausted"
                 value = Failure("runtime_validation", "compatibility_budget_exhausted", detail, device_mode,
                     task_info.runtime_profile_id, "higher_budget", {
@@ -166,10 +201,17 @@ def validate_runtime(
                         "service_alive": state.get("Running"), "timeout_scope": "compatibility_budget", "stages": stages})
                 device_result = {"status": "inconclusive", "error": detail, "failure": value.to_dict()}
             except (ValueError, OSError, TypeError, AttributeError) as exc:
+                run_error = exc
                 _LOG.debug("runtime validation failed: mode=%s error_type=%s", device_mode, type(exc).__name__)
                 device_result = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
             finally:
-                run_command(["docker", "rm", "-f", name], capture_output=True, text=True)
+                try:
+                    identifier = owned_container_id(cidfile)
+                    if identifier:
+                        remove_owned_container(identifier, run_command)
+                except ContainerCleanupError as exc:
+                    exc.run_error = exc.run_error or run_error
+                    cleanup_failure = exc
             if device_result["status"] == "error" and "failure" not in device_result:
                 device_result["failure"] = failure_from_exception(
                     RuntimeError(device_result.get("error", "runtime validation failed")),
@@ -179,22 +221,29 @@ def validate_runtime(
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_path.write_text(log)
             report["devices"][device_mode] = device_result
+            if cleanup_failure is not None:
+                if cleanup_failure.run_error is None and device_result.get("error"):
+                    cleanup_failure.run_error = RuntimeError(device_result["error"])
+                device_result["cleanup_error"] = cleanup_failure.to_dict()
+                report["cleanup_status"] = "incomplete"
+                break
             if device_result["status"] in {"error", "inconclusive"}:
                 failure = f"{device_mode}: {device_result.get('error', 'runtime validation failed')}"
                 structured_failure = Failure(**device_result["failure"])
                 break
             print(f"[runtime-check] {device_mode}: {device_result['status']}", flush=True)
-    report["status"] = "error" if failure else (
+    report["status"] = "error" if failure or cleanup_failure else (
         "ok" if all(item["status"] == "ok" for item in report["devices"].values()) else "resource_limited"
     )
-    if any(item["status"] == "inconclusive" for item in report["devices"].values()):
+    if cleanup_failure is None and any(item["status"] == "inconclusive" for item in report["devices"].values()):
         report["status"] = "inconclusive"
-    from acprof.artifacts import atomic_write_json
     atomic_write_json(layout.path("runtime_validation.json"), report)
     if getattr(task_info, "model_resolution", {}):
         from acprof.model_contract import record_runtime_validation, write_model_resolution
         record_runtime_validation(task_info, report)
         write_model_resolution(task_info, root)
+    if cleanup_failure is not None:
+        raise cleanup_failure
     if failure:
         raise RuntimeValidationError(structured_failure)
     return report

@@ -62,10 +62,12 @@ class ContainerOwnershipTests(unittest.TestCase):
                   'org.acprof.owner.boot': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
                   'org.acprof.owner.pid': str(os.getpid()),
                   'org.acprof.owner.start': stat[19]}
+        live_pid = os.getppid()
+        live_start = Path(f'/proc/{live_pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
         snapshots = {}
         for index, overrides in enumerate((
             {'org.acprof.owner.start': str(int(stat[19]) - 1)},  # reused PID
-            {},  # live owner
+            {'org.acprof.owner.pid': str(live_pid), 'org.acprof.owner.start': live_start},  # another live owner
             {'org.acprof.owner.host': 'another-host'},
             {'org.acprof.owner.uid': str(os.getuid() + 1)},
             {'org.acprof.owner.start': ''},  # incomplete identity

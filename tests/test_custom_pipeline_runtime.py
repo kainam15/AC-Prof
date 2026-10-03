@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,16 @@ from unittest.mock import patch
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "transformers")),
                      "requires the NLP container")
 class CustomPipelineRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        from acprof.runtime_profiles import PROFILES
+        base = PROFILES[os.environ.get("ACPROF_RUNTIME_PROFILE", "nlp-cpu")]
+        # Only generated test code opts in; production remote-code policy stays strict.
+        allowed = replace(base, profile_id="fixture-nlp-custom", trust_remote_code=True)
+        denied = replace(base, profile_id="fixture-nlp-denied", trust_remote_code=False)
+        profiles = patch.dict(PROFILES, {allowed.profile_id: allowed, denied.profile_id: denied})
+        profiles.start()
+        self.addCleanup(profiles.stop)
+
     @staticmethod
     def snapshot(root: Path, *, broken=False):
         import torch
@@ -42,7 +53,17 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
         return {"ACPROF_MODEL_SPEC_B64": spec, "MODEL_LOCAL_PATH": str(root), "MODEL_ID": "local/custom",
                 "MODEL_REVISION": "a" * 40, "TASK_FAMILY": "nlp", "TASK_TYPE": "text-classification",
                 "RUNTIME_BACKEND": "transformers_pipeline", "USE_GPU": "0", "TORCH_NUM_THREADS": "1",
+                "ACPROF_RUNTIME_PROFILE": "fixture-nlp-custom",
                 "ACPROF_MODEL_ADAPTER": "family-default", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+
+    def test_custom_pipeline_rejects_a_profile_without_remote_code_permission(self):
+        from acprof.container.handlers.nlp import NLPHandler
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            encoded = self.snapshot(root)
+            environment = {**self.environment(root, encoded), "ACPROF_RUNTIME_PROFILE": "fixture-nlp-denied"}
+            with patch.dict(os.environ, environment), self.assertRaisesRegex(ValueError, "trust_remote_code=True"):
+                NLPHandler().load(str(root), "text-classification", "transformers_pipeline", "cpu")
 
     def test_custom_pipeline_matches_native_predictions_and_independent_validation(self):
         from transformers import pipeline

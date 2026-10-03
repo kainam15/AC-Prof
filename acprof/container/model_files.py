@@ -86,7 +86,7 @@ def validate_plan(plan: dict) -> None:
             raise ModelFilesError(f"invalid model dependency plan: {exc}") from exc
 
 
-def _checkpoint(names: set[str], read_json: Callable, prefix: str, *, diffusion: bool = False) -> dict | None:
+def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *, diffusion: bool = False) -> dict | None:
     stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
         ("model", "safetensors"), ("pytorch_model", "bin"),
     ]
@@ -148,7 +148,7 @@ def plan_download(
         model_type = config.get("model_type")
         if not isinstance(model_type, str) or model_type not in (native_model_types or set()):
             return None, "unregistered_model_type"
-        checkpoint = _checkpoint(names, read_json, prefix)
+        checkpoint = resolve_checkpoint(names, read_json, prefix)
         return checkpoint, "native_transformers" if checkpoint else "nonstandard_checkpoint"
 
     if policy == "auto" and adapter != "family-default":
@@ -217,7 +217,7 @@ def plan_download(
                             and "config.json" in names):
                         prefix = ""
                         component_names = {name for name in names if "/" not in name}
-                        if not _checkpoint(names, read_json, prefix, diffusion=True):
+                        if not resolve_checkpoint(names, read_json, prefix, diffusion=True):
                             raise ModelFilesError(f"missing pipeline component weights: {component}")
                     else:
                         raise ModelFilesError(f"missing pipeline component: {component}")
@@ -227,7 +227,7 @@ def plan_download(
                         reason = "nonstandard_diffusers_component"
                         break
                     continue
-                checkpoint = _checkpoint(names, read_json, prefix, diffusion=library == "diffusers")
+                checkpoint = resolve_checkpoint(names, read_json, prefix, diffusion=library == "diffusers")
                 if checkpoint is None:
                     reason = "nonstandard_diffusers_checkpoint"
                     break

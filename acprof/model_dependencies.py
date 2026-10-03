@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import fnmatch
-import re
 from pathlib import PurePosixPath
 from typing import Callable
 
+from acprof.container.model_files import resolve_checkpoint
 from acprof.model_evidence import pinned_revision
 from acprof.model_spec import validate_dependencies
 
@@ -17,7 +17,7 @@ _ROLES = {"tokenizer": _TOKENIZER, "processor": (*_TOKENIZER, "processor*.json",
           "weights": ("config.json", "generation_config.json")}
 
 
-def dependency_files(files: list[str], roles: set[str]) -> list[str]:
+def dependency_files(files: list[str], roles: set[str], *, read_json: Callable | None = None) -> list[str]:
     """Select known loader files; a processor declaration cannot select weights."""
     if roles - _ROLES.keys():
         raise ValueError("dependency loader role is unresolved")
@@ -32,21 +32,12 @@ def dependency_files(files: list[str], roles: set[str]) -> list[str]:
                    if ("/" not in name or name.startswith("chat_templates/") and name.count("/") == 1)
                    and any(fnmatch.fnmatchcase(name, pattern) for pattern in _ROLES[role])}
         if role == "weights":
-            # Select a single standard serialization, never all variants/checkpoints.
-            if "model.safetensors" in files:
-                weights = {"model.safetensors"}
-            elif "model.safetensors.index.json" in files:
-                weights = {name for name in files if re.fullmatch(r"model-\d{5}-of-\d{5}\.safetensors", name)}
-                if weights:
-                    weights.add("model.safetensors.index.json")
-            elif "pytorch_model.bin" in files:
-                weights = {"pytorch_model.bin"}
-            elif "pytorch_model.bin.index.json" in files:
-                weights = {name for name in files if re.fullmatch(r"pytorch_model-\d{5}-of-\d{5}\.bin", name)}
-                if weights:
-                    weights.add("pytorch_model.bin.index.json")
-            else:
-                weights = set()
+            def metadata(name):
+                if read_json is None:
+                    raise ValueError(f"dependency checkpoint index metadata unavailable: {name}")
+                return read_json(name)
+            checkpoint = resolve_checkpoint(set(files), metadata)
+            weights = set(checkpoint["files"]) if checkpoint else set()
             if not weights or "config.json" not in matches:
                 raise ValueError("dependency has no unambiguous standard model weights/config")
             matches |= weights
@@ -90,7 +81,8 @@ def resolve_dependencies(candidates: list[dict], resolve_repository: Callable | 
             if not pinned_revision(revision) or pinned_revision(requested) and revision != requested:
                 raise ValueError("dependency Hub response must match a fixed commit SHA")
             patterns = dependency_files(info["files"], {
-                "feature_extractor" if item.get("loader") == "AutoFeatureExtractor" else item["role"] for item in items})
+                "feature_extractor" if item.get("loader") == "AutoFeatureExtractor" else item["role"] for item in items},
+                read_json=info.get("read_json"))
             declaration = {"repo_id": repo, "revision": revision, "allow_patterns": patterns}
             validate_dependencies([declaration])
             dependencies.append(declaration)

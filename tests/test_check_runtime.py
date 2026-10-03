@@ -1,6 +1,7 @@
 """离线接口验证可指定扩展测试，避免把任务族等同于运行时。"""
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +14,28 @@ from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
 class RuntimeCheckSelectionTests(unittest.TestCase):
+    def test_container_uses_selected_profile_and_adapter_loading_policy(self):
+        from acprof.container.load_policy import registered_policy
+        image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
+                                platform_image_id='sha256:' + 'b' * 64, manifest={})
+        for profile_id, task, trust in (('nlp-transformers560-cpu', 'text-generation', False),
+                                         ('custom-multimodal-cpu', 'audio-text-to-text', True)):
+            with self.subTest(profile=profile_id), tempfile.TemporaryDirectory() as directory:
+                def run(command, **kwargs):
+                    if 'scripts/run_tests.py' in command:
+                        environment = dict(command[i + 1].split('=', 1)
+                                           for i, part in enumerate(command) if part == '-e')
+                        with patch.dict(os.environ, environment, clear=True):
+                            profile, _, allowed = registered_policy(task, 'transformers_pipeline', 'cpu')
+                        self.assertEqual(profile.profile_id, profile_id)
+                        self.assertEqual(allowed, trust)
+                    return subprocess.CompletedProcess(command, 0)
+                with patch('scripts.check_runtime.prepare_environment_image', return_value=image), patch(
+                    'scripts.check_runtime.subprocess.run', side_effect=run,
+                ):
+                    self.assertEqual(main(['--profile', profile_id, '--test-pattern', 'test_fixture.py',
+                                           '--output-dir', directory]), 0)
+
     def test_cleanup_failure_does_not_swallow_unexpected_exception_or_interrupt(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})

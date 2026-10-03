@@ -370,6 +370,13 @@ config 中的模型引用和动态表达式也会保留。明确的 repo／loade
 兼容 v1 的 `dependencies/allow_patterns`：tokenizer／processor 只选根目录配置、词表和模板，以及
 单层 `chat_templates/`；不会因名称前缀匹配而选中子目录快照或权重。metadata
 只选 `config.json`；weights 选择一个标准 Transformers 权重格式及存在的 `generation_config.json`。
+主模型与依赖共用 checkpoint 解析器：分片索引按 `weight_map` 的文件集合解析，支持合法自定义
+分片名和子目录；任一必需分片缺失即报错，不靠标准编号文件名猜测，也不改用另一套权重。
+解析只读取固定 SHA 的索引元数据（最多 4 MiB）；下载前按同一 SHA 查询该路径的大小，
+大小未知或超限时直接拒绝，下载后再次有界读取。纯 tokenizer 解析不增加索引查询。
+保留相对路径校验、十万条仓库清单和每依赖
+128 个选择文件的上限。显式 `allow_patterns` 的依赖在 Model Store 下载权重和构建前也校验
+选中 checkpoint 的完整性；纯 tokenizer／processor 依赖无需权重。
 `AutoFeatureExtractor` 的 processor 只选 `config.json/preprocessor_config.json`，不附带 tokenizer 或权重。
 实际下载继续使用镜像构建阶段的
 既有 planner、文件 hash 和离线缓存，主机解析不下载权重。最多 16 个依赖，每个最多 128 个文件。
@@ -1439,6 +1446,25 @@ acprof model-store prune --target-size 100GB --apply      # 显式执行
 ```
 
 `--model-store-max` 在下载前核对总容量；同时检查文件系统 free space 并预留 64 MiB 元数据余量。大小未知、容量不足或磁盘不足直接停止。清理为显式操作，按最久未使用顺序选择，保留活动 lease 和 `--keep <entry-id>`。可回收量按实际共享 blobs 计算；多个模型的逻辑大小不能直接相加当成物理磁盘用量。旧 baked 镜像可能仍被历史实验/补采引用，应通过镜像管理明确清理；新构建不再向 Docker 写入第二份权重。
+
+目标容量预览只扫描一次 entry 与 blob 引用关系，在内存中按 LRU 顺序减少引用计数；
+最后一个引用被选入删除范围后才累计该 blob 的可回收字节。容量统计与引用扫描次数固定，
+不会随淘汰条目数重复遍历候选集合。孤立 blobs 仍计入可回收量，活动 lease 与共享引用继续保留。
+
+预览不授权直接执行旧删除计划。实际清理重新取得全局 store lock，在锁内核验当前 entries、
+lease 和共享 blob 引用；TUI 同时限定在用户确认的 entry 集合内，预览后新增的模型不进入删除集。
+等待锁和扫描可以协作取消，尚未开始删除时不改动权重；已开始删除则持锁完成收尾后释放界面任务状态。
+这些工作只在准备或显式存储管理期间执行，正式测量窗口不扫描缓存。
+
+缓存候选、容量摘要和准备阶段共用 `read_entry` 读取已验证计划：只接受常规元数据文件，
+使用 `ENTRY_METADATA_MAX_BYTES` 限制为 4 MiB，打开后核对大小并再次有界读取。
+`entries`、entry 目录和计划文件不能使用 symlink；用户配置的 Store 根路径仍可为 symlink。
+目录逐级按已打开的父目录解析，防止并发替换将读取导向 Store 外；缺失 entry 返回空，损坏或超限明确报错。
+该读取不获取清理锁、不扫描 blobs，也不重新计算权重 hash。
+
+此设计参考 Hugging Face Hub 的 [缓存扫描与删除策略](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_cache_manager.py)
+（Apache-2.0，持续维护），借用先扫描、再生成共享文件删除计划的思路。AC-Prof 保留自己的
+固定计划视图和活动 lease，使用现有标准库实现引用计数与可取消锁等待，不新增缓存框架或依赖。
 
 Python/CUDA runtime build 消费精确 wheel URL，`PYPI_MIRROR_INDEX` 不能改写这些 URL。`scripts/compile_locks.py --index-url <https-index> --runtime-only --variant cpu` 让固定 uv 重新从指定索引解析目标平台 artifacts；`--torch-index-url` 可显式指定相应 CUDA wheel 索引。默认保留 exact versions；同版本 artifact SHA256 改变会拒绝替换。生成 `.artifacts.json` 保存目标平台、来源与已知大小。不要字符串替换 URL。`--check --variant cpu --variant cu124 --variant cu128` 是离线锁校验，不能代替三个环境的实际构建/推理。
 

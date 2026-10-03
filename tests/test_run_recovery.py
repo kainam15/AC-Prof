@@ -219,6 +219,7 @@ class RunRecoveryTests(unittest.TestCase):
             if kwargs["cpu"] == 2:
                 Path(path).with_name("requests.jsonl").write_text('{"partial":true}\n')
                 Path(path).with_name("runtime_failures.json").write_text(json.dumps({"failures": [failure]}))
+                Path(path).with_name("cleanup_error.json").write_text('{"status":"incomplete","final_state":"unknown"}')
                 raise KeyboardInterrupt()
             return path
         with self.assertRaises(KeyboardInterrupt):
@@ -238,6 +239,10 @@ class RunRecoveryTests(unittest.TestCase):
         self.assertEqual(audit_result(self.directory)["failures"], [])
         archived_failures = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("runtime_failures.json"))
         self.assertEqual(json.loads(archived_failures[0].read_text())["failures"], [failure])
+        archived_cleanup = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("cleanup_error.json"))
+        self.assertEqual(len(archived_cleanup), 1)
+        self.assertEqual(json.loads(archived_cleanup[0].read_text())["final_state"], "unknown")
+        self.assertEqual(list((self.directory / ".acprof/work/cases").rglob("cleanup_error.json")), [])
 
     def interrupt_after_first(self):
         def interrupted(**kwargs):

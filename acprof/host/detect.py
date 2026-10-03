@@ -116,13 +116,32 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
 
 
 def dependency_metadata(repo_id: str, revision: str) -> dict:
-    """Resolve dependency identity and file names only; downloads stay in image builds."""
+    """Resolve identity and lazily read bounded checkpoint metadata, never weights."""
     from huggingface_hub import HfApi
 
     from acprof.hf_endpoints import hf_endpoints
     try:
-        info = HfApi(endpoint=hf_endpoints()[0]).model_info(repo_id, revision=revision, files_metadata=False)
-        return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []]}
+        api = HfApi(endpoint=hf_endpoints()[0])
+        info = api.model_info(repo_id, revision=revision, files_metadata=False)
+        def read_json(name):
+            from acprof.container.model_files import safe_path
+            from acprof.model_evidence import pinned_revision
+            if not pinned_revision(info.sha):
+                raise ValueError("dependency metadata requires a fixed commit SHA")
+            name = safe_path(name)
+            records = api.get_paths_info(repo_id, paths=[name], revision=info.sha, repo_type="model")
+            size = (getattr(records[0], "size", None) if len(records) == 1
+                    and getattr(records[0], "path", None) == name else None)
+            if type(size) is not int or not 0 <= size <= 4 * 1024 * 1024:
+                raise ValueError(f"metadata size is unknown or exceeds 4 MiB: {name}")
+            path = _download_metadata(repo_id, name, info.sha)
+            with open(path, "rb") as stream:
+                data = stream.read(4 * 1024 * 1024 + 1)
+            if len(data) > 4 * 1024 * 1024:
+                raise ValueError(f"{name} exceeds 4 MiB metadata limit")
+            return json.loads(data)
+        return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []],
+                "read_json": read_json}
     except Exception as exc:
         raise OSError(_format_failure(exc)) from exc
 

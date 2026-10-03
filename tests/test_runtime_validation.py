@@ -21,6 +21,12 @@ class RuntimeValidationTests(unittest.TestCase):
         })
         selection.start()
         self.addCleanup(selection.stop)
+        recovery = patch('acprof.host.runtime_validation.recover_abandoned_containers')
+        recovery.start()
+        self.addCleanup(recovery.stop)
+        self.cid = patch('acprof.host.runtime_validation.owned_container_id', return_value='c' * 64)
+        self.cid.start()
+        self.addCleanup(self.cid.stop)
 
     def task(self):
         return TaskInfo('Example/model', 'audio-text-to-text', 'multimodal',
@@ -66,17 +72,55 @@ class RuntimeValidationTests(unittest.TestCase):
         removals = [c for c in commands if c[:3] == ['docker', 'rm', '-f']]
         self.assertEqual(len(runs), 2)
         self.assertNotEqual(runs[0][3], runs[1][3])
-        self.assertEqual({c[3] for c in runs}, {c[3] for c in removals})
+        self.assertEqual({c[-1] for c in removals}, {'c' * 64})
         self.assertNotIn('--gpus', runs[0])
         self.assertIn('--gpus', runs[1])
         self.assertTrue(all('ACPROF_REQUEST_TIMEOUT_S=30' in command for command in runs))
+
+    def test_same_process_residue_blocks_validation_and_records_preflight_failure(self):
+        from acprof.host.container_lifecycle import (
+            ContainerCleanupError,
+            container_owner_labels,
+            recover_abandoned_containers,
+        )
+        identifier = 'a' * 64
+        owner = container_owner_labels()
+        commands = []
+
+        def run(command, **kwargs):
+            commands.append(command)
+            if command[1] == 'ps':
+                return subprocess.CompletedProcess(command, 0, identifier, '')
+            if command[1] == 'inspect':
+                payload = [{'Id': identifier, 'Config': {'Labels': owner},
+                            'State': {'Running': True, 'Status': 'running'}}]
+                return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+            if command[1] == 'run':
+                return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
+            if command[1] == 'rm':
+                return subprocess.CompletedProcess(command, 0, '', '')
+            self.fail('unexpected Docker command')
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'acprof.host.runtime_validation.recover_abandoned_containers', side_effect=recover_abandoned_containers,
+        ), patch('acprof.host.runtime_validation.run_command', side_effect=run):
+            root = Path(directory)
+            with self.assertRaises(ContainerCleanupError):
+                validate_runtime(**self.fixture(root))
+            report = json.loads((root / 'runtime_validation.json').read_text())
+            self.assertEqual(report['status'], 'error')
+            self.assertEqual(report['cleanup_status'], 'incomplete')
+            self.assertEqual(report['cleanup_error']['container_id'], identifier)
+            self.assertTrue(report['cleanup_error']['docker_state']['Running'])
+            self.assertEqual(report['devices'], {})
+        self.assertEqual([command[1] for command in commands], ['ps', 'inspect'])
 
     def test_load_failure_keeps_stderr_and_stops_before_next_device(self):
         commands = []
 
         def run(command, **kwargs):
             commands.append(command)
-            return subprocess.CompletedProcess(command, 1, stdout='', stderr='ImportError: wrong Transformers version')
+            return subprocess.CompletedProcess(command, 1 if command[1] == 'run' else 0, stdout='', stderr='ImportError: wrong Transformers version')
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
@@ -135,8 +179,8 @@ class RuntimeValidationTests(unittest.TestCase):
             "failure": Failure("completion", "request_timeout", "fixture", evidence={
                 "timeout_seconds": 2.5, "timeout_scope": "completion_wait", "model_loaded": True}).to_dict()}
         with tempfile.TemporaryDirectory() as directory, patch(
-            'acprof.host.runtime_validation.run_command', return_value=subprocess.CompletedProcess(
-                [], 1, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(response), stderr=''),
+            'acprof.host.runtime_validation.run_command', side_effect=lambda command, **kw: subprocess.CompletedProcess(
+                command, 1 if command[1] == 'run' else 0, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(response), stderr=''),
         ), patch('acprof.host.container_state.inspect_container_state', return_value={'Running': False}):
             root = Path(directory)
             with self.assertRaises(RuntimeError):
@@ -163,11 +207,84 @@ class RuntimeValidationTests(unittest.TestCase):
     def test_cgroup_oom_is_resource_limit_not_dependency_failure(self):
         result = subprocess.CompletedProcess([], 137, stdout='', stderr='Killed')
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.run_command', return_value=result,
+            'acprof.host.runtime_validation.run_command', side_effect=lambda command, **kw: result if command[1] == 'run' else subprocess.CompletedProcess(command, 0, '', ''),
         ), patch('acprof.host.container_state.inspect_container_state', return_value={'OOMKilled': True}):
             report = validate_runtime(**self.fixture(Path(temporary)))
         self.assertEqual(report['status'], 'resource_limited')
         self.assertEqual(set(report['devices']), {'off', 'on'})
+
+    def test_validation_records_owner_and_cleans_only_cidfile_id(self):
+        self.cid.stop()
+        commands = []
+        identifier = 'c' * 64
+        def run(command, **kwargs):
+            commands.append(command)
+            if command[:2] == ['docker', 'run']:
+                self.assertIn('--cidfile', command)
+                self.assertTrue(any(value.startswith('org.acprof.owner.pid=') for value in command))
+                Path(command[command.index('--cidfile') + 1]).write_text(identifier)
+                return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
+            return subprocess.CompletedProcess(command, 0, '', '')
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'acprof.host.runtime_validation.run_command', side_effect=run,
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
+            validate_runtime(**{**self.fixture(Path(directory)), 'gpu_list': ['off']})
+        self.assertEqual([c[-1] for c in commands if c[:2] == ['docker', 'rm']], [identifier])
+
+    def test_cleanup_failure_preserves_validation_error_and_stops_next_device(self):
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            if command[1] == 'run':
+                return subprocess.CompletedProcess(command, 1, '', 'inference failed first')
+            raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'acprof.host.runtime_validation.run_command', side_effect=run,
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, 'cleanup unknown'):
+                validate_runtime(**self.fixture(root))
+            report = json.loads((root / 'runtime_validation.json').read_text())
+            self.assertEqual(report['status'], 'error')
+            device = report['devices']['off']
+            self.assertIn('inference failed first', device['error'])
+            self.assertEqual(device['cleanup_error']['final_state'], 'unknown')
+            self.assertIn('inference failed first', device['cleanup_error']['run_error']['detail'])
+            self.assertEqual(sum(command[1] == 'run' for command in commands), 1)
+
+    def test_timeout_with_unusable_cidfile_preserves_both_failures(self):
+        self.cid.stop()
+        original_read = Path.read_text
+        for mode in ('missing', 'malformed', 'permission_denied'):
+            commands = []
+            def run(command, **kwargs):
+                commands.append(command)
+                if command[1] == 'run':
+                    if mode == 'malformed':
+                        Path(command[command.index('--cidfile') + 1]).write_text('invalid id')
+                    raise subprocess.TimeoutExpired(command, 30, output=b'ACPROF_RUNTIME_STAGE={"stage":"load","status":"verified"}\n')
+                return subprocess.CompletedProcess(command, 0, '', '')
+            def read(path, *args, **kwargs):
+                if mode == 'permission_denied' and path.suffix == '.cid':
+                    raise PermissionError('cidfile is not readable')
+                return original_read(path, *args, **kwargs)
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory, patch(
+                'acprof.host.runtime_validation.run_command', side_effect=run,
+            ), patch.object(Path, 'read_text', read), patch(
+                'acprof.host.container_state.inspect_container_state', return_value={},
+            ):
+                root = Path(directory)
+                with self.assertRaises(RuntimeError):
+                    validate_runtime(**self.fixture(root))
+                report = json.loads((root / 'runtime_validation.json').read_text())
+                self.assertEqual(report['status'], 'error')
+                device = report['devices']['off']
+                self.assertEqual(device['failure']['reason_code'], 'compatibility_budget_exhausted')
+                self.assertEqual(device['cleanup_error']['final_state'], 'unknown')
+                self.assertEqual(device['cleanup_error']['run_error']['exception_type'], 'TimeoutExpired')
+                self.assertTrue(device['failure']['evidence']['model_loaded'])
+                self.assertEqual(sum(command[1] == 'run' for command in commands), 1)
+                self.assertFalse(any(command[1] == 'rm' for command in commands))
 
     def test_managed_profilers_keep_image_adapter_code(self):
         command = profiler_container_command(

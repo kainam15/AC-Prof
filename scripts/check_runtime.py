@@ -99,6 +99,7 @@ def main(argv=None):
                 "-v", f"{ROOT}:/workspace:ro", "-v", f"{output}:/evidence", "-w", "/workspace",
             ]
             for env in ("HOME=/tmp", "USER=acprof", "LOGNAME=acprof", "HF_HOME=/tmp/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
+                        f"ACPROF_RUNTIME_PROFILE={name}", f"ACPROF_MODEL_ADAPTER={profile.adapter}",
                         "OMP_NUM_THREADS=1", "MKL_NUM_THREADS=1", "PYTHONDONTWRITEBYTECODE=1"):
                 command += ["-e", env]
             container_started = True

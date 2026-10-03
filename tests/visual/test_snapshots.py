@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("pytest_textual_snapshot")
 
-from textual.widgets import TabbedContent
+from textual.widgets import Button, TabbedContent
 
 from acprof.experiment import RunConfig
 from acprof.platform import Environment
@@ -79,8 +79,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             await pilot.hover(offset=end)
             await pilot.mouse_up(offset=end)
         elif scene in {"measuring", "cleanup-incomplete"}:
-            app._lifecycle.process = Mock(pid=12345)
-            app._lifecycle.process.poll.return_value = None
+            process = Mock(pid=12345, returncode=None)
+            process.poll.return_value = None
+            monkeypatch.setattr(app._lifecycle, "process", process)
             monkeypatch.setattr(app._lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
             app._process_kind = "run"
             app._active_command = ("acprof", "run")
@@ -98,6 +99,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app._consume_process_line("", snapshot, True)
             if scene == "cleanup-incomplete":
                 app._process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
+            assert not app.query_one("#stop-run", Button).disabled
             app.clear_notifications()
         await pilot.pause()
         app.clear_notifications()

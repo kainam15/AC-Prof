@@ -211,6 +211,8 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
         spec.pop("dependencies")
         environment = {**os.environ, "ACPROF_MODEL_SPEC_B64": encode_model_spec(spec),
                        "MODEL_LOCAL_PATH": str(root), "MODEL_ID": "fixture/import-only",
+                       "RUNTIME_BACKEND": "transformers_pipeline",
+                       "ACPROF_RUNTIME_PROFILE": "custom-multimodal-cpu", "ACPROF_MODEL_ADAPTER": "family-default",
                        "TASK_TYPE": "audio-text-to-text", "HF_MODULES_CACHE": str(cache),
                        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         script = "import json; from acprof.container.model_probe import validate_basic; "
