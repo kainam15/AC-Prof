@@ -14,6 +14,7 @@ from textual.widgets import Button, Checkbox, Collapsible, Label, Static, Tabbed
 from acprof.experiment import RunConfig
 from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
+from acprof.host.run_state import MeasurementLock
 from acprof.messages import message
 from acprof.tui.diagnostics import quick_preflight
 from acprof.tui.input import BarCursorInput as Input
@@ -188,8 +189,9 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
     def _check_permissions(self):
         try:
-            checks = quick_preflight(RunConfig(profiling_mode='full', gpus='off', sniff_iface=self.sniff_iface),
-                                     project_dir=self.project_dir)
+            with MeasurementLock():
+                checks = quick_preflight(RunConfig(profiling_mode='full', gpus='off', sniff_iface=self.sniff_iface),
+                                         project_dir=self.project_dir)
             report = '\n\n'.join(f'[{item.status}] {self.app.tr(item.label)}: {self.app.tr(item.detail)}'
                                  for item in checks)
             failures = sum(item.status == 'fail' for item in checks)
@@ -199,6 +201,8 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         self.app.call_from_thread(self._checked_permissions, report, failures)
 
     def _checked_permissions(self, report, failures):
+        if not self.is_mounted or self is not self.app.screen:
+            return
         self.query_one('#permission-report', Static).update(report)
         self._status(message('环境检查完成：{0} 项失败；详细结果见下方。', failures), error=bool(failures))
         self._set_working(False)

@@ -84,6 +84,33 @@ class TestTuiEnvironment:
             await pilot.pause()
             assert not (app._is_busy())
 
+    async def test_permission_check_uses_measurement_lock_and_ignores_unmounted_callback(self):
+        app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.press('f2')
+            await pilot.pause()
+            await self.open_connections(app, pilot)
+            screen = app.screen
+            screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
+            await pilot.pause()
+            with patch('acprof.tui.environment.MeasurementLock') as lock, patch(
+                'acprof.tui.environment.quick_preflight', return_value=[],
+            ) as preflight:
+                assert await pilot.click('#check-environment-permissions')
+                for _ in range(20):
+                    await pilot.pause()
+                    if not screen._working:
+                        break
+                lock.assert_called_once_with()
+                assert lock.return_value.__enter__.called
+                assert lock.return_value.__exit__.called
+                preflight.assert_called_once()
+            await screen.dismiss(False)
+            await pilot.pause()
+            assert app.screen is not screen
+            screen._checked_permissions('late', 0)
+
+
     @pytest.mark.parametrize('language', ('zh', 'en'))
     @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
     async def test_bilingual_dialog_actions_are_reachable_at_supported_sizes(self, language, size):
