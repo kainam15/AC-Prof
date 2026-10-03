@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, Collapsible, ContentSwitcher, Select, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.input import BarCursorInput as Input
 
 

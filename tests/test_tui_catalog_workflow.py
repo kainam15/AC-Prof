@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 import test_experiment_catalog as catalog_fixture
 from textual.widgets import Button, Input, Select, Static, TabbedContent
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.run_args import build_parser
-from acprof.tui.app import AcprofTui
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.settings import TuiSettings, load_settings, save_settings

@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import test_model_candidates as candidate_fixture
 from textual.widgets import Button, Input
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.model_candidates import record_conditions
 

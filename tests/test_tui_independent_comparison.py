@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 import test_independent_comparison as comparison_fixture
 from textual.widgets import Button, Collapsible, DataTable, Input, Select, TabbedContent
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.quality import loading_quality
-from acprof.tui.app import AcprofTui
 from acprof.tui.reports import read_report
 
 
