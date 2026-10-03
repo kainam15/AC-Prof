@@ -15,10 +15,10 @@ from acprof.experiment import RunConfig
 class TuiModelResolutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_uses_managed_process_and_preserves_reviewed_revision(self):
         task = fixture.ModelContractTests().discover()
-        with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
+        with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task) as detect, patch(
             "acprof.host.env_utils.bootstrap_project_env",
         ):
-            app = AcprofTui(RunConfig(model=task.model_id, output_dir=directory), settings_path=Path(directory, "settings.json"))
+            app = AcprofTui(RunConfig(model=task.model_id, revision=task.model_revision, output_dir=directory), settings_path=Path(directory, "settings.json"))
             async with app.run_test(size=(80, 24)) as pilot:
                 app.query_one("#ui-language", Select).value = "en"
                 button = app.query_one("#inspect-model", Button)
@@ -27,6 +27,7 @@ class TuiModelResolutionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click(button)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
+                self.assertEqual(detect.call_args.kwargs["revision"], task.model_revision)
                 self.assertEqual(len(list(app.screen.query(".resolution-answer"))), 0)
                 self.assertEqual(str(app.screen.query_one("#resolution-use", Button).label), "Use contract")
                 await pilot.resize_terminal(120, 30)

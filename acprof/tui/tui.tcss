@@ -104,11 +104,16 @@ Input {
     padding: 0 1;
 }
 Input:focus { border: solid $accent; }
+Input.config-invalid, Input.config-invalid:focus { border: solid $error; }
+Select.config-invalid > SelectCurrent { border: solid $error; }
 Select:focus > SelectCurrent, Select.-expanded > SelectCurrent, SelectOverlay:focus {
     border: solid $accent;
 }
 
 #config-summary { color: $text-muted; }
+#run-footer { dock: bottom; height: auto; background: $surface; }
+#run-footer .action-bar { dock: none; }
+#run-plan-summary { height: auto; max-height: 5; overflow-y: auto; padding: 0 2; color: $text-muted; }
 #command-details { height: auto; margin-bottom: 1; border: none; background: $surface; padding: 0; }
 #command-preview { height: auto; max-height: 8; overflow-y: auto; padding: 0 1; }
 #science-note { height: auto; color: $text-muted; margin-top: 1; }
@@ -275,6 +280,7 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     margin-top: 1;
 }
 #report-panel { padding: 0 2; height: 1fr; }
+#comparison-options { height: auto; max-height: 12; overflow-y: auto; margin: 0; padding: 0; border: none; }
 Rule.content-divider { height: 1; margin: 0; color: $panel; }
 #report-table {
     height: 1fr;
@@ -360,3 +366,10 @@ AcprofTui.narrow.short #image-storage:hover, AcprofTui.narrow.short #image-stora
     border-right: solid $accent;
 }
 AcprofTui.narrow.short #image-detail { margin-bottom: 0; }
+
+.path-picker-row { height: 3; }
+.path-picker-row Input { width: 1fr; }
+.path-picker-row Button { min-width: 10; width: auto; margin-left: 1; }
+
+.model-picker-row { height: auto; }
+.model-picker-row Button { min-width: 10; width: auto; margin-left: 1; }

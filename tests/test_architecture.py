@@ -58,22 +58,25 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertNotIn("acprof.cli.run", dependencies)
 
     def test_implementation_packages_do_not_import_cli(self):
-        for package in ("host", "container", "workloads", "monitors", "packet",
-                        "analysis", "plotting", "tui"):
-            for path in (PROJECT_DIR / "acprof" / package).rglob("*.py"):
-                tree = ast.parse(path.read_text(encoding="utf-8"))
-                dependencies = []
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.ImportFrom) and node.module:
-                        dependencies.append(node.module)
-                    elif isinstance(node, ast.Import):
-                        dependencies.extend(alias.name for alias in node.names)
-                with self.subTest(module=str(path.relative_to(PROJECT_DIR))):
-                    self.assertFalse(
-                        any(name == "acprof.cli" or name.startswith("acprof.cli.")
-                            for name in dependencies),
-                        dependencies,
-                    )
+        paths = [path for package in ("host", "container", "workloads", "monitors", "packet",
+                                      "analysis", "plotting", "tui")
+                 for path in (PROJECT_DIR / "acprof" / package).rglob("*.py")]
+        paths.extend(path for path in (PROJECT_DIR / "acprof").glob("*.py")
+                     if path.name in {"experiment.py", "run_args.py"})
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            dependencies = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    dependencies.append(node.module)
+                elif isinstance(node, ast.Import):
+                    dependencies.extend(alias.name for alias in node.names)
+            with self.subTest(module=str(path.relative_to(PROJECT_DIR))):
+                self.assertFalse(
+                    any(name == "acprof.cli" or name.startswith("acprof.cli.")
+                        for name in dependencies),
+                    dependencies,
+                )
 
     def test_analysis_import_does_not_load_rendering(self):
         result = subprocess.run(

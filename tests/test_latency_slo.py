@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from acprof.cli.run_args import build_parser
 from acprof.config import STATIC_META_SCHEMA_VERSION
 from acprof.host import client_metrics
 from acprof.packet import merge_packet_latency
+from acprof.run_args import build_parser
 
 
 class LatencySLOPolicyTests(unittest.TestCase):

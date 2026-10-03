@@ -852,6 +852,47 @@ def _plan_timeseries_scales(
 
 
 def plan_input_scales(
+    task_info: TaskInfo, image_info: ImageInfo, cpu_list: List[int], mem_list: List[int],
+    gpu_list: List[str], batch_size: int, output_dir: str, input_scales: Optional[str] = None,
+    workload_spec_path: Optional[str] = None, input_scale_policy: str = "auto",
+) -> PlannedInputScales:
+    """Select a policy while retaining model-specific validation and payload bytes.
+
+    ``source`` belongs to the frozen RunState plan; the payload file records the
+    effective workload, not whether its scales were selected manually or here.
+    """
+    if input_scale_policy not in {"auto", "minimal"}:
+        raise ValueError("input_scale_policy must be auto or minimal")
+    minimal = input_scale_policy == "minimal" and not input_scales
+    if minimal:
+        generator = _get_task_generator(task_info, batch_size, workload_spec_path=workload_spec_path)
+        candidates = generator.default_input_scales()
+        if not candidates:
+            capabilities = CATALOG.describe(task_info).declaration.input_plan
+            # Text-to-audio has token input even though its family is audio.
+            family = "nlp" if capabilities.text_payload else task_info.task_family
+            candidates = resolve_input_scales(family)
+        minimum = min(float(value) for value in candidates)
+        if not math.isfinite(minimum) or minimum <= 0:
+            raise ValueError("workload has no positive finite minimal scale")
+        input_scales = serialize_input_scales([minimum])
+    plan = _plan_input_scales(task_info, image_info, cpu_list, mem_list, gpu_list, batch_size,
+                              output_dir, input_scales, workload_spec_path)
+    if minimal:
+        plan.source = "minimal"
+    return plan
+
+
+def input_plan_summary(task_info: TaskInfo, plan: PlannedInputScales) -> dict:
+    """Small presentation event derived from the completed authoritative plan."""
+    axis = plan.workload.get("input_scale_type") or plan.workload.get("input_scale", {}).get("type")
+    if not axis:
+        capabilities = CATALOG.describe(task_info).declaration.input_plan
+        axis = "seq_length" if capabilities.text_payload else SCALING_DIMENSIONS[task_info.task_family].param_name
+    return {"scales": list(plan.scales), "scale_type": axis}
+
+
+def _plan_input_scales(
     task_info: TaskInfo,
     image_info: ImageInfo,
     cpu_list: List[int],

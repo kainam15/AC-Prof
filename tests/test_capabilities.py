@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from acprof.cli.run_args import build_parser
 from acprof.host.profilers import ncu, torch
 from acprof.platform import Environment
+from acprof.run_args import build_parser
 
 
 class CapabilityTests(unittest.TestCase):

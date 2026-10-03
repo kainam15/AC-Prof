@@ -5,7 +5,7 @@ import argparse
 from dataclasses import replace
 from typing import Sequence
 
-from acprof.experiment import RunConfig
+from acprof.experiment import RunConfigError
 from acprof.tui.app import AcprofTui
 from acprof.tui.run_form import infer_preset
 
@@ -21,7 +21,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--preset",
-        choices=("default", "smoke", "main"),
+        choices=("smoke", "main"),
         default=None,
         help="Initial form preset (overrides saved experiment defaults)",
     )
@@ -48,14 +48,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.error(str(exc))
     config = app.initial_config
     model = config.model if args.model is None else args.model
-    if args.preset == "smoke":
-        config = RunConfig.smoke(model)
-    elif args.preset == "main":
-        config = RunConfig.main_matrix(model)
-    elif args.preset == "default":
-        config = RunConfig(model=model)
-    else:
-        config = replace(config, model=model)
+    config = replace(config, model=model, revision=config.revision if model == config.model else "")
+    if args.preset:
+        try:
+            config = config.with_preset(args.preset)
+        except RunConfigError as exc:
+            parser.error(str(exc))
     if args.output_dir is not None:
         config = replace(config, output_dir=args.output_dir)
     app.initial_config = config

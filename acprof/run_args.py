@@ -1,4 +1,4 @@
-"""Argument declarations for the main profiling command."""
+"""Shared profiling argument declarations and frozen-option serialization."""
 import argparse
 
 from acprof.config import (
@@ -9,6 +9,15 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
+from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+
+
+def add_download_arguments(parser):
+    parser.add_argument("--download-mode", choices=HF_DOWNLOAD_MODES, default=None,
+                        help="HF source mode (default mirror-only; official is explicit)")
+    parser.add_argument("--max-download", default=None, help="Bulk download budget, e.g. 5GB; unknown size stops before download")
+    parser.add_argument("--model-store", default=None, help="Host Model Store path shared across CPU/GPU runs")
+    parser.add_argument("--model-store-max", default=None, help="Model Store capacity, e.g. 100GB")
 
 
 def build_parser(*, default_notify_provider: str = "auto", automatic: bool = False) -> argparse.ArgumentParser:
@@ -127,6 +136,8 @@ Examples:
         help="Write CPU idle baseline timestamps and per-row diagnostic JSONL sidecars",
     )
     parser.add_argument("--input-scales", default=None, help="Override input scale values (comma-separated)")
+    parser.add_argument("--input-scale-policy", choices=("auto", "minimal"), default="auto",
+                        help="Without explicit scales, plan a full range or one smallest declared workload scale")
     parser.add_argument(
         "--workload-spec",
         default=None,
@@ -289,6 +300,44 @@ Examples:
         ),
     )
 
-    from acprof.cli.download_args import add_download_arguments
     add_download_arguments(parser)
     return parser
+
+
+def arguments_from_options(options: dict) -> list[str]:
+    """Serialize recorded public options through the authoritative parser declarations."""
+    actions: dict[str, list] = {}
+    for action in build_parser()._actions:
+        if action.dest != 'help':
+            actions.setdefault(action.dest, []).append(action)
+    arguments = []
+    for name, value in options.items():
+        if name not in actions:
+            raise ValueError(f'unsupported frozen option: {name}')
+        candidates = actions[name]
+        action = candidates[0]
+        if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+            if type(value) is not bool:
+                raise ValueError(f'invalid frozen boolean: {name}')
+            matched = next((item for item in candidates if item.const is value), None)
+            if matched is not None:
+                arguments.append(matched.option_strings[0])
+            elif action.default is not value:
+                raise ValueError(f'cannot restore frozen boolean: {name}')
+            continue
+        if value is None:
+            continue
+        values = value if isinstance(action, argparse._AppendAction) else [value]
+        if not isinstance(values, list):
+            raise ValueError(f'invalid frozen list: {name}')
+        for item in values:
+            if not isinstance(item, (str, int, float)) or isinstance(item, bool):
+                raise ValueError(f'invalid frozen option: {name}')
+            try:
+                parsed = action.type(item) if action.type else item
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f'invalid frozen option: {name}') from exc
+            if action.choices is not None and parsed not in action.choices:
+                raise ValueError(f'invalid frozen choice: {name}')
+            arguments.extend((action.option_strings[0], str(item)))
+    return arguments

@@ -5,11 +5,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Mapping
 
-from acprof.experiment import RunConfig
+from acprof.experiment import PRESET_FIELDS, RunConfig
 from acprof.tui.presentation import format_input_number
 
 INPUT_FIELDS = {
     "model": "model",
+    "revision": "revision",
     "task": "task",
     "backend": "backend",
     "cpus": "cpus",
@@ -34,6 +35,7 @@ INPUT_FIELDS = {
     "sniff-iface": "sniff_iface",
 }
 SELECT_FIELDS = {
+    "input-scale-policy": "input_scale_policy",
     "download-mode": "download_mode",
     "task-family": "task_family",
     "gpus": "gpus",
@@ -52,11 +54,11 @@ CHECKED_FIELDS = {
 
 def collect_config(inputs: Mapping[str, str], selects: Mapping[str, str],
                    checks: Mapping[str, bool], *, project_dir: Path,
-                   allow_empty_model: bool = False) -> RunConfig:
+                   allow_empty_model: bool = False, extra_options: dict | None = None) -> RunConfig:
     values = {**{field: inputs[key] for key, field in INPUT_FIELDS.items()},
               **{field: selects[key] for key, field in SELECT_FIELDS.items()},
               **{field: checks[key] for key, field in CHECKED_FIELDS.items()}}
-    config = RunConfig(**values)
+    config = RunConfig(**values, extra_options=dict(extra_options or {}))
     if allow_empty_model and not config.model:
         validated = replace(config, model="settings/default-model").validate(project_dir=project_dir)
         return replace(validated, model="")
@@ -72,7 +74,7 @@ def config_values(config: RunConfig) -> tuple[dict[str, str], dict[str, str], di
 
 
 PRESET_OPTIONS = (("自定义", "custom"), ("基础 CPU Smoke", "smoke"),
-                  ("主矩阵（分析器关闭）", "main"), ("完整默认", "default"))
+                  ("主矩阵（分析器关闭）", "main"))
 
 
 def infer_preset(config: RunConfig) -> str:
@@ -80,16 +82,16 @@ def infer_preset(config: RunConfig) -> str:
         return "smoke"
     if matches_preset(config, "main"):
         return "main"
-    if matches_preset(config, "default"):
-        return "default"
     return "custom"
 
 
 def matches_preset(config: RunConfig, preset: str) -> bool:
+    if config.extra_options:
+        return False
     if preset == "smoke":
-        return config.experiment_parameters() == RunConfig.smoke(config.model).experiment_parameters()
-    if preset == "main":
-        return config.experiment_parameters() == RunConfig.main_matrix(config.model).experiment_parameters()
-    if preset == "default":
-        return config.experiment_parameters() == RunConfig(model=config.model).experiment_parameters()
-    return preset == "custom"
+        template = RunConfig.smoke(config.model)
+    elif preset == "main":
+        template = RunConfig.main_matrix(config.model)
+    else:
+        return preset == "custom"
+    return all(getattr(config, name) == getattr(template, name) for name in PRESET_FIELDS)

@@ -228,6 +228,14 @@ acprof coverage run internal-testing/coverage-sample.json --probe full \
 acprof coverage run internal-testing/coverage-sample.json --probe full \
   --max-parameters 1000000000 --max-download-bytes 4294967296 \
   --output-dir internal-testing/coverage-budgeted
+# 中断后使用原参数继续；已经完成的模型不重复执行
+acprof coverage run internal-testing/coverage-sample.json --probe full \
+  --cpus 2 --mems 4 --gpus off --timeout-seconds 300 --resume \
+  --output-dir internal-testing/coverage-runtime
+# 只重试超时失败项；新 attempt 保留提高预算前的证据
+acprof coverage run internal-testing/coverage-sample.json --probe full \
+  --timeout-seconds 600 --resume --retry-reason request_timeout \
+  --output-dir internal-testing/coverage-runtime
 # 只读取已有结果，输出统一的 CSV、JSON 和 Markdown 报告
 acprof coverage report results/model-a results/model-b \
   --output-dir internal-testing/coverage-recorded
@@ -250,9 +258,43 @@ full probe 成功只表示独立推理验证通过；已有采集是否完成由
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
 selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM 预测。
 `--timeout-seconds` 默认保持 300；例如复核 60 秒耗尽的条目，可用同一固定 manifest，显式传入
-`--timeout-seconds 600` 并选择新目录。每次只执行一次 probe，不自动无限重试。
+`--timeout-seconds 600 --resume --retry-reason request_timeout`。每个选中模型在本次调用中只执行
+一次 probe，不自动无限重试。
 timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义见
 [质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
+
+新的 `coverage.json` 使用 schema v2；manifest 仍为 schema v1。`--resume` 核对原始
+`sample.json` 与传入 manifest 的完整摘要、各模型 revision、probe 模式、设备（GPU 使用物理 UUID）、
+资源、预算、有效下载策略与 Hub endpoints、运行环境及主机/源码身份。
+有效下载条件同时记录到 attempt 配置。普通续跑只能沿用原参数，继续没有完成记录的模型，
+不会自动重试已记录的失败；中断的重试则沿用该次 attempt 的条件和剩余选择。
+历史 schema v1 缺少完整预算与 attempt 证据，保持可读，恢复时明确要求新目录，不猜测旧条件。
+
+`--retry-failed` 重试所有未验证成功的已记录模型；`--retry-stage STAGE` 和
+`--retry-reason REASON` 可分别重复指定，同类选择取并集、阶段与原因之间取交集。
+这些选项都要求 `--resume`，没有匹配项时明确报错；已经验证成功的模型始终跳过。
+显式重试允许调整资源、设备、时间和下载预算等配置，但不允许替换冻结样本或切换静态/full 模式。
+配置变化逐项保存在 `configuration_changes`，不同条件的结果同时存在时标记
+`mixed_configurations=true`；汇总只描述各模型最后一次观测，不代表同一配置下的统一验证。
+
+每次执行写入独立的 `attempts/attempt-NNNNNN/attempt.json` 和逐模型目录。
+完成记录先原子落盘，再更新可重建的 `coverage.json`、CSV 和 Markdown；进程被强杀后仍可从
+attempt 恢复已完成模型，进行中的模型使用新目录重新验证。旧 attempt 的预算、失败和部分产物不覆盖，
+顶层 `resources`/`budgets` 保留第一次条件，每行 `attempt_id` 指向实际验证配置。
+
+清理状态为 `incomplete` 时，先保存当前 model/attempt、原始运行失败和清理证据，再中止批次；
+后续必须显式重试并包含所有清理未完成的模型（可用 `--retry-stage cleanup` 选择），
+优先执行既有 owner 标签和不可变容器 ID 的清理核验，再继续其他模型。
+清理问题独立于最新解析或推理结论保留。重试先核对原主机、原 owner UID 与原 Docker endpoint/context，再取得测量锁，
+确认原容器已不存在后才重新解析模型；失败、超时或无法确认时不执行后续模型。
+`cleanup_recovery` 保存核验结果，原始 attempt 不改写；旧重试记录缺少明确清理证明时继续阻断。
+冻结条件还包括 `ACPROF_NLP_TORCH_INDEX_URL`、`ACPROF_NLP_TORCH_SPEC`、`ACPROF_HOST_CUDA_VERSION`；
+修改这些运行依赖选型参数须显式重试，attempt 会记录前后差异，普通续跑不能静默混用锁定环境。
+同一报告目录通过现有目录锁排除并发写入，full probe 继续使用原有测量锁。
+
+恢复语义参考 [Ray Tune 的 `Tuner.restore`](https://github.com/ray-project/ray/blob/f8a314bf077c9772fee2a8a1073368ca2ef9360b/python/ray/tune/tuner.py)
+对已完成、未完成和失败任务的区分（Apache-2.0，维护中的实现）。AC-Prof 沿用已有 JSON 原子写入和目录锁，
+只借鉴选择与证据保留原则，不引入 Ray、训练 checkpoint 或 pickle 依赖；记录发生在独立验证之外，不进入正式测量窗口。
 
 ### `run.py`
 
@@ -351,6 +393,11 @@ timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义�
 
 ### 输入规模与音频清单
 
+`--input-scale-policy auto` 是普通 run 的默认范围规划；`minimal` 在任务解析后从对应 workload 的默认尺度
+（或同一任务族既有范围）选取最小单一尺度，仍复用原有 tokenizer、音频采样率和模型上限校验。
+TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不被该策略改小。
+未显式使用 `minimal` 的历史恢复参数保持原记录语义；更改规划策略或输入尺度属于新实验。
+
 `input_scale` 是每个任务族的主输入尺度，语义由 `static_meta.json` 的 `input_scale_type` 决定：
 
 | task family | `input_scale_type` | 含义 |
@@ -436,6 +483,8 @@ CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数�
 
 ### `probe.py`
 
+`--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、模型检查和最大输入探测共用当前填写的 revision。
+
 复用 `--model`、`--task`、`--task-family`、`--backend`、`--model-spec`、`--batch-size`、`--workload-spec`、
 `--output-dir` 和 `--skip-build` 的参数及默认值。
 资源列表与超时的用途如下：
@@ -519,6 +568,7 @@ acprof tui --help
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
 `audit --compare` 和 `report` 使用同名取值的 `--comparison-purpose`；HTML 可在生成后切换用途。
 资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](Metrics.md#跨独立实验比较)。
+TUI“统计报告 → 独立实验比较”复用同一入口，可选择左右组、基线和比较用途，或直接读取 CLI 输出的 JSON。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
 协议、连接复用前提和失败口径见[独立非流式负载](Profiling_Protocol.md#独立非流式负载)。

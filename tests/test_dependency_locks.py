@@ -48,7 +48,7 @@ class DependencyLockTests(unittest.TestCase):
     def test_driver_selection_preserves_cuda124_with_pinned_wheel(self):
         from acprof.host.runtime_images import configure_runtime_profile
         task = self.task()
-        with patch('acprof.host.runtime_images._select_nlp_torch_index_url',
+        with patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                    return_value='https://download.pytorch.org/whl/cu124'):
             profile = configure_runtime_profile(task)
         self.assertEqual(profile.profile_id, 'nlp-cu124')

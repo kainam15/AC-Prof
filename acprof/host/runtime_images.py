@@ -26,6 +26,7 @@ from acprof.host.dependency_images import (
 )
 from acprof.host.detect import TaskInfo
 from acprof.host.runtime_identity import model_token
+from acprof.host.runtime_settings import runtime_build_overrides
 from acprof.installation import resource_root
 from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec
 from acprof.runtime_profiles import (
@@ -52,17 +53,17 @@ class ImageInfo:
     runtime_environment: Dict[str, Any] = field(default_factory=dict)
 
 
-def configure_runtime_profile(task_info: Any) -> RuntimeProfile:
+def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = None) -> RuntimeProfile:
     """只在主机构建预检选择驱动分支；静态路由模块不探测硬件。"""
     from acprof.runtime_profiles import PLATFORMS, profile_for_platform
 
     profile = select_runtime_profile(task_info)
     if profile.adapter == "family-default" and profile.environment.platform.torch_version:
-        index = _select_nlp_torch_index_url().rstrip("/")
+        index = (torch_index_url or select_nlp_torch_index_url()).rstrip("/")
         variant = index.rsplit("/", 1)[-1]
         if index != f"https://download.pytorch.org/whl/{variant}" or variant not in {"cu128", "cu124", "cpu"}:
             raise ValueError("自定义 Torch 索引需要注册完整依赖锁；支持 cu128、cu124、cpu")
-        override = os.environ.get("ACPROF_NLP_TORCH_SPEC", "").strip()
+        override = runtime_build_overrides()["ACPROF_NLP_TORCH_SPEC"]
         version = PLATFORMS[variant].torch_version.split("+", 1)[0]
         if override and override not in {f"torch=={version}", f"torch=={version}+{variant}"}:
             raise ValueError(f"Torch 版本与依赖锁不符；{variant} 要求 torch=={version}+{variant}")
@@ -87,10 +88,7 @@ def download_policy(task_info: Any) -> str:
 def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) -> str:
     root = Path(project_dir)
     profile = select_runtime_profile(task_info)
-    overrides = {
-        key: os.environ.get(key, "").strip()
-        for key in ("ACPROF_NLP_TORCH_INDEX_URL", "ACPROF_NLP_TORCH_SPEC")
-    } if profile.adapter == "family-default" and profile.environment.platform.torch_version else {}
+    overrides = runtime_build_overrides() if profile.adapter == "family-default" and profile.environment.platform.torch_version else {}
     logical_profile = profile.to_dict()
     logical_profile["environment"] = environment_id(profile.environment, root)
     digest = hashlib.sha256(json.dumps({
@@ -359,7 +357,7 @@ def _parse_cuda_version(raw: str) -> Optional[Tuple[int, int]]:
 
 
 def _host_cuda_version() -> Optional[Tuple[int, int]]:
-    override = (os.environ.get("ACPROF_HOST_CUDA_VERSION") or "").strip()
+    override = runtime_build_overrides()["ACPROF_HOST_CUDA_VERSION"]
     if override:
         return _parse_cuda_version(override)
 
@@ -367,7 +365,7 @@ def _host_cuda_version() -> Optional[Tuple[int, int]]:
     if not nvidia_smi:
         return None
 
-    result = host_command.run_command([nvidia_smi], check=False)
+    result = host_command.run_command([nvidia_smi], check=False, timeout=10)
     if result.returncode != 0:
         return None
 
@@ -378,8 +376,8 @@ def _host_cuda_version() -> Optional[Tuple[int, int]]:
     return _parse_cuda_version(match.group(1))
 
 
-def _select_nlp_torch_index_url() -> str:
-    override = (os.environ.get("ACPROF_NLP_TORCH_INDEX_URL") or "").strip()
+def select_nlp_torch_index_url() -> str:
+    override = runtime_build_overrides()["ACPROF_NLP_TORCH_INDEX_URL"]
     if override:
         return override
 

@@ -18,9 +18,16 @@ from acprof.host.runtime_images import (
 
 
 class PrepareImageTests(unittest.TestCase):
+    def test_explicit_driver_override_changes_request_fingerprint(self):
+        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.4'}):
+            before = request_fingerprint(self.task, self.project_dir)
+        with patch.dict('os.environ', {'ACPROF_HOST_CUDA_VERSION': '12.8'}):
+            after = request_fingerprint(self.task, self.project_dir)
+        self.assertNotEqual(before, after)
+
     def setUp(self):
         self.project_dir = str(Path(__file__).resolve().parents[1])
-        driver = patch('acprof.host.runtime_images._select_nlp_torch_index_url',
+        driver = patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                        return_value='https://download.pytorch.org/whl/cu128')
         driver.start()
         self.addCleanup(driver.stop)

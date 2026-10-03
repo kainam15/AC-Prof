@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 PREFIX = "ACPROF_PREPARATION "
 MAX_MESSAGE = 256 * 1024
@@ -33,7 +34,17 @@ def parse_event(line: str) -> dict | None:
         if request["kind"] == "review" and (not isinstance(request.get("questions"), list)
                                             or not request["questions"]):
             raise ValueError("review requires unresolved fields")
+    if "input_plan" in value:
+        validate_input_plan(value["input_plan"])
     return value
+
+
+def validate_input_plan(value: dict) -> None:
+    if (not isinstance(value, dict) or not isinstance(value.get("scales"), list) or not value["scales"]
+            or len(value["scales"]) > 10000 or not isinstance(value.get("scale_type"), str)
+            or not value["scale_type"] or any(type(scale) not in (int, float) or not math.isfinite(scale)
+                or scale <= 0 for scale in value["scales"])):
+        raise ValueError("invalid preparation input plan")
 
 
 def encode_reply(request_id: int, action: str, *, answers: dict | None = None) -> str:

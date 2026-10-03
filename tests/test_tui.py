@@ -58,7 +58,8 @@ class TuiCoreTests(unittest.TestCase):
         self.assertEqual(command[1:5], ["-u", "-m", "acprof", "run"])
         self.assertEqual(command[command.index("--cpus") + 1], "1")
         self.assertEqual(command[command.index("--mems") + 1], "4")
-        self.assertEqual(command[command.index("--input-scales") + 1], "64")
+        self.assertNotIn("--input-scales", command)
+        self.assertEqual(command[command.index("--input-scale-policy") + 1], "minimal")
         self.assertEqual(command[command.index("--profiling-mode") + 1], "basic")
         self.assertEqual(command[command.index("--gpus") + 1], "off")
         self.assertEqual(command[command.index("--notify") + 1], "none")
@@ -415,8 +416,8 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
             preview = str(app.query_one("#command-preview", Static).render())
             self.assertIn(sys.executable, preview)
             self.assertIn("--warmup 0", preview)
-            self.assertIn("--idle-seconds 20", preview)
-            self.assertIn("--idle-cooldown-seconds 5", preview)
+            self.assertIn("--idle-seconds 0.0", preview)
+            self.assertIn("--idle-cooldown-seconds 0.0", preview)
             self.assertIn("--request-timeout-seconds 300.0", preview)
             self.assertEqual(
                 app.query_one("#request-timeout-seconds", Input).value,

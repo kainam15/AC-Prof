@@ -54,7 +54,7 @@ class RuntimeImageBuildTests(unittest.TestCase):
             patch("acprof.host.model_store.plan_model", return_value={}),
             patch("acprof.host.network_preflight.preflight", return_value={"sources": []}),
             patch("acprof.host.model_store.prepare_model", return_value={"plan_sha256": "d" * 64}),
-            patch("acprof.host.runtime_images._select_nlp_torch_index_url",
+            patch("acprof.host.runtime_images.select_nlp_torch_index_url",
                          return_value="https://download.pytorch.org/whl/cu124"),
         ):
             mocked.start()

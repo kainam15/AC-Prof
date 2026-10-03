@@ -243,7 +243,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(warning, "")
             self.assertIsNotNone(saved.run_defaults)
             self.assertEqual(saved.run_defaults.model, "")
-            self.assertEqual(saved.run_defaults, RunConfig())
+            self.assertEqual(saved.run_defaults, RunConfig.smoke())
             with patch.object(app, "_launch") as launch:
                 app.action_request_run()
                 await pilot.pause()
@@ -289,7 +289,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(restarted.query_one("#slash-command-bar").display)
             self.assertFalse(restarted.query_one("#run-log", SelectableLog).wrap)
             self.assertEqual(restarted.query_one("#run-log", SelectableLog).max_lines, 1000)
-            self.assertEqual(restarted.initial_config, RunConfig())
+            self.assertEqual(restarted.initial_config, RunConfig.smoke())
 
     async def test_saving_ui_preserves_remembered_experiment_and_saving_experiment_preserves_ui(self):
         config = RunConfig.smoke("demo/remembered")
@@ -425,7 +425,7 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved, TuiSettings(last_model="demo/first"))
         self.assertEqual(
             AcprofTui(settings_path=self.settings_path).initial_config,
-            RunConfig(model="demo/first"),
+            RunConfig.smoke("demo/first"),
         )
 
     async def test_write_failure_or_corrupt_file_does_not_block_launch(self):
@@ -664,10 +664,9 @@ class TuiMainSettingsTests(unittest.TestCase):
             ([], replace(self.saved_config, model=model)),
             (["--model", "demo/explicit"], replace(self.saved_config, model="demo/explicit")),
             (["--model", ""], replace(self.saved_config, model="")),
-            (["--preset", "smoke"], RunConfig.smoke(model)),
-            (["--preset", "main"], RunConfig.main_matrix(model)),
-            (["--preset", "default"], RunConfig(model=model)),
-            (["--model", "demo/explicit", "--preset", "smoke"], RunConfig.smoke("demo/explicit")),
+            (["--preset", "smoke"], replace(self.saved_config.with_preset("smoke"), model=model)),
+            (["--preset", "main"], replace(self.saved_config.with_preset("main"), model=model)),
+            (["--model", "demo/explicit", "--preset", "smoke"], replace(self.saved_config.with_preset("smoke"), model="demo/explicit")),
         )
         original = self.settings_path.read_bytes()
         for argv, expected in cases:

@@ -64,6 +64,8 @@ def run_options(args) -> dict:
     options = {name: value for name, value in vars(args).items() if name not in ignored}
     if options.get("revision") is None:
         options.pop("revision", None)
+    if options.get("input_scale_policy", "auto") == "auto":
+        options.pop("input_scale_policy", None)
     device = selected_gpu_device()
     if device:
         options["gpu_device"] = device["uuid"]

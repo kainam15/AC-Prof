@@ -16,7 +16,11 @@ def main(argv=None) -> int:
     snapshot.add_argument("--output", type=Path, required=True)
     run = commands.add_parser("run", help="Evaluate an existing frozen sample")
     run.add_argument("manifest", type=Path)
-    run.add_argument("--output-dir", type=Path, required=True, help="New report directory")
+    run.add_argument("--output-dir", type=Path, required=True, help="Report directory; existing only with --resume")
+    run.add_argument("--resume", action="store_true", help="Continue unfinished models with the recorded configuration")
+    run.add_argument("--retry-failed", action="store_true", help="With --resume, retry failed models in new attempts")
+    run.add_argument("--retry-stage", action="append", default=[], help="With --resume, retry matching failure stages")
+    run.add_argument("--retry-reason", action="append", default=[], help="With --resume, retry matching reason codes")
     run.add_argument("--probe", choices=("none", "full"), default="none")
     run.add_argument("--cpus", type=int, default=2)
     run.add_argument("--mems", type=int, default=4)
@@ -29,7 +33,8 @@ def main(argv=None) -> int:
     report.add_argument("--output-dir", type=Path, required=True, help="New report directory")
     args = parser.parse_args(argv)
     from acprof.host.env_utils import bootstrap_project_env
-    from acprof.host.model_coverage import run_sample, snapshot_sample
+    from acprof.host.model_coverage import CoverageCleanupError, run_sample, snapshot_sample
+    from acprof.host.run_state import RunStateError
     bootstrap_project_env(Path.cwd())
     try:
         if args.command == "snapshot":
@@ -48,9 +53,11 @@ def main(argv=None) -> int:
         else:
             report = run_sample(json.loads(args.manifest.read_text()), args.output_dir, probe=args.probe,
                                  cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds,
-                                 max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes)
+                                 max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes,
+                                 resume=args.resume, retry_failed=args.retry_failed,
+                                 retry_stages=args.retry_stage, retry_reasons=args.retry_reason)
             print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
-    except (ValueError, OSError, KeyError, TypeError) as exc:
+    except (ValueError, OSError, KeyError, TypeError, RunStateError, CoverageCleanupError) as exc:
         print(f"[coverage][ERROR] {exc}", file=sys.stderr)
         return 2
     return 0

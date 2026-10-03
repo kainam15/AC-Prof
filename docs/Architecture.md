@@ -297,7 +297,10 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 `app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
-`commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/profile 启动参数准备；
+`field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
+`review_inputs` 为模型检查与准备阶段提供同一套候选选择／JSON 输入，不复制模型裁决规则。
+`run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
+`commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
 `app` 继续持有控件、busy/measurement 状态、确认框、报告加载与显示，不把 `self.query_*()` 搬到新 controller。
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
 `run_results` 在子进程退出后关联现有 `run_state.run_id/attempts/pid` 与启动前快照，并调用 `audit_result`；
@@ -314,8 +317,12 @@ manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当�
 只复用接口思路，沿用当前 Textual 与标准库，不引入依赖或复制 loader；消息只在准备阶段发送，维护和测量成本局限在现有边界内。
 七页底栏共用 `.action-bar`，内部由 `.action-secondary` 和 `.action-primary` 两个 `Horizontal`
 分别承载左侧次要／导航动作与右侧主操作；间距由容器分配，按钮宽度随标签变化。
-`acprof.experiment` 定义共享 `RunConfig`、`RunConfigError`、校验与 `build_run_command`，
+`acprof.experiment` 定义共享 `RunConfig`、`ConfigIssue`、`RunConfigError`、校验与 `build_run_command`，
 CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TUI。
+`RunConfigError.issues` 保留字段名与可翻译原因，CLI 文本附带字段名，TUI 不解析错误字符串。
+字段错误元数据与候选控件参考 [Textual validation](https://github.com/Textualize/textual/blob/main/src/textual/validation.py)
+和 [Input 文档](https://github.com/Textualize/textual/blob/main/docs/widgets/input.md)（MIT）。
+沿用现有 Textual 与标准库；共享校验不引入 UI 依赖，界面校验只在编辑或提交阶段执行，不进入正式测量窗口。
 `acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
 `diagnostics` 负责提示性预检和结果摘要。TUI 提示性检查与 CLI 权威检查保留各自用途。
@@ -335,6 +342,18 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 借鉴 [Textual 8.2.8 thread worker 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/guide/workers/weather05.py)
 及 [Worker 实现](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py) 的取消与 UI 回传边界（MIT，当前已有依赖）；
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
+`experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
+`catalog_actions` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
+根级 `acprof.run_args` 集中维护 CLI、共享配置与 TUI 使用的纯参数声明、下载参数和冻结参数序列化；
+它只依赖低层常量与 argparse，不反向导入 CLI。CLI 的 `download_args` 仅负责执行时应用环境变量。
+`run_args.arguments_from_options` 从同一 parser 定义序列化冻结参数；`RunConfig.extra_options` 仅保留未显式映射的公共选项，
+复用不丢失 seed、SLO 等条件，续跑继续交给既有 RunState 校验。索引不作为新的身份或权威数据库。
+设计参考 [MLflow RunInfo](https://github.com/mlflow/mlflow/blob/master/mlflow/entities/run_info.py) 对 run_id 与 artifact_uri 的分离
+（Apache-2.0），以及 [Textual Input suggester](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/suggester.py)
+和原生 ModalScreen/DataTable（MIT）。只借鉴稳定身份、局部搜索与原生事件模式，不引入 MLflow、数据库或新依赖。
+`model_candidates` 复用 runtime profile 路由、依赖锁与 Model Store entry 验证；`model_actions` 把候选回填原 ModelInput，
+runtime/host/device/资源条件不完整或变化时降为需要重新验证。扫描与至多一次平台探测只在空闲 worker 中执行，
+不读取权重内容、不自动下载，也不凭历史成功跳过正式准备验证。
 `images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_actions.ImageActions` 收纳镜像页事件、渲染及 Docker worker。
 `ImageActions` 继承 Textual 的 `MessagePump`，通过原生事件继承和 `@work` 保留调度；`AcprofTui` 持有状态、计时器和进程管理器，配置模块仍不提前加载 Textual。
 `storage.StorageSpaceScreen` 展示可滚动的存储空间弹窗；`host.image_management.read_storage` 读取固定 Docker 连接的分类汇总和可核验的本机数据目录文件系统。

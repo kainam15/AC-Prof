@@ -90,7 +90,7 @@ class PlatformRuntimeTests(unittest.TestCase):
             profile = profiles.RuntimeProfile('example', 'structured', environment)
             with self.subTest(runtime_type=runtime_type), patch(
                 'acprof.host.runtime_images.select_runtime_profile', return_value=profile,
-            ), patch('acprof.host.runtime_images._select_nlp_torch_index_url',
+            ), patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                      side_effect=AssertionError('generic platform must not select a legacy Torch index')):
                 self.assertIs(configure_runtime_profile(task), profile)
 

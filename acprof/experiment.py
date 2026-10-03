@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -25,55 +25,67 @@ GPU_MODES = ("off", "on")
 COMPUTE_PROFILE_TOOLS = ("none", "both", "torch", "ncu")
 EXECUTION_PROFILE_TOOLS = ("none", "both", "massif", "nsys")
 NOTIFY_MODES = ("auto", "none", "wecom")
+PRESET_FIELDS = (
+    "cpus", "mems", "gpus", "input_scales", "input_scale_policy", "batch_size", "warmup",
+    "repeat", "repeat_in_window", "repeat_window_seconds", "request_timeout_seconds", "sample_hz",
+    "idle_seconds", "idle_cooldown_seconds", "compute_profile_tool", "profiling_mode",
+    "execution_profile_tool", "prune_startup_oom",
+)
+
+
+@dataclass(frozen=True)
+class ConfigIssue:
+    """A user-facing reason attached to a stable configuration field."""
+
+    field: str | None
+    reason: str
 
 
 class RunConfigError(ValueError):
-    """Invalid experiment options at any entry point."""
+    """Invalid experiment options shared by CLI and TUI consumers."""
 
-    def __init__(self, errors: Iterable[str]):
-        self.errors = tuple(
-            error if isinstance(error, str) else str(error)
-            for error in errors if str(error)
-        )
-        super().__init__("；".join(self.errors))
+    def __init__(self, issues: Iterable[ConfigIssue]):
+        self.issues = tuple(issues)
+        super().__init__("；".join(f"[{item.field}] {item.reason}" if item.field else str(item.reason)
+                                 for item in self.issues))
 
 
 def _csv_values(value: str) -> list[str]:
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
-def _positive_int_csv(value: str, label: str) -> list[int]:
+def _positive_int_csv(value: str, label: str, field: str) -> list[int]:
     raw_values = _csv_values(value)
     if not raw_values:
-        raise RunConfigError([message('{0}不能为空', label)])
+        raise RunConfigError([ConfigIssue(field, message('{0}不能为空', label))])
     try:
         values = [int(item) for item in raw_values]
     except ValueError as exc:
-        raise RunConfigError([message('{0}必须是逗号分隔的整数', label)]) from exc
+        raise RunConfigError([ConfigIssue(field, message('{0}必须是逗号分隔的整数', label))]) from exc
     if any(item <= 0 for item in values):
-        raise RunConfigError([message('{0}必须全部大于 0', label)])
+        raise RunConfigError([ConfigIssue(field, message('{0}必须全部大于 0', label))])
     return values
 
 
-def _positive_float_csv(value: str, label: str) -> list[float]:
+def _positive_float_csv(value: str, label: str, field: str) -> list[float]:
     raw_values = _csv_values(value)
     if not raw_values:
         return []
     try:
         values = [float(item) for item in raw_values]
     except ValueError as exc:
-        raise RunConfigError([message('{0}必须是逗号分隔的数字', label)]) from exc
+        raise RunConfigError([ConfigIssue(field, message('{0}必须是逗号分隔的数字', label))]) from exc
     if any(not math.isfinite(item) or item <= 0.0 for item in values):
-        raise RunConfigError([message('{0}必须全部大于 0', label)])
+        raise RunConfigError([ConfigIssue(field, message('{0}必须全部大于 0', label))])
     return values
 
 
-def _number(value: str | int | float, label: str, *, integer: bool) -> int | float:
+def _number(value: str | int | float, label: str, field: str, *, integer: bool) -> int | float:
     try:
         return int(value) if integer else float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         kind = message('整数') if integer else message('数字')
-        raise RunConfigError([message('{0}必须是{1}', label, kind)]) from exc
+        raise RunConfigError([ConfigIssue(field, message('{0}必须是{1}', label, kind))]) from exc
 
 
 def _format_number(value: int | float) -> str:
@@ -87,6 +99,8 @@ class RunConfig:
     """Common experiment options independent of presentation."""
 
     model: str = ""
+    revision: str = ""
+    extra_options: dict = dataclass_field(default_factory=dict)
     task: str = ""
     task_family: str = ""
     backend: str = ""
@@ -95,6 +109,7 @@ class RunConfig:
     mems: str = "2,4,8,16"
     gpus: str = "off,on"
     input_scales: str = ""
+    input_scale_policy: str = "auto"
     workload_spec: str = ""
     model_spec: str = ""
     download_mode: str = "mirror-only"
@@ -128,6 +143,16 @@ class RunConfig:
         return tuple((item.name, getattr(self, item.name)) for item in fields(self)
                      if item.name not in execution)
 
+    def with_preset(self, preset: str) -> "RunConfig":
+        """Change experimental parameters while retaining identity and user constraints."""
+        if preset not in {"smoke", "main"}:
+            raise RunConfigError([ConfigIssue(None, message("未知预设：{0}", preset))])
+        template = self.smoke(self.model) if preset == "smoke" else self.main_matrix(self.model)
+        updated = replace(self, **{name: getattr(template, name) for name in PRESET_FIELDS})
+        if self.resume and self.experiment_parameters() != updated.experiment_parameters():
+            raise RunConfigError([ConfigIssue("resume", message("续跑参数不能更改；请取消续跑并选择新的输出目录创建新实验。"))])
+        return updated
+
     @classmethod
     def from_namespace(cls, args) -> "RunConfig":
         defaults = cls()
@@ -143,11 +168,13 @@ class RunConfig:
             cpus="1",
             mems="4",
             gpus="off",
-            input_scales="64",
+            input_scale_policy="minimal",
             output_dir="results/smoke",
             warmup=0,
             repeat=1,
             repeat_in_window=1,
+            idle_seconds=0,
+            idle_cooldown_seconds=0,
             profiling_mode="basic",
             compute_profile_tool="none",
             execution_profile_tool="none",
@@ -165,124 +192,106 @@ class RunConfig:
 
     def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
         """Normalize form values and reject invalid or misleading runs."""
-        errors: list[str] = []
+        errors: list[ConfigIssue] = []
+        try:
+            if not isinstance(self.extra_options, dict) or set(self.extra_options) & {item.name for item in fields(self)}:
+                raise ValueError('extra options must contain only unmapped public CLI fields')
+            from acprof.run_args import arguments_from_options
+            arguments_from_options(self.extra_options)
+        except (ValueError, TypeError) as exc:
+            errors.append(ConfigIssue(None, message("保留的实验参数无效：{0}", exc)))
+        if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
+            errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hf_endpoints import HF_DOWNLOAD_MODES
         from acprof.network_policy import parse_bytes
         if self.download_mode not in HF_DOWNLOAD_MODES:
-            errors.append(message("下载源模式必须是 mirror-only、mirror-preferred 或 official"))
-        for value in (self.max_download, self.model_store_max):
+            errors.append(ConfigIssue("download_mode", message("下载源模式必须是 mirror-only、mirror-preferred 或 official")))
+        for field in ("max_download", "model_store_max"):
             try:
-                parse_bytes(value)
+                parse_bytes(getattr(self, field))
             except ValueError as exc:
-                errors.append(str(exc))
+                errors.append(ConfigIssue(field, str(exc)))
         from acprof.cpu_affinity import normalize_cpu_set
         try:
             cpuset_cpus = normalize_cpu_set(self.cpuset_cpus)
         except ValueError:
             cpuset_cpus = ""
-            errors.append(message("CPU 集合格式无效；示例：0-3,8"))
+            errors.append(ConfigIssue("cpuset_cpus", message("CPU 集合格式无效；示例：0-3,8")))
         model = self.model.strip()
         if not model:
-            errors.append(message('模型 ID 不能为空'))
+            errors.append(ConfigIssue("model", message('模型 ID 不能为空')))
 
         try:
-            cpus = _positive_int_csv(self.cpus, message('CPU 列表'))
+            cpus = _positive_int_csv(self.cpus, message('CPU 列表'), "cpus")
         except RunConfigError as exc:
-            errors.extend(exc.errors)
+            errors.extend(exc.issues)
             cpus = []
         try:
-            mems = _positive_int_csv(self.mems, message('内存列表'))
+            mems = _positive_int_csv(self.mems, message('内存列表'), "mems")
         except RunConfigError as exc:
-            errors.extend(exc.errors)
+            errors.extend(exc.issues)
             mems = []
 
         gpus = _csv_values(self.gpus.lower())
         if not gpus:
-            errors.append(message('GPU 模式不能为空'))
+            errors.append(ConfigIssue("gpus", message('GPU 模式不能为空')))
         elif any(item not in GPU_MODES for item in gpus):
-            errors.append(message('GPU 模式只能包含 off 或 on'))
+            errors.append(ConfigIssue("gpus", message('GPU 模式只能包含 off 或 on')))
 
         if self.prune_startup_oom:
             if len(cpus) != len(set(cpus)):
-                errors.append(message('启用启动 OOM 剪枝时 CPU 列表不能重复'))
+                errors.append(ConfigIssue("cpus", message('启用启动 OOM 剪枝时 CPU 列表不能重复')))
             if len(mems) != len(set(mems)):
-                errors.append(message('启用启动 OOM 剪枝时内存列表不能重复'))
+                errors.append(ConfigIssue("mems", message('启用启动 OOM 剪枝时内存列表不能重复')))
             if len(gpus) != len(set(gpus)):
-                errors.append(message('启用启动 OOM 剪枝时 GPU 模式不能重复'))
+                errors.append(ConfigIssue("gpus", message('启用启动 OOM 剪枝时 GPU 模式不能重复')))
 
         try:
-            _positive_float_csv(self.input_scales, message('输入规模'))
+            _positive_float_csv(self.input_scales, message('输入规模'), "input_scales")
         except RunConfigError as exc:
-            errors.extend(exc.errors)
+            errors.extend(exc.issues)
+        if self.input_scale_policy not in {"auto", "minimal"}:
+            errors.append(ConfigIssue("input_scale_policy", message("输入规划必须是 auto 或 minimal")))
 
-        batch_size = _number(self.batch_size, "Batch size", integer=True)
-        warmup = _number(self.warmup, "Warmup", integer=True)
-        repeat = _number(self.repeat, "Repeat", integer=True)
-        repeat_in_window = _number(
-            self.repeat_in_window,
-            message('每窗口请求数'),
-            integer=True,
+        numbers: dict[str, int | float] = {}
+        numeric_fields = (
+            ("batch_size", "Batch size", True, True, 'Batch size 必须大于 0'),
+            ("warmup", "Warmup", True, False, 'Warmup 不能小于 0'),
+            ("repeat", "Repeat", True, True, 'Repeat 必须大于 0'),
+            ("repeat_in_window", '每窗口请求数', True, False, '每窗口请求数不能小于 0'),
+            ("repeat_window_seconds", '自动窗口秒数', False, True, '自动窗口秒数必须大于 0'),
+            ("request_timeout_seconds", '单请求超时秒数', False, True, '单请求超时秒数必须是大于 0 的有限数字'),
+            ("sample_hz", '采样频率', False, True, '采样频率必须大于 0'),
+            ("idle_seconds", 'Idle 秒数', False, False, 'Idle 秒数不能小于 0'),
+            ("idle_cooldown_seconds", 'Idle cooldown 秒数', False, False, 'Idle cooldown 秒数不能小于 0'),
         )
-        repeat_window_seconds = _number(
-            self.repeat_window_seconds,
-            message('自动窗口秒数'),
-            integer=False,
-        )
-        request_timeout_seconds = _number(
-            self.request_timeout_seconds,
-            message('单请求超时秒数'),
-            integer=False,
-        )
-        sample_hz = _number(self.sample_hz, message('采样频率'), integer=False)
-        idle_seconds = _number(self.idle_seconds, message('Idle 秒数'), integer=False)
-        idle_cooldown_seconds = _number(
-            self.idle_cooldown_seconds,
-            message('Idle cooldown 秒数'),
-            integer=False,
-        )
-
-        if batch_size <= 0:
-            errors.append(message('Batch size 必须大于 0'))
-        if warmup < 0:
-            errors.append(message('Warmup 不能小于 0'))
-        if repeat <= 0:
-            errors.append(message('Repeat 必须大于 0'))
-        if repeat_in_window < 0:
-            errors.append(message('每窗口请求数不能小于 0'))
-        if repeat_window_seconds <= 0.0:
-            errors.append(message('自动窗口秒数必须大于 0'))
-        if not math.isfinite(float(repeat_window_seconds)):
-            errors.append(message('自动窗口秒数必须是有限数字'))
-        if (
-            not math.isfinite(float(request_timeout_seconds))
-            or request_timeout_seconds <= 0.0
-        ):
-            errors.append(message('单请求超时秒数必须是大于 0 的有限数字'))
-        if not math.isfinite(float(sample_hz)) or sample_hz <= 0.0:
-            errors.append(message('采样频率必须大于 0'))
-        if not math.isfinite(float(idle_seconds)) or idle_seconds < 0.0:
-            errors.append(message('Idle 秒数不能小于 0'))
-        if (
-            not math.isfinite(float(idle_cooldown_seconds))
-            or idle_cooldown_seconds < 0.0
-        ):
-            errors.append(message('Idle cooldown 秒数不能小于 0'))
+        for field, label, integer, positive, reason in numeric_fields:
+            try:
+                value = _number(getattr(self, field), message(label), field, integer=integer)
+            except RunConfigError as exc:
+                errors.extend(exc.issues)
+                continue
+            numbers[field] = value
+            if not math.isfinite(float(value)) or (value <= 0 if positive else value < 0):
+                if field == "repeat_window_seconds" and not math.isfinite(float(value)):
+                    reason = '自动窗口秒数必须是有限数字'
+                errors.append(ConfigIssue(field, message(reason)))
 
         task_family = self.task_family.strip().lower()
         if task_family and task_family not in TASK_FAMILIES:
-            errors.append(message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured'))
+            errors.append(ConfigIssue("task_family", message('任务族必须是 nlp/cv/audio/timeseries/diffusion/multimodal/structured')))
         if self.compute_profile_tool not in COMPUTE_PROFILE_TOOLS:
-            errors.append(message('无效的计算分析器'))
+            errors.append(ConfigIssue("compute_profile_tool", message('无效的计算分析器')))
         if self.profiling_mode not in {"full", "basic"}:
-            errors.append(message('无效的画像模式'))
+            errors.append(ConfigIssue("profiling_mode", message('无效的画像模式')))
         if self.execution_profile_tool not in EXECUTION_PROFILE_TOOLS:
-            errors.append(message('无效的执行分析器'))
+            errors.append(ConfigIssue("execution_profile_tool", message('无效的执行分析器')))
         if self.notify not in NOTIFY_MODES:
-            errors.append(message('无效的通知模式'))
+            errors.append(ConfigIssue("notify", message('无效的通知模式')))
         if not self.output_dir.strip():
-            errors.append(message('输出目录不能为空'))
+            errors.append(ConfigIssue("output_dir", message('输出目录不能为空')))
         if not self.sniff_iface.strip():
-            errors.append(message('抓包网卡不能为空'))
+            errors.append(ConfigIssue("sniff_iface", message('抓包网卡不能为空')))
 
         workload_spec = self.workload_spec.strip()
         if workload_spec and project_dir is not None:
@@ -290,7 +299,7 @@ class RunConfig:
             if not workload_path.is_absolute():
                 workload_path = project_dir / workload_path
             if not workload_path.is_file():
-                errors.append(message('Workload manifest 不存在：{0}', workload_spec))
+                errors.append(ConfigIssue("workload_spec", message('Workload manifest 不存在：{0}', workload_spec)))
 
         model_spec = self.model_spec.strip()
         if model_spec and project_dir is not None:
@@ -301,7 +310,7 @@ class RunConfig:
                 from acprof.model_spec import read_model_spec
                 read_model_spec(model_path)
             except (OSError, ValueError) as exc:
-                errors.append(message('模型接口声明无效：{0}；{1}', model_spec, str(exc)))
+                errors.append(ConfigIssue("model_spec", message('模型接口声明无效：{0}；{1}', model_spec, str(exc))))
 
         if errors:
             raise RunConfigError(errors)
@@ -320,15 +329,15 @@ class RunConfig:
             workload_spec=workload_spec,
             model_spec=model_spec,
             output_dir=self.output_dir.strip(),
-            batch_size=int(batch_size),
-            warmup=int(warmup),
-            repeat=int(repeat),
-            repeat_in_window=int(repeat_in_window),
-            repeat_window_seconds=float(repeat_window_seconds),
-            request_timeout_seconds=float(request_timeout_seconds),
-            sample_hz=float(sample_hz),
-            idle_seconds=float(idle_seconds),
-            idle_cooldown_seconds=float(idle_cooldown_seconds),
+            batch_size=int(numbers["batch_size"]),
+            warmup=int(numbers["warmup"]),
+            repeat=int(numbers["repeat"]),
+            repeat_in_window=int(numbers["repeat_in_window"]),
+            repeat_window_seconds=float(numbers["repeat_window_seconds"]),
+            request_timeout_seconds=float(numbers["request_timeout_seconds"]),
+            sample_hz=float(numbers["sample_hz"]),
+            idle_seconds=float(numbers["idle_seconds"]),
+            idle_cooldown_seconds=float(numbers["idle_cooldown_seconds"]),
             sniff_iface=self.sniff_iface.strip(),
         )
 
@@ -393,11 +402,13 @@ def build_run_command(
         config.notify,
     ]
     for option, value in (
+        ("--revision", config.revision),
         ("--cpuset-cpus", config.cpuset_cpus),
         ("--task", config.task),
         ("--task-family", config.task_family),
         ("--backend", config.backend),
         ("--input-scales", config.input_scales),
+        ("--input-scale-policy", config.input_scale_policy),
         ("--workload-spec", config.workload_spec),
         ("--model-spec", config.model_spec),
         ("--download-mode", config.download_mode),
@@ -415,4 +426,6 @@ def build_run_command(
         command.append("--resume")
     if config.idle_debug:
         command.append("--idle-debug")
+    from acprof.run_args import arguments_from_options
+    command.extend(arguments_from_options(config.extra_options))
     return command

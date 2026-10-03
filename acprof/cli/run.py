@@ -37,7 +37,6 @@ from acprof.capabilities import (
     measurement_requested,
     missing_required_measurements,
 )
-from acprof.cli.run_args import build_parser as _build_parser
 from acprof.cli.terminal_log import format_run_command, start_terminal_log, stop_terminal_log
 from acprof.config import SCALING_DIMENSIONS
 from acprof.host.collection_history import (
@@ -76,6 +75,7 @@ from acprof.notifications import (
     NotificationEvent,
     WeComWebhookNotifier,
 )
+from acprof.run_args import build_parser as _build_parser
 
 PROJECT_DIR = str(resource_root())
 DEFAULT_NOTIFY_PROVIDER = "auto"
@@ -486,7 +486,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                      require_full_validation=False, workflow=None) -> _PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
-    from acprof.host.input_plan import plan_input_scales
+    from acprof.host.input_plan import input_plan_summary, plan_input_scales
     from acprof.host.runtime_images import prepare_image
     workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
@@ -506,6 +506,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
     if run_state.ready:
         (task_info, image_info, planned_input_scales, compute_profile_plan_file,
          execution_profile_plan_file) = run_state.restore_runtime()
+        workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
         _update_run_notification_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
         print(f"[resume] 恢复实验 {run_state.data['run_id']}，复用原镜像和输入计划")
@@ -581,10 +582,13 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                 output_dir=output_dir,
                 input_scales=args.input_scales,
                 workload_spec_path=args.workload_spec,
+                input_scale_policy=args.input_scale_policy,
             )
         except Exception as exc:
             print(f"\n[scale][ERROR] {exc}", file=sys.stderr)
             sys.exit(1)
+
+        workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
 
         static_meta = enrich_static_meta_from_input_plan(
             static_meta,

@@ -154,7 +154,8 @@ Pareto 取舍及 Scaling 视图。该文件可离线打开，也支持 Windows �
 acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
-smoke 预设使用 `basic`、CPU 和单次请求，关闭独立 profiler 与通知。
+没有保存配置的首次启动使用 `smoke`：`basic`、CPU、单次请求和任务对应的最小输入尺度，关闭独立 profiler，初始通知关闭。
+切换预设保留下载预算、下载源、缓存与输出路径以及通知选择。开始按钮附近显示实验规模和注明假设的时间估计；已保存配置保持不变。
 需要完整指标时，在“高级参数”中改为 `full`，并完成相应的主机检查；开始前可在命令预览中核对参数。
 唯一的自定义多模态 pipeline 会尝试自动解析；配套 `AutoModel` 的 `feature-extraction` 提示不会覆盖已声明的任务。固定配置可判定的依赖分支、本地参数转发和主模型自引用会自动处理，动态条件仍保留 review。Ultravox 的固定快照已覆盖 Llama weights 与 Whisper processor 的静态规划，详见[自动模型契约](../Runtime_Compatibility.md#自动生成模型契约m1m6)。输入或依赖仍有缺口时，可在“识别覆盖 → 模型接口声明”填写 JSON；格式与示例见[模型接口声明](../Runtime_Compatibility.md#本地模型声明与自定义-pipeline)。
 页面、快捷键、日志复制、设置与 VS Code 按键问题见 [TUI 用户指南](../TUI.md)。

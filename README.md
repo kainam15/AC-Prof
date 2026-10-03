@@ -180,7 +180,8 @@ The full-screen TUI lets you configure experiments, view logs, generate plots, a
 acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
-The `smoke` preset uses `basic` mode, CPU execution, and one request, with independent profilers and notifications disabled.
+The first launch without saved settings uses `smoke`: `basic` mode, CPU execution, one request, and the smallest task-specific input scale, with independent profilers and initial notifications disabled.
+Switching presets preserves download budgets, sources, cache and output paths, and notification choices. The start controls show experiment size and an estimated time with explicit assumptions; saved configurations remain unchanged.
 For the full set of metrics, select `full` under **Advanced** and complete the corresponding host checks.
 Review the command preview before starting.
 

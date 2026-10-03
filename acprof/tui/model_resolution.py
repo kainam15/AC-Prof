@@ -1,7 +1,6 @@
 """Progressive model-contract review; executable probes use the app's process manager."""
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 
@@ -15,8 +14,8 @@ from acprof.host.model_inspection import explain_resolution
 from acprof.model_contract import write_model_resolution
 from acprof.model_review import apply_review, review_questions
 from acprof.model_spec import task_model_spec
-from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
+from acprof.tui.review_inputs import review_answers, review_input
 
 
 class ModelResolutionScreen(ModalScreen):
@@ -55,9 +54,8 @@ class ModelResolutionScreen(ModalScreen):
                     yield Label(item["path"])
                     yield Static(item["reason"], classes="resolution-reason", markup=False)
                     if not item.get("read_only"):
-                        value = json.dumps(item["value"], ensure_ascii=False) if item["value"] is not None else ""
-                        yield Input(value=value, placeholder=tr("填写此字段的 JSON 值"),
-                                    id=f"resolution-answer-{index}", classes="resolution-answer")
+                        yield review_input(item, identifier=f"resolution-answer-{index}", translate=tr,
+                                           classes="resolution-answer")
                 if ready:
                     yield Static(tr("没有待确认字段；静态解析不代表推理已验证。"), markup=False)
                 elif questions and not editable:
@@ -85,7 +83,8 @@ class ModelResolutionScreen(ModalScreen):
         from acprof.host.env_utils import bootstrap_project_env
         try:
             bootstrap_project_env(Path.cwd())
-            task = detect_task(self.config.model, override_tag=self.config.task or None,
+            task = detect_task(self.config.model, revision=self.config.revision or None,
+                               override_family=self.config.task_family or None, override_tag=self.config.task or None,
                                override_backend=self.config.backend or None,
                                model_spec_path=self.config.model_spec or None)
             error = ""
@@ -102,8 +101,7 @@ class ModelResolutionScreen(ModalScreen):
     @on(Button.Pressed, "#resolution-apply")
     def apply_answers(self):
         try:
-            answers = {item["path"]: json.loads(self.query_one(f"#resolution-answer-{index}", Input).value)
-                       for index, item in enumerate(review_questions(self.task_info)) if not item.get("read_only")}
+            answers = review_answers(self, review_questions(self.task_info), prefix="resolution-answer")
             self.query_one("#resolution-apply", Button).disabled = True
             self.review(answers)
         except (ValueError, TypeError) as exc:
@@ -131,7 +129,8 @@ class ModelResolutionScreen(ModalScreen):
             self.query_one("#resolution-error", Static).update(str(exc))
             return
         self.dismiss({"task": self.task_info, "spec": spec, "output": root,
-                      "selection": {"task": self.config.task, "backend": self.config.backend},
+                      "selection": {"task": self.config.task, "backend": self.config.backend,
+                                    "revision": self.config.revision, "task_family": self.config.task_family},
                       "probe": {"resolution-basic": "basic", "resolution-full": "full"}.get(event.button.id)})
 
     @on(Button.Pressed, "#resolution-close")

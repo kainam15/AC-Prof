@@ -55,6 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
         )
     )
     parser.add_argument("--model", required=True, help="Hugging Face model ID")
+    parser.add_argument("--revision", default=None, help="Model branch, tag or full commit SHA")
     parser.add_argument("--task", default=None, help="Override pipeline_tag")
     parser.add_argument("--task-family", default=None, help="Override task family")
     parser.add_argument("--backend", default=None, help="Override runtime backend")
@@ -97,7 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reuse the local model image if present; automatically build it if missing",
     )
-    from acprof.cli.download_args import add_download_arguments
+    from acprof.run_args import add_download_arguments
     add_download_arguments(parser)
     return parser
 
@@ -129,7 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from acprof.host.detect import detect_task
 
     task_info = detect_task(
-        model_id=args.model,
+        model_id=args.model, revision=args.revision,
         override_tag=args.task,
         override_family=args.task_family,
         override_backend=args.backend,

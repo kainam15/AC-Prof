@@ -1,13 +1,15 @@
 """Presentation commands for probe, plot, statistics and shortcuts."""
 from __future__ import annotations
 
+import csv
 import shlex
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from acprof.experiment import RunConfig, RunConfigError, _csv_values
+from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
 from acprof.messages import message
 
@@ -54,6 +56,7 @@ class PendingLaunch:
     config: RunConfig | None = None
     result_dir: str = ""
     result_csv: str = ""
+    report_path: str = ""
 
 
 def resolve_result_path(source: str, project_dir: Path) -> Path:
@@ -64,7 +67,7 @@ def resolve_result_path(source: str, project_dir: Path) -> Path:
 def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
     path = resolve_result_path(source, project_dir)
     if not path.is_file():
-        raise RunConfigError([message("结果 CSV 不存在：{0}", path)])
+        raise RunConfigError([ConfigIssue(None, message("结果 CSV 不存在：{0}", path))])
     command = build_plot_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "plot", result_csv=str(path))
 
@@ -75,10 +78,40 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     if path.is_dir():
         path /= "result_all.csv"
     if path.suffix.lower() != ".csv" or not path.is_file():
-        raise RunConfigError([message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。")])
+        raise RunConfigError([ConfigIssue(None, message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。"))])
     output_dir = ArtifactLayout.discover(path.parent).path("analysis")
     command = build_stats_command(path, output_dir, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "stats", result_csv=str(path))
+
+
+def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
+                       project_dir: Path, python_executable: Path) -> PendingLaunch:
+    """Reuse the public comparison command and preserve its baseline direction."""
+    from acprof.artifact_layout import ArtifactLayout
+    if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
+        raise RunConfigError([ConfigIssue(None, message("请选择有效的比较基线和用途。"))])
+    groups = []
+    for text in (left, right):
+        paths = [resolve_result_path(value.strip(), project_dir).resolve()
+                 for value in next(csv.reader([text], delimiter=";", skipinitialspace=True)) if value.strip()]
+        if not paths:
+            raise RunConfigError([ConfigIssue(None, message("请选择左右两组实验目录。"))])
+        for path in paths:
+            source = path / "result_all.csv" if path.is_dir() else path
+            if not source.is_file() or source.suffix.lower() != ".csv":
+                raise RunConfigError([ConfigIssue(None, message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。"))])
+        groups.append(paths)
+    if baseline == "right":
+        groups.reverse()
+    first = groups[0][0]
+    layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
+    output = layout.path("analysis") / f"experiment-comparison-{datetime.now(timezone.utc):%Y%m%d-%H%M%S-%f}.json"
+    command = [*cli_command("compare", python_executable=python_executable)]
+    for name, paths in zip(("--left", "--right"), groups):
+        for path in paths:
+            command.extend((name, str(path)))
+    command.extend(("--purpose", purpose, "--output", str(output)))
+    return PendingLaunch(tuple(command), "compare", report_path=str(output))
 
 
 def prepare_profile(source: str, *, tools: str, dry_run: bool,
@@ -115,6 +148,7 @@ def build_probe_command(
         config.output_dir,
     ]
     for option, value in (
+        ("--revision", config.revision),
         ("--task", config.task),
         ("--task-family", config.task_family),
         ("--backend", config.backend),
@@ -166,7 +200,7 @@ def build_profile_command(
 ) -> list[str]:
     normalized_tools = ",".join(_csv_values(tools))
     if not normalized_tools:
-        raise RunConfigError([message('补采工具不能为空')])
+        raise RunConfigError([ConfigIssue(None, message('补采工具不能为空'))])
     command = [
         *cli_command("profile", python_executable=python_executable),
         str(Path(result_dir).expanduser()),
@@ -209,7 +243,7 @@ def parse_slash_command(value: str) -> tuple[str, list[str]]:
     try:
         parts = shlex.split(value.strip())
     except ValueError as exc:
-        raise RunConfigError([message('命令格式错误：{0}', exc)]) from exc
+        raise RunConfigError([ConfigIssue(None, message('命令格式错误：{0}', exc))]) from exc
     if not parts or not parts[0].startswith("/"):
-        raise RunConfigError([message('快捷命令必须以 / 开头')])
+        raise RunConfigError([ConfigIssue(None, message('快捷命令必须以 / 开头'))])
     return parts[0][1:].lower(), parts[1:]

@@ -140,12 +140,15 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
 
 
 def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dict:
-    from acprof.host.model_store import model_sources, require_space
+    from acprof.host.model_store import model_sources, require_space, store_root
+    from acprof.network_policy import parse_bytes
     models = model_sources(model_plan, root)
     sources, runtime = runtime_sources(profile, Path(project_dir))
     report = summarize_downloads([*models, *sources])
     report["runtime"] = runtime
     report["disk"] = require_space(model_plan, root)
+    report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
     from acprof.host.static_metadata import _docker_storage_metadata
     report["docker_storage"] = _docker_storage_metadata()
     report["model"] = {"model_id": task.model_id, "revision": task.model_revision,
@@ -166,8 +169,12 @@ def format_summary(report: dict) -> str:
     def size(value):
         return "unknown" if value is None else f"{value:,} B ({value / 1e9:.3f} GB)"
     model, disk = report.get("model", {}), report.get("disk", {})
+    budget = ("unknown" if "max_download_bytes" not in report else "unlimited"
+              if report["max_download_bytes"] is None else size(report["max_download_bytes"]))
     return "\n".join([
         f"expected_download_bytes: {size(report['expected_download_bytes'])}",
+        f"Effective download budget: {budget}",
+        f"Model Store path: {report.get('model_store_path', 'unknown')}",
         f"DIRECT: {size(report['direct_download_bytes'])} | PROXY: {size(report['proxy_download_bytes'])}",
         f"Model total: {size(model.get('total_bytes'))} | cached: {size(model.get('cached_bytes'))}",
         f"Endpoint: {model.get('endpoint', '')}",

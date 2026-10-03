@@ -442,6 +442,7 @@ class LargestScaleProbeTests(unittest.TestCase):
                 [
                     "--model",
                     "demo/model",
+                    "--revision", "a" * 40,
                     "--cpus",
                     "1,4",
                     "--mems",
@@ -457,6 +458,7 @@ class LargestScaleProbeTests(unittest.TestCase):
                     "--skip-build",
                 ]
             )
+            self.assertEqual(_detect_task.call_args.kwargs["revision"], "a" * 40)
             summary_path = Path(run_probe.call_args.kwargs["output_dir"]) / PROBE_SUMMARY_NAME
             saved = json.loads(summary_path.read_text(encoding="utf-8"))
 

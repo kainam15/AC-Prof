@@ -228,7 +228,7 @@ class ModelResolutionTests(unittest.TestCase):
         from acprof.host.runtime_images import configure_runtime_profile
         task = self.task()
         require_task_support(task)
-        with patch("acprof.host.runtime_images._select_nlp_torch_index_url",
+        with patch("acprof.host.runtime_images.select_nlp_torch_index_url",
                    return_value="https://download.pytorch.org/whl/cpu"):
             profile = configure_runtime_profile(task)
         self.assertEqual(profile.environment.environment_key, "transformers560-cpu")

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from acprof.host.network_preflight import runtime_sources
+from acprof.host.network_preflight import format_summary, runtime_sources
 from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -14,6 +14,14 @@ from acprof.runtime_profiles import PROFILES
 
 
 class NetworkPreflightTests(unittest.TestCase):
+    def test_download_confirmation_contains_budget_and_cache_path(self):
+        report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100)])
+        report.update(max_download_bytes=5_000_000_000, model_store_path="/custom/cache")
+        summary = format_summary(report)
+        self.assertIn("5.000 GB", summary)
+        self.assertIn("/custom/cache", summary)
+        self.assertIn("100 B", summary)
+
     def test_route_totals_do_not_treat_unknown_as_zero(self):
         report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100),
                                      DownloadSource("oci", "https://ghcr.io/repo", 50),

@@ -31,6 +31,7 @@ try:
         ContentSwitcher,
         DataTable,
         Header,
+        Label,
         Select,
         Static,
         TabbedContent,
@@ -55,13 +56,15 @@ from acprof.host.image_management import (
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
 from acprof.platform import collection_policy_error, detect_environment
-from acprof.tui import run_form
+from acprof.tui import run_form, run_planning
+from acprof.tui.catalog_actions import CatalogActions
 from acprof.tui.commands import (
     OperationState,
     PendingLaunch,
     build_probe_command,
     format_command,
     parse_slash_command,
+    prepare_comparison,
     prepare_plot,
     prepare_profile,
     prepare_stats,
@@ -77,6 +80,7 @@ from acprof.tui.i18n import error_message, translate
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
 from acprof.tui.log import SelectableLog
+from acprof.tui.model_actions import ModelActions
 from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
@@ -111,7 +115,7 @@ PROJECT_DIR = Path.cwd()
 PYTHON_EXECUTABLE = Path(sys.executable).absolute()
 
 
-class AcprofTui(ImageActions, BarCursorApp):
+class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
     """Full-screen controller for AC-Prof collection and diagnostics."""
 
     TITLE = "AC-Prof"
@@ -162,10 +166,14 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._localized_text: dict[tuple[Widget, str], str] = {}
         self._localized_selects: dict[Select, tuple] = {}
         self._applied_language: str | None = None
-        config = self._saved_settings.run_defaults or RunConfig()
+        config = self._saved_settings.run_defaults or RunConfig.smoke()
         if self._saved_settings.last_model:
-            config = replace(config, model=self._saved_settings.last_model)
+            config = replace(config, model=self._saved_settings.last_model,
+                             revision=config.revision if config.model == self._saved_settings.last_model else "")
         self.initial_config = initial_config if initial_config is not None else config
+        self._extra_run_options = dict(self.initial_config.extra_options)
+        self._planned_input: dict | None = None
+        self._planned_input_identity: tuple | None = None
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
         self.theme = self.ui_preferences.theme
@@ -198,6 +206,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._preparation_screen = None
         self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self._form_ready = False
+        self._config_issues = ()
+        self._field_errors_visible = False
         self._applying_config = False
         self._preview_timer = None
         self._selected_preset: str | None = None
@@ -205,6 +215,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._elapsed_timer = None
         self._report_view: ReportView | None = None
         self._stats_report_path: Path | None = None
+        self._comparison_report_path: Path | None = None
         self._stats_report_reused = False
         self._image_inventory: ImageInventory | None = None
         self._image_operation = ""
@@ -351,6 +362,8 @@ class AcprofTui(ImageActions, BarCursorApp):
             if self._report_view is not None:
                 self._render_report_view()
             self._render_images()
+            if self._field_errors_visible:
+                self._update_field_errors(self._config_issues)
 
     def _apply_ui_preferences(self) -> None:
         self._apply_language()
@@ -475,7 +488,11 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._activate_tab("run-tab")
         pages = self.query_one("#experiment-pages", ContentSwitcher)
         show_advanced = pages.current != "advanced-form"
-        pages.current = "advanced-form" if show_advanced else "run-form"
+        self._show_run_form("advanced-form" if show_advanced else "run-form")
+
+    def _show_run_form(self, page: str) -> None:
+        self.query_one("#experiment-pages", ContentSwitcher).current = page
+        show_advanced = page == "advanced-form"
         self._set_text(self.query_one("#run-title", Static), "采集参数" if show_advanced else "配置实验")
         self._set_text(
             self.query_one("#open-run-settings", Button),
@@ -579,20 +596,19 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.preset_smoke()
         elif preset == "main":
             self.preset_main()
-        elif preset == "default":
-            self.preset_default()
 
     def _collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
         return run_form.collect_config(
             {key: self._input(key) for key in run_form.INPUT_FIELDS},
             {key: self._select(key) for key in run_form.SELECT_FIELDS},
             {key: self._checked(key) for key in run_form.CHECKED_FIELDS},
-            project_dir=PROJECT_DIR, allow_empty_model=allow_empty_model,
+            project_dir=PROJECT_DIR, allow_empty_model=allow_empty_model, extra_options=self._extra_run_options,
         )
 
     def _apply_config(self, config: RunConfig, *, preset: str = "custom") -> None:
         self._cancel_preview_timer()
         self._applying_config = True
+        self._extra_run_options = dict(config.extra_options)
         values, selects, checks = run_form.config_values(config)
         # Value watchers post Changed messages asynchronously. Suppressing
         # them here avoids dozens of queued debounce timers after a preset.
@@ -613,8 +629,34 @@ class AcprofTui(ImageActions, BarCursorApp):
             self._refresh_command_preview(notify=False, sync_preset=True)
 
     def _show_config_error(self, exc: RunConfigError) -> None:
-        text = join_messages("\n", (message("• {0}", error) for error in exc.errors))
+        text = join_messages("\n", (message("• {0}", issue.reason) for issue in exc.issues))
         self.notify(text, title="配置有误", severity="error", timeout=8)
+        if not any(issue.field for issue in exc.issues):
+            return
+        self._field_errors_visible = True
+        control = self._update_field_errors(exc.issues)
+        if control is None:
+            return
+        ancestors = list(control.ancestors)
+        page = next((item.id for item in ancestors if item.id in {"run-form", "advanced-form"}), None)
+        if page is not None:
+            self._activate_tab("run-tab")
+            self._show_run_form(page)
+        for ancestor in ancestors:
+            if isinstance(ancestor, Collapsible):
+                ancestor.collapsed = False
+        self.call_after_refresh(self._focus_config_field, control)
+
+    def _update_field_errors(self, issues):
+        from acprof.tui.field_validation import render_field_issues
+        self._config_issues = tuple(issues)
+        return render_field_issues(self, self._config_issues, self.tr)
+
+    def _focus_config_field(self, control: Widget) -> None:
+        if (control.is_mounted and not control.is_disabled and not self._is_busy()
+                and not self._latest_snapshot.measurement_active):
+            control.focus(scroll_visible=False)
+            control.scroll_visible(animate=False, immediate=True)
 
     def _refresh_command_preview(
         self, *, notify: bool = True, sync_preset: bool = False
@@ -622,20 +664,23 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._refresh_preflight_state()
         config = None
         try:
-            config = self._collect_config()
+            config = self._collect_config(allow_empty_model=True)
+            self._update_plan_summary(config)
             command = build_run_command(
                 config,
                 project_dir=PROJECT_DIR,
                 python_executable=PYTHON_EXECUTABLE,
             )
         except RunConfigError as exc:
+            if self._field_errors_visible:
+                self._update_field_errors(exc.issues)
             self._set_text(
                 self.query_one("#config-summary", Static),
-                message("配置待完善 · {0}", join_messages("; ", exc.errors[:2])),
+                message("配置待完善 · {0}", join_messages("; ", (item.reason for item in exc.issues[:2]))),
             )
             self._set_text(
                 self.query_one("#command-preview", Static),
-                message("配置尚未完成：{0}", join_messages("; ", exc.errors)),
+                message("配置尚未完成：{0}", join_messages("; ", (item.reason for item in exc.issues))),
             )
             if notify:
                 self._show_config_error(exc)
@@ -652,6 +697,8 @@ class AcprofTui(ImageActions, BarCursorApp):
                     with self.prevent(Select.Changed):
                         widget.set_options((self.tr(label), key) for label, key in options)
                         widget.value = selected_preset
+        if self._field_errors_visible:
+            self._update_field_errors(())
         case_count = (
             len(config.cpus.split(","))
             * len(config.mems.split(","))
@@ -660,7 +707,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         scale_summary = (
             message('{0} 档', len(config.input_scales.split(',')))
             if config.input_scales
-            else message("自动规划")
+            else message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动规划")
         )
         profiler_summary = (
             message("分析器关闭")
@@ -680,6 +727,19 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.notify("命令预览已更新", timeout=2)
         return True
 
+    def _update_plan_summary(self, config: RunConfig) -> None:
+        planned = self._planned_input if self._planned_input_identity == run_planning.input_identity(config) else None
+        summary = self.query_one("#run-plan-summary", Static)
+        self._set_text(summary, run_planning.plan_summary(config, planned))
+        self._set_text(summary, run_planning.preparation_details(config, planned), "tooltip")
+        unit = run_planning.input_unit(config, planned)
+        self._set_text(self.query_one("#input-scales-label", Label), message("输入规模 ({0})", unit))
+        if planned and planned.get("scales"):
+            placeholder = ",".join(f"{value:g}" for value in planned["scales"]) + f" {unit}"
+        else:
+            placeholder = message("留空：{0} · {1}", message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
+        self._set_text(self.query_one("#input-scales", Input), placeholder, "placeholder")
+
     def _is_busy(self) -> bool:
         return self._operation_state().busy
 
@@ -690,7 +750,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             stoppable=process is not None and process.poll() is None,
             checking=self._check_running, reading=bool(self._read_jobs),
             maintenance=bool(self._image_operation) or self._storage_loading,
-            configuring=self._resolution_open or self._environment_open,
+            configuring=self._resolution_open or self._environment_open or getattr(self, "_picker_open", False),
             measuring=self._latest_snapshot.measurement_active, closing=self._ui_closing,
         )
 
@@ -720,7 +780,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             refreshing_image = self._image_operation == "refresh" and table.has_class("image-control")
             table.resize_enabled = not ((busy and not refreshing_image) or self._latest_snapshot.measurement_active)
         for widget in self.query(
-            ".config-control, #run-preset, .ui-preference, .profile-tool, .report-control, "
+            ".config-control, .experiment-picker, #model-candidates, #run-preset, .ui-preference, .profile-tool, .report-control, "
             "#save-run-default, #restore-ui-defaults, #save-ui-settings, #open-environment-settings"
         ):
             if widget.id in {"report-source", "report-open"} and state.allows("report"):
@@ -759,28 +819,24 @@ class AcprofTui(ImageActions, BarCursorApp):
         tabs.active = tab_id
 
     def preset_smoke(self) -> None:
-        if not self._allow_operation("configure"):
-            return
-        self._apply_config(RunConfig.smoke(self._input("model")), preset="smoke")
-        self.notify("已应用基础 CPU Smoke 预设", timeout=3)
+        self._apply_preset("smoke")
 
     def preset_main(self) -> None:
-        if not self._allow_operation("configure"):
-            return
-        self._apply_config(
-            RunConfig.main_matrix(self._input("model")),
-            preset="main",
-        )
-        self.notify("已应用主矩阵预设（分析器关闭）", timeout=3)
+        self._apply_preset("main")
 
-    def preset_default(self) -> None:
+    def _apply_preset(self, preset: str) -> None:
         if not self._allow_operation("configure"):
             return
-        self._apply_config(
-            RunConfig(model=self._input("model")),
-            preset="default",
-        )
-        self.notify("已恢复完整默认配置", timeout=3)
+        try:
+            current = self._collect_config(allow_empty_model=True)
+            config = current.with_preset(preset)
+        except RunConfigError as exc:
+            self._show_config_error(exc)
+            with self.prevent(Select.Changed):
+                self.query_one("#run-preset", Select).value = "custom"
+            return
+        self._apply_config(config, preset=preset)
+        self.notify("已应用基础 CPU Smoke 预设" if preset == "smoke" else "已应用主矩阵预设（分析器关闭）", timeout=3)
 
     @on(Button.Pressed, "#start-run")
     def start_run_button(self) -> None:
@@ -869,6 +925,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 join_messages("", (
                     message("将启动独立采集进程。正式测量窗口内 TUI 会停止常规日志刷新。\n\n"),
                     collection_preview(config),
+                    run_planning.preparation_details(config), "\n\n",
                     preview,
                 )),
                 "开始采集",
@@ -924,6 +981,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
         if pending.kind == "run":
+            self._planned_input = None
+            self._planned_input_identity = None
             self._remember_last_used(model=model)
             self._run_result = RunResult()
             self._summary_request = None
@@ -933,6 +992,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             self._remember_last_used(model=model, result_dir=pending.result_dir, result_csv=pending.result_csv)
         self._process_token = object()
         self._active_run_config = pending.config if pending.kind == "run" else None
+        self._comparison_report_path = Path(pending.report_path) if pending.kind == "compare" else None
         self._active_command = pending.command
         self._process_kind = pending.kind
         self._started_monotonic = time.monotonic()
@@ -1265,6 +1325,11 @@ class AcprofTui(ImageActions, BarCursorApp):
     ) -> None:
         if kind == "stats" and returncode == 0 and not launch_error and self._stats_report_path is None:
             launch_error = "统计进程未返回报告路径"
+        comparison_ready = (kind == "compare" and returncode in {0, 1} and not launch_error
+                            and not self._stop_requested and self._comparison_report_path is not None
+                            and self._comparison_report_path.is_file())
+        if kind == "compare" and returncode == 0 and not launch_error and not self._stop_requested and not comparison_ready:
+            launch_error = "比较进程未返回报告路径"
         self._preparation_request = None
         if self._preparation_screen is not None:
             self._preparation_screen.dismiss(None)
@@ -1282,7 +1347,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                 time.monotonic() - self._started_monotonic
             )
             self._set_text(self.query_one('#status-elapsed', Static), final_elapsed)
-        if kind == "stats":
+        if kind in {"stats", "compare"}:
             # Move focus before disabling the monitor page's focused Stop button;
             # its queued focus event could otherwise reactivate that old page.
             self._activate_tab("reports-tab")
@@ -1294,6 +1359,10 @@ class AcprofTui(ImageActions, BarCursorApp):
         if launch_error:
             log.write(self.tr(message('[TUI][ERROR] 无法运行命令：{0}', launch_error)))
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
+        elif comparison_ready:
+            notice = message("比较报告已生成；请查看可比性、质量和证据不足的原因。")
+            log.write(self.tr(notice))
+            self.notify(notice, severity="information", timeout=8)
         elif returncode == 0 and kind != "run" and not self._stop_requested:
             log.write(self.tr(message('[TUI] {0} 任务完成，退出码 0', kind)))
             notice = (message("已有相同报告：{0}", self._stats_report_path)
@@ -1375,7 +1444,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             self._latest_snapshot = final_state
             self._render_snapshot(final_state)
         else:
-            if launch_error or (returncode != 0 and not self._stop_requested):
+            if launch_error or (returncode != 0 and not self._stop_requested and not comparison_ready):
                 stage = "失败"
                 detail = launch_error or message('{0} 进程退出码 {1}', kind, returncode)
             elif self._stop_requested:
@@ -1402,6 +1471,15 @@ class AcprofTui(ImageActions, BarCursorApp):
             else:
                 self._activate_tab("reports-tab")
                 self._clear_report(message("统计未完成，请查看“运行监控”中的错误或终止日志。"))
+        elif kind == "compare":
+            report_path, self._comparison_report_path = self._comparison_report_path, None
+            # The comparison CLI uses exit 1 for a valid incompatible/unknown
+            # report too; its reasons are the primary result to display.
+            if comparison_ready:
+                self._open_report(str(report_path))
+            else:
+                self._activate_tab("reports-tab")
+                self._clear_report(message("比较未完成，请查看“运行监控”中的错误或终止日志。"))
 
     @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:
@@ -1487,6 +1565,15 @@ class AcprofTui(ImageActions, BarCursorApp):
 
     def _preparation_event(self, event: dict) -> None:
         from acprof.tui.preparation import PreparationScreen, phase_summary
+        if event.get("input_plan") is not None and self._active_run_config is not None:
+            if self._latest_snapshot.measurement_active:
+                raise RuntimeError("input plan update inside measurement window")
+            plan = event["input_plan"]
+            from acprof.preparation_events import validate_input_plan
+            validate_input_plan(plan)
+            self._planned_input = plan
+            self._planned_input_identity = run_planning.input_identity(self._active_run_config)
+            self._update_plan_summary(self._active_run_config)
         request = event.get("request")
         if not isinstance(request, dict) or not request or self._stop_requested:
             return
@@ -1523,7 +1610,8 @@ class AcprofTui(ImageActions, BarCursorApp):
     def inspect_model(self) -> None:
         if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
             return
-        config = RunConfig(model=self._input("model"), model_spec=self._input("model-spec"),
+        config = RunConfig(model=self._input("model"), revision=self._input("revision"), model_spec=self._input("model-spec"),
+                           task_family=self._select("task-family"),
                            task=self._input("task"), backend=self._input("backend"),
                            output_dir=self._input("output-dir") or "results")
         if not config.model:
@@ -1533,7 +1621,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         task = None
         previous = self._last_resolution
         if (previous and previous["task"].model_id == config.model and str(previous["spec"]) == config.model_spec
-                and previous.get("selection") == {"task": config.task, "backend": config.backend}):
+                and previous.get("selection") == {"task": config.task, "backend": config.backend, "revision": config.revision, "task_family": config.task_family}):
             import json
             task = previous["task"]
             report_path = previous["output"] / "model_resolution.json"
@@ -1845,6 +1933,19 @@ class AcprofTui(ImageActions, BarCursorApp):
     def calculate_report_button(self) -> None:
         self._launch_stats()
 
+    @on(Button.Pressed, "#report-compare")
+    def compare_experiments_button(self) -> None:
+        if not self._allow_operation("compare"):
+            return
+        try:
+            pending = prepare_comparison(self._input("comparison-left"), self._input("comparison-right"),
+                baseline=self._select("comparison-baseline"), purpose=self._select("comparison-purpose"),
+                project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
+        except (RunConfigError, ValueError, OSError) as exc:
+            self.notify(error_message(exc), severity="error")
+            return
+        self._launch(pending)
+
     def _launch_stats(self, path: str | None = None) -> None:
         if not self._allow_operation("stats"):
             return
@@ -1986,8 +2087,6 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.preset_smoke()
         elif command == "main":
             self.preset_main()
-        elif command in {"defaults", "default"}:
-            self.preset_default()
         elif command == "preview":
             self._refresh_command_preview()
             self._activate_tab("run-tab")
@@ -2024,7 +2123,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.query_one("#run-log", SelectableLog).write(
                 self.tr("[TUI] /run 采集 · /probe 最大输入探测 · /check 环境检查 · "
                 "/status 状态 · /stop 终止 · "
-                "/smoke 最小预设 · /main 主矩阵 · /defaults 默认 · /preview 命令预览 · "
+                "/smoke 最小预设 · /main 主矩阵 · /preview 命令预览 · "
                 "/plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · "
                 "/profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · "
                 "/stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · "

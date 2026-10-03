@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from acprof.cli.run_args import build_parser
+from acprof.run_args import build_parser
 
 
 class HardwareConditionsTests(unittest.TestCase):

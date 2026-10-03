@@ -181,6 +181,65 @@ def _comparisons(source: Path, data: dict) -> ReportView:
     return ReportView(source, title, ("对照", "配对轮数", "延迟变化", "95% 区间", "判断"), tuple(rows), note)
 
 
+def _independent_comparison(source: Path, data: dict) -> ReportView:
+    confidence = _number(data.get("confidence"))
+    if (not 0 < confidence < 1 or data.get("resampling_unit") != "independent_run_mean"
+            or data.get("direction") != "right_minus_left_and_right_divided_by_left"
+            or data.get("status") not in {"compatible", "incompatible", "unknown"}):
+        raise ValueError(message("独立实验比较的方向、可比性或统计口径无效"))
+    rows = []
+    for group in _objects(data.get("groups")):
+        metric, unit = _text(group.get("metric")), _text(group.get("unit"))
+        multiplier, display_unit = (1000, "ms") if unit == "s" else (1, unit)
+
+        def value(number):
+            parsed = _number(number, nullable=True)
+            return UNKNOWN if parsed is None else f"{parsed * multiplier:.6g} {display_unit}".strip()
+
+        def interval(key, *, ratio=False):
+            bounds = group.get(key)
+            if bounds is None:
+                return UNKNOWN
+            if not isinstance(bounds, list) or len(bounds) != 2:
+                raise ValueError(message("报告置信区间无效"))
+            low, high = (_number(item) for item in bounds)
+            if low > high:
+                raise ValueError(message("报告置信区间无效"))
+            factor = 1 if ratio else multiplier
+            suffix = "" if ratio else f" {display_unit}"
+            return f"[{low * factor:.6g}, {high * factor:.6g}]{suffix}".strip()
+
+        left, right = group.get("left"), group.get("right")
+        if not isinstance(left, dict) or not isinstance(right, dict):
+            raise ValueError(message("报告缺少有效的数据行"))
+        ratio = _number(group.get("ratio"), nullable=True)
+        reason = _text(group.get("reason")) or _text(group.get("comparability"))
+        qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
+        explanation = f"{reason} · quality={qualities}"
+        config = "/".join((f"{_number(group.get('cpu_cores')):g}c", f"{_number(group.get('mem_cap_gb')):g}G",
+                           _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
+        coordinates = group.get("resource_coordinates", {})
+        if (isinstance(coordinates, dict) and coordinates.get("left") and coordinates.get("right")
+                and coordinates["left"] != coordinates["right"]):
+            config = " → ".join(f"{_number(coordinates[side].get('cpu_cores')):g}c/"
+                                 f"{_number(coordinates[side].get('mem_cap_gb')):g}G" for side in ("left", "right")) + "/" + "/".join((
+                                     _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
+        detail = json.dumps(group, ensure_ascii=False, indent=2)
+        rows.append(ReportRow((explanation, config, message(_METRIC_LABELS.get(metric, metric)),
+            value(left.get("mean")), value(right.get("mean")), UNKNOWN if ratio is None else f"{(ratio - 1) * 100:+.6g}%",
+            value(group.get("difference")), interval("difference_ci"), interval("ratio_ci", ratio=True),
+            f"{_count(left.get('n_runs'))}/{_count(right.get('n_runs'))}"), detail))
+    note = join_messages("\n", (
+        message("左组为基线；变化为右组相对左组。区间重采样单位是独立实验，单次实验的窗口不能替代独立重复。"),
+        message("可比性：{0} · {1:g}% 置信区间", data["status"], confidence * 100),
+        json.dumps({key: data.get(key) for key in ("condition_checks", "experiments", "quality", "limitations", "source_sha256", "allowed_resource_dimensions")},
+                   ensure_ascii=False, indent=2),
+    ))
+    return ReportView(source, message("独立实验比较 · {0} · {1} 项", data["status"], len(rows)),
+        ("说明", "资源/输入", "指标", "基线均值", "对比均值", "变化", "差值", "差值区间", "比值区间", "独立实验数"),
+        tuple(rows), note)
+
+
 def read_report(path: str | Path) -> ReportView:
     """读取一次完整 JSON；失败/未知报告不能冒充成功结果。"""
     source = Path(path).expanduser().resolve()
@@ -192,12 +251,18 @@ def read_report(path: str | Path) -> ReportView:
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
         raise ValueError(message("JSON 报告损坏或编码无效")) from exc
-    if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+    coverage_v2 = (isinstance(data, dict) and data.get("schema_version") == 2
+                   and data.get("scope") == "selected_sample_only; no_formal_measurement"
+                   and not data.get("kind") and not data.get("resampling_unit"))
+    if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
+            or data["schema_version"] != 1 and not coverage_v2):
         raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))
     if data.get("resampling_unit") == "csv_request_window":
         return _windows(source, data)
     if data.get("kind") in {"monitor_overhead_diagnostic", "ui_overhead"}:
         return _comparisons(source, data)
+    if data.get("kind") == "independent_experiment_comparison":
+        return _independent_comparison(source, data)
     if data.get("scope") in {"selected_sample_only; no_formal_measurement", "recorded_results; no_reexecution"}:
         from acprof.analysis.compatibility import result_status
         rows = []
@@ -205,7 +270,9 @@ def read_report(path: str | Path) -> ReportView:
             failure = row.get("failure") or {}
             rows.append(ReportRow((row["model_id"], result_status(row), failure.get("reason_code", "")),
                 join_messages("\n", (render_quality_summary(row),
-                    json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", [])}, ensure_ascii=False, indent=2)))))
+                    json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", []),
+                        "cleanup_status": row.get("cleanup_status"), "cleanup_errors": row.get("cleanup_errors", []),
+                        "attempt_id": row.get("attempt_id"), "attempts": data.get("attempts", [])}, ensure_ascii=False, indent=2)))))
         note = message("读取已有结果，不重新执行模型。") if data["scope"] == "recorded_results; no_reexecution" else message("仅覆盖所选样本的独立验证，不代表正式采集完成。")
         return ReportView(source, message("兼容性报告"), ("模型", "状态", "reason_code"), tuple(rows), note)
     raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))

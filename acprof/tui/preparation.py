@@ -1,16 +1,14 @@
 """Small decision/error dialogs belonging to the active collection."""
 from __future__ import annotations
 
-import json
-
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Collapsible, Label, Select, Static
+from textual.widgets import Button, Collapsible, Label, Static
 
 from acprof.messages import message
-from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
+from acprof.tui.review_inputs import review_answers, review_input
 
 
 def phase_summary(snapshot):
@@ -59,14 +57,8 @@ class PreparationScreen(ModalScreen):
                 for index, question in enumerate(self.request.get("questions", [])):
                     yield Label(question["path"])
                     yield Static(question.get("reason", ""), markup=False)
-                    options = question.get("options")
-                    if options:
-                        yield Select([(value, value) for value in options], prompt=tr("请选择"),
-                                     id=f"preparation-answer-{index}")
-                    else:
-                        value = question.get("value")
-                        yield Input(value=json.dumps(value, ensure_ascii=False) if value is not None else "",
-                                    placeholder=tr("填写此字段的 JSON 值"), id=f"preparation-answer-{index}")
+                    if not question.get("read_only"):
+                        yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
                 if self.request.get("summary"):
                     with Collapsible(title=tr("已解析字段与证据"), collapsed=True):
                         yield Static(self.request["summary"], markup=False)
@@ -81,19 +73,8 @@ class PreparationScreen(ModalScreen):
 
     @on(Button.Pressed, "#preparation-continue")
     def proceed(self):
-        answers = {}
         try:
-            for index, question in enumerate(self.request.get("questions", [])):
-                widget = self.query_one(f"#preparation-answer-{index}")
-                if isinstance(widget, Select):
-                    if widget.value is Select.BLANK:
-                        raise ValueError(self.app.tr("请选择"))
-                    value = widget.value
-                elif isinstance(widget, Input):
-                    value = json.loads(widget.value)
-                else:
-                    raise TypeError("unsupported preparation input")
-                answers[question["path"]] = value
+            answers = review_answers(self, self.request.get("questions", []), prefix="preparation-answer")
         except (ValueError, TypeError) as exc:
             self.query_one("#preparation-error", Static).update(str(exc))
             return

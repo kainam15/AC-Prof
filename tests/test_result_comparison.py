@@ -10,9 +10,9 @@ import unittest
 from pathlib import Path
 
 from acprof.cli.audit import main
-from acprof.cli.run_args import build_parser
 from acprof.config import CSV_FIELDS
 from acprof.platform import Environment
+from acprof.run_args import build_parser
 
 
 class ResultComparisonTests(unittest.TestCase):

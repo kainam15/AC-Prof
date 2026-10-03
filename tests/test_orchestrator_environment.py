@@ -218,7 +218,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(
-                runtime_images._select_nlp_torch_index_url(),
+                runtime_images.select_nlp_torch_index_url(),
                 runtime_images.CUDA124_NLP_TORCH_INDEX_URL,
             )
 
@@ -229,7 +229,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             clear=True,
         ):
             self.assertEqual(
-                runtime_images._select_nlp_torch_index_url(),
+                runtime_images.select_nlp_torch_index_url(),
                 "https://example.invalid/torch",
             )
 

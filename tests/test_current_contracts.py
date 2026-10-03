@@ -9,7 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from acprof.cli.run_args import build_parser
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
 from acprof.host.dependency_images import runtime_fingerprint
 from acprof.host.profiler_support import load_input_scale_plan_entries
@@ -18,6 +17,7 @@ from acprof.host.runtime_validation import validate_runtime
 from acprof.host.static_metadata import enrich_static_meta_from_input_plan
 from acprof.packet.merge_packet_latency import _request_records
 from acprof.plotting.data import prepare_df, read_static_meta
+from acprof.run_args import build_parser
 from acprof.runtime_profiles import RuntimeProfile
 from acprof.tui.settings import load_settings
 

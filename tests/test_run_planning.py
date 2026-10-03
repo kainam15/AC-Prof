@@ -1,0 +1,45 @@
+"""Pre-run scale, window and cost estimates have explicit assumptions."""
+import unittest
+from dataclasses import replace
+
+from acprof.experiment import RunConfig
+
+
+class RunPlanningTests(unittest.TestCase):
+    def test_preparation_plan_event_rejects_invalid_or_unbounded_scales(self):
+        from acprof.preparation_events import encode_event, parse_event
+        plan = {"scales": [1.0], "scale_type": "duration_s"}
+        self.assertEqual(parse_event(encode_event("input", "passed", input_plan=plan))["input_plan"], plan)
+        for scales in ([], [0], [True], [float("inf")], [1] * 10001):
+            with self.subTest(scales=str(scales)[:40]), self.assertRaises(ValueError):
+                encode_event("input", "passed", input_plan={"scales": scales, "scale_type": "duration_s"})
+
+    def test_smoke_estimate_is_one_configuration_and_one_formal_window(self):
+        from acprof.tui.run_planning import estimate_run
+        estimate = estimate_run(RunConfig.smoke())
+        self.assertEqual((estimate.cases, estimate.scales, estimate.warmup_windows, estimate.formal_windows), (1, 1, 0, 1))
+        self.assertEqual(estimate.estimated_seconds, 1)
+
+    def test_auto_matrix_count_stays_unknown_until_input_plan_exists(self):
+        from acprof.tui.run_planning import estimate_run
+        config = RunConfig()
+        estimate = estimate_run(config)
+        self.assertEqual(estimate.cases, 32)
+        self.assertIsNone(estimate.scales)
+        self.assertIsNone(estimate.formal_windows)
+        self.assertIsNone(estimate.estimated_seconds)
+        estimate = estimate_run(config, {"scales": [1, 2, 3], "scale_type": "duration_s"})
+        self.assertEqual((estimate.warmup_windows, estimate.formal_windows), (192, 480))
+        self.assertEqual(estimate.estimated_seconds, 672 * 35)
+
+    def test_manual_duplicate_scales_follow_planner_deduplication(self):
+        from acprof.tui.run_planning import estimate_run
+        estimate = estimate_run(replace(RunConfig.smoke(), input_scales="1,1,2", repeat=3, warmup=1))
+        self.assertEqual((estimate.scales, estimate.warmup_windows, estimate.formal_windows), (2, 2, 6))
+
+    def test_units_follow_resolved_input_axis_without_guessing_model_names(self):
+        from acprof.tui.run_planning import input_unit
+        config = RunConfig.smoke("openai/whisper-tiny")
+        self.assertIn("待解析", str(input_unit(config)))
+        for axis, expected in (("duration_s", "s"), ("seq_length", "tokens"), ("resolution_scale", "×224px")):
+            self.assertEqual(input_unit(config, {"scale_type": axis}), expected)
