@@ -2,12 +2,12 @@ import base64
 import io
 import sys
 import types
-import unittest
 import wave
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 from acprof.container.handlers.audio import AudioHandler
 
@@ -59,8 +59,10 @@ class RecordingPipeline:
         return {"text": "hello world"}
 
 
-class AudioHandlerTests(unittest.TestCase):
-    def setUp(self):
+class TestAudioHandler:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         self.handler = AudioHandler()
 
     def context(self, pipe=None, task_type="automatic-speech-recognition"):
@@ -101,9 +103,7 @@ class AudioHandlerTests(unittest.TestCase):
                 "cpu",
             )
 
-        self.assertEqual(
-            context["audio_metadata"],
-            {
+        assert (context["audio_metadata"]) == ({
                 "sampling_rate": 16000,
                 "max_short_form_duration_s": 30.0,
                 "model_input_num_samples": 480000,
@@ -115,28 +115,27 @@ class AudioHandlerTests(unittest.TestCase):
                 "encoder_positions": 1500,
                 "decoder_output_token_limit": 448,
                 "model_type": "whisper",
-            },
-        )
+            })
 
     def test_scale_metadata_distinguishes_audio_and_decoder_limits(self):
         metadata = self.handler.get_scale_metadata(self.context(), {})
 
-        self.assertEqual(metadata["input_scale_type"], "duration_s")
-        self.assertEqual(metadata["required_sampling_rate"], 16000)
-        self.assertEqual(metadata["max_short_form_duration_s"], 30.0)
-        self.assertEqual(metadata["max_effective_input_scale"], 30.0)
-        self.assertEqual(metadata["model_input_num_samples"], 480000)
-        self.assertEqual(metadata["model_input_frames"], 3000)
-        self.assertTrue(metadata["short_form_fixed_padding"])
-        self.assertEqual(metadata["fixed_frontend_num_samples"], 480000)
-        self.assertEqual(metadata["fixed_frontend_num_frames"], 3000)
-        self.assertEqual(metadata["frontend_feature_bins"], 128)
-        self.assertEqual(metadata["encoder_positions"], 1500)
-        self.assertEqual(metadata["decoder_output_token_limit"], 448)
-        self.assertEqual(metadata["model_type"], "whisper")
-        self.assertIn("output-token limit", metadata["reason"])
-        self.assertIn("not an audio input-length limit", metadata["reason"])
-        self.assertIn("pads every accepted short-form", metadata["reason"])
+        assert (metadata["input_scale_type"]) == ("duration_s")
+        assert (metadata["required_sampling_rate"]) == (16000)
+        assert (metadata["max_short_form_duration_s"]) == (30.0)
+        assert (metadata["max_effective_input_scale"]) == (30.0)
+        assert (metadata["model_input_num_samples"]) == (480000)
+        assert (metadata["model_input_frames"]) == (3000)
+        assert (metadata["short_form_fixed_padding"])
+        assert (metadata["fixed_frontend_num_samples"]) == (480000)
+        assert (metadata["fixed_frontend_num_frames"]) == (3000)
+        assert (metadata["frontend_feature_bins"]) == (128)
+        assert (metadata["encoder_positions"]) == (1500)
+        assert (metadata["decoder_output_token_limit"]) == (448)
+        assert (metadata["model_type"]) == ("whisper")
+        assert ("output-token limit") in (metadata["reason"])
+        assert ("not an audio input-length limit") in (metadata["reason"])
+        assert ("pads every accepted short-form") in (metadata["reason"])
 
     def test_preprocess_decodes_pcm16_mono_wav_and_reports_scale(self):
         samples = np.array([-32768, -1, 0, 16384, 32767], dtype=np.int16)
@@ -154,25 +153,25 @@ class AudioHandlerTests(unittest.TestCase):
             processed["audio"],
             samples.astype(np.float32) / 32768.0,
         )
-        self.assertEqual(processed["sample_rate"], 16000)
-        self.assertEqual(processed["_input_num_samples"], 5)
-        self.assertEqual(processed["_duration_s"], 5 / 16000)
-        self.assertEqual(processed["_effective_input_scale"], 5 / 16000)
-        self.assertFalse(processed["_truncated_by_limit"])
-        self.assertIn("within", processed["_probe_reason"])
+        assert (processed["sample_rate"]) == (16000)
+        assert (processed["_input_num_samples"]) == (5)
+        assert (processed["_duration_s"]) == (5 / 16000)
+        assert (processed["_effective_input_scale"]) == (5 / 16000)
+        assert not (processed["_truncated_by_limit"])
+        assert ("within") in (processed["_probe_reason"])
 
     def test_preprocess_rejects_legacy_float_samples(self):
-        with self.assertRaisesRegex(ValueError, "audio_base64"):
+        with pytest.raises(ValueError, match="audio_base64"):
             self.handler.preprocess(self.context(), {"audio_samples": [0.0, 0.25], "sample_rate": 16000})
 
     def test_preprocess_rejects_missing_empty_and_ambiguous_audio(self):
-        with self.assertRaisesRegex(ValueError, "audio_base64"):
+        with pytest.raises(ValueError, match="audio_base64"):
             self.handler.preprocess(self.context(), {"params": {}})
-        with self.assertRaisesRegex(ValueError, "audio_base64"):
+        with pytest.raises(ValueError, match="audio_base64"):
             self.handler.preprocess(
                 self.context(), {"audio_samples": [], "sample_rate": 16000}
             )
-        with self.assertRaisesRegex(ValueError, "audio_base64"):
+        with pytest.raises(ValueError, match="audio_base64"):
             self.handler.preprocess(
                 self.context(),
                 {
@@ -183,7 +182,8 @@ class AudioHandlerTests(unittest.TestCase):
                 },
             )
 
-    def test_preprocess_strictly_validates_base64_wav_contract(self):
+    @pytest.mark.parametrize('request_case', range(7))
+    def test_preprocess_strictly_validates_base64_wav_contract(self, request_case):
         cases = [
             (
                 {"audio_base64": "%%%", "audio_format": "wav", "sample_rate": 16000},
@@ -237,12 +237,12 @@ class AudioHandlerTests(unittest.TestCase):
                 "signed 16-bit PCM",
             ),
         ]
-        for request, message in cases:
-            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
-                self.handler.preprocess(self.context(), request)
+        (request, message) = tuple(cases)[request_case]
+        with pytest.raises(ValueError, match=message):
+            self.handler.preprocess(self.context(), request)
 
     def test_preprocess_rejects_model_sample_rate_mismatch(self):
-        with self.assertRaisesRegex(ValueError, "model feature extractor"):
+        with pytest.raises(ValueError, match="model feature extractor"):
             self.handler.preprocess(
                 self.context(),
                 {
@@ -262,10 +262,10 @@ class AudioHandlerTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(processed["_input_num_samples"], 480001)
-        self.assertTrue(processed["_truncated_by_limit"])
-        self.assertIn("exceeds", processed["_probe_reason"])
-        self.assertEqual(processed["audio"].size, 480001)
+        assert (processed["_input_num_samples"]) == (480001)
+        assert (processed["_truncated_by_limit"])
+        assert ("exceeds") in (processed["_probe_reason"])
+        assert (processed["audio"].size) == (480001)
 
     def test_predict_maps_whisper_semantics_and_pipeline_kwargs(self):
         pipe = RecordingPipeline()
@@ -290,14 +290,11 @@ class AudioHandlerTests(unittest.TestCase):
         self.handler.predict(context, processed)
 
         args, kwargs = pipe.calls[0]
-        self.assertEqual(args[0]["sampling_rate"], 16000)
+        assert (args[0]["sampling_rate"]) == (16000)
         np.testing.assert_array_equal(args[0]["raw"], processed["audio"])
-        self.assertEqual(kwargs["batch_size"], 1)
-        self.assertFalse(kwargs["return_timestamps"])
-        self.assertEqual(
-            kwargs["generate_kwargs"],
-            {"max_new_tokens": 64, "task": "transcribe", "language": "en"},
-        )
+        assert (kwargs["batch_size"]) == (1)
+        assert not (kwargs["return_timestamps"])
+        assert (kwargs["generate_kwargs"]) == ({"max_new_tokens": 64, "task": "transcribe", "language": "en"})
 
     def test_predict_rejects_translation_and_timestamp_modes(self):
         context = self.context()
@@ -307,17 +304,17 @@ class AudioHandlerTests(unittest.TestCase):
             "_duration_s": 1.0,
             "params": {"asr_task": "translate"},
         }
-        with self.assertRaisesRegex(ValueError, "translation must be profiled"):
+        with pytest.raises(ValueError, match="translation must be profiled"):
             self.handler.predict(context, processed)
 
         processed["params"] = {"return_timestamps": True}
-        with self.assertRaisesRegex(ValueError, "requires return_timestamps=false"):
+        with pytest.raises(ValueError, match="requires return_timestamps=false"):
             self.handler.predict(context, processed)
 
         processed["params"] = {
             "pipeline_kwargs": {"stride_length_s": 2},
         }
-        with self.assertRaisesRegex(ValueError, "chunked long-form setting"):
+        with pytest.raises(ValueError, match="chunked long-form setting"):
             self.handler.predict(context, processed)
 
     def test_predict_rejects_whisper_over_30_seconds(self):
@@ -329,7 +326,7 @@ class AudioHandlerTests(unittest.TestCase):
             "params": {},
         }
 
-        with self.assertRaisesRegex(ValueError, "limited to 30s"):
+        with pytest.raises(ValueError, match="limited to 30s"):
             self.handler.predict(context, processed)
 
     def test_non_whisper_pipeline_does_not_receive_language_or_task(self):
@@ -349,7 +346,7 @@ class AudioHandlerTests(unittest.TestCase):
         self.handler.predict(context, processed)
 
         _, kwargs = pipe.calls[0]
-        self.assertEqual(kwargs, {"top_k": 3})
+        assert (kwargs) == ({"top_k": 3})
 
     def test_postprocess_returns_asr_text_character_and_token_counts(self):
         tokenizer = SimpleNamespace(
@@ -359,10 +356,10 @@ class AudioHandlerTests(unittest.TestCase):
 
         result = self.handler.postprocess(context, {"text": "hello world"})
 
-        self.assertEqual(result["output_type"], "transcription")
-        self.assertEqual(result["text"], "hello world")
-        self.assertEqual(result["output_length"], 11)
-        self.assertEqual(result["output_token_count"], 3)
+        assert (result["output_type"]) == ("transcription")
+        assert (result["text"]) == ("hello world")
+        assert (result["output_length"]) == (11)
+        assert (result["output_token_count"]) == (3)
 
     def test_postprocess_keeps_audio_classification_compatible(self):
         context = self.context(
@@ -373,11 +370,7 @@ class AudioHandlerTests(unittest.TestCase):
         list_result = self.handler.postprocess(context, [{"label": "speech"}])
         dict_result = self.handler.postprocess(context, {"label": "speech"})
 
-        self.assertEqual(list_result["output_type"], "classification")
-        self.assertEqual(list_result["n_results"], 1)
-        self.assertEqual(dict_result["output_type"], "classification")
-        self.assertEqual(dict_result["n_results"], 1)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (list_result["output_type"]) == ("classification")
+        assert (list_result["n_results"]) == (1)
+        assert (dict_result["output_type"]) == ("classification")
+        assert (dict_result["n_results"]) == (1)

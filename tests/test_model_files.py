@@ -1,14 +1,15 @@
 import copy
 import hashlib
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import ModelFilesError, plan_download, validate_plan
 
 
-class ModelFilePlanTests(unittest.TestCase):
+class TestModelFilePlan:
     def plan(self, names, metadata=None, **kwargs):
         metadata = {"config.json": {"model_type": "bert"}, **(metadata or {})}
         return plan_download(
@@ -28,16 +29,16 @@ class ModelFilePlanTests(unittest.TestCase):
             "flax_model.msgpack", "tf_model.h5", "tokenizer.model", "tokenizer.json", "processor_config.json",
             "chat_template.jinja", "special_audio.bin", "LICENSE", "auxiliary/config.json",
         ])
-        self.assertEqual(self.selected(plan), {
+        assert (self.selected(plan)) == ({
             "config.json", "model.safetensors", "tokenizer.model", "tokenizer.json", "processor_config.json",
             "chat_template.jinja", "special_audio.bin", "LICENSE", "auxiliary/config.json",
         })
-        self.assertIsNone(plan["weights"][0]["variant"])
+        assert (plan["weights"][0]["variant"]) is None
 
     def test_bin_only_checkpoint_is_preserved(self):
         plan = self.plan(["config.json", "pytorch_model.bin", "flax_model.msgpack"])
-        self.assertEqual(self.selected(plan), {"config.json", "pytorch_model.bin"})
-        self.assertEqual(plan["weights"][0]["format"], "bin")
+        assert (self.selected(plan)) == ({"config.json", "pytorch_model.bin"})
+        assert (plan["weights"][0]["format"]) == ("bin")
 
     def test_shard_index_selects_every_referenced_shard(self):
         index = "model.safetensors.index.json"
@@ -45,43 +46,37 @@ class ModelFilePlanTests(unittest.TestCase):
         plan = self.plan(["config.json", index, *shards, "pytorch_model.bin"], {
             index: {"weight_map": {"a": shards[0], "b": shards[1], "c": shards[0]}},
         })
-        self.assertEqual(self.selected(plan), {"config.json", index, *shards})
+        assert (self.selected(plan)) == ({"config.json", index, *shards})
 
     def test_missing_safe_shard_does_not_silently_fall_back_to_bin(self):
         index = "model.safetensors.index.json"
-        with self.assertRaisesRegex(ModelFilesError, "missing checkpoint shards"):
+        with pytest.raises(ModelFilesError, match="missing checkpoint shards"):
             self.plan(["config.json", index, "pytorch_model.bin"], {index: {"weight_map": {"a": "missing.safetensors"}}})
 
-    def test_invalid_shard_paths_and_empty_index_are_rejected(self):
+    @pytest.mark.parametrize('weight_map', ({}, {'a': '../outside.safetensors'}, {'a': 3}))
+    def test_invalid_shard_paths_and_empty_index_are_rejected(self, weight_map):
         index = "model.safetensors.index.json"
-        for weight_map in ({}, {"a": "../outside.safetensors"}, {"a": 3}):
-            with self.subTest(weight_map=weight_map), self.assertRaises(ModelFilesError):
-                self.plan(["config.json", index], {index: {"weight_map": weight_map}})
+        with pytest.raises(ModelFilesError):
+            self.plan(["config.json", index], {index: {"weight_map": weight_map}})
 
-    def test_unknown_custom_and_quantized_models_keep_full_snapshot(self):
+    @pytest.mark.parametrize('config', ({'model_type': 'new_model'}, {'model_type': 'bert', 'auto_map': {'AutoModel': 'custom.Model'}}, {'model_type': 'bert', 'quantization_config': {'quant_method': 'gptq'}}, {'model_type': 'bert', 'custom_pipelines': {'custom': {'impl': 'custom.Pipeline'}}}, {'model_type': ['custom', 'Model']}))
+    def test_unknown_custom_and_quantized_models_keep_full_snapshot(self, config):
         names = ["config.json", "model.safetensors", "pytorch_model.bin", "custom.py", "extra.bin"]
-        for config in (
-            {"model_type": "new_model"}, {"model_type": "bert", "auto_map": {"AutoModel": "custom.Model"}},
-            {"model_type": "bert", "quantization_config": {"quant_method": "gptq"}},
-            {"model_type": "bert", "custom_pipelines": {"custom": {"impl": "custom.Pipeline"}}},
-            {"model_type": ["custom", "Model"]},
-        ):
-            with self.subTest(config=config):
-                plan = self.plan(names, {"config.json": config})
-                self.assertEqual(self.selected(plan), set(names))
-                self.assertEqual(plan["effective_policy"], "full")
+        plan = self.plan(names, {"config.json": config})
+        assert (self.selected(plan)) == (set(names))
+        assert (plan["effective_policy"]) == ("full")
 
     def test_full_policy_does_not_parse_model_configuration(self):
         names = ["config.json", "model.safetensors", "flax_model.msgpack"]
         plan = self.plan(names, {"config.json": None}, policy="full")
-        self.assertEqual(self.selected(plan), set(names))
-        self.assertEqual(plan["reason"], "explicit_full")
+        assert (self.selected(plan)) == (set(names))
+        assert (plan["reason"]) == ("explicit_full")
 
     def test_registered_custom_adapter_keeps_all_its_assets(self):
         names = ["config.json", "model.safetensors", "pytorch_model.bin", "processing.py"]
         plan = self.plan(names, adapter="moss-transcribe-diarize")
-        self.assertEqual(self.selected(plan), set(names))
-        self.assertEqual(plan["reason"], "custom_adapter")
+        assert (self.selected(plan)) == (set(names))
+        assert (plan["reason"]) == ("custom_adapter")
 
     def test_sentence_transformers_keeps_dense_modules(self):
         names = ["modules.json", "0_Transformer/config.json", "0_Transformer/model.safetensors",
@@ -92,7 +87,7 @@ class ModelFilePlanTests(unittest.TestCase):
                              {"path": "2_Dense", "type": "sentence_transformers.models.Dense"}],
             "0_Transformer/config.json": {"model_type": "bert"},
         }, backend="sentence_transformers")
-        self.assertEqual(self.selected(plan), set(names) - {"0_Transformer/pytorch_model.bin"})
+        assert (self.selected(plan)) == (set(names) - {"0_Transformer/pytorch_model.bin"})
 
     def test_diffusers_selects_all_components_without_changing_precision_or_ema(self):
         names = ["model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.safetensors",
@@ -104,45 +99,43 @@ class ModelFilePlanTests(unittest.TestCase):
             "text_encoder": ["transformers", "CLIPTextModel"], "scheduler": ["diffusers", "PNDMScheduler"],
             "tokenizer": ["transformers", "CLIPTokenizer"], "safety_checker": [None, None],
         }}, family="diffusion", backend="diffusers")
-        self.assertEqual(self.selected(plan), set(names) - {
+        assert (self.selected(plan)) == (set(names) - {
             "unet/diffusion_pytorch_model.fp16.safetensors", "unet/diffusion_pytorch_model.non_ema.bin",
             "v1-5-pruned.ckpt", "v1-5-pruned.safetensors",
         })
-        self.assertEqual(len(plan["weights"]), 2)
+        assert (len(plan["weights"])) == (2)
 
-    def test_unknown_diffusers_pipeline_keeps_complete_repository(self):
+    @pytest.mark.parametrize('pipeline', ('NewPipeline', ['custom', 'Pipeline']))
+    def test_unknown_diffusers_pipeline_keeps_complete_repository(self, pipeline):
         names = ["model_index.json", "unet/diffusion_pytorch_model.safetensors", "extra.ckpt"]
-        for pipeline in ("NewPipeline", ["custom", "Pipeline"]):
-            with self.subTest(pipeline=pipeline):
-                plan = self.plan(names, {"model_index.json": {"_class_name": pipeline}}, backend="diffusers")
-                self.assertEqual(self.selected(plan), set(names))
+        plan = self.plan(names, {"model_index.json": {"_class_name": pipeline}}, backend="diffusers")
+        assert (self.selected(plan)) == (set(names))
 
-    def test_ddpm_root_components_preserve_selected_weights_and_scheduler(self):
-        for pipeline, scheduler in (("DDPMPipeline", "DDPMScheduler"), ("DDIMPipeline", "DDIMScheduler")):
-            with self.subTest(pipeline=pipeline):
-                names = ["model_index.json", "config.json", "scheduler_config.json",
-                         "diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.bin",
-                         "diffusion_pytorch_model.fp16.safetensors", "README.md"]
-                plan = self.plan(names, {"model_index.json": {
-                    "_class_name": pipeline, "unet": ["diffusers", "UNet2DModel"],
-                    "scheduler": ["diffusers", scheduler],
-                }}, family="diffusion", backend="diffusers")
-                self.assertEqual(plan["effective_policy"], "selected")
-                self.assertEqual(self.selected(plan), {
-                    "model_index.json", "config.json", "scheduler_config.json",
-                    "diffusion_pytorch_model.safetensors", "README.md",
-                })
-                self.assertEqual(plan["weights"][0]["component"], ".")
-                self.assertEqual(plan["weights"][0]["files"], ["diffusion_pytorch_model.safetensors"])
+    @pytest.mark.parametrize('pipeline,scheduler', (('DDPMPipeline', 'DDPMScheduler'), ('DDIMPipeline', 'DDIMScheduler')))
+    def test_ddpm_root_components_preserve_selected_weights_and_scheduler(self, pipeline, scheduler):
+        names = ["model_index.json", "config.json", "scheduler_config.json",
+                 "diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.bin",
+                 "diffusion_pytorch_model.fp16.safetensors", "README.md"]
+        plan = self.plan(names, {"model_index.json": {
+            "_class_name": pipeline, "unet": ["diffusers", "UNet2DModel"],
+            "scheduler": ["diffusers", scheduler],
+        }}, family="diffusion", backend="diffusers")
+        assert (plan["effective_policy"]) == ("selected")
+        assert (self.selected(plan)) == ({
+            "model_index.json", "config.json", "scheduler_config.json",
+            "diffusion_pytorch_model.safetensors", "README.md",
+        })
+        assert (plan["weights"][0]["component"]) == (".")
+        assert (plan["weights"][0]["files"]) == (["diffusion_pytorch_model.safetensors"])
 
-    def test_ddpm_missing_components_still_fail(self):
-        for missing in ("scheduler_config.json", "config.json", "diffusion_pytorch_model.safetensors"):
-            with self.subTest(missing=missing), self.assertRaises(ModelFilesError):
-                self.plan({"model_index.json", "config.json", "scheduler_config.json",
-                           "diffusion_pytorch_model.safetensors"} - {missing}, {"model_index.json": {
-                    "_class_name": "DDPMPipeline", "unet": ["diffusers", "UNet2DModel"],
-                    "scheduler": ["diffusers", "DDPMScheduler"],
-                }}, backend="diffusers")
+    @pytest.mark.parametrize('missing', ('scheduler_config.json', 'config.json', 'diffusion_pytorch_model.safetensors'))
+    def test_ddpm_missing_components_still_fail(self, missing):
+        with pytest.raises(ModelFilesError):
+            self.plan({"model_index.json", "config.json", "scheduler_config.json",
+                       "diffusion_pytorch_model.safetensors"} - {missing}, {"model_index.json": {
+                "_class_name": "DDPMPipeline", "unet": ["diffusers", "UNet2DModel"],
+                "scheduler": ["diffusers", "DDPMScheduler"],
+            }}, backend="diffusers")
 
     def test_diffusers_component_directory_takes_precedence_over_root(self):
         names = ["model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.bin",
@@ -151,31 +144,30 @@ class ModelFilePlanTests(unittest.TestCase):
             "_class_name": "DDPMPipeline", "unet": ["diffusers", "UNet2DModel"],
             "scheduler": ["diffusers", "DDPMScheduler"],
         }}, backend="diffusers")
-        self.assertEqual(plan["weights"][0]["component"], "unet")
-        self.assertIn("unet/diffusion_pytorch_model.bin", self.selected(plan))
+        assert (plan["weights"][0]["component"]) == ("unet")
+        assert ("unet/diffusion_pytorch_model.bin") in (self.selected(plan))
 
-    def test_nonstandard_diffusers_component_keeps_complete_repository(self):
+    @pytest.mark.parametrize('spec', ((['custom'], 'Model'), ('diffusers', {'custom': 'Model'}), ('custom',), {'custom': 'Model'}))
+    def test_nonstandard_diffusers_component_keeps_complete_repository(self, spec):
         names = ["model_index.json", "unet/diffusion_pytorch_model.safetensors", "extra.ckpt"]
-        for spec in ((["custom"], "Model"), ("diffusers", {"custom": "Model"}), ("custom",), {"custom": "Model"}):
-            with self.subTest(spec=spec):
-                plan = self.plan(names, {"model_index.json": {
-                    "_class_name": "StableDiffusionPipeline",
-                    "unet": ["diffusers", "UNet2DConditionModel"],
-                    "custom": list(spec) if isinstance(spec, tuple) else spec,
-                }}, backend="diffusers")
-                self.assertEqual(self.selected(plan), set(names))
-                self.assertEqual(plan["effective_policy"], "full")
+        plan = self.plan(names, {"model_index.json": {
+            "_class_name": "StableDiffusionPipeline",
+            "unet": ["diffusers", "UNet2DConditionModel"],
+            "custom": list(spec) if isinstance(spec, tuple) else spec,
+        }}, backend="diffusers")
+        assert (self.selected(plan)) == (set(names))
+        assert (plan["effective_policy"]) == ("full")
 
     def test_structured_manifest_selects_exact_artifact(self):
         plan = self.plan(["acprof_model.json", "policy.pt", "training.pth", "README.md"], {
             "acprof_model.json": {"schema_version": 1, "format": "torchscript", "model_file": "policy.pt"},
         }, family="structured", backend="torchscript")
-        self.assertEqual(self.selected(plan), {"acprof_model.json", "policy.pt", "README.md"})
+        assert (self.selected(plan)) == ({"acprof_model.json", "policy.pt", "README.md"})
 
     def test_plan_hash_detects_changed_selection(self):
         plan = self.plan(["config.json", "model.safetensors"])
         plan["files"].pop()
-        with self.assertRaisesRegex(ModelFilesError, "hash mismatch"):
+        with pytest.raises(ModelFilesError, match="hash mismatch"):
             validate_plan(plan)
 
     def test_verification_records_actual_hash_and_rejects_corrupt_content(self):
@@ -185,12 +177,8 @@ class ModelFilePlanTests(unittest.TestCase):
             plan = self.plan(["model.safetensors"], policy="full")
             plan["files"][0].update(size=len(content), lfs_sha256=hashlib.sha256(content).hexdigest())
             verified = verify_download(temporary, copy.deepcopy(plan))
-            self.assertEqual(verified["files"][0]["sha256"], hashlib.sha256(content).hexdigest())
+            assert (verified["files"][0]["sha256"]) == (hashlib.sha256(content).hexdigest())
             validate_plan(verified)
             (Path(temporary) / "model.safetensors").write_bytes(b"garbage")
-            with self.assertRaisesRegex(ModelFilesError, "SHA256 mismatch"):
+            with pytest.raises(ModelFilesError, match="SHA256 mismatch"):
                 verify_download(temporary, plan)
-
-
-if __name__ == "__main__":
-    unittest.main()

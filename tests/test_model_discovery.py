@@ -4,11 +4,12 @@ import io
 import json
 import os
 import tempfile
-import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.input_plan import _get_task_generator
@@ -19,7 +20,7 @@ from acprof.runtime_profiles import PROFILES
 REVISION = "a" * 40
 
 
-class ModelDiscoveryTests(unittest.TestCase):
+class TestModelDiscovery:
     def discover(self, metadata, *, tag=None, library=None, files=(), **options):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -32,7 +33,7 @@ class ModelDiscoveryTests(unittest.TestCase):
                                                        for name in [*metadata, *files]])
 
             def download(**kwargs):
-                self.assertEqual(kwargs.get("revision"), REVISION)
+                assert (kwargs.get("revision")) == (REVISION)
                 return str(root / kwargs["filename"])
 
             with patch("huggingface_hub.HfApi.model_info", return_value=hub), patch(
@@ -47,50 +48,50 @@ class ModelDiscoveryTests(unittest.TestCase):
                 "model_file": "iris.onnx", "feature_dim": 4}
         task = self.discover({"acprof_model.json": spec}, files=("iris.onnx",))
         require_task_support(task)
-        self.assertEqual((task.pipeline_tag, task.runtime_backend), ("tabular-classification", "onnxruntime"))
-        self.assertEqual(task.model_revision, REVISION)
-        self.assertEqual(task.model_resolution["status"], "candidate")
-        self.assertEqual(task.model_resolution["candidates"][0]["evidence"], ["repository_model_spec"])
+        assert ((task.pipeline_tag, task.runtime_backend)) == (("tabular-classification", "onnxruntime"))
+        assert (task.model_revision) == (REVISION)
+        assert (task.model_resolution["status"]) == ("candidate")
+        assert (task.model_resolution["candidates"][0]["evidence"]) == (["repository_model_spec"])
 
     def test_bare_onnx_retains_candidates_but_never_guesses_task(self):
         task = self.discover({}, files=("iris.onnx",))
-        self.assertEqual(task.model_resolution["status"], "needs_configuration")
-        self.assertIn("tabular-classification", {item["task"] for item in task.model_resolution["candidates"]})
-        self.assertIn("tabular-regression", {item["task"] for item in task.model_resolution["candidates"]})
-        with self.assertRaisesRegex(TaskSupportError, "model-spec|--task"):
+        assert (task.model_resolution["status"]) == ("needs_configuration")
+        assert ("tabular-classification") in ({item["task"] for item in task.model_resolution["candidates"]})
+        assert ("tabular-regression") in ({item["task"] for item in task.model_resolution["candidates"]})
+        with pytest.raises(TaskSupportError, match="model-spec|--task"):
             require_task_support(task)
 
     def test_explicit_task_selects_onnx_backend_from_artifact(self):
         task = self.discover({}, files=("iris.onnx",), override_tag="tabular-classification")
         require_task_support(task)
-        self.assertEqual(task.runtime_backend, "onnxruntime")
-        self.assertEqual(task.model_revision, REVISION)
+        assert (task.runtime_backend) == ("onnxruntime")
+        assert (task.model_revision) == (REVISION)
 
     def test_multiple_onnx_artifacts_require_a_selection(self):
         task = self.discover({}, files=("encoder.onnx", "decoder.onnx"), override_tag="text-classification")
-        with self.assertRaisesRegex(TaskSupportError, "model_file"):
+        with pytest.raises(TaskSupportError, match="model_file"):
             require_task_support(task)
 
     def test_config_inference_keeps_hub_snapshot_and_file_evidence(self):
         task = self.discover({"config.json": {"architectures": ["BertForMaskedLM"], "model_type": "bert"}},
                              files=("model.safetensors",), library="transformers")
-        self.assertEqual(task.pipeline_tag, "fill-mask")
-        self.assertEqual(task.model_revision, REVISION)
-        self.assertIn("model.safetensors", task.repository_files)
-        self.assertIn("config.json", task.repository_metadata)
+        assert (task.pipeline_tag) == ("fill-mask")
+        assert (task.model_revision) == (REVISION)
+        assert ("model.safetensors") in (task.repository_files)
+        assert ("config.json") in (task.repository_metadata)
 
     def test_two_architectures_are_ambiguous_instead_of_first_match(self):
         task = self.discover({"config.json": {"architectures": ["BertForMaskedLM", "BertForSequenceClassification"]}},
                              library="transformers")
-        self.assertEqual(task.model_resolution["status"], "ambiguous")
-        with self.assertRaisesRegex(TaskSupportError, "fill-mask.*text-classification"):
+        assert (task.model_resolution["status"]) == ("ambiguous")
+        with pytest.raises(TaskSupportError, match="fill-mask.*text-classification"):
             require_task_support(task)
 
     def test_hub_and_declared_tasks_conflict_until_user_selects_one(self):
         spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                 "model_file": "iris.onnx", "feature_dim": 4}
         task = self.discover({"acprof_model.json": spec}, tag="tabular-regression", files=("iris.onnx",))
-        with self.assertRaisesRegex(TaskSupportError, "conflict|冲突"):
+        with pytest.raises(TaskSupportError, match="conflict|冲突"):
             require_task_support(task)
         selected = self.discover({"acprof_model.json": spec}, tag="tabular-regression", files=("iris.onnx",),
                                   override_tag="tabular-classification")
@@ -107,45 +108,45 @@ class ModelDiscoveryTests(unittest.TestCase):
         task.runtime_profile_id = profile.profile_id
         with patch.dict(PROFILES, {profile.profile_id: profile}):
             require_task_support(task)
-        self.assertEqual(task.pipeline_tag, "text-classification")
-        self.assertEqual(task.model_resolution["pipeline_task"], "acme-classify")
-        self.assertEqual(task.model_resolution["interface_kind"], "custom_pipeline")
+        assert (task.pipeline_tag) == ("text-classification")
+        assert (task.model_resolution["pipeline_task"]) == ("acme-classify")
+        assert (task.model_resolution["interface_kind"]) == ("custom_pipeline")
 
     def test_custom_auto_class_is_a_candidate_without_host_import(self):
         config = {"auto_map": {"AutoModelForSequenceClassification": "custom_model.Classifier"}}
         task = self.discover({"config.json": config}, library="transformers", files=("custom_model.py",))
-        with self.assertRaises(TaskSupportError) as caught:
+        with pytest.raises(TaskSupportError) as caught:
             require_task_support(task)
-        self.assertEqual(caught.exception.failure.reason_code, "remote_code_disallowed")
-        self.assertEqual(task.pipeline_tag, "text-classification")
-        self.assertEqual(task.model_resolution["interface_kind"], "custom_auto")
+        assert (caught.value.failure.reason_code) == ("remote_code_disallowed")
+        assert (task.pipeline_tag) == ("text-classification")
+        assert (task.model_resolution["interface_kind"]) == ("custom_auto")
 
     def test_cross_repository_code_is_not_treated_as_offline_complete(self):
         config = {"auto_map": {"AutoModelForSequenceClassification": "other/repo--custom_model.Classifier"}}
         task = self.discover({"config.json": config}, tag="text-classification", library="transformers")
-        with self.assertRaisesRegex(TaskSupportError, "code|代码"):
+        with pytest.raises(TaskSupportError, match="code|代码"):
             require_task_support(task)
 
     def test_malformed_custom_metadata_reports_configuration_error(self):
         task = self.discover({"config.json": {"auto_map": ["not-a-map"]}},
                              tag="image-text-to-text", library="transformers")
-        with self.assertRaisesRegex(TaskSupportError, "auto_map"):
+        with pytest.raises(TaskSupportError, match="auto_map"):
             require_task_support(task)
 
 
-class ModelSpecificationTests(unittest.TestCase):
+class TestModelSpecification:
     def test_invalid_format_reports_a_declaration_error(self):
         from acprof.model_spec import validate_model_spec
-        with self.assertRaisesRegex(ValueError, "format"):
+        with pytest.raises(ValueError, match="format"):
             validate_model_spec({"schema_version": 1, "format": [], "task": "text-classification"})
 
-    def test_custom_classification_requires_actual_labels_and_scores(self):
+    @pytest.mark.parametrize('output', ([], [{'unrelated': True}], [{'label': '', 'score': 0.5}]))
+    def test_custom_classification_requires_actual_labels_and_scores(self, output):
         from acprof.container.validation import OutputValidationError, validate_output
         context = {"task_type": "text-classification", "model_spec": {"format": "transformers-pipeline"}}
-        for output in ([], [{"unrelated": True}], [{"label": "", "score": 0.5}]):
-            with self.subTest(output=output), self.assertRaisesRegex(OutputValidationError, "label|classification"):
-                validate_output(context, {"input_scale": 2}, {"_effective_input_scale": 2}, output,
-                                {"task": "text-classification", "output_type": "label", "n_results": len(output)})
+        with pytest.raises(OutputValidationError, match="label|classification"):
+            validate_output(context, {"input_scale": 2}, {"_effective_input_scale": 2}, output,
+                            {"task": "text-classification", "output_type": "label", "n_results": len(output)})
 
     def test_model_spec_content_changes_resume_identity(self):
         from acprof.host.run_state import run_options
@@ -156,7 +157,7 @@ class ModelSpecificationTests(unittest.TestCase):
             before = run_options(args)
             path.write_text('{"model_file":"second.onnx"}')
             after = run_options(args)
-        self.assertNotEqual(before["model_spec_sha256"], after["model_spec_sha256"])
+        assert (before["model_spec_sha256"]) != (after["model_spec_sha256"])
 
     def task(self, spec):
         info = TaskInfo("example/model", "tabular-classification", "structured", "onnxruntime",
@@ -168,7 +169,7 @@ class ModelSpecificationTests(unittest.TestCase):
         task = self.task({"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                           "model_file": "iris.onnx", "feature_dim": 4})
         generator = _get_task_generator(task, 1)
-        self.assertEqual(len(generator.generate(2)["features"][0]), 4)
+        assert (len(generator.generate(2)["features"][0])) == (4)
 
     def test_workload_cannot_silently_override_model_feature_width(self):
         task = self.task({"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
@@ -176,7 +177,7 @@ class ModelSpecificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "workload.json"
             path.write_text(json.dumps({"schema_version": 1, "feature_dim": 8}))
-            with self.assertRaisesRegex(ValueError, "feature_dim"):
+            with pytest.raises(ValueError, match="feature_dim"):
                 _get_task_generator(task, 1, workload_spec_path=str(path))
 
     def test_declaration_changes_service_image_identity(self):
@@ -184,7 +185,7 @@ class ModelSpecificationTests(unittest.TestCase):
                           "model_file": "first.onnx", "feature_dim": 4})
         before = request_fingerprint(task)
         task.repository_metadata["acprof_model.json"]["model_file"] = "second.onnx"
-        self.assertNotEqual(before, request_fingerprint(task))
+        assert (before) != (request_fingerprint(task))
 
     def test_baked_declaration_takes_precedence_over_repository_file(self):
         from acprof.model_spec import load_model_spec
@@ -194,7 +195,7 @@ class ModelSpecificationTests(unittest.TestCase):
             (Path(directory) / "acprof_model.json").write_text(json.dumps({**spec, "model_file": "old.onnx"}))
             encoded = base64.b64encode(json.dumps(spec).encode()).decode()
             with patch.dict(os.environ, {"ACPROF_MODEL_SPEC_B64": encoded}):
-                self.assertEqual(load_model_spec(directory, "tabular-classification", expected_format="onnxruntime"), spec)
+                assert (load_model_spec(directory, "tabular-classification", expected_format="onnxruntime")) == (spec)
 
     def test_local_spec_can_resolve_a_repository_without_task_metadata(self):
         spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
@@ -202,12 +203,12 @@ class ModelSpecificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "model.json"
             path.write_text(json.dumps(spec))
-            task = ModelDiscoveryTests().discover({}, files=("selected.onnx",), model_spec_path=str(path))
+            task = TestModelDiscovery().discover({}, files=("selected.onnx",), model_spec_path=str(path))
         require_task_support(task)
-        self.assertEqual(task.model_spec, spec)
-        self.assertEqual(task.runtime_backend, "onnxruntime")
-        self.assertEqual(task.model_resolution["selection"]["source"], "explicit")
-        self.assertEqual(task.model_resolution["candidates"][0]["evidence"], ["local_model_spec"])
+        assert (task.model_spec) == (spec)
+        assert (task.runtime_backend) == ("onnxruntime")
+        assert (task.model_resolution["selection"]["source"]) == ("explicit")
+        assert (task.model_resolution["candidates"][0]["evidence"]) == (["local_model_spec"])
 
     def test_pipeline_bridge_keeps_semantic_task_and_uses_custom_entry(self):
         from acprof.container.handlers.nlp import NLPHandler
@@ -226,10 +227,6 @@ class ModelSpecificationTests(unittest.TestCase):
                 with patch("transformers.pipeline", create=True) as pipeline:
                     pipeline.return_value = SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
                     context = NLPHandler().load(str(root), "text-classification", "transformers_pipeline", "cpu")
-            self.assertEqual(pipeline.call_args.kwargs["task"], "acme-classify")
-            self.assertTrue(pipeline.call_args.kwargs["trust_remote_code"])
-            self.assertEqual(context["task_type"], "text-classification")
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (pipeline.call_args.kwargs["task"]) == ("acme-classify")
+            assert (pipeline.call_args.kwargs["trust_remote_code"])
+            assert (context["task_type"]) == ("text-classification")

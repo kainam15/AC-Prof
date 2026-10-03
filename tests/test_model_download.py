@@ -1,10 +1,11 @@
 import json
 import os
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container import download_model
 from acprof.container.model_files import ModelFilesError, plan_download, seal_plan, validate_plan
@@ -13,20 +14,20 @@ from acprof.host import model_store
 from acprof.network_policy import DownloadPolicyError
 
 
-class ModelDownloadTests(unittest.TestCase):
+class TestModelDownload:
     def test_retired_container_downloader_cannot_bypass_host_budget(self):
         with patch.dict(os.environ, {"MODEL_ID": "example/test"}), patch("huggingface_hub.snapshot_download") as download:
-            with self.assertRaisesRegex(SystemExit, "host Model Store"):
+            with pytest.raises(SystemExit, match="host Model Store"):
                 download_model.main([])
             download.assert_not_called()
 
     def test_explicit_mirror_has_no_implicit_fallback(self):
         with patch.dict(os.environ, {"HF_ENDPOINT": "https://mirror.example/"}, clear=True):
-            self.assertEqual(hf_endpoints(), ["https://mirror.example"])
+            assert (hf_endpoints()) == (["https://mirror.example"])
 
     def test_mirror_preferred_exposes_explicit_fallback(self):
         with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-preferred", "HF_FALLBACK_ENDPOINTS": "https://mirror.example"}, clear=True):
-            self.assertEqual(hf_endpoints(), [
+            assert (hf_endpoints()) == ([
                 "https://hf-mirror.com", "https://mirror.example", "https://huggingface.co",
             ])
 
@@ -71,28 +72,27 @@ class ModelDownloadTests(unittest.TestCase):
                 seal_plan(second_plan["dependencies"][0]["download"])
                 seal_plan(second_plan)
                 second = model_store.prepare_model(self.task(second_plan), second_plan, root)
-            self.assertEqual([(call["repo_id"], call["revision"]) for call in calls[:2]],
-                             [("example/audio", "a" * 40), ("example/base", "b" * 40)])
+            assert ([(call["repo_id"], call["revision"]) for call in calls[:2]]) == ([("example/audio", "a" * 40), ("example/base", "b" * 40)])
             for record, revision in ((first, "b" * 40), (second, "c" * 40)):
                 view = root / "entries" / record["entry_id"] / "hf/models--example--base"
-                self.assertEqual((view / "refs/main").read_text(), revision)
-                self.assertTrue((view / "snapshots" / revision / "config.json").is_symlink())
-                self.assertEqual(record["model_download"]["dependencies"][0]["download"]["verification"], "sha256")
-                self.assertEqual(record["model_download"]["total_selected_bytes"], 4)
+                assert ((view / "refs/main").read_text()) == (revision)
+                assert ((view / "snapshots" / revision / "config.json").is_symlink())
+                assert (record["model_download"]["dependencies"][0]["download"]["verification"]) == ("sha256")
+                assert (record["model_download"]["total_selected_bytes"]) == (4)
                 validate_plan(record["model_download"])
 
     def test_dependency_identity_mismatch_is_rejected_even_with_a_resealed_parent(self):
         plan = self.dependency_plan()
         plan["dependencies"][0]["revision"] = "c" * 40
         seal_plan(plan)
-        with self.assertRaisesRegex(ModelFilesError, "dependency"):
+        with pytest.raises(ModelFilesError, match="dependency"):
             validate_plan(plan)
 
     def test_unknown_hub_sizes_stop_before_downloading(self):
         plan = self.dependency_plan()
         plan["dependencies"][0]["download"]["files"][0]["size"] = None
         with tempfile.TemporaryDirectory() as directory, patch("huggingface_hub.snapshot_download") as download:
-            with self.assertRaises(DownloadPolicyError):
+            with pytest.raises(DownloadPolicyError):
                 model_store.prepare_model(self.task(plan), plan, Path(directory))
             download.assert_not_called()
 
@@ -100,7 +100,7 @@ class ModelDownloadTests(unittest.TestCase):
         plan = self.dependency_plan()
         plan["total_selected_bytes"] = 999
         seal_plan(plan)
-        with self.assertRaisesRegex(ModelFilesError, "dependency.*bytes|total_selected_bytes"):
+        with pytest.raises(ModelFilesError, match="dependency.*bytes|total_selected_bytes"):
             validate_plan(plan)
 
     def test_standard_checkpoint_download_omits_unused_formats(self):
@@ -117,7 +117,7 @@ class ModelDownloadTests(unittest.TestCase):
             ), patch("huggingface_hub.hf_hub_download", return_value=str(config)):
                 plan = download_model._prepare_repository_plan("https://hf-mirror.com", "example/bert", "a" * 40,
                     cache_dir=str(root / "hf"), native_types={"bert"})
-            self.assertEqual({record["path"] for record in plan["files"]}, {"config.json", "model.safetensors"})
+            assert ({record["path"] for record in plan["files"]}) == ({"config.json", "model.safetensors"})
 
             def snapshot(**kwargs):
                 target = root / "hf/models--example--bert/snapshots" / kwargs["revision"]
@@ -128,9 +128,5 @@ class ModelDownloadTests(unittest.TestCase):
 
             with patch("huggingface_hub.snapshot_download", side_effect=snapshot) as download:
                 model_store.prepare_model(self.task(plan), plan, root)
-            self.assertEqual(set(download.call_args.kwargs["allow_patterns"]), {"config.json", "model.safetensors"})
-            self.assertEqual(download.call_args.kwargs["revision"], "a" * 40)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (set(download.call_args.kwargs["allow_patterns"])) == ({"config.json", "model.safetensors"})
+            assert (download.call_args.kwargs["revision"]) == ("a" * 40)

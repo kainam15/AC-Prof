@@ -5,12 +5,12 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import threading
-import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.host import model_store
@@ -34,11 +34,12 @@ def locked_store(root):
         process.stderr.close()
 
 
-class ModelStoreGcTests(unittest.TestCase):
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name)
+class TestModelStoreGc:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        directory = tmp_path
+        self.root = Path(str(directory))
 
     def blob(self, name, size):
         path = self.root / 'hf/models--example--test/blobs' / name
@@ -65,17 +66,15 @@ class ModelStoreGcTests(unittest.TestCase):
         os.utime(stamp, (int(key, 16), int(key, 16)))
         return key
 
-    def test_target_preview_has_fixed_candidate_scan_count_as_entries_grow(self):
-        for index in range(1, 81):
+    @pytest.mark.parametrize("entry_count", [8, 80])
+    def test_target_preview_has_fixed_candidate_scan_count_as_entries_grow(self, entry_count):
+        for index in range(1, entry_count + 1):
             self.entry(index, [self.blob(str(index), 4096)])
-            if index in (8, 80):
-                with self.subTest(entries=index), patch.object(
-                    model_store, 'prune_candidates', wraps=model_store.prune_candidates,
-                ) as scans:
-                    result = model_store.prune_store(root=self.root, target_bytes=0)
-                    self.assertEqual(len(result['entries']), index)
-                    self.assertEqual(result['reclaimable_bytes'], index * 4096)
-                    self.assertEqual(scans.call_count, 1)
+        with patch.object(model_store, "prune_candidates", wraps=model_store.prune_candidates) as scans:
+            result = model_store.prune_store(root=self.root, target_bytes=0)
+        assert len(result["entries"]) == entry_count
+        assert result["reclaimable_bytes"] == entry_count * 4096
+        assert scans.call_count == 1
 
     def test_target_lru_frees_shared_blob_only_after_its_last_reference(self):
         shared = self.blob('shared', 100)
@@ -83,9 +82,9 @@ class ModelStoreGcTests(unittest.TestCase):
         second = self.entry(2, [shared, self.blob('second', 40)])
         used = model_store.disk_report(self.root)['total_bytes']
         one = model_store.prune_store(root=self.root, target_bytes=used - 40)
-        self.assertEqual(one, {'entries': [first], 'reclaimable_bytes': 40})
+        assert (one) == ({'entries': [first], 'reclaimable_bytes': 40})
         two = model_store.prune_store(root=self.root, target_bytes=used - 41)
-        self.assertEqual(two, {'entries': [first, second], 'reclaimable_bytes': 180})
+        assert (two) == ({'entries': [first, second], 'reclaimable_bytes': 180})
 
     def test_apply_rechecks_new_leases_and_preserves_the_callers_keep_set(self):
         blob = self.blob('live', 100)
@@ -95,10 +94,10 @@ class ModelStoreGcTests(unittest.TestCase):
             fcntl.flock(lease, fcntl.LOCK_SH)
             keep = set()
             result = model_store.prune_store(root=self.root, apply=True, keep=keep, approved_entries=approved)
-        self.assertEqual(result['entries'], [])
-        self.assertEqual(keep, set())
-        self.assertTrue(blob.exists())
-        self.assertTrue((self.root / 'entries' / key).exists())
+        assert (result['entries']) == ([])
+        assert (keep) == (set())
+        assert (blob.exists())
+        assert ((self.root / 'entries' / key).exists())
 
     def test_apply_protects_new_entries_and_their_shared_weights(self):
         shared, old = self.blob('shared', 100), self.blob('old', 40)
@@ -106,10 +105,10 @@ class ModelStoreGcTests(unittest.TestCase):
         approved = set(model_store.prune_store(root=self.root)['entries'])
         second = self.entry(2, [shared])
         result = model_store.prune_store(root=self.root, apply=True, approved_entries=approved)
-        self.assertEqual(result, {'entries': [first], 'reclaimable_bytes': 40})
-        self.assertTrue((self.root / 'entries' / second).exists())
-        self.assertTrue(shared.exists())
-        self.assertFalse(old.exists())
+        assert (result) == ({'entries': [first], 'reclaimable_bytes': 40})
+        assert ((self.root / 'entries' / second).exists())
+        assert (shared.exists())
+        assert not (old.exists())
 
     def test_waiting_for_another_process_lock_is_cancelled_before_mutation(self):
         blob = self.blob('pending', 100)
@@ -127,13 +126,13 @@ class ModelStoreGcTests(unittest.TestCase):
             thread = threading.Thread(target=prune, daemon=True)
             thread.start()
             try:
-                self.assertTrue(waiting.wait(2), 'preview must report the held lock')
+                assert (waiting.wait(2)), 'preview must report the held lock'
                 cancel.set()
                 thread.join(timeout=2)
-                self.assertFalse(thread.is_alive(), 'cancel must not wait for the other process to unlock')
+                assert not (thread.is_alive()), 'cancel must not wait for the other process to unlock'
             finally:
                 cancel.set()
         thread.join(timeout=2)
-        self.assertEqual(type(errors[0]).__name__, 'ModelStoreCancelled')
-        self.assertTrue(blob.exists())
-        self.assertTrue((self.root / 'entries' / key).exists())
+        assert (type(errors[0]).__name__) == ('ModelStoreCancelled')
+        assert (blob.exists())
+        assert ((self.root / 'entries' / key).exists())

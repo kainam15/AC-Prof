@@ -3,21 +3,23 @@ import json
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from scripts.export_transformers_support import export_support
 
 
-class TransformersCatalogTests(unittest.TestCase):
+class TestTransformersCatalog:
     SOURCE = b'MODEL_MAPPING_NAMES = OrderedDict([("a", "A")])\nMODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict([("a", "B")])'
 
     def test_new_export_keeps_dynamic_capabilities_unknown_until_reviewed(self):
         catalog = export_support(self.SOURCE, "99.0.0")
-        self.assertEqual(catalog.get("capabilities"), {
+        assert (catalog.get("capabilities")) == ({
             "local_dynamic_transitive_imports": None, "local_dynamic_symlink_safe": None})
 
-    def test_reexport_preserves_review_only_for_identical_version_and_source(self):
+    @pytest.mark.parametrize('version_case', range(3), ids=["('99.0.0', SOURCE, True)", "('99.0.1', SOURCE, False)", "('99.0.0', SOURCE + b'\\n# changed', False)"])
+    def test_reexport_preserves_review_only_for_identical_version_and_source(self, version_case):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source, output = root / "modeling_auto.py", root / "catalog.json"
@@ -27,18 +29,16 @@ class TransformersCatalogTests(unittest.TestCase):
             reviewed = export_support(self.SOURCE, "99.0.0")
             reviewed["capabilities"] = {"local_dynamic_transitive_imports": True, "local_dynamic_symlink_safe": True}
             script = Path(__file__).resolve().parents[1] / "scripts" / "export_transformers_support.py"
-            for version, contents, keep in (("99.0.0", self.SOURCE, True), ("99.0.1", self.SOURCE, False),
-                                             ("99.0.0", self.SOURCE + b"\n# changed", False)):
-                with self.subTest(version=version, keep=keep):
-                    output.write_text(json.dumps(reviewed))
-                    source.write_bytes(contents)
-                    result = subprocess.run([sys.executable, str(script), "--source", str(source),
-                                             "--pipeline-source", str(pipeline_source), "--version", version, "--output", str(output)],
-                                            capture_output=True, text=True, timeout=30)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = reviewed["capabilities"] if keep else {
-                        "local_dynamic_transitive_imports": None, "local_dynamic_symlink_safe": None}
-                    self.assertEqual(json.loads(output.read_text()).get("capabilities"), expected)
+            (version, contents, keep) = tuple((('99.0.0', self.SOURCE, True), ('99.0.1', self.SOURCE, False), ('99.0.0', self.SOURCE + b'\n# changed', False)))[version_case]
+            output.write_text(json.dumps(reviewed))
+            source.write_bytes(contents)
+            result = subprocess.run([sys.executable, str(script), "--source", str(source),
+                                     "--pipeline-source", str(pipeline_source), "--version", version, "--output", str(output)],
+                                    capture_output=True, text=True, timeout=30)
+            assert (result.returncode) == (0), result.stderr
+            expected = reviewed["capabilities"] if keep else {
+                "local_dynamic_transitive_imports": None, "local_dynamic_symlink_safe": None}
+            assert (json.loads(output.read_text()).get("capabilities")) == (expected)
 
     def test_static_composition_preserves_native_heads_without_executing_source(self):
         source = b'''
@@ -52,24 +52,20 @@ MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = OrderedDict([
 '''
         catalog = export_support(source, "test")
         mapping = catalog["mappings"]["MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES"]
-        self.assertEqual(mapping["decoder"], "DecoderForCausalLM")
-        self.assertEqual(mapping["vision"], ("VisionModel", "VisionVariant"))
-        self.assertEqual(len(catalog["source_sha256"]), 64)
+        assert (mapping["decoder"]) == ("DecoderForCausalLM")
+        assert (mapping["vision"]) == (("VisionModel", "VisionVariant"))
+        assert (len(catalog["source_sha256"])) == (64)
 
-    def test_changed_registry_shape_is_rejected_instead_of_publishing_partial_data(self):
+    @pytest.mark.parametrize('expression', ('OrderedDict(build_dynamic_mapping())', 'build_dynamic_mapping()', '{"vision": "Model"}'))
+    def test_changed_registry_shape_is_rejected_instead_of_publishing_partial_data(self, expression):
         source = '''
 MODEL_MAPPING_NAMES = OrderedDict([("encoder", "EncoderModel")])
 MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict([("decoder", "DecoderForCausalLM")])
 MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = REPLACEMENT
 '''
-        for expression in ("OrderedDict(build_dynamic_mapping())", "build_dynamic_mapping()", '{"vision": "Model"}'):
-            with self.subTest(expression=expression), self.assertRaisesRegex(ValueError, "unsupported Auto registry"):
-                export_support(source.replace("REPLACEMENT", expression).encode(), "test")
+        with pytest.raises(ValueError, match="unsupported Auto registry"):
+            export_support(source.replace("REPLACEMENT", expression).encode(), "test")
 
     def test_calls_inside_entries_are_rejected_without_execution(self):
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             export_support(b'MODEL_MAPPING_NAMES = OrderedDict([("a", load_remote_code())])', "test")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -3,8 +3,9 @@ import os
 import sys
 import tempfile
 import types
-import unittest
 from unittest.mock import patch
+
+import pytest
 
 from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.host.detect import TaskInfo
@@ -20,45 +21,35 @@ from acprof.workloads.diffusion import (
 )
 
 
-class DiffusionWorkloadTests(unittest.TestCase):
-    def test_default_workload_is_deterministic_and_scales_resolution(self) -> None:
-        generator = DiffusionWorkloadGenerator(
-            "stable-diffusion-v1-5/stable-diffusion-v1-5",
-            "text-to-image",
-            2,
-        )
+def test_default_workload_is_deterministic_and_scales_resolution() -> None:
+    generator = DiffusionWorkloadGenerator(
+        "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "text-to-image",
+        2,
+    )
 
-        payload = generator.generate(256)
+    payload = generator.generate(256)
 
-        self.assertEqual(payload["resolution"], 256)
-        self.assertEqual(len(payload["prompt"]), 2)
-        self.assertEqual(
-            payload["params"],
-            {
-                "num_inference_steps": DEFAULT_NUM_INFERENCE_STEPS,
-                "guidance_scale": DEFAULT_GUIDANCE_SCALE,
-                "seed": BASE_SEED,
-            },
-        )
-        self.assertEqual(
-            generator.default_input_scales(),
-            [float(value) for value in DEFAULT_RESOLUTIONS],
-        )
-        self.assertEqual(generator.effective_input_scale(256, payload), 256.0)
-        self.assertEqual(generator.scale_label(256), "res256px")
-        self.assertEqual(
-            generator.input_metadata(256, payload)["output_pixel_count_per_image"],
-            256 * 256,
-        )
+    assert (payload["resolution"]) == (256)
+    assert (len(payload["prompt"])) == (2)
+    assert (payload["params"]) == ({
+            "num_inference_steps": DEFAULT_NUM_INFERENCE_STEPS,
+            "guidance_scale": DEFAULT_GUIDANCE_SCALE,
+            "seed": BASE_SEED,
+        })
+    assert (generator.default_input_scales()) == ([float(value) for value in DEFAULT_RESOLUTIONS])
+    assert (generator.effective_input_scale(256, payload)) == (256.0)
+    assert (generator.scale_label(256)) == ("res256px")
+    assert (generator.input_metadata(256, payload)["output_pixel_count_per_image"]) == (256 * 256)
 
-    def test_workload_rejects_non_aligned_resolution(self) -> None:
-        generator = DiffusionWorkloadGenerator("example/model", "text-to-image", 1)
+def test_workload_rejects_non_aligned_resolution() -> None:
+    generator = DiffusionWorkloadGenerator("example/model", "text-to-image", 1)
 
-        with self.assertRaisesRegex(ValueError, "divisible by 8"):
-            generator.generate(255)
+    with pytest.raises(ValueError, match="divisible by 8"):
+        generator.generate(255)
 
 
-class DiffusionHandlerTests(unittest.TestCase):
+class TestDiffusionHandler:
     def test_load_uses_local_snapshot_and_eager_attention_processor(self) -> None:
         calls = []
 
@@ -121,15 +112,15 @@ class DiffusionHandlerTests(unittest.TestCase):
                 load_options={"attention_implementation": "eager"},
             )
 
-        self.assertEqual(calls[0][0], model_source)
-        self.assertNotIn("revision", calls[0][1])
-        self.assertTrue(calls[0][1]["local_files_only"])
-        self.assertEqual(calls[0][1]["torch_dtype"], "float32")
-        self.assertEqual(pipe.device, "cpu")
-        self.assertTrue(pipe.progress_disabled)
-        self.assertIsInstance(pipe.unet.processor, FakeAttnProcessor)
-        self.assertEqual(pipe.unet.config._attn_implementation, "eager")
-        self.assertIs(context["model"], pipe.unet)
+        assert (calls[0][0]) == (model_source)
+        assert ("revision") not in (calls[0][1])
+        assert (calls[0][1]["local_files_only"])
+        assert (calls[0][1]["torch_dtype"]) == ("float32")
+        assert (pipe.device) == ("cpu")
+        assert (pipe.progress_disabled)
+        assert isinstance(pipe.unet.processor, FakeAttnProcessor)
+        assert (pipe.unet.config._attn_implementation) == ("eager")
+        assert (context["model"]) is (pipe.unet)
 
     def test_predict_is_seeded_and_postprocess_returns_metadata_only(self) -> None:
         generator_calls = []
@@ -184,24 +175,24 @@ class DiffusionHandlerTests(unittest.TestCase):
             raw_output,
         )
 
-        self.assertEqual([item.seed for item in generator_calls], [42, 43])
-        self.assertEqual(pipeline_calls[0]["height"], 256)
-        self.assertEqual(pipeline_calls[0]["width"], 256)
-        self.assertEqual(pipeline_calls[0]["prompt"], ["first prompt", "second prompt"])
-        self.assertEqual(response["output_type"], "image")
-        self.assertEqual(response["n_results"], 2)
-        self.assertEqual(response["image_width"], 256)
-        self.assertNotIn("images", response)
+        assert ([item.seed for item in generator_calls]) == ([42, 43])
+        assert (pipeline_calls[0]["height"]) == (256)
+        assert (pipeline_calls[0]["width"]) == (256)
+        assert (pipeline_calls[0]["prompt"]) == (["first prompt", "second prompt"])
+        assert (response["output_type"]) == ("image")
+        assert (response["n_results"]) == (2)
+        assert (response["image_width"]) == (256)
+        assert ("images") not in (response)
 
     def test_preprocess_rejects_invalid_resolution(self) -> None:
-        with self.assertRaisesRegex(ValueError, "divisible by 8"):
+        with pytest.raises(ValueError, match="divisible by 8"):
             DiffusionHandler().preprocess(
                 {},
                 {"prompt": "test", "resolution": 250, "params": {}},
             )
 
 
-class DiffusionMetadataTests(unittest.TestCase):
+class TestDiffusionMetadata:
     def _task_info(self) -> TaskInfo:
         return TaskInfo(
             model_id="stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -216,18 +207,9 @@ class DiffusionMetadataTests(unittest.TestCase):
     def test_static_io_contract_and_precision_are_diffusion_specific(self) -> None:
         input_format, output_format = _model_io_formats(self._task_info())
 
-        self.assertEqual(
-            input_format["json_schema"]["properties"]["resolution"]["multipleOf"],
-            8,
-        )
-        self.assertEqual(
-            output_format["json_schema"]["properties"]["output_type"]["enum"],
-            ["image"],
-        )
-        self.assertEqual(
-            _inference_precision_by_device(self._task_info()),
-            {"cpu": "FP32", "gpu": "FP16"},
-        )
+        assert (input_format["json_schema"]["properties"]["resolution"]["multipleOf"]) == (8)
+        assert (output_format["json_schema"]["properties"]["output_type"]["enum"]) == (["image"])
+        assert (_inference_precision_by_device(self._task_info())) == ({"cpu": "FP32", "gpu": "FP16"})
 
     def test_default_scale_plan_uses_supported_resolutions(self) -> None:
         with tempfile.TemporaryDirectory() as output_dir:
@@ -240,24 +222,12 @@ class DiffusionMetadataTests(unittest.TestCase):
                 batch_size=1,
                 output_dir=output_dir,
             )
-            self.assertEqual(
-                planned.scales,
-                [float(value) for value in DEFAULT_RESOLUTIONS],
-            )
-            self.assertEqual(planned.source, "workload_default")
-            self.assertTrue(os.path.isfile(planned.plan_file or ""))
+            assert (planned.scales) == ([float(value) for value in DEFAULT_RESOLUTIONS])
+            assert (planned.source) == ("workload_default")
+            assert (os.path.isfile(planned.plan_file or ""))
             with open(planned.plan_file or "", "r", encoding="utf-8") as handle:
                 plan = json.load(handle)
 
-        self.assertEqual(plan["task_family"], "diffusion")
-        self.assertEqual(
-            [entry["input_scale"] for entry in plan["entries"]],
-            [float(value) for value in DEFAULT_RESOLUTIONS],
-        )
-        self.assertEqual(
-            plan["entries"][-1]["payload"]["resolution"],
-            max(DEFAULT_RESOLUTIONS),
-        )
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (plan["task_family"]) == ("diffusion")
+        assert ([entry["input_scale"] for entry in plan["entries"]]) == ([float(value) for value in DEFAULT_RESOLUTIONS])
+        assert (plan["entries"][-1]["payload"]["resolution"]) == (max(DEFAULT_RESOLUTIONS))
