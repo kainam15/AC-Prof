@@ -1,11 +1,12 @@
 import os
 import tempfile
-import unittest
 from dataclasses import replace
+from functools import partial
 from itertools import product
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from rich.cells import cell_len
 from textual.widgets import (
     Button,
@@ -37,188 +38,186 @@ from acprof.tui.views import ConfirmActionScreen
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
-class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.settings_path = Path(self.temporary.name) / "tui.json"
+class TestTuiLayoutSettings:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.temporary = tmp_path
+        self.settings_path = Path(str(self.temporary)) / "tui.json"
 
     def assert_button_reachable(self, app, button_id):
         button = app.query_one(f"#{button_id}", Button)
         region = button.region
         bottom = app.query_one("#bottom-panel").region.y
-        self.assertGreater(region.width, 0, button_id)
-        self.assertGreater(region.height, 0, button_id)
-        self.assertGreaterEqual(region.x, 0, button_id)
-        self.assertGreaterEqual(region.y, 0, button_id)
-        self.assertLessEqual(region.right, app.size.width, button_id)
-        self.assertLessEqual(region.bottom, bottom, button_id)
+        assert (region.width) > (0), button_id
+        assert (region.height) > (0), button_id
+        assert (region.x) >= (0), button_id
+        assert (region.y) >= (0), button_id
+        assert (region.right) <= (app.size.width), button_id
+        assert (region.bottom) <= (bottom), button_id
         center = (region.x + region.width // 2, region.y + region.height // 2)
         widget, _ = app.get_widget_at(*center)
-        self.assertIs(widget, button, f"{button_id} is obscured by {widget}")
+        assert (widget) is (button), f"{button_id} is obscured by {widget}"
 
     async def remember_experiment(self, app, pilot):
         app._activate_tab("run-tab")
         await pilot.pause()
         if app.query_one("#experiment-pages", ContentSwitcher).current != "advanced-form":
-            self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
+            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
             await pilot.pause()
         app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
         await pilot.pause()
         self.assert_button_reachable(app, "save-run-default")
-        self.assertTrue(await pilot.click("#save-run-default", offset=(3, 1)))
+        assert (await pilot.click("#save-run-default", offset=(3, 1)))
         await pilot.pause()
 
-    async def test_action_bar_stays_reachable_and_advanced_settings_click_works(self):
-        for size in ((120, 30), (80, 24), (150, 45)):
-            with self.subTest(size=size):
-                app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
-                async with app.run_test(size=size) as pilot:
-                    await pilot.pause()
-                    action_region = app.query_one("#run-actions").region
-                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
-                        self.assert_button_reachable(app, button_id)
-                    app.query_one("#command-details", Collapsible).collapsed = False
-                    app.query_one("#run-form").scroll_end(animate=False, immediate=True)
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#run-actions").region, action_region)
-                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
-                        self.assert_button_reachable(app, button_id)
-                    self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "run-tab")
-                    self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
-                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
-                        self.assert_button_reachable(app, button_id)
-                    self.assertEqual(str(app.query_one("#open-run-settings", Button).label), "返回基本配置")
-                    app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#run-actions").region, action_region)
-                    self.assert_button_reachable(app, "save-run-default")
-                    self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "run-form")
-                    self.assertEqual(str(app.query_one("#open-run-settings", Button).label), "高级参数")
-                    await pilot.press("f2")
-                    await pilot.pause()
-                    for button_id in ("restore-ui-defaults", "save-ui-settings"):
-                        self.assert_button_reachable(app, button_id)
+    @pytest.mark.parametrize('size', ((120, 30), (80, 24), (150, 45)))
+    async def test_action_bar_stays_reachable_and_advanced_settings_click_works(self, size):
+        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            action_region = app.query_one("#run-actions").region
+            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+                self.assert_button_reachable(app, button_id)
+            app.query_one("#command-details", Collapsible).collapsed = False
+            app.query_one("#run-form").scroll_end(animate=False, immediate=True)
+            await pilot.pause()
+            assert (app.query_one("#run-actions").region) == (action_region)
+            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+                self.assert_button_reachable(app, button_id)
+            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            await pilot.pause()
+            assert (app.query_one("#main-tabs", TabbedContent).active) == ("run-tab")
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
+            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+                self.assert_button_reachable(app, button_id)
+            assert (str(app.query_one("#open-run-settings", Button).label)) == ("返回基本配置")
+            app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
+            await pilot.pause()
+            assert (app.query_one("#run-actions").region) == (action_region)
+            self.assert_button_reachable(app, "save-run-default")
+            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            await pilot.pause()
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
+            assert (str(app.query_one("#open-run-settings", Button).label)) == ("高级参数")
+            await pilot.press("f2")
+            await pilot.pause()
+            for button_id in ("restore-ui-defaults", "save-ui-settings"):
+                self.assert_button_reachable(app, button_id)
 
-    async def test_action_buttons_survive_resize_and_command_bar_visibility(self):
+    @pytest.mark.parametrize('show_command_bar', (False, True))
+    @pytest.mark.parametrize('size', ((120, 40), (80, 24), (150, 45)))
+    async def test_action_buttons_survive_resize_and_command_bar_visibility(self, show_command_bar, size):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.pause()
             app.query_one("#ui-theme", Select).value = "acprof-mist"
-            for size in ((120, 40), (80, 24), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for show_command_bar in (False, True):
-                    with self.subTest(size=size, show_command_bar=show_command_bar):
-                        app.action_show_settings()
-                        app.query_one("#ui-command-bar", Checkbox).value = show_command_bar
-                        await pilot.pause()
-                        app._activate_tab("run-tab")
-                        await pilot.pause()
-                        for button_id in ("open-run-settings", "probe-largest", "start-run"):
-                            self.assert_button_reachable(app, button_id)
-                        self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
-                        await pilot.pause()
-                        self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
-                        self.assert_button_reachable(app, "open-run-settings")
-                        self.assert_button_reachable(app, "start-run")
-                        self.assertTrue(await pilot.click("#start-run", offset=(3, 1)))
-                        await pilot.pause()
-                        self.assertIsInstance(app.screen, ConfirmActionScreen)
-                        self.assertEqual(app._pending_launch.kind, "run")
-                        self.assertFalse(app._is_busy())
-                        await pilot.press("escape")
-                        await pilot.pause()
-                        self.assertIsNone(app._pending_launch)
-                        self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
-                        await pilot.pause()
-                        self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "run-form")
+            await pilot.resize_terminal(*size)
+            app.action_show_settings()
+            app.query_one("#ui-command-bar", Checkbox).value = show_command_bar
+            await pilot.pause()
+            app._activate_tab("run-tab")
+            await pilot.pause()
+            for button_id in ("open-run-settings", "probe-largest", "start-run"):
+                self.assert_button_reachable(app, button_id)
+            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            await pilot.pause()
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
+            self.assert_button_reachable(app, "open-run-settings")
+            self.assert_button_reachable(app, "start-run")
+            assert (await pilot.click("#start-run", offset=(3, 1)))
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmActionScreen)
+            assert (app._pending_launch.kind) == ("run")
+            assert not (app._is_busy())
+            await pilot.press("escape")
+            await pilot.pause()
+            assert (app._pending_launch) is None
+            assert (await pilot.click("#open-run-settings", offset=(3, 1)))
+            await pilot.pause()
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 
-    async def test_action_bar_keyboard_order_survives_language_resize_and_navigation(self):
+    @pytest.mark.parametrize('size_case', range(6))
+    async def test_action_bar_keyboard_order_survives_language_resize_and_navigation(self, size_case):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(150, 45)) as pilot:
-            for size, language in product(((80, 24), (120, 30), (150, 45)), ("zh", "en")):
-                with self.subTest(size=size, language=language):
-                    await pilot.resize_terminal(*size)
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
-                    navigation = app.query_one("#open-run-settings", Button)
-                    navigation.focus()
-                    await pilot.pause()
-                    await pilot.press("enter")
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
-                    navigation.focus()
-                    await pilot.pause()
-                    for button_id in ("probe-largest", "start-run"):
-                        await pilot.press("tab")
-                        button = app.query_one("#" + button_id, Button)
-                        self.assertIs(app.focused, button)
-                        self.assert_button_reachable(app, button_id)
-                    await pilot.press("enter")
-                    await pilot.pause()
-                    self.assertIsInstance(app.screen, ConfirmActionScreen)
-                    self.assertEqual(app._pending_launch.kind, "run")
-                    await pilot.press("escape")
-                    await pilot.pause()
-                    self.assertIsNone(app._pending_launch)
-                    app.query_one("#start-run", Button).focus()
-                    await pilot.pause()
-                    for button_id in ("probe-largest", "open-run-settings"):
-                        await pilot.press("shift+tab")
-                        self.assertIs(app.focused, app.query_one("#" + button_id, Button))
-                    self.assertLessEqual(cell_len(navigation.label.plain), navigation.content_region.width)
-                    await pilot.press("enter")
-                    await pilot.pause()
-                    self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "run-form")
+            (size, language) = tuple(product(((80, 24), (120, 30), (150, 45)), ('zh', 'en')))[size_case]
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            navigation = app.query_one("#open-run-settings", Button)
+            navigation.focus()
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
+            navigation.focus()
+            await pilot.pause()
+            for button_id in ("probe-largest", "start-run"):
+                await pilot.press("tab")
+                button = app.query_one("#" + button_id, Button)
+                assert (app.focused) is (button)
+                self.assert_button_reachable(app, button_id)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmActionScreen)
+            assert (app._pending_launch.kind) == ("run")
+            await pilot.press("escape")
+            await pilot.pause()
+            assert (app._pending_launch) is None
+            app.query_one("#start-run", Button).focus()
+            await pilot.pause()
+            for button_id in ("probe-largest", "open-run-settings"):
+                await pilot.press("shift+tab")
+                assert (app.focused) is (app.query_one("#" + button_id, Button))
+            assert (cell_len(navigation.label.plain)) <= (navigation.content_region.width)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 
     async def test_f2_changes_page_from_focused_input(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             app.query_one("#model", Input).focus()
             await pilot.pause()
-            self.assertIs(app.focused, app.query_one("#model", Input))
+            assert (app.focused) is (app.query_one("#model", Input))
             await pilot.press("f2")
             await pilot.pause()
-            self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "settings-tab")
+            assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
             settings_tab = app.query_one("#settings-tab")
-            self.assertEqual(len(settings_tab.query(".config-control")), 0)
-            self.assertEqual(len(settings_tab.query("#save-run-default")), 0)
-            self.assertEqual(len(settings_tab.query(".ui-preference")), 5)
-            self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "run-form")
+            assert (len(settings_tab.query(".config-control"))) == (0)
+            assert (len(settings_tab.query("#save-run-default"))) == (0)
+            assert (len(settings_tab.query(".ui-preference"))) == (5)
+            assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 
-    async def test_monitor_keeps_log_and_stop_button_reachable(self):
-        for size in ((120, 30), (80, 24), (150, 45)):
-            with self.subTest(size=size):
-                config = RunConfig(model="demo/model")
-                app = AcprofTui(config, settings_path=self.settings_path)
-                async with app.run_test(size=size) as pilot:
-                    await pilot.pause()
-                    app._activate_tab("monitor-tab")
-                    app._render_snapshot(ProgressSnapshot(
-                        stage="正式测量", detail="正在执行工作负载", current_case=1,
-                        total_cases=32, cpu="1", mem="2", gpu="off", measurement_active=True,
-                    ))
-                    app.query_one("#stop-run", Button).disabled = False
-                    log = app.query_one("#run-log", SelectableLog)
-                    log.write("[case] Running workload...")
-                    await pilot.pause()
-                    self.assert_button_reachable(app, "stop-run")
-                    self.assert_button_reachable(app, "clear-log")
-                    self.assertGreaterEqual(log.region.height, 3)
-                    self.assertLessEqual(log.region.bottom, app.query_one("#bottom-panel").region.y)
-                    center = (
-                        log.content_region.x + log.content_region.width // 2,
-                        log.content_region.y + log.content_region.height // 2,
-                    )
-                    self.assertIs(app.get_widget_at(*center)[0], log)
-                    with patch.object(app, "action_request_stop") as stop:
-                        self.assertTrue(await pilot.click("#stop-run", offset=(3, 0)))
-                        await pilot.pause()
-                        stop.assert_called_once_with()
+    @pytest.mark.parametrize('size', ((120, 30), (80, 24), (150, 45)))
+    async def test_monitor_keeps_log_and_stop_button_reachable(self, size):
+        config = RunConfig(model="demo/model")
+        app = AcprofTui(config, settings_path=self.settings_path)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            app._activate_tab("monitor-tab")
+            app._render_snapshot(ProgressSnapshot(
+                stage="正式测量", detail="正在执行工作负载", current_case=1,
+                total_cases=32, cpu="1", mem="2", gpu="off", measurement_active=True,
+            ))
+            app.query_one("#stop-run", Button).disabled = False
+            log = app.query_one("#run-log", SelectableLog)
+            log.write("[case] Running workload...")
+            await pilot.pause()
+            self.assert_button_reachable(app, "stop-run")
+            self.assert_button_reachable(app, "clear-log")
+            assert (log.region.height) >= (3)
+            assert (log.region.bottom) <= (app.query_one("#bottom-panel").region.y)
+            center = (
+                log.content_region.x + log.content_region.width // 2,
+                log.content_region.y + log.content_region.height // 2,
+            )
+            assert (app.get_widget_at(*center)[0]) is (log)
+            with patch.object(app, "action_request_stop") as stop:
+                assert (await pilot.click("#stop-run", offset=(3, 0)))
+                await pilot.pause()
+                stop.assert_called_once_with()
 
     async def test_wrapped_log_fits_narrow_terminal_without_horizontal_overflow(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -229,10 +228,10 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             log = app.query_one("#run-log", SelectableLog)
             log.write("[case] 正在执行确定性输入请求 processing deterministic workload " * 8)
             await pilot.pause()
-            self.assertTrue(log.wrap)
-            self.assertGreater(log.virtual_size.height, 1)
-            self.assertLessEqual(log.virtual_size.width, log.scrollable_content_region.width)
-            self.assertEqual(log.max_scroll_x, 0)
+            assert (log.wrap)
+            assert (log.virtual_size.height) > (1)
+            assert (log.virtual_size.width) <= (log.scrollable_content_region.width)
+            assert (log.max_scroll_x) == (0)
 
     async def test_empty_model_can_be_remembered_without_allowing_collection(self):
         app = AcprofTui(settings_path=self.settings_path)
@@ -240,15 +239,15 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-            self.assertEqual(warning, "")
-            self.assertIsNotNone(saved.run_defaults)
-            self.assertEqual(saved.run_defaults.model, "")
-            self.assertEqual(saved.run_defaults, RunConfig.smoke())
+            assert (warning) == ("")
+            assert (saved.run_defaults) is not None
+            assert (saved.run_defaults.model) == ("")
+            assert (saved.run_defaults) == (RunConfig.smoke())
             with patch.object(app, "_launch") as launch:
                 app.action_request_run()
                 await pilot.pause()
                 launch.assert_not_called()
-            self.assertIsNone(app._pending_launch)
+            assert (app._pending_launch) is None
 
     async def test_custom_gpu_order_survives_loading_and_form_collection(self):
         config = replace(RunConfig.smoke("demo/gpu-order"), gpus="on,off")
@@ -256,12 +255,12 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            self.assertEqual(app.query_one("#gpus", Select).value, "on,off")
-            self.assertEqual(app._collect_config(), config)
+            assert (app.query_one("#gpus", Select).value) == ("on,off")
+            assert (app._collect_config()) == (config)
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-            self.assertEqual(warning, "")
-            self.assertEqual(saved.run_defaults.gpus, "on,off")
+            assert (warning) == ("")
+            assert (saved.run_defaults.gpus) == ("on,off")
 
     async def test_ui_preferences_apply_save_and_restore_after_restart(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -271,25 +270,25 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             app.query_one("#ui-log-lines", Select).value = 1000
             app.query_one("#ui-log-wrap", Checkbox).value = False
             await pilot.pause()
-            self.assertTrue(await pilot.click("#ui-command-bar", offset=(2, 1)))
+            assert (await pilot.click("#ui-command-bar", offset=(2, 1)))
             await pilot.pause()
-            self.assertEqual(app.theme, "acprof-light")
-            self.assertFalse(app.query_one("#run-log", SelectableLog).wrap)
-            self.assertEqual(app.query_one("#run-log", SelectableLog).max_lines, 1000)
-            self.assertFalse(app.query_one("#slash-command-bar").display)
-            self.assertEqual(app.query_one("#bottom-panel").region.height, 0)
-            self.assertFalse(self.settings_path.exists())
-            self.assertTrue(await pilot.click("#save-ui-settings", offset=(3, 1)))
+            assert (app.theme) == ("acprof-light")
+            assert not (app.query_one("#run-log", SelectableLog).wrap)
+            assert (app.query_one("#run-log", SelectableLog).max_lines) == (1000)
+            assert not (app.query_one("#slash-command-bar").display)
+            assert (app.query_one("#bottom-panel").region.height) == (0)
+            assert not (self.settings_path.exists())
+            assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
-            self.assertTrue(self.settings_path.is_file())
+            assert (self.settings_path.is_file())
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(150, 45)) as pilot:
             await pilot.pause()
-            self.assertEqual(restarted.theme, "acprof-light")
-            self.assertFalse(restarted.query_one("#slash-command-bar").display)
-            self.assertFalse(restarted.query_one("#run-log", SelectableLog).wrap)
-            self.assertEqual(restarted.query_one("#run-log", SelectableLog).max_lines, 1000)
-            self.assertEqual(restarted.initial_config, RunConfig.smoke())
+            assert (restarted.theme) == ("acprof-light")
+            assert not (restarted.query_one("#slash-command-bar").display)
+            assert not (restarted.query_one("#run-log", SelectableLog).wrap)
+            assert (restarted.query_one("#run-log", SelectableLog).max_lines) == (1000)
+            assert (restarted.initial_config) == (RunConfig.smoke())
 
     async def test_saving_ui_preserves_remembered_experiment_and_saving_experiment_preserves_ui(self):
         config = RunConfig.smoke("demo/remembered")
@@ -298,7 +297,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("f2")
             app.query_one("#ui-theme", Select).value = "acprof-light"
             await pilot.pause()
-            self.assertTrue(await pilot.click("#save-ui-settings", offset=(3, 1)))
+            assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
             # Remembering the experiment must preserve the saved theme,
             # even when a different theme is currently previewed in memory.
@@ -306,10 +305,10 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await self.remember_experiment(app, pilot)
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-            self.assertEqual(warning, "")
-            self.assertEqual(saved.run_defaults, config)
-            self.assertEqual(saved.ui.theme, "acprof-light")
-            self.assertEqual(app.ui_preferences.theme, "acprof-dark")
+            assert (warning) == ("")
+            assert (saved.run_defaults) == (config)
+            assert (saved.ui.theme) == ("acprof-light")
+            assert (app.ui_preferences.theme) == ("acprof-dark")
 
             # Unsaved form edits must not replace the explicitly remembered run
             # when the user only chooses to save interface preferences.
@@ -319,72 +318,72 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             await pilot.press("f2")
             await pilot.pause()
-            self.assertTrue(await pilot.click("#save-ui-settings", offset=(3, 1)))
+            assert (await pilot.click("#save-ui-settings", offset=(3, 1)))
             await pilot.pause()
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-            self.assertEqual(warning, "")
-            self.assertEqual(saved.run_defaults, config)
-            self.assertEqual(saved.ui.theme, "acprof-dark")
-            self.assertEqual(saved.ui.log_max_lines, 500)
+            assert (warning) == ("")
+            assert (saved.run_defaults) == (config)
+            assert (saved.ui.theme) == ("acprof-dark")
+            assert (saved.ui.log_max_lines) == (500)
         restarted = AcprofTui(settings_path=self.settings_path)
-        self.assertEqual(restarted.initial_config, config)
-        self.assertEqual(restarted.ui_preferences.log_max_lines, 500)
-        self.assertEqual(restarted.ui_preferences.theme, "acprof-dark")
+        assert (restarted.initial_config) == (config)
+        assert (restarted.ui_preferences.log_max_lines) == (500)
+        assert (restarted.ui_preferences.theme) == ("acprof-dark")
 
 
-class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
+class TestTuiModelMemory:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
         scratch = PROJECT_DIR / "internal-testing"
         scratch.mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(prefix="tui-recent-", dir=scratch)
-        self.addCleanup(self.temporary.cleanup)
-        self.settings_path = Path(self.temporary.name) / "tui.json"
-        self.saved = TuiSettings(
-            ui=UiPreferences(theme="acprof-light"),
-            run_defaults=replace(RunConfig.smoke("demo/saved"), cpus="1,3"),
-            last_model="demo/previous",
-            last_result_dir=str(Path(self.temporary.name) / "previous"),
-            last_result_csv=str(Path(self.temporary.name) / "previous" / "custom.csv"),
-        )
+        # These cases exercise project-relative paths, so keep their root inside
+        # the checkout instead of using pytest's system temporary directory.
+        with tempfile.TemporaryDirectory(prefix="tui-recent-", dir=scratch) as temporary:
+            self.temporary = Path(temporary)
+            self.settings_path = self.temporary / "tui.json"
+            self.saved = TuiSettings(
+                ui=UiPreferences(theme="acprof-light"),
+                run_defaults=replace(RunConfig.smoke("demo/saved"), cpus="1,3"),
+                last_model="demo/previous",
+                last_result_dir=str(self.temporary / "previous"),
+                last_result_csv=str(self.temporary / "previous" / "custom.csv"),
+            )
+            yield
 
-    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self):
-        for kind in ("run", "probe"):
-            with self.subTest(kind=kind):
-                save_settings(self.settings_path, self.saved, PROJECT_DIR)
-                original = self.settings_path.read_bytes()
-                app = AcprofTui(settings_path=self.settings_path)
-                model = f"demo/latest-{kind}"
-                expected = replace(self.saved, last_model=model)
-                async with app.run_test(size=(120, 30)) as pilot:
-                    app.query_one("#model", Input).value = f"  {model}  "
-                    app.query_one("#cpus", Input).value = "2"
-                    app.query_one("#ui-theme", Select).value = "acprof-dark"
-                    await pilot.pause(0.12)
-                    getattr(app, f"action_request_{kind}")()
-                    await pilot.pause()
-                    self.assertEqual(self.settings_path.read_bytes(), original)
+    @pytest.mark.parametrize('kind', ('run', 'probe'))
+    async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind):
+        save_settings(self.settings_path, self.saved, PROJECT_DIR)
+        original = self.settings_path.read_bytes()
+        app = AcprofTui(settings_path=self.settings_path)
+        model = f"demo/latest-{kind}"
+        expected = replace(self.saved, last_model=model)
+        async with app.run_test(size=(120, 30)) as pilot:
+            app.query_one("#model", Input).value = f"  {model}  "
+            app.query_one("#cpus", Input).value = "2"
+            app.query_one("#ui-theme", Select).value = "acprof-dark"
+            await pilot.pause(0.12)
+            getattr(app, f"action_request_{kind}")()
+            await pilot.pause()
+            assert (self.settings_path.read_bytes()) == (original)
 
-                    def check_persisted_before_launch(command, launched_kind):
-                        self.assertEqual(launched_kind, kind)
-                        self.assertEqual(
-                            load_settings(self.settings_path, PROJECT_DIR),
-                            (expected, ""),
-                        )
+            def check_persisted_before_launch(command, launched_kind):
+                assert (launched_kind) == (kind)
+                assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
 
-                    with patch.object(
-                        app, "_execute_command", side_effect=check_persisted_before_launch,
-                    ) as execute:
-                        self.assertTrue(await pilot.click("#confirm-yes"))
-                        await pilot.pause()
-                        execute.assert_called_once()
-                restarted = AcprofTui(settings_path=self.settings_path)
-                async with restarted.run_test(size=(120, 30)) as pilot:
-                    await pilot.pause(0.12)
-                    self.assertEqual(restarted.query_one("#model", Input).value, model)
-                    self.assertEqual(restarted.query_one("#cpus", Input).value, "1,3")
-                    self.assertEqual(restarted.theme, "acprof-light")
-                    self.assertEqual(restarted.query_one("#result-dir", Input).value, expected.last_result_dir)
-                    self.assertEqual(restarted.query_one("#result-csv", Input).value, expected.last_result_csv)
+            with patch.object(
+                app, "_execute_command", side_effect=check_persisted_before_launch,
+            ) as execute:
+                assert (await pilot.click("#confirm-yes"))
+                await pilot.pause()
+                execute.assert_called_once()
+        restarted = AcprofTui(settings_path=self.settings_path)
+        async with restarted.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(0.12)
+            assert (restarted.query_one("#model", Input).value) == (model)
+            assert (restarted.query_one("#cpus", Input).value) == ("1,3")
+            assert (restarted.theme) == ("acprof-light")
+            assert (restarted.query_one("#result-dir", Input).value) == (expected.last_result_dir)
+            assert (restarted.query_one("#result-csv", Input).value) == (expected.last_result_csv)
 
     async def test_draft_preview_and_cancel_do_not_replace_last_model(self):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
@@ -395,20 +394,20 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
             app.query_one("#result-dir", Input).value = "results/draft"
             app.query_one("#result-csv", Input).value = "results/draft/custom.csv"
             await pilot.pause(0.12)
-            self.assertEqual(self.settings_path.read_bytes(), original)
+            assert (self.settings_path.read_bytes()) == (original)
             with patch.object(app, "_execute_command") as execute:
                 for kind in ("run", "probe"):
                     getattr(app, f"action_request_{kind}")()
                     await pilot.pause()
-                    self.assertTrue(await pilot.click("#confirm-no"))
+                    assert (await pilot.click("#confirm-no"))
                     await pilot.pause()
-                    self.assertIsNone(app._pending_launch)
-                    self.assertEqual(self.settings_path.read_bytes(), original)
+                    assert (app._pending_launch) is None
+                    assert (self.settings_path.read_bytes()) == (original)
                 app.query_one("#model", Input).value = ""
                 app.action_request_run()
                 await pilot.pause(0.12)
-                self.assertIsNone(app._pending_launch)
-                self.assertEqual(self.settings_path.read_bytes(), original)
+                assert (app._pending_launch) is None
+                assert (self.settings_path.read_bytes()) == (original)
                 execute.assert_not_called()
 
     async def test_first_launch_remembers_model_but_not_unproduced_results(self):
@@ -419,60 +418,55 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
                 app._launch(PendingLaunch(("unused",), "run", config))
                 await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertFalse(app._is_busy())
+            assert not (app._is_busy())
         saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-        self.assertEqual(warning, "")
-        self.assertEqual(saved, TuiSettings(last_model="demo/first"))
-        self.assertEqual(
-            AcprofTui(settings_path=self.settings_path).initial_config,
-            RunConfig.smoke("demo/first"),
-        )
+        assert (warning) == ("")
+        assert (saved) == (TuiSettings(last_model="demo/first"))
+        assert (AcprofTui(settings_path=self.settings_path).initial_config) == (RunConfig.smoke("demo/first"))
 
-    async def test_write_failure_or_corrupt_file_does_not_block_launch(self):
-        for corrupt in (False, True):
-            with self.subTest(corrupt=corrupt):
-                save_settings(self.settings_path, self.saved, PROJECT_DIR)
-                if corrupt:
-                    self.settings_path.write_text("{broken", encoding="utf-8")
-                original = self.settings_path.read_bytes()
-                config = RunConfig.smoke("demo/latest")
-                app = AcprofTui(config, settings_path=self.settings_path)
-                async with app.run_test(size=(120, 30)):
-                    with (
-                        patch.object(app, "_execute_command") as execute,
-                        patch.object(app, "notify") as notify,
-                        patch("acprof.tui.app.save_settings", side_effect=OSError("disk error")) as save,
-                    ):
-                        app._launch(PendingLaunch(("unused",), "run", config))
-                        execute.assert_called_once()
-                        notify.assert_called_once()
-                        self.assertEqual(notify.call_args.kwargs["title"], "自动记忆未保存")
-                        self.assertEqual(save.call_count, 0 if corrupt else 1)
-                    self.assertEqual(self.settings_path.read_bytes(), original)
+    @pytest.mark.parametrize('corrupt', (False, True))
+    async def test_write_failure_or_corrupt_file_does_not_block_launch(self, corrupt):
+        save_settings(self.settings_path, self.saved, PROJECT_DIR)
+        if corrupt:
+            self.settings_path.write_text("{broken", encoding="utf-8")
+        original = self.settings_path.read_bytes()
+        config = RunConfig.smoke("demo/latest")
+        app = AcprofTui(config, settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)):
+            with (
+                patch.object(app, "_execute_command") as execute,
+                patch.object(app, "notify") as notify,
+                patch("acprof.tui.app.save_settings", side_effect=OSError("disk error")) as save,
+            ):
+                app._launch(PendingLaunch(("unused",), "run", config))
+                execute.assert_called_once()
+                notify.assert_called_once()
+                assert (notify.call_args.kwargs["title"]) == ("自动记忆未保存")
+                assert (save.call_count) == (0 if corrupt else 1)
+            assert (self.settings_path.read_bytes()) == (original)
 
-    async def test_explicit_settings_saves_preserve_last_model(self):
-        for remember_run in (False, True):
-            with self.subTest(remember_run=remember_run):
-                save_settings(self.settings_path, self.saved, PROJECT_DIR)
-                config = RunConfig.smoke("demo/edited")
-                app = AcprofTui(config, settings_path=self.settings_path)
-                async with app.run_test(size=(120, 30)) as pilot:
-                    await pilot.press("f2")
-                    await pilot.pause()
-                    app.query_one("#ui-theme", Select).value = "acprof-dark"
-                    await pilot.pause()
-                    self.assertEqual(app.ui_preferences.theme, "acprof-dark")
-                    app._save_settings(remember_run=remember_run)
-                saved, warning = load_settings(self.settings_path, PROJECT_DIR)
-                self.assertEqual(warning, "")
-                self.assertEqual(saved.last_model, "demo/previous")
-                self.assertEqual(saved.last_result_dir, self.saved.last_result_dir)
-                self.assertEqual(saved.last_result_csv, self.saved.last_result_csv)
-                self.assertEqual(saved.run_defaults, config if remember_run else self.saved.run_defaults)
-                self.assertEqual(saved.ui.theme, "acprof-light" if remember_run else "acprof-dark")
+    @pytest.mark.parametrize('remember_run', (False, True))
+    async def test_explicit_settings_saves_preserve_last_model(self, remember_run):
+        save_settings(self.settings_path, self.saved, PROJECT_DIR)
+        config = RunConfig.smoke("demo/edited")
+        app = AcprofTui(config, settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.press("f2")
+            await pilot.pause()
+            app.query_one("#ui-theme", Select).value = "acprof-dark"
+            await pilot.pause()
+            assert (app.ui_preferences.theme) == ("acprof-dark")
+            app._save_settings(remember_run=remember_run)
+        saved, warning = load_settings(self.settings_path, PROJECT_DIR)
+        assert (warning) == ("")
+        assert (saved.last_model) == ("demo/previous")
+        assert (saved.last_result_dir) == (self.saved.last_result_dir)
+        assert (saved.last_result_csv) == (self.saved.last_result_csv)
+        assert (saved.run_defaults) == (config if remember_run else self.saved.run_defaults)
+        assert (saved.ui.theme) == ("acprof-light" if remember_run else "acprof-dark")
 
     def write_result(self):
-        path = Path(self.temporary.name) / "模型 结果" / "custom.csv"
+        path = Path(str(self.temporary)) / "模型 结果" / "custom.csv"
         path.parent.mkdir(exist_ok=True)
         path.write_text("status,warmup,latency_app_s\nok,0,0.02\n", encoding="utf-8")
         return path
@@ -485,28 +479,28 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(80, 24)) as pilot:
                 app._activate_tab("plot-tab")
                 await pilot.pause()
-                self.assertEqual(app.query_one("#result-csv", Input).value, self.saved.last_result_csv)
+                assert (app.query_one("#result-csv", Input).value) == (self.saved.last_result_csv)
                 app._activate_tab("profile-tab")
                 await pilot.pause()
-                self.assertEqual(app.query_one("#result-dir", Input).value, self.saved.last_result_dir)
+                assert (app.query_one("#result-dir", Input).value) == (self.saved.last_result_dir)
                 read_results.assert_not_called()
-        self.assertEqual(self.settings_path.read_bytes(), original)
+        assert (self.settings_path.read_bytes()) == (original)
 
     async def test_run_updates_same_model_output_then_remembers_actual_final_csv(self):
         csv_path = self.write_result()
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         config = replace(
             self.saved.run_defaults, model=self.saved.last_model,
-            output_dir=str(Path(self.temporary.name) / "new output"),
+            output_dir=str(Path(str(self.temporary)) / "new output"),
         )
         app = AcprofTui(config, settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
             with patch.object(app, "_execute_command"):
                 app._launch(PendingLaunch(("unused",), "run", config))
             started, warning = load_settings(self.settings_path, PROJECT_DIR)
-            self.assertEqual(warning, "")
-            self.assertEqual(started.last_result_csv, self.saved.last_result_csv)
-            self.assertEqual(started.last_result_dir, self.saved.last_result_dir)
+            assert (warning) == ("")
+            assert (started.last_result_csv) == (self.saved.last_result_csv)
+            assert (started.last_result_dir) == (self.saved.last_result_dir)
             # Only the audited child attempt can replace selected/history paths,
             # even if the form is subsequently edited.
             app._run_result = RunResult(True, True, result_csv=str(csv_path))
@@ -521,16 +515,16 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
                 # The automatic summary reuses the remembered CSV, without a
                 # duplicate write or any write during the worker's lifetime.
                 save.assert_called_once()
-            self.assertEqual(app.query_one("#result-csv", Input).value, str(csv_path))
-            self.assertEqual(app.query_one("#result-dir", Input).value, str(csv_path.parent))
+            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert (app.query_one("#result-dir", Input).value) == (str(csv_path.parent))
         expected = replace(
             self.saved, last_result_csv=str(csv_path), last_result_dir=str(csv_path.parent),
         )
-        self.assertEqual(load_settings(self.settings_path, PROJECT_DIR), (expected, ""))
+        assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(120, 30)):
-            self.assertEqual(restarted.query_one("#result-csv", Input).value, str(csv_path))
-            self.assertEqual(restarted.query_one("#result-dir", Input).value, str(csv_path.parent))
+            assert (restarted.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert (restarted.query_one("#result-dir", Input).value) == (str(csv_path.parent))
 
     async def test_summary_remembers_only_successfully_read_csv(self):
         csv_path = self.write_result()
@@ -542,79 +536,78 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
             app.summarize_results_button()
             await app.workers.wait_for_complete()
             expected = replace(self.saved, last_result_csv=str(csv_path))
-            self.assertEqual(load_settings(self.settings_path, PROJECT_DIR), (expected, ""))
-            self.assertEqual(app.query_one("#result-csv", Input).value, str(csv_path))
-            self.assertIn("成功 1", app.query_one("#result-summary", Static).content)
+            assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
+            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
+            assert ("成功 1") in (app.query_one("#result-summary", Static).content)
             original = self.settings_path.read_bytes()
             with patch("acprof.tui.app.save_settings") as save:
                 app.summarize_results_button()
                 app.query_one("#result-csv", Input).value = str(csv_path.with_name("missing.csv"))
                 app.summarize_results_button()
                 save.assert_not_called()
-            self.assertEqual(self.settings_path.read_bytes(), original)
+            assert (self.settings_path.read_bytes()) == (original)
 
-    async def test_result_tools_remember_confirmed_paths_before_starting(self):
+    @pytest.mark.parametrize('kind_case', range(6))
+    async def test_result_tools_remember_confirmed_paths_before_starting(self, kind_case):
         csv_path = self.write_result()
-        for kind, frozen in product(("plot", "profile-dry-run", "profile"), (False, True)):
-            with self.subTest(kind=kind, frozen=frozen), patch("sys.frozen", frozen, create=True):
-                save_settings(self.settings_path, self.saved, PROJECT_DIR)
-                original = self.settings_path.read_bytes()
-                expected = replace(
-                    self.saved,
-                    **({"last_result_csv": str(csv_path)} if kind == "plot"
-                       else {"last_result_dir": str(csv_path.parent)}),
-                )
-                app = AcprofTui(settings_path=self.settings_path)
-                async with app.run_test(size=(120, 30)) as pilot:
-                    def check_persisted_before_launch(command, launched_kind):
-                        self.assertEqual(launched_kind, kind)
-                        self.assertEqual(load_settings(self.settings_path, PROJECT_DIR), (expected, ""))
-                        subcommand = "plot" if kind == "plot" else "profile"
-                        self.assertEqual(command[command.index(subcommand) + 1],
-                                         str(csv_path if kind == "plot" else csv_path.parent))
+        (kind, frozen) = tuple(product(('plot', 'profile-dry-run', 'profile'), (False, True)))[kind_case]
+        with patch("sys.frozen", frozen, create=True):
+            save_settings(self.settings_path, self.saved, PROJECT_DIR)
+            original = self.settings_path.read_bytes()
+            expected = replace(
+                self.saved,
+                **({"last_result_csv": str(csv_path)} if kind == "plot"
+                   else {"last_result_dir": str(csv_path.parent)}),
+            )
+            app = AcprofTui(settings_path=self.settings_path)
+            async with app.run_test(size=(120, 30)) as pilot:
+                def check_persisted_before_launch(command, launched_kind):
+                    assert (launched_kind) == (kind)
+                    assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
+                    subcommand = "plot" if kind == "plot" else "profile"
+                    assert (command[command.index(subcommand) + 1]) == (str(csv_path if kind == "plot" else csv_path.parent))
 
-                    with patch.object(app, "_execute_command", side_effect=check_persisted_before_launch) as execute:
-                        if kind == "plot":
-                            app._launch_plot(str(csv_path.with_name("missing.csv")))
-                            self.assertEqual(self.settings_path.read_bytes(), original)
-                            app._launch_plot(str(csv_path.relative_to(PROJECT_DIR)))
-                        elif kind == "profile-dry-run":
-                            app._launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"))
-                            self.assertEqual(self.settings_path.read_bytes(), original)
-                            app._launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)))
-                        else:
-                            app._request_profile_run(result_dir=str(csv_path.parent))
-                            await pilot.pause()
-                            self.assertTrue(await pilot.click("#confirm-no"))
-                            await pilot.pause()
-                            self.assertEqual(self.settings_path.read_bytes(), original)
-                            execute.assert_not_called()
-                            app._request_profile_run(result_dir=str(csv_path.parent))
-                            await pilot.pause()
-                            # Confirmation must remember the frozen command's
-                            # directory, not a newer draft in the form.
-                            app.query_one("#result-dir", Input).value = "results/draft"
-                            self.assertTrue(await pilot.click("#confirm-yes"))
-                            await pilot.pause()
-                        execute.assert_called_once()
+                with patch.object(app, "_execute_command", side_effect=check_persisted_before_launch) as execute:
+                    if kind == "plot":
+                        app._launch_plot(str(csv_path.with_name("missing.csv")))
+                        assert (self.settings_path.read_bytes()) == (original)
+                        app._launch_plot(str(csv_path.relative_to(PROJECT_DIR)))
+                    elif kind == "profile-dry-run":
+                        app._launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"))
+                        assert (self.settings_path.read_bytes()) == (original)
+                        app._launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)))
+                    else:
+                        app._request_profile_run(result_dir=str(csv_path.parent))
+                        await pilot.pause()
+                        assert (await pilot.click("#confirm-no"))
+                        await pilot.pause()
+                        assert (self.settings_path.read_bytes()) == (original)
+                        execute.assert_not_called()
+                        app._request_profile_run(result_dir=str(csv_path.parent))
+                        await pilot.pause()
+                        # Confirmation must remember the frozen command's
+                        # directory, not a newer draft in the form.
+                        app.query_one("#result-dir", Input).value = "results/draft"
+                        assert (await pilot.click("#confirm-yes"))
+                        await pilot.pause()
+                    execute.assert_called_once()
 
-    async def test_result_memory_failure_does_not_prevent_summary(self):
+    @pytest.mark.parametrize('corrupt', (False, True))
+    async def test_result_memory_failure_does_not_prevent_summary(self, corrupt):
         csv_path = self.write_result()
-        for corrupt in (False, True):
-            with self.subTest(corrupt=corrupt):
-                save_settings(self.settings_path, self.saved, PROJECT_DIR)
-                if corrupt:
-                    self.settings_path.write_text("{broken", encoding="utf-8")
-                original = self.settings_path.read_bytes()
-                app = AcprofTui(settings_path=self.settings_path)
-                async with app.run_test(size=(120, 30)):
-                    with patch("acprof.tui.app.save_settings", side_effect=OSError("disk error")) as save:
-                        app._update_result_summary(str(csv_path))
-                        await app.workers.wait_for_complete()
-                        self.assertEqual(save.call_count, 0 if corrupt else 1)
-                    self.assertIn("成功 1", app.query_one("#result-summary", Static).content)
-                    self.assertEqual(app.query_one("#result-csv", Input).value, str(csv_path))
-                self.assertEqual(self.settings_path.read_bytes(), original)
+        save_settings(self.settings_path, self.saved, PROJECT_DIR)
+        if corrupt:
+            self.settings_path.write_text("{broken", encoding="utf-8")
+        original = self.settings_path.read_bytes()
+        app = AcprofTui(settings_path=self.settings_path)
+        async with app.run_test(size=(120, 30)):
+            with patch("acprof.tui.app.save_settings", side_effect=OSError("disk error")) as save:
+                app._update_result_summary(str(csv_path))
+                await app.workers.wait_for_complete()
+                assert (save.call_count) == (0 if corrupt else 1)
+            assert ("成功 1") in (app.query_one("#result-summary", Static).content)
+            assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
+        assert (self.settings_path.read_bytes()) == (original)
 
     async def test_manual_summary_is_blocked_while_a_task_is_running(self):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
@@ -624,25 +617,26 @@ class TuiModelMemoryTests(unittest.IsolatedAsyncioTestCase):
             app._process_kind = "run"
             app._latest_snapshot = ProgressSnapshot(measurement_active=True)
             app._set_busy(True)
-            self.assertTrue(app.query_one("#summarize-results", Button).disabled)
+            assert (app.query_one("#summarize-results", Button).disabled)
             with patch("acprof.tui.app.summarize_result_csv") as read_results:
                 app.summarize_results_button()
                 app.slash_command_submitted(Input.Submitted(
                     app.query_one("#slash-command", Input), "/results unused.csv",
                 ))
                 read_results.assert_not_called()
-            self.assertEqual(self.settings_path.read_bytes(), original)
+            assert (self.settings_path.read_bytes()) == (original)
             app._process_kind = ""
             app._set_busy(False)
 
 
-class TuiMainSettingsTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.xdg_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temporary.name})
+class TestTuiMainSettings:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.temporary = tmp_path
+        self.xdg_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.temporary)})
         self.xdg_patch.start()
-        self.addCleanup(self.xdg_patch.stop)
+        self._request.addfinalizer(partial(self.xdg_patch.stop))
         self.settings_path = default_settings_path(PROJECT_DIR)
         self.saved_config = replace(RunConfig.smoke("demo/saved"), cpus="1,3", repeat=7)
         save_settings(
@@ -651,15 +645,15 @@ class TuiMainSettingsTests(unittest.TestCase):
             PROJECT_DIR,
         )
 
-    def test_cli_explicit_arguments_override_saved_defaults_without_rewriting_them(self):
-        for model in ("", "demo/latest"):
-            with self.subTest(last_model=model):
-                settings, warning = load_settings(self.settings_path, PROJECT_DIR)
-                self.assertEqual(warning, "")
-                save_settings(self.settings_path, replace(settings, last_model=model), PROJECT_DIR)
-                self.check_cli_overrides(model or self.saved_config.model)
+    @pytest.mark.parametrize('model', ('', 'demo/latest'))
+    @pytest.mark.parametrize('cli_case', range(6))
+    def test_cli_explicit_arguments_override_saved_defaults_without_rewriting_them(self, model, cli_case):
+        settings, warning = load_settings(self.settings_path, PROJECT_DIR)
+        assert (warning) == ("")
+        save_settings(self.settings_path, replace(settings, last_model=model), PROJECT_DIR)
+        self.check_cli_overrides(model or self.saved_config.model, cli_case)
 
-    def check_cli_overrides(self, model):
+    def check_cli_overrides(self, model, cli_case):
         cases = (
             ([], replace(self.saved_config, model=model)),
             (["--model", "demo/explicit"], replace(self.saved_config, model="demo/explicit")),
@@ -669,18 +663,13 @@ class TuiMainSettingsTests(unittest.TestCase):
             (["--model", "demo/explicit", "--preset", "smoke"], replace(self.saved_config.with_preset("smoke"), model="demo/explicit")),
         )
         original = self.settings_path.read_bytes()
-        for argv, expected in cases:
-            with self.subTest(argv=argv):
-                with patch("acprof.tui.app.AcprofTui.run", autospec=True) as run:
-                    main(argv)
-                run.assert_called_once()
-                app = run.call_args.args[0]
-                self.assertEqual(app.initial_config, expected)
-                self.assertEqual(app.ui_preferences.theme, "acprof-light")
-                from acprof.tui.run_form import infer_preset
-                self.assertEqual(app._initial_preset, infer_preset(expected))
-                self.assertEqual(self.settings_path.read_bytes(), original)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        argv, expected = cases[cli_case]
+        with patch("acprof.tui.app.AcprofTui.run", autospec=True) as run:
+            main(argv)
+        run.assert_called_once()
+        app = run.call_args.args[0]
+        assert (app.initial_config) == (expected)
+        assert (app.ui_preferences.theme) == ("acprof-light")
+        from acprof.tui.run_form import infer_preset
+        assert (app._initial_preset) == (infer_preset(expected))
+        assert (self.settings_path.read_bytes()) == (original)

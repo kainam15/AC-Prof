@@ -4,9 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-
-pytest.importorskip("pytest_textual_snapshot")
-
+import pytest_textual_snapshot
 from textual.widgets import Button, TabbedContent
 
 from acprof.experiment import RunConfig
@@ -17,6 +15,8 @@ from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.reports import ReportRow, ReportView
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import ConfirmActionScreen
+
+pytestmark = pytest.mark.visual
 
 
 @pytest.mark.parametrize("language,size,scene", [
@@ -31,7 +31,6 @@ from acprof.tui.views import ConfirmActionScreen
     ("en", (120, 30), "wsl-confirmation"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
-    import pytest_textual_snapshot
     normalize = pytest_textual_snapshot.normalize_svg
     # Rich emits whitespace-only CSS lines. Keep baseline serialization stable
     # under the repository's whitespace hooks without changing rendered text.

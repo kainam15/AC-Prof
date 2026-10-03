@@ -1,15 +1,14 @@
 """Storage modal interaction, accounting display and measurement exclusion."""
-
 import asyncio
 import os
-import tempfile
-import unittest
 from dataclasses import replace
+from functools import partial
 from io import StringIO
 from pathlib import Path
 from threading import Event
 from unittest.mock import patch
 
+import pytest
 from rich.cells import cell_len
 from rich.console import Console
 from test_image_management import FINAL, DockerFixture
@@ -26,17 +25,18 @@ from acprof.host.image_management import (
 from acprof.tui.progress import ProgressSnapshot
 
 
-class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+class TestTuiStorage:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.directory = Path(str(temporary))
         self.docker = DockerFixture()
         for patcher in (patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
                         patch.dict(os.environ, {}, clear=True),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             patcher.start()
-            self.addCleanup(patcher.stop)
+            self._request.addfinalizer(partial(patcher.stop))
 
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
@@ -48,7 +48,7 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
         await app.workers.wait_for_complete()
         app._image_refresh_timer.pause()
         await pilot.pause()
-        self.assertFalse(app._is_busy())
+        assert not (app._is_busy())
         # 树首次聚焦公共环境；选择最后一个模型节点用于勾选回归。
         await pilot.click("#image-view-list")
         table = app.query_one("#image-table", DataTable)
@@ -72,7 +72,7 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
         return stream.getvalue()
 
     async def open_storage(self, app, pilot):
-        self.assertTrue(await pilot.click("#image-storage"))
+        assert (await pilot.click("#image-storage"))
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
@@ -88,18 +88,18 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
                 snapshot, ImageManagementError("Docker 操作失败", "permission denied"), updated,
             ]) as read:
                 await self.open_storage(app, pilot)
-                self.assertEqual(app.screen.query_one("#storage-root", Static).content, "/var/lib/docker")
-                self.assertEqual(app.screen.query_one("#storage-disk-percent", Static).content, "75.0%")
+                assert (app.screen.query_one("#storage-root", Static).content) == ("/var/lib/docker")
+                assert (app.screen.query_one("#storage-disk-percent", Static).content) == ("75.0%")
                 bar = app.screen.query_one("#storage-disk-bar")
-                self.assertEqual(bar.region.height, 1, "磁盘占用条应有可见高度")
+                assert (bar.region.height) == (1), "磁盘占用条应有可见高度"
                 visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
-                self.assertIn("━", visible, "磁盘使用率需要可见的进度条")
+                assert ("━") in (visible), "磁盘使用率需要可见的进度条"
                 totals = self.rendered(app.screen.query_one("#storage-totals", Static))
-                self.assertIn("70.00 GiB", totals)
-                self.assertIn("30.00 GiB", totals)
+                assert ("70.00 GiB") in (totals)
+                assert ("30.00 GiB") in (totals)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
-                self.assertIn("≈310 B", selection, "所选父子镜像的共享层只能计一次")
-                self.assertIn("≈128.00 GiB", selection)
+                assert ("≈310 B") in (selection), "所选父子镜像的共享层只能计一次"
+                assert ("≈128.00 GiB") in (selection)
                 for expected in ("permission denied", ""):
                     refresh = app.screen.query_one("#storage-refresh", Button)
 
@@ -109,72 +109,72 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
 
                     # Textual 在按下动画期间忽略重复点击；等待可观察状态恢复。
                     await asyncio.wait_for(button_ready(), timeout=3)
-                    self.assertTrue(await pilot.click("#storage-refresh"))
+                    assert (await pilot.click("#storage-refresh"))
                     await pilot.pause()
                     await app.workers.wait_for_complete()
                     await pilot.pause()
                     status = self.rendered(app.screen.query_one("#storage-status", Static))
                     if expected:
-                        self.assertIn(expected, status)
-                        self.assertNotIn("70.00 GiB", self.rendered(app.screen.query_one("#storage-totals", Static)))
+                        assert (expected) in (status)
+                        assert ("70.00 GiB") not in (self.rendered(app.screen.query_one("#storage-totals", Static)))
                     else:
-                        self.assertNotIn("permission denied", status)
-                        self.assertIn("≈256.00 GiB", self.rendered(app.screen.query_one("#storage-selection", Static)))
-                self.assertEqual(read.call_count, 3)
+                        assert ("permission denied") not in (status)
+                        assert ("≈256.00 GiB") in (self.rendered(app.screen.query_one("#storage-selection", Static)))
+                assert (read.call_count) == (3)
                 await pilot.press("escape")
                 await pilot.pause()
-                self.assertFalse(app._is_busy())
-                self.assertFalse(self.docker.removals)
+                assert not (app._is_busy())
+                assert not (self.docker.removals)
 
-    async def test_modal_layout_language_keyboard_and_resize(self):
+    @pytest.mark.parametrize('width,height', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    async def test_modal_layout_language_keyboard_and_resize(self, width, height, language):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
             snapshot = self.snapshot(app)
             with patch("acprof.tui.image_actions.read_storage", return_value=snapshot) as read:
-                for language in ("zh", "en"):
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
-                    await pilot.resize_terminal(80, 24)
-                    await pilot.pause()
-                    entry = app.query_one("#image-storage", Button)
-                    self.assertLessEqual(cell_len(str(entry.label)), entry.content_region.width)
-                    self.assertIs(app.get_widget_at(*entry.region.center)[0], entry)
-                    await self.open_storage(app, pilot)
-                    title = "存储空间" if language == "zh" else "Storage space"
-                    self.assertEqual(app.screen.query_one("#storage-dialog").border_title, title)
-                    self.assertIn("容器" if language == "zh" else "Containers",
-                                  self.rendered(app.screen.query_one("#storage-usage", Static)))
-                    for width, height in ((80, 24), (120, 30), (150, 45)):
-                        with self.subTest(language=language, size=(width, height)):
-                            await pilot.resize_terminal(width, height)
-                            await pilot.pause()
-                            dialog = app.screen.query_one("#storage-dialog")
-                            self.assertGreater(dialog.region.x, 0)
-                            self.assertLess(dialog.region.right, width)
-                            for selector in ("#storage-refresh", "#storage-close"):
-                                button = app.screen.query_one(selector, Button)
-                                self.assertEqual(button.region.height, 3)
-                                self.assertLessEqual(button.region.bottom, height)
-                                self.assertIs(app.get_widget_at(*button.region.center)[0], button)
-                            content = app.screen.query_one("#storage-content")
-                            content.focus()
-                            await pilot.press("end")
-                            await pilot.pause()
-                            self.assertGreaterEqual(content.scroll_y, content.max_scroll_y)
-                            visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
-                            self.assertIn("尚未勾选镜像。" if language == "zh" else "No images selected.", visible)
-                            refresh = app.screen.query_one("#storage-refresh", Button)
-                            refresh.focus()
-                            await pilot.press("tab")
-                            self.assertIs(app.focused, app.screen.query_one("#storage-close", Button))
-                            await pilot.press("shift+tab")
-                            self.assertIs(app.focused, refresh)
-                    await pilot.press("tab", "enter")
-                    await pilot.pause()
-                    self.assertEqual(len(app.screen_stack), 1)
-                    self.assertFalse(app._is_busy())
-                self.assertEqual(read.call_count, 2, "缩放和滚动不会额外查询 Docker")
+                app.ui_preferences = replace(app.ui_preferences, language=language)
+                app._apply_ui_preferences()
+                await pilot.resize_terminal(80, 24)
+                await pilot.pause()
+                entry = app.query_one("#image-storage", Button)
+                assert (cell_len(str(entry.label))) <= (entry.content_region.width)
+                assert (app.get_widget_at(*entry.region.center)[0]) is (entry)
+                await self.open_storage(app, pilot)
+                title = "存储空间" if language == "zh" else "Storage space"
+                assert (app.screen.query_one("#storage-dialog").border_title) == (title)
+                assert ("容器" if language == "zh" else "Containers") in (self.rendered(app.screen.query_one("#storage-usage", Static)))
+                await pilot.resize_terminal(width, height)
+                await pilot.pause()
+                dialog = app.screen.query_one("#storage-dialog")
+                assert (dialog.region.x) > (0)
+                assert (dialog.region.right) < (width)
+                for selector in ("#storage-refresh", "#storage-close"):
+                    button = app.screen.query_one(selector, Button)
+                    assert (button.region.height) == (3)
+                    assert (button.region.bottom) <= (height)
+                    assert (app.get_widget_at(*button.region.center)[0]) is (button)
+                content = app.screen.query_one("#storage-content")
+                content.focus()
+                await pilot.press("end")
+                await pilot.pause()
+                assert (content.scroll_y) >= (content.max_scroll_y)
+                visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+                assert ("尚未勾选镜像。" if language == "zh" else "No images selected.") in (visible)
+                refresh = app.screen.query_one("#storage-refresh", Button)
+                refresh.focus()
+                await pilot.press("tab")
+                assert (app.focused) is (app.screen.query_one("#storage-close", Button))
+                await pilot.press("shift+tab")
+                assert (app.focused) is (refresh)
+                await pilot.press("tab", "enter")
+                await pilot.pause()
+                assert (len(app.screen_stack)) == (1)
+                assert not (app._is_busy())
+                # Each parameter opens one dialog; the old two-language loop
+                # accumulated one read per opening.
+                read.assert_called_once()
 
     async def test_closing_during_query_keeps_launch_blocked_until_worker_finishes(self):
         app = self.make_app()
@@ -191,17 +191,17 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
 
             with patch("acprof.tui.image_actions.read_storage", side_effect=slow_read) as read:
                 try:
-                    self.assertTrue(await pilot.click("#image-storage"))
+                    assert (await pilot.click("#image-storage"))
                     await pilot.pause()
-                    self.assertTrue(await asyncio.to_thread(entered.wait, 2))
-                    self.assertTrue(app.screen.query_one("#storage-refresh", Button).disabled)
+                    assert (await asyncio.to_thread(entered.wait, 2))
+                    assert (app.screen.query_one("#storage-refresh", Button).disabled)
                     app.refresh_storage()
-                    self.assertEqual(read.call_count, 1)
+                    assert (read.call_count) == (1)
                     await pilot.press("escape")
                     await pilot.pause()
-                    self.assertEqual(len(app.screen_stack), 1)
-                    self.assertTrue(app._is_busy())
-                    self.assertTrue(app.query_one("#start-run", Button).disabled)
+                    assert (len(app.screen_stack)) == (1)
+                    assert (app._is_busy())
+                    assert (app.query_one("#start-run", Button).disabled)
                     with patch("acprof.tui.image_actions.list_images") as inventory:
                         app.refresh_images()
                         inventory.assert_not_called()
@@ -209,8 +209,8 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
                     release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-                self.assertFalse(app._is_busy())
-                self.assertFalse(app.query_one("#start-run", Button).disabled)
+                assert not (app._is_busy())
+                assert not (app.query_one("#start-run", Button).disabled)
 
     async def test_measurement_prevents_storage_query(self):
         app = self.make_app()
@@ -221,8 +221,8 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
             with patch("acprof.tui.image_actions.read_storage") as read:
                 app.open_storage()
                 await pilot.pause()
-                self.assertTrue(app.query_one("#image-storage", Button).disabled)
-                self.assertEqual(len(app.screen_stack), 1)
+                assert (app.query_one("#image-storage", Button).disabled)
+                assert (len(app.screen_stack)) == (1)
                 read.assert_not_called()
             app._latest_snapshot = ProgressSnapshot()
             app._set_busy(False)
@@ -237,12 +237,12 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
             with patch("acprof.tui.image_actions.read_storage", return_value=self.snapshot(app)):
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
-                self.assertIn("未知", selection)
-                self.assertNotIn("≈", selection)
+                assert ("未知") in (selection)
+                assert ("≈") not in (selection)
                 status = self.rendered(app.screen.query_one("#storage-status", Static))
-                self.assertIn("所选镜像或引用已改变", status)
-                self.assertEqual(app._selected_image_ids, selected)
-                self.assertFalse(self.docker.removals)
+                assert ("所选镜像或引用已改变") in (status)
+                assert (app._selected_image_ids) == (selected)
+                assert not (self.docker.removals)
                 await pilot.press("escape")
                 await pilot.pause()
                 app.ui_preferences = replace(app.ui_preferences, language="en")
@@ -250,9 +250,5 @@ class TuiStorageTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
-                self.assertIn("Unknown", selection)
-                self.assertNotIn("未知", selection)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                assert ("Unknown") in (selection)
+                assert ("未知") not in (selection)

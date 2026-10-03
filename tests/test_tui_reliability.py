@@ -5,11 +5,12 @@ import json
 import sys
 import tempfile
 import threading
-import unittest
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 from textual.widgets import Button, Input, Select, Static, TabbedContent
 from tui_fixtures import AcprofTui
 
@@ -33,37 +34,37 @@ def write_csv(path, latencies=(0.01, 0.2)):
                                  warmup=0, repeat_idx=0, status="ok", latency_app_s=latency))
 
 
-class SummaryAndPresetTests(unittest.TestCase):
-    def test_execution_settings_do_not_change_preset(self):
-        config = replace(RunConfig.smoke("demo/model"), output_dir="elsewhere", model_store="cache",
-                         download_mode="direct", notify="auto", resume=True, skip_build=True)
-        self.assertEqual(infer_preset(config), "smoke")
-        self.assertTrue(matches_preset(config, "smoke"))
-        self.assertFalse(matches_preset(replace(config, cpus="2"), "smoke"))
+def test_execution_settings_do_not_change_preset():
+    config = replace(RunConfig.smoke("demo/model"), output_dir="elsewhere", model_store="cache",
+                     download_mode="direct", notify="auto", resume=True, skip_build=True)
+    assert (infer_preset(config)) == ("smoke")
+    assert (matches_preset(config, "smoke"))
+    assert not (matches_preset(replace(config, cpus="2"), "smoke"))
 
-    def test_summary_keeps_input_scales_separate_and_single_windows_insufficient(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "result.csv"
-            write_csv(path)
-            summary = summarize_result_csv(path)
-            groups = getattr(summary, "groups", ())
-            self.assertEqual(len(groups), 2, "两个输入规模必须分别显示")
-            self.assertEqual([group["mean"] for group in groups], [0.01, 0.2])
-            self.assertTrue(all(group["reason"] == "insufficient_windows" for group in groups))
-            self.assertTrue(all(group["ci_low"] is None for group in groups))
+def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "result.csv"
+        write_csv(path)
+        summary = summarize_result_csv(path)
+        groups = getattr(summary, "groups", ())
+        assert (len(groups)) == (2), "两个输入规模必须分别显示"
+        assert ([group["mean"] for group in groups]) == ([0.01, 0.2])
+        assert (all(group["reason"] == "insufficient_windows" for group in groups))
+        assert (all(group["ci_low"] is None for group in groups))
 
-    def test_unrequested_rapl_is_not_a_pass(self):
-        with patch("acprof.tui.diagnostics.shutil.which", return_value=None):
-            checks = quick_preflight(RunConfig.smoke("demo/model"))
-        rapl = next(check for check in checks if check.label == "CPU RAPL")
-        self.assertEqual(rapl.status, "not_requested")
+def test_unrequested_rapl_is_not_a_pass():
+    with patch("acprof.tui.diagnostics.shutil.which", return_value=None):
+        checks = quick_preflight(RunConfig.smoke("demo/model"))
+    rapl = next(check for check in checks if check.label == "CPU RAPL")
+    assert (rapl.status) == ("not_requested")
 
 
-class RunAttributionTests(unittest.TestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "run"
+class TestRunAttribution:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.root = Path(str(temporary)) / "run"
         self.before = RunArtifacts.read(self.root)
         self.layout = ArtifactLayout.for_new_run(self.root)
         self.layout.initialize()
@@ -83,44 +84,45 @@ class RunAttributionTests(unittest.TestCase):
 
     def test_complete_requires_matching_attempt_and_audited_coverage(self):
         result = inspect_run_result(self.before, 123)
-        self.assertEqual(result.stage(0, False, ""), "已完成")
-        self.assertEqual(result.result_csv, str(self.layout.result_csv))
-        self.assertEqual((result.completed_cases, result.total_cases, result.new_cases), (1, 1, 1))
-        self.assertEqual(inspect_run_result(self.before, 999).stage(0, False, ""), "失败")
+        assert (result.stage(0, False, "")) == ("已完成")
+        assert (result.result_csv) == (str(self.layout.result_csv))
+        assert ((result.completed_cases, result.total_cases, result.new_cases)) == ((1, 1, 1))
+        assert (inspect_run_result(self.before, 999).stage(0, False, "")) == ("失败")
         self.state["runtime"]["planned"]["scales"].append(256)
         self.save_state()
-        self.assertEqual(inspect_run_result(self.before, 123).stage(0, False, ""), "部分完成")
+        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == ("部分完成")
 
     def test_zero_exit_with_missing_requested_metrics_is_partial(self):
         self.layout.path("capability_report.json").write_text(json.dumps({"requested_measurements_complete": False}))
-        self.assertEqual(inspect_run_result(self.before, 123).stage(0, False, ""), "部分完成")
+        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == ("部分完成")
 
     def test_preflight_failure_and_unchanged_resume_never_promote_history(self):
         before = RunArtifacts.read(self.root)
-        self.assertFalse(inspect_run_result(before, 123).belongs_to_attempt)
+        assert not (inspect_run_result(before, 123).belongs_to_attempt)
         self.state["attempts"].append(dict(pid=124, started_at="new", ended_at="end"))
         self.save_state()
         result = inspect_run_result(before, 124)
-        self.assertTrue(result.belongs_to_attempt)
-        self.assertEqual(result.result_csv, "")
-        self.assertEqual(result.new_cases, 0)
+        assert (result.belongs_to_attempt)
+        assert (result.result_csv) == ("")
+        assert (result.new_cases) == (0)
 
     def test_stopped_case_is_retained_without_merged_csv(self):
         self.layout.result_csv.unlink()
         self.state["status"] = "interrupted"
         self.save_state()
         result = inspect_run_result(self.before, 123)
-        self.assertEqual(result.stage(0, True, ""), "已停止")
-        self.assertEqual(result.stage(1, False, ""), "部分完成")
-        self.assertEqual(result.new_cases, 1)
-        self.assertEqual(result.result_csv, "")
+        assert (result.stage(0, True, "")) == ("已停止")
+        assert (result.stage(1, False, "")) == ("部分完成")
+        assert (result.new_cases) == (1)
+        assert (result.result_csv) == ("")
 
 
-class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+class TestTuiReliability:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.directory = Path(str(temporary))
 
     def make_app(self) -> AcprofTui:
         return AcprofTui(replace(RunConfig.smoke("demo/model"), output_dir=str(self.directory)),
@@ -132,8 +134,8 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             with patch.object(app, "_execute_quick_check"), patch.object(app, "_launch") as launch:
                 app.action_quick_check()
-                self.assertTrue(app.query_one("#start-run", Button).disabled)
-                self.assertTrue(app.query_one("#stop-run", Button).disabled)
+                assert (app.query_one("#start-run", Button).disabled)
+                assert (app.query_one("#stop-run", Button).disabled)
                 app._activate_tab("run-tab")
                 await pilot.pause()
                 await pilot.click("#start-run")
@@ -144,10 +146,10 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press("enter")
                 await pilot.pause()
                 launch.assert_not_called()
-                self.assertEqual(len(app.screen_stack), 1)
+                assert (len(app.screen_stack)) == (1)
                 app._show_quick_check([], "preflight failed", app._check_request)
-                self.assertTrue(app.query_one("#start-run", Button).disabled)
-                self.assertFalse(app._is_busy())
+                assert (app.query_one("#start-run", Button).disabled)
+                assert not (app._is_busy())
 
     async def test_failed_attempt_does_not_promote_old_csv(self):
         app = self.make_app()
@@ -162,14 +164,14 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 app._process_finished("run", 2, None, "")
                 await pilot.pause()
                 read.assert_not_called()
-                self.assertIn("本次未产生结果", str(app.query_one("#result-summary", Static).content))
-        self.assertEqual(path.read_bytes(), original)
+                assert ("本次未产生结果") in (str(app.query_one("#result-summary", Static).content))
+        assert (path.read_bytes()) == (original)
 
     async def test_report_a_finishing_after_b_cannot_replace_b(self):
         from acprof.tui.reports import ReportView
         app = self.make_app()
         started, release = threading.Event(), threading.Event()
-        self.addCleanup(release.set)
+        self._request.addfinalizer(partial(release.set))
         a, b = self.directory / "a.json", self.directory / "b.json"
         finished = []
         def read(path):
@@ -182,7 +184,7 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             with patch("acprof.tui.app.read_report", side_effect=read):
                 app._open_report(str(a))
-                self.assertTrue(await asyncio.to_thread(started.wait, 2))
+                assert (await asyncio.to_thread(started.wait, 2))
                 app._open_report(str(b))
                 for _ in range(100):
                     await pilot.pause()
@@ -192,10 +194,10 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            self.assertIsNotNone(app._report_view)
+            assert (app._report_view) is not None
             assert app._report_view is not None
-            self.assertEqual(app._report_view.source, b)
-            self.assertEqual(finished, [b, a])
+            assert (app._report_view.source) == (b)
+            assert (finished) == ([b, a])
 
     async def test_zero_exit_without_completion_evidence_is_not_success(self):
         app = self.make_app()
@@ -204,8 +206,8 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             app._process_kind = "run"
             with patch.object(app, "notify") as notify:
                 app._process_finished("run", 0, None, "")
-            self.assertNotIn("任务已完成", [str(call.args[0]) for call in notify.call_args_list])
-            self.assertEqual(app._latest_snapshot.stage, "失败")
+            assert ("任务已完成") not in ([str(call.args[0]) for call in notify.call_args_list])
+            assert (app._latest_snapshot.stage) == ("失败")
 
     async def test_final_result_audit_does_not_offer_a_stop_action(self):
         app = self.make_app()
@@ -213,13 +215,13 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             app._process_kind = "run"  # Child exited; its result audit still owns the task.
             app._set_busy(True)
-            self.assertTrue(app.query_one("#start-run", Button).disabled)
-            self.assertTrue(app.query_one("#stop-run", Button).disabled)
+            assert (app.query_one("#start-run", Button).disabled)
+            assert (app.query_one("#stop-run", Button).disabled)
             app.action_request_stop()
-            self.assertEqual(len(app.screen_stack), 1)
-            self.assertFalse(app._stop_requested)
+            assert (len(app.screen_stack)) == (1)
+            assert not (app._stop_requested)
             app._consume_process_line("Profiling complete!", ProgressSnapshot(stage="已完成"), True)
-            self.assertEqual(app._latest_snapshot.stage, "核验产物")
+            assert (app._latest_snapshot.stage) == ("核验产物")
 
     async def test_background_summary_keeps_ui_responsive_and_only_shows_latest_selection(self):
         app = self.make_app()
@@ -227,10 +229,10 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
         write_csv(a)
         write_csv(b, (0.03, 0.04))
         started, release = threading.Event(), threading.Event()
-        self.addCleanup(release.set)
+        self._request.addfinalizer(partial(release.set))
         ui_thread = threading.get_ident()
         def read(path, **kwargs):
-            self.assertNotEqual(threading.get_ident(), ui_thread)
+            assert (threading.get_ident()) != (ui_thread)
             if path == a:
                 started.set()
                 release.wait(10)
@@ -239,8 +241,8 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             with patch("acprof.tui.app.summarize_result_csv", side_effect=read):
                 app._update_result_summary(str(a))
-                self.assertTrue(await asyncio.to_thread(started.wait, 2))
-                self.assertIn("正在读取", str(app.query_one("#result-summary", Static).content))
+                assert (await asyncio.to_thread(started.wait, 2))
+                assert ("正在读取") in (str(app.query_one("#result-summary", Static).content))
                 await pilot.press("f2")
                 await pilot.pause()
                 app._update_result_summary(str(b))
@@ -249,14 +251,14 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     if "40 ms" in str(app.query_one("#result-summary", Static).content):
                         break
                     await asyncio.sleep(0.01)
-                self.assertIn("40 ms", str(app.query_one("#result-summary", Static).content))
-                self.assertTrue(app.query_one("#start-run", Button).disabled, "旧读取结束前不能启动采集")
+                assert ("40 ms") in (str(app.query_one("#result-summary", Static).content))
+                assert (app.query_one("#start-run", Button).disabled), "旧读取结束前不能启动采集"
                 release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            self.assertIn(str(b), str(app.query_one("#result-summary", Static).content))
-            self.assertNotIn(str(a), str(app.query_one("#result-summary", Static).content))
-            self.assertFalse(app._is_busy())
+            assert (str(b)) in (str(app.query_one("#result-summary", Static).content))
+            assert (str(a)) not in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
 
     async def test_cancelled_and_failed_reads_release_controls(self):
         app = self.make_app()
@@ -265,18 +267,18 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
             app._update_result_summary(str(self.directory / "missing.csv"))
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertIn("无法读取结果", str(app.query_one("#result-summary", Static).content))
-            self.assertFalse(app._is_busy())
+            assert ("无法读取结果") in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
             with patch.object(app, "_execute_summary_read"):
                 app._update_result_summary("cancel.csv")
                 token = app._summary_request
                 assert token is not None
                 app._cancel_result_reads()
-                self.assertTrue(token.is_set())
-                self.assertTrue(app._is_busy())
+                assert (token.is_set())
+                assert (app._is_busy())
                 app._show_result_summary(Path("cancel.csv"), token, None, "cancelled", True)
-            self.assertIn("读取已取消", str(app.query_one("#result-summary", Static).content))
-            self.assertFalse(app._is_busy())
+            assert ("读取已取消") in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
 
     async def test_late_checks_and_shutdown_callbacks_do_not_touch_widgets(self):
         app = self.make_app()
@@ -286,9 +288,9 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 app.action_quick_check()
                 token = app._check_request
                 app._show_quick_check([], "old error", object())
-                self.assertTrue(app._check_running)
+                assert (app._check_running)
                 app._show_quick_check([], "", token)
-                self.assertFalse(app._is_busy())
+                assert not (app._is_busy())
             app.action_request_quit()
             callback = Mock(side_effect=AssertionError("unmounted UI access"))
             app._deliver_ui_callback(callback)
@@ -324,10 +326,10 @@ print("Profiling complete!", flush=True)
             for _ in range(3):
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            self.assertEqual(app._latest_snapshot.stage, "已完成")
-            self.assertEqual(app.query_one("#result-csv", Input).value, str(directory / "result_all.csv"))
-            self.assertIn("20 ms", str(app.query_one("#result-summary", Static).content))
-            self.assertFalse(app._is_busy())
+            assert (app._latest_snapshot.stage) == ("已完成")
+            assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_all.csv"))
+            assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
 
     async def test_quit_during_summary_read_does_not_wait_for_io_or_apply_late_data(self):
         path = self.directory / "slow.csv"
@@ -354,14 +356,14 @@ print("Profiling complete!", flush=True)
                 async with app.run_test(size=(120, 30)) as pilot:
                     await pilot.pause()
                     app._update_result_summary(str(path))
-                    self.assertTrue(await asyncio.to_thread(started.wait, 5))
-                    self.assertTrue(app._is_busy())
+                    assert (await asyncio.to_thread(started.wait, 5))
+                    assert (app._is_busy())
                     app.action_request_quit()
                     await asyncio.wait_for(app._task, timeout=5)
-                    self.assertFalse(delivered.is_set(), "退出不应等待 CSV 线程返回")
+                    assert not (delivered.is_set()), "退出不应等待 CSV 线程返回"
                 with patch.object(app, app.query_one.__name__) as query:
                     release.set()
-                    self.assertTrue(await asyncio.to_thread(delivered.wait, 5))
+                    assert (await asyncio.to_thread(delivered.wait, 5))
                     query.assert_not_called()
             finally:
                 release.set()
@@ -374,19 +376,19 @@ print("Profiling complete!", flush=True)
         app = self.make_app()
         ui_thread = threading.get_ident()
         def read(path, **kwargs):
-            self.assertNotEqual(threading.get_ident(), ui_thread)
+            assert (threading.get_ident()) != (ui_thread)
             return summarize_result_csv(path, **kwargs)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             with patch("acprof.tui.app.summarize_result_csv", side_effect=read):
                 app._update_result_summary(str(path))
                 await pilot.press("f2")
-                self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "settings-tab")
+                assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            self.assertIn("有效窗口 100000", str(app.query_one("#result-summary", Static).content))
-            self.assertIn("10 ms", str(app.query_one("#result-summary", Static).content))
-            self.assertFalse(app._is_busy())
+            assert ("有效窗口 100000") in (str(app.query_one("#result-summary", Static).content))
+            assert ("10 ms") in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
 
     async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
         from acprof.tui.diagnostics import PreflightCheck
@@ -403,24 +405,20 @@ print("Profiling complete!", flush=True)
                     app.query_one("#output-dir", Input).value = "results/changed"
                     app._refresh_command_preview(notify=False, sync_preset=True)
                     label = app.query_one("#run-preset SelectCurrent #label", Static)
-                    self.assertNotIn("adjusted", str(label.content))
-                    self.assertNotIn("已调整", str(label.content))
+                    assert ("adjusted") not in (str(label.content))
+                    assert ("已调整") not in (str(label.content))
                     app.query_one("#cpus", Input).value = "2"
                     app._refresh_command_preview(notify=False, sync_preset=True)
-                    self.assertEqual(app.query_one("#run-preset", Select).value, "smoke")
-                    self.assertIn("已调整" if language == "zh" else "adjusted", str(label.content))
+                    assert (app.query_one("#run-preset", Select).value) == ("smoke")
+                    assert ("已调整" if language == "zh" else "adjusted") in (str(label.content))
                     with patch.object(app, "_execute_quick_check"):
                         app.action_quick_check()
                         app._show_quick_check([PreflightCheck("Docker", "ok", "ready"),
                             PreflightCheck("CPU RAPL", "not_requested", "basic", "not_requested")], "", app._check_request)
                     await pilot.pause()
-                    self.assertNotIn("CPU RAPL", app.query_one("#run-log", SelectableLog).text)
-                    self.assertFalse(app.query_one("#environment-status").display)
-                    self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "run-tab")
-                    self.assertGreater(app.query_one("#run-form").region.height, 0)
-                    self.assertTrue(app.query_one("#stop-run", Button).disabled)
+                    assert ("CPU RAPL") not in (app.query_one("#run-log", SelectableLog).text)
+                    assert not (app.query_one("#environment-status").display)
+                    assert (app.query_one("#main-tabs", TabbedContent).active) == ("run-tab")
+                    assert (app.query_one("#run-form").region.height) > (0)
+                    assert (app.query_one("#stop-run", Button).disabled)
                     app.action_clear_log()
-
-
-if __name__ == "__main__":
-    unittest.main()

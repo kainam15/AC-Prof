@@ -1,12 +1,12 @@
 """The TUI renders the CLI comparison contract and preserves analysis task guards."""
 import json
 import tempfile
-import unittest
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import test_independent_comparison as comparison_fixture
+import independent_comparison_fixtures as comparison_fixture
+import pytest
 from textual.widgets import Button, Collapsible, DataTable, Input, Select, TabbedContent
 from tui_fixtures import AcprofTui
 
@@ -15,11 +15,13 @@ from acprof.quality import loading_quality
 from acprof.tui.reports import read_report
 
 
-class IndependentReportTests(unittest.TestCase):
-    def setUp(self):
-        self.fixture = comparison_fixture.IndependentComparisonTests()
-        self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+class TestIndependentReport:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.fixture_root = tmp_path
+        self.fixture = comparison_fixture.IndependentComparisonFixture()
+        self.fixture.build(self._request, self.fixture_root)
 
     def report(self, count=3):
         left = [self.fixture.replicate("left", i, [2, 2]) for i in range(count)]
@@ -34,9 +36,9 @@ class IndependentReportTests(unittest.TestCase):
         view = read_report(source)
         cells = " ".join(view.rows[0].cells)
         for expected in ("2000 ms", "3000 ms", "+50%", "[1000, 1000] ms", "[1.5, 1.5]", "3/3"):
-            self.assertIn(expected, cells)
-        self.assertIn("condition_checks", view.note)
-        self.assertIn("experiments", view.note)
+            assert (expected) in (cells)
+        assert ("condition_checks") in (view.note)
+        assert ("experiments") in (view.note)
 
     def test_resource_scaling_report_shows_both_resource_coordinates(self):
         source, report = self.report()
@@ -46,12 +48,12 @@ class IndependentReportTests(unittest.TestCase):
             'left': {'cpu_cores': 1, 'mem_cap_gb': 4}, 'right': {'cpu_cores': 2, 'mem_cap_gb': 8}}
         source.write_text(json.dumps(report))
         view = read_report(source)
-        self.assertIn('1c/4G → 2c/8G', view.rows[0].cells[1])
-        self.assertIn('allowed_resource_dimensions', view.note)
+        assert ('1c/4G → 2c/8G') in (view.rows[0].cells[1])
+        assert ('allowed_resource_dimensions') in (view.note)
 
     def test_insufficient_independent_runs_is_the_first_visible_explanation(self):
         source, _ = self.report(1)
-        self.assertIn("insufficient_independent_runs", read_report(source).rows[0].cells[0])
+        assert ("insufficient_independent_runs") in (read_report(source).rows[0].cells[0])
 
     def test_incompatible_conditions_and_quality_evidence_remain_traceable(self):
         source, report = self.report()
@@ -65,12 +67,12 @@ class IndependentReportTests(unittest.TestCase):
             quality_checks=loading_quality({"missing_keys": ["head.weight"]}, source="weights.log"))
         source.write_text(json.dumps(report))
         view = read_report(source)
-        self.assertIn("conditions_incompatible", view.rows[0].cells[0])
-        self.assertIn("weights_reinitialized", view.rows[0].detail)
-        self.assertIn("weights.log", view.rows[0].detail)
-        self.assertIn('"auto_selection_eligible": false', view.rows[0].detail)
-        self.assertIn('"quality_reasons"', view.rows[0].detail)
-        self.assertIn("quality=unknown/blocked", view.rows[0].cells[0])
+        assert ("conditions_incompatible") in (view.rows[0].cells[0])
+        assert ("weights_reinitialized") in (view.rows[0].detail)
+        assert ("weights.log") in (view.rows[0].detail)
+        assert ('"auto_selection_eligible": false') in (view.rows[0].detail)
+        assert ('"quality_reasons"') in (view.rows[0].detail)
+        assert ("quality=unknown/blocked") in (view.rows[0].cells[0])
 
     def test_coverage_v2_is_accepted_without_relaxing_other_report_versions(self):
         source = self.fixture.fixture.root / "coverage.json"
@@ -78,20 +80,24 @@ class IndependentReportTests(unittest.TestCase):
             "rows": [{"model_id": "fixture/model", "failure": {"reason_code": "request_timeout"}, "attempt_id": "0002",
                       "cleanup_status": "incomplete", "cleanup_errors": [{"container_id": "owned-id", "state": "running"}]}]}))
         row = read_report(source).rows[0]
-        self.assertEqual(row.cells[0], "fixture/model")
-        self.assertIn('"cleanup_status": "incomplete"', row.detail)
-        self.assertIn("owned-id", row.detail)
+        assert (row.cells[0]) == ("fixture/model")
+        assert ('"cleanup_status": "incomplete"') in (row.detail)
+        assert ("owned-id") in (row.detail)
         source.write_text(json.dumps({"schema_version": 2, "kind": "independent_experiment_comparison"}))
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             read_report(source)
         source, report = self.report()
         report.update(schema_version=2, scope="selected_sample_only; no_formal_measurement")
         source.write_text(json.dumps(report))
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             read_report(source)
 
 
-class IndependentComparisonUiTests(unittest.IsolatedAsyncioTestCase):
+class TestIndependentComparisonUi:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.fixture_root = tmp_path
     async def test_compare_selection_baseline_and_measurement_guard_at_narrow_width(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -113,24 +119,23 @@ class IndependentComparisonUiTests(unittest.IsolatedAsyncioTestCase):
                 button.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
                 with patch.object(app, "_launch") as launch:
-                    self.assertTrue(await pilot.click(button))
+                    assert (await pilot.click(button))
                     await pilot.pause()
                     launch.assert_called_once()
                     pending = launch.call_args.args[0]
                     command = pending.command
-                    self.assertEqual(command[command.index("--left") + 1], str(right))
-                    self.assertEqual(command[command.index("--right") + 1], str(left))
-                    self.assertIn("compare", command)
-                    self.assertEqual(command[command.index("--purpose") + 1], "resource-scaling")
+                    assert (command[command.index("--left") + 1]) == (str(right))
+                    assert (command[command.index("--right") + 1]) == (str(left))
+                    assert ("compare") in (command)
+                    assert (command[command.index("--purpose") + 1]) == ("resource-scaling")
                     launch.reset_mock()
                     app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
                     app.compare_experiments_button()
                     launch.assert_not_called()
 
     async def test_comparison_runs_public_cli_and_opens_incompatible_report(self):
-        fixture = comparison_fixture.IndependentComparisonTests()
-        fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = comparison_fixture.IndependentComparisonFixture()
+        fixture.build(self._request, self.fixture_root)
         left = fixture.replicate("left", 0, [2, 2])
         right = fixture.replicate("right", 0, [3, 3])
         fixture.fixture.change_json(right, "input_scale_plan.json", lambda plan: plan.update(pipeline_tag="other-task"))
@@ -145,13 +150,13 @@ class IndependentComparisonUiTests(unittest.IsolatedAsyncioTestCase):
                 for _ in range(2):
                     await app.workers.wait_for_complete()
                     await pilot.pause()
-                self.assertNotIn("error", [call.kwargs.get("severity") for call in notify.call_args_list])
+                assert ("error") not in ([call.kwargs.get("severity") for call in notify.call_args_list])
             report = Path(app.query_one("#report-source", Input).value)
-            self.assertTrue(report.is_file())
+            assert (report.is_file())
             payload = json.loads(report.read_text())
-            self.assertEqual(payload["kind"], "independent_experiment_comparison")
-            self.assertEqual(payload["status"], "incompatible")
-            self.assertIn("not comparable", str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
-            self.assertFalse(app._is_busy())
-            self.assertEqual(app._latest_snapshot.stage, "已完成")
-            self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "reports-tab")
+            assert (payload["kind"]) == ("independent_experiment_comparison")
+            assert (payload["status"]) == ("incompatible")
+            assert ("not comparable") in (str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
+            assert not (app._is_busy())
+            assert (app._latest_snapshot.stage) == ("已完成")
+            assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")

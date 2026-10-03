@@ -1,13 +1,12 @@
 """镜像管理应提供可操作列表，并与采集和其它 Docker 操作互斥。"""
-
 import asyncio
 import os
-import tempfile
-import unittest
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from rich.cells import cell_len
 from test_image_management import FINAL, RUNTIME, WEIGHTS, DockerFixture, dependency_images, image
 from test_tui_table_resize import drag, header_offset
@@ -37,83 +36,79 @@ from acprof.tui.images import (
 from acprof.tui.progress import ProgressSnapshot
 
 
-class ImageDisplayNameTests(unittest.TestCase):
-    def test_platform_is_omitted_only_when_parent_provides_matching_context(self):
-        parent = ManagedImage(RUNTIME, ("acprof-platform-cu124:base",), 100, "", "base", platform_id="cu124")
-        child = ManagedImage(WEIGHTS, ("acprof-runtime-env:opaque",), 400, "", "runtime",
-                             platform_id="cu124", environment_id="env-known", profiles=("nlp-cu124",))
-        self.assertEqual(image_display_name(parent), "PyTorch CUDA 12.4")
-        self.assertEqual(image_display_name(child, parent), "nlp")
-        for context in (None, replace(parent, platform_id="cu128"), replace(parent, kind="model")):
-            self.assertEqual(image_display_name(child, context), "nlp · PyTorch CUDA 12.4")
-        self.assertEqual(image_display_name(replace(child, profiles=())), "env-env-known · PyTorch CUDA 12.4")
-        self.assertEqual(image_display_name(replace(parent, platform_id="cpu")), "PyTorch CPU")
-        self.assertEqual(child.profiles, ("nlp-cu124",))
-        self.assertEqual(child.tags, ("acprof-runtime-env:opaque",))
+def test_platform_is_omitted_only_when_parent_provides_matching_context():
+    parent = ManagedImage(RUNTIME, ("acprof-platform-cu124:base",), 100, "", "base", platform_id="cu124")
+    child = ManagedImage(WEIGHTS, ("acprof-runtime-env:opaque",), 400, "", "runtime",
+                         platform_id="cu124", environment_id="env-known", profiles=("nlp-cu124",))
+    assert (image_display_name(parent)) == ("PyTorch CUDA 12.4")
+    assert (image_display_name(child, parent)) == ("nlp")
+    for context in (None, replace(parent, platform_id="cu128"), replace(parent, kind="model")):
+        assert (image_display_name(child, context)) == ("nlp · PyTorch CUDA 12.4")
+    assert (image_display_name(replace(child, profiles=()))) == ("env-env-known · PyTorch CUDA 12.4")
+    assert (image_display_name(replace(parent, platform_id="cpu"))) == ("PyTorch CPU")
+    assert (child.profiles) == (("nlp-cu124",))
+    assert (child.tags) == (("acprof-runtime-env:opaque",))
 
-    def test_dotted_versions_and_model_names_are_preserved_without_guessing(self):
-        item = ManagedImage(WEIGHTS, (), 400, "", "runtime", platform_id="cpu", environment_id="known",
-                            profiles=("audio-cpu", "multimodal-transformers4576-cpu", "custom-v1.12.3-cpu", "custom123-cpu"))
-        self.assertEqual(image_display_name(item),
-                         "audio / multimodal-transformers4.57.6 / custom-v1.12.3 / custom123 · PyTorch CPU")
-        self.assertEqual(image_display_name(replace(item, kind="model", model_id="Qwen/Qwen2.5-0.5B")),
-                         "Qwen/Qwen2.5-0.5B")
+def test_dotted_versions_and_model_names_are_preserved_without_guessing():
+    item = ManagedImage(WEIGHTS, (), 400, "", "runtime", platform_id="cpu", environment_id="known",
+                        profiles=("audio-cpu", "multimodal-transformers4576-cpu", "custom-v1.12.3-cpu", "custom123-cpu"))
+    assert (image_display_name(item)) == ("audio / multimodal-transformers4.57.6 / custom-v1.12.3 / custom123 · PyTorch CPU")
+    assert (image_display_name(replace(item, kind="model", model_id="Qwen/Qwen2.5-0.5B"))) == ("Qwen/Qwen2.5-0.5B")
 
 
-class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+class TestTuiImages:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.directory = Path(str(temporary))
         self.docker = DockerFixture()
         docker_patch = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
         docker_patch.start()
-        self.addCleanup(docker_patch.stop)
+        self._request.addfinalizer(partial(docker_patch.stop))
         environment = patch.dict(os.environ, {}, clear=True)
         environment.start()
-        self.addCleanup(environment.stop)
+        self._request.addfinalizer(partial(environment.stop))
         # 定时刷新单独验证；其它交互测试不依赖机器运行速度。
         interval = patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)
         interval.start()
-        self.addCleanup(interval.stop)
+        self._request.addfinalizer(partial(interval.stop))
 
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
 
-    async def test_detail_boundary_drags_in_all_views_sizes_and_languages(self):
+    @pytest.mark.parametrize('view', ('tree', 'list', 'layers'))
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_detail_boundary_drags_in_all_views_sizes_and_languages(self, view, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             browser = app.query_one("#image-browser")
             detail = app.query_one("#image-detail-scroll")
             before = len(self.docker.commands)
-            for size in ((80, 24), (120, 30), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for language in ("zh", "en"):
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
-                    await pilot.pause()
-                    for view in ("tree", "list", "layers"):
-                        with self.subTest(size=size, language=language, view=view):
-                            await pilot.click("#image-view-" + view)
-                            await pilot.pause()
-                            initial = detail.size.height
-                            browser_height = browser.size.height
-                            current = detail._detail_key
-                            start = (browser.region.x + browser.size.width // 2, browser.region.bottom)
-                            await drag(pilot, app.screen, start, 0, 2, release_click=True)
-                            self.assertEqual(detail.size.height, initial - 2,
-                                             "向下拖动分隔线应缩小详情区")
-                            self.assertEqual(browser.size.height, browser_height + 2)
-                            self.assertIsNone(app.mouse_captured)
-                            start = (start[0], browser.region.bottom)
-                            await drag(pilot, app.screen, start, 0, -2, release_click=True)
-                            self.assertEqual(detail.size.height, initial)
-                            self.assertEqual(browser.size.height, browser_height)
-                            self.assertEqual(detail._detail_key, current)
-                            self.assertFalse(app._selected_image_ids)
-                            self.assertLessEqual(detail.region.bottom, app.query_one("#image-panel").content_region.bottom)
-            self.assertEqual(len(self.docker.commands), before, "调整详情高度不能查询 Docker")
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            await pilot.click("#image-view-" + view)
+            await pilot.pause()
+            initial = detail.size.height
+            browser_height = browser.size.height
+            current = detail._detail_key
+            start = (browser.region.x + browser.size.width // 2, browser.region.bottom)
+            await drag(pilot, app.screen, start, 0, 2, release_click=True)
+            assert (detail.size.height) == (initial - 2), "向下拖动分隔线应缩小详情区"
+            assert (browser.size.height) == (browser_height + 2)
+            assert (app.mouse_captured) is None
+            start = (start[0], browser.region.bottom)
+            await drag(pilot, app.screen, start, 0, -2, release_click=True)
+            assert (detail.size.height) == (initial)
+            assert (browser.size.height) == (browser_height)
+            assert (detail._detail_key) == (current)
+            assert not (app._selected_image_ids)
+            assert (detail.region.bottom) <= (app.query_one("#image-panel").content_region.bottom)
+            assert (len(self.docker.commands)) == (before), "调整详情高度不能查询 Docker"
 
     async def test_detail_resize_clamps_restores_height_and_preserves_reading_state(self):
         app = self.make_app()
@@ -125,109 +120,107 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             handle = app.query_one("#image-detail-resize")
             x = handle.region.x + handle.size.width // 2
             await drag(pilot, app.screen, (x, handle.region.y), 0, -handle.region.y)
-            self.assertEqual(browser.size.height, 3, "拖出区域仍需保留列表表头和行")
+            assert (browser.size.height) == (3), "拖出区域仍需保留列表表头和行"
             expanded = detail.size.height
-            self.assertGreater(expanded, initial)
-            self.assertIsNone(app.mouse_captured)
+            assert (expanded) > (initial)
+            assert (app.mouse_captured) is None
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            self.assertGreaterEqual(browser.size.height, 3)
-            self.assertGreaterEqual(detail.size.height, 3)
-            self.assertLessEqual(detail.region.bottom, app.query_one("#image-panel").content_region.bottom)
+            assert (browser.size.height) >= (3)
+            assert (detail.size.height) >= (3)
+            assert (detail.region.bottom) <= (app.query_one("#image-panel").content_region.bottom)
             await pilot.resize_terminal(150, 45)
             await pilot.pause()
-            self.assertEqual(detail.size.height, expanded, "窗口恢复后还原用户设置的高度")
+            assert (detail.size.height) == (expanded), "窗口恢复后还原用户设置的高度"
             await drag(pilot, app.screen, (x, handle.region.y), 0, app.size.height - 1 - handle.region.y)
-            self.assertEqual(detail.size.height, 3)
+            assert (detail.size.height) == (3)
             handle.focus()
             await pilot.press("home", "up", "up")
             await pilot.pause()
-            self.assertEqual(detail.size.height, initial + 2)
+            assert (detail.size.height) == (initial + 2)
             await pilot.press("down")
             await pilot.pause()
-            self.assertEqual(detail.size.height, initial + 1)
+            assert (detail.size.height) == (initial + 1)
             diagnostics = app.query_one("#image-diagnostics", Collapsible)
             diagnostics.collapsed = False
             await pilot.pause()
             detail.scroll_end(animate=False, immediate=True)
             await pilot.pause()
             offset = detail.scroll_y
-            self.assertGreater(offset, 0)
+            assert (offset) > (0)
             await drag(pilot, app.screen, (x, handle.region.y), 0, 2, release_click=True)
-            self.assertFalse(diagnostics.collapsed)
-            self.assertEqual(detail.scroll_y, offset, "拖动分隔条不应把详情滚回摘要")
+            assert not (diagnostics.collapsed)
+            assert (detail.scroll_y) == (offset), "拖动分隔条不应把详情滚回摘要"
             height = detail.size.height
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(detail.size.height, height)
-            self.assertFalse(diagnostics.collapsed)
+            assert (detail.size.height) == (height)
+            assert not (diagnostics.collapsed)
             detail.focus()
             await pilot.press("end")
             await pilot.pause()
-            self.assertEqual(detail.scroll_y, detail.max_scroll_y, "调整高度后仍能滚动到末尾")
-            self.assertFalse(self.directory.joinpath("tui.json").exists(), "高度仅在本次会话保留")
+            assert (detail.scroll_y) == (detail.max_scroll_y), "调整高度后仍能滚动到末尾"
+            assert not (self.directory.joinpath("tui.json").exists()), "高度仅在本次会话保留"
 
-    async def test_detail_resize_releases_mouse_after_interruption(self):
-        for interruption in ("escape", "capture_lost", "hidden", "measurement", "resize"):
-            with self.subTest(interruption=interruption):
-                # 断言失败也会退出本次应用，避免隐藏页面或 busy 状态影响下一场景。
-                app = self.make_app()
-                async with app.run_test(size=(120, 30)) as pilot:
-                    await self.load_images(app, pilot)
-                    handle = app.query_one("#image-detail-resize")
-                    detail = app.query_one("#image-detail-scroll")
-                    initial = detail.size.height
-                    await pilot.mouse_down(handle, offset=(10, 0))
-                    self.assertIs(app.mouse_captured, handle)
-                    before = len(self.docker.commands)
-                    app.refresh_images()
-                    await pilot.pause()
-                    self.assertEqual(len(self.docker.commands), before, "拖动期间暂停扫描")
-                    if interruption == "escape":
-                        await pilot.press("escape")
-                    elif interruption == "capture_lost":
-                        handle.release_mouse()
-                    elif interruption == "hidden":
-                        app.action_show_settings()
-                    elif interruption == "measurement":
-                        app._process_kind = "run"
-                        app._latest_snapshot = ProgressSnapshot(measurement_active=True)
-                        app._set_busy(True)
-                    else:
-                        await pilot.resize_terminal(150, 45)
-                    await pilot.pause()
-                    # Pilot.pause() 末尾的布局刷新可能刚排入 Hide；等控件处理后再断言。
-                    await asyncio.wait_for(handle.wait_for_refresh(), timeout=3)
-                    self.assertIsNone(app.mouse_captured)
-                    await pilot.hover(offset=(60, 5))
-                    await pilot.mouse_up(offset=(60, 5))
-                    if interruption == "measurement":
-                        self.assertTrue(handle.disabled)
-                        app._process_kind = ""
-                        app._latest_snapshot = ProgressSnapshot()
-                        app._set_busy(False)
-                    elif interruption == "hidden":
-                        await self.load_images(app, pilot)
-                    elif interruption == "resize":
-                        await pilot.resize_terminal(120, 30)
-                    await pilot.pause()
-                    self.assertEqual(detail.size.height, initial)
-                    start = (handle.region.x + 10, handle.region.y)
-                    await drag(pilot, app.screen, start, 0, 1)
-                    self.assertEqual(detail.size.height, initial - 1)
-                    handle.focus()
-                    await pilot.press("home")
-                    await pilot.pause()
+    @pytest.mark.parametrize('interruption', ('escape', 'capture_lost', 'hidden', 'measurement', 'resize'))
+    async def test_detail_resize_releases_mouse_after_interruption(self, interruption):
+        # 断言失败也会退出本次应用，避免隐藏页面或 busy 状态影响下一场景。
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            handle = app.query_one("#image-detail-resize")
+            detail = app.query_one("#image-detail-scroll")
+            initial = detail.size.height
+            await pilot.mouse_down(handle, offset=(10, 0))
+            assert (app.mouse_captured) is (handle)
+            before = len(self.docker.commands)
+            app.refresh_images()
+            await pilot.pause()
+            assert (len(self.docker.commands)) == (before), "拖动期间暂停扫描"
+            if interruption == "escape":
+                await pilot.press("escape")
+            elif interruption == "capture_lost":
+                handle.release_mouse()
+            elif interruption == "hidden":
+                app.action_show_settings()
+            elif interruption == "measurement":
+                app._process_kind = "run"
+                app._latest_snapshot = ProgressSnapshot(measurement_active=True)
+                app._set_busy(True)
+            else:
+                await pilot.resize_terminal(150, 45)
+            await pilot.pause()
+            # Pilot.pause() 末尾的布局刷新可能刚排入 Hide；等控件处理后再断言。
+            await asyncio.wait_for(handle.wait_for_refresh(), timeout=3)
+            assert (app.mouse_captured) is None
+            await pilot.hover(offset=(60, 5))
+            await pilot.mouse_up(offset=(60, 5))
+            if interruption == "measurement":
+                assert (handle.disabled)
+                app._process_kind = ""
+                app._latest_snapshot = ProgressSnapshot()
+                app._set_busy(False)
+            elif interruption == "hidden":
+                await self.load_images(app, pilot)
+            elif interruption == "resize":
+                await pilot.resize_terminal(120, 30)
+            await pilot.pause()
+            assert (detail.size.height) == (initial)
+            start = (handle.region.x + 10, handle.region.y)
+            await drag(pilot, app.screen, start, 0, 1)
+            assert (detail.size.height) == (initial - 1)
+            handle.focus()
+            await pilot.press("home")
+            await pilot.pause()
 
     async def test_images_page_loads_automatically_only_after_opening(self):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             tabs = app.query_one("#main-tabs", TabbedContent)
-            self.assertIn("images-tab", [pane.id for pane in tabs.query(TabPane)],
-                          "用户应能从 TUI 进入 Docker 镜像管理")
-            self.assertFalse(self.docker.commands)
+            assert ("images-tab") in ([pane.id for pane in tabs.query(TabPane)]), "用户应能从 TUI 进入 Docker 镜像管理"
+            assert not (self.docker.commands)
             field = app.query_one("#slash-command", Input)
             field.value = "/images"
             field.focus()
@@ -236,11 +229,11 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(tabs.active, "images-tab")
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 3)
-            self.assertFalse(app.query("#image-refresh"))
-            self.assertTrue(app.query_one("#image-delete", Button).disabled)
-            self.assertTrue(self.docker.commands)
+            assert (tabs.active) == ("images-tab")
+            assert (app.query_one("#image-table", DataTable).row_count) == (3)
+            assert not (app.query("#image-refresh"))
+            assert (app.query_one("#image-delete", Button).disabled)
+            assert (self.docker.commands)
 
     async def test_storage_button_opens_modal_without_changing_image_selection(self):
         app = self.make_app()
@@ -249,20 +242,20 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#image-toggle")
             selected = set(app._selected_image_ids)
             buttons = app.query("#image-storage")
-            self.assertTrue(buttons, "镜像管理右上角应提供存储空间入口")
+            assert (buttons), "镜像管理右上角应提供存储空间入口"
             button = buttons.first(Button)
-            self.assertEqual(str(button.label), "存储空间")
-            self.assertGreater(button.region.x, 40)
-            self.assertLess(button.region.y, app.query_one("#image-panel").region.y)
-            self.assertTrue(await pilot.click("#image-storage"))
+            assert (str(button.label)) == ("存储空间")
+            assert (button.region.x) > (40)
+            assert (button.region.y) < (app.query_one("#image-panel").region.y)
+            assert (await pilot.click("#image-storage"))
             await pilot.pause()
-            self.assertEqual(app.screen.query_one("#storage-dialog").border_title, "存储空间")
-            self.assertTrue(await pilot.click("#storage-close"))
+            assert (app.screen.query_one("#storage-dialog").border_title) == ("存储空间")
+            assert (await pilot.click("#storage-close"))
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(len(app.screen_stack), 1)
-            self.assertEqual(app._selected_image_ids, selected)
-            self.assertFalse(self.docker.removals)
+            assert (len(app.screen_stack)) == (1)
+            assert (app._selected_image_ids) == (selected)
+            assert not (self.docker.removals)
 
     async def test_detail_summary_separates_packages_and_diagnostics_with_interactive_folds(self):
         dependency_images(self.docker, profile="nlp-cu128")
@@ -279,37 +272,37 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             table.move_cursor(row=table.get_row_index(WEIGHTS), animate=False)
             await pilot.pause()
             summary = str(app.query_one("#image-detail", Static).content)
-            self.assertNotIn("sha256:", summary, "完整 SHA 应只出现在默认折叠的诊断信息中")
-            self.assertNotIn("transformers==", summary, "包清单不应挤占摘要")
-            self.assertNotIn("history", summary)
-            self.assertIn("完整大小", summary)
-            self.assertIn("删除预计释放", summary)
+            assert ("sha256:") not in (summary), "完整 SHA 应只出现在默认折叠的诊断信息中"
+            assert ("transformers==") not in (summary), "包清单不应挤占摘要"
+            assert ("history") not in (summary)
+            assert ("完整大小") in (summary)
+            assert ("删除预计释放") in (summary)
             dependencies = app.query_one("#image-dependencies", Collapsible)
             metadata = app.query_one("#image-metadata", Collapsible)
             diagnostics = app.query_one("#image-diagnostics", Collapsible)
-            self.assertIn("44", dependencies.title)
+            assert ("44") in (dependencies.title)
             before = len(self.docker.commands)
             app.query_one("#image-detail-scroll").focus()
             await pilot.press("tab")
             await pilot.pause()
-            self.assertIs(app.focused, dependencies.query_one("CollapsibleTitle"))
+            assert (app.focused) is (dependencies.query_one("CollapsibleTitle"))
             for group, content_id in ((dependencies, "image-dependency-detail"),
                                        (metadata, "image-metadata-detail"),
                                        (diagnostics, "image-diagnostic-detail")):
-                self.assertTrue(group.collapsed)
+                assert (group.collapsed)
                 content = app.query_one("#" + content_id, Static)
-                self.assertEqual(content.region.height, 0)
+                assert (content.region.height) == (0)
                 title = group.query_one("CollapsibleTitle")
                 title.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
-                self.assertTrue(await pilot.click(title))
+                assert (await pilot.click(title))
                 await pilot.pause()
-                self.assertFalse(group.collapsed)
-                self.assertGreater(content.region.height, 0)
+                assert not (group.collapsed)
+                assert (content.region.height) > (0)
                 if group is dependencies:
-                    self.assertIn("transformers==4.57.6", str(content.content))
-                    self.assertIn("example-package-42==1.0", str(content.content))
-                    self.assertNotIn("依赖来源", str(content.content))
+                    assert ("transformers==4.57.6") in (str(content.content))
+                    assert ("example-package-42==1.0") in (str(content.content))
+                    assert ("依赖来源") not in (str(content.content))
                     scroll = app.query_one("#image-detail-scroll")
                     scroll.focus()
                     scroll.scroll_end(animate=False, immediate=True)
@@ -319,22 +312,22 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                         screen_text += "\n".join(strip.text for strip in app.screen._compositor.render_strips())
                         await pilot.press("up")
                         await pilot.pause()
-                    self.assertIn("example-package-42==1.0", screen_text)
+                    assert ("example-package-42==1.0") in (screen_text)
                 elif group is diagnostics:
-                    self.assertIn(WEIGHTS, str(content.content))
-                    self.assertIn("依赖来源", str(content.content))
-                    self.assertIn("history", str(content.content))
+                    assert (WEIGHTS) in (str(content.content))
+                    assert ("依赖来源") in (str(content.content))
+                    assert ("history") in (str(content.content))
                 title.focus()
                 await pilot.press("enter")
                 await pilot.pause()
-                self.assertTrue(group.collapsed)
-            self.assertEqual(len(self.docker.commands), before, "折叠交互不能扫描 Docker")
+                assert (group.collapsed)
+            assert (len(self.docker.commands)) == (before), "折叠交互不能扫描 Docker"
 
     async def test_detail_folds_preserve_state_on_resize_and_language_but_reset_for_another_image(self):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
-            self.assertNotIn("sha256:", str(app.query_one("#image-detail", Static).content))
+            assert ("sha256:") not in (str(app.query_one("#image-detail", Static).content))
             diagnostics = app.query_one("#image-diagnostics", Collapsible)
             title = diagnostics.query_one("CollapsibleTitle")
             title.focus()
@@ -346,87 +339,86 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                     app.ui_preferences = replace(app.ui_preferences, language=language)
                     app._apply_ui_preferences()
                     await pilot.pause()
-                    self.assertFalse(diagnostics.collapsed)
-                    self.assertEqual(diagnostics.title, "诊断信息" if language == "zh" else "Diagnostics")
+                    assert not (diagnostics.collapsed)
+                    assert (diagnostics.title) == ("诊断信息" if language == "zh" else "Diagnostics")
                     title.focus()
                     await pilot.press("enter")
                     await pilot.pause()
-                    self.assertTrue(diagnostics.collapsed)
+                    assert (diagnostics.collapsed)
                     await pilot.press("enter")
                     await pilot.pause()
-                    self.assertFalse(diagnostics.collapsed)
+                    assert not (diagnostics.collapsed)
             table = app.query_one("#image-table", DataTable)
             table.focus()
             await pilot.press("space")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {FINAL})
-            self.assertFalse(diagnostics.collapsed, "勾选同一镜像时应保留展开状态")
+            assert (app._selected_image_ids) == ({FINAL})
+            assert not (diagnostics.collapsed), "勾选同一镜像时应保留展开状态"
             table.move_cursor(row=table.get_row_index(WEIGHTS), animate=False)
             await pilot.pause()
-            self.assertTrue(diagnostics.collapsed)
-            self.assertEqual(app.query_one("#image-detail-scroll").scroll_y, 0)
-            self.assertIn(WEIGHTS, str(app.query_one("#image-diagnostic-detail", Static).content))
+            assert (diagnostics.collapsed)
+            assert (app.query_one("#image-detail-scroll").scroll_y) == (0)
+            assert (WEIGHTS) in (str(app.query_one("#image-diagnostic-detail", Static).content))
             await pilot.click("#image-view-layers")
             await pilot.pause()
-            self.assertFalse(app.query_one("#image-dependencies").display)
-            self.assertTrue(diagnostics.collapsed)
-            self.assertIn("Chain ID", str(app.query_one("#image-diagnostic-detail", Static).content))
+            assert not (app.query_one("#image-dependencies").display)
+            assert (diagnostics.collapsed)
+            assert ("Chain ID") in (str(app.query_one("#image-diagnostic-detail", Static).content))
             app.query_one("#image-search", Input).value = "no-such-image"
             await pilot.pause()
             for selector in ("#image-dependencies", "#image-metadata", "#image-diagnostics"):
-                self.assertFalse(app.query_one(selector).display)
-            self.assertNotIn("sha256:", str(app.query_one("#image-detail", Static).content))
+                assert not (app.query_one(selector).display)
+            assert ("sha256:") not in (str(app.query_one("#image-detail", Static).content))
 
-    async def test_tree_dependencies_stay_in_details_and_search_after_resize_and_language(self):
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_tree_dependencies_stay_in_details_and_search_after_resize_and_language(self, language, size):
         dependency_images(self.docker, profile="nlp-cu128")
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             before = len(self.docker.commands)
-            for size in ((80, 24), (120, 30), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for language in ("zh", "en"):
-                    with self.subTest(size=size, language=language):
-                        app.ui_preferences = replace(app.ui_preferences, language=language)
-                        app._apply_ui_preferences()
-                        await pilot.pause()
-                        tree = app.query_one("#image-tree", Tree)
-                        platform = tree.root.children[0]
-                        runtime = platform.children[0]
-                        self.assertNotIn("torch==", tree.render_line(platform.line).text)
-                        self.assertNotIn("transformers==", tree.render_line(runtime.line).text)
-                        tree.move_cursor(platform, animate=False)
-                        await pilot.pause()
-                        self.assertIn("torch==2.11.0+cu128", str(app.query_one("#image-dependency-detail", Static).content))
-                        self.assertTrue(app.query_one("#image-dependencies", Collapsible).collapsed)
-                        tree.move_cursor(runtime, animate=False)
-                        await pilot.pause()
-                        detail = str(app.query_one("#image-dependency-detail", Static).content)
-                        self.assertIn("transformers==4.57.6", detail)
-                        self.assertIn("sentence-transformers==5.1.2", detail)
-                        self.assertNotIn("torch==", detail)
-                        self.assertNotIn("sha256:", detail)
-                        self.assertNotIn("依赖来源", detail)
-                        panel = app.query_one("#image-detail-scroll")
-                        for group in panel.query(Collapsible):
-                            title = group.query_one("CollapsibleTitle")
-                            self.assertLessEqual(title.region.bottom, panel.region.bottom)
-                            self.assertIs(app.screen.get_widget_at(*title.region.offset)[0], title)
-                        weights = runtime.children[0]
-                        tree.move_cursor(weights, animate=False)
-                        await pilot.pause()
-                        self.assertNotIn("无新增包", tree.render_line(weights.line).text)
-                        self.assertNotIn("No new packages", tree.render_line(weights.line).text)
-                        detail = str(app.query_one("#image-dependency-detail", Static).content)
-                        self.assertIn("无新增包" if language == "zh" else "No new packages", detail)
-                        self.assertNotIn("transformers==", detail)
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            tree = app.query_one("#image-tree", Tree)
+            platform = tree.root.children[0]
+            runtime = platform.children[0]
+            assert ("torch==") not in (tree.render_line(platform.line).text)
+            assert ("transformers==") not in (tree.render_line(runtime.line).text)
+            tree.move_cursor(platform, animate=False)
+            await pilot.pause()
+            assert ("torch==2.11.0+cu128") in (str(app.query_one("#image-dependency-detail", Static).content))
+            assert (app.query_one("#image-dependencies", Collapsible).collapsed)
+            tree.move_cursor(runtime, animate=False)
+            await pilot.pause()
+            detail = str(app.query_one("#image-dependency-detail", Static).content)
+            assert ("transformers==4.57.6") in (detail)
+            assert ("sentence-transformers==5.1.2") in (detail)
+            assert ("torch==") not in (detail)
+            assert ("sha256:") not in (detail)
+            assert ("依赖来源") not in (detail)
+            panel = app.query_one("#image-detail-scroll")
+            for group in panel.query(Collapsible):
+                title = group.query_one("CollapsibleTitle")
+                assert (title.region.bottom) <= (panel.region.bottom)
+                assert (app.screen.get_widget_at(*title.region.offset)[0]) is (title)
+            weights = runtime.children[0]
+            tree.move_cursor(weights, animate=False)
+            await pilot.pause()
+            assert ("无新增包") not in (tree.render_line(weights.line).text)
+            assert ("No new packages") not in (tree.render_line(weights.line).text)
+            detail = str(app.query_one("#image-dependency-detail", Static).content)
+            assert ("无新增包" if language == "zh" else "No new packages") in (detail)
+            assert ("transformers==") not in (detail)
             app.query_one("#image-search", Input).value = "transformers==4.57.6"
             await pilot.pause()
-            self.assertEqual([item.image_id for item in app._visible_images], [WEIGHTS])
+            assert ([item.image_id for item in app._visible_images]) == ([WEIGHTS])
             tree = app.query_one("#image-tree", Tree)
-            self.assertEqual(tree.root.children[0].data.image_id, RUNTIME)
-            self.assertEqual(tree.root.children[0].children[0].data.image_id, WEIGHTS)
-            self.assertEqual(len(self.docker.commands), before, "切换与搜索不能重新扫描 Docker")
+            assert (tree.root.children[0].data.image_id) == (RUNTIME)
+            assert (tree.root.children[0].children[0].data.image_id) == (WEIGHTS)
+            assert (len(self.docker.commands)) == (before), "切换与搜索不能重新扫描 Docker"
 
     async def load_images(self, app, pilot, *, view="list"):
         await pilot.pause()
@@ -435,8 +427,8 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         await app.workers.wait_for_complete()
         app._image_refresh_timer.pause()
         await pilot.pause()
-        self.assertFalse(app._is_busy())
-        self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "images-tab")
+        assert not (app._is_busy())
+        assert (app.query_one("#main-tabs", TabbedContent).active) == ("images-tab")
         if view == "list" and app.query("#image-view-list"):
             await pilot.click("#image-view-list")
             table = app.query_one("#image-table", DataTable)
@@ -476,7 +468,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         visible_expected = {(x, y) for x, y in expected
                             if scroll_x <= x < scroll_x + region.width
                             and scroll_y <= y < scroll_y + region.height}
-        self.assertEqual(highlighted, visible_expected)
+        assert (highlighted) == (visible_expected)
 
     async def test_tree_path_follows_click_keyboard_and_collapse_without_highlighting_siblings(self):
         self.add_tree_branches()
@@ -487,7 +479,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             before = len(self.docker.commands)
             await pilot.click(tree, offset=(14, 4))
             await pilot.pause()
-            self.assertEqual(tree.cursor_node.data.image_id, FINAL)
+            assert (tree.cursor_node.data.image_id) == (FINAL)
             color = tree.get_component_rich_style("tree--cursor").bgcolor
             final_path = {(0, 1), (0, 2), (0, 3), (1, 3), (2, 3), (4, 4), (5, 4), (6, 4)}
             self.assert_tree_path(app, tree, color, final_path)
@@ -499,49 +491,48 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             self.assert_tree_path(app, tree, color, {(0, y) for y in range(1, 6)} | {(1, 5), (2, 5)})
             await pilot.press("up", "left")
             await pilot.pause()
-            self.assertEqual(tree.cursor_node.data.image_id, WEIGHTS)
+            assert (tree.cursor_node.data.image_id) == (WEIGHTS)
             parent_path = {(0, 1), (0, 2), (0, 3), (1, 3), (2, 3)}
             self.assert_tree_path(app, tree, color, parent_path)
             await pilot.press("left")
             await pilot.pause()
-            self.assertFalse(tree.cursor_node.is_expanded)
+            assert not (tree.cursor_node.is_expanded)
             self.assert_tree_path(app, tree, color, parent_path)
             await pilot.press("left")
             await pilot.pause()
             self.assert_tree_path(app, tree, color, set())
-            self.assertEqual(app._selected_image_ids, set())
-            self.assertEqual(len(self.docker.commands), before)
+            assert (app._selected_image_ids) == (set())
+            assert (len(self.docker.commands)) == (before)
 
-    async def test_tree_path_survives_language_resize_scroll_blur_and_search(self):
+    @pytest.mark.parametrize('language,theme', (('zh', 'acprof-dark'), ('en', 'acprof-light')))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_tree_path_survives_language_resize_scroll_blur_and_search(self, language, theme, size):
         self.add_tree_branches()
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             before = len(self.docker.commands)
-            for size in ((80, 24), (120, 30), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for language, theme in (("zh", "acprof-dark"), ("en", "acprof-light")):
-                    with self.subTest(size=size, language=language, theme=theme):
-                        app.ui_preferences = replace(app.ui_preferences, language=language, theme=theme)
-                        app._apply_ui_preferences()
-                        await pilot.pause()
-                        tree = app.query_one("#image-tree", Tree)
-                        target = tree.root.children[0].children[1].children[0]
-                        tree.move_cursor(target, animate=False)
-                        tree.focus()
-                        await pilot.pause()
-                        color = tree.get_component_rich_style("tree--cursor").bgcolor
-                        expected = {(0, 1), (0, 2), (0, 3), (1, 3), (2, 3), (4, 4), (5, 4), (6, 4)}
-                        self.assert_tree_path(app, tree, color, expected)
-                        app.query_one("#image-search", Input).focus()
-                        await pilot.pause()
-                        self.assert_tree_path(app, tree, color, expected)
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language, theme=theme)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            tree = app.query_one("#image-tree", Tree)
+            target = tree.root.children[0].children[1].children[0]
+            tree.move_cursor(target, animate=False)
+            tree.focus()
+            await pilot.pause()
+            color = tree.get_component_rich_style("tree--cursor").bgcolor
+            expected = {(0, 1), (0, 2), (0, 3), (1, 3), (2, 3), (4, 4), (5, 4), (6, 4)}
+            self.assert_tree_path(app, tree, color, expected)
+            app.query_one("#image-search", Input).focus()
+            await pilot.pause()
+            self.assert_tree_path(app, tree, color, expected)
             tree.styles.height = 3
             target.set_label(target.label.copy().append(" extra" * 30))
             await pilot.pause()
             tree.scroll_to(x=2, y=2, animate=False, force=True)
             await pilot.pause()
-            self.assertEqual(tuple(tree.scroll_offset), (2, 2))
+            assert (tuple(tree.scroll_offset)) == ((2, 2))
             self.assert_tree_path(app, tree, color, expected)
             tree.styles.height = "1fr"
             search = app.query_one("#image-search", Input)
@@ -551,73 +542,70 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             search.value = "no-such-image"
             await pilot.pause()
             self.assert_tree_path(app, tree, color, set())
-            self.assertEqual(len(self.docker.commands), before)
+            assert (len(self.docker.commands)) == (before)
 
-    async def test_image_row_clicks_only_focus_and_show_details(self):
-        for view in ("tree", "list"):
-            with self.subTest(view=view):
-                app = self.make_app()
-                async with app.run_test(size=(120, 30)) as pilot:
-                    await self.load_images(app, pilot, view=view)
-                    widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
-                    before = len(self.docker.commands)
-                    for image_id in (RUNTIME, FINAL):
-                        row = (0 if image_id == RUNTIME else 2) if view == "tree" else widget.get_row_index(image_id) + 1
-                        marker_x, _ = self.marker_offset(widget, row)
-                        # 名称、列内空白和数值重复点击也不能勾选或取消。
-                        for x in (marker_x + 3, marker_x + 3, marker_x + 30, widget.size.width - 20):
-                            await pilot.click(widget, offset=(x, row))
-                            await pilot.pause()
-                            self.assertEqual(app._current_image().image_id, image_id)
-                            self.assertIn(image_id, str(app.query_one("#image-diagnostic-detail", Static).content))
-                            self.assertEqual(app._selected_image_ids, set())
-                    widget.focus()
-                    await pilot.press("space")
+    @pytest.mark.parametrize('view', ('tree', 'list'))
+    async def test_image_row_clicks_only_focus_and_show_details(self, view):
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view=view)
+            widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
+            before = len(self.docker.commands)
+            for image_id in (RUNTIME, FINAL):
+                row = (0 if image_id == RUNTIME else 2) if view == "tree" else widget.get_row_index(image_id) + 1
+                marker_x, _ = self.marker_offset(widget, row)
+                # 名称、列内空白和数值重复点击也不能勾选或取消。
+                for x in (marker_x + 3, marker_x + 3, marker_x + 30, widget.size.width - 20):
+                    await pilot.click(widget, offset=(x, row))
                     await pilot.pause()
-                    self.assertEqual(app._selected_image_ids, {FINAL})
-                    marker_x, row = self.marker_offset(widget, row)
-                    await pilot.click(widget, offset=(marker_x + 3, row), times=2)
-                    await pilot.pause()
-                    self.assertEqual(app._selected_image_ids, {FINAL})
-                    self.assertEqual(len(self.docker.commands), before)
+                    assert (app._current_image().image_id) == (image_id)
+                    assert (image_id) in (str(app.query_one("#image-diagnostic-detail", Static).content))
+                    assert (app._selected_image_ids) == (set())
+            widget.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert (app._selected_image_ids) == ({FINAL})
+            marker_x, row = self.marker_offset(widget, row)
+            await pilot.click(widget, offset=(marker_x + 3, row), times=2)
+            await pilot.pause()
+            assert (app._selected_image_ids) == ({FINAL})
+            assert (len(self.docker.commands)) == (before)
 
-    async def test_checkbox_and_adjacent_padding_toggle_once_after_language_and_resize(self):
+    @pytest.mark.parametrize('view', ('tree', 'list'))
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_checkbox_and_adjacent_padding_toggle_once_after_language_and_resize(self, view, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             before = len(self.docker.commands)
-            for size in ((80, 24), (120, 30), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for language in ("zh", "en"):
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
-                    await pilot.pause()
-                    for view in ("tree", "list"):
-                        with self.subTest(size=size, language=language, view=view):
-                            await pilot.click("#image-view-" + view)
-                            await pilot.pause()
-                            widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
-                            for image_id in (RUNTIME, FINAL):
-                                if view == "tree":
-                                    node = widget.root.children[0]
-                                    if image_id == FINAL:
-                                        node = node.children[0].children[0]
-                                    widget.move_cursor(node, animate=False)
-                                else:
-                                    widget.move_cursor(row=widget.get_row_index(image_id), animate=False)
-                                await pilot.pause()
-                                row = (node.line if view == "tree" else widget.cursor_row + 1) - int(widget.scroll_y)
-                                for delta in (-1, 0, 1):
-                                    for selected in (True, False):
-                                        marker_x, _ = self.marker_offset(widget, row)
-                                        self.assertTrue(await pilot.click(widget, offset=(marker_x + delta, row)))
-                                        await pilot.pause()
-                                        self.assertEqual(app._selected_image_ids, {image_id} if selected else set())
-                                        self.assertIn("☑" if selected else "□", widget.render_line(row).text)
-                                        if view == "tree":
-                                            self.assertTrue(widget.root.children[0].is_expanded,
-                                                            "勾选父镜像不能同时折叠子树")
-            self.assertEqual(len(self.docker.commands), before)
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            await pilot.click("#image-view-" + view)
+            await pilot.pause()
+            widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
+            for image_id in (RUNTIME, FINAL):
+                if view == "tree":
+                    node = widget.root.children[0]
+                    if image_id == FINAL:
+                        node = node.children[0].children[0]
+                    widget.move_cursor(node, animate=False)
+                else:
+                    widget.move_cursor(row=widget.get_row_index(image_id), animate=False)
+                await pilot.pause()
+                row = (node.line if view == "tree" else widget.cursor_row + 1) - int(widget.scroll_y)
+                for delta in (-1, 0, 1):
+                    for selected in (True, False):
+                        marker_x, _ = self.marker_offset(widget, row)
+                        assert (await pilot.click(widget, offset=(marker_x + delta, row)))
+                        await pilot.pause()
+                        assert (app._selected_image_ids) == ({image_id} if selected else set())
+                        assert ("☑" if selected else "□") in (widget.render_line(row).text)
+                        if view == "tree":
+                            assert (widget.root.children[0].is_expanded), "勾选父镜像不能同时折叠子树"
+            assert (len(self.docker.commands)) == (before)
 
     async def test_tree_arrow_clicks_only_fold_and_checkbox_click_selects_new_row(self):
         app = self.make_app()
@@ -627,8 +615,8 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             for expanded in (False, True):
                 await pilot.click(tree, offset=(0, 0))
                 await pilot.pause()
-                self.assertEqual(tree.root.children[0].is_expanded, expanded)
-                self.assertEqual(app._selected_image_ids, set())
+                assert (tree.root.children[0].is_expanded) == (expanded)
+                assert (app._selected_image_ids) == (set())
             for view in ("tree", "list"):
                 await pilot.click("#image-view-" + view)
                 await pilot.pause()
@@ -637,8 +625,8 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                     row = (2 if image_id == FINAL else 0) if view == "tree" else widget.get_row_index(image_id) + 1
                     await pilot.click(widget, offset=self.marker_offset(widget, row))
                     await pilot.pause()
-                    self.assertEqual(app._current_image().image_id, image_id)
-                    self.assertEqual(app._selected_image_ids, {FINAL} if image_id == FINAL else {FINAL, RUNTIME})
+                    assert (app._current_image().image_id) == (image_id)
+                    assert (app._selected_image_ids) == ({FINAL} if image_id == FINAL else {FINAL, RUNTIME})
                 await pilot.click("#image-clear")
                 await pilot.pause()
 
@@ -646,67 +634,69 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot, view="tree")
-            self.assertTrue(app.query("#image-tree"), "默认视图应展示可折叠的真实镜像树")
+            assert (app.query("#image-tree")), "默认视图应展示可折叠的真实镜像树"
             tree = app.query_one("#image-tree", Tree)
-            self.assertEqual(app.query_one("#image-browser", ContentSwitcher).current, "image-tree-view")
+            assert (app.query_one("#image-browser", ContentSwitcher).current) == ("image-tree-view")
             runtime = tree.root.children[0]
-            self.assertEqual(runtime.data.image_id, RUNTIME)
-            self.assertEqual(runtime.children[0].children[0].data.image_id, FINAL)
+            assert (runtime.data.image_id) == (RUNTIME)
+            assert (runtime.children[0].children[0].data.image_id) == (FINAL)
             tree.move_cursor(runtime)
             tree.focus()
             await pilot.pause()
             await pilot.press("left")
             await pilot.pause()
-            self.assertFalse(runtime.is_expanded)
+            assert not (runtime.is_expanded)
             await pilot.press("right", "down", "down", "space")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {FINAL})
+            assert (app._selected_image_ids) == ({FINAL})
             detail = str(app.query_one("#image-detail", Static).content)
-            self.assertIn("继承路径", str(app.query_one("#image-metadata-detail", Static).content))
-            self.assertIn("10 B", detail)
+            assert ("继承路径") in (str(app.query_one("#image-metadata-detail", Static).content))
+            assert ("10 B") in (detail)
             before = len(self.docker.commands)
             await pilot.click("#image-view-layers")
             await pilot.pause()
             layers = app.query_one("#image-layer-table", DataTable)
-            self.assertEqual(layers.row_count, 4)
-            self.assertIn("3", str(layers.get_row_at(0)))
-            self.assertTrue(app.query_one("#image-toggle", Button).disabled)
-            self.assertIn("acprof-runtime-audio", str(app.query_one("#image-metadata-detail", Static).content))
+            assert (layers.row_count) == (4)
+            assert ("3") in (str(layers.get_row_at(0)))
+            assert (app.query_one("#image-toggle", Button).disabled)
+            assert ("acprof-runtime-audio") in (str(app.query_one("#image-metadata-detail", Static).content))
             await pilot.click("#image-view-list")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {FINAL})
+            assert (app._selected_image_ids) == ({FINAL})
             table = app.query_one("#image-table", DataTable)
             table.move_cursor(row=table.get_row_index(WEIGHTS))
             await pilot.pause()
             await pilot.click("#image-view-tree")
             await pilot.pause()
-            self.assertEqual(tree.cursor_node.data.image_id, WEIGHTS)
-            self.assertEqual(len(self.docker.commands), before)
+            assert (tree.cursor_node.data.image_id) == (WEIGHTS)
+            assert (len(self.docker.commands)) == (before)
 
     async def test_tree_search_keeps_ancestors_and_language_resize_keeps_collapse(self):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
-            self.assertTrue(app.query("#image-tree"), "搜索镜像时应保留祖先路径")
+            assert (app.query("#image-tree")), "搜索镜像时应保留祖先路径"
             tree = app.query_one("#image-tree", Tree)
             app.query_one("#image-search", Input).value = "code"
             await pilot.pause()
-            self.assertEqual(len(app._visible_images), 1)
-            self.assertEqual(tree.root.children[0].data.image_id, RUNTIME)
-            self.assertEqual(tree.root.children[0].children[0].children[0].data.image_id, FINAL)
+            assert (len(app._visible_images)) == (1)
+            assert (tree.root.children[0].data.image_id) == (RUNTIME)
+            assert (tree.root.children[0].children[0].children[0].data.image_id) == (FINAL)
             tree.root.children[0].collapse()
             for size in ((80, 24), (120, 30)):
                 await pilot.resize_terminal(*size)
                 app.ui_preferences = replace(app.ui_preferences, language="en")
                 app._apply_ui_preferences()
                 await pilot.pause()
-                self.assertFalse(tree.root.children[0].is_expanded)
+                assert not (tree.root.children[0].is_expanded)
                 for selector in ("#image-view-tree", "#image-view-list", "#image-view-layers", "#image-delete"):
                     button = app.query_one(selector, Button)
-                    self.assertGreater(button.region.height, 0)
-                    self.assertLessEqual(button.region.right, size[0], selector)
+                    assert (button.region.height) > (0)
+                    assert (button.region.right) <= (size[0]), selector
 
-    async def test_tree_platform_names_and_dotted_versions_survive_language_and_resize(self):
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_tree_platform_names_and_dotted_versions_survive_language_and_resize(self, language, size):
         from acprof.runtime_profiles import ENVIRONMENTS, environment_id
 
         root = Path(__file__).resolve().parents[1]
@@ -723,42 +713,38 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot, view="tree")
             before = len(self.docker.commands)
-            for size in ((80, 24), (120, 30), (150, 45)):
-                await pilot.resize_terminal(*size)
-                for language in ("zh", "en"):
-                    with self.subTest(size=size, language=language):
-                        app.ui_preferences = replace(app.ui_preferences, language=language)
-                        app._apply_ui_preferences()
-                        await pilot.pause()
-                        tree = app.query_one("#image-tree", Tree)
-                        platform = tree.root.children[0]
-                        self.assertEqual(platform.label.plain.split("  ")[1], "PyTorch CUDA 12.8")
-                        children = {node.data.image_id: node for node in platform.children}
-                        for image_id, expected in ((WEIGHTS, "moss-transformers5.6.0"),
-                                                   (FINAL, "multimodal-transformers4.57.6")):
-                            node = children[image_id]
-                            self.assertIn(expected, node.label.plain)
-                            self.assertNotIn("cu128", node.label.plain)
-                            self.assertNotIn("CUDA", node.label.plain)
-                            tree.move_cursor(node, animate=False)
-                            await pilot.pause()
-                            row = node.line - int(tree.scroll_y)
-                            self.assertIn(expected, tree.render_line(row).text)
+            await pilot.resize_terminal(*size)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            tree = app.query_one("#image-tree", Tree)
+            platform = tree.root.children[0]
+            assert (platform.label.plain.split("  ")[1]) == ("PyTorch CUDA 12.8")
+            children = {node.data.image_id: node for node in platform.children}
+            for image_id, expected in ((WEIGHTS, "moss-transformers5.6.0"),
+                                       (FINAL, "multimodal-transformers4.57.6")):
+                node = children[image_id]
+                assert (expected) in (node.label.plain)
+                assert ("cu128") not in (node.label.plain)
+                assert ("CUDA") not in (node.label.plain)
+                tree.move_cursor(node, animate=False)
+                await pilot.pause()
+                row = node.line - int(tree.scroll_y)
+                assert (expected) in (tree.render_line(row).text)
             inventory = app._image_inventory
             runtime = next(item for item in inventory.images if item.image_id == WEIGHTS)
-            self.assertIn("PyTorch CUDA 12.8 › moss-transformers5.6.0", str(image_metadata(runtime, inventory)))
-            self.assertIn("moss-transformers5.6.0 · PyTorch CUDA 12.8", str(layer_image_detail(inventory.layers[0], inventory)))
-            self.assertEqual({item.image_id for item in filtered_images(inventory, "CUDA 12.8", "all")},
-                             {RUNTIME, WEIGHTS, FINAL})
-            self.assertEqual([item.image_id for item in filtered_images(inventory, "5.6.0", "all")], [WEIGHTS])
-            self.assertEqual([item.image_id for item in filtered_images(inventory, "moss-transformers560", "all")], [WEIGHTS])
+            assert ("PyTorch CUDA 12.8 › moss-transformers5.6.0") in (str(image_metadata(runtime, inventory)))
+            assert ("moss-transformers5.6.0 · PyTorch CUDA 12.8") in (str(layer_image_detail(inventory.layers[0], inventory)))
+            assert ({item.image_id for item in filtered_images(inventory, "CUDA 12.8", "all")}) == ({RUNTIME, WEIGHTS, FINAL})
+            assert ([item.image_id for item in filtered_images(inventory, "5.6.0", "all")]) == ([WEIGHTS])
+            assert ([item.image_id for item in filtered_images(inventory, "moss-transformers560", "all")]) == ([WEIGHTS])
             await pilot.click("#image-view-list")
             await pilot.pause()
             table = app.query_one("#image-table", DataTable)
-            self.assertIn("moss-transformers5.6.0 · PyTorch CUDA 12.8", table.get_cell(WEIGHTS, "name").plain)
-            self.assertEqual(table.get_cell(WEIGHTS, "parent").plain, "PyTorch CUDA 12.8")
-            self.assertEqual(table.get_cell(WEIGHTS, "tag").plain, "moss-transformers560")
-            self.assertEqual(len(self.docker.commands), before)
+            assert ("moss-transformers5.6.0 · PyTorch CUDA 12.8") in (table.get_cell(WEIGHTS, "name").plain)
+            assert (table.get_cell(WEIGHTS, "parent").plain) == ("PyTorch CUDA 12.8")
+            assert (table.get_cell(WEIGHTS, "tag").plain) == ("moss-transformers560")
+            assert (len(self.docker.commands)) == (before)
 
     async def test_list_header_sorts_numeric_bytes_and_preserves_selection(self):
         for image_id, size in ((RUNTIME, 90), (WEIGHTS, 100), (FINAL, 1000)):
@@ -775,12 +761,12 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             before = len(self.docker.commands)
             offset = sum(column.get_render_width(table) for column in table.ordered_columns[:2]) + 1
             for expected in ((RUNTIME, WEIGHTS, FINAL), (FINAL, WEIGHTS, RUNTIME)):
-                self.assertTrue(await pilot.click("#image-table", offset=(offset, 0)))
+                assert (await pilot.click("#image-table", offset=(offset, 0)))
                 await pilot.pause()
-                self.assertEqual(tuple(item.image_id for item in app._visible_images), expected)
-                self.assertEqual(app._current_image().image_id, FINAL)
-                self.assertEqual(app._selected_image_ids, {FINAL})
-            self.assertEqual(len(self.docker.commands), before)
+                assert (tuple(item.image_id for item in app._visible_images)) == (expected)
+                assert (app._current_image().image_id) == (FINAL)
+                assert (app._selected_image_ids) == ({FINAL})
+            assert (len(self.docker.commands)) == (before)
 
     async def test_header_drag_changes_width_without_sorting_or_selecting(self):
         app = self.make_app()
@@ -796,12 +782,12 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.hover(table, offset=(boundary - 12, 0))
             await pilot.mouse_up(table, offset=(boundary - 12, 0))
             await pilot.pause()
-            self.assertEqual(table.columns["name"].width, before - 12)
-            self.assertEqual(tuple(item.image_id for item in app._visible_images), order)
-            self.assertEqual(app._current_image().image_id, focused)
-            self.assertFalse(app._selected_image_ids)
-            self.assertIsNone(app.mouse_captured)
-            self.assertEqual(len(self.docker.commands), commands)
+            assert (table.columns["name"].width) == (before - 12)
+            assert (tuple(item.image_id for item in app._visible_images)) == (order)
+            assert (app._current_image().image_id) == (focused)
+            assert not (app._selected_image_ids)
+            assert (app.mouse_captured) is None
+            assert (len(self.docker.commands)) == (commands)
 
     async def test_manual_widths_survive_sort_filter_refresh_language_and_resize(self):
         app = self.make_app()
@@ -809,86 +795,81 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await self.load_images(app, pilot)
             table = app.query_one("#image-table", DataTable)
             await drag(pilot, table, header_offset(table, 1), -12, dy=1, release_click=True)
-            self.assertEqual(table.columns["name"].width, 64)
-            self.assertFalse(app._selected_image_ids, "拖到数据行松手不能勾选镜像")
+            assert (table.columns["name"].width) == (64)
+            assert not (app._selected_image_ids), "拖到数据行松手不能勾选镜像"
             table.focus()
             await pilot.press("space")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {FINAL})
-            self.assertEqual(table.columns["name"].width, 64)
+            assert (app._selected_image_ids) == ({FINAL})
+            assert (table.columns["name"].width) == (64)
             await pilot.click(table, offset=(header_offset(table, 1)[0] + 3, 0))
-            self.assertEqual(app._image_sort[0], "size")
-            self.assertEqual(table.columns["name"].width, 64)
+            assert (app._image_sort[0]) == ("size")
+            assert (table.columns["name"].width) == (64)
             app.query_one("#image-search", Input).value = "demo/model"
             await pilot.pause()
-            self.assertEqual(table.row_count, 2)
-            self.assertEqual(table.columns["name"].width, 64)
+            assert (table.row_count) == (2)
+            assert (table.columns["name"].width) == (64)
             app.query_one("#image-search", Input).value = ""
             await pilot.pause()
             await pilot.click("#image-view-layers")
             layers = app.query_one("#image-layer-table", DataTable)
             await drag(pilot, layers, header_offset(layers), -5)
-            self.assertEqual(layers.columns["diff"].width, 18)
+            assert (layers.columns["diff"].width) == (18)
             app.ui_preferences = replace(app.ui_preferences, language="en")
             app._apply_ui_preferences()
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            self.assertEqual(table.columns["name"].width, 64)
-            self.assertEqual(layers.columns["diff"].width, 18)
+            assert (table.columns["name"].width) == (64)
+            assert (layers.columns["diff"].width) == (18)
             await pilot.click("#image-view-tree")
             await pilot.click("#image-view-list")
-            self.assertEqual(app._selected_image_ids, {FINAL})
+            assert (app._selected_image_ids) == ({FINAL})
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(table.columns["name"].width, 64)
-            self.assertEqual(layers.columns["diff"].width, 18)
-            self.assertEqual(len(table.columns), 9)
-            self.assertEqual(len(layers.columns), 4)
-            self.assertEqual(app._selected_image_ids, {FINAL}, "自动刷新保留有效勾选")
+            assert (table.columns["name"].width) == (64)
+            assert (layers.columns["diff"].width) == (18)
+            assert (len(table.columns)) == (9)
+            assert (len(layers.columns)) == (4)
+            assert (app._selected_image_ids) == ({FINAL}), "自动刷新保留有效勾选"
         restarted = self.make_app()
         async with restarted.run_test(size=(120, 30)) as pilot:
             await self.load_images(restarted, pilot)
-            self.assertEqual(restarted.query_one("#image-table", DataTable).columns["name"].width, 76)
+            assert (restarted.query_one("#image-table", DataTable).columns["name"].width) == (76)
 
-    async def test_header_drags_in_both_languages_and_all_terminal_sizes(self):
-        for size in ((80, 24), (120, 30), (150, 45)):
-            app = self.make_app()
-            async with app.run_test(size=size) as pilot:
-                await self.load_images(app, pilot)
-                commands = len(self.docker.commands)
-                for language in ("zh", "en"):
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
-                    await pilot.pause()
-                    for view, selector, key, index in (("list", "#image-table", "name", 1),
-                                                       ("layers", "#image-layer-table", "diff", 0)):
-                        with self.subTest(size=size, language=language, view=view):
-                            self.assertTrue(await pilot.click("#image-view-" + view))
-                            table = app.query_one(selector, DataTable)
-                            width = table.columns[key].width
-                            start = header_offset(table, index)
-                            await drag(pilot, table, start, -5)
-                            self.assertEqual(table.columns[key].width, width - 5)
-                            self.assertEqual(header_offset(table, index)[0], start[0] - 5)
-                            self.assertEqual(table.row_count, 3 if view == "list" else 4)
-                            self.assertIsNone(app.mouse_captured)
-                            if view == "list":
-                                checkbox_edge = header_offset(table)
-                                name_edge = header_offset(table, 1)
-                                row_before = table.render_line(1)
-                                table.scroll_to(x=6, animate=False, force=True)
-                                await pilot.pause()
-                                self.assertEqual(header_offset(table), checkbox_edge)
-                                self.assertEqual(header_offset(table, 1)[0], name_edge[0] - 6,
-                                                 "环境 / 模型列应随数据横向滚动")
-                                self.assertEqual(table.render_line(1).crop(0, 3).text,
-                                                 row_before.crop(0, 3).text)
-                                self.assertEqual(table.render_line(1).crop(3, 23).text,
-                                                 row_before.crop(9, 29).text)
-                                table.scroll_to(x=0, animate=False, force=True)
-                                await pilot.pause()
-                self.assertEqual(len(self.docker.commands), commands)
+    @pytest.mark.parametrize('view,selector,key,index', (('list', '#image-table', 'name', 1), ('layers', '#image-layer-table', 'diff', 0)))
+    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_header_drags_in_both_languages_and_all_terminal_sizes(self, view, selector, key, index, language, size):
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await self.load_images(app, pilot)
+            commands = len(self.docker.commands)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            assert (await pilot.click("#image-view-" + view))
+            table = app.query_one(selector, DataTable)
+            width = table.columns[key].width
+            start = header_offset(table, index)
+            await drag(pilot, table, start, -5)
+            assert (table.columns[key].width) == (width - 5)
+            assert (header_offset(table, index)[0]) == (start[0] - 5)
+            assert (table.row_count) == (3 if view == "list" else 4)
+            assert (app.mouse_captured) is None
+            if view == "list":
+                checkbox_edge = header_offset(table)
+                name_edge = header_offset(table, 1)
+                row_before = table.render_line(1)
+                table.scroll_to(x=6, animate=False, force=True)
+                await pilot.pause()
+                assert (header_offset(table)) == (checkbox_edge)
+                assert (header_offset(table, 1)[0]) == (name_edge[0] - 6), "环境 / 模型列应随数据横向滚动"
+                assert (table.render_line(1).crop(0, 3).text) == (row_before.crop(0, 3).text)
+                assert (table.render_line(1).crop(3, 23).text) == (row_before.crop(9, 29).text)
+                table.scroll_to(x=0, animate=False, force=True)
+                await pilot.pause()
+            assert (len(self.docker.commands)) == (commands)
 
     async def test_measurement_interrupts_drag_and_unlocks_afterwards(self):
         app = self.make_app()
@@ -897,70 +878,70 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             table = app.query_one("#image-table", DataTable)
             start = header_offset(table, 1)
             await pilot.mouse_down(table, offset=start)
-            self.assertIs(app.mouse_captured, table)
+            assert (app.mouse_captured) is (table)
             app._process_kind = "run"
             app._latest_snapshot = ProgressSnapshot(measurement_active=True)
             app._set_busy(True)
             await pilot.pause()
-            self.assertIsNone(app.mouse_captured)
+            assert (app.mouse_captured) is None
             await pilot.hover(table, offset=(start[0] - 6, 0))
             await pilot.mouse_up(table, offset=(start[0] - 6, 0))
-            self.assertEqual(table.columns["name"].width, 76)
+            assert (table.columns["name"].width) == (76)
             app._process_kind = ""
             app._latest_snapshot = ProgressSnapshot()
             app._set_busy(False)
             await pilot.pause()
             await drag(pilot, table, header_offset(table, 1), -6)
-            self.assertEqual(table.columns["name"].width, 70)
+            assert (table.columns["name"].width) == (70)
 
-    async def test_filter_selection_details_and_language_work_at_all_sizes(self):
-        for size in ((80, 24), (120, 30), (150, 45)):
-            with self.subTest(size=size):
-                app = self.make_app()
-                async with app.run_test(size=size) as pilot:
-                    await self.load_images(app, pilot)
-                    table = app.query_one("#image-table", DataTable)
-                    self.assertEqual(table.row_count, 3)
-                    table.focus()
-                    await pilot.pause()
-                    await pilot.press("space")
-                    await pilot.pause()
-                    self.assertEqual(app._selected_image_ids, {FINAL})
-                    self.assertTrue(await pilot.click("#image-model"))
-                    await pilot.pause()
-                    self.assertEqual(app._selected_image_ids, {FINAL, WEIGHTS})
-                    self.assertNotIn(RUNTIME, app._selected_image_ids)
-                    self.assertEqual(table.row_count, 2)
-                    table.focus()
-                    await pilot.pause()
-                    await pilot.press("down")
-                    await pilot.pause()
-                    self.assertIn("acprof-build-source:", str(app.query_one("#image-metadata-detail", Static).content))
-                    self.assertNotIn("HF_TOKEN", str(app.query_one("#image-metadata-detail", Static).content))
-                    app.ui_preferences = replace(app.ui_preferences, language="en")
-                    app._apply_ui_preferences()
-                    await pilot.pause()
-                    self.assertEqual(app._selected_image_ids, {FINAL, WEIGHTS})
-                    self.assertEqual(app.query_one("#image-search", Input).value, "demo/model")
-                    self.assertEqual(app.query_one("#image-delete", Button).label.plain, "Delete")
-                    self.assertIn("All tags", str(app.query_one("#image-metadata-detail", Static).content))
-                    for selector in ("#image-search", "#image-scope", "#image-toggle", "#image-model",
-                                     "#image-clear", "#image-delete", "#image-table"):
-                        widget = app.query_one(selector)
-                        self.assertGreater(widget.region.height, 0, selector)
-                        self.assertGreaterEqual(widget.region.x, 0, selector)
-                        self.assertLessEqual(widget.region.right, size[0], selector)
-                        self.assertLessEqual(widget.region.bottom, size[1] - 3, selector)
-                    # 过滤别名仍命中合并后的同一行，清空按钮清掉筛选外的选择。
-                    app.query_one("#image-search", Input).value = "acprof-build-source"
-                    await pilot.pause()
-                    self.assertEqual(table.row_count, 1)
-                    self.assertIn("(1 hidden)", str(app.query_one("#image-status", Static).content))
-                    self.assertTrue(await pilot.click("#image-clear"))
-                    await pilot.pause()
-                    self.assertFalse(app._selected_image_ids)
+    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    async def test_filter_selection_details_and_language_work_at_all_sizes(self, size):
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await self.load_images(app, pilot)
+            table = app.query_one("#image-table", DataTable)
+            assert (table.row_count) == (3)
+            table.focus()
+            await pilot.pause()
+            await pilot.press("space")
+            await pilot.pause()
+            assert (app._selected_image_ids) == ({FINAL})
+            assert (await pilot.click("#image-model"))
+            await pilot.pause()
+            assert (app._selected_image_ids) == ({FINAL, WEIGHTS})
+            assert (RUNTIME) not in (app._selected_image_ids)
+            assert (table.row_count) == (2)
+            table.focus()
+            await pilot.pause()
+            await pilot.press("down")
+            await pilot.pause()
+            assert ("acprof-build-source:") in (str(app.query_one("#image-metadata-detail", Static).content))
+            assert ("HF_TOKEN") not in (str(app.query_one("#image-metadata-detail", Static).content))
+            app.ui_preferences = replace(app.ui_preferences, language="en")
+            app._apply_ui_preferences()
+            await pilot.pause()
+            assert (app._selected_image_ids) == ({FINAL, WEIGHTS})
+            assert (app.query_one("#image-search", Input).value) == ("demo/model")
+            assert (app.query_one("#image-delete", Button).label.plain) == ("Delete")
+            assert ("All tags") in (str(app.query_one("#image-metadata-detail", Static).content))
+            for selector in ("#image-search", "#image-scope", "#image-toggle", "#image-model",
+                             "#image-clear", "#image-delete", "#image-table"):
+                widget = app.query_one(selector)
+                assert (widget.region.height) > (0), selector
+                assert (widget.region.x) >= (0), selector
+                assert (widget.region.right) <= (size[0]), selector
+                assert (widget.region.bottom) <= (size[1] - 3), selector
+            # 过滤别名仍命中合并后的同一行，清空按钮清掉筛选外的选择。
+            app.query_one("#image-search", Input).value = "acprof-build-source"
+            await pilot.pause()
+            assert (table.row_count) == (1)
+            assert ("(1 hidden)") in (str(app.query_one("#image-status", Static).content))
+            assert (await pilot.click("#image-clear"))
+            await pilot.pause()
+            assert not (app._selected_image_ids)
 
-    async def test_version_dots_distinguish_models_in_selection_and_search(self):
+    @pytest.mark.parametrize('query_case', range(2), ids=["('Qwen/Qwen2.5-0.5B', {FINAL, WEIGHTS})", "('qwen--qwen2_5-0_5b', {other})"])
+    async def test_version_dots_distinguish_models_in_selection_and_search(self, query_case):
         self.docker.images[FINAL] = image(
             FINAL, ["acprof-nlp-qwen--qwen2.5-0.5b:code"], 410,
             ["os", "deps", "weights", "code"], "Qwen/Qwen2.5-0.5B")
@@ -976,21 +957,18 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
             table = app.query_one("#image-table", DataTable)
-            self.assertEqual(table.get_cell(FINAL, "repository").plain, "acprof-nlp-qwen--qwen2.5-0.5b")
+            assert (table.get_cell(FINAL, "repository").plain) == ("acprof-nlp-qwen--qwen2.5-0.5b")
             table.move_cursor(row=table.get_row_index(FINAL))
             await pilot.pause()
-            self.assertTrue(await pilot.click("#image-model"))
+            assert (await pilot.click("#image-model"))
             await pilot.pause()
-            with self.subTest(action="选择同模型"):
-                self.assertEqual(app._selected_image_ids, {FINAL, WEIGHTS})
+            assert (app._selected_image_ids) == ({FINAL, WEIGHTS})
             search = app.query_one("#image-search", Input)
-            for query, expected in (("Qwen/Qwen2.5-0.5B", {FINAL, WEIGHTS}),
-                                    ("qwen--qwen2_5-0_5b", {other})):
-                with self.subTest(query=query):
-                    search.focus()
-                    await pilot.press("ctrl+a", *query)
-                    await pilot.pause()
-                    self.assertEqual({item.image_id for item in app._visible_images}, expected)
+            (query, expected) = tuple((('Qwen/Qwen2.5-0.5B', {FINAL, WEIGHTS}), ('qwen--qwen2_5-0_5b', {other})))[query_case]
+            search.focus()
+            await pilot.press("ctrl+a", *query)
+            await pilot.pause()
+            assert ({item.image_id for item in app._visible_images}) == (expected)
 
     async def test_confirmation_cancel_and_delete_all_model_tags_with_buttons_visible(self):
         app = self.make_app()
@@ -1000,33 +978,33 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await pilot.click("#image-delete")
             await pilot.pause()
-            self.assertTrue(app._is_busy())
+            assert (app._is_busy())
             message = str(app.screen.query_one("#image-confirm-text", Static).content)
-            self.assertIn("acprof-build-source:", message)
-            self.assertIn("acprof-audio-demo--model:code", message)
-            self.assertIn("续采或补采", message)
+            assert ("acprof-build-source:") in (message)
+            assert ("acprof-audio-demo--model:code") in (message)
+            assert ("续采或补采") in (message)
             dialog = app.screen.query_one("#confirm-dialog")
-            self.assertGreater(dialog.region.x, 0, "删除确认应沿用居中的有边框弹窗")
-            self.assertLess(dialog.region.width, 80)
+            assert (dialog.region.x) > (0), "删除确认应沿用居中的有边框弹窗"
+            assert (dialog.region.width) < (80)
             for selector in ("#confirm-no", "#confirm-yes"):
                 button = app.screen.query_one(selector, Button)
-                self.assertGreater(button.region.height, 0)
-                self.assertLessEqual(button.region.bottom, 24)
+                assert (button.region.height) > (0)
+                assert (button.region.bottom) <= (24)
             await pilot.press("escape")
             await pilot.pause()
-            self.assertFalse(self.docker.removals)
-            self.assertFalse(app._is_busy())
-            self.assertEqual(app._selected_image_ids, {FINAL, WEIGHTS})
+            assert not (self.docker.removals)
+            assert not (app._is_busy())
+            assert (app._selected_image_ids) == ({FINAL, WEIGHTS})
             await pilot.click("#image-delete")
             await pilot.pause()
-            self.assertTrue(await pilot.click("#confirm-yes"))
+            assert (await pilot.click("#confirm-yes"))
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(list(self.docker.images), [RUNTIME])
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 0)
-            self.assertIn("已处理 2", str(app.query_one("#image-status", Static).content))
-            self.assertFalse(app._is_busy())
-            self.assertFalse(app.query_one("#start-run", Button).disabled)
+            assert (list(self.docker.images)) == ([RUNTIME])
+            assert (app.query_one("#image-table", DataTable).row_count) == (0)
+            assert ("已处理 2") in (str(app.query_one("#image-status", Static).content))
+            assert not (app._is_busy())
+            assert not (app.query_one("#start-run", Button).disabled)
 
     async def test_read_failure_keeps_inventory_and_selection_until_refresh_recovers(self):
         app = self.make_app()
@@ -1038,17 +1016,17 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 app.refresh_images()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 3)
-            self.assertEqual(app._selected_image_ids, {FINAL})
-            self.assertIn("permission denied", str(app.query_one("#image-status", Static).content))
-            self.assertTrue(app.query_one("#image-delete", Button).disabled)
-            self.assertFalse(app._is_busy())
+            assert (app.query_one("#image-table", DataTable).row_count) == (3)
+            assert (app._selected_image_ids) == ({FINAL})
+            assert ("permission denied") in (str(app.query_one("#image-status", Static).content))
+            assert (app.query_one("#image-delete", Button).disabled)
+            assert not (app._is_busy())
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 3)
-            self.assertNotIn("permission denied", str(app.query_one("#image-status", Static).content))
-            self.assertFalse(app.query_one("#image-delete", Button).disabled)
+            assert (app.query_one("#image-table", DataTable).row_count) == (3)
+            assert ("permission denied") not in (str(app.query_one("#image-status", Static).content))
+            assert not (app.query_one("#image-delete", Button).disabled)
 
     async def test_timer_updates_visible_inventory_without_user_action(self):
         app = self.make_app()
@@ -1071,35 +1049,34 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 await app.workers.wait_for_complete()
                 app._image_refresh_timer.pause()
                 await pilot.pause()
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 4)
-            self.assertIn(extra, app.query_one("#image-table", DataTable).rows)
+            assert (app.query_one("#image-table", DataTable).row_count) == (4)
+            assert (extra) in (app.query_one("#image-table", DataTable).rows)
 
-    async def test_queued_image_callbacks_are_safe_during_shutdown(self):
-        for callback in ("timer", "worker"):
-            with self.subTest(callback=callback):
-                class ClosingImagesApp(AcprofTui):
-                    CSS_PATH = AcprofTui.CSS_PATH
+    @pytest.mark.parametrize('callback', ('timer', 'worker'))
+    async def test_queued_image_callbacks_are_safe_during_shutdown(self, callback):
+        class ClosingImagesApp(AcprofTui):
+            CSS_PATH = AcprofTui.CSS_PATH
 
-                    async def _close_all(self):
-                        # Textual marks the app as stopped before pruning the
-                        # screen, but App.on_unmount has not run yet. Deliver
-                        # an already queued callback after partial unmount.
-                        await self.query_one("#start-run").remove()
-                        try:
-                            if callback == "timer":
-                                self.refresh_images()
-                            else:
-                                self._show_images(self._image_inventory)
-                        finally:
-                            await super()._close_all()
+            async def _close_all(self):
+                # Textual marks the app as stopped before pruning the
+                # screen, but App.on_unmount has not run yet. Deliver
+                # an already queued callback after partial unmount.
+                await self.query_one("#start-run").remove()
+                try:
+                    if callback == "timer":
+                        self.refresh_images()
+                    else:
+                        self._show_images(self._image_inventory)
+                finally:
+                    await super()._close_all()
 
-                app = ClosingImagesApp(
-                    RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json",
-                )
-                async with app.run_test(size=(120, 30)) as pilot:
-                    await self.load_images(app, pilot)
-                    commands_before_shutdown = len(self.docker.commands)
-                self.assertEqual(len(self.docker.commands), commands_before_shutdown)
+        app = ClosingImagesApp(
+            RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json",
+        )
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot)
+            commands_before_shutdown = len(self.docker.commands)
+        assert (len(self.docker.commands)) == (commands_before_shutdown)
 
     async def test_background_page_and_confirmation_do_not_scan(self):
         app = self.make_app()
@@ -1112,7 +1089,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 app.refresh_images()
                 await pilot.pause()
                 read.assert_not_called()
-                self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "settings-tab")
+                assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
             app.action_show_images()
             await pilot.pause()
             await app.workers.wait_for_complete()
@@ -1125,7 +1102,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 read.assert_not_called()
             await pilot.press("escape")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {FINAL})
+            assert (app._selected_image_ids) == ({FINAL})
 
     async def test_refresh_keeps_focus_selection_and_scrolled_list(self):
         for number in range(30):
@@ -1152,15 +1129,15 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 app.refresh_images()
                 await pilot.pause()
                 read.assert_called_once()
-                self.assertIs(app.focused, table)
-                self.assertFalse(table.disabled)
-                self.assertFalse(app.query_one("#image-search", Input).disabled)
+                assert (app.focused) is (table)
+                assert not (table.disabled)
+                assert not (app.query_one("#image-search", Input).disabled)
                 app._show_images(list_images())
             await pilot.pause()
-            self.assertIs(app.focused, table)
-            self.assertEqual(app._current_image().image_id, current)
-            self.assertEqual(app._selected_image_ids, selected)
-            self.assertEqual(table.scroll_offset, offset)
+            assert (app.focused) is (table)
+            assert (app._current_image().image_id) == (current)
+            assert (app._selected_image_ids) == (selected)
+            assert (table.scroll_offset) == (offset)
 
     async def test_refresh_drops_only_selections_with_changed_identity_or_references(self):
         app = self.make_app()
@@ -1171,20 +1148,20 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {WEIGHTS})
+            assert (app._selected_image_ids) == ({WEIGHTS})
             self.docker.containers["used"] = dict(Image=WEIGHTS, Name="/new-user", State=dict(Status="exited"))
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertFalse(app._selected_image_ids)
+            assert not (app._selected_image_ids)
             app.query_one("#image-table", DataTable).move_cursor(row=0)
             await pilot.click("#image-model")
-            self.assertEqual(app._selected_image_ids, {FINAL})
+            assert (app._selected_image_ids) == ({FINAL})
             self.docker.daemon_id = "another-daemon"
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertFalse(app._selected_image_ids)
+            assert not (app._selected_image_ids)
 
     async def test_refresh_preserves_tree_and_detail_folds(self):
         app = self.make_app()
@@ -1204,15 +1181,15 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertEqual(tree.cursor_node.data.image_id, root)
-            self.assertFalse(tree.cursor_node.is_expanded)
-            self.assertFalse(metadata.collapsed)
-            self.assertEqual(tree.scroll_offset, offset)
+            assert (tree.cursor_node.data.image_id) == (root)
+            assert not (tree.cursor_node.is_expanded)
+            assert not (metadata.collapsed)
+            assert (tree.scroll_offset) == (offset)
             current_node = tree.cursor_node
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertIs(tree.cursor_node, current_node, "清单未变时不重建树")
+            assert (tree.cursor_node) is (current_node), "清单未变时不重建树"
 
     async def test_auto_refresh_pauses_during_measurement_and_resumes_after_failure(self):
         app = self.make_app()
@@ -1225,8 +1202,8 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             commands = len(self.docker.commands)
             # 等待超过刷新间隔，确认实际计时回调不会读取 Docker。
             await pilot.pause(0.3)
-            self.assertEqual(len(self.docker.commands), commands)
-            self.assertFalse(app._image_refresh_timer._active.is_set())
+            assert (len(self.docker.commands)) == (commands)
+            assert not (app._image_refresh_timer._active.is_set())
             refreshed = asyncio.Event()
             loop = asyncio.get_running_loop()
 
@@ -1241,8 +1218,8 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
                 await app.workers.wait_for_complete()
                 app._image_refresh_timer.pause()
                 await pilot.pause()
-            self.assertFalse(app._latest_snapshot.measurement_active)
-            self.assertEqual(app.query_one("#image-table", DataTable).row_count, 3)
+            assert not (app._latest_snapshot.measurement_active)
+            assert (app.query_one("#image-table", DataTable).row_count) == (3)
 
     async def test_measurement_and_image_operations_are_mutually_exclusive(self):
         app = self.make_app()
@@ -1257,22 +1234,22 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             app.select_model_images()
             app.action_show_images()
             await pilot.pause()
-            self.assertEqual(len(self.docker.commands), before)
-            self.assertTrue(all(widget.disabled for widget in app.query(".image-control")))
+            assert (len(self.docker.commands)) == (before)
+            assert (all(widget.disabled for widget in app.query(".image-control")))
             app._process_kind = ""
             app._latest_snapshot = ProgressSnapshot()
             app._set_busy(False)
             with patch.object(ImageActions, "_execute_image_refresh") as read, patch.object(app, "_execute_command") as execute:
                 app.refresh_images()
-                self.assertTrue(app._is_busy())
+                assert (app._is_busy())
                 app._launch(PendingLaunch(("must-not-start",), "run"))
                 app.action_quick_check()
                 app.action_request_stop()
                 execute.assert_not_called()
                 read.assert_called_once()
-                self.assertTrue(app.query_one("#stop-run", Button).disabled)
+                assert (app.query_one("#stop-run", Button).disabled)
                 app._show_images(app._image_inventory)
-            self.assertFalse(app._is_busy())
+            assert not (app._is_busy())
 
     async def test_container_reference_prevents_selecting_that_image(self):
         self.docker.containers["used"] = dict(Image=FINAL, Name="/kept-container", State=dict(Status="exited"))
@@ -1284,12 +1261,12 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await pilot.press("space")
             await pilot.pause()
-            self.assertFalse(app._selected_image_ids)
-            self.assertTrue(app.query_one("#image-toggle", Button).disabled)
-            self.assertIn("kept-container", str(app.query_one("#image-metadata-detail", Static).content))
+            assert not (app._selected_image_ids)
+            assert (app.query_one("#image-toggle", Button).disabled)
+            assert ("kept-container") in (str(app.query_one("#image-metadata-detail", Static).content))
             await pilot.click("#image-model")
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, {WEIGHTS})
+            assert (app._selected_image_ids) == ({WEIGHTS})
 
     async def test_long_confirmation_can_scroll_and_keyboard_cancel_survives_resize(self):
         self.docker.images[WEIGHTS]["RepoTags"].extend(f"acprof-weights-audio-demo--model:old-{index}" for index in range(30))
@@ -1301,25 +1278,25 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             before = set(app._selected_image_ids)
             await pilot.resize_terminal(80, 24)
             await pilot.pause()
-            self.assertEqual(app._selected_image_ids, before)
-            self.assertLessEqual(app.query_one("#image-table", DataTable).columns["repository"].width, 38)
+            assert (app._selected_image_ids) == (before)
+            assert (app.query_one("#image-table", DataTable).columns["repository"].width) <= (38)
             await pilot.click("#image-delete")
             await pilot.pause()
             content = app.screen.query_one("#image-confirm-content")
-            self.assertGreater(content.max_scroll_y, 0)
+            assert (content.max_scroll_y) > (0)
             content.focus()
             await pilot.pause()
             await pilot.press("end")
             await pilot.pause()
-            self.assertGreater(content.scroll_y, 0)
+            assert (content.scroll_y) > (0)
             button = app.screen.query_one("#confirm-no", Button)
-            self.assertLessEqual(button.region.bottom, 24)
+            assert (button.region.bottom) <= (24)
             button.focus()
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            self.assertFalse(self.docker.removals)
-            self.assertFalse(app._is_busy())
+            assert not (self.docker.removals)
+            assert not (app._is_busy())
 
     async def test_changed_tags_after_confirmation_are_reported_without_deleting(self):
         app = self.make_app()
@@ -1335,11 +1312,7 @@ class TuiImagesTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("tab", "enter")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            self.assertFalse(self.docker.removals)
-            self.assertIn("标签已改变", str(app.query_one("#image-status", Static).content))
-            self.assertFalse(app._selected_image_ids)
-            self.assertFalse(app._is_busy())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert not (self.docker.removals)
+            assert ("标签已改变") in (str(app.query_one("#image-status", Static).content))
+            assert not (app._selected_image_ids)
+            assert not (app._is_busy())

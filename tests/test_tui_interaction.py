@@ -1,10 +1,9 @@
 import shlex
-import tempfile
 import time
-import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
 
@@ -16,11 +15,12 @@ from acprof.tui.progress import ProgressSnapshot
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
-class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.settings_path = Path(temporary.name) / "tui.json"
+class TestTuiInteraction:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        temporary = tmp_path
+        self.settings_path = Path(str(temporary)) / "tui.json"
 
     async def test_pending_form_preview_is_safe_after_widgets_are_unmounted(self):
         class ClosingPreviewApp(AcprofTui):
@@ -36,7 +36,7 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             app._configuration_changed()
-            self.assertIsNotNone(app._preview_timer)
+            assert (app._preview_timer) is not None
 
     async def test_pending_elapsed_tick_is_safe_during_shutdown(self):
         class ClosingElapsedApp(AcprofTui):
@@ -60,7 +60,7 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
                 app._tick_elapsed()
                 update.assert_called_once()
-        self.assertIsNone(app._elapsed_timer)
+        assert (app._elapsed_timer) is None
 
     async def test_rapid_clicks_are_not_discarded_by_button_active_effect(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -73,10 +73,10 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(button, "press", wraps=button.press) as press:
                 await button._on_click(Mock())
                 await button._on_click(Mock())
-                self.assertEqual(press.call_count, 2)
+                assert (press.call_count) == (2)
             await pilot.pause()
-            self.assertFalse(button.has_class("-active"))
-            self.assertTrue(all(not field.cursor_blink for field in app.query(Input)))
+            assert not (button.has_class("-active"))
+            assert (all(not field.cursor_blink for field in app.query(Input)))
 
     async def test_burst_of_form_changes_collects_once_and_keeps_latest_values(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -87,13 +87,12 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
                 app.query_one("#cpus", Input).value = "1,3"
                 app.query_one("#model", Input).value = "demo/latest"
                 await pilot.pause(0.12)
-                self.assertEqual(collect.call_count, 1)
+                assert (collect.call_count) == (1)
             preview = str(app.query_one("#command-preview", Static).render())
-            self.assertEqual(shlex.split(str(app.query_one("#command-preview", Static).content))[:2],
-                             ["acprof", "run"])
-            self.assertIn("--cpus 1,3", preview)
-            self.assertIn("--model demo/latest", preview)
-            self.assertEqual(app.query_one("#run-preset", Select).value, "smoke")
+            assert (shlex.split(str(app.query_one("#command-preview", Static).content))[:2]) == (["acprof", "run"])
+            assert ("--cpus 1,3") in (preview)
+            assert ("--model demo/latest") in (preview)
+            assert (app.query_one("#run-preset", Select).value) == ("smoke")
 
     async def test_applying_preset_does_not_queue_redundant_preview_updates(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -104,10 +103,10 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             ) as refresh:
                 app._apply_config(RunConfig.main_matrix("demo/model"), preset="main")
                 await pilot.pause(0.12)
-                self.assertEqual(refresh.call_count, 1)
-            self.assertIsNone(app._preview_timer)
-            self.assertEqual(app.query_one("#run-preset", Select).value, "main")
-            self.assertEqual(app.query_one("#cpus", Input).value, "1,2,4,8")
+                assert (refresh.call_count) == (1)
+            assert (app._preview_timer) is None
+            assert (app.query_one("#run-preset", Select).value) == ("main")
+            assert (app.query_one("#cpus", Input).value) == ("1,2,4,8")
 
     async def test_starting_run_cancels_preview_and_locks_configuration(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -115,19 +114,19 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             with patch.object(app, "_refresh_command_preview") as refresh:
                 app._configuration_changed()
-                self.assertIsNotNone(app._preview_timer)
+                assert (app._preview_timer) is not None
                 app._set_busy(True)
-                self.assertIsNone(app._preview_timer)
+                assert (app._preview_timer) is None
                 await pilot.pause(0.12)
                 refresh.assert_not_called()
             controls = list(app.query(
                 ".config-control, #run-preset, .ui-preference, "
                 "#save-run-default, #restore-ui-defaults, #save-ui-settings"
             ))
-            self.assertTrue(controls)
-            self.assertTrue(all(control.disabled for control in controls))
+            assert (controls)
+            assert (all(control.disabled for control in controls))
             app._set_busy(False)
-            self.assertTrue(all(not control.disabled for control in controls))
+            assert (all(not control.disabled for control in controls))
 
     async def test_measurement_pauses_elapsed_timer_and_resumes_after_window(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
@@ -151,24 +150,19 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
             app._elapsed_timer = None
 
 
-class CommandPreviewTests(unittest.TestCase):
-    def test_preview_uses_public_cli_without_resolving_argument_paths(self):
-        arguments = [
-            "--model", "demo/model", "--output-dir", "/remote mount/results;literal",
-            "--input-scales", "64,128",
-        ]
-        for name in ("run", "probe", "plot", "profile", "stats", "audit"):
-            for frozen in (False, True):
-                with self.subTest(name=name, frozen=frozen), patch("sys.frozen", frozen, create=True):
-                    command = [*cli_command(name), *arguments]
-                    with patch.object(Path, "resolve", side_effect=AssertionError("filesystem access")):
-                        preview = format_command(command)
-                    self.assertEqual(shlex.split(preview), ["acprof", name, *arguments])
+@pytest.mark.parametrize('frozen', (False, True))
+@pytest.mark.parametrize('name', ('run', 'probe', 'plot', 'profile', 'stats', 'audit'))
+def test_preview_uses_public_cli_without_resolving_argument_paths(frozen, name):
+    arguments = [
+        "--model", "demo/model", "--output-dir", "/remote mount/results;literal",
+        "--input-scales", "64,128",
+    ]
+    with patch("sys.frozen", frozen, create=True):
+        command = [*cli_command(name), *arguments]
+        with patch.object(Path, "resolve", side_effect=AssertionError("filesystem access")):
+            preview = format_command(command)
+        assert (shlex.split(preview)) == (["acprof", name, *arguments])
 
-    def test_preview_preserves_non_cli_commands(self):
-        command = ["docker", "inspect", "an image;literal"]
-        self.assertEqual(shlex.split(format_command(command)), command)
-
-
-if __name__ == "__main__":
-    unittest.main()
+def test_preview_preserves_non_cli_commands():
+    command = ["docker", "inspect", "an image;literal"]
+    assert (shlex.split(format_command(command))) == (command)
