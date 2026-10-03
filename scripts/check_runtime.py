@@ -43,6 +43,17 @@ print('ONNX dependencies imported; torch and transformers are absent')
 """
 
 
+def prepare_test_wheels(output, timeout):
+    """Download the hashed test tools before entering the network-isolated container."""
+    wheels = output / "test-wheels"
+    wheels.mkdir()
+    with (output / "test-tools.log").open("w") as log:
+        subprocess.run([
+            sys.executable, "-m", "pip", "download", "--require-hashes", "--only-binary=:all:",
+            "-r", str(ROOT / "requirements/runtime-test.lock"), "--dest", str(wheels),
+        ], check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
@@ -93,6 +104,7 @@ def main(argv=None):
             result["successful"] = True
             code = 0
         else:
+            prepare_test_wheels(output, args.timeout_seconds)
             command = [
                 "docker", "run", "--rm", "--name", container_name, "--network", "none", "--cpus", "2", "--memory", "4g",
                 "--user", f"{os.getuid()}:{os.getgid()}",
@@ -100,14 +112,24 @@ def main(argv=None):
             ]
             for env in ("HOME=/tmp", "USER=acprof", "LOGNAME=acprof", "HF_HOME=/tmp/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1",
                         f"ACPROF_RUNTIME_PROFILE={name}", f"ACPROF_MODEL_ADAPTER={profile.adapter}",
-                        "OMP_NUM_THREADS=1", "MKL_NUM_THREADS=1", "PYTHONDONTWRITEBYTECODE=1"):
+                        "OMP_NUM_THREADS=1", "MKL_NUM_THREADS=1", "PYTHONDONTWRITEBYTECODE=1",
+                        "TZ=UTC", "PYTHONHASHSEED=0", "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1"):
                 command += ["-e", env]
             container_started = True
             subprocess.run([*command, image_id, "python", "-m", "pip", "check"], check=True, timeout=args.timeout_seconds)
             if runtime_type == "onnxruntime":
                 subprocess.run([*command, image_id, "python", "-c", ONNX_ENVIRONMENT_CHECK],
                                check=True, timeout=args.timeout_seconds)
-            run_command = [*command, image_id, "python", "scripts/run_tests.py",
+            # The selected inference image and its locks remain untouched. Tools live
+            # in an ephemeral environment that can import the image's runtime packages.
+            bootstrap = (
+                "python -m venv --system-site-packages /tmp/acprof-tests && "
+                "/tmp/acprof-tests/bin/python -m pip install --no-index "
+                "--find-links=/evidence/test-wheels --require-hashes "
+                "-r requirements/runtime-test.lock && exec \"$@\""
+            )
+            run_command = [*command, image_id, "sh", "-c", bootstrap, "acprof-runtime-tests",
+                           "/tmp/acprof-tests/bin/python", "scripts/run_tests.py",
                            "--require-no-skips", "--report", "/evidence/tests.json"]
             for pattern in result["test_patterns"]:
                 run_command += ["--pattern", pattern]

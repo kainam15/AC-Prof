@@ -4,52 +4,71 @@ import json
 import os
 import subprocess
 import tempfile
-import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
-class RuntimeCheckSelectionTests(unittest.TestCase):
-    def test_container_uses_selected_profile_and_adapter_loading_policy(self):
+class TestRuntimeCheckSelection:
+    @pytest.fixture(autouse=True)
+    def offline_test_tools(self, monkeypatch):
+        monkeypatch.setattr('scripts.check_runtime.prepare_test_wheels', lambda *args: None)
+
+    def test_test_tools_are_installed_offline_outside_the_runtime_image(self):
+        image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
+                                platform_image_id='sha256:' + 'b' * 64, manifest={})
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'scripts.check_runtime.prepare_environment_image', return_value=image,
+        ), patch('scripts.check_runtime.subprocess.run',
+                 return_value=subprocess.CompletedProcess([], 0)) as run:
+            assert main(['--profile', 'nlp-transformers560-cpu', '--output-dir', directory]) == 0
+        command = next(call.args[0] for call in run.call_args_list
+                       if 'scripts/run_tests.py' in call.args[0])
+        assert '/tmp/acprof-tests/bin/python' in command
+        assert any('--no-index' in argument and '--require-hashes' in argument for argument in command)
+        assert command[command.index('--network') + 1] == 'none'
+
+    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers560-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
+    def test_container_uses_selected_profile_and_adapter_loading_policy(self, profile_id, task, trust):
         from acprof.container.load_policy import registered_policy
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})
-        for profile_id, task, trust in (('nlp-transformers560-cpu', 'text-generation', False),
-                                         ('custom-multimodal-cpu', 'audio-text-to-text', True)):
-            with self.subTest(profile=profile_id), tempfile.TemporaryDirectory() as directory:
-                def run(command, **kwargs):
-                    if 'scripts/run_tests.py' in command:
-                        environment = dict(command[i + 1].split('=', 1)
-                                           for i, part in enumerate(command) if part == '-e')
-                        with patch.dict(os.environ, environment, clear=True):
-                            profile, _, allowed = registered_policy(task, 'transformers_pipeline', 'cpu')
-                        self.assertEqual(profile.profile_id, profile_id)
-                        self.assertEqual(allowed, trust)
-                    return subprocess.CompletedProcess(command, 0)
-                with patch('scripts.check_runtime.prepare_environment_image', return_value=image), patch(
-                    'scripts.check_runtime.subprocess.run', side_effect=run,
-                ):
-                    self.assertEqual(main(['--profile', profile_id, '--test-pattern', 'test_fixture.py',
-                                           '--output-dir', directory]), 0)
+        with tempfile.TemporaryDirectory() as directory:
+            def run(command, **kwargs):
+                if 'scripts/run_tests.py' in command:
+                    environment = dict(command[i + 1].split('=', 1)
+                                       for i, part in enumerate(command) if part == '-e')
+                    with patch.dict(os.environ, environment, clear=True):
+                        profile, _, allowed = registered_policy(task, 'transformers_pipeline', 'cpu')
+                    assert (profile.profile_id) == (profile_id)
+                    assert (allowed) == (trust)
+                return subprocess.CompletedProcess(command, 0)
+            with patch('scripts.check_runtime.prepare_environment_image', return_value=image), patch(
+                'scripts.check_runtime.subprocess.run', side_effect=run,
+            ):
+                assert (main(['--profile', profile_id, '--test-pattern', 'test_fixture.py',
+                                       '--output-dir', directory])) == (0)
 
-    def test_cleanup_failure_does_not_swallow_unexpected_exception_or_interrupt(self):
+    @pytest.mark.parametrize('error_case', range(2), ids=["TypeError('invalid runtime result')", 'KeyboardInterrupt()'])
+    def test_cleanup_failure_does_not_swallow_unexpected_exception_or_interrupt(self, error_case):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})
-        for error in (TypeError('invalid runtime result'), KeyboardInterrupt()):
-            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temporary, patch(
-                'scripts.check_runtime.prepare_environment_image', return_value=image,
-            ), patch('scripts.check_runtime.subprocess.run', side_effect=[
-                error, subprocess.CompletedProcess([], 1, stderr='cleanup unavailable'),
-            ]):
-                with self.assertRaises(type(error)):
-                    main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary])
-                result = json.loads((Path(temporary) / 'runtime.json').read_text())
-                self.assertFalse(result['successful'])
-                self.assertFalse(result['cleanup']['successful'])
+        error = tuple((TypeError('invalid runtime result'), KeyboardInterrupt()))[error_case]
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.check_runtime.prepare_environment_image', return_value=image,
+        ), patch('scripts.check_runtime.subprocess.run', side_effect=[
+            error, subprocess.CompletedProcess([], 1, stderr='cleanup unavailable'),
+        ]):
+            with pytest.raises(type(error)):
+                main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary])
+            result = json.loads((Path(temporary) / 'runtime.json').read_text())
+            assert not (result['successful'])
+            assert not (result['cleanup']['successful'])
 
     def test_cleanup_failure_marks_successful_validation_failed(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -61,21 +80,21 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
             subprocess.CompletedProcess([], 0),
             subprocess.CompletedProcess([], 1, stderr='cleanup unavailable'),
         ]):
-            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary]), 1)
+            assert (main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary])) == (1)
             result = json.loads((Path(temporary) / 'runtime.json').read_text())
-            self.assertFalse(result['successful'])
-            self.assertFalse(result['cleanup']['successful'])
+            assert not (result['successful'])
+            assert not (result['cleanup']['successful'])
 
-    def test_onnx_environment_guard_rejects_installed_torch_or_transformers(self):
-        for forbidden in ('torch', 'transformers'):
-            with self.subTest(package=forbidden), patch('importlib.util.find_spec',
-                    side_effect=lambda name: object() if name == forbidden else None):
-                with self.assertRaisesRegex(AssertionError, forbidden + ' must not be installed'):
-                    exec(ONNX_ENVIRONMENT_CHECK, {})
+    @pytest.mark.parametrize('forbidden', ('torch', 'transformers'))
+    def test_onnx_environment_guard_rejects_installed_torch_or_transformers(self, forbidden):
+        with patch('importlib.util.find_spec',
+                side_effect=lambda name: object() if name == forbidden else None):
+            with pytest.raises(AssertionError, match=forbidden + ' must not be installed'):
+                exec(ONNX_ENVIRONMENT_CHECK, {})
 
     def test_onnx_environment_guard_rejects_missing_dependencies(self):
         with patch('importlib.util.find_spec', return_value=None):
-            with self.assertRaisesRegex(AssertionError, 'required ONNX dependency missing: onnx'):
+            with pytest.raises(AssertionError, match='required ONNX dependency missing: onnx'):
                 exec(ONNX_ENVIRONMENT_CHECK, {})
 
     def test_timeout_fails_and_removes_named_container(self):
@@ -86,14 +105,14 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
         ), patch('scripts.check_runtime.subprocess.run', side_effect=[
             subprocess.TimeoutExpired(['docker', 'run'], 1), subprocess.CompletedProcess([], 0),
         ]) as run:
-            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--timeout-seconds', '1',
-                                   '--output-dir', temporary]), 1)
+            assert (main(['--profile', 'onnxruntime-cpu', '--timeout-seconds', '1',
+                                   '--output-dir', temporary])) == (1)
             first = run.call_args_list[0].args[0]
             name = first[first.index('--name') + 1]
-            self.assertEqual(run.call_args_list[-1].args[0], ['docker', 'rm', '-f', name])
+            assert (run.call_args_list[-1].args[0]) == (['docker', 'rm', '-f', name])
             result = json.loads((Path(temporary) / 'runtime.json').read_text())
-            self.assertFalse(result['successful'])
-            self.assertIn('timeout', result['error'])
+            assert not (result['successful'])
+            assert ('timeout') in (result['error'])
 
     def test_failed_required_tests_block_e2e_and_success(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -107,10 +126,10 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
         ), patch('scripts.check_runtime.subprocess.run', side_effect=execute), patch(
             'scripts.check_onnx_basic.run_basic_e2e',
         ) as e2e:
-            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--basic-e2e',
-                                   '--output-dir', temporary]), 1)
+            assert (main(['--profile', 'onnxruntime-cpu', '--basic-e2e',
+                                   '--output-dir', temporary])) == (1)
             e2e.assert_not_called()
-            self.assertFalse(json.loads((Path(temporary) / 'runtime.json').read_text())['successful'])
+            assert not (json.loads((Path(temporary) / 'runtime.json').read_text())['successful'])
 
     def test_cleanup_timeout_preserves_failure_report(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -121,11 +140,11 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
             subprocess.TimeoutExpired(['docker', 'run'], 1),
             subprocess.TimeoutExpired(['docker', 'rm'], 30),
         ]):
-            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary]), 1)
+            assert (main(['--profile', 'onnxruntime-cpu', '--output-dir', temporary])) == (1)
             result = json.loads((Path(temporary) / 'runtime.json').read_text())
-            self.assertFalse(result['successful'])
-            self.assertIn('validation timeout', result['error'])
-            self.assertFalse(result['cleanup']['successful'])
+            assert not (result['successful'])
+            assert ('validation timeout') in (result['error'])
+            assert not (result['cleanup']['successful'])
 
     def test_basic_e2e_requires_all_three_task_families_to_succeed(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -136,45 +155,44 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
             'scripts.check_onnx_basic.run_basic_e2e',
             side_effect=lambda *args, scenario='tabular', **kwargs: {'successful': scenario != 'image'},
         ) as e2e:
-            self.assertEqual(main(['--profile', 'onnxruntime-cpu', '--basic-e2e',
-                                   '--output-dir', temporary]), 1)
-            self.assertEqual([call.kwargs['scenario'] for call in e2e.call_args_list],
-                             ['tabular', 'image', 'text'])
+            assert (main(['--profile', 'onnxruntime-cpu', '--basic-e2e',
+                                   '--output-dir', temporary])) == (1)
+            assert ([call.kwargs['scenario'] for call in e2e.call_args_list]) == (['tabular', 'image', 'text'])
 
-    def test_onnx_profile_defaults_to_required_onnx_tests_and_forbids_torch(self):
+    @pytest.mark.parametrize('profile', ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'))
+    def test_onnx_profile_defaults_to_required_onnx_tests_and_forbids_torch(self, profile):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})
-        for profile in ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'):
-            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as temporary, patch(
-                'scripts.check_runtime.prepare_environment_image', return_value=image,
-            ), patch('scripts.check_runtime.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as run:
-                code = main(['--profile', profile, '--output-dir', temporary])
-                self.assertEqual(code, 0)
-                commands = [call.args[0] for call in run.call_args_list]
-                tests = next(command for command in commands if 'scripts/run_tests.py' in command)
-                for pattern in ('test_onnx_runtime_optional.py', 'test_onnx_tasks_runtime.py',
-                                'test_request_completion.py', 'test_onnx_server_runtime.py'):
-                    self.assertIn(pattern, tests)
-                self.assertIn('--require-no-skips', tests)
-                guard = next(command for command in commands if '-c' in command)
-                self.assertIn("'torch'", guard[-1])
-                self.assertIn("'transformers'", guard[-1])
-                self.assertIn("'onnxruntime'", guard[-1])
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.check_runtime.prepare_environment_image', return_value=image,
+        ), patch('scripts.check_runtime.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as run:
+            code = main(['--profile', profile, '--output-dir', temporary])
+            assert (code) == (0)
+            commands = [call.args[0] for call in run.call_args_list]
+            tests = next(command for command in commands if 'scripts/run_tests.py' in command)
+            for pattern in ('test_onnx_runtime_optional.py', 'test_onnx_tasks_runtime.py',
+                            'test_request_completion.py', 'test_onnx_server_runtime.py'):
+                assert (pattern) in (tests)
+            assert ('--require-no-skips') in (tests)
+            guard = next(command for command in commands if '-c' in command)
+            assert ("'torch'") in (guard[-1])
+            assert ("'transformers'") in (guard[-1])
+            assert ("'onnxruntime'") in (guard[-1])
 
-    def test_each_onnx_profile_build_only_records_dependencies_without_claiming_tests(self):
+    @pytest.mark.parametrize('profile', ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'))
+    def test_each_onnx_profile_build_only_records_dependencies_without_claiming_tests(self, profile):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})
-        for profile in ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'):
-            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as temporary, patch(
-                'scripts.check_runtime.prepare_environment_image', return_value=image,
-            ), patch('scripts.check_runtime.subprocess.run') as run:
-                self.assertEqual(main(['--profile', profile, '--build-only', '--output-dir', temporary]), 0)
-                run.assert_not_called()
-                result = json.loads((Path(temporary) / 'runtime.json').read_text())
-                self.assertTrue(result['successful'])
-                self.assertEqual(result['validation_scope'], 'dependencies')
-                self.assertEqual(result['test_patterns'], [])
-                self.assertIsNone(result['device'])
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'scripts.check_runtime.prepare_environment_image', return_value=image,
+        ), patch('scripts.check_runtime.subprocess.run') as run:
+            assert (main(['--profile', profile, '--build-only', '--output-dir', temporary])) == (0)
+            run.assert_not_called()
+            result = json.loads((Path(temporary) / 'runtime.json').read_text())
+            assert (result['successful'])
+            assert (result['validation_scope']) == ('dependencies')
+            assert (result['test_patterns']) == ([])
+            assert (result['device']) is None
 
     def test_explicit_patterns_override_family_default_and_are_recorded(self):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -184,24 +202,20 @@ class RuntimeCheckSelectionTests(unittest.TestCase):
         ), patch('scripts.check_runtime.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as run:
             code = main(['--profile', 'onnxruntime-cpu', '--test-pattern', 'test_custom_runtime.py',
                          '--test-pattern', 'test_custom_validation.py', '--output-dir', temporary])
-            self.assertEqual(code, 0)
+            assert (code) == (0)
             command = next(call.args[0] for call in run.call_args_list
                            if 'scripts/run_tests.py' in call.args[0])
-            self.assertIn('test_custom_runtime.py', command)
-            self.assertIn('test_custom_validation.py', command)
-            self.assertNotIn('test_structured_runtime.py', command)
+            assert ('test_custom_runtime.py') in (command)
+            assert ('test_custom_validation.py') in (command)
+            assert ('test_structured_runtime.py') not in (command)
             result = json.loads((Path(temporary) / 'runtime.json').read_text())
-            self.assertEqual(result['test_patterns'], ['test_custom_runtime.py', 'test_custom_validation.py'])
+            assert (result['test_patterns']) == (['test_custom_runtime.py', 'test_custom_validation.py'])
 
     def test_build_only_cannot_claim_test_pattern_validation(self):
         with tempfile.TemporaryDirectory() as temporary, patch(
             'scripts.check_runtime.prepare_environment_image',
-        ) as build, redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+        ) as build, redirect_stderr(io.StringIO()), pytest.raises(SystemExit) as error:
             main(['--profile', 'onnxruntime-cpu', '--build-only', '--test-pattern', 'test_custom.py',
                   '--output-dir', temporary])
-        self.assertEqual(error.exception.code, 2)
+        assert (error.value.code) == (2)
         build.assert_not_called()
-
-
-if __name__ == '__main__':
-    unittest.main()
