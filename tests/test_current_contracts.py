@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.artifacts import read_static_metadata
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
 from acprof.host.dependency_images import runtime_fingerprint
 from acprof.host.profiler_support import load_input_scale_plan_entries
@@ -116,6 +117,43 @@ def test_packet_flat_map_is_rejected():
         _request_records({"request-1": 0.25})
     assert (_request_records({"schema_version": 2, "requests": {
         "request-1": {"latency_s": 0.25}}})) == ({"request-1": {"latency_s": 0.25}})
+
+def test_missing_static_metadata_preserves_optional_and_required_semantics():
+    with tempfile.TemporaryDirectory() as temporary:
+        assert (read_static_metadata(temporary)) == ({})
+        with pytest.raises(FileNotFoundError):
+            read_static_metadata(temporary, required=True)
+
+
+@pytest.mark.parametrize(
+    "content,error",
+    (
+        (b"[]", "object"),
+        (b'{"schema_version": 7, "value": NaN}', "non-finite"),
+        (b'{"schema_version": 7, "value": Infinity}', "non-finite"),
+        (b'{"schema_version": 7, "value": -Infinity}', "non-finite"),
+        (b'{"schema_version": 7, "value": 1e999}', "non-finite"),
+        (b"\xff", "invalid static metadata JSON"),
+    ),
+)
+def test_static_metadata_rejects_non_object_or_invalid_json_without_rewriting(content, error):
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "static_meta.json"
+        path.write_bytes(content)
+        with pytest.raises(ValueError, match=error):
+            read_static_metadata(temporary)
+        assert (path.read_bytes()) == (content)
+
+
+def test_static_metadata_read_is_bounded_without_rewriting():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "static_meta.json"
+        content = b" " * (4 * 1024 * 1024 + 1)
+        path.write_bytes(content)
+        with pytest.raises(ValueError, match="4 MiB"):
+            read_static_metadata(temporary)
+        assert (path.stat().st_size) == (len(content))
+
 
 def test_legacy_csv_fields_and_static_csv_fail_without_rewriting():
     with tempfile.TemporaryDirectory() as temporary:

@@ -528,8 +528,10 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `execution_profiles_retained` | raw Massif / Nsight Systems artifacts 是否保留。 |
 | `execution_profile_provenance` | execution profile 的来源；默认关闭时为 `disabled`。 |
 
-`static_meta.json` 只接受 schema v7；旧版本或缺失版本直接报错。当前完整 cache artifacts 大小
-字段为 `model_cache_bytes`，不读取旧 `model_weight_bytes`。采集/修复记录独立写入
+`static_meta.json` 只接受 schema v7；旧版本或缺失版本直接报错。读取端最多接收 4 MiB 的
+UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字。可选读取只在文件不存在时
+返回空对象；文件存在但超限、损坏或类型错误时仍严格报错且不改写原件。当前完整 cache artifacts
+大小字段为 `model_cache_bytes`，不读取旧 `model_weight_bytes`。采集/修复记录独立写入
 `collection_history.json`，不从旧静态元数据补造 swap、cgroup 或运行环境信息。
 
 `runtime_environment` 继续使用 schema v1。新服务镜像构建时增加以下身份字段，保持原有包版本、
