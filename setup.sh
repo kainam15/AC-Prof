@@ -101,7 +101,7 @@ printf '[setup] GPU 和 full 按需检查：'
 printf '%q ' "$acprof_command" doctor --profiling-mode full --gpus on
 printf '\n'
 if "$path_updated"; then
-    printf '[setup] 后续可在新终端使用 acprof。\n'
+    printf '[setup] 后续可在新终端使用 acprof tui 启动界面。\n'
 fi
 printf '[setup] 当前终端可执行以下完整路径命令：\n  '
 printf '%q ' "$acprof_command" "${tui_arguments[@]}"
