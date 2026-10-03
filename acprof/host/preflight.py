@@ -358,7 +358,7 @@ def require_cpu_energy_prerequisites() -> Capability:
         "sudo tee /etc/tmpfiles.d/acprof-rapl.conf\n"
         "  sudo systemd-tmpfiles --create /etc/tmpfiles.d/acprof-rapl.conf\n\n"
         "After fixing permissions, rerun AC-Prof as your normal user. Avoid "
-        "`sudo python run.py ...` because it can leave result files owned by root.",
+        "`sudo acprof run ...` because it can leave result files owned by root.",
         file=sys.stderr,
     )
     sys.exit(1)

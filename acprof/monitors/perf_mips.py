@@ -358,7 +358,7 @@ def _friendly_mips_error(detail: str, *, perf_path: str | None = None,
         "restricted to the profiling group. See docs/Getting_Started.md#最小权限安装.\n"
         "  3. Log in again after group membership changes, then rerun acprof doctor.\n\n"
         "After fixing permissions, rerun AC-Prof as your normal user. Avoid "
-        "`sudo python run.py ...` because it can leave result files owned by root."
+        "`sudo acprof run ...` because it can leave result files owned by root."
     )
 
 

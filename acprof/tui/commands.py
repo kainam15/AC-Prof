@@ -212,29 +212,14 @@ def build_profile_command(
     return command
 
 
-def format_command(command: Sequence[str], *, project_dir: Path | None = None) -> str:
+def format_command(command: Sequence[str]) -> str:
     """Return a shell-safe, readable command preview."""
     display = list(command)
-    if project_dir is not None:
-        project_dir = project_dir.resolve()
-        for index, item in enumerate(display):
-            # Only entry-point names can be shortened. Resolving every flag,
-            # numeric value and model ID needlessly touches the filesystem on
-            # each form edit (and may be slow for paths on remote storage).
-            if Path(item).name not in {"run.py", "probe.py", "plot.py", "profile.py", "stats.py"}:
-                continue
-            try:
-                item_path = Path(item).resolve()
-            except (OSError, RuntimeError, ValueError):
-                continue
-            if item_path.parent == project_dir and item_path.name in {
-                "run.py",
-                "probe.py",
-                "plot.py",
-                "profile.py",
-                "stats.py",
-            }:
-                display[index] = item_path.name
+    # Child processes use this interpreter; users copy the public console command.
+    if display[1:4] == ["-u", "-m", "acprof"]:
+        display = ["acprof", *display[4:]]
+    elif getattr(sys, "frozen", False) and display and display[0] == sys.executable:
+        display = ["acprof", *display[1:]]
     return shlex.join(display)
 
 

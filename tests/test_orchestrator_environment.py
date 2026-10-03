@@ -441,7 +441,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 batch_size=1,
                 input_scale_type="seq_length",
-                run_command="python run.py --model google-bert/bert-base-uncased",
+                run_command="acprof run --model google-bert/bert-base-uncased",
                 cgroup_version="v2",
                 cgroup_collection_mode="strict_v2",
             )
@@ -451,7 +451,7 @@ class DetectEnvironmentTests(unittest.TestCase):
                 batch_size=1,
                 input_scale_type="seq_length",
                 run_command=(
-                    "python run.py --model google-bert/bert-base-uncased "
+                    "acprof run --model google-bert/bert-base-uncased "
                     "--compute-profile-tool none"
                 ),
                 compute_profile_enabled=False,
@@ -480,7 +480,7 @@ class DetectEnvironmentTests(unittest.TestCase):
         self.assertIsNot(meta.model_resolution, task_info.model_resolution)
         self.assertEqual(
             meta.run_command,
-            "python run.py --model google-bert/bert-base-uncased",
+            "acprof run --model google-bert/bert-base-uncased",
         )
         self.assertEqual(meta.gpu_mem_total_bytes, 987654321)
         self.assertEqual(meta.host_mem_total_bytes, 64_000_000_000)
@@ -574,7 +574,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             image_tag="image",
             batch_size=1,
             input_scale_type="seq_length",
-            run_command="python run.py",
+            run_command="acprof run",
             model_download_url="https://example.invalid/model",
             gpu="GPU",
             gpu_mem_total_bytes=123,
@@ -649,7 +649,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             image_tag="image",
             batch_size=1,
             input_scale_type="seq_length",
-            run_command="python run.py --model model",
+            run_command="acprof run --model model",
             model_download_url="https://example.invalid/model",
             gpu="GPU",
             gpu_mem_total_bytes=123,
@@ -734,7 +734,7 @@ class DetectEnvironmentTests(unittest.TestCase):
             image_tag="image",
             batch_size=1,
             input_scale_type="seq_length",
-            run_command="python run.py",
+            run_command="acprof run",
             model_download_url="https://example.invalid/model",
             gpu="GPU",
             gpu_mem_total_bytes=123,

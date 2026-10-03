@@ -303,7 +303,7 @@ class RuntimeValidationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             stack.enter_context(patch.object(sys, 'argv', [
-                'run.py', '--model', self.task().model_id, '--cpus', '1', '--mems', '8',
+                'acprof run', '--model', self.task().model_id, '--cpus', '1', '--mems', '8',
                 '--gpus', 'off,on', '--input-scales', '1', '--notify', 'none', '--output-dir', temporary,
             ]))
             for name in (

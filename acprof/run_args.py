@@ -26,10 +26,10 @@ def build_parser(*, default_notify_provider: str = "auto", automatic: bool = Fal
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run.py --model bert-base-uncased
-  python run.py --model google/vit-base-patch16-224 --cpus 1,2 --mems 4,8 --gpus off
-  python run.py --model amazon/chronos-bolt-base --task-family timeseries --backend chronos
-  python run.py --model stable-diffusion-v1-5/stable-diffusion-v1-5 --gpus on
+  acprof run --model bert-base-uncased
+  acprof run --model google/vit-base-patch16-224 --cpus 1,2 --mems 4,8 --gpus off
+  acprof run --model amazon/chronos-bolt-base --task-family timeseries --backend chronos
+  acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 --gpus on
         """,
     )
 

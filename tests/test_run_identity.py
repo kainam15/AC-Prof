@@ -30,12 +30,13 @@ class RunIdentityTests(unittest.TestCase):
     def test_input_asset_changes_identity_but_ui_changes_do_not(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for relative in ("acprof/host/client.py", "acprof/tui/i18n.py", "assets/audio/input.wav"):
+            for relative in ("acprof/host/client.py", "acprof/tui/i18n.py", "acprof/cli/plot.py", "assets/audio/input.wav"):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"original")
             identity = run_state.host_identity(root)
             (root / "acprof/tui/i18n.py").write_bytes(b"new translation")
+            (root / "acprof/cli/plot.py").write_bytes(b"new presentation")
             self.assertEqual(identity, run_state.host_identity(root))
             (root / "assets/audio/input.wav").write_bytes(b"new samples")
             self.assertNotEqual(identity, run_state.host_identity(root))

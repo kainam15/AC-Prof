@@ -19,7 +19,7 @@ SAVE_PNG = True
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in {"-h", "--help"}:
-        print("usage: plot.py [result_csv]")
+        print("usage: acprof plot [result_csv]")
         print()
         print("Plot AC-Prof result CSV files.")
         print()

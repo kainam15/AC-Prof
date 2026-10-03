@@ -110,7 +110,7 @@ class CatalogActions(MessagePump):
                 message('尚无结果 CSV；保留的实验状态与失败证据：\n{0}', experiment_choice(record).detail))
 
     def _resume_experiment(self: AcprofTui, record: ExperimentRecord) -> None:
-        from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
+        from acprof.tui.app import PYTHON_EXECUTABLE
         try:
             command = resume_command(record, python_executable=PYTHON_EXECUTABLE)
             config = config_from_record(record, reuse=False)
@@ -120,7 +120,7 @@ class CatalogActions(MessagePump):
             self.notify(str(exc), severity='error')
             return
         self._pending_launch = PendingLaunch(command, 'run', config, result_dir=str(record.directory))
-        preview = format_command(command, project_dir=PROJECT_DIR)
+        preview = format_command(command)
         self._set_text(self.query_one('#command-preview', Static), preview)
         self.push_screen(ConfirmActionScreen('继续未完成实验',
             message('将使用冻结配置续跑。后端会核对主机、依赖、源码、输入与已有产物；不兼容时必须创建新实验。\n\n{0}', preview),

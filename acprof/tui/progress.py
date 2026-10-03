@@ -89,7 +89,7 @@ class ProgressSnapshot:
 
 
 class RunProgressTracker:
-    """Translate stable run.py log markers into low-frequency UI state."""
+    """Translate stable acprof run log markers into low-frequency UI state."""
 
     def __init__(self, *, structured: bool = False) -> None:
         self._structured = structured

@@ -147,7 +147,7 @@ class RunRecoveryTests(unittest.TestCase):
         )
         with ExitStack() as stack:
             stack.enter_context(patch.object(sys, "argv", [
-                "run.py", "--model", "org/model", "--cpus", "1,2", "--mems", "4",
+                "acprof run", "--model", "org/model", "--cpus", "1,2", "--mems", "4",
                 "--gpus", "off", "--input-scales", "64", "--warmup", "0", "--repeat", "1",
                 "--repeat-in-window", "1", "--notify", "none", "--no-prune-startup-oom",
                 "--output-dir", str(self.root), "--matrix-order", "declared", *extra,

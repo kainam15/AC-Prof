@@ -9,6 +9,7 @@ from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
+from acprof.installation import cli_command
 from acprof.tui.commands import format_command
 from acprof.tui.progress import ProgressSnapshot
 
@@ -88,6 +89,8 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.12)
                 self.assertEqual(collect.call_count, 1)
             preview = str(app.query_one("#command-preview", Static).render())
+            self.assertEqual(shlex.split(str(app.query_one("#command-preview", Static).content))[:2],
+                             ["acprof", "run"])
             self.assertIn("--cpus 1,3", preview)
             self.assertIn("--model demo/latest", preview)
             self.assertEqual(app.query_one("#run-preset", Select).value, "smoke")
@@ -149,19 +152,22 @@ class TuiInteractionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CommandPreviewTests(unittest.TestCase):
-    def test_preview_only_resolves_entrypoint_paths_and_preserves_shell_arguments(self):
-        command = [
-            str(PROJECT_DIR / ".venv/bin/python"), "-u", str(PROJECT_DIR / "run.py"),
+    def test_preview_uses_public_cli_without_resolving_argument_paths(self):
+        arguments = [
             "--model", "demo/model", "--output-dir", "/remote mount/results;literal",
             "--input-scales", "64,128",
         ]
-        original_resolve = Path.resolve
-        with patch.object(Path, "resolve", autospec=True, side_effect=original_resolve) as resolve:
-            preview = format_command(command, project_dir=PROJECT_DIR)
-        self.assertEqual(resolve.call_count, 2)
-        expected = command.copy()
-        expected[2] = "run.py"
-        self.assertEqual(shlex.split(preview), expected)
+        for name in ("run", "probe", "plot", "profile", "stats", "audit"):
+            for frozen in (False, True):
+                with self.subTest(name=name, frozen=frozen), patch("sys.frozen", frozen, create=True):
+                    command = [*cli_command(name), *arguments]
+                    with patch.object(Path, "resolve", side_effect=AssertionError("filesystem access")):
+                        preview = format_command(command)
+                    self.assertEqual(shlex.split(preview), ["acprof", name, *arguments])
+
+    def test_preview_preserves_non_cli_commands(self):
+        command = ["docker", "inspect", "an image;literal"]
+        self.assertEqual(shlex.split(format_command(command)), command)
 
 
 if __name__ == "__main__":

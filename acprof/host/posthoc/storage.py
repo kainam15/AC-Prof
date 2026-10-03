@@ -277,35 +277,26 @@ def find_active_processes(
             continue
         command = " ".join(args)
         executable = Path(args[0]).name.lower()
-        profiler_process = executable not in {"bash", "sh", "dash", "zsh"} and any(
+        cli_subcommand = next((subcommand for program, subcommand in zip(args[:4], args[1:5])
+                               if Path(program).name.startswith("acprof")
+                               and subcommand in {"run", "profile"}), "")
+        profiler_process = executable not in {"bash", "sh", "dash", "zsh"} and (bool(cli_subcommand) or any(
             marker in command
             for marker in (
-                "run.py",
                 "acprof.cli.run",
-                "acprof run",
                 "compute_profile_runner",
                 " ncu ",
                 "/ncu ",
                 "nsys",
                 "massif",
-                "posthoc.py",
-                "profile.py",
                 "acprof.cli.posthoc",
-                "acprof profile",
             )
-        )
+        ))
         direct_match = str(expected) in command and profiler_process
         run_match = False
         if model_id and _option_value(args, "--model") == model_id:
-            is_run_command = any(
-                Path(arg).name == "run.py" for arg in args
-            ) or (
+            is_run_command = cli_subcommand == "run" or (
                 "-m" in args and "acprof.cli.run" in args
-            ) or (
-                "-m" in args and "acprof" in args and "run" in args
-            ) or (
-                any(Path(program).name.startswith("acprof") and command == "run"
-                    for program, command in zip(args[:3], args[1:4]))
             )
             if is_run_command:
                 output_root = _option_value(args, "--output-dir") or "results"

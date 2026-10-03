@@ -172,7 +172,7 @@ class PosthocProfileTests(unittest.TestCase):
             "batch_size": 1,
             "input_scale_type": "seq_length",
             "input_scale_plan_sha256": plan_hash,
-            "run_command": "python run.py --model example/model",
+            "run_command": "acprof run --model example/model",
             "compute_profile_tools": (
                 ["torch_profiler_eager"] if torch_complete else []
             ),
@@ -760,7 +760,7 @@ class PosthocProfileTests(unittest.TestCase):
             self._write_fixture(root)
             with patch(
                 "acprof.host.posthoc.service.find_active_processes",
-                return_value=[(123, "python run.py --model example/model")],
+                return_value=[(123, "acprof run --model example/model")],
             ):
                 with self.assertRaisesRegex(posthoc.PosthocError, "still using"):
                     posthoc.run_posthoc(root)

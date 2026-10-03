@@ -46,7 +46,7 @@ class MultimodalIntegrationTests(unittest.TestCase):
                 model_name="example/model", model_revision="rev", task_family="multimodal",
                 pipeline_tag="image-text-to-text", runtime_backend="transformers_model",
                 image_tag="test-image", batch_size=1, input_scale_type="media_scale",
-                run_command="original command", model_download_url="", gpu="unknown",
+                run_command="acprof run --model org/model", model_download_url="", gpu="unknown",
                 gpu_mem_total_bytes=None, model_cache_bytes=0, docker_image_bytes=0,
                 environment="test", cpu_power_source="unavailable", vcpu_power_method="unavailable",
                 cpu_governor="unknown", cpu_boost="unknown",
@@ -54,7 +54,7 @@ class MultimodalIntegrationTests(unittest.TestCase):
             enriched = enrich_static_meta_from_input_plan(static, planned)
             self.assertEqual(enriched.input_scale_type, "resolution_px")
             self.assertEqual(enriched.input_scale_plan_sha256, planned.plan_sha256)
-            self.assertEqual(enriched.run_command, "original command")
+            self.assertEqual(enriched.run_command, "acprof run --model org/model")
 
     def test_io_contract_describes_multimodal_request_and_retrieval_summary(self):
         inputs, outputs = _model_io_formats(info("visual-document-retrieval"))

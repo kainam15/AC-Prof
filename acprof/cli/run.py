@@ -2,9 +2,9 @@
 """AC-Prof - One-click HuggingFace model profiling.
 
 Usage:
-    python run.py --model bert-base-uncased
-    python run.py --model google/vit-base-patch16-224 --cpus 1,2 --mems 4,8 --gpus off
-    python run.py --model amazon/chronos-bolt-base --task-family timeseries --backend chronos
+    acprof run --model bert-base-uncased
+    acprof run --model google/vit-base-patch16-224 --cpus 1,2 --mems 4,8 --gpus off
+    acprof run --model amazon/chronos-bolt-base --task-family timeseries --backend chronos
 """
 from __future__ import annotations
 

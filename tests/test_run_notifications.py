@@ -36,7 +36,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             model_id="org/model",
             output_dir="/tmp/results/org--model",
             started_at=time.perf_counter() - 1.0,
-            run_command="python run.py --model org/model",
+            run_command="acprof run --model org/model",
             total_cases=total_cases,
         )
 
@@ -68,7 +68,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 model_id="org/model",
                 output_dir="/tmp/results/org--model",
                 started_at=time.perf_counter(),
-                run_command="python run.py --model org/model",
+                run_command="acprof run --model org/model",
             )
 
         from_env.assert_called_once_with()
@@ -86,7 +86,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
                 model_id="org/model",
                 output_dir="/tmp/results/org--model",
                 started_at=time.perf_counter(),
-                run_command="python run.py --model org/model",
+                run_command="acprof run --model org/model",
             )
 
         self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION)
@@ -105,14 +105,14 @@ class RunNotificationLifecycleTests(unittest.TestCase):
         self.assertEqual(len(captured), 1)
         event = captured[0]
         self.assertEqual(event.status, "started")
-        self.assertEqual(event.run_command, "python run.py --model org/model")
+        self.assertEqual(event.run_command, "acprof run --model org/model")
         self.assertIn("环境预检", event.detail)
         self.assertGreaterEqual(event.elapsed_seconds, 0.0)
         self.assertIsNone(run._ACTIVE_RUN_NOTIFICATION.event)
 
     def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self) -> None:
         argv = [
-            "run.py",
+            "acprof run",
             "--model",
             "org/model with space",
             "--cpus",
@@ -346,7 +346,7 @@ class RunNotificationLifecycleTests(unittest.TestCase):
             sys,
             "argv",
             [
-                "run.py", "--model", "org/requested-model", "--skip-build",
+                "acprof run", "--model", "org/requested-model", "--skip-build",
                 "--compute-profile-tool", "both", "--execution-profile-tool", "both",
                 "--cpus", "1", "--mems", "4", "--gpus", "off,on",
                 "--notify", provider, "--output-dir", tmp_dir,

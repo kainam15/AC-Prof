@@ -9,18 +9,13 @@ from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.command import run_command
-from acprof.installation import cli_command
 
 TMUX_TERMINAL_LOG_FILENAME = "tmux_all.log"
 
 
 def format_run_command(argv: list[str]) -> str:
-    """Return a shell-safe command string matching the run.py invocation."""
-    if not argv:
-        return "python run.py"
-    if argv[0] == "acprof run":
-        return shlex.join([*cli_command("run"), *argv[1:]])
-    return shlex.join(["python", *argv])
+    """Record the public CLI with shell-safe arguments for logs and metadata."""
+    return shlex.join(["acprof", "run", *argv[1:]])
 
 
 def start_terminal_log(

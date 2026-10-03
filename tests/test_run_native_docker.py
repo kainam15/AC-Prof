@@ -23,7 +23,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
         ), patch("acprof.cli.terminal_log.run_command") as mock_run:
             terminal_log = run.start_terminal_log(
                 "/tmp/acprof-results",
-                ["run.py", "--model", "dummy-model"],
+                ["acprof run", "--model", "dummy-model"],
             )
 
         self.assertIsNone(terminal_log)
@@ -54,7 +54,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             output_dir = os.path.join(tmp, "results", "org--model")
             terminal_log = run.start_terminal_log(
                 output_dir,
-                ["run.py", "--model", "org/model"],
+                ["acprof run", "--model", "org/model"],
             )
             self.assertIsNotNone(terminal_log)
             pane_id, partial_path, log_path = terminal_log
@@ -70,7 +70,7 @@ class TmuxTerminalLogTests(unittest.TestCase):
             with open(log_path, "r", encoding="utf-8") as f:
                 terminal_text = f.read()
 
-        self.assertIn("$ python run.py --model org/model", terminal_text)
+        self.assertIn("$ acprof run --model org/model", terminal_text)
         self.assertIn("experiment output", terminal_text)
         self.assertEqual(commands[0][1], "display-message")
         self.assertEqual(commands[1][1], "pipe-pane")
@@ -262,7 +262,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(
             sys,
             "argv",
-            ["acprof.cli.run.py", "--model", "dummy-model", "--allow-cgroup-v1"],
+            ["acprof run", "--model", "dummy-model", "--allow-cgroup-v1"],
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
@@ -311,7 +311,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(
             sys,
             "argv",
-            ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
+            ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
@@ -345,7 +345,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(
             sys,
             "argv",
-            ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
+            ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
@@ -490,7 +490,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(
             sys,
             "argv",
-            ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
+            ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
             "acprof.cli.run.require_collection_host",
             side_effect=RuntimeError("host guard called"),
@@ -508,7 +508,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         with patch.object(
             sys,
             "argv",
-            ["acprof.cli.run.py", "--model", "dummy-model", "--notify", "none"],
+            ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
             "acprof.cli.run.require_collection_host",
         ), patch(
@@ -522,7 +522,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         detect.assert_called_once()
 
     def test_main_runs_packet_latency_preflight_before_runtime_preparation(self) -> None:
-        with patch.object(sys, "argv", ["acprof.cli.run.py", "--model", "dummy-model"]), patch(
+        with patch.object(sys, "argv", ["acprof run", "--model", "dummy-model"]), patch(
             "acprof.cli.run.bootstrap_project_env",
             return_value=None,
         ), patch("acprof.cli.run.require_collection_host"), patch(
@@ -571,7 +571,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             sys,
             "argv",
             [
-                "acprof.cli.run.py",
+                "acprof run",
                 "--model",
                 "dummy-model",
                 "--skip-build",
@@ -663,7 +663,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             sys,
             "argv",
             [
-                "acprof.cli.run.py",
+                "acprof run",
                 "--model",
                 "dummy-model",
                 "--skip-build",
@@ -746,7 +746,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             sys,
             "argv",
             [
-                "acprof.cli.run.py",
+                "acprof run",
                 "--model",
                 "dummy-model",
                 "--request-timeout-seconds",
@@ -775,7 +775,7 @@ class NativeDockerGuardTests(unittest.TestCase):
             sys,
             "argv",
             [
-                "run.py",
+                "acprof run",
                 "--model",
                 "dummy-model",
                 "--skip-build",
@@ -840,7 +840,7 @@ class NativeDockerGuardTests(unittest.TestCase):
         _, kwargs = collect_static_meta.call_args
         self.assertEqual(
             kwargs["run_command"],
-            "python run.py --model dummy-model --skip-build --compute-profile-tool none "
+            "acprof run --model dummy-model --skip-build --compute-profile-tool none "
             "--cpus 1 --mems 2 --gpus off --output-dir "
             + tmp_dir,
         )

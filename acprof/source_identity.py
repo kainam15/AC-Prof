@@ -8,7 +8,8 @@ from typing import Iterable
 
 _SERVICE_DIRECTORIES = {"container", "extensions", "workloads"}
 _PRESENTATION_DIRECTORIES = {"tui", "plotting", "analysis"}
-_PRESENTATION_COMMANDS = {"tui.py", "plot.py", "stats.py", "audit.py", "compare.py"}
+# Internal source modules excluded from measurement identity, not launcher names.
+_PRESENTATION_CLI_MODULES = {"tui", "plot", "stats", "audit", "compare"}
 
 
 def _package_sources(root: Path) -> list[Path]:
@@ -25,7 +26,7 @@ def measurement_sources(root: str | Path) -> list[Path]:
         parts = path.relative_to(root / "acprof").parts
         if parts[0] in _PRESENTATION_DIRECTORIES:
             continue
-        if parts[0] == "cli" and path.name in _PRESENTATION_COMMANDS:
+        if parts[0] == "cli" and path.suffix == ".py" and path.stem in _PRESENTATION_CLI_MODULES:
             continue
         paths.append(path)
     # The built-in audio fixture and its provenance affect generated inputs.

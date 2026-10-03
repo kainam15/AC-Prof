@@ -62,7 +62,7 @@ class TaskSupportTests(unittest.TestCase):
                         stack.enter_context(redirect_stdout(io.StringIO()))
                         argv = ["--model", "example/caption-model", "--output-dir", tmp, "--skip-build", "--batch-size", str(batch_size)]
                         if module is run:
-                            stack.enter_context(patch.object(sys, "argv", ["run.py", *argv, "--notify", "none"]))
+                            stack.enter_context(patch.object(sys, "argv", ["acprof run", *argv, "--notify", "none"]))
                             with self.assertRaises(SystemExit) as caught:
                                 run.main()
                             code = caught.exception.code

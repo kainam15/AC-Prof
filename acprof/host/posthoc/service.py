@@ -101,7 +101,7 @@ def run_posthoc(
     if active:
         detail = "\n".join(f"  pid={pid}: {command}" for pid, command in active)
         raise PosthocError(
-            "run.py/profiler processes are still using this result directory; "
+            "acprof run/profiler processes are still using this result directory; "
             f"wait for them to finish:\n{detail}"
         )
 

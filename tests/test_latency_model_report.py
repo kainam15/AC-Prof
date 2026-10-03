@@ -198,7 +198,7 @@ class LatencyModelReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = self._write_fixture(tmp, self._rows())
 
-            with patch.object(sys, "argv", ["plot.py", csv_path]), patch.object(
+            with patch.object(sys, "argv", ["acprof plot", csv_path]), patch.object(
                 plotting_metrics,
                 'plot_metric',
             ), patch.object(plotting_metrics, 'plot_cold_start_bar'):

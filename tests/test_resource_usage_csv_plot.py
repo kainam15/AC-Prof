@@ -1431,7 +1431,7 @@ class ResourceUsageCsvPlotTests(unittest.TestCase):
             def capture_plot_metric(*_args, **kwargs):
                 out_pngs.append(os.path.basename(kwargs["out_png"]))
 
-            with patch.object(sys, "argv", ["plot.py", csv_path]), patch.object(
+            with patch.object(sys, "argv", ["acprof plot", csv_path]), patch.object(
                 plotting_metrics, 'plot_metric', side_effect=capture_plot_metric
             ), patch.object(
                 plotting_metrics,
@@ -1584,7 +1584,7 @@ class ResourceUsageCsvPlotTests(unittest.TestCase):
             def capture_plot_metric(*_args, **kwargs):
                 out_pngs.append(os.path.basename(kwargs["out_png"]))
 
-            with patch.object(sys, "argv", ["plot.py", csv_path]), patch.object(
+            with patch.object(sys, "argv", ["acprof plot", csv_path]), patch.object(
                 plotting_metrics,
                 'plot_metric_overview',
                 side_effect=capture_plot_metric,

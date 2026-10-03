@@ -105,7 +105,7 @@ class WeComNotificationTests(unittest.TestCase):
                 status="started",
                 elapsed_seconds=0.4,
                 run_command=(
-                    "python run.py --model 'org/model with space' "
+                    "acprof run --model 'org/model with space' "
                     f"--callback {WEBHOOK_URL}"
                 ),
                 total_cases=None,
@@ -119,7 +119,7 @@ class WeComNotificationTests(unittest.TestCase):
 
         self.assertIn("AC-Prof 实验开始", text)
         self.assertIn("状态：已启动", text)
-        self.assertIn("指令：python run.py --model 'org/model with space'", text)
+        self.assertIn("指令：acprof run --model 'org/model with space'", text)
         self.assertIn("正在执行环境预检", text)
         self.assertNotIn(WEBHOOK_KEY, text)
         self.assertIn("key=<redacted>", text)

@@ -1,4 +1,4 @@
-"""Compatibility entry point for profiler-only collection and backfill."""
+"""Public profile command for profiler-only collection and backfill."""
 from __future__ import annotations
 
 import argparse

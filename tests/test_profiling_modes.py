@@ -117,7 +117,7 @@ class ProfilingModeTests(unittest.TestCase):
     def test_basic_cli_does_not_probe_packet_rapl_or_perf(self):
         from acprof.cli import run
         with ExitStack() as stack:
-            stack.enter_context(patch.object(run.sys, "argv", ["run.py", "--model", "test", "--profiling-mode", "basic", "--notify", "none"]))
+            stack.enter_context(patch.object(run.sys, "argv", ["acprof run", "--model", "test", "--profiling-mode", "basic", "--notify", "none"]))
             for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker"):
                 stack.enter_context(patch.object(run, name))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))

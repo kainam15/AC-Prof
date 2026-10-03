@@ -84,7 +84,7 @@ def quick_preflight(
     project_dir: str | os.PathLike[str] | None = None,
     command_runner: Callable[..., subprocess.CompletedProcess[str]] = _completed_command,
 ) -> list[PreflightCheck]:
-    """Run read-only host checks; run.py remains the authoritative preflight."""
+    """Run read-only host checks; acprof run remains the authoritative preflight."""
     checks: list[PreflightCheck] = []
     environment = detect_environment()
     policy_error = collection_policy_error(environment, profiling_mode=config.profiling_mode,

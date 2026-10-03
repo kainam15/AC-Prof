@@ -722,7 +722,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             case_count, scale_summary, config.request_timeout_seconds,
             profiler_summary, config.output_dir,
         ))
-        self._set_text(self.query_one('#command-preview', Static), format_command(command, project_dir=PROJECT_DIR))
+        self._set_text(self.query_one('#command-preview', Static), format_command(command))
         if notify:
             self.notify("命令预览已更新", timeout=2)
         return True
@@ -875,7 +875,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         memory_text = ",".join(
             f"{value}GB" for value in memory_candidates
         )
-        preview = format_command(command, project_dir=PROJECT_DIR)
+        preview = format_command(command)
         self._pending_launch = PendingLaunch(tuple(command), "probe", config)
         self.push_screen(
             ConfirmActionScreen(
@@ -916,7 +916,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         except RunConfigError as exc:
             self._show_config_error(exc)
             return
-        preview = format_command(command, project_dir=PROJECT_DIR)
+        preview = format_command(command)
         self._set_text(self.query_one('#command-preview', Static), preview)
         self._pending_launch = PendingLaunch(tuple(command), "run", config)
         self.push_screen(
@@ -1008,7 +1008,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             self._elapsed_timer.stop()
         self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         log = self.query_one("#run-log", SelectableLog)
-        log.write(f"$ {format_command(pending.command, project_dir=PROJECT_DIR)}")
+        log.write(f"$ {format_command(pending.command)}")
         log.write(self.tr("[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。"))
         self._render_snapshot(self._latest_snapshot)
         self._execute_command(list(pending.command), pending.kind)
@@ -1074,7 +1074,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             child_env.pop("ACPROF_INTERACTIVE_PREPARATION", None)
             if kind == "run":
                 child_env["ACPROF_INTERACTIVE_PREPARATION"] = "1"
-            # run.py otherwise captures the entire full-screen pane, including
+            # acprof run otherwise captures the entire full-screen pane, including
             # ANSI redraws, when the TUI itself is launched inside tmux.
             child_env.pop("TMUX", None)
             child_env.pop("TMUX_PANE", None)
@@ -2046,7 +2046,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
                         "该操作会启动隔离 profiler，并在成功后原子回填现有结果。"
                         "原文件会按项目规则备份。\n\n"
                     ),
-                    format_command(command, project_dir=PROJECT_DIR),
+                    format_command(command),
                 )),
                 "执行补采",
                 variant="warning",

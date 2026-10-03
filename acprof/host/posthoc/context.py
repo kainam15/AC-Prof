@@ -196,7 +196,7 @@ def _load_json_object(path: Path, label: str) -> Dict[str, Any]:
 def _load_result_csv(path: Path) -> Tuple[List[str], List[Dict[str, str]], str]:
     if not path.is_file():
         raise PosthocError(
-            f"missing completed {RESULT_CSV_NAME}: {path}; wait for run.py to finish"
+            f"missing completed {RESULT_CSV_NAME}: {path}; wait for acprof run to finish"
         )
     encoding = _csv_encoding(path)
     with path.open("r", encoding=encoding, newline="") as f:

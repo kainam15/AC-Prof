@@ -72,7 +72,7 @@ class TuiCoreTests(unittest.TestCase):
             "300.0",
         )
         self.assertNotIn("--allow-cgroup-v1", command)
-        self.assertIn("acprof run", format_command(command, project_dir=PROJECT_DIR))
+        self.assertIn("acprof run", format_command(command))
 
     def test_probe_command_uses_matrix_bounds_without_collection_options(self):
         config = RunConfig(
@@ -105,7 +105,7 @@ class TuiCoreTests(unittest.TestCase):
         self.assertNotIn("--compute-profile-tool", command)
         self.assertNotIn("--request-timeout-seconds", command)
         self.assertNotIn("--timeout-seconds", command)
-        self.assertIn("acprof probe", format_command(command, project_dir=PROJECT_DIR))
+        self.assertIn("acprof probe", format_command(command))
 
     def test_invalid_matrix_is_rejected_before_launch(self):
         with self.assertRaises(RunConfigError) as context:
@@ -414,7 +414,7 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(slash_command.region.y - command_bar.region.y, 1)
             self.assertEqual(command_bar.region.bottom - slash_command.region.bottom, 1)
             preview = str(app.query_one("#command-preview", Static).render())
-            self.assertIn(sys.executable, preview)
+            self.assertTrue(preview.startswith("acprof run "), preview)
             self.assertIn("--warmup 0", preview)
             self.assertIn("--idle-seconds 0.0", preview)
             self.assertIn("--idle-cooldown-seconds 0.0", preview)

@@ -11,6 +11,21 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_repository_root_has_no_python_files(self):
+        self.assertEqual(sorted(path.name for path in PROJECT_DIR.glob("*.py")), [])
+        self.assertFalse((PROJECT_DIR / "acprof-tui").exists())
+
+    def test_cprofile_uses_the_standard_library_profile(self):
+        result = subprocess.run(
+            [sys.executable, "-c", (
+                "import cProfile, pathlib, profile, sysconfig; "
+                "assert pathlib.Path(profile.__file__).resolve() == "
+                "pathlib.Path(sysconfig.get_path('stdlib'), 'profile.py').resolve(); "
+                "assert cProfile.Profile().runcall(sum, [1, 2, 3]) == 6"
+            )], cwd=PROJECT_DIR, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_run_orchestrator_does_not_own_tmux_subprocesses(self):
         tree = ast.parse((PROJECT_DIR / "acprof/cli/run.py").read_text())
         tmux_commands = [node for node in ast.walk(tree)

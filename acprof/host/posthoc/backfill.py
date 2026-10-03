@@ -228,7 +228,7 @@ def _static_flops_from_compute_plan(
     metadata = plan.get("static_metadata")
     metadata = metadata if isinstance(metadata, Mapping) else {}
 
-    # Match the normal run.py metadata rule: prefer the GPU Torch profile when
+    # Match the normal acprof run metadata rule: prefer the GPU Torch profile when
     # present, otherwise use CPU. Logical FLOP is then keyed only by input scale.
     for profile_name in ("gpu", "cpu"):
         profile_group = profiles.get(profile_name)

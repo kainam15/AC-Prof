@@ -299,7 +299,7 @@ class PerfMIPSTests(unittest.TestCase):
         self.assertIn("perf_event_paranoid=4", message)
         self.assertIn("cap_perfmon=ep", message)
         self.assertNotIn("ACPROF_SUDO_PASSWORD", message)
-        self.assertIn("Avoid `sudo python run.py ...`", message)
+        self.assertIn("Avoid `sudo acprof run ...`", message)
 
 
 if __name__ == "__main__":
