@@ -12,6 +12,7 @@ import sysconfig
 import tarfile
 import tempfile
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 
@@ -20,6 +21,7 @@ def main(argv=None) -> int:
     parser.add_argument("--binary", type=Path, help="默认使用当前 Python 的已安装 acprof")
     parser.add_argument("--wheel", type=Path, help="检查 wheel 的资源、许可及排除规则")
     parser.add_argument("--sdist", type=Path, help="检查 sdist 的构建 hook 与根目录约束")
+    parser.add_argument("--expected-version", help="核对 wheel、sdist、安装 metadata 与 CLI 版本")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
     executable = args.binary.resolve() if args.binary else Path(sysconfig.get_path("scripts")) / (
@@ -29,16 +31,31 @@ def main(argv=None) -> int:
     if args.wheel:
         with zipfile.ZipFile(args.wheel) as archive:
             names = set(archive.namelist())
+            metadata_names = [name for name in names if name.endswith('.dist-info/METADATA')]
+            assert len(metadata_names) == 1, metadata_names
+            metadata = BytesParser().parsebytes(archive.read(metadata_names[0]))
+        assert metadata['Name'] == 'acprof', metadata['Name']
+        if args.expected_version:
+            assert metadata['Version'] == args.expected_version, metadata['Version']
         bundle = "acprof/_bundle/"
         for directory in ("acprof", "dockerfiles", "assets", "examples"):
             assert any(name.startswith(f"{bundle}{directory}/") for name in names), directory
         assert {bundle + name for name in ("LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt", ".dockerignore")} <= names
-        assert not any("AGENTS.md" in Path(name).parts or "__pycache__" in Path(name).parts
+        excluded = {"tests", "docs", ".git", ".github", ".codex", "AGENTS.md", "__pycache__"}
+        assert not any(excluded.intersection(Path(name).parts)
                        or Path(name).parts.count("_bundle") > 1 for name in names)
         evidence.append({"check": "wheel_contents", "path": str(args.wheel), "files": len(names)})
     if args.sdist:
         with tarfile.open(args.sdist) as archive:
             names = {Path(*Path(member.name).parts[1:]) for member in archive.getmembers() if member.isfile()}
+            metadata_members = [member for member in archive.getmembers()
+                                if len(Path(member.name).parts) == 2 and member.name.endswith('/PKG-INFO')]
+            assert len(metadata_members) == 1, metadata_members
+            with archive.extractfile(metadata_members[0]) as stream:
+                metadata = BytesParser().parsebytes(stream.read())
+        assert metadata['Name'] == 'acprof', metadata['Name']
+        if args.expected_version:
+            assert metadata['Version'] == args.expected_version, metadata['Version']
         assert Path("packaging/hatch_build.py") in names
         assert not any(len(name.parts) == 1 and (name.suffix == ".py" or name.name == "acprof-tui") for name in names)
         evidence.append({"check": "sdist_contents", "path": str(args.sdist), "files": len(names)})
@@ -58,11 +75,15 @@ def main(argv=None) -> int:
         if not args.binary:
             # Reject source/editable imports even if a .pth file bypasses PYTHONPATH isolation.
             origin = subprocess.run([sys.executable, "-I", "-c",
-                "import acprof,json,sys; from acprof.cli.main import COMMANDS; "
-                "print(json.dumps({'path':acprof.__file__,'prefix':sys.prefix,'commands':list(COMMANDS)}))"],
+                "import acprof,json,sys; from importlib.metadata import version; from acprof.cli.main import COMMANDS; "
+                "print(json.dumps({'path':acprof.__file__,'prefix':sys.prefix,'commands':list(COMMANDS),"
+                "'version':acprof.__version__,'metadata_version':version('acprof')}))"],
                 cwd=workspace, env=environment, text=True, capture_output=True, timeout=30, check=True)
             installed = json.loads(origin.stdout)
             assert Path(installed["path"]).resolve().is_relative_to(Path(installed["prefix"]).resolve()), installed
+            assert installed['version'] == installed['metadata_version'], installed
+            if args.expected_version:
+                assert installed['version'] == args.expected_version, installed
             evidence.append({"check": "installed_package_origin", "path": installed["path"]})
             commands = installed["commands"]
             # Exercise the same staging used by runtime_images, from installed resources.
@@ -87,7 +108,9 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         else:
             commands = ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto",
                         "coverage", "report", "compare", "load", "model-store")
-        run(["--version"])
+        version_result = run(["--version"])
+        if args.expected_version:
+            assert version_result.stdout.strip() == f'AC-Prof {args.expected_version}', version_result.stdout
         top_help = run(["--help"])
         assert "usage: acprof" in top_help.stdout
         for command in commands:

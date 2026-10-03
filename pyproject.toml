@@ -8,6 +8,18 @@ dynamic = ["version"]
 description = "Reproducible profiling of containerized Hugging Face inference services"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{name = "AC-Prof contributors"}]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Benchmark",
+]
 # The distribution includes the CC-BY-4.0 LibriSpeech excerpt described in NOTICE.
 license = "Apache-2.0 AND CC-BY-4.0"
 license-files = ["LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt"]
@@ -29,15 +41,21 @@ dependencies = [
 acprof = "acprof.cli.main:main"
 
 [project.urls]
+Homepage = "https://github.com/kainam15/AC-Prof"
+Documentation = "https://github.com/kainam15/AC-Prof/blob/main/docs/Getting_Started.md"
 Repository = "https://github.com/kainam15/AC-Prof"
 Issues = "https://github.com/kainam15/AC-Prof/issues"
+Changelog = "https://github.com/kainam15/AC-Prof/releases"
 
 [tool.hatch.version]
 path = "acprof/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["acprof"]
-exclude = ["**/AGENTS.md", "**/__pycache__", "**/*.pyc"]
+exclude = [
+    "**/AGENTS.md", "**/__pycache__", "**/*.pyc",
+    "**/tests", "**/docs", "**/.git", "**/.github", "**/.codex",
+]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 path = "packaging/hatch_build.py"

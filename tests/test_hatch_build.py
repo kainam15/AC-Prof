@@ -39,7 +39,10 @@ class BuildHookTests(unittest.TestCase):
                 "LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt",
             )
             for relative in (*resources, "acprof/AGENTS.md", "acprof/.env.local",
-                             "acprof/_bundle/stale.py", "acprof/__pycache__/stale.pyc"):
+                             "acprof/_bundle/stale.py", "acprof/__pycache__/stale.pyc",
+                             "acprof/tests/fixture.py", "acprof/docs/private.md",
+                             "acprof/.git/private.txt", "acprof/.github/workflow.md",
+                             "acprof/.codex/notes.md"):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(relative, encoding="utf-8")

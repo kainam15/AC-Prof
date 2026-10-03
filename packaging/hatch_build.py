@@ -16,10 +16,10 @@ class CustomBuildHook(BuildHookInterface):
         destination = Path(self.bundle.name)
         # Docker needs real Python source even when the host runs a frozen binary.
         suffixes = {".py", ".json", ".tcss", ".wav", ".md", ".txt", ".in", ".Dockerfile"}
+        excluded = {"AGENTS.md", "__pycache__", "_bundle", "tests", "docs", ".git", ".github", ".codex"}
         for directory in ("acprof", "dockerfiles", "assets", "examples"):
             for path in sorted((root / directory).rglob("*")):
-                if (not path.is_file() or path.name == "AGENTS.md"
-                        or "__pycache__" in path.parts or "_bundle" in path.parts
+                if (not path.is_file() or excluded.intersection(path.relative_to(root).parts)
                         or path.suffix not in suffixes):
                     continue
                 relative = path.relative_to(root).as_posix()
