@@ -8,12 +8,12 @@ loaded on the host; runtime compatibility is verified separately in containers.
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
+from acprof.host.model_errors import ModelLookupError, model_lookup_error
 
 
 @dataclass
@@ -422,7 +422,7 @@ def _diffusers_task_from_index(
 def _detect_from_hub(
     model_id: str,
     diagnostics: Optional[list[str]] = None,
-    *, revision: str | None = None,
+    *, revision: str | None = None, failures: list[Exception] | None = None,
 ) -> Optional[TaskInfo]:
     """Level 1: Query HuggingFace Hub API."""
     try:
@@ -433,6 +433,8 @@ def _detect_from_hub(
         info = HfApi(endpoint=hf_endpoints()[0]).model_info(model_id, **({"revision": revision} if revision else {}))
     except Exception as exc:
         _record_failure(diagnostics, "hub_api", _format_failure(exc))
+        if failures is not None:
+            failures.append(exc)
         return None
 
     pipeline_tag = getattr(info, "pipeline_tag", None)
@@ -494,7 +496,7 @@ def _detect_from_hub(
 def _detect_from_config(
     model_id: str,
     diagnostics: Optional[list[str]] = None,
-    *, requested_revision: str | None = None,
+    *, requested_revision: str | None = None, failures: list[Exception] | None = None,
 ) -> Optional[TaskInfo]:
     """Level 2: Infer task from model architecture name."""
     architectures = []
@@ -516,6 +518,8 @@ def _detect_from_config(
             _record_failure(diagnostics, "config_json", "config.json has no architectures field")
     except Exception as exc:
         _record_failure(diagnostics, "config_json", _format_failure(exc))
+        if failures is not None:
+            failures.append(exc)
 
     try:
         resolved = CATALOG.resolve(library="transformers", config=config_data, model_id=model_id)
@@ -546,27 +550,37 @@ def detect_task(
     *, revision: str | None = None,
 ) -> TaskInfo:
     """Discover candidates and apply CLI overrides, checking declaration conflicts."""
+    from huggingface_hub.errors import HFValidationError
+    from huggingface_hub.utils import validate_repo_id
+
+    try:
+        validate_repo_id(model_id)
+    except HFValidationError as exc:
+        raise model_lookup_error(model_id, exc, revision=revision) from exc
     # Start with auto-detection
     diagnostics: list[str] = []
-    info = _detect_from_hub(model_id, diagnostics, **({"revision": revision} if revision else {}))
+    failures: list[Exception] = []
+    info = _detect_from_hub(model_id, diagnostics, revision=revision, failures=failures)
     if info is None:
-        info = _detect_from_config(model_id, diagnostics, **({"requested_revision": revision} if revision else {}))
+        if failures:
+            error = model_lookup_error(model_id, failures[0], revision=revision, diagnostics=diagnostics)
+            if error.blocks_fallback:
+                raise error from failures[0]
+        info = _detect_from_config(model_id, diagnostics, requested_revision=revision, failures=failures)
 
     # If auto-detection failed entirely, require manual override
     if info is None:
+        # A pinned cached config can recover transient Hub failures. Manual task
+        # declarations cannot repair a failed repository lookup or grant access.
+        if failures:
+            errors = [(cause, model_lookup_error(model_id, cause, revision=revision, diagnostics=diagnostics))
+                      for cause in failures]
+            cause, error = next((item for item in errors if item[1].blocks_fallback),
+                                next((item for item in errors if item[1].reason_code != "lookup_failed"), errors[0]))
+            if error.reason_code != "lookup_failed" or not (override_tag or override_family or model_spec_path):
+                raise error from cause
         if not override_tag and not override_family and not model_spec_path:
-            details = "\n".join(f"  - {reason}" for reason in diagnostics)
-            if not details:
-                details = "  - no diagnostic details were captured"
-            print(
-                f"[ERROR] Cannot auto-detect task for '{model_id}'.\n"
-                f"  Auto-detection attempts:\n"
-                f"{details}\n"
-                f"  Please specify --task and/or --task-family manually.\n"
-                f"  Example: --task text-generation --task-family nlp",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            raise ModelLookupError(model_id, "task_unresolved", revision=revision or "", detail="\n".join(diagnostics))
         info = TaskInfo(
             model_id=model_id,
             pipeline_tag=override_tag or "unknown",

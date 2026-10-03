@@ -162,6 +162,8 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 
 `acprof inspect MODEL --explain` 显示固定 revision、字段来源和未决项；默认只解析文本，不运行模型。
 `--output-dir DIR` 导出 `model_resolution.json`。静态有缺口时退出码为 2，保留 draft。
+模型 ID、仓库访问、revision 或网络导致的查找失败会显示具体原因和处理建议，退出码为 1，
+不启动 Probe；分类见[共享接口解析](Runtime_Compatibility.md#共享接口解析)。
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |

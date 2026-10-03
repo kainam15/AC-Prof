@@ -47,11 +47,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     command = arguments.pop(0)
+    from acprof.host.model_errors import ModelLookupError
     previous = sys.argv
     try:
         sys.argv = [f"acprof {command}", *arguments]
         result = import_module(f"acprof.cli.{COMMANDS[command]}").main()
         return result if isinstance(result, int) else 0
+    except ModelLookupError as exc:
+        print(f"[model-lookup][ERROR] {exc}", file=sys.stderr)
+        return 1
     finally:
         sys.argv = previous
 

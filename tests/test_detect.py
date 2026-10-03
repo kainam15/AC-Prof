@@ -161,16 +161,16 @@ class DetectTaskTests(unittest.TestCase):
         with patch("huggingface_hub.HfApi.model_info", side_effect=RuntimeError("hub timeout")), patch(
             "huggingface_hub.hf_hub_download", side_effect=OSError("config missing")
         ), patch("sys.stderr", stderr):
-            with self.assertRaises(SystemExit) as raised:
+            with self.assertRaises(ValueError) as raised:
                 detect.detect_task("missing/model")
 
-        self.assertEqual(raised.exception.code, 1)
-        message = stderr.getvalue()
-        self.assertIn("[ERROR] Cannot auto-detect task for 'missing/model'.", message)
+        self.assertEqual(stderr.getvalue(), "")
+        message = str(raised.exception)
+        self.assertIn("missing/model", message)
         self.assertIn("hub_api: RuntimeError: hub timeout", message)
         self.assertIn("config_json: OSError: config missing", message)
         self.assertNotIn("AutoConfig:", message)
-        self.assertIn("Please specify --task and/or --task-family manually.", message)
+        self.assertNotIn("--task-family", message)
 
 
 if __name__ == "__main__":
