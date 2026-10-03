@@ -69,8 +69,24 @@ class PreparationScreen(ModalScreen):
         self.event = event
         self.respond = respond
         self.sending = False
+        self._close_requested = False
+
+    def close(self) -> None:
+        """Close when active, preserving any screen currently covering us."""
+        self._close_requested = True
+        self._close_when_active()
+
+    def _close_when_active(self) -> None:
+        # Textual dismiss() pops the active screen, even if called on another.
+        if self._close_requested and self.app.screen is self:
+            self.dismiss(None)
+
+    def on_screen_resume(self) -> None:
+        self._close_when_active()
 
     def update_event(self, event):
+        if self._close_requested:
+            return
         self.event = event
         self.sending = False
         self.refresh(recompose=True)
@@ -121,7 +137,7 @@ class PreparationScreen(ModalScreen):
                     yield Button(tr("重试"), id="preparation-continue", variant="primary")
 
     def send(self, result):
-        if self.sending:
+        if self.sending or self._close_requested:
             return
         self.sending = True
         if self.respond:

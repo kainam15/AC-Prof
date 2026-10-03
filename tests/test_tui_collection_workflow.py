@@ -189,3 +189,102 @@ async def test_model_lookup_error_is_translated_in_preparation_dialog():
             assert ("asdf") in (detail)
             assert ("未找到") not in (detail)
             assert ("SystemExit") not in (detail)
+
+
+@pytest.mark.parametrize("size", ((80, 24), (120, 30)))
+@pytest.mark.parametrize("completion", ("runtime", "process"))
+async def test_preparation_completion_preserves_stop_confirmation(tmp_path, size, completion):
+    from acprof.tui.views import ConfirmActionScreen
+
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    process = Mock(stdin=io.StringIO())
+    process.poll.return_value = None
+    async with app.run_test(size=size) as pilot:
+        base = app.screen
+        app._lifecycle.process = process
+        app._process_kind = "run"
+        try:
+            app._set_busy(True)
+            app._activate_tab("monitor-tab")
+            stop = app.query_one("#stop-run", Button)
+            stop.focus()
+            app._show_preparation({"stage": "runtime", "status": "running"})
+            await pilot.pause()
+            preparation = app.screen
+            await pilot.press("ctrl+x", "tab")
+            await pilot.pause()
+            confirmation = app.screen
+            assert isinstance(confirmation, ConfirmActionScreen)
+            focused = confirmation.focused
+            assert focused is not None
+
+            if completion == "runtime":
+                app._preparation_event({"stage": "runtime", "status": "passed"})
+            else:
+                app._lifecycle.process = None
+                app._process_finished("run", 1, None, "")
+            await pilot.pause()
+
+            assert app.screen is confirmation
+            assert confirmation.focused is focused
+            assert not app._stop_requested
+            assert await pilot.click("#confirm-no")
+            await pilot.pause()
+            assert app.screen is base
+            assert preparation not in app.screen_stack
+            assert confirmation not in app.screen_stack
+            assert app._preparation_screen is None
+            assert app.screen.focused is not None
+            assert app.screen.focused.screen is base
+            if completion == "runtime":
+                assert app.screen.focused is stop
+                assert app._lifecycle.process is process
+            else:
+                assert not app.query_one("#start-run", Button).disabled
+        finally:
+            app._lifecycle.process = None
+            app._process_kind = ""
+
+
+async def test_completed_preparation_preserves_nested_dialog_replies_and_new_preparation(tmp_path):
+    from acprof.tui.views import ConfirmActionScreen
+
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    responses = []
+    async with app.run_test(size=(80, 24)) as pilot:
+        base = app.screen
+        app._show_preparation({"stage": "runtime", "status": "running"})
+        await pilot.pause()
+        previous = app.screen
+        first = ConfirmActionScreen("First", "Keep this decision", "Confirm")
+        await app.push_screen(first, lambda answer: responses.append(("first", answer)))
+        second = ConfirmActionScreen("Second", "Keep this decision too", "Confirm")
+        await app.push_screen(second, lambda answer: responses.append(("second", answer)))
+        await pilot.pause()
+        app._close_preparation()
+        app._close_preparation()
+        await pilot.pause()
+        assert app.screen is second
+        assert responses == []
+
+        # A completed screen can still have queued messages while covered.
+        previous.update_event({"stage": "runtime", "status": "running"})
+        previous.action_cancel()
+        assert not app._stop_requested
+        app._show_preparation({"stage": "resolution", "status": "running"})
+        await pilot.pause()
+        current = app.screen
+        assert current is not previous
+        app._close_preparation()
+        await pilot.pause()
+        assert app.screen is second
+        assert await pilot.click("#confirm-yes")
+        await pilot.pause()
+        assert app.screen is first
+        assert responses == [("second", True)]
+        assert await pilot.click("#confirm-no")
+        await pilot.pause()
+        assert responses == [("second", True), ("first", False)]
+        assert app.screen is base
+        assert previous not in app.screen_stack
+        assert current not in app.screen_stack

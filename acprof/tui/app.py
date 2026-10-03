@@ -1318,10 +1318,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
                             and self._comparison_report_path.is_file())
         if kind == "compare" and returncode == 0 and not launch_error and not self._stop_requested and not comparison_ready:
             launch_error = "比较进程未返回报告路径"
-        self._preparation_request = None
-        if self._preparation_screen is not None:
-            self._preparation_screen.dismiss(None)
-            self._preparation_screen = None
+        self._close_preparation()
         if snapshot is not None and snapshot.measurement_status == "running":
             snapshot = replace(snapshot, measurement_status=(
                 "cancelled" if self._stop_requested else "failed" if returncode else "passed"))
@@ -1567,7 +1564,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._preparation_screen = None
         self._preparation_request = None
         if screen is not None:
-            screen.dismiss(None)
+            screen.close()
 
     def _preparation_event(self, event: dict) -> None:
         if event.get("input_plan") is not None and self._active_run_config is not None:
