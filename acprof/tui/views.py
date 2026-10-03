@@ -216,10 +216,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )), field_id="output-dir")
 
-                    yield app._localized_widget(Label("高级诊断"))
-                    yield app._localized_widget(Button("模型检查", id="inspect-model",
-                                                       tooltip="可选诊断；开始采集会自动解析和验证。"))
-
                     yield app._localized_widget(Label("运行预设"))
                     yield app._localized_select(
                         PRESET_OPTIONS,

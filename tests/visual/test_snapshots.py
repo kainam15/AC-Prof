@@ -27,8 +27,8 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "resized-table"),
     ("zh", (120, 30), "measuring"),
     ("en", (80, 24), "cleanup-incomplete"),
-    ("zh", (80, 24), "wsl-confirmation"),
-    ("en", (120, 30), "wsl-confirmation"),
+    ("zh", (80, 24), "wsl-preparation"),
+    ("en", (120, 30), "wsl-preparation"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     normalize = pytest_textual_snapshot.normalize_svg
@@ -40,11 +40,12 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))
     monkeypatch.setattr("acprof.tui.app.PYTHON_EXECUTABLE", Path("/usr/bin/python"))
-    environment = Environment("wsl2" if scene == "wsl-confirmation" else "native_linux")
+    environment = Environment("wsl2" if scene == "wsl-preparation" else "native_linux")
     monkeypatch.setattr("acprof.tui.app.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.app.quick_preflight", lambda *args, **kwargs: [])
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    monkeypatch.setattr(app, "_execute_command", lambda *args: None)
     app.ui_preferences = replace(app.ui_preferences, theme="acprof-graphite", language=language)
 
     async def prepare(pilot):
@@ -53,10 +54,11 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         await pilot.pause()
         app.clear_notifications()
         app.set_input_cursor_blink_enabled(False)
-        if scene == "wsl-confirmation":
+        if scene == "wsl-preparation":
             await pilot.press("f5")
             await pilot.pause()
-            assert isinstance(app.screen, ConfirmActionScreen)
+            from acprof.tui.preparation import PreparationScreen
+            assert isinstance(app.screen, PreparationScreen)
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
         elif scene == "resized-table":

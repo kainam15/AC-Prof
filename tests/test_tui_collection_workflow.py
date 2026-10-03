@@ -19,6 +19,53 @@ from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker
 
 
+async def test_cancelling_wait_reaps_child_releases_lock_and_removes_bundle(tmp_path):
+    import os
+
+    from textual.widgets import TabbedContent
+
+    from acprof.host.run_state import MeasurementLock
+    script = textwrap.dedent('''
+        import json, sys, time
+        from pathlib import Path
+        from acprof.host.detect import TaskInfo
+        from acprof.host import run_state
+        from acprof.host.source_bundle import source_bundle
+        from acprof.preparation_events import encode_event
+        task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers", "transformers", "a" * 40, "fixture")
+        run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
+        with run_state.MeasurementLock(), source_bundle(task) as bundle:
+            Path(sys.argv[1], "bundle.json").write_text(json.dumps(str(bundle.root)))
+            print(encode_event("runtime", "running"), flush=True)
+            time.sleep(120)
+    ''')
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    original_start = ProcessLifecycle.start
+    def launch_child(owner, _command, **kwargs):
+        return original_start(owner, [sys.executable, "-c", script, str(tmp_path)], **kwargs)
+    with patch("acprof.tui.process.ProcessLifecycle.start", autospec=True, side_effect=launch_child):
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.click("#start-run")
+            async def ready():
+                while not (tmp_path / "bundle.json").exists():
+                    await pilot.pause()
+            await asyncio.wait_for(ready(), timeout=10)
+            await pilot.pause()
+            pid = app._lifecycle.process.pid
+            await pilot.click("#preparation-cancel")
+            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
+            await pilot.pause()
+            assert app._lifecycle.process is None
+            assert app.query_one(TabbedContent).active == "run-tab"
+            assert not app.query_one("#start-run", Button).disabled
+            with pytest.raises(ProcessLookupError):
+                os.kill(pid, 0)
+    import json
+    assert not Path(json.loads((tmp_path / "bundle.json").read_text())).exists()
+    with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", tmp_path), MeasurementLock():
+        pass
+
+
 def test_runtime_failure_retains_successful_resolution():
     tracker = RunProgressTracker(structured=True)
     tracker.feed(encode_event("resolution", "passed"))
@@ -63,11 +110,10 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
 
                 assert (await pilot.click("#start-run"))
                 await pilot.pause()
-                assert (await pilot.click("#confirm-yes"))
                 await wait_for_request(1)
                 pid = app._lifecycle.process.pid
                 app.screen.query_one("#preparation-answer-0", Select).value = "fill-mask"
-                assert (await pilot.click("#preparation-continue"))
+                assert (await pilot.click("#preparation-apply"))
                 await wait_for_request(2)
                 assert (app._lifecycle.process.pid) == (pid)
                 assert (app._latest_snapshot.interface_status) == ("passed")
@@ -104,7 +150,7 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
                     await pilot.pause()
                     choice = app.screen.query_one("#preparation-answer-0", Select)
                     choice.value = "fill-mask"
-                    assert (await pilot.click("#preparation-continue"))
+                    assert (await pilot.click("#preparation-apply"))
                     await pilot.pause()
                     assert ('"action": "answer"') in (process.stdin.getvalue())
                     assert ('"task": "fill-mask"') in (process.stdin.getvalue())
@@ -113,11 +159,11 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
                     }})
                     await pilot.pause()
                     assert not (list(app.screen.query(Select)))
-                    detail = app.screen.query_one("#preparation-detail", Static).content
+                    detail = app.screen.query_one("#preparation-traceback", Static).content
                     assert isinstance(detail, str)
                     assert ("ultravox_config.py") in (detail)
                     button = app.screen.query_one("#preparation-continue", Button)
-                    assert (str(button.label)) == ("重新验证" if language == "zh" else "Retry validation")
+                    assert (str(button.label)) == ("重试" if language == "zh" else "Retry")
                     assert (await pilot.click(button))
                     await pilot.pause()
                     assert ('"action": "retry"') in (process.stdin.getvalue())
@@ -136,7 +182,7 @@ async def test_model_lookup_error_is_translated_in_preparation_dialog():
         async with app.run_test(size=(80, 24)) as pilot:
             app.query_one("#ui-language", Select).value = "en"
             await pilot.pause()
-            await app.push_screen(PreparationScreen(event, "pending"))
+            await app.push_screen(PreparationScreen(event))
             await pilot.pause()
             detail = cast(str, app.screen.query_one("#preparation-detail", Static).content)
             assert ("not found") in (detail)

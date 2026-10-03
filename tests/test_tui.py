@@ -446,13 +446,11 @@ class TestTuiApp:
             assert not isinstance(app.screen, ConfirmActionScreen)
 
             app.action_quick_check()
-            app.action_request_run()
-            await pilot.pause()
-            assert isinstance(app.screen, ConfirmActionScreen)
-            assert not (app._is_busy())
-            await pilot.press("escape")
-            await pilot.pause()
-            assert not isinstance(app.screen, ConfirmActionScreen)
+            with patch.object(app, "_launch") as launch:
+                app.action_request_run()
+                await pilot.pause()
+                launch.assert_called_once()
+                assert launch.call_args.args[0].kind == "run"
 
     async def test_subprocess_progress_is_event_driven(self):
         script = "\n".join(

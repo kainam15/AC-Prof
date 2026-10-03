@@ -33,7 +33,6 @@ from acprof.tui.settings import (
     load_settings,
     save_settings,
 )
-from acprof.tui.views import ConfirmActionScreen
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -125,14 +124,11 @@ class TestTuiLayoutSettings:
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
             self.assert_button_reachable(app, "open-run-settings")
             self.assert_button_reachable(app, "start-run")
-            assert (await pilot.click("#start-run", offset=(3, 1)))
-            await pilot.pause()
-            assert isinstance(app.screen, ConfirmActionScreen)
-            assert (app._pending_launch.kind) == ("run")
-            assert not (app._is_busy())
-            await pilot.press("escape")
-            await pilot.pause()
-            assert (app._pending_launch) is None
+            with patch.object(app, "_launch") as launch:
+                assert await pilot.click("#start-run", offset=(3, 1))
+                await pilot.pause()
+                launch.assert_called_once()
+                assert launch.call_args.args[0].kind == "run"
             assert (await pilot.click("#open-run-settings", offset=(3, 1)))
             await pilot.pause()
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
@@ -158,13 +154,11 @@ class TestTuiLayoutSettings:
                 button = app.query_one("#" + button_id, Button)
                 assert (app.focused) is (button)
                 self.assert_button_reachable(app, button_id)
-            await pilot.press("enter")
-            await pilot.pause()
-            assert isinstance(app.screen, ConfirmActionScreen)
-            assert (app._pending_launch.kind) == ("run")
-            await pilot.press("escape")
-            await pilot.pause()
-            assert (app._pending_launch) is None
+            with patch.object(app, "_launch") as launch:
+                await pilot.press("enter")
+                await pilot.pause()
+                launch.assert_called_once()
+                assert launch.call_args.args[0].kind == "run"
             app.query_one("#start-run", Button).focus()
             await pilot.pause()
             for button_id in ("probe-largest", "open-run-settings"):
@@ -362,10 +356,6 @@ class TestTuiModelMemory:
             app.query_one("#cpus", Input).value = "2"
             app.query_one("#ui-theme", Select).value = "acprof-dark"
             await pilot.pause(0.12)
-            getattr(app, f"action_request_{kind}")()
-            await pilot.pause()
-            assert (self.settings_path.read_bytes()) == (original)
-
             def check_persisted_before_launch(command, launched_kind):
                 assert (launched_kind) == (kind)
                 assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
@@ -373,8 +363,12 @@ class TestTuiModelMemory:
             with patch.object(
                 app, "_execute_command", side_effect=check_persisted_before_launch,
             ) as execute:
-                assert (await pilot.click("#confirm-yes"))
+                getattr(app, f"action_request_{kind}")()
                 await pilot.pause()
+                if kind == "probe":
+                    assert self.settings_path.read_bytes() == original
+                    assert await pilot.click("#confirm-yes")
+                    await pilot.pause()
                 execute.assert_called_once()
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(120, 30)) as pilot:
@@ -396,7 +390,7 @@ class TestTuiModelMemory:
             await pilot.pause(0.12)
             assert (self.settings_path.read_bytes()) == (original)
             with patch.object(app, "_execute_command") as execute:
-                for kind in ("run", "probe"):
+                for kind in ("probe",):
                     getattr(app, f"action_request_{kind}")()
                     await pilot.pause()
                     assert (await pilot.click("#confirm-no"))

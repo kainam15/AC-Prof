@@ -164,8 +164,8 @@ class TestTuiPageChrome:
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.press("f5")
                 await pilot.pause()
-                self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "cyan")
-                await pilot.press("escape")
+                launch.assert_called_once()
+                launch.reset_mock()
                 app._activate_tab("profile-tab")
                 app.query_one("#result-dir", Input).value = str(app.settings_path.parent)
                 await pilot.pause()

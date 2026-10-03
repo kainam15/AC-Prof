@@ -116,11 +116,12 @@ class RunProgressTracker:
                 raise ValueError("preparation request inside measurement window")
             stage, status = preparation["stage"], preparation["status"]
             labels = {"resolution": "接口解析", "dependencies": "解析依赖", "preflight": "环境预检", "image": "准备镜像",
-                      "input": "准备输入", "runtime": "运行验证"}
+                      "input": "准备输入", "runtime": "运行验证", "interface": "正在确认模型接口…",
+                      "environment": "正在准备运行环境…", "model": "正在准备模型…"}
             updates = {"stage": message(labels[stage]), "detail": preparation.get("request", {}).get("detail", "")}
             if status == "failed":
                 updates["errors"] = self.snapshot.errors + 1
-            if stage == "resolution":
+            if stage in {"resolution", "interface"}:
                 updates["interface_status"] = status
             elif stage == "runtime":
                 updates["runtime_status"] = status

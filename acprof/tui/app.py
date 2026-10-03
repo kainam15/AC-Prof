@@ -72,7 +72,6 @@ from acprof.tui.commands import (
 )
 from acprof.tui.diagnostics import (
     PreflightCheck,
-    collection_preview,
     quick_preflight,
     summarize_result_csv,
 )
@@ -200,10 +199,9 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._read_jobs: set[object] = set()
         self._process_token = None
         self._run_result = RunResult()
-        self._resolution_open = False
         self._environment_open = False
-        self._last_resolution = None
         self._preparation_screen = None
+        self._preparation_cancelled = False
         self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self._form_ready = False
         self._config_issues = ()
@@ -750,7 +748,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             stoppable=process is not None and process.poll() is None,
             checking=self._check_running, reading=bool(self._read_jobs),
             maintenance=bool(self._image_operation) or self._storage_loading,
-            configuring=self._resolution_open or self._environment_open or getattr(self, "_picker_open", False),
+            configuring=self._environment_open or getattr(self, "_picker_open", False),
             measuring=self._latest_snapshot.measurement_active, closing=self._ui_closing,
         )
 
@@ -795,7 +793,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             widget.disabled = (busy and self._image_operation != "refresh") or self._latest_snapshot.measurement_active
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
-            "#inspect-model": "inspect", "#summarize-results": "summary", "#plot-results": "plot",
+            "#summarize-results": "summary", "#plot-results": "plot",
             "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
         }.items():
@@ -918,20 +916,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             return
         preview = format_command(command)
         self._set_text(self.query_one('#command-preview', Static), preview)
-        self._pending_launch = PendingLaunch(tuple(command), "run", config)
-        self.push_screen(
-            ConfirmActionScreen(
-                "开始 AC-Prof 采集？",
-                join_messages("", (
-                    message("将启动独立采集进程。正式测量窗口内 TUI 会停止常规日志刷新。\n\n"),
-                    collection_preview(config),
-                    run_planning.preparation_details(config), "\n\n",
-                    preview,
-                )),
-                "开始采集",
-            ),
-            self._confirmed_launch,
-        )
+        self._launch(PendingLaunch(tuple(command), "run", config))
 
     def _confirmed_launch(self, confirmed: bool | None) -> None:
         pending = self._pending_launch
@@ -997,6 +982,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._process_kind = pending.kind
         self._started_monotonic = time.monotonic()
         self._stop_requested = False
+        self._preparation_cancelled = False
         self._latest_snapshot = ProgressSnapshot(stage="启动中", detail="正在创建子进程")
         self._set_busy(True)
         self._activate_tab("monitor-tab")
@@ -1011,6 +997,8 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         log.write(f"$ {format_command(pending.command)}")
         log.write(self.tr("[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。"))
         self._render_snapshot(self._latest_snapshot)
+        if pending.kind == "run":
+            self._show_preparation({"stage": "resolution", "status": "running"})
         self._execute_command(list(pending.command), pending.kind)
 
     def _tick_elapsed(self) -> None:
@@ -1460,6 +1448,9 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._process_kind = ""
         self._stop_requested = False
         self._set_busy(self._is_busy())
+        if self._preparation_cancelled and not self._is_busy():
+            self._activate_tab("run-tab")
+            self._preparation_cancelled = False
         if current_csv:
             self._update_result_summary(current_csv, notify=False)
         self._sync_image_refresh_timer()
@@ -1563,8 +1554,22 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._set_busy(True)
         self.push_screen(ModelStoreScreen(root, self._input("model-store-max")), self._environment_closed)
 
+    def _show_preparation(self, event: dict) -> None:
+        from acprof.tui.preparation import PreparationScreen
+        if self._preparation_screen is None:
+            self._preparation_screen = PreparationScreen(event, respond=self._preparation_answered)
+            self.push_screen(self._preparation_screen)
+        else:
+            self._preparation_screen.update_event(event)
+
+    def _close_preparation(self) -> None:
+        screen = self._preparation_screen
+        self._preparation_screen = None
+        self._preparation_request = None
+        if screen is not None:
+            screen.dismiss(None)
+
     def _preparation_event(self, event: dict) -> None:
-        from acprof.tui.preparation import PreparationScreen, phase_summary
         if event.get("input_plan") is not None and self._active_run_config is not None:
             if self._latest_snapshot.measurement_active:
                 raise RuntimeError("input plan update inside measurement window")
@@ -1574,85 +1579,46 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             self._planned_input = plan
             self._planned_input_identity = run_planning.input_identity(self._active_run_config)
             self._update_plan_summary(self._active_run_config)
+        if self._stop_requested:
+            return
+        if event["stage"] == "runtime" and event.get("status") == "passed":
+            self._write_log(self.tr("✓ 模型检测完成"))
+            self._close_preparation()
+            return
         request = event.get("request")
-        if not isinstance(request, dict) or not request or self._stop_requested:
-            return
-        if self._latest_snapshot.measurement_active or self._preparation_request is not None:
-            raise RuntimeError("unexpected preparation request")
-        process = self._lifecycle.process
-        if process is None or process.poll() is not None:
-            return
-        if request["kind"] == "error":
-            self._write_log(f"[preparation][ERROR] {event['stage']}: {request.get('detail', '')}")
-        self._preparation_request = (process, request["id"])
-        self._preparation_screen = PreparationScreen(event, phase_summary(self._latest_snapshot))
-        self.push_screen(self._preparation_screen, self._preparation_answered)
+        if request:
+            if self._latest_snapshot.measurement_active or self._preparation_request is not None:
+                raise RuntimeError("unexpected preparation request")
+            process = self._lifecycle.process
+            if process is None or process.poll() is not None:
+                return
+            if request["kind"] == "error":
+                self._write_log(f"[preparation][ERROR] {event['stage']}: {request.get('detail', '')}")
+            self._preparation_request = (process, request["id"])
+        if request or event.get("status") == "running":
+            self._show_preparation(event)
 
     def _preparation_answered(self, result) -> None:
         from acprof.preparation_events import encode_reply
         pending = self._preparation_request
         self._preparation_request = None
-        self._preparation_screen = None
+        if result["action"] == "cancel":
+            self._preparation_cancelled = True
+            self._stop_requested = True
+            if pending is None:
+                self._stop_process_gracefully(self._process_token, self._lifecycle.process)
+            self._close_preparation()
+        elif self._preparation_screen is not None:
+            self._preparation_screen.update_event({"stage": self._preparation_screen.event["stage"], "status": "running"})
         if pending is None:
             return
         process, request_id = pending
-        result = result or {"action": "cancel"}
-        if result["action"] == "cancel":
-            self._stop_requested = True
         try:
             self._lifecycle.reply(process, encode_reply(request_id, **result))
         except (OSError, ValueError, RuntimeError) as exc:
             self.notify(str(exc), severity="error")
             self._stop_requested = True
-            self._stop_process_gracefully()
-
-    @on(Button.Pressed, "#inspect-model")
-    def inspect_model(self) -> None:
-        if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
-            return
-        config = RunConfig(model=self._input("model"), revision=self._input("revision"), model_spec=self._input("model-spec"),
-                           task_family=self._select("task-family"),
-                           task=self._input("task"), backend=self._input("backend"),
-                           output_dir=self._input("output-dir") or "results")
-        if not config.model:
-            self.notify("请先填写模型 ID", severity="warning")
-            return
-        from acprof.tui.model_resolution import ModelResolutionScreen
-        task = None
-        previous = self._last_resolution
-        if (previous and previous["task"].model_id == config.model and str(previous["spec"]) == config.model_spec
-                and previous.get("selection") == {"task": config.task, "backend": config.backend, "revision": config.revision, "task_family": config.task_family}):
-            import json
-            task = previous["task"]
-            report_path = previous["output"] / "model_resolution.json"
-            try:
-                resolution = json.loads(report_path.read_text())
-                if resolution.get("contract", {}).get("revision") == task.model_revision:
-                    task.model_resolution = resolution
-            except (OSError, ValueError):
-                pass
-        self._resolution_open = True
-        self._set_busy(True)
-        self.push_screen(ModelResolutionScreen(config, task=task), self._resolution_closed)
-
-    def _resolution_closed(self, result: dict | None) -> None:
-        self._resolution_open = False
-        self._set_busy(False)
-        if not result:
-            return
-        if result.get("action") == "edit_model":
-            model = self.query_one("#model", Input)
-            model.scroll_visible(animate=False, immediate=True)
-            model.focus()
-            return
-        self._last_resolution = result
-        self.query_one("#model-spec", Input).value = str(result["spec"])
-        if result["probe"]:
-            from acprof.installation import cli_command
-            command = [*cli_command("inspect", python_executable=PYTHON_EXECUTABLE), result["task"].model_id,
-                       "--model-spec", str(result["spec"]), "--expected-revision", result["task"].model_revision,
-                       "--probe", result["probe"], "--output-dir", str(result["output"]), "--skip-build"]
-            self._launch(PendingLaunch(tuple(command), "inspect"))
+            self._stop_process_gracefully(self._process_token, process)
 
     def _preflight_config(self) -> RunConfig:
         # Diagnostics remain usable without a model or valid resource matrix.

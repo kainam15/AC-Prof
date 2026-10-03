@@ -13,19 +13,21 @@ from acprof.experiment import RunConfig, build_run_command
 from acprof.tui.settings import TuiSettings, save_settings
 
 
-async def test_start_confirmation_translates_planning_summary():
+async def test_start_waiting_dialog_is_translated():
+    from acprof.tui.preparation import PreparationScreen
     with tempfile.TemporaryDirectory() as temporary:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=Path(temporary) / "settings.json")
         async with app.run_test(size=(120, 30)) as pilot:
             app.ui_preferences = replace(app.ui_preferences, language="en")
             app._apply_ui_preferences()
             await pilot.pause()
-            await pilot.press("f5")
-            await pilot.pause()
-            body = str(app.screen.query_one("#confirm-message", Static).render())
-            assert ("Download budget") in (body)
-            assert ("assuming 1s/request") in (body)
-            assert ("下载预算") not in (body)
+            with patch.object(app, "_execute_command"):
+                await pilot.press("f5")
+                await pilot.pause()
+                assert isinstance(app.screen, PreparationScreen)
+                assert app.screen.query_one("#preparation-title", Static).content == "Checking model"
+                assert app.screen.query_one("#preparation-stage", Static).content == "Reading model information…"
+                await pilot.press("escape")
 
 def test_first_launch_without_saved_configuration_is_a_small_smoke():
     with tempfile.TemporaryDirectory() as temporary:
