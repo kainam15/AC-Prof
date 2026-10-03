@@ -10,12 +10,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from textual.widgets import Button, Static
+from tui_fixtures import AcprofTui
 
 from acprof.cli import probe, run
 from acprof.experiment import RunConfig
 from acprof.host import detect
 from acprof.host.task_support import TaskSupportError, require_task_support
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.i18n import translate
 from acprof.tui.log import SelectableLog

@@ -14,6 +14,7 @@ from rich.cells import cell_len
 from rich.console import Console
 from test_image_management import FINAL, DockerFixture
 from textual.widgets import Button, DataTable, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.host.image_management import (
@@ -22,7 +23,6 @@ from acprof.host.image_management import (
     ImageManagementError,
     StorageUsage,
 )
-from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
 
 

@@ -6,10 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.platform import Environment
-from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 
 

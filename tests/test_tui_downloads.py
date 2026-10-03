@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, Collapsible, ContentSwitcher, Input, Select
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, build_run_command
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import build_probe_command
 from acprof.tui.model_store import ModelStoreScreen
 from acprof.tui.settings import TuiSettings, load_settings, save_settings

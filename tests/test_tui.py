@@ -1,18 +1,16 @@
-import asyncio
 import csv
 import os
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, Select, Static, TabbedContent
+from textual.widgets import Input, Select, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import (
     PendingLaunch,
     build_probe_command,
@@ -20,7 +18,7 @@ from acprof.tui.commands import (
     format_command,
     parse_slash_command,
 )
-from acprof.tui.diagnostics import PreflightCheck, _readable_rapl_paths, summarize_result_csv
+from acprof.tui.diagnostics import _readable_rapl_paths, summarize_result_csv
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import RunProgressTracker
 from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
@@ -389,105 +387,6 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
         xdg_patch.start()
         self.addCleanup(xdg_patch.stop)
 
-    async def test_quick_check_worker_displays_results_and_completion(self):
-        checks = [
-            PreflightCheck("本机 Docker", "ok", "unix:///var/run/docker.sock"),
-            PreflightCheck("cgroup v2", "warn", "诊断兼容 [enabled]"),
-            PreflightCheck("perf instructions", "fail", "Permission denied\n检查权限"),
-        ]
-        app = AcprofTui(RunConfig(model=""))
-        with patch("acprof.tui.app.quick_preflight", return_value=checks):
-            async with app.run_test(size=(80, 24)) as pilot:
-                await pilot.pause()
-                app.action_quick_check()
-                self.assertTrue(app._check_running)
-                self.assertTrue(app.query_one("#quick-check", Button).disabled)
-                await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
-                await pilot.pause()
-
-                log = app.query_one("#run-log", SelectableLog)
-                for check in checks:
-                    self.assertIn(check.label, log.text)
-                    self.assertIn(check.detail, log.text)
-                self.assertIn("快速检查完成：1 通过，1 警告，1 失败", log.text)
-                self.assertNotIn("\x1b[", log.text)
-                self.assertFalse(app._check_running)
-                self.assertFalse(app.query_one("#quick-check", Button).disabled)
-                self.assertFalse(app._is_busy())
-                self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "monitor-tab")
-
-    async def test_quick_check_failure_is_visible_and_can_be_retried(self):
-        app = AcprofTui(RunConfig.smoke("demo/model"))
-        with patch("acprof.tui.app.quick_preflight", side_effect=[
-            OSError("diagnostic failed"),
-            [PreflightCheck("本机 Docker", "ok", "local Docker available")],
-        ]) as check:
-            async with app.run_test(size=(120, 40)) as pilot:
-                await pilot.pause()
-                app.action_quick_check()
-                await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
-                await pilot.pause()
-                log = app.query_one("#run-log", SelectableLog)
-                self.assertIn("环境检查失败：OSError: diagnostic failed", log.text)
-                self.assertNotIn("快速检查完成", log.text)
-                self.assertFalse(app._check_running)
-                self.assertFalse(app.query_one("#quick-check", Button).disabled)
-
-                app.action_quick_check()
-                await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
-                await pilot.pause()
-                self.assertEqual(check.call_count, 2)
-                self.assertIn("local Docker available", log.text)
-                self.assertIn("快速检查完成：1 通过，0 警告，0 失败", log.text)
-                self.assertFalse(app._check_running)
-                self.assertFalse(app.query_one("#quick-check", Button).disabled)
-
-    async def test_quick_check_mouse_click_opens_and_stays_on_monitor(self):
-        for size in ((80, 24), (120, 30), (150, 45)):
-            with self.subTest(size=size), patch(
-                "acprof.tui.app.quick_preflight",
-                return_value=[PreflightCheck("本机 Docker", "ok", "available")],
-            ) as check:
-                app = AcprofTui(RunConfig(model=""))
-                async with app.run_test(size=size) as pilot:
-                    await pilot.pause()
-                    self.assertTrue(await pilot.click("#quick-check", offset=(3, 1)))
-                    await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
-                    await pilot.pause()
-                    check.assert_called_once()
-                    self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "monitor-tab")
-                    log = app.query_one("#run-log", SelectableLog)
-                    self.assertGreater(log.region.height, 0)
-                    self.assertIn("快速检查完成：1 通过，0 警告，0 失败", log.text)
-
-    async def test_quick_check_keyboard_switches_before_slow_check_finishes(self):
-        for key in ("enter", "f6"):
-            with self.subTest(key=key):
-                release = threading.Event()
-
-                def slow_check(*args, **kwargs):
-                    if not release.wait(timeout=10):
-                        raise TimeoutError("test did not release the check")
-                    return [PreflightCheck("本机 Docker", "ok", "available")]
-
-                app = AcprofTui(RunConfig(model=""))
-                with patch("acprof.tui.app.quick_preflight", side_effect=slow_check):
-                    async with app.run_test(size=(120, 30)) as pilot:
-                        try:
-                            app.query_one("#quick-check", Button).focus()
-                            await pilot.pause()
-                            await pilot.press(key)
-                            await pilot.pause()
-                            self.assertTrue(app._check_running)
-                            self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "monitor-tab")
-                            self.assertNotIn("快速检查完成", app.query_one("#run-log", SelectableLog).text)
-                        finally:
-                            release.set()
-                        await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
-                        await pilot.pause()
-                        self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "monitor-tab")
-                        self.assertFalse(app._check_running)
-
     async def test_app_mounts_and_requires_confirmation_before_run(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -571,6 +470,7 @@ class TuiAppTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertNotIsInstance(app.screen, ConfirmActionScreen)
 
+            app.action_quick_check()
             app.action_request_run()
             await pilot.pause()
             self.assertIsInstance(app.screen, ConfirmActionScreen)

@@ -16,10 +16,11 @@ from textual.widgets import (
     TabbedContent,
 )
 from textual.widgets.text_area import Selection
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
-from acprof.tui.app import PROJECT_DIR, AcprofTui
+from acprof.tui.app import PROJECT_DIR
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.i18n import ENGLISH, error_message, translate
 from acprof.tui.log import SelectableLog
@@ -234,7 +235,8 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
             app._check_request = object()
             app._show_quick_check([PreflightCheck(message("原生 Linux"), "ok", message("统一层级可用"))], "", app._check_request)
             log = app.query_one("#run-log", SelectableLog)
-            self.assertIn("[Passed] Native Linux: Unified hierarchy available", log.text)
+            self.assertNotIn("Native Linux", log.text)
+            self.assertFalse(app.query_one("#environment-status").display)
             app._consume_process_line("等待 原始子进程输出 {raw}", None, False)
             self.assertIn("等待 原始子进程输出 {raw}", log.text)
             app._process_started(123, "probe")
@@ -254,7 +256,7 @@ class TuiLanguageTests(unittest.IsolatedAsyncioTestCase):
                         await self.switch(app, pilot, language)
                         for tab, ids in (
                             ("settings-tab", ("ui-language", "restore-ui-defaults", "save-ui-settings")),
-                            ("run-tab", ("open-run-settings", "quick-check", "probe-largest", "start-run")),
+                            ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
                             ("monitor-tab", ("copy-log", "follow-log", "expand-log", "clear-log", "stop-run")),
                             ("plot-tab", ("result-csv", "summarize-results", "plot-results")),
                             ("profile-tab", ("result-dir", "profile-dry-run", "profile-run")),

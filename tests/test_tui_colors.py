@@ -7,9 +7,9 @@ from unittest.mock import patch
 from rich.segment import Segment
 from rich.style import Style
 from textual.strip import Strip
+from tui_fixtures import AcprofTui
 
 from acprof.cli.tui import main
-from acprof.tui.app import AcprofTui
 
 
 class TuiColorTests(unittest.TestCase):
@@ -53,8 +53,8 @@ class TuiColorTests(unittest.TestCase):
         for mode, expected in (("truecolor", "\x1b[48;2;41;43;50m"), ("256", "\x1b[48;5;235m")):
             with self.subTest(mode=mode), patch.dict(
                 os.environ, {"TERM": "xterm-256color"}, clear=True,
-            ), patch("acprof.tui.app.default_settings_path", return_value=self.settings_path), patch.object(
-                AcprofTui, "run", autospec=True,
+            ), patch("acprof.tui.app.default_settings_path", return_value=self.settings_path), patch(
+                "acprof.tui.app.AcprofTui.run", autospec=True,
             ) as run:
                 main(["--color-system", mode])
                 run.assert_called_once()

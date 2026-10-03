@@ -17,10 +17,10 @@ from textual.widgets import (
     Static,
     TabbedContent,
 )
+from tui_fixtures import AcprofTui
 
 from acprof.cli.tui import main
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
@@ -76,19 +76,19 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
                 async with app.run_test(size=size) as pilot:
                     await pilot.pause()
                     action_region = app.query_one("#run-actions").region
-                    for button_id in ("open-run-settings", "quick-check", "probe-largest", "start-run"):
+                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
                         self.assert_button_reachable(app, button_id)
                     app.query_one("#command-details", Collapsible).collapsed = False
                     app.query_one("#run-form").scroll_end(animate=False, immediate=True)
                     await pilot.pause()
                     self.assertEqual(app.query_one("#run-actions").region, action_region)
-                    for button_id in ("open-run-settings", "quick-check", "probe-largest", "start-run"):
+                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
                         self.assert_button_reachable(app, button_id)
                     self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
                     await pilot.pause()
                     self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "run-tab")
                     self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
-                    for button_id in ("open-run-settings", "quick-check", "probe-largest", "start-run"):
+                    for button_id in ("open-run-settings", "probe-largest", "start-run"):
                         self.assert_button_reachable(app, button_id)
                     self.assertEqual(str(app.query_one("#open-run-settings", Button).label), "返回基本配置")
                     app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
@@ -118,7 +118,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
                         await pilot.pause()
                         app._activate_tab("run-tab")
                         await pilot.pause()
-                        for button_id in ("open-run-settings", "quick-check", "probe-largest", "start-run"):
+                        for button_id in ("open-run-settings", "probe-largest", "start-run"):
                             self.assert_button_reachable(app, button_id)
                         self.assertTrue(await pilot.click("#open-run-settings", offset=(3, 1)))
                         await pilot.pause()
@@ -153,7 +153,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(app.query_one("#experiment-pages", ContentSwitcher).current, "advanced-form")
                     navigation.focus()
                     await pilot.pause()
-                    for button_id in ("quick-check", "probe-largest", "start-run"):
+                    for button_id in ("probe-largest", "start-run"):
                         await pilot.press("tab")
                         button = app.query_one("#" + button_id, Button)
                         self.assertIs(app.focused, button)
@@ -167,7 +167,7 @@ class TuiLayoutSettingsTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNone(app._pending_launch)
                     app.query_one("#start-run", Button).focus()
                     await pilot.pause()
-                    for button_id in ("probe-largest", "quick-check", "open-run-settings"):
+                    for button_id in ("probe-largest", "open-run-settings"):
                         await pilot.press("shift+tab")
                         self.assertIs(app.focused, app.query_one("#" + button_id, Button))
                     self.assertLessEqual(cell_len(navigation.label.plain), navigation.content_region.width)
@@ -669,7 +669,7 @@ class TuiMainSettingsTests(unittest.TestCase):
         original = self.settings_path.read_bytes()
         for argv, expected in cases:
             with self.subTest(argv=argv):
-                with patch.object(AcprofTui, "run", autospec=True) as run:
+                with patch("acprof.tui.app.AcprofTui.run", autospec=True) as run:
                     main(argv)
                 run.assert_called_once()
                 app = run.call_args.args[0]

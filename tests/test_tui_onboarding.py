@@ -5,10 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Select
+from tui_fixtures import AcprofTui
 
 from acprof.cli.tui import main
 from acprof.experiment import RunConfig, build_run_command
-from acprof.tui.app import AcprofTui
 from acprof.tui.settings import TuiSettings, save_settings
 
 

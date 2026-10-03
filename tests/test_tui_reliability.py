@@ -10,11 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from textual.widgets import Button, Collapsible, Input, Select, Static, TabbedContent
+from textual.widgets import Button, Input, Select, Static, TabbedContent
+from tui_fixtures import AcprofTui
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.diagnostics import quick_preflight, summarize_result_csv
 from acprof.tui.progress import ProgressSnapshot
@@ -146,7 +146,7 @@ class TuiReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 launch.assert_not_called()
                 self.assertEqual(len(app.screen_stack), 1)
                 app._show_quick_check([], "preflight failed", app._check_request)
-                self.assertFalse(app.query_one("#start-run", Button).disabled)
+                self.assertTrue(app.query_one("#start-run", Button).disabled)
                 self.assertFalse(app._is_busy())
 
     async def test_failed_attempt_does_not_promote_old_csv(self):
@@ -388,7 +388,7 @@ print("Profiling complete!", flush=True)
             self.assertIn("10 ms", str(app.query_one("#result-summary", Static).content))
             self.assertFalse(app._is_busy())
 
-    async def test_preset_labels_and_unselected_details_in_both_languages_and_sizes(self):
+    async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
         from acprof.tui.diagnostics import PreflightCheck
         from acprof.tui.log import SelectableLog
         app = self.make_app()
@@ -415,9 +415,9 @@ print("Profiling complete!", flush=True)
                             PreflightCheck("CPU RAPL", "not_requested", "basic", "not_requested")], "", app._check_request)
                     await pilot.pause()
                     self.assertNotIn("CPU RAPL", app.query_one("#run-log", SelectableLog).text)
-                    self.assertIn("CPU RAPL", str(app.query_one("#check-details-content", Static).content))
-                    self.assertTrue(app.query_one("#check-details", Collapsible).collapsed)
-                    self.assertGreater(app.query_one("#run-log").region.height, 0)
+                    self.assertFalse(app.query_one("#environment-status").display)
+                    self.assertEqual(app.query_one("#main-tabs", TabbedContent).active, "run-tab")
+                    self.assertGreater(app.query_one("#run-form").region.height, 0)
                     self.assertTrue(app.query_one("#stop-run", Button).disabled)
                     app.action_clear_log()
 

@@ -27,7 +27,7 @@ class OperationState:
 
     @property
     def busy(self) -> bool:
-        return any((self.process, self.checking, self.reading, self.maintenance,
+        return any((self.process, self.reading, self.maintenance,
                     self.configuring, self.measuring, self.closing))
 
     def allows(self, operation: str) -> bool:
@@ -37,12 +37,14 @@ class OperationState:
             return self.stoppable
         if operation == "quit":
             return not (self.process or self.maintenance)
+        if operation == "configure":
+            return not self.busy
         if operation in {"summary", "report"}:
             # Reading another selection is safe, but the old thread remains
             # owned until it returns, keeping all measurement starts locked.
             return not any((self.process, self.checking, self.maintenance,
                             self.configuring, self.measuring))
-        return not self.busy
+        return not (self.busy or self.checking)
 
 
 @dataclass(frozen=True)

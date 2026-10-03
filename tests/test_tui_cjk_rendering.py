@@ -11,9 +11,9 @@ from rich.text import Text
 from textual.geometry import Region, Size
 from textual.strip import Strip
 from textual.widgets._toast import Toast
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 
 

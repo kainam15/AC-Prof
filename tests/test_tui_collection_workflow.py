@@ -9,10 +9,10 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Select, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.preparation_events import encode_event
-from acprof.tui.app import AcprofTui
 from acprof.tui.log import SelectableLog
 from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker

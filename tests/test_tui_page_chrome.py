@@ -10,9 +10,9 @@ from unittest.mock import Mock, patch
 from rich.cells import cell_len
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.themes import UI_THEMES
 
@@ -56,7 +56,7 @@ class TuiPageChromeTests(unittest.IsolatedAsyncioTestCase):
                     app.ui_preferences = replace(app.ui_preferences, language=language)
                     app._apply_ui_preferences()
                     for page, primary, secondary in (
-                        ("run-tab", "start-run", ("open-run-settings", "quick-check", "probe-largest")),
+                        ("run-tab", "start-run", ("open-run-settings", "probe-largest")),
                         ("monitor-tab", "stop-run", ("copy-log", "follow-log", "expand-log", "clear-log")),
                         ("plot-tab", "plot-results", ("summarize-results",)),
                         ("reports-tab", "report-calculate", ("report-open",)),

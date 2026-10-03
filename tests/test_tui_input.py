@@ -13,9 +13,9 @@ from textual.driver import Driver
 from textual.geometry import Offset
 from textual.message_pump import MessagePump
 from textual.widgets import Button, Collapsible, Input
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.input import BarCursorInput
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.views import ConfirmActionScreen

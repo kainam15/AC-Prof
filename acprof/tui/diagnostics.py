@@ -26,6 +26,11 @@ from acprof.tui.commands import _csv_values
 
 @dataclass(frozen=True)
 class PreflightCheck:
+    """`fail` blocks the selected configuration; `warn` limits one capability.
+
+    Unselected collectors use `not_requested`, never an availability claim.
+    """
+
     label: str
     status: str
     detail: str

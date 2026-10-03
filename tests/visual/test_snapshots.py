@@ -1,6 +1,7 @@
 """Fixed rendering fixtures; run only in the pinned snapshot environment."""
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -43,10 +44,13 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     environment = Environment("wsl2" if scene == "wsl-confirmation" else "native_linux")
     monkeypatch.setattr("acprof.tui.app.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
+    monkeypatch.setattr("acprof.tui.app.quick_preflight", lambda *args, **kwargs: [])
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     app.ui_preferences = replace(app.ui_preferences, theme="acprof-graphite", language=language)
 
     async def prepare(pilot):
+        await pilot.pause()
+        await app.workers.wait_for_complete()
         await pilot.pause()
         app.clear_notifications()
         app.set_input_cursor_blink_enabled(False)
@@ -75,6 +79,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             await pilot.hover(offset=end)
             await pilot.mouse_up(offset=end)
         elif scene in {"measuring", "cleanup-incomplete"}:
+            app._lifecycle.process = Mock(pid=12345)
+            app._lifecycle.process.poll.return_value = None
+            monkeypatch.setattr(app._lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
             app._process_kind = "run"
             app._active_command = ("acprof", "run")
             app._pending_launch = None

@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Input, Select, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import format_command
 from acprof.tui.progress import ProgressSnapshot
 

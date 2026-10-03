@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 from textual.widgets import ContentSwitcher, Input, Select
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.tui.app import AcprofTui
 from acprof.tui.commands import build_probe_command
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 

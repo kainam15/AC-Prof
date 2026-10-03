@@ -35,6 +35,24 @@ HeaderIcon, HeaderClockSpace { display: none; }
     color: $background;
     text-style: bold;
 }
+#environment-status {
+    display: none;
+    dock: right;
+    width: auto;
+    min-width: 16;
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+    border: none;
+}
+#environment-status:hover, #environment-status:focus { text-style: bold underline; }
+#preflight-run-reason {
+    display: none;
+    height: auto;
+    max-height: 2;
+    color: $warning;
+    overflow-y: auto;
+}
 TabbedContent { height: 1fr; }
 #experiment-pages { height: 1fr; }
 TabPane { padding: 0; }
@@ -246,12 +264,6 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
     scrollbar-background-hover: $background;
     scrollbar-background-active: $background;
     scrollbar-corner-color: $background;
-}
-#check-details {
-    display: none;
-    height: auto;
-    max-height: 8;
-    overflow-y: auto;
 }
 
 #result-summary {

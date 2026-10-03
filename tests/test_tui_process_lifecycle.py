@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from textual.widgets import Button, Static
+from tui_fixtures import AcprofTui
 
-from acprof.tui.app import AcprofTui
 from acprof.tui.process import ProcessLifecycle, StopResult
 
 

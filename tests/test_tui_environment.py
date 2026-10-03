@@ -8,10 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.host.env_utils import load_project_env
-from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 
 

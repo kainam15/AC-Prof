@@ -7,9 +7,9 @@ from rich.console import Console
 from textual.widget import Widget
 from textual.widgets import Button, Static, Tabs
 from textual.widgets.text_area import Selection
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.scrollbar import SolidScrollBarRender

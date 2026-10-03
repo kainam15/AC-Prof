@@ -7,10 +7,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.widgets import DataTable, Input, Label, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.host.image_management import DockerConnection, ImageInventory, ImageLayer, ManagedImage
-from acprof.tui.app import AcprofTui
 from acprof.tui.i18n import translate
 from acprof.tui.images import ImageTree, format_image_size, image_metadata
 from acprof.tui.progress import ProgressSnapshot

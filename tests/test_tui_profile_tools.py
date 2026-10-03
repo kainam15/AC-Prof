@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 from rich.cells import cell_len
 from textual.widgets import Checkbox, Input, Select
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 from acprof.tui.views import ConfirmActionScreen
 
 

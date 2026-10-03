@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import test_model_contract as fixture
 from textual.widgets import Button, Select, Static
+from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.app import AcprofTui
 
 
 class TuiModelResolutionTests(unittest.IsolatedAsyncioTestCase):

@@ -52,6 +52,7 @@ from acprof.host.image_management import (
     ImageLayer,
     ManagedImage,
 )
+from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
 from acprof.platform import collection_policy_error, detect_environment
 from acprof.tui import run_form
@@ -93,6 +94,7 @@ from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_CATALOG
 from acprof.tui.views import (
     ConfirmActionScreen,
+    EnvironmentPreflightScreen,
     LogPanel,
     compose_images_tab,
     compose_monitor_tab,
@@ -178,6 +180,11 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._check_running = False
         self._ui_closing = False
         self._check_request = None
+        self._check_completed = False
+        self._check_config: RunConfig | None = None
+        self._checked_config: RunConfig | None = None
+        self._preflight_checks: tuple[PreflightCheck, ...] = ()
+        self._preflight_error = ""
         self._summary_request: Event | None = None
         self._summary_path: Path | None = None
         self._report_request = None
@@ -193,7 +200,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._form_ready = False
         self._applying_config = False
         self._preview_timer = None
-        self._ignored_preset_event: str | None = None
+        self._selected_preset: str | None = None
         self._initial_preset = run_form.infer_preset(self.initial_config)
         self._elapsed_timer = None
         self._report_view: ReportView | None = None
@@ -221,6 +228,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             yield self._localized_widget(Button(
                 "×", id="quit-app", name="退出", tooltip="退出（Ctrl+Q）", compact=True,
             ))
+            yield Button("", id="environment-status", compact=True)
         with TabbedContent(initial="run-tab", id="main-tabs"):
             yield from compose_run_tab(self)
             yield from compose_monitor_tab(self)
@@ -244,8 +252,10 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._apply_ui_preferences()
         self._update_saved_settings_summary()
         self._update_responsive_layout()
+        self._selected_preset = self._select("run-preset")
         self._form_ready = True
         self._refresh_command_preview(notify=False)
+        self.call_after_refresh(self.action_quick_check)
         self.query_one("#model", Input).focus()
         self._image_refresh_timer = self.set_interval(
             self.IMAGE_REFRESH_INTERVAL, self.refresh_images, pause=True,
@@ -562,9 +572,9 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not self._form_ready or self._applying_config or self._is_busy():
             return
         preset = str(event.value)
-        if self._ignored_preset_event == preset:
-            self._ignored_preset_event = None
+        if self._selected_preset == preset:
             return
+        self._selected_preset = preset
         if preset == "smoke":
             self.preset_smoke()
         elif preset == "main":
@@ -596,7 +606,7 @@ class AcprofTui(ImageActions, BarCursorApp):
                     for widget_id, value in checks.items():
                         self.query_one(f"#{widget_id}", Checkbox).value = value
                     self.query_one("#run-preset", Select).value = preset
-                    self._ignored_preset_event = None
+                    self._selected_preset = preset
         finally:
             self._applying_config = False
         if self._form_ready:
@@ -609,6 +619,7 @@ class AcprofTui(ImageActions, BarCursorApp):
     def _refresh_command_preview(
         self, *, notify: bool = True, sync_preset: bool = False
     ) -> bool:
+        self._refresh_preflight_state()
         config = None
         try:
             config = self._collect_config()
@@ -692,6 +703,8 @@ class AcprofTui(ImageActions, BarCursorApp):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         operation = {"request_run": "run", "request_probe": "probe",
                      "quick_check": "check", "request_stop": "stop"}.get(action)
+        if action == "request_run" and self._preflight_run_reason():
+            return False
         return self._operation_state().allows(operation) if operation else True
 
     def _set_busy(self, busy: bool) -> None:
@@ -715,11 +728,13 @@ class AcprofTui(ImageActions, BarCursorApp):
                 continue
             if busy and widget.has_focus:
                 self.screen.set_focus(self.query_one("#main-tabs", TabbedContent).query_one(Tabs), scroll_visible=False)
-            widget.disabled = busy
+            widget.disabled = busy or (state.checking and widget.id in {
+                "open-environment-settings", "open-model-store",
+            })
         for widget in self.query(".image-control"):
             widget.disabled = (busy and self._image_operation != "refresh") or self._latest_snapshot.measurement_active
         for selector, operation in {
-            "#start-run": "run", "#probe-largest": "probe", "#quick-check": "check",
+            "#start-run": "run", "#probe-largest": "probe",
             "#inspect-model": "inspect", "#summarize-results": "summary", "#plot-results": "plot",
             "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
@@ -732,6 +747,7 @@ class AcprofTui(ImageActions, BarCursorApp):
             self.set_input_cursor_blink_enabled(True)
         self._update_image_controls()
         self._sync_image_refresh_timer()
+        self._refresh_preflight_state()
 
     def _activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -825,7 +841,7 @@ class AcprofTui(ImageActions, BarCursorApp):
         )
 
     def action_request_run(self) -> None:
-        if not self._allow_operation("run"):
+        if not self._allow_collection() or not self._allow_operation("run"):
             return
         try:
             config = self._collect_config()
@@ -900,6 +916,8 @@ class AcprofTui(ImageActions, BarCursorApp):
         self._update_saved_settings_summary()
 
     def _launch(self, pending: PendingLaunch) -> None:
+        if pending.kind == "run" and not self._allow_collection():
+            return
         if not self._allow_operation("run"):
             return
         model = pending.config.model if pending.config is not None else ""
@@ -1421,9 +1439,26 @@ class AcprofTui(ImageActions, BarCursorApp):
         if not result.complete:
             self._safe_process_callback(self._deliver_process_callback, token, self._process_cleanup_incomplete, result)
 
-    @on(Button.Pressed, "#quick-check")
-    def quick_check_button(self) -> None:
-        self.action_quick_check()
+    @on(Button.Pressed, "#environment-status")
+    def show_environment_status(self) -> None:
+        lines = []
+        reason = self._preflight_run_reason()
+        if reason:
+            lines.append(reason)
+        lines.extend(message("[{0}] {1}: {2}",
+                             message("失败" if check.status == "fail" else "警告"),
+                             check.label, check.detail)
+                     for check in self._preflight_checks if check.status in {"warn", "fail"})
+        if not lines:
+            return
+        self.push_screen(EnvironmentPreflightScreen(
+            join_messages("\n\n", lines),
+            retry_disabled=not self._operation_state().allows("check"),
+        ), self._preflight_dialog_closed)
+
+    def _preflight_dialog_closed(self, retry: bool | None) -> None:
+        if retry:
+            self.action_quick_check()
 
     def _network_preflight_report(self, line: str) -> None:
         import json
@@ -1526,32 +1561,79 @@ class AcprofTui(ImageActions, BarCursorApp):
                        "--probe", result["probe"], "--output-dir", str(result["output"]), "--skip-build"]
             self._launch(PendingLaunch(tuple(command), "inspect"))
 
-    def action_quick_check(self) -> None:
-        if not self._allow_operation("check"):
-            return
-        # Host diagnostics do not require a model ID or a complete resource
-        # matrix, so they remain usable on a freshly configured machine.
-        config = RunConfig(
+    def _preflight_config(self) -> RunConfig:
+        # Diagnostics remain usable without a model or valid resource matrix.
+        return RunConfig(
             model="preflight-only",
             profiling_mode=self._select("profiling-mode"),
             gpus=self._select("gpus"),
             sniff_iface=self._input("sniff-iface"),
+            compute_profile_tool=self._select("compute-profile-tool"),
+            execution_profile_tool=self._select("execution-profile-tool"),
         )
+
+    def _preflight_run_reason(self) -> str:
+        if not self.is_running or not self._form_ready or self._ui_closing:
+            return message("正在检查环境；完成后可开始采集。")
+        if self._check_running or not self._check_completed:
+            return message("正在检查环境；完成后可开始采集。")
+        if self._preflight_error:
+            return message("环境检查失败：{0}", self._preflight_error)
+        if self._preflight_config() != self._checked_config:
+            return message("环境相关配置已更改，请重新检查。")
+        failures = [message("{0}: {1}", check.label, check.detail)
+                    for check in self._preflight_checks if check.status == "fail"]
+        return message("采集已阻止：{0}", join_messages("；", failures)) if failures else ""
+
+    def _allow_collection(self) -> bool:
+        reason = self._preflight_run_reason()
+        if reason:
+            self._refresh_preflight_state()
+            self.notify(reason, title="环境状态", severity="warning", timeout=8)
+            return False
+        return True
+
+    def _refresh_preflight_state(self) -> None:
+        if not self.is_running or not self._form_ready or self._ui_closing:
+            return
+        reason = self._preflight_run_reason()
+        issues = [check for check in self._preflight_checks if check.status in {"warn", "fail"}]
+        stale = self._check_completed and self._preflight_config() != self._checked_config
+        entry = self.query_one("#environment-status", Button)
+        entry.display = bool(issues or self._preflight_error or stale)
+        failed = bool(self._preflight_error or any(check.status == "fail" for check in issues))
+        self._set_text(entry, "环境异常" if failed else "环境警告", "label")
+        entry.variant = "error" if failed else "warning"
+        self._set_text(entry, "查看环境问题与重新检查", "tooltip")
+        detail = self.query_one("#preflight-run-reason", Static)
+        detail.display = bool(reason)
+        self._set_text(detail, reason)
+        start = self.query_one("#start-run", Button)
+        start.disabled = bool(reason) or not self._operation_state().allows("run")
+        self._set_text(start, reason or "开始采集", "tooltip")
+        self.refresh_bindings()
+
+    def action_quick_check(self) -> None:
+        if not self.is_running or not self._form_ready or self._ui_closing:
+            return
+        if self._check_running:
+            return
+        if not self._allow_operation("check"):
+            return
+        self._check_config = self._preflight_config()
         self._check_running = True
         self._check_request = object()
-        self.query_one("#check-details", Collapsible).display = False
-        self._sync_image_refresh_timer()
-        # Disabling a focused button first moves focus to another control in
-        # the old pane, which queues a request to reactivate that pane.
-        self._activate_tab("monitor-tab")
-        self._set_busy(True)
-        self.query_one("#run-log", SelectableLog).write(self.tr("[TUI] 开始只读快速环境检查……"))
-        self._execute_quick_check(config, self._check_request)
+        # Keep the current page and editable form. Only conflicting work waits.
+        self._set_busy(False)
+        self._execute_quick_check(self._check_config, self._check_request)
 
     @work(thread=True, group="preflight", exclusive=True, exit_on_error=False)
     def _execute_quick_check(self, config: RunConfig, token: object) -> None:
         try:
-            checks = quick_preflight(config, project_dir=PROJECT_DIR)
+            # Perf probes and other diagnostics must never overlap a formal
+            # measurement, including one owned by another AC-Prof process.
+            with MeasurementLock():
+                checks = quick_preflight(config, project_dir=PROJECT_DIR)
             error = ""
         except Exception as exc:
             checks = []
@@ -1568,41 +1650,11 @@ class AcprofTui(ImageActions, BarCursorApp):
             return
         self._check_running = False
         self._check_request = None
-        self._set_busy(self._is_busy())
-        log = self.query_one("#run-log", SelectableLog)
-        if error:
-            log.write(self.tr(message('[TUI][ERROR] 环境检查失败：{0}', error)))
-            self.notify(error, severity="error")
-            return
-        # SelectableLog retains plain text for wrapping, selection, and copying;
-        # Rich renderables cannot be written to its TextArea document.
-        log.write(self.tr("[TUI] 环境检查结果："))
-        status_label = {"ok": "通过", "warn": "警告", "fail": "失败"}
-        selected = [check for check in checks if check.status != "not_requested"]
-        unselected = [check for check in checks if check.status == "not_requested"]
-        details = self.query_one("#check-details", Collapsible)
-        details.display = bool(unselected)
-        details.collapsed = True
-        self._set_text(self.query_one("#check-details-content", Static), join_messages("\n", (
-            message("{0}：本次不采集；未验证采集能力。", check.label) for check in unselected)))
-        for check in selected:
-            log.write(self.tr(message(
-                "[{0}] {1}: {2}",
-                message(status_label.get(check.status, check.status)), check.label, check.detail,
-            )))
-        failures = sum(check.status == "fail" for check in checks)
-        warnings = sum(check.status == "warn" for check in checks)
-        log.write(self.tr(message(
-            "[TUI] 快速检查完成：{0} 通过，{1} 警告，{2} 失败。"
-            "run.py 启动时仍会执行权威预检。",
-            sum(check.status == "ok" for check in selected), warnings, failures,
-        )))
-        severity = "error" if failures else ("warning" if warnings else "information")
-        self.notify(
-            message('环境检查：{0} 失败，{1} 警告', failures, warnings),
-            severity=severity,
-            timeout=6,
-        )
+        self._check_completed = True
+        self._checked_config = self._check_config
+        self._preflight_checks = tuple(checks)
+        self._preflight_error = error
+        self._set_busy(False)
 
     @on(Button.Pressed, "#clear-log")
     def clear_log_button(self) -> None:
