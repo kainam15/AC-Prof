@@ -37,10 +37,7 @@ def validate_runtime(
     *, task_info: Any, image_info: Any, planned: Any, cpu_list: list[int],
     mem_list: list[int], gpu_list: list[str], output_dir: str,
     timeout_seconds: float = 300.0,
-    mode: str = "full",
 ) -> dict:
-    if mode not in {"basic", "full"} or mode == "basic" and gpu_list != ["off"]:
-        raise ValueError("contract probe mode must be basic (CPU only) or full")
     if (not gpu_list or any(value not in {"off", "on"} for value in gpu_list) or not cpu_list or not mem_list
             or any(type(value) is not int or value <= 0 for value in [*cpu_list, *mem_list])
             or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
@@ -64,10 +61,9 @@ def validate_runtime(
         "schema_version": 1, "status": "running", "image_id": image_info.tag,
         "build_fingerprint": image_info.runtime_environment["build_fingerprint"],
         "input_scale": entry["input_scale"], "payload_sha256": hashlib.sha256(encoded).hexdigest(),
-        "scope": "isolated_import_and_signature_only" if mode == "basic" else
-                 "isolated_minimum_scale_predict_and_postprocess_before_measurement",
+        "scope": "isolated_minimum_scale_predict_and_postprocess_before_measurement",
         "devices": {},
-        "mode": mode,
+        "mode": "full",  # Existing report protocol; execution has no mode switch.
         "profiler_validation": "separate_profiler_plans; inference_success_does_not_prove_profiler_support",
     }
     root = Path(output_dir)
@@ -109,12 +105,12 @@ def validate_runtime(
                 *hf_offline_docker_env_args(),
                 *mount_args(image_info.runtime_environment),
                 "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
-                "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", f"ACPROF_CONTRACT_PROBE_MODE={mode}",
+                "-e", "PYTHONDONTWRITEBYTECODE=1",
             ]
             if device_mode == "on":
                 command += gpu_docker_args()
             command += ["--entrypoint", "python", image_info.tag, "-m", "acprof.container.runtime_validate", "/validation-input.json"]
-            print(f"[runtime-check] {device_mode}: {mode} 契约验证（独立容器）", flush=True)
+            print(f"[runtime-check] {device_mode}: 正在验证模型运行（独立容器）", flush=True)
             log = ""
             run_error = None
             try:
@@ -136,16 +132,16 @@ def validate_runtime(
                         raise ValueError("invalid runtime validation response")
                     if result.returncode and device_result.get("status") == "ok":
                         device_result = {"status": "error", "error": f"container exit {result.returncode}"}
-                    if getattr(task_info, "model_resolution", {}).get("contract") and device_result.get("status") == "ok":
-                        required = {"import", "signature"} if mode == "basic" else {
+                    if device_result.get("status") == "ok":
+                        required = {
                             "load", "preprocess", "predict", "postprocess", "validate_output"}
                         observed = {item.get("stage") for item in device_result.get("stages", [])
                                     if isinstance(item, dict) and item.get("status") == "verified"}
-                        if not required <= observed or mode == "full" and any(
+                        if not required <= observed or any(
                             device_result.get("validation", {}).get(layer, {}).get("status") != "verified"
                             for layer in ("protocol", "task")
                         ):
-                            raise ValueError("incomplete contract validation response")
+                            raise ValueError("incomplete runtime validation response")
                 else:
                     device_result = {"status": "error", "error": log[-4000:] or f"container exit {result.returncode}"}
                 from acprof.quality import cli_exit_quality

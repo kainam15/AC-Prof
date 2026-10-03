@@ -11,7 +11,7 @@ MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({
     "model_resolution.json", "auto_report.json", "collection_history.json",
     "input_scale_plan.json", "matrix_plan.json", "startup_oom_pruning.json",
-    "compute_profile_plan.json", "execution_profile_plan.json", "runtime_validation.json",
+    "compute_profile_plan.json", "execution_profile_plan.json", "runtime_validation.json", "interface_validation.json",
 })
 DIRECTORIES = {
     "compute_profiles": "raw/compute_profiles", "execution_profiles": "raw/execution_profiles",

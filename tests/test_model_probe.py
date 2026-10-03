@@ -34,23 +34,11 @@ class TestModelProbe:
             with pytest.raises(ValueError):
                 validate_runtime(**options)
 
-    def test_basic_mode_does_not_claim_inference_and_only_uses_cpu(self):
-        response = {"status": "ok", "mode": "basic", "stages": [
-            {"stage": stage, "status": "verified"} for stage in ("import", "signature")], "inference": "not_run"}
-        with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_validation.run_command", side_effect=self.probe_command(response),
-        ) as run, patch("acprof.host.container_state.inspect_container_state", return_value={}):
-            task = contract_fixture.TestModelContract().discover()
+    def test_runtime_validation_rejects_the_removed_basic_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
             options = runtime_fixture.TestRuntimeValidation().fixture(Path(directory))
-            options.update(task_info=task, gpu_list=["off"], mode="basic")
-            report = validate_runtime(**options)
-            assert (report["mode"]) == ("basic")
-            assert (task.model_resolution["contract"]["runtime_validation"]["status"]) == ("basic_verified")
-            command = next(call.args[0] for call in run.call_args_list if call.args[0][:2] == ["docker", "run"])
-            assert ("ACPROF_CONTRACT_PROBE_MODE=basic") in (command)
-            assert ("--gpus") not in (command)
-            with pytest.raises(ValueError):
-                validate_runtime(**{**options, "gpu_list": ["on"]})
+            with pytest.raises(TypeError, match="mode"):
+                validate_runtime(**options, mode="basic")
 
     def test_probe_is_readonly_and_updates_the_contract_report(self):
         commands = []

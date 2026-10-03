@@ -66,8 +66,8 @@ pytestmark = pytest.mark.runtime
 
 
 @pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in ("torch", "transformers"))), reason="requires the custom multimodal container")
-def test_basic_probe_imports_and_binds_without_loading_weights():
-    from acprof.container.model_probe import validate_basic
+def test_interface_imports_and_binds_without_loading_weights():
+    from acprof.container.model_probe import validate_interface
     with tempfile.TemporaryDirectory(prefix="acprof_basic_contract_") as directory:
         root = Path(directory)
         multimodal_fixture.TestCustomMultimodalRuntime.snapshot(root)
@@ -80,11 +80,12 @@ def test_basic_probe_imports_and_binds_without_loading_weights():
         config = json.loads((root / "config.json").read_text())
         spec["pipeline_task"] = next(iter(config["custom_pipelines"]))
         with patch.dict(os.environ, {"ACPROF_MODEL_SPEC_B64": encode_model_spec(spec),
-                                     "MODEL_LOCAL_PATH": directory, "MODEL_ID": "fixture/basic",
+                                     "MODEL_LOCAL_PATH": directory, "MODEL_ID": "fixture/interface",
+                                     "RUNTIME_BACKEND": "transformers_pipeline",
                                      "TASK_TYPE": "audio-text-to-text"}), patch(
-            "transformers.pipeline", side_effect=AssertionError("basic probe must not load a model"),
+            "transformers.pipeline", side_effect=AssertionError("interface probe must not load a model"),
         ):
-            result = validate_basic({})
+            result = validate_interface({})
         assert (result["status"]) == ("ok")
         assert (result["inference"]) == ("not_run")
         assert ({item["stage"] for item in result["stages"]}) == ({"import", "signature"})

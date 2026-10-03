@@ -21,7 +21,7 @@ def main(argv=None) -> int:
     run.add_argument("--retry-failed", action="store_true", help="With --resume, retry failed models in new attempts")
     run.add_argument("--retry-stage", action="append", default=[], help="With --resume, retry matching failure stages")
     run.add_argument("--retry-reason", action="append", default=[], help="With --resume, retry matching reason codes")
-    run.add_argument("--probe", choices=("none", "full"), default="none")
+    run.add_argument("--validate-runtime", action="store_true", help="Validate one end-to-end request per model")
     run.add_argument("--cpus", type=int, default=2)
     run.add_argument("--mems", type=int, default=4)
     run.add_argument("--gpus", choices=("off", "on"), default="off")
@@ -51,7 +51,7 @@ def main(argv=None) -> int:
             result = report_results(args.sources, args.output_dir)
             print(f"Reported {len(result['rows'])} recorded results: {args.output_dir}")
         else:
-            report = run_sample(json.loads(args.manifest.read_text()), args.output_dir, probe=args.probe,
+            report = run_sample(json.loads(args.manifest.read_text()), args.output_dir, probe="full" if args.validate_runtime else "none",
                                  cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds,
                                  max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes,
                                  resume=args.resume, retry_failed=args.retry_failed,

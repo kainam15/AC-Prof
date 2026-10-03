@@ -57,9 +57,9 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
     return "\n".join(lines)
 
 
-def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: int = 2,
-                         memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
-                         reuse_existing: bool = False) -> dict:
+def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
+                           memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
+                           reuse_existing: bool = False) -> dict:
     from acprof.host.input_plan import _get_task_generator, resolve_input_scales
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
@@ -68,11 +68,9 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
     from acprof.host.task_support import require_task_support
     from acprof.installation import resource_root
 
-    if (mode not in {"basic", "full"} or mode == "basic" and gpu or type(cpus) is not int or cpus <= 0
+    if (type(cpus) is not int or cpus <= 0
             or type(memory_gb) is not int or memory_gb <= 0 or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
-        raise ValueError("invalid contract probe mode/resources/timeout")
-    if mode == "basic" and not task_info.model_resolution.get("contract"):
-        raise ValueError("basic signature probe requires a Pipeline contract; use --probe full for native models")
+        raise ValueError("invalid runtime validation resources/timeout")
     require_task_support(task_info, devices=("gpu" if gpu else "cpu",))
     require_collection_host()
     require_native_docker()
@@ -85,22 +83,20 @@ def probe_model_contract(task_info, output_dir: str | Path, *, mode: str, cpus: 
         except (RuntimeError, ValueError, OSError) as exc:
             raise ProbePreparationError(str(exc)) from exc
         write_model_resolution(task_info, root)
-        payload, scale = {}, 0
-        if mode == "full":
-            generator = _get_task_generator(task_info, 1)
-            scales = generator.default_input_scales()
-            if not scales and not task_info.model_resolution.get("contract"):
-                scales = resolve_input_scales(task_info.task_family)
-            if not scales:
-                raise ValueError("contract probe requires declared default workload scales")
-            scale = min(scales)
-            payload = generator.generate(scale)
-            # Probe a minimal deterministic response, independent of measurement settings.
-            if task_info.model_resolution.get("contract") and task_info.task_family == "multimodal":
-                payload.setdefault("params", {}).update(max_new_tokens=1, do_sample=False)
-        plan = root / "contract_probe_input.json"
-        atomic_write_json(plan, {"schema_version": 2, "scope": "contract_probe_only",
+        generator = _get_task_generator(task_info, 1)
+        scales = generator.default_input_scales()
+        if not scales and not task_info.model_resolution.get("contract"):
+            scales = resolve_input_scales(task_info.task_family)
+        if not scales:
+            raise ValueError("contract probe requires declared default workload scales")
+        scale = min(scales)
+        payload = generator.generate(scale)
+        # Probe a minimal deterministic response, independent of measurement settings.
+        if task_info.model_resolution.get("contract") and task_info.task_family == "multimodal":
+            payload.setdefault("params", {}).update(max_new_tokens=1, do_sample=False)
+        plan = root / "runtime_validation_input.json"
+        atomic_write_json(plan, {"schema_version": 2, "scope": "runtime_validation_only",
                                 "entries": [{"input_scale": scale, "payload": payload}]})
         return validate_runtime(task_info=task_info, image_info=image, planned=SimpleNamespace(plan_file=str(plan)),
                                 cpu_list=[cpus], mem_list=[memory_gb], gpu_list=["on" if gpu else "off"],
-                                output_dir=str(root), timeout_seconds=timeout_seconds, mode=mode)
+                                output_dir=str(root), timeout_seconds=timeout_seconds)

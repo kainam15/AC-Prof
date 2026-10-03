@@ -90,9 +90,9 @@ def test_inspect_cli_reports_lookup_failure_without_traceback_or_probe():
     with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
         "huggingface_hub.HfApi.model_info", side_effect=hub_error(RepositoryNotFoundError, 404),
     ), patch("acprof.host.detect._download_metadata", side_effect=OSError("missing")), patch(
-        "acprof.host.model_inspection.probe_model_contract",
+        "acprof.host.model_inspection.validate_model_runtime",
     ) as probe, contextlib.redirect_stderr(stderr):
-        result = main(["inspect", "asdf", "--probe", "full"])
+        result = main(["inspect", "asdf", "--probe-interface"])
     assert (result) == (1)
     assert ("asdf") in (stderr.getvalue())
     assert ("未找到") in (stderr.getvalue())

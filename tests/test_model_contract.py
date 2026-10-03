@@ -103,7 +103,7 @@ class TestModelContract:
         task = self.discover(spec=EXPECTED, transformers_info=GENERIC_LOADER)
         require_task_support(task)
         assert (task_model_spec(task)) == (EXPECTED)
-        assert ("pipeline.py") not in (self.downloads)
+        assert ("pipeline.py") in (self.downloads)
 
     def test_pipeline_task_conflict_is_not_dismissed_as_a_generic_loader(self):
         task = self.discover(transformers_info={"auto_model": "AutoModelForCausalLM",
@@ -254,7 +254,7 @@ AutoProcessor.from_pretrained(dynamic_repo())
         spec["multimodal"]["inputs"] = {"text": "text", "audio": "audio", "rate": "sampling_rate"}
         task = self.discover(spec=spec)
         assert (task_model_spec(task)) == (spec)
-        assert ("pipeline.py") not in (self.downloads)
+        assert ("pipeline.py") in (self.downloads)
 
     def test_remote_source_is_never_executed(self):
         with tempfile.TemporaryDirectory() as directory:

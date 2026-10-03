@@ -62,24 +62,40 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
             raise ValueError("custom source graph exceeds 2 MiB")
         tree = parse_source(source, filename)
         sources[filename] = source
+        task_info.repository_sources[filename] = source
         evidence.source(filename, source.encode())
         # Follow local imports only. This is syntax inspection, never importlib.
+        def enqueue_module(module_path, *, required=False):
+            choices = (str(module_path) + ".py", str(module_path / "__init__.py"))
+            existing = [name for name in choices if name in files]
+            if required and not existing:
+                raise ValueError(f"{filename}: relative source module is missing: {module_path}")
+            queue.extend(existing)
+            if existing:
+                for parent in module_path.parents:
+                    initializer = str(parent / "__init__.py")
+                    if initializer in files:
+                        queue.append(initializer)
+
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or not node.level:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    enqueue_module(PurePosixPath(alias.name.replace(".", "/")))
                 continue
-            base = PurePosixPath(filename).parent
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            base = PurePosixPath(filename).parent if node.level else PurePosixPath(".")
             for _ in range(node.level - 1):
                 if base == PurePosixPath("."):
                     raise ValueError(f"{filename}: relative import escapes pinned snapshot")
                 base = base.parent
-            modules = [node.module] if node.module else [alias.name for alias in node.names]
-            for module in modules:
-                module_path = base / module.replace(".", "/")
-                choices = (str(module_path) + ".py", str(module_path / "__init__.py"))
-                existing = [name for name in choices if name in files]
-                if not existing:
-                    raise ValueError(f"{filename}: relative source module is missing: {module}")
-                queue.extend(existing)
+            module_path = base / node.module.replace(".", "/") if node.module else base
+            if node.module:
+                enqueue_module(module_path, required=bool(node.level))
+            for alias in node.names:
+                if alias.name != "*":
+                    # An imported name can be a class/function or a submodule.
+                    enqueue_module(module_path / alias.name, required=bool(node.level and not node.module))
     from acprof.model_dependency_flow import analyze_dependencies
     from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())

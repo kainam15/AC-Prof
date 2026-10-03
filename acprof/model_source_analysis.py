@@ -9,6 +9,7 @@ from functools import lru_cache
 from typing import Any
 
 MAX_SOURCE_BYTES = 256 * 1024
+SOURCE_METADATA_FILES = ("config.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json")
 MAX_AST_NODES = 20000
 _MISSING = object()
 

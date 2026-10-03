@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-RESOLVER_VERSION = "pipeline-contract-v3"
+RESOLVER_VERSION = "pipeline-contract-v4"
 FIELD_STATES = {"declared", "derived", "verified", "ambiguous", "unresolved"}
 
 

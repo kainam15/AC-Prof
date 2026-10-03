@@ -12,12 +12,31 @@ import test_model_contract as fixture
 from acprof.cli.main import main
 
 
+@pytest.mark.parametrize("mode", ["basic", "full", "none"])
+def test_removed_probe_mode_is_rejected_before_model_lookup(mode):
+    with patch("acprof.host.detect.detect_task") as detect, pytest.raises(SystemExit) as exc:
+        main(["inspect", "example/model", "--probe", mode])
+    assert exc.value.code == 2
+    detect.assert_not_called()
+
+
+def test_interface_timeout_is_reported_as_a_failed_cli_command(tmp_path):
+    import subprocess
+    task = fixture.TestModelContract().discover()
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.env_utils.bootstrap_project_env"), patch("acprof.host.preflight.require_collection_host"), patch(
+        "acprof.host.preflight.require_native_docker"), patch("acprof.host.runtime_images.configure_runtime_profile"), patch(
+        "acprof.host.run_state.MeasurementLock"), patch(
+        "acprof.host.interface_probe.probe_interface", side_effect=subprocess.TimeoutExpired("docker", 1)):
+        assert main(["inspect", task.model_id, "--probe-interface", "--output-dir", str(tmp_path)]) == 1
+
+
 @pytest.mark.parametrize('family,tag,expected_scale,field', (('nlp', 'fill-mask', 64, 'text'), ('cv', 'image-classification', 0.1, 'image_base64')))
 def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales(family, tag, expected_scale, field):
     from types import SimpleNamespace
 
     from acprof.host.detect import TaskInfo
-    from acprof.host.model_inspection import probe_model_contract
+    from acprof.host.model_inspection import validate_model_runtime
     task = TaskInfo("example/native", tag, family, "transformers_pipeline", "transformers", "a" * 40, "hub")
     with tempfile.TemporaryDirectory() as directory, patch(
             "acprof.host.runtime_images.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
@@ -25,7 +44,7 @@ def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales
             "acprof.host.preflight.require_native_docker"), patch(
             "acprof.host.run_state.MeasurementLock"), patch(
             "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}) as validate:
-        probe_model_contract(task, directory, mode="full")
+        validate_model_runtime(task, directory)
         entry = json.loads(Path(validate.call_args.kwargs["planned"].plan_file).read_text())["entries"][0]
         assert (entry["input_scale"]) == (expected_scale)
         assert (entry["payload"][field])
@@ -36,7 +55,7 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
     from types import SimpleNamespace
 
     from acprof.host.detect import TaskInfo
-    from acprof.host.model_inspection import probe_model_contract
+    from acprof.host.model_inspection import validate_model_runtime
     task = TaskInfo("example/iris", "tabular-classification", "structured", "onnxruntime",
                     "onnx", "a" * 40, "manual")
     task.model_spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
@@ -47,7 +66,7 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
             "acprof.host.preflight.require_native_docker"), patch(
             "acprof.host.run_state.MeasurementLock"), patch(
             "acprof.host.runtime_validation.validate_runtime", return_value={"status": "ok"}) as validate:
-        report = probe_model_contract(task, directory, mode="full")
+        report = validate_model_runtime(task, directory)
         assert (report["status"]) == ("ok")
         plan = json.loads(Path(validate.call_args.kwargs["planned"].plan_file).read_text())
         assert (len(plan["entries"][0]["payload"]["features"][0])) == (4)
@@ -80,7 +99,7 @@ def test_changed_revision_refuses_probe_and_preserves_previous_report():
         path = Path(directory, "model_resolution.json")
         path.write_text('{"preserve":true}')
         assert (main(["inspect", task.model_id, "--expected-revision", "b" * 40,
-                               "--probe", "full", "--output-dir", directory])) == (2)
+                               "--probe-interface", "--output-dir", directory])) == (2)
         assert (path.read_text()) == ('{"preserve":true}')
         build.assert_not_called()
 

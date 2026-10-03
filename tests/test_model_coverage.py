@@ -22,7 +22,7 @@ def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
                            for index in range(3)]}
     with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
             "acprof.host.automation.check_repository_access"), patch(
-            "acprof.host.model_inspection.probe_model_contract", side_effect=[
+        "acprof.host.model_inspection.validate_model_runtime", side_effect=[
                 {"status": "ok"}, {"status": "resource_limited"}, ProbePreparationError("build failed")]):
         report = run_sample(manifest, Path(directory, "report"), probe="full")
         summary = report["summary"]

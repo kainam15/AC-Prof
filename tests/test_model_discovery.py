@@ -28,6 +28,11 @@ class TestModelDiscovery:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(value))
+            for name in files:
+                if name.endswith(".py"):
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("raise AssertionError('host must not import')")
             hub = SimpleNamespace(pipeline_tag=tag, library_name=library, sha=REVISION,
                                   config={}, siblings=[SimpleNamespace(rfilename=name)
                                                        for name in [*metadata, *files]])

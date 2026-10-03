@@ -13,7 +13,12 @@ from acprof.artifacts import atomic_write_json
 from acprof.model_evidence import ModelEvidence, pinned_revision
 from acprof.model_metadata_analysis import collect_source_evidence, collect_structured_evidence
 from acprof.model_source_analysis import analyze_pipeline
-from acprof.model_spec import MULTIMODAL_PIPELINE_INPUTS, task_model_spec, validate_model_spec
+from acprof.model_spec import (
+    MULTIMODAL_PIPELINE_INPUTS,
+    custom_code_files,
+    task_model_spec,
+    validate_model_spec,
+)
 
 # These are canonical protocol names, never checkpoint-specific rules. Rename
 # text to prompt only with a literal string default; structured chats need a DSL.
@@ -116,7 +121,14 @@ def resolve_model_contract(task_info, read_text: Callable[[str], str], *, resolv
             if task_info.model_resolution.get("conflicts"):
                 evidence.add("selection", None, "ambiguous", "candidate-selection",
                              reason="; ".join(task_info.model_resolution["conflicts"]))
-        except (ValueError, TypeError) as exc:
+            if any(custom_code_files(item) for item in [config, *task_info.repository_metadata.values()] if isinstance(item, dict)):
+                selected = copy.deepcopy(config)
+                if spec.get("pipeline_task") in config.get("custom_pipelines", {}):
+                    selected["custom_pipelines"] = {spec["pipeline_task"]: config["custom_pipelines"][spec["pipeline_task"]]}
+                sources = collect_source_evidence(task_info, evidence, selected, read_text)
+                evidence.add("custom_code", {"required": True, "files": sorted(sources),
+                                             "revision": task_info.model_revision}, "declared", "config.json")
+        except (OSError, ValueError, TypeError, KeyError) as exc:
             evidence.unresolved("model_spec", str(exc), "acprof_model.json")
     elif task_info.model_resolution.get("status") in {"ambiguous", "needs_configuration"}:
         evidence.unresolved("selection", "; ".join(task_info.model_resolution.get("conflicts", []) +
@@ -160,6 +172,18 @@ def apply_model_contract(task_info, read_text: Callable[[str], str], *, override
                                     selected_pipeline=selected_pipeline)
     task_info.model_resolution.pop("generated_spec", None)
     if report is None:
+        config = task_info.repository_metadata.get("config.json", task_info.model_config) or {}
+        if any("auto_map" in item or "custom_pipelines" in item
+               for item in [config, *task_info.repository_metadata.values()] if isinstance(item, dict)):
+            evidence = ModelEvidence(task_info.model_id, task_info.model_revision)
+            try:
+                sources = collect_source_evidence(task_info, evidence, config, read_text)
+                task_info.model_resolution["source_graph"] = {
+                    "files": sorted(sources), "revision": task_info.model_revision, "sources": evidence.sources,
+                }
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                task_info.model_resolution["status"] = "needs_configuration"
+                task_info.model_resolution.setdefault("missing", []).append(str(exc))
         return
     task_info.model_resolution["contract"] = report
     if report["status"] == "resolved":

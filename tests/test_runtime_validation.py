@@ -14,6 +14,12 @@ from acprof.host.profiler_support import profiler_container_command
 from acprof.host.runtime_images import ImageInfo
 from acprof.host.runtime_validation import validate_runtime
 
+SUCCESS = 'ACPROF_RUNTIME_VALIDATION=' + json.dumps({
+    'status': 'ok', 'stages': [{'stage': name, 'status': 'verified'} for name in
+                             ('load', 'preprocess', 'predict', 'postprocess', 'validate_output')],
+    'validation': {'protocol': {'status': 'verified'}, 'task': {'status': 'verified'}},
+})
+
 
 class TestRuntimeValidation:
     @pytest.fixture(autouse=True)
@@ -37,6 +43,14 @@ class TestRuntimeValidation:
                         'transformers_model', 'transformers', 'a' * 40, 'unit',
                         runtime_profile_id='moss-transformers560', model_config={'model_type': 'moss_transcribe_diarize'})
 
+    def test_native_status_ok_without_output_validation_cannot_pass(self, tmp_path):
+        def run(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
+        with patch('acprof.host.runtime_validation.run_command', side_effect=run), patch(
+            'acprof.host.container_state.inspect_container_state', return_value={}), pytest.raises(RuntimeError, match='incomplete runtime'):
+            validate_runtime(**self.fixture(tmp_path))
+        assert not list(tmp_path.rglob('*.csv'))
+
     def fixture(self, root):
         plan = root / 'input_scale_plan.json'
         plan.write_text(json.dumps({"schema_version": 2, 'entries': [
@@ -58,7 +72,7 @@ class TestRuntimeValidation:
                 assert ('--memory=8g') in (command)
                 mount = command[command.index('-v') + 1].split(':')[0]
                 assert (json.loads(Path(mount).read_text())) == ({'text': 'small'})
-                return subprocess.CompletedProcess(command, 0, stdout='ACPROF_RUNTIME_VALIDATION={"status":"ok"}\n', stderr='')
+                return subprocess.CompletedProcess(command, 0, stdout=SUCCESS, stderr='')
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
         with tempfile.TemporaryDirectory() as temporary, patch(
@@ -100,7 +114,7 @@ class TestRuntimeValidation:
                             'State': {'Running': True, 'Status': 'running'}}]
                 return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
             if command[1] == 'run':
-                return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
+                return subprocess.CompletedProcess(command, 0, SUCCESS, '')
             if command[1] == 'rm':
                 return subprocess.CompletedProcess(command, 0, '', '')
             pytest.fail('unexpected Docker command')
@@ -227,7 +241,7 @@ class TestRuntimeValidation:
                 assert ('--cidfile') in (command)
                 assert (any(value.startswith('org.acprof.owner.pid=') for value in command))
                 Path(command[command.index('--cidfile') + 1]).write_text(identifier)
-                return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
+                return subprocess.CompletedProcess(command, 0, SUCCESS, '')
             return subprocess.CompletedProcess(command, 0, '', '')
         with tempfile.TemporaryDirectory() as directory, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
@@ -318,6 +332,8 @@ class TestRuntimeValidation:
                 stack.enter_context(patch('acprof.cli.run.' + name))
             stack.enter_context(patch('acprof.cli.run.require_cgroup_prerequisites', return_value='v2'))
             stack.enter_context(patch('acprof.host.detect.detect_task', return_value=self.task()))
+            stack.enter_context(patch('acprof.host.interface_probe.probe_interface', return_value={'status': 'ok'}))
+            stack.enter_context(patch('acprof.host.runtime_images.configure_runtime_profile'))
             stack.enter_context(patch('acprof.host.runtime_images.prepare_image', return_value=ImageInfo(
                 tag='sha256:' + 'b' * 64, runtime_environment={'build_fingerprint': 'build'},
             )))

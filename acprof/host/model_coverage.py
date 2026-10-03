@@ -105,7 +105,7 @@ class CoverageCleanupError(RuntimeError):
 def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     timeout_seconds, max_parameters, max_download_bytes) -> dict:
     from acprof.host.detect import detect_task
-    from acprof.host.model_inspection import probe_model_contract
+    from acprof.host.model_inspection import validate_model_runtime
     from acprof.host.task_support import require_task_support
     from acprof.model_contract import write_model_resolution
 
@@ -149,8 +149,8 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             for repo_id in [task.model_id, *(dep["repo_id"] for dep in task_model_spec(task).get("dependencies", []))]:
                 check_repository_access(repo_id)
             stage = "runtime"
-            validation = probe_model_contract(task, output, mode="full", cpus=cpus, memory_gb=memory_gb,
-                                               gpu=gpu, timeout_seconds=timeout_seconds, reuse_existing=True)
+            validation = validate_model_runtime(task, output, cpus=cpus, memory_gb=memory_gb,
+                                                gpu=gpu, timeout_seconds=timeout_seconds, reuse_existing=True)
             row["runtime_status"] = validation["status"]
             row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
             failures = [value["failure"] for value in validation.get("devices", {}).values() if value.get("failure")]

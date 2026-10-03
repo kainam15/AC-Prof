@@ -3,11 +3,18 @@ from __future__ import annotations
 
 import json
 import math
+import os
 
 PREFIX = "ACPROF_PREPARATION "
 MAX_MESSAGE = 256 * 1024
-STAGES = frozenset({"resolution", "dependencies", "preflight", "image", "input", "runtime"})
+STAGES = frozenset({"resolution", "interface", "dependencies", "preflight", "image", "environment", "model", "input", "runtime"})
 STATUSES = frozenset({"not_started", "running", "passed", "failed", "waiting"})
+
+
+def emit_progress(stage: str) -> None:
+    """Called at actual preparation boundaries, never from measurement."""
+    if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1":
+        print(encode_event(stage, "running"), flush=True)
 
 
 def encode_event(stage: str, status: str, **fields) -> str:
@@ -32,7 +39,7 @@ def parse_event(line: str) -> dict | None:
                 or request.get("kind") not in {"review", "error"}):
             raise ValueError("invalid preparation request")
         if request["kind"] == "review" and (not isinstance(request.get("questions"), list)
-                                            or not request["questions"]):
+                                            or not request["questions"] and request.get("resolved") is not True):
             raise ValueError("review requires unresolved fields")
     if "input_plan" in value:
         validate_input_plan(value["input_plan"])
@@ -47,10 +54,13 @@ def validate_input_plan(value: dict) -> None:
         raise ValueError("invalid preparation input plan")
 
 
-def encode_reply(request_id: int, action: str, *, answers: dict | None = None) -> str:
+def encode_reply(request_id: int, action: str, *, answers: dict | None = None,
+                 overrides: dict | None = None) -> str:
     value: dict[str, object] = {"id": request_id, "action": action}
     if answers is not None:
         value["answers"] = answers
+    if overrides is not None:
+        value["overrides"] = overrides
     line = json.dumps(value, ensure_ascii=True, allow_nan=False) + "\n"
     if len(line) > MAX_MESSAGE:
         raise ValueError("preparation reply exceeds size limit")
