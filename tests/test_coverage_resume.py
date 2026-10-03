@@ -4,11 +4,11 @@ import copy
 import io
 import json
 import os
-import tempfile
-import unittest
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from test_resolution_decisions import candidate
 
 from acprof.cli.coverage import main
@@ -16,11 +16,12 @@ from acprof.failures import Failure, RuntimeFailure
 from acprof.host.model_coverage import run_sample
 
 
-class CoverageResumeTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "coverage"
+class TestCoverageResume:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.temporary = tmp_path
+        self.root = Path(str(self.temporary)) / "coverage"
         self.sample = {"schema_version": 1, "sampling": "fixed", "weight_basis": "uniform",
                        "models": [{"model_id": f"example/model-{index}", "revision": "a" * 40,
                                    "weight": 1} for index in range(3)]}
@@ -30,7 +31,7 @@ class CoverageResumeTests(unittest.TestCase):
                               ("acprof.host.automation.check_repository_access", None)):
             patcher = patch(target, return_value=value)
             patcher.start()
-            self.addCleanup(patcher.stop)
+            self._request.addfinalizer(partial(patcher.stop))
 
     def task(self, model_id, *, revision):
         task = candidate(tag="text-generation")
@@ -55,34 +56,34 @@ class CoverageResumeTests(unittest.TestCase):
                 raise KeyboardInterrupt
             return self.task(model_id, revision=revision)
 
-        with patch("acprof.host.detect.detect_task", side_effect=interrupted), self.assertRaises(KeyboardInterrupt):
+        with patch("acprof.host.detect.detect_task", side_effect=interrupted), pytest.raises(KeyboardInterrupt):
             run_sample(self.sample, self.root)
         first_attempt = self.root / "attempts/attempt-000001/attempt.json"
         original = first_attempt.read_bytes()
         with patch("acprof.host.detect.detect_task", side_effect=self.task) as detect:
             report = run_sample(self.sample, self.root, resume=True)
-        self.assertEqual([call.args[0] for call in detect.call_args_list], ["example/model-1", "example/model-2"])
-        self.assertEqual(report["status"], "complete")
-        self.assertEqual(report["summary"]["completed_count"], 3)
-        self.assertEqual(len(report["attempts"]), 2)
-        self.assertEqual(first_attempt.read_bytes(), original)
-        self.assertEqual([row["attempt_id"] for row in report["rows"]], [1, 2, 2])
+        assert ([call.args[0] for call in detect.call_args_list]) == (["example/model-1", "example/model-2"])
+        assert (report["status"]) == ("complete")
+        assert (report["summary"]["completed_count"]) == (3)
+        assert (len(report["attempts"])) == (2)
+        assert (first_attempt.read_bytes()) == (original)
+        assert ([row["attempt_id"] for row in report["rows"]]) == ([1, 2, 2])
         with patch("acprof.host.detect.detect_task") as detect:
-            self.assertEqual(run_sample(self.sample, self.root, resume=True), report)
+            assert (run_sample(self.sample, self.root, resume=True)) == (report)
         detect.assert_not_called()
 
-    def test_changed_sample_device_and_configuration_fail_before_resolution(self):
+    @pytest.mark.parametrize('sample_case', range(4), ids=['(changed, {})', "(sample, {'cpus': 4})", "(sample, {'gpu': True})", "(sample, {'timeout_seconds': 600})"])
+    def test_changed_sample_device_and_configuration_fail_before_resolution(self, sample_case):
         self.run_batch()
         original = (self.root / "coverage.json").read_bytes()
         changed = copy.deepcopy(self.sample)
         changed["models"][0]["revision"] = "b" * 40
-        for sample, options in ((changed, {}), (self.sample, {"cpus": 4}),
-                                (self.sample, {"gpu": True}), (self.sample, {"timeout_seconds": 600})):
-            with self.subTest(options=options), patch("acprof.host.detect.detect_task") as detect:
-                with self.assertRaisesRegex(ValueError, "sample|configuration|配置|样本"):
-                    run_sample(sample, self.root, resume=True, **options)
-                detect.assert_not_called()
-                self.assertEqual((self.root / "coverage.json").read_bytes(), original)
+        (sample, options) = tuple(((changed, {}), (self.sample, {'cpus': 4}), (self.sample, {'gpu': True}), (self.sample, {'timeout_seconds': 600})))[sample_case]
+        with patch("acprof.host.detect.detect_task") as detect:
+            with pytest.raises(ValueError, match="sample|configuration|配置|样本"):
+                run_sample(sample, self.root, resume=True, **options)
+            detect.assert_not_called()
+            assert ((self.root / "coverage.json").read_bytes()) == (original)
 
     def test_retry_filters_preserve_old_budget_and_failure_in_an_independent_attempt(self):
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=[
@@ -92,16 +93,15 @@ class CoverageResumeTests(unittest.TestCase):
         with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}) as probe:
             after = self.run_batch(probe="full", timeout_seconds=600, resume=True,
                                    retry_stages=["predict"], retry_reasons=["request_timeout"])
-        self.assertEqual(probe.call_count, 1)
-        self.assertEqual(probe.call_args.args[0].model_id, "example/model-1")
-        self.assertEqual(after["resources"]["timeout_seconds"], 60)
-        self.assertEqual(after["attempts"][1]["configuration"]["resources"]["timeout_seconds"], 600)
-        self.assertEqual(after["attempts"][1]["configuration_changes"]["resources.timeout_seconds"],
-                         {"before": 60, "after": 600})
-        self.assertEqual(after["rows"][1]["runtime_status"], "ok")
-        self.assertEqual(after["rows"][2]["failure"], before["rows"][2]["failure"])
-        self.assertEqual((self.root / "attempts/attempt-000001/attempt.json").read_bytes(), original)
-        self.assertTrue(after["mixed_configurations"])
+        assert (probe.call_count) == (1)
+        assert (probe.call_args.args[0].model_id) == ("example/model-1")
+        assert (after["resources"]["timeout_seconds"]) == (60)
+        assert (after["attempts"][1]["configuration"]["resources"]["timeout_seconds"]) == (600)
+        assert (after["attempts"][1]["configuration_changes"]["resources.timeout_seconds"]) == ({"before": 60, "after": 600})
+        assert (after["rows"][1]["runtime_status"]) == ("ok")
+        assert (after["rows"][2]["failure"]) == (before["rows"][2]["failure"])
+        assert ((self.root / "attempts/attempt-000001/attempt.json").read_bytes()) == (original)
+        assert (after["mixed_configurations"])
 
     def test_resume_reads_durable_success_after_summary_write_was_interrupted(self):
         self.run_batch()
@@ -112,37 +112,37 @@ class CoverageResumeTests(unittest.TestCase):
         with patch("acprof.host.detect.detect_task") as detect:
             report = run_sample(self.sample, self.root, resume=True)
         detect.assert_not_called()
-        self.assertEqual(len(report["rows"]), 3)
+        assert (len(report["rows"])) == (3)
 
     def test_resume_rejects_unknown_legacy_budget_evidence_without_rewriting_history(self):
         self.root.mkdir()
         (self.root / "sample.json").write_text(json.dumps(self.sample))
         legacy = {"schema_version": 1, "rows": [], "probe": "none", "resources": {"cpus": 2}}
         (self.root / "coverage.json").write_text(json.dumps(legacy))
-        with self.assertRaisesRegex(ValueError, "schema|history|历史"):
+        with pytest.raises(ValueError, match="schema|history|历史"):
             self.run_batch(resume=True)
-        self.assertEqual(json.loads((self.root / "coverage.json").read_text()), legacy)
+        assert (json.loads((self.root / "coverage.json").read_text())) == (legacy)
 
     def test_retry_requires_resume_and_unknown_selectors_do_not_create_attempts(self):
-        with self.assertRaisesRegex(ValueError, "resume"):
+        with pytest.raises(ValueError, match="resume"):
             self.run_batch(retry_failed=True)
-        self.assertFalse(self.root.exists())
+        assert not (self.root.exists())
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=self.failure()):
             self.run_batch(probe="full")
-        with self.assertRaisesRegex(ValueError, "matching|匹配"):
+        with pytest.raises(ValueError, match="matching|匹配"):
             self.run_batch(probe="full", resume=True, retry_reasons=["resource_limit"])
-        self.assertEqual(len(list((self.root / "attempts").iterdir())), 1)
+        assert (len(list((self.root / "attempts").iterdir()))) == (1)
 
     def test_cli_resume_and_retry_flags_reach_shared_runner(self):
-        source = Path(self.temporary.name) / "sample.json"
+        source = Path(str(self.temporary)) / "sample.json"
         source.write_text(json.dumps(self.sample))
         with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
                 "acprof.host.model_coverage.run_sample", return_value={"summary": {}}) as run, contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(main(["run", str(source), "--output-dir", str(self.root), "--resume",
-                                   "--retry-stage", "predict", "--retry-reason", "request_timeout"]), 0)
-        self.assertTrue(run.call_args.kwargs["resume"])
-        self.assertEqual(run.call_args.kwargs["retry_stages"], ["predict"])
-        self.assertEqual(run.call_args.kwargs["retry_reasons"], ["request_timeout"])
+            assert (main(["run", str(source), "--output-dir", str(self.root), "--resume",
+                                   "--retry-stage", "predict", "--retry-reason", "request_timeout"])) == (0)
+        assert (run.call_args.kwargs["resume"])
+        assert (run.call_args.kwargs["retry_stages"]) == (["predict"])
+        assert (run.call_args.kwargs["retry_reasons"]) == (["request_timeout"])
 
     def test_parameter_budget_retry_does_not_replace_initial_budget(self):
         def bounded_task(model_id, *, revision):
@@ -154,43 +154,43 @@ class CoverageResumeTests(unittest.TestCase):
             initial = run_sample(self.sample, self.root, max_parameters=10)
             retried = run_sample(self.sample, self.root, max_parameters=20, resume=True,
                                  retry_reasons=["resource_limit"])
-        self.assertEqual(initial["rows"][0]["failure"]["reason_code"], "resource_limit")
-        self.assertEqual(retried["budgets"]["max_parameters"], 10)
-        self.assertEqual(retried["attempts"][1]["configuration"]["budgets"]["max_parameters"], 20)
-        self.assertNotIn("failure", retried["rows"][0])
+        assert (initial["rows"][0]["failure"]["reason_code"]) == ("resource_limit")
+        assert (retried["budgets"]["max_parameters"]) == (10)
+        assert (retried["attempts"][1]["configuration"]["budgets"]["max_parameters"]) == (20)
+        assert ("failure") not in (retried["rows"][0])
 
     def test_resume_of_interrupted_retry_only_continues_that_attempt_selection(self):
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=[
                 {"status": "ok"}, self.failure(), self.failure()]):
             self.run_batch(probe="full", timeout_seconds=60)
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=[
-                {"status": "ok"}, KeyboardInterrupt]), self.assertRaises(KeyboardInterrupt):
+                {"status": "ok"}, KeyboardInterrupt]), pytest.raises(KeyboardInterrupt):
             self.run_batch(probe="full", timeout_seconds=600, resume=True, retry_failed=True)
         with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}) as probe:
             result = self.run_batch(probe="full", timeout_seconds=600, resume=True)
-        self.assertEqual(probe.call_count, 1)
-        self.assertEqual(probe.call_args.args[0].model_id, "example/model-2")
-        self.assertEqual([row["attempt_id"] for row in result["rows"]], [1, 2, 3])
+        assert (probe.call_count) == (1)
+        assert (probe.call_args.args[0].model_id) == ("example/model-2")
+        assert ([row["attempt_id"] for row in result["rows"]]) == ([1, 2, 3])
 
     def test_missing_attempt_evidence_and_modified_frozen_copy_are_rejected(self):
         self.run_batch()
         path = self.root / "attempts/attempt-000001/attempt.json"
         original = path.read_bytes()
         path.unlink()
-        with self.assertRaisesRegex(ValueError, "missing|evidence"):
+        with pytest.raises(ValueError, match="missing|evidence"):
             self.run_batch(resume=True)
         path.write_bytes(original)
         frozen = copy.deepcopy(self.sample)
         frozen["models"][0]["weight"] = 7
         (self.root / "sample.json").write_text(json.dumps(frozen))
-        with self.assertRaisesRegex(ValueError, "sample"):
+        with pytest.raises(ValueError, match="sample"):
             self.run_batch(resume=True)
 
     def test_directory_lock_prevents_two_recovery_writers(self):
         from acprof.host.run_state import ResultDirectoryLock, RunStateError
         self.run_batch()
         with ResultDirectoryLock(self.root), patch("acprof.host.detect.detect_task") as detect:
-            with self.assertRaises(RunStateError):
+            with pytest.raises(RunStateError):
                 self.run_batch(resume=True)
         detect.assert_not_called()
 
@@ -200,7 +200,7 @@ class CoverageResumeTests(unittest.TestCase):
             self.run_batch(probe="full", gpu=True)
         with patch("acprof.host.gpu_device.pin_gpu_device", return_value={"uuid": "GPU-replacement"}), patch(
                 "acprof.host.model_inspection.probe_model_contract") as probe:
-            with self.assertRaisesRegex(ValueError, "configuration"):
+            with pytest.raises(ValueError, match="configuration"):
                 self.run_batch(probe="full", gpu=True, resume=True)
         probe.assert_not_called()
 
@@ -217,28 +217,28 @@ class CoverageResumeTests(unittest.TestCase):
             raise RuntimeError("owned container cleanup incomplete")
 
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=incomplete_cleanup) as probe:
-            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+            with pytest.raises(RuntimeError, match="cleanup"):
                 self.run_batch(probe="full")
-        self.assertEqual(probe.call_count, 1)
+        assert (probe.call_count) == (1)
         report = json.loads((self.root / "coverage.json").read_text())
-        self.assertEqual(report["status"], "interrupted")
-        self.assertEqual(len(report["rows"]), 1)
+        assert (report["status"]) == ("interrupted")
+        assert (len(report["rows"])) == (1)
         row = report["rows"][0]
-        self.assertEqual(row["failure"], original_failure)
-        self.assertEqual(row["cleanup_status"], "incomplete")
-        self.assertEqual(row["cleanup_errors"], [cleanup])
+        assert (row["failure"]) == (original_failure)
+        assert (row["cleanup_status"]) == ("incomplete")
+        assert (row["cleanup_errors"]) == ([cleanup])
         original = (self.root / "attempts/attempt-000001/attempt.json").read_bytes()
         with patch("acprof.host.model_inspection.probe_model_contract") as probe:
-            with self.assertRaisesRegex(ValueError, "cleanup"):
+            with pytest.raises(ValueError, match="cleanup"):
                 self.run_batch(probe="full", resume=True)
         probe.assert_not_called()
         with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}) as probe, patch(
                 "acprof.host.coverage_state.confirm_previous_cleanup", return_value={"status": "complete"}) as confirm:
             retried = self.run_batch(probe="full", resume=True, retry_stages=["cleanup"])
         confirm.assert_called_once()
-        self.assertEqual(probe.call_count, 1)
-        self.assertEqual(len(retried["rows"]), 1)
-        self.assertEqual((self.root / "attempts/attempt-000001/attempt.json").read_bytes(), original)
+        assert (probe.call_count) == (1)
+        assert (len(retried["rows"])) == (1)
+        assert ((self.root / "attempts/attempt-000001/attempt.json").read_bytes()) == (original)
 
     def test_cleanup_recovery_failure_without_device_result_still_stops_batch(self):
         cleanup = {"status": "incomplete", "final_state": "present", "container_id": "d" * 64}
@@ -249,11 +249,11 @@ class CoverageResumeTests(unittest.TestCase):
             raise RuntimeError("recovery cleanup incomplete")
 
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=incomplete_cleanup) as probe:
-            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+            with pytest.raises(RuntimeError, match="cleanup"):
                 self.run_batch(probe="full")
-        self.assertEqual(probe.call_count, 1)
+        assert (probe.call_count) == (1)
         report = json.loads((self.root / "coverage.json").read_text())
-        self.assertEqual(report["rows"][0]["cleanup_errors"], [cleanup])
+        assert (report["rows"][0]["cleanup_errors"]) == ([cleanup])
 
     def test_resume_finishes_a_retry_killed_after_its_last_durable_row(self):
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=self.failure()):
@@ -269,25 +269,24 @@ class CoverageResumeTests(unittest.TestCase):
         with patch("acprof.host.model_inspection.probe_model_contract") as probe:
             report = self.run_batch(probe="full", timeout_seconds=600, resume=True)
         probe.assert_not_called()
-        self.assertEqual(report["status"], "complete")
-        self.assertEqual(path.read_bytes(), original)
-        self.assertEqual(report["attempts"][-1]["mode"], "resume")
-        self.assertEqual(report["attempts"][-1]["status"], "complete")
-        self.assertEqual(report["attempts"][-1]["model_indices"], [])
+        assert (report["status"]) == ("complete")
+        assert (path.read_bytes()) == (original)
+        assert (report["attempts"][-1]["mode"]) == ("resume")
+        assert (report["attempts"][-1]["status"]) == ("complete")
+        assert (report["attempts"][-1]["model_indices"]) == ([])
 
-    def test_resume_rejects_rows_bound_to_another_attempt_or_configuration(self):
+    @pytest.mark.parametrize('field,value', (('configuration_sha256', 'different'), ('attempt_path', 'attempts/attempt-000002')))
+    def test_resume_rejects_rows_bound_to_another_attempt_or_configuration(self, field, value):
         self.run_batch()
         path = self.root / "attempts/attempt-000001/attempt.json"
         original = path.read_bytes()
-        for field, value in (("configuration_sha256", "different"), ("attempt_path", "attempts/attempt-000002")):
-            with self.subTest(field=field):
-                damaged = json.loads(original)
-                damaged["rows"][0][field] = value
-                path.write_text(json.dumps(damaged))
-                with patch("acprof.host.detect.detect_task") as detect:
-                    with self.assertRaisesRegex(ValueError, "attempt|configuration"):
-                        self.run_batch(resume=True)
-                detect.assert_not_called()
+        damaged = json.loads(original)
+        damaged["rows"][0][field] = value
+        path.write_text(json.dumps(damaged))
+        with patch("acprof.host.detect.detect_task") as detect:
+            with pytest.raises(ValueError, match="attempt|configuration"):
+                self.run_batch(resume=True)
+        detect.assert_not_called()
         path.write_bytes(original)
 
     def test_changed_effective_download_source_requires_retry_and_records_the_difference(self):
@@ -296,16 +295,15 @@ class CoverageResumeTests(unittest.TestCase):
             with patch("acprof.host.model_inspection.probe_model_contract", side_effect=self.failure()):
                 self.run_batch(probe="full")
             os.environ["HF_ENDPOINT"] = "https://second.invalid"
-            with self.assertRaisesRegex(ValueError, "configuration"):
+            with pytest.raises(ValueError, match="configuration"):
                 self.run_batch(probe="full", resume=True)
             with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}):
                 report = self.run_batch(probe="full", resume=True, retry_failed=True)
-        self.assertEqual(report["attempts"][-1]["configuration_changes"]["preparation_sources.endpoints"],
-                         {"before": ["https://first.invalid"], "after": ["https://second.invalid"]})
+        assert (report["attempts"][-1]["configuration_changes"]["preparation_sources.endpoints"]) == ({"before": ["https://first.invalid"], "after": ["https://second.invalid"]})
 
     def test_finishing_interrupted_retry_does_not_adopt_other_unfinished_models(self):
         with patch("acprof.host.model_inspection.probe_model_contract", side_effect=[self.failure(), KeyboardInterrupt]):
-            with self.assertRaises(KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt):
                 self.run_batch(probe="full", timeout_seconds=60)
         with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}):
             self.run_batch(probe="full", timeout_seconds=600, resume=True, retry_failed=True)
@@ -316,29 +314,29 @@ class CoverageResumeTests(unittest.TestCase):
         with patch("acprof.host.model_inspection.probe_model_contract") as probe:
             report = self.run_batch(probe="full", timeout_seconds=600, resume=True)
         probe.assert_not_called()
-        self.assertEqual(report["status"], "incomplete")
-        self.assertEqual(len(report["rows"]), 1)
+        assert (report["status"]) == ("incomplete")
+        assert (len(report["rows"])) == (1)
         with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}) as probe:
             report = self.run_batch(probe="full", timeout_seconds=60, resume=True)
-        self.assertEqual(probe.call_count, 2)
-        self.assertEqual(report["status"], "complete")
+        assert (probe.call_count) == (2)
+        assert (report["status"]) == ("complete")
 
     def test_cli_reports_cleanup_stop_without_losing_the_persisted_evidence_location(self):
         from acprof.host.model_coverage import CoverageCleanupError
-        source = Path(self.temporary.name) / "sample.json"
+        source = Path(str(self.temporary)) / "sample.json"
         source.write_text(json.dumps(self.sample))
         stderr = io.StringIO()
         with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
                 "acprof.host.model_coverage.run_sample", side_effect=CoverageCleanupError("cleanup: attempts/attempt-000001/attempt.json")), contextlib.redirect_stderr(stderr):
-            self.assertEqual(main(["run", str(source), "--output-dir", str(self.root)]), 2)
-        self.assertIn("attempts/attempt-000001/attempt.json", stderr.getvalue())
+            assert (main(["run", str(source), "--output-dir", str(self.root)])) == (2)
+        assert ("attempts/attempt-000001/attempt.json") in (stderr.getvalue())
 
     def seed_cleanup_debt(self):
         cleanup = {"status": "incomplete", "container_id": "c" * 64, "final_state": "unknown"}
         result = {"status": "error", "cleanup_status": "incomplete", "cleanup_error": cleanup,
                   "devices": {"off": {"failure": self.failure().failure.to_dict()}}}
         with patch("acprof.host.model_inspection.probe_model_contract", return_value=result):
-            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+            with pytest.raises(RuntimeError, match="cleanup"):
                 self.run_batch(probe="full")
         return (self.root / "attempts/attempt-000001/attempt.json").read_bytes(), cleanup
 
@@ -348,17 +346,17 @@ class CoverageResumeTests(unittest.TestCase):
                    side_effect=RuntimeError("Docker did not confirm absence")) as confirm, patch(
                 "acprof.host.detect.detect_task", side_effect=RuntimeError("Hub unavailable")) as detect, patch(
                 "acprof.host.model_inspection.probe_model_contract") as probe:
-            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+            with pytest.raises(RuntimeError, match="cleanup"):
                 run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])
         confirm.assert_called_once()
         detect.assert_not_called()
         probe.assert_not_called()
         report = json.loads((self.root / "coverage.json").read_text())
-        self.assertEqual(report["rows"][0]["cleanup_status"], "incomplete")
-        self.assertIn(cleanup, report["rows"][0]["cleanup_errors"])
-        self.assertEqual(report["rows"][0]["cleanup_recovery"]["status"], "incomplete")
-        self.assertEqual((self.root / "attempts/attempt-000001/attempt.json").read_bytes(), original)
-        with self.assertRaisesRegex(ValueError, "cleanup"):
+        assert (report["rows"][0]["cleanup_status"]) == ("incomplete")
+        assert (cleanup) in (report["rows"][0]["cleanup_errors"])
+        assert (report["rows"][0]["cleanup_recovery"]["status"]) == ("incomplete")
+        assert ((self.root / "attempts/attempt-000001/attempt.json").read_bytes()) == (original)
+        with pytest.raises(ValueError, match="cleanup"):
             self.run_batch(probe="full", resume=True)
 
     def test_cleanup_confirmed_absent_is_preserved_even_if_new_resolution_fails(self):
@@ -370,52 +368,53 @@ class CoverageResumeTests(unittest.TestCase):
             report = run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])
         confirm.assert_called_once()
         probe.assert_not_called()
-        self.assertEqual(report["rows"][0]["cleanup_recovery"], proof)
-        self.assertNotEqual(report["rows"][0].get("cleanup_status"), "incomplete")
-        self.assertEqual(report["rows"][0]["failed_stage"], "resolution")
-        self.assertEqual((self.root / "attempts/attempt-000001/attempt.json").read_bytes(), original)
+        assert (report["rows"][0]["cleanup_recovery"]) == (proof)
+        assert (report["rows"][0].get("cleanup_status")) != ("incomplete")
+        assert (report["rows"][0]["failed_stage"]) == ("resolution")
+        assert ((self.root / "attempts/attempt-000001/attempt.json").read_bytes()) == (original)
 
-    def test_runtime_build_overrides_require_explicit_retry_and_keep_original_conditions(self):
+    @pytest.mark.parametrize('index', range(3))
+    def test_runtime_build_overrides_require_explicit_retry_and_keep_original_conditions(self, index):
         changes = {"ACPROF_NLP_TORCH_INDEX_URL": ("https://download.pytorch.org/whl/cu124", "https://download.pytorch.org/whl/cpu"),
                    "ACPROF_NLP_TORCH_SPEC": ("torch==2.6.0", "torch==2.7.0"),
                    "ACPROF_HOST_CUDA_VERSION": ("12.4", "12.8")}
-        for index, (name, (before, after)) in enumerate(changes.items()):
-            with self.subTest(override=name), patch.dict(os.environ, {name: before}):
-                self.root = Path(self.temporary.name) / f"overrides-{index}"
-                with patch("acprof.host.model_inspection.probe_model_contract", side_effect=self.failure()):
-                    self.run_batch(probe="full")
-                original = (self.root / "attempts/attempt-000001/attempt.json").read_bytes()
-                os.environ[name] = after
-                with patch("acprof.host.detect.detect_task") as detect:
-                    with self.assertRaisesRegex(ValueError, "configuration"):
-                        run_sample(self.sample, self.root, probe="full", resume=True)
-                detect.assert_not_called()
-                with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}):
-                    report = self.run_batch(probe="full", resume=True, retry_failed=True)
-                self.assertEqual(report["attempts"][-1]["configuration_changes"][f"runtime_build_overrides.{name}"],
-                                 {"before": before, "after": after})
-                self.assertEqual((self.root / "attempts/attempt-000001/attempt.json").read_bytes(), original)
-                self.assertTrue(report["mixed_configurations"])
+        name, (before, after) = tuple(changes.items())[index]
+        with patch.dict(os.environ, {name: before}):
+            self.root = Path(str(self.temporary)) / f"overrides-{index}"
+            with patch("acprof.host.model_inspection.probe_model_contract", side_effect=self.failure()):
+                self.run_batch(probe="full")
+            original = (self.root / "attempts/attempt-000001/attempt.json").read_bytes()
+            os.environ[name] = after
+            with patch("acprof.host.detect.detect_task") as detect:
+                with pytest.raises(ValueError, match="configuration"):
+                    run_sample(self.sample, self.root, probe="full", resume=True)
+            detect.assert_not_called()
+            with patch("acprof.host.model_inspection.probe_model_contract", return_value={"status": "ok"}):
+                report = self.run_batch(probe="full", resume=True, retry_failed=True)
+            assert (report["attempts"][-1]["configuration_changes"][f"runtime_build_overrides.{name}"]) == ({"before": before, "after": after})
+            assert ((self.root / "attempts/attempt-000001/attempt.json").read_bytes()) == (original)
+            assert (report["mixed_configurations"])
 
-    def test_repeated_cleanup_retry_cannot_rebind_debt_to_another_host_or_docker_context(self):
+    @pytest.mark.parametrize('iteration_case', range(2))
+    @pytest.mark.parametrize('environment_case', range(2), ids=["({}, {**host, 'machine_id_sha256': 'another-host'}, 'original host')", "({'DOCKER_CONTEXT': 'another-daemon'}, host, 'endpoint/context')"])
+    def test_repeated_cleanup_retry_cannot_rebind_debt_to_another_host_or_docker_context(self, iteration_case, environment_case):
         self.seed_cleanup_debt()
-        for environment, host, reason in (({}, {**self.host, "machine_id_sha256": "another-host"}, "original host"),
-                                         ({"DOCKER_CONTEXT": "another-daemon"}, self.host, "endpoint/context")):
-            for _ in range(2):
-                with self.subTest(reason=reason), patch.dict(os.environ, environment), patch(
-                        "acprof.host.run_state.host_identity", return_value=host), patch(
-                        "acprof.host.detect.detect_task") as detect:
-                    with self.assertRaisesRegex(RuntimeError, "cleanup"):
-                        run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])
-                detect.assert_not_called()
-                row = json.loads((self.root / "coverage.json").read_text())["rows"][0]
-                self.assertEqual(row["cleanup_origin_attempt_id"], 1)
-                self.assertIn(reason, row["cleanup_recovery"]["error"]["detail"])
+        (environment, host, reason) = tuple((({}, {**self.host, 'machine_id_sha256': 'another-host'}, 'original host'), ({'DOCKER_CONTEXT': 'another-daemon'}, self.host, 'endpoint/context')))[environment_case]
+        _ = tuple(range(2))[iteration_case]
+        with patch.dict(os.environ, environment), patch(
+                "acprof.host.run_state.host_identity", return_value=host), patch(
+                "acprof.host.detect.detect_task") as detect:
+            with pytest.raises(RuntimeError, match="cleanup"):
+                run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])
+        detect.assert_not_called()
+        row = json.loads((self.root / "coverage.json").read_text())["rows"][0]
+        assert (row["cleanup_origin_attempt_id"]) == (1)
+        assert (reason) in (row["cleanup_recovery"]["error"]["detail"])
 
     def test_legacy_retry_without_cleanup_confirmation_cannot_hide_prior_debt(self):
         self.seed_cleanup_debt()
         with patch("acprof.host.coverage_state.confirm_previous_cleanup", side_effect=RuntimeError("Docker unavailable")):
-            with self.assertRaisesRegex(RuntimeError, "cleanup"):
+            with pytest.raises(RuntimeError, match="cleanup"):
                 self.run_batch(probe="full", resume=True, retry_stages=["cleanup"])
         path = self.root / "attempts/attempt-000002/attempt.json"
         data = json.loads(path.read_text())
@@ -424,7 +423,7 @@ class CoverageResumeTests(unittest.TestCase):
         data["status"] = "complete"
         path.write_text(json.dumps(data))
         with patch("acprof.host.detect.detect_task") as detect:
-            with self.assertRaisesRegex(ValueError, "cleanup"):
+            with pytest.raises(ValueError, match="cleanup"):
                 run_sample(self.sample, self.root, probe="full", resume=True)
         detect.assert_not_called()
 
@@ -435,9 +434,9 @@ class CoverageResumeTests(unittest.TestCase):
         for _ in range(2):
             with patch("acprof.host.coverage_state.coverage_configuration", return_value=changed), patch(
                     "acprof.host.detect.detect_task") as detect:
-                with self.assertRaisesRegex(RuntimeError, "cleanup"):
+                with pytest.raises(RuntimeError, match="cleanup"):
                     run_sample(self.sample, self.root, probe="full", resume=True, retry_stages=["cleanup"])
             detect.assert_not_called()
             row = json.loads((self.root / "coverage.json").read_text())["rows"][0]
-            self.assertEqual(row["cleanup_origin_attempt_id"], 1)
-            self.assertIn("original owner UID", row["cleanup_recovery"]["error"]["detail"])
+            assert (row["cleanup_origin_attempt_id"]) == (1)
+            assert ("original owner UID") in (row["cleanup_recovery"]["error"]["detail"])

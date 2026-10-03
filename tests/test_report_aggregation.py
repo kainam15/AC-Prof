@@ -1,10 +1,11 @@
 """A green shard is insufficient unless the entire discovered suite is accounted for."""
 import copy
 import hashlib
-import unittest
+
+import pytest
 
 
-class ReportAggregationTests(unittest.TestCase):
+class TestReportAggregation:
     def reports(self):
         ids = ["a.test", "b.test", "c.test", "d.test"]
         digest = hashlib.sha256("\n".join(ids).encode()).hexdigest()
@@ -21,14 +22,14 @@ class ReportAggregationTests(unittest.TestCase):
 
     def test_complete_suite_is_counted_once(self):
         report = self.summarize(self.reports())
-        self.assertTrue(report["successful"], report["errors"])
-        self.assertEqual(report["versions"]["3.12"]["counts"]["passed"], 4)
+        assert (report["successful"]), report["errors"]
+        assert (report["versions"]["3.12"]["counts"]["passed"]) == (4)
 
-    def test_missing_duplicate_and_unknown_shards_fail(self):
+    @pytest.mark.parametrize('broken_case', range(3), ids=['reports[:1]', '[*reports, reports[0]]', "[*reports, {**reports[0], 'python': '3.10.9'}]"])
+    def test_missing_duplicate_and_unknown_shards_fail(self, broken_case):
         reports = self.reports()
-        for broken in (reports[:1], [*reports, reports[0]], [*reports, {**reports[0], "python": "3.10.9"}]):
-            with self.subTest(broken=len(broken)):
-                self.assertFalse(self.summarize(broken)["successful"])
+        broken = tuple((reports[:1], [*reports, reports[0]], [*reports, {**reports[0], 'python': '3.10.9'}]))[broken_case]
+        assert not (self.summarize(broken)["successful"])
 
     def test_forged_green_reports_cannot_hide_coverage_or_failures(self):
         for change in (lambda rows: rows[1]["tests"].pop(),
@@ -40,4 +41,4 @@ class ReportAggregationTests(unittest.TestCase):
                        lambda rows: rows[1].update(successful=False)):
             rows = copy.deepcopy(self.reports())
             change(rows)
-            self.assertFalse(self.summarize(rows)["successful"])
+            assert not (self.summarize(rows)["successful"])

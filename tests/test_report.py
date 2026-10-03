@@ -5,18 +5,19 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from acprof.cli.main import main
 
 
-class ReportTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+class TestReport:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.temporary = tmp_path
+        self.root = Path(str(self.temporary))
         self.source = self.root / "result_all.csv"
         self.source.write_text(
             "cpu_cores,mem_cap_gb,gpu_mode,input_scale,repeat_idx,warmup,status,latency_app_p95_s\n"
@@ -25,10 +26,10 @@ class ReportTests(unittest.TestCase):
     def test_report_help_is_public_and_does_not_start_collection(self):
         stream = io.StringIO()
         with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
-            with self.assertRaises(SystemExit) as result:
+            with pytest.raises(SystemExit) as result:
                 main(["report", "--help"])
-        self.assertEqual(result.exception.code, 0, stream.getvalue())
-        self.assertIn("--baseline", stream.getvalue())
+        assert (result.value.code) == (0), stream.getvalue()
+        assert ("--baseline") in (stream.getvalue())
         result = subprocess.run([sys.executable, "-c", (
             "import sys; from acprof.cli.main import main\n"
             "try: main(['report', '--help'])\n"
@@ -36,50 +37,50 @@ class ReportTests(unittest.TestCase):
             "assert 'plotly' not in sys.modules\n"
             "assert 'acprof.host.run_state' not in sys.modules\n"
         )], capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        assert (result.returncode) == (0), result.stderr
 
     def test_offline_report_escapes_data_and_protects_existing_output(self):
         name = "__STYLE__ </script><script>alert(1)</script>"
         (self.root / "static_meta.json").write_text(json.dumps({"model_name": name}))
         output = self.root / "report.html"
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(main(["report", str(self.source)]), 0)
+            assert (main(["report", str(self.source)])) == (0)
         content = output.read_text()
-        self.assertNotIn("</script><script>alert(1)</script>", content)
-        self.assertIn("__STYLE__ \\u003c/script", content)
-        self.assertNotIn('<script src=', content)
-        self.assertIn("Plotly", content)
-        self.assertIn("Permission is hereby granted", content)
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+        assert ("</script><script>alert(1)</script>") not in (content)
+        assert ("__STYLE__ \\u003c/script") in (content)
+        assert ('<script src=') not in (content)
+        assert ("Plotly") in (content)
+        assert ("Permission is hereby granted") in (content)
+        with contextlib.redirect_stderr(io.StringIO()), pytest.raises(SystemExit):
             main(["report", str(self.source), "--output", str(output)])
-        self.assertEqual(output.read_text(), content)
+        assert (output.read_text()) == (content)
 
     def test_baseline_is_unique_and_errors_do_not_publish_a_report(self):
         from acprof.analysis.model import load_analysis
         from acprof.plotting.report import report_payload
         model = load_analysis([self.source])
         config = model.configs[0]
-        self.assertEqual(report_payload(model, config["run_id"])["baseline"], config["config_id"])
+        assert (report_payload(model, config["run_id"])["baseline"]) == (config["config_id"])
         with self.source.open("a") as stream:
             stream.write("4,4,off,32,0,0,ok,0.02\n")
         model = load_analysis([self.source])
-        with self.assertRaisesRegex(ValueError, "唯一"):
+        with pytest.raises(ValueError, match="唯一"):
             report_payload(model, model.configs[0]["run_id"])
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+        with contextlib.redirect_stderr(io.StringIO()), pytest.raises(SystemExit):
             main(["report", str(self.source), "--baseline", "does-not-exist"])
-        self.assertFalse((self.root / "report.html").exists())
+        assert not ((self.root / "report.html").exists())
 
-    @unittest.skipUnless(os.name == "posix", "Linux measurement lock")
+    @pytest.mark.skipif(not (os.name == "posix"), reason="Linux measurement lock")
     def test_report_refuses_to_run_during_a_formal_collection(self):
         from acprof.host.run_state import MeasurementLock
-        with MeasurementLock(), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+        with MeasurementLock(), contextlib.redirect_stderr(io.StringIO()), pytest.raises(SystemExit):
             main(["report", str(self.source)])
-        self.assertFalse((self.root / "report.html").exists())
+        assert not ((self.root / "report.html").exists())
 
     def test_malformed_csv_reports_an_error_without_a_traceback(self):
         self.source.write_text('cpu_cores,status,warmup\n"2,ok,0\n')
         stream = io.StringIO()
-        with contextlib.redirect_stderr(stream), self.assertRaises(SystemExit):
+        with contextlib.redirect_stderr(stream), pytest.raises(SystemExit):
             main(["report", str(self.source)])
-        self.assertIn("报告生成失败", stream.getvalue())
-        self.assertNotIn("Traceback", stream.getvalue())
+        assert ("报告生成失败") in (stream.getvalue())
+        assert ("Traceback") not in (stream.getvalue())

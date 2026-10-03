@@ -4,27 +4,31 @@ import json
 import os
 import shutil
 import tempfile
-import unittest
+from functools import partial
 from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+import pytest
 
-@unittest.skipUnless(os.environ.get("ACPROF_BROWSER_TESTS") == "1", "opt-in headless browser test")
-class ReportBrowserTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+pytestmark = pytest.mark.integration
+
+
+@pytest.mark.skipif(not (os.environ.get("ACPROF_BROWSER_TESTS") == "1"), reason="opt-in headless browser test")
+class TestReportBrowser:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request, tmp_path_factory):
+        cls = request.cls
         from playwright.sync_api import sync_playwright
 
         from acprof.analysis.model import load_analysis
         from acprof.plotting.report import write_report
         cls.temporary = tempfile.TemporaryDirectory()
-        cls.addClassCleanup(cls.temporary.cleanup)
+        request.addfinalizer(partial(cls.temporary.cleanup))
         cls.root = Path(cls.temporary.name)
-        import test_result_comparison as comparison_fixture
-        fixture = comparison_fixture.ResultComparisonTests()
-        fixture.setUp()
-        cls.addClassCleanup(fixture.doCleanups)
+        from comparison_fixtures import ComparisonFixture
+        fixture = ComparisonFixture()
+        fixture.build(tmp_path_factory.mktemp("comparison"))
         shutil.copytree(fixture.left, cls.root, dirs_exist_ok=True)
         fixture.change_json(cls.root, "run_state.json", lambda state: (state.pop("runtime"),
             state["options"].update(cpus="2,4,8", mems="4,8")))
@@ -57,7 +61,7 @@ class ReportBrowserTests(unittest.TestCase):
         cls.model = load_analysis([csv_path])
         cls.report = write_report(cls.model, cls.root / "report.html", comparison_purpose="resource-scaling")
         cls.playwright = sync_playwright().start()
-        cls.addClassCleanup(cls.playwright.stop)
+        request.addfinalizer(partial(cls.playwright.stop))
         cls.artifacts = Path(os.environ["ACPROF_BROWSER_ARTIFACT_DIR"]).resolve() if os.environ.get("ACPROF_BROWSER_ARTIFACT_DIR") else None
         if cls.artifacts:
             cls.artifacts.mkdir(parents=True, exist_ok=True)
@@ -65,21 +69,23 @@ class ReportBrowserTests(unittest.TestCase):
         executable = os.environ.get("ACPROF_BROWSER_EXECUTABLE")
         cls.browser = cls.playwright.chromium.launch(executable_path=executable, headless=True,
                                                      args=["--no-sandbox", "--disable-gpu"])
-        cls.addClassCleanup(cls.browser.close)
+        request.addfinalizer(partial(cls.browser.close))
         if cls.artifacts:
             (cls.artifacts / "browser-info.json").write_text(json.dumps({
                 "playwright": version("playwright"), "chromium": cls.browser.version,
                 "explicit_executable_override": executable, "network_mode": "offline",
             }, indent=2), encoding="utf-8")
-
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.fixture_root = tmp_path
         self.context = self.browser.new_context(offline=True, viewport={"width": 1440, "height": 1000})
-        self.addCleanup(self.context.close)
+        self._request.addfinalizer(partial(self.context.close))
         if self.artifacts:
             self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
         self.page = self.context.new_page()
         self.errors, self.remote_requests, self.console = [], [], []
-        self.addCleanup(self.save_failure_evidence)
+        self._request.addfinalizer(partial(self.save_failure_evidence))
         self.page.on("console", lambda msg: self.console.append({"type": msg.type, "text": msg.text}))
         self.page.on("request", lambda request: self.remote_requests.append(request.url)
                      if request.url.startswith(("http://", "https://")) else None)
@@ -90,10 +96,11 @@ class ReportBrowserTests(unittest.TestCase):
     def save_failure_evidence(self):
         if not self.artifacts:
             return
-        result = self._outcome.result
-        failed = any(test is self for test, _ in [*result.errors, *result.failures])
+        from acprof.testing.plugin import PHASE_REPORTS
+        reports = self._request.node.stash.get(PHASE_REPORTS, {})
+        failed = any(report.failed for report in reports.values())
         if failed:
-            target = self.artifacts / self._testMethodName
+            target = self.artifacts / self._request.node.name
             target.mkdir(parents=True, exist_ok=True)
             self.page.screenshot(path=str(target / "page.png"), full_page=True)
             (target / "page.html").write_text(self.page.content(), encoding="utf-8")
@@ -108,31 +115,31 @@ class ReportBrowserTests(unittest.TestCase):
 
     def settled(self):
         self.page.wait_for_function("document.body.dataset.ready === 'true' && document.body.dataset.busy === 'false'")
-        self.assertEqual(self.errors, [])
-        self.assertEqual(self.remote_requests, [])
-        self.assertTrue(self.page.locator("#error").is_hidden())
+        assert (self.errors) == ([])
+        assert (self.remote_requests) == ([])
+        assert (self.page.locator("#error").is_hidden())
 
     def test_baseline_sort_filter_and_shared_selection(self):
-        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 5)
+        assert (self.page.locator("#matrix tbody tr").count()) == (5)
         row = self.page.locator("#matrix tbody tr").first
         config = row.get_attribute("data-config-id") or ""
-        self.assertTrue(config)
+        assert (config)
         self.page.select_option("#baseline", config)
         self.settled()
-        self.assertIn("Δ 0 s · 0%", row.inner_text())
+        assert ("Δ 0 s · 0%") in (row.inner_text())
         row.locator("td").first.click()
         self.settled()
-        self.assertIn(config[-8:], self.page.locator("#selection").inner_text())
+        assert (config[-8:]) in (self.page.locator("#selection").inner_text())
         self.page.locator("#matrix th button").first.click()
         self.settled()
-        self.assertEqual(self.page.locator("#matrix tbody tr td:nth-child(2)").first.inner_text().splitlines()[0], "0.1")
+        assert (self.page.locator("#matrix tbody tr td:nth-child(2)").first.inner_text().splitlines()[0]) == ("0.1")
         self.page.select_option("#filter-memory", "4")
         self.settled()
-        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 3)
-        self.assertIn("当前筛选隐藏", self.page.locator("#selection").inner_text())
+        assert (self.page.locator("#matrix tbody tr").count()) == (3)
+        assert ("当前筛选隐藏") in (self.page.locator("#selection").inner_text())
         self.page.click("[data-view=pareto]")
         self.settled()
-        self.assertIn("3 个有效点", self.page.locator("#pareto-note").inner_text())
+        assert ("3 个有效点") in (self.page.locator("#pareto-note").inner_text())
 
     def test_pareto_direction_ties_missing_and_neutral(self):
         result = self.page.evaluate("""() => {
@@ -152,11 +159,11 @@ class ReportBrowserTests(unittest.TestCase):
             higher: ACProfViews.score(9,ACProfViews.range([1,9],{scale:'linear'}),{direction:'higher',scale:'linear'}),
             logZero: ACProfViews.score(0,ACProfViews.range([0,9],{scale:'log'}),{direction:'lower',scale:'log'})};
         }""")
-        self.assertEqual(set(result["front"]), {"a", "b", "tie"})
-        self.assertEqual(result["neutral"], [])
-        self.assertEqual(result["lower"], 1)
-        self.assertEqual(result["higher"], 1)
-        self.assertIsNone(result["logZero"])
+        assert (set(result["front"])) == ({"a", "b", "tie"})
+        assert (result["neutral"]) == ([])
+        assert (result["lower"]) == (1)
+        assert (result["higher"]) == (1)
+        assert (result["logZero"]) is None
 
     def test_zero_baseline_and_environment_isolation(self):
         result = self.page.evaluate("""() => {
@@ -171,11 +178,11 @@ class ReportBrowserTests(unittest.TestCase):
             sorted:ACProfViews.sort([{...a,config_id:'zero'}, {...b,config_id:'four'},
               {...a,config_id:'missing',metrics:{x:{value:null}}}], 'x', true).map(c=>c.config_id)};
         }""")
-        self.assertEqual(result["zero"]["delta"], 4)
-        self.assertIsNone(result["zero"]["percent"])
-        self.assertEqual(result["mixed"]["reason"], "incompatible")
-        self.assertEqual(result["unknown"]["reason"], "unknown")
-        self.assertEqual(result["sorted"], ["four", "zero", "missing"])
+        assert (result["zero"]["delta"]) == (4)
+        assert (result["zero"]["percent"]) is None
+        assert (result["mixed"]["reason"]) == ("incompatible")
+        assert (result["unknown"]["reason"]) == ("unknown")
+        assert (result["sorted"]) == (["four", "zero", "missing"])
 
     def test_scaling_keeps_other_resources_fixed_and_clicks_link_back(self):
         self.page.click("[data-view=scaling]")
@@ -184,34 +191,34 @@ class ReportBrowserTests(unittest.TestCase):
           const chart = document.querySelector('.scaling-chart');
           return chart.data.map(trace => ({x:trace.x, y:trace.y, id:trace.customdata[0]}));
         }""")
-        self.assertEqual(len(series), 2)
-        self.assertEqual(series[0]["x"], [2, 4, 8])
-        self.assertEqual(series[0]["y"], [.1, .04, .08])
-        self.assertEqual(series[1]["x"], [2, 4])
+        assert (len(series)) == (2)
+        assert (series[0]["x"]) == ([2, 4, 8])
+        assert (series[0]["y"]) == ([.1, .04, .08])
+        assert (series[1]["x"]) == ([2, 4])
         self.page.evaluate("""id => document.querySelector('.scaling-chart').emit('plotly_click',
           {points:[{customdata:id}]})""", series[0]["id"])
         self.settled()
         self.page.click("[data-view=matrix]")
         self.settled()
-        self.assertEqual(self.page.locator("tr.selected").get_attribute("data-config-id"), series[0]["id"])
+        assert (self.page.locator("tr.selected").get_attribute("data-config-id")) == (series[0]["id"])
 
     def test_axis_selection_size_empty_filters_and_narrow_layout(self):
         self.page.click("[data-view=pareto]")
         self.page.select_option("#tradeoff-preset", "throughput_samples_per_s,observed_energy_per_request_j")
         self.page.select_option("#size-metric", "container_mem_usage_peak_bytes")
         self.settled()
-        self.assertIn("吞吐量", self.page.evaluate("document.getElementById('pareto-chart').layout.xaxis.title.text"))
+        assert ("吞吐量") in (self.page.evaluate("document.getElementById('pareto-chart').layout.xaxis.title.text"))
         sizes: list[float] = self.page.evaluate("document.getElementById('pareto-chart').data[0].marker.size")
-        self.assertGreater(max(sizes), min(sizes))
+        assert (max(sizes)) > (min(sizes))
         self.page.select_option("#filter-memory", "8")
         self.page.select_option("#filter-cpu", "8")
         self.settled()
-        self.assertIn("0 个有效点", self.page.locator("#pareto-note").inner_text())
+        assert ("0 个有效点") in (self.page.locator("#pareto-note").inner_text())
         self.page.set_viewport_size({"width": 640, "height": 900})
         self.page.click("[data-view=matrix]")
         self.settled()
-        self.assertTrue(self.page.locator("#matrix-empty").is_visible())
-        self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+        assert (self.page.locator("#matrix-empty").is_visible())
+        assert (self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
     def test_quality_filter_preserves_observations_and_displays_loader_evidence(self):
         from acprof.analysis.model import load_analysis
@@ -231,30 +238,29 @@ class ReportBrowserTests(unittest.TestCase):
         output = write_report(load_analysis([self.root / "result_all.csv", root]), root / "report.html")
         self.page.goto(output.as_uri())
         self.settled()
-        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 6)
+        assert (self.page.locator("#matrix tbody tr").count()) == (6)
         self.page.locator("#matrix tbody tr").filter(has_text="weights_reinitialized").locator("td").first.click()
         self.settled()
         self.page.locator("#quality-evidence summary").click()
         evidence = self.page.locator("#quality-detail").inner_text()
-        self.assertIn("fixture-loader", evidence)
-        self.assertIn('"quality_status": "blocked"', evidence)
+        assert ("fixture-loader") in (evidence)
+        assert ('"quality_status": "blocked"') in (evidence)
         self.page.select_option("#quality-filter", "eligible")
         self.settled()
-        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 5)
-        self.assertIn("当前筛选隐藏", self.page.locator("#selection").inner_text())
+        assert (self.page.locator("#matrix tbody tr").count()) == (5)
+        assert ("当前筛选隐藏") in (self.page.locator("#selection").inner_text())
         self.page.select_option("#quality-filter", "all")
         self.settled()
-        self.assertEqual(self.page.locator("#matrix tbody tr").count(), 6)
+        assert (self.page.locator("#matrix tbody tr").count()) == (6)
 
     def test_input_order_mismatch_blocks_delta_and_baseline_frontier_but_retains_points(self):
-        import test_result_comparison as comparison_fixture
+        from comparison_fixtures import ComparisonFixture
 
         from acprof.analysis.comparison import compare_results
         from acprof.analysis.model import load_analysis
         from acprof.plotting.report import write_report
-        fixture = comparison_fixture.ResultComparisonTests()
-        fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
+        fixture = ComparisonFixture()
+        fixture.build(self.fixture_root / "comparison" )
         for directory, latency, energy in ((fixture.left, .1, 4), (fixture.right, .05, 2)):
             path = directory / "result_all.csv"
             with path.open(newline="") as stream:
@@ -268,30 +274,29 @@ class ReportBrowserTests(unittest.TestCase):
             fixture.write_json(directory, "quality_checks.json", {"schema_version": 1, "checks": []})
         fixture.change_json(fixture.right, "input_scale_plan.json", lambda plan:
                             plan["entries"][0]["payload"]["features"].reverse())
-        self.assertEqual(compare_results(fixture.left, fixture.right)["status"], "incompatible")
+        assert (compare_results(fixture.left, fixture.right)["status"]) == ("incompatible")
         model = load_analysis([fixture.left, fixture.right])
         output = write_report(model, fixture.root / "incompatible.html", baseline=model.configs[0]["config_id"])
         self.page.goto(output.as_uri())
         self.settled()
         row = self.page.locator(f'tr[data-config-id="{model.configs[1]["config_id"]}"]')
-        self.assertIn("planned_inputs", row.inner_text())
-        self.assertNotIn("-50%", row.inner_text())
-        self.assertNotIn("Δ", row.inner_text())
-        self.assertIn("incompatible: 1", self.page.locator("#comparison-note").inner_text())
+        assert ("planned_inputs") in (row.inner_text())
+        assert ("-50%") not in (row.inner_text())
+        assert ("Δ") not in (row.inner_text())
+        assert ("incompatible: 1") in (self.page.locator("#comparison-note").inner_text())
         self.page.click("[data-view=pareto]")
         self.settled()
-        self.assertIn("2 个有效点", self.page.locator("#pareto-note").inner_text())
-        self.assertIn("1 个非支配点", self.page.locator("#pareto-note").inner_text())
+        assert ("2 个有效点") in (self.page.locator("#pareto-note").inner_text())
+        assert ("1 个非支配点") in (self.page.locator("#pareto-note").inner_text())
 
     def test_browser_and_python_agree_on_exact_workload_distributions(self):
         from copy import deepcopy
 
-        import test_result_comparison as comparison_fixture
+        from comparison_fixtures import ComparisonFixture
 
         from acprof.analysis.conditions import compare_profiles, workload_case_profile
-        base = comparison_fixture.ResultComparisonTests()
-        base.setUp()
-        self.addCleanup(base.doCleanups)
+        base = ComparisonFixture()
+        base.build(self.fixture_root / "comparison")
         contract = base.contract
         other = deepcopy(contract)
         other["input"]["feature_dim"] = 9
@@ -315,9 +320,9 @@ class ReportBrowserTests(unittest.TestCase):
                  (profile([partial], [1]), profile([changed_partial], [2]), "incompatible"),
                  (profile([generation], [1]), profile([changed_output], [2]), "unknown")]
         for a, b, expected in pairs:
-            self.assertEqual(compare_profiles(a, b)["status"], expected)
+            assert (compare_profiles(a, b)["status"]) == (expected)
         actual = self.page.evaluate("pairs => pairs.map(([a,b]) => ACProfViews.compareProfiles(a,b).status)", pairs)
-        self.assertEqual(actual, [expected for _, _, expected in pairs])
+        assert (actual) == ([expected for _, _, expected in pairs])
 
     def test_color_ranges_read_each_group_metric_once_and_preserve_normalization(self):
         result = self.page.evaluate("""() => {
@@ -334,7 +339,7 @@ class ReportBrowserTests(unittest.TestCase):
             zero:ACProfViews.score(0,ranges.get('0').y,registry.y),
             neutral:ACProfViews.score(1,ranges.get('0').x,{direction:'neutral',scale:'linear'})};
         }""")
-        self.assertEqual(result, {"reads": 400, "groups": 2, "first": 1, "last": 0,
+        assert (result) == ({"reads": 400, "groups": 2, "first": 1, "last": 0,
                                   "log": .5, "zero": None, "neutral": None})
 
     def test_synthetic_matrix_growth_keeps_sort_colors_and_filter_values(self):
@@ -357,21 +362,21 @@ class ReportBrowserTests(unittest.TestCase):
             self.page.goto(output.as_uri())
             self.settled()
             ready_ms = self.page.evaluate("performance.now()")
-            self.assertEqual(self.page.locator("#matrix tbody tr").count(), count)
+            assert (self.page.locator("#matrix tbody tr").count()) == (count)
             row = self.page.locator('tr[data-config-id="synthetic-2"] td:nth-child(2)')
             original_color = row.evaluate("cell => getComputedStyle(cell).backgroundColor")
             started = self.page.evaluate("performance.now()")
             self.page.locator("#matrix th button").first.click()
             self.settled()
             sorted_ms = self.page.evaluate("performance.now()") - started
-            self.assertEqual(row.evaluate("cell => getComputedStyle(cell).backgroundColor"), original_color)
-            self.assertEqual(row.inner_text(), "0.03")
+            assert (row.evaluate("cell => getComputedStyle(cell).backgroundColor")) == (original_color)
+            assert (row.inner_text()) == ("0.03")
             started = self.page.evaluate("performance.now()")
             self.page.select_option("#filter-experiment_batch", "even")
             self.settled()
             filtered_ms = self.page.evaluate("performance.now()") - started
-            self.assertEqual(self.page.locator("#matrix tbody tr").count(), count // 2)
-            self.assertEqual(row.inner_text(), "0.03")
+            assert (self.page.locator("#matrix tbody tr").count()) == (count // 2)
+            assert (row.inner_text()) == ("0.03")
             measurements.append({"configs": count, "metrics": len(DEFAULT_MATRIX), "ready_ms": ready_ms,
                                  "sort_ms": sorted_ms, "filter_ms": filtered_ms})
         if self.artifacts:

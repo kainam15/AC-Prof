@@ -4,10 +4,10 @@ import math
 import os
 import sys
 import tempfile
-import unittest
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 import acprof.analysis.latency_model as analysis_latency_model
 import acprof.analysis.latency_report as analysis_latency_report
@@ -19,26 +19,26 @@ from acprof.cli import plot
 from acprof.platform import Environment
 
 
-class LatencyModelReportTests(unittest.TestCase):
+class TestLatencyModelReport:
     def test_export_keeps_environment_identity_and_rejects_mixed_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             frame = pd.DataFrame(self._rows(gpu_modes=("off",)))
             frame["environment_class"] = "wsl2"
             analysis_latency_report.write_latency_model_report(frame, Environment("wsl2").metadata(), temporary)
             report, residuals = self._read_artifacts(temporary)
-            self.assertEqual(report["comparability_class"], "wsl2")
-            self.assertEqual(report["collection_tier"], "partial")
-            self.assertTrue(residuals)
-            self.assertEqual({row["environment_class"] for row in residuals}, {"wsl2"})
+            assert (report["comparability_class"]) == ("wsl2")
+            assert (report["collection_tier"]) == ("partial")
+            assert (residuals)
+            assert ({row["environment_class"] for row in residuals}) == ({"wsl2"})
             frame.loc[0, "environment_class"] = "native_linux"
-            with self.assertRaisesRegex(ValueError, "mixed or inconsistent environments"):
+            with pytest.raises(ValueError, match="mixed or inconsistent environments"):
                 analysis_latency_report.write_latency_model_report(frame, Environment("wsl2").metadata(), temporary)
 
     def test_skipped_report_preserves_unknown_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
             analysis_latency_report.write_latency_model_report(pd.DataFrame(), {}, temporary)
             report, _ = self._read_artifacts(temporary)
-            self.assertEqual(report["comparability_class"], "unknown")
+            assert (report["comparability_class"]) == ("unknown")
 
     def test_v2_plot_cli_writes_reports_and_figures_below_plots(self):
         from contextlib import ExitStack
@@ -57,12 +57,12 @@ class LatencyModelReportTests(unittest.TestCase):
                         if name.startswith("plot_") and callable(getattr(module, name)):
                             renderers.append(stack.enter_context(patch.object(module, name)))
                 plot.main([csv_path])
-            self.assertTrue((root / "plots/latency_model/latency_model_report.json").is_file())
-            self.assertFalse((root / "latency_model").exists())
+            assert ((root / "plots/latency_model/latency_model_report.json").is_file())
+            assert not ((root / "latency_model").exists())
             outputs = [Path(call.kwargs["out_png"]) for renderer in renderers for call in renderer.call_args_list
                        if call.kwargs.get("out_png")]
-            self.assertTrue(outputs)
-            self.assertTrue(all(path.is_relative_to(root / "plots") for path in outputs))
+            assert (outputs)
+            assert (all(path.is_relative_to(root / "plots") for path in outputs))
 
     FIELDNAMES = [
         "cpu_cores",
@@ -205,106 +205,66 @@ class LatencyModelReportTests(unittest.TestCase):
                 plot.main()
 
             model_output_dir = os.path.join(tmp, analysis_latency_report.LATENCY_MODEL_DIR)
-            self.assertTrue(os.path.isdir(model_output_dir))
+            assert (os.path.isdir(model_output_dir))
             for artifact_name in (
                 analysis_latency_report.LATENCY_MODEL_REPORT,
                 analysis_latency_report.LATENCY_MODEL_RESIDUALS,
                 plotting_config.LATENCY_MODEL_RESIDUAL_PLOT,
                 plotting_config.LATENCY_MODEL_FIT_CURVES_PLOT,
             ):
-                self.assertTrue(
-                    os.path.isfile(
+                assert (os.path.isfile(
                         os.path.join(model_output_dir, artifact_name)
-                    )
-                )
-                self.assertFalse(
-                    os.path.exists(os.path.join(tmp, artifact_name))
-                )
+                    ))
+                assert not (os.path.exists(os.path.join(tmp, artifact_name)))
 
             report, residual_rows = self._read_artifacts(tmp)
 
-        self.assertEqual(report["report_schema_version"], 2)
-        self.assertEqual(report["status"], "ok")
-        self.assertTrue(report["prediction_ready"])
-        self.assertTrue(report["positive_prediction_form"])
-        self.assertEqual(report["target_metric"], "latency_s")
-        self.assertEqual(report["model_name"], "google-bert/bert-base-uncased")
-        self.assertEqual(report["task_family"], "nlp")
-        self.assertEqual(report["raw_rows"], 288)
-        self.assertEqual(report["case_rows"], 96)
-        self.assertEqual(report["aggregation"]["target_statistic"], "median")
-        self.assertFalse(
-            report["aggregation"]["repetitions_split_across_train_and_test"]
-        )
-        self.assertEqual(set(report["models"]), {"cpu", "gpu"})
+        assert (report["report_schema_version"]) == (2)
+        assert (report["status"]) == ("ok")
+        assert (report["prediction_ready"])
+        assert (report["positive_prediction_form"])
+        assert (report["target_metric"]) == ("latency_s")
+        assert (report["model_name"]) == ("google-bert/bert-base-uncased")
+        assert (report["task_family"]) == ("nlp")
+        assert (report["raw_rows"]) == (288)
+        assert (report["case_rows"]) == (96)
+        assert (report["aggregation"]["target_statistic"]) == ("median")
+        assert not (report["aggregation"]["repetitions_split_across_train_and_test"])
+        assert (set(report["models"])) == ({"cpu", "gpu"})
 
         for hardware_model in ("cpu", "gpu"):
             model_report = report["models"][hardware_model]
-            self.assertEqual(model_report["status"], "ok")
-            self.assertTrue(model_report["prediction_ready"])
-            self.assertIn(
-                "log_input_scale_x_",
-                " ".join(model_report["feature_columns"]),
-            )
+            assert (model_report["status"]) == ("ok")
+            assert (model_report["prediction_ready"])
+            assert ("log_input_scale_x_") in (" ".join(model_report["feature_columns"]))
             config_validation = model_report["validation"][
                 "resource_configuration_holdout"
             ]
             scale_validation = model_report["validation"]["input_scale_holdout"]
-            self.assertTrue(config_validation["available"])
-            self.assertEqual(
-                config_validation["train_test_group_overlap_count"],
-                0,
-            )
-            self.assertTrue(scale_validation["available"])
-            self.assertTrue(scale_validation["strict_extrapolation"])
-            self.assertLess(
-                scale_validation["train_input_scale_max"],
-                scale_validation["test_input_scale_min"],
-            )
-            self.assertGreater(
-                model_report["metrics"]["resource_configuration_holdout"]["r2"],
-                0.99,
-            )
-            self.assertGreater(
-                model_report["metrics"]["input_scale_holdout"]["r2"],
-                0.99,
-            )
-            self.assertEqual(
-                model_report["metrics"]["resource_configuration_holdout"][
+            assert (config_validation["available"])
+            assert (config_validation["train_test_group_overlap_count"]) == (0)
+            assert (scale_validation["available"])
+            assert (scale_validation["strict_extrapolation"])
+            assert (scale_validation["train_input_scale_max"]) < (scale_validation["test_input_scale_min"])
+            assert (model_report["metrics"]["resource_configuration_holdout"]["r2"]) > (0.99)
+            assert (model_report["metrics"]["input_scale_holdout"]["r2"]) > (0.99)
+            assert (model_report["metrics"]["resource_configuration_holdout"][
                     "nonpositive_prediction_count"
-                ],
-                0,
-            )
+                ]) == (0)
 
-        self.assertEqual(len(residual_rows), 96)
-        self.assertTrue(
-            all(row["split"] == "out_of_fold_test" for row in residual_rows)
-        )
-        self.assertTrue(all(int(row["repeat_count"]) == 3 for row in residual_rows))
-        self.assertTrue(
-            all(float(row["resource_config_oof_predicted_latency_s"]) > 0.0 for row in residual_rows)
-        )
-        self.assertTrue(
-            all(row["report_schema_version"] == "2" for row in residual_rows)
-        )
+        assert (len(residual_rows)) == (96)
+        assert (all(row["split"] == "out_of_fold_test" for row in residual_rows))
+        assert (all(int(row["repeat_count"]) == 3 for row in residual_rows))
+        assert (all(float(row["resource_config_oof_predicted_latency_s"]) > 0.0 for row in residual_rows))
+        assert (all(row["report_schema_version"] == "2" for row in residual_rows))
         for row in residual_rows:
-            self.assertNotIn("predicted_latency_s", row)
-            self.assertNotIn("residual_s", row)
-            self.assertAlmostEqual(
-                float(row["resource_config_oof_residual_s"]),
-                float(row["latency_s"]) - float(row["resource_config_oof_predicted_latency_s"]),
-                places=8,
-            )
+            assert ("predicted_latency_s") not in (row)
+            assert ("residual_s") not in (row)
+            assert (float(row["resource_config_oof_residual_s"])) == (float(row["latency_s"]) - float(row["resource_config_oof_predicted_latency_s"])) or round(abs((float(row["resource_config_oof_residual_s"])) - (float(row["latency_s"]) - float(row["resource_config_oof_predicted_latency_s"]))), 8) == 0
             if float(row["input_scale"]) == 512.0:
-                self.assertNotEqual(
-                    row["max_scale_holdout_predicted_latency_s"],
-                    "",
-                )
+                assert (row["max_scale_holdout_predicted_latency_s"]) != ("")
             else:
-                self.assertEqual(
-                    row["max_scale_holdout_predicted_latency_s"],
-                    "",
-                )
+                assert (row["max_scale_holdout_predicted_latency_s"]) == ("")
         unique_cases = {
             (
                 row["hardware_model"],
@@ -314,7 +274,7 @@ class LatencyModelReportTests(unittest.TestCase):
             )
             for row in residual_rows
         }
-        self.assertEqual(len(unique_cases), len(residual_rows))
+        assert (len(unique_cases)) == (len(residual_rows))
 
     def test_gpu_only_matrix_no_longer_fails_as_singular(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -324,38 +284,30 @@ class LatencyModelReportTests(unittest.TestCase):
             analysis_latency_report.write_latency_model_report(df, plotting_data.read_static_meta(csv_path), tmp)
             report, residual_rows = self._read_artifacts(tmp)
 
-        self.assertEqual(report["status"], "ok")
-        self.assertEqual(set(report["models"]), {"gpu"})
+        assert (report["status"]) == ("ok")
+        assert (set(report["models"])) == ({"gpu"})
         gpu_report = report["models"]["gpu"]
-        self.assertEqual(gpu_report["status"], "ok")
-        self.assertEqual(gpu_report["quality_gate"]["failures"], [])
+        assert (gpu_report["status"]) == ("ok")
+        assert (gpu_report["quality_gate"]["failures"]) == ([])
         config_validation = gpu_report["validation"][
             "resource_configuration_holdout"
         ]
-        self.assertEqual(config_validation["folds"], 12)
-        self.assertEqual(config_validation["completed_folds"], 12)
-        self.assertEqual(config_validation["train_test_group_overlap_count"], 0)
-        self.assertEqual(
-            gpu_report["metrics"]["resource_configuration_holdout"][
+        assert (config_validation["folds"]) == (12)
+        assert (config_validation["completed_folds"]) == (12)
+        assert (config_validation["train_test_group_overlap_count"]) == (0)
+        assert (gpu_report["metrics"]["resource_configuration_holdout"][
                 "prediction_count"
-            ],
-            48,
-        )
-        self.assertEqual(
-            gpu_report["metrics"]["input_scale_holdout"]["prediction_count"],
-            12,
-        )
+            ]) == (48)
+        assert (gpu_report["metrics"]["input_scale_holdout"]["prediction_count"]) == (12)
         for validation_name in (
             "resource_configuration_holdout",
             "input_scale_holdout",
         ):
             metrics = gpu_report["metrics"][validation_name]
-            self.assertEqual(metrics["nonfinite_prediction_count"], 0)
-            self.assertEqual(metrics["nonpositive_prediction_count"], 0)
-        self.assertEqual(len(residual_rows), 48)
-        self.assertTrue(
-            all(float(row["fitted_predicted_latency_s"]) > 0.0 for row in residual_rows)
-        )
+            assert (metrics["nonfinite_prediction_count"]) == (0)
+            assert (metrics["nonpositive_prediction_count"]) == (0)
+        assert (len(residual_rows)) == (48)
+        assert (all(float(row["fitted_predicted_latency_s"]) > 0.0 for row in residual_rows))
 
     def test_cpu_log_scale_squared_feature_captures_curvature(self) -> None:
         rows = self._rows(gpu_modes=("off",))
@@ -388,11 +340,8 @@ class LatencyModelReportTests(unittest.TestCase):
             report, residual_rows = self._read_artifacts(tmp)
 
         cpu_report = report["models"]["cpu"]
-        self.assertIn(
-            "log_input_scale_squared",
-            cpu_report["selected_feature_columns"],
-        )
-        self.assertLess(cpu_report["metrics"]["fit"]["relative_mae"], 1e-6)
+        assert ("log_input_scale_squared") in (cpu_report["selected_feature_columns"])
+        assert (cpu_report["metrics"]["fit"]["relative_mae"]) < (1e-6)
         fitted_relative_errors = [
             abs(
                 float(row["fitted_predicted_latency_s"])
@@ -401,7 +350,7 @@ class LatencyModelReportTests(unittest.TestCase):
             / float(row["latency_s"])
             for row in residual_rows
         ]
-        self.assertLess(max(fitted_relative_errors), 1e-6)
+        assert (max(fitted_relative_errors)) < (1e-6)
 
     def test_cpu_log_response_surface_captures_resource_interactions(self) -> None:
         rows = self._rows(gpu_modes=("off",))
@@ -445,21 +394,15 @@ class LatencyModelReportTests(unittest.TestCase):
             "log_input_scale_x_log_mem_cap_gb",
             "log_cpu_cores_x_log_mem_cap_gb",
         ):
-            self.assertIn(
-                feature_name,
-                cpu_report["selected_feature_columns"],
-            )
+            assert (feature_name) in (cpu_report["selected_feature_columns"])
         for metric_name in (
             "fit",
             "resource_configuration_holdout",
             "input_scale_holdout",
         ):
-            self.assertLess(
-                cpu_report["metrics"][metric_name][
+            assert (cpu_report["metrics"][metric_name][
                     "mean_absolute_percentage_error"
-                ],
-                1e-6,
-            )
+                ]) < (1e-6)
 
     def test_gpu_inverse_square_feature_captures_cpu_saturation(self) -> None:
         rows = self._rows(gpu_modes=("on",))
@@ -493,15 +436,9 @@ class LatencyModelReportTests(unittest.TestCase):
             report, residual_rows = self._read_artifacts(tmp)
 
         gpu_report = report["models"]["gpu"]
-        self.assertIn(
-            "inverse_cpu_cores_squared",
-            gpu_report["selected_feature_columns"],
-        )
-        self.assertIn(
-            "log_input_scale_x_inverse_cpu_cores_squared",
-            gpu_report["selected_feature_columns"],
-        )
-        self.assertLess(gpu_report["metrics"]["fit"]["relative_mae"], 1e-6)
+        assert ("inverse_cpu_cores_squared") in (gpu_report["selected_feature_columns"])
+        assert ("log_input_scale_x_inverse_cpu_cores_squared") in (gpu_report["selected_feature_columns"])
+        assert (gpu_report["metrics"]["fit"]["relative_mae"]) < (1e-6)
         fitted_relative_errors = [
             abs(
                 float(row["fitted_predicted_latency_s"])
@@ -510,7 +447,7 @@ class LatencyModelReportTests(unittest.TestCase):
             / float(row["latency_s"])
             for row in residual_rows
         ]
-        self.assertLess(max(fitted_relative_errors), 1e-6)
+        assert (max(fitted_relative_errors)) < (1e-6)
 
     def test_gpu_log_spline_captures_shared_input_scale_regime_change(self) -> None:
         rows = []
@@ -558,30 +495,18 @@ class LatencyModelReportTests(unittest.TestCase):
             report, _ = self._read_artifacts(tmp)
 
         gpu_report = report["models"]["gpu"]
-        self.assertEqual(
-            gpu_report["input_scale_basis"]["type"],
-            "continuous_piecewise_linear_spline_in_log_space",
-        )
-        self.assertEqual(
-            gpu_report["input_scale_basis"]["knots"],
-            [160.0, 240.0, 320.0, 400.0],
-        )
-        self.assertIn(
-            "log_input_scale_hinge_at_240",
-            gpu_report["selected_feature_columns"],
-        )
+        assert (gpu_report["input_scale_basis"]["type"]) == ("continuous_piecewise_linear_spline_in_log_space")
+        assert (gpu_report["input_scale_basis"]["knots"]) == ([160.0, 240.0, 320.0, 400.0])
+        assert ("log_input_scale_hinge_at_240") in (gpu_report["selected_feature_columns"])
         for metric_name in (
             "fit",
             "resource_configuration_holdout",
             "input_scale_holdout",
         ):
-            self.assertLess(
-                gpu_report["metrics"][metric_name][
+            assert (gpu_report["metrics"][metric_name][
                     "mean_absolute_percentage_error"
-                ],
-                1e-6,
-            )
-        self.assertEqual(gpu_report["status"], "ok")
+                ]) < (1e-6)
+        assert (gpu_report["status"]) == ("ok")
 
     def test_gpu_unstable_upper_boundary_uses_continuous_affine_tail(self) -> None:
         rows = []
@@ -627,23 +552,14 @@ class LatencyModelReportTests(unittest.TestCase):
         gpu_report = report["models"]["gpu"]
         upper_tail = gpu_report["input_scale_basis"]["upper_extrapolation"]
         scale_validation = gpu_report["validation"]["input_scale_holdout"]
-        self.assertTrue(upper_tail["enabled"])
-        self.assertGreater(
-            upper_tail["calibration"]["mean_absolute_percentage_error"],
-            analysis_latency_model.LATENCY_MODEL_GPU_UPPER_TAIL_ACTIVATION_MAPE,
-        )
-        self.assertLess(
-            gpu_report["metrics"]["input_scale_holdout"][
+        assert (upper_tail["enabled"])
+        assert (upper_tail["calibration"]["mean_absolute_percentage_error"]) > (analysis_latency_model.LATENCY_MODEL_GPU_UPPER_TAIL_ACTIVATION_MAPE)
+        assert (gpu_report["metrics"]["input_scale_holdout"][
                 "mean_absolute_percentage_error"
-            ],
-            0.04,
-        )
-        self.assertFalse(scale_validation["r2_quality_gate_applicable"])
-        self.assertLess(
-            gpu_report["metrics"]["input_scale_holdout"]["r2"],
-            0.0,
-        )
-        self.assertEqual(gpu_report["status"], "ok")
+            ]) < (0.04)
+        assert not (scale_validation["r2_quality_gate_applicable"])
+        assert (gpu_report["metrics"]["input_scale_holdout"]["r2"]) < (0.0)
+        assert (gpu_report["status"]) == ("ok")
 
     def test_bad_gpu_extrapolation_cannot_hide_behind_cpu_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -653,33 +569,22 @@ class LatencyModelReportTests(unittest.TestCase):
             analysis_latency_report.write_latency_model_report(df, plotting_data.read_static_meta(csv_path), tmp)
             report, _ = self._read_artifacts(tmp)
 
-        self.assertEqual(report["models"]["cpu"]["status"], "ok")
+        assert (report["models"]["cpu"]["status"]) == ("ok")
         gpu_report = report["models"]["gpu"]
         pooled_metrics = gpu_report["metrics"]["input_scale_holdout"]
-        self.assertGreaterEqual(
-            pooled_metrics["r2"],
-            analysis_latency_model.LATENCY_MODEL_MIN_VALIDATION_R2,
-        )
-        self.assertLessEqual(
-            pooled_metrics["relative_mae"],
-            analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE,
-        )
-        self.assertGreater(
-            gpu_report["validation"]["input_scale_holdout"][
+        assert (pooled_metrics["r2"]) >= (analysis_latency_model.LATENCY_MODEL_MIN_VALIDATION_R2)
+        assert (pooled_metrics["relative_mae"]) <= (analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE)
+        assert (gpu_report["validation"]["input_scale_holdout"][
                 "worst_case_relative_error"
-            ],
-            analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_CASE_RELATIVE_ERROR,
-        )
-        self.assertEqual(gpu_report["status"], "poor_fit")
-        self.assertEqual(report["status"], "poor_fit")
-        self.assertFalse(report["prediction_ready"])
-        self.assertFalse(report["quality_gate"]["passed"])
-        self.assertTrue(
-            any(
+            ]) > (analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_CASE_RELATIVE_ERROR)
+        assert (gpu_report["status"]) == ("poor_fit")
+        assert (report["status"]) == ("poor_fit")
+        assert not (report["prediction_ready"])
+        assert not (report["quality_gate"]["passed"])
+        assert (any(
                 "gpu: input_scale_holdout" in failure
                 for failure in report["quality_gate"]["failures"]
-            )
-        )
+            ))
 
     def test_bad_held_out_configuration_cannot_hide_in_pooled_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -691,29 +596,18 @@ class LatencyModelReportTests(unittest.TestCase):
 
         gpu_report = report["models"]["gpu"]
         pooled_metrics = gpu_report["metrics"]["resource_configuration_holdout"]
-        self.assertGreaterEqual(
-            pooled_metrics["r2"],
-            analysis_latency_model.LATENCY_MODEL_MIN_VALIDATION_R2,
-        )
-        self.assertLessEqual(
-            pooled_metrics["relative_mae"],
-            analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE,
-        )
-        self.assertGreater(
-            gpu_report["validation"]["resource_configuration_holdout"][
+        assert (pooled_metrics["r2"]) >= (analysis_latency_model.LATENCY_MODEL_MIN_VALIDATION_R2)
+        assert (pooled_metrics["relative_mae"]) <= (analysis_latency_model.LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE)
+        assert (gpu_report["validation"]["resource_configuration_holdout"][
                 "worst_fold_relative_mae"
-            ],
-            analysis_latency_model.LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE,
-        )
-        self.assertEqual(gpu_report["status"], "poor_fit")
-        self.assertEqual(report["status"], "poor_fit")
-        self.assertFalse(report["prediction_ready"])
-        self.assertTrue(
-            any(
+            ]) > (analysis_latency_model.LATENCY_MODEL_MAX_CONFIGURATION_FOLD_RELATIVE_MAE)
+        assert (gpu_report["status"]) == ("poor_fit")
+        assert (report["status"]) == ("poor_fit")
+        assert not (report["prediction_ready"])
+        assert (any(
                 "held-out configuration fold" in failure
                 for failure in gpu_report["quality_gate"]["failures"]
-            )
-        )
+            ))
 
     def test_two_scales_are_not_misreported_as_valid_extrapolation(self) -> None:
         rows = [
@@ -729,11 +623,11 @@ class LatencyModelReportTests(unittest.TestCase):
 
         gpu_report = report["models"]["gpu"]
         scale_validation = gpu_report["validation"]["input_scale_holdout"]
-        self.assertFalse(scale_validation["available"])
-        self.assertIn("at least 3 input scales", scale_validation["reason"])
-        self.assertEqual(gpu_report["status"], "unvalidated")
-        self.assertEqual(report["status"], "unvalidated")
-        self.assertFalse(report["prediction_ready"])
+        assert not (scale_validation["available"])
+        assert ("at least 3 input scales") in (scale_validation["reason"])
+        assert (gpu_report["status"]) == ("unvalidated")
+        assert (report["status"]) == ("unvalidated")
+        assert not (report["prediction_ready"])
 
     def test_invalid_gpu_mode_skips_and_replaces_stale_residuals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -756,12 +650,12 @@ class LatencyModelReportTests(unittest.TestCase):
             with open(residuals_path, "r", encoding="utf-8") as f:
                 residual_text = f.read()
 
-        self.assertEqual(report["status"], "skipped")
-        self.assertFalse(report["prediction_ready"])
-        self.assertIn("unsupported gpu_mode", report["reason"])
-        self.assertEqual(residual_rows, [])
-        self.assertNotIn("stale-marker", residual_text)
-        self.assertIn("report_schema_version", residual_text.splitlines()[0])
+        assert (report["status"]) == ("skipped")
+        assert not (report["prediction_ready"])
+        assert ("unsupported gpu_mode") in (report["reason"])
+        assert (residual_rows) == ([])
+        assert ("stale-marker") not in (residual_text)
+        assert ("report_schema_version") in (residual_text.splitlines()[0])
 
     def test_residual_plot_writes_diagnostic_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -787,9 +681,9 @@ class LatencyModelReportTests(unittest.TestCase):
                 out_png,
             )
 
-            self.assertTrue(plotted)
-            self.assertTrue(os.path.isfile(out_png))
-            self.assertGreater(os.path.getsize(out_png), 0)
+            assert (plotted)
+            assert (os.path.isfile(out_png))
+            assert (os.path.getsize(out_png)) > (0)
 
     def test_fit_curve_plot_writes_cpu_and_gpu_configuration_curves(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -820,9 +714,9 @@ class LatencyModelReportTests(unittest.TestCase):
                 out_png,
             )
 
-            self.assertTrue(plotted)
-            self.assertTrue(os.path.isfile(out_png))
-            self.assertGreater(os.path.getsize(out_png), 0)
+            assert (plotted)
+            assert (os.path.isfile(out_png))
+            assert (os.path.getsize(out_png)) > (0)
 
     def test_residual_plot_skips_header_only_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -851,9 +745,5 @@ class LatencyModelReportTests(unittest.TestCase):
                 out_png,
             )
 
-            self.assertFalse(plotted)
-            self.assertFalse(os.path.exists(out_png))
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert not (plotted)
+            assert not (os.path.exists(out_png))

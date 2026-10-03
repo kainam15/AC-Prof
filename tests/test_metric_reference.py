@@ -2,20 +2,21 @@
 import os
 import subprocess
 import sys
-import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from scripts.render_metric_reference import render
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
-class MetricReferenceTests(unittest.TestCase):
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name)
+class TestMetricReference:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        directory = tmp_path
+        self.root = Path(str(directory))
         (self.root / "docs").mkdir()
         self.path = self.root / "docs/Metric_Reference.md"
 
@@ -38,43 +39,42 @@ class MetricReferenceTests(unittest.TestCase):
 
     def test_generation_uses_utf8_and_lf_without_bom(self):
         result = self.run_reference()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        assert (result.returncode) == (0), result.stderr
         raw = self.path.read_bytes()
-        self.assertTrue(raw.startswith("# 指标登记表速查\n\n".encode("utf-8")))
-        self.assertNotIn(b"\r", raw)
-        self.assertEqual(raw.decode("utf-8"), render())
+        assert (raw.startswith("# 指标登记表速查\n\n".encode("utf-8")))
+        assert (b"\r") not in (raw)
+        assert (raw.decode("utf-8")) == (render())
 
-    def test_check_accepts_utf8_with_lf_or_crlf_without_rewriting(self):
-        for newline in ("\n", "\r\n"):
-            with self.subTest(newline=newline):
-                raw = render().replace("\n", newline).encode("utf-8")
-                self.path.write_bytes(raw)
-                result = self.run_reference("--check")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.path.read_bytes(), raw)
+    @pytest.mark.parametrize('newline', ('\n', '\r\n'))
+    def test_check_accepts_utf8_with_lf_or_crlf_without_rewriting(self, newline):
+        raw = render().replace("\n", newline).encode("utf-8")
+        self.path.write_bytes(raw)
+        result = self.run_reference("--check")
+        assert (result.returncode) == (0), result.stderr
+        assert (self.path.read_bytes()) == (raw)
 
     def test_check_rejects_missing_document_without_creating_it(self):
         result = self.run_reference("--check")
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("python scripts/render_metric_reference.py", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-        self.assertFalse(self.path.exists())
+        assert (result.returncode) == (1), result.stderr
+        assert ("python scripts/render_metric_reference.py") in (result.stderr)
+        assert ("Traceback") not in (result.stderr)
+        assert not (self.path.exists())
 
     def test_check_rejects_stale_document_without_rewriting(self):
         raw = "# 过期的指标登记表\n".encode("utf-8")
         self.path.write_bytes(raw)
         result = self.run_reference("--check")
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("python scripts/render_metric_reference.py", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-        self.assertEqual(self.path.read_bytes(), raw)
+        assert (result.returncode) == (1), result.stderr
+        assert ("python scripts/render_metric_reference.py") in (result.stderr)
+        assert ("Traceback") not in (result.stderr)
+        assert (self.path.read_bytes()) == (raw)
 
     def test_check_rejects_gbk_document_without_rewriting(self):
         raw = render().encode("gbk")
         self.path.write_bytes(raw)
         result = self.run_reference("--check")
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("UTF-8", result.stderr)
-        self.assertIn("python scripts/render_metric_reference.py", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-        self.assertEqual(self.path.read_bytes(), raw)
+        assert (result.returncode) == (1), result.stderr
+        assert ("UTF-8") in (result.stderr)
+        assert ("python scripts/render_metric_reference.py") in (result.stderr)
+        assert ("Traceback") not in (result.stderr)
+        assert (self.path.read_bytes()) == (raw)

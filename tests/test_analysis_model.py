@@ -2,16 +2,17 @@
 import csv
 import json
 import shutil
-import tempfile
-import unittest
 from pathlib import Path
 
+import pytest
 
-class AnalysisModelTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+
+class TestAnalysisModel:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
+        self.temporary = tmp_path
+        self.root = Path(str(self.temporary))
 
     def source(self, rows, *, meta=None, directory="run"):
         root = self.root / directory
@@ -45,23 +46,23 @@ class AnalysisModelTests(unittest.TestCase):
         before = path.read_bytes()
         data = load_analysis([path])
         config = data.configs[0]
-        self.assertEqual(config["status"], "partial")
-        self.assertEqual(config["environment_class"], "unknown")
-        self.assertEqual(config["model"], "example/model")
-        self.assertEqual(config["metrics"]["latency_app_p95_s"]["value"], .06)
-        self.assertEqual(config["metrics"]["latency_app_p95_s"]["n"], 2)
-        self.assertEqual(config["metrics"]["container_mem_usage_peak_bytes"]["value"], 2048)
-        self.assertEqual(config["metrics"]["observed_energy_j"]["value"], 46)
-        self.assertEqual(config["metrics"]["observed_energy_per_request_j"]["value"], 4.6)
-        self.assertIsNone(config["metrics"]["cpu_ipc"]["value"])
-        self.assertIsNone(config["metrics"]["qps"]["value"])
-        self.assertEqual(data.raw_rows[0]["row"]["extra"], " preserve ")
-        self.assertEqual(data.raw_rows[0]["row"]["energy_total_j"], "999")
+        assert (config["status"]) == ("partial")
+        assert (config["environment_class"]) == ("unknown")
+        assert (config["model"]) == ("example/model")
+        assert (config["metrics"]["latency_app_p95_s"]["value"]) == (.06)
+        assert (config["metrics"]["latency_app_p95_s"]["n"]) == (2)
+        assert (config["metrics"]["container_mem_usage_peak_bytes"]["value"]) == (2048)
+        assert (config["metrics"]["observed_energy_j"]["value"]) == (46)
+        assert (config["metrics"]["observed_energy_per_request_j"]["value"]) == (4.6)
+        assert (config["metrics"]["cpu_ipc"]["value"]) is None
+        assert (config["metrics"]["qps"]["value"]) is None
+        assert (data.raw_rows[0]["row"]["extra"]) == (" preserve ")
+        assert (data.raw_rows[0]["row"]["energy_total_j"]) == ("999")
         record = next(r for r in data.records if r["metric"] == "latency_app_p95_s")
-        self.assertTrue({"run_id", "model", "runtime", "device", "cpu", "memory",
+        assert ({"run_id", "model", "runtime", "device", "cpu", "memory",
                          "concurrency", "metric", "value", "unit"} <= record.keys())
-        self.assertEqual(record["source_row"], 2)
-        self.assertEqual(path.read_bytes(), before)
+        assert (record["source_row"]) == (2)
+        assert (path.read_bytes()) == (before)
 
     def test_cases_and_sources_never_collapse_across_workload_or_environment(self):
         from acprof.analysis.model import load_analysis
@@ -70,10 +71,10 @@ class AnalysisModelTests(unittest.TestCase):
                          self.row(environment_class="wsl2")])
         b = self.source([self.row()], directory="second", meta={"model_name": "other/model"})
         data = load_analysis([a, b])
-        self.assertEqual(len(data.configs), 6)
-        self.assertEqual(len({c["config_id"] for c in data.configs}), 6)
-        self.assertEqual({c["environment_class"] for c in data.configs}, {"unknown", "wsl2"})
-        with self.assertRaisesRegex(ValueError, "duplicate"):
+        assert (len(data.configs)) == (6)
+        assert (len({c["config_id"] for c in data.configs})) == (6)
+        assert ({c["environment_class"] for c in data.configs}) == ({"unknown", "wsl2"})
+        with pytest.raises(ValueError, match="duplicate"):
             load_analysis([a, a.parent])
 
     def test_inferred_failures_and_nonfinite_values_cannot_become_measurements(self):
@@ -83,10 +84,10 @@ class AnalysisModelTests(unittest.TestCase):
                                      gpu_mode="on", gpu_energy_total_j="nan")])
         data = load_analysis([path])
         a, b = data.configs
-        self.assertEqual(a["status"], "inferred_not_measured")
-        self.assertIsNone(a["metrics"]["latency_app_p95_s"]["value"])
-        self.assertIsNone(b["metrics"]["latency_app_p95_s"]["value"])
-        self.assertIsNone(b["metrics"]["observed_energy_j"]["value"])
+        assert (a["status"]) == ("inferred_not_measured")
+        assert (a["metrics"]["latency_app_p95_s"]["value"]) is None
+        assert (b["metrics"]["latency_app_p95_s"]["value"]) is None
+        assert (b["metrics"]["observed_energy_j"]["value"]) is None
         json.dumps(data.to_dict(), allow_nan=False)
 
     def test_lifecycle_values_are_deduplicated_and_estimates_never_fill_pmu(self):
@@ -97,21 +98,21 @@ class AnalysisModelTests(unittest.TestCase):
             self.row(repeat_idx="2", cold_start_s="4", cold_start_started_at="start-b"),
         ])])
         metrics = data.configs[0]["metrics"]
-        self.assertEqual(metrics["cold_start_s"]["value"], 3)
-        self.assertEqual(metrics["cold_start_s"]["n"], 2)
-        self.assertIsNone(metrics["cpu_cycles_per_request"]["value"])
+        assert (metrics["cold_start_s"]["value"]) == (3)
+        assert (metrics["cold_start_s"]["n"]) == (2)
+        assert (metrics["cpu_cycles_per_request"]["value"]) is None
 
     def test_csv_and_metadata_errors_are_visible(self):
         from acprof.analysis.model import load_analysis
         path = self.source([self.row(), self.row()])
-        with self.assertRaisesRegex(ValueError, "duplicate"):
+        with pytest.raises(ValueError, match="duplicate"):
             load_analysis([path])
         path.write_text("cpu_cores,cpu_cores\n1,2\n")
-        with self.assertRaisesRegex(ValueError, "columns"):
+        with pytest.raises(ValueError, match="columns"):
             load_analysis([path])
         path.write_text("cpu_cores,status,warmup\n2,ok,0\n")
         (path.parent / "static_meta.json").write_text("{broken")
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             load_analysis([path])
 
     def test_missing_energy_is_not_a_partial_total_and_zero_remains_a_value(self):
@@ -120,12 +121,12 @@ class AnalysisModelTests(unittest.TestCase):
                             self.row(repeat_idx="1", cpu_energy_total_j="nan")])
         data = load_analysis([path])
         metrics = data.configs[0]["metrics"]
-        self.assertIsNone(metrics["observed_energy_j"]["value"])
-        self.assertIsNone(metrics["observed_energy_per_request_j"]["value"])
-        self.assertEqual(metrics["qps"]["value"], 2)
-        self.assertEqual(metrics["cpu_ipc"]["value"], 0)
-        self.assertEqual(data.summary[0]["status"], "ok")
-        self.assertEqual(data.summary[0]["observed_energy_j"], None)
+        assert (metrics["observed_energy_j"]["value"]) is None
+        assert (metrics["observed_energy_per_request_j"]["value"]) is None
+        assert (metrics["qps"]["value"]) == (2)
+        assert (metrics["cpu_ipc"]["value"]) == (0)
+        assert (data.summary[0]["status"]) == ("ok")
+        assert (data.summary[0]["observed_energy_j"]) is (None)
 
     def test_v2_metadata_and_blank_csv_handling(self):
         from acprof.analysis.model import load_analysis
@@ -137,10 +138,10 @@ class AnalysisModelTests(unittest.TestCase):
         layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
         layout.path("run_state.json").write_text(json.dumps({"run_id": "recorded-run", "status": "complete"}))
         data = load_analysis([layout.root])
-        self.assertEqual(data.configs[0]["run_id"], "recorded-run")
-        self.assertEqual(data.sources[0]["run_state"], "complete")
+        assert (data.configs[0]["run_id"]) == ("recorded-run")
+        assert (data.sources[0]["run_state"]) == ("complete")
         layout.result_csv.write_text("cpu_cores,status,warmup\n\n\n")
-        with self.assertRaisesRegex(ValueError, "no measurement rows"):
+        with pytest.raises(ValueError, match="no measurement rows"):
             load_analysis([layout.root])
 
     def test_quality_evidence_survives_summary_without_hiding_observations(self):
@@ -151,34 +152,33 @@ class AnalysisModelTests(unittest.TestCase):
         (path.parent / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
         model = load_analysis([path])
         config = model.configs[0]
-        self.assertEqual(config["status"], "ok")
-        self.assertEqual(config["quality_status"], "blocked")
-        self.assertFalse(config["auto_selection_eligible"])
-        self.assertIn("weights_reinitialized", config["quality_reasons"])
-        self.assertEqual(config["metrics"]["latency_app_p95_s"]["value"], .04)
-        self.assertEqual(model.summary[0]["quality_checks"][0]["evidence"]["source"], "loader")
-        self.assertEqual(model.sources[0]["quality_status"], "blocked")
+        assert (config["status"]) == ("ok")
+        assert (config["quality_status"]) == ("blocked")
+        assert not (config["auto_selection_eligible"])
+        assert ("weights_reinitialized") in (config["quality_reasons"])
+        assert (config["metrics"]["latency_app_p95_s"]["value"]) == (.04)
+        assert (model.summary[0]["quality_checks"][0]["evidence"]["source"]) == ("loader")
+        assert (model.sources[0]["quality_status"]) == ("blocked")
 
     def test_legacy_quality_is_unknown_even_with_successful_rows(self):
         from acprof.analysis.model import load_analysis
         model = load_analysis([self.source([self.row()])])
-        self.assertEqual(model.configs[0]["quality_status"], "unknown")
-        self.assertFalse(model.configs[0]["auto_selection_eligible"])
-        self.assertIn("quality_evidence_missing", model.configs[0]["quality_reasons"])
-        self.assertEqual(model.configs[0]["measurement_status"], "unknown")
+        assert (model.configs[0]["quality_status"]) == ("unknown")
+        assert not (model.configs[0]["auto_selection_eligible"])
+        assert ("quality_evidence_missing") in (model.configs[0]["quality_reasons"])
+        assert (model.configs[0]["measurement_status"]) == ("unknown")
 
-    def test_moving_recorded_or_legacy_experiment_preserves_configuration_identity(self):
+    @pytest.mark.parametrize('recorded', (True, False))
+    def test_moving_recorded_or_legacy_experiment_preserves_configuration_identity(self, recorded):
         from acprof.analysis.model import load_analysis
-        for recorded in (True, False):
-            with self.subTest(recorded=recorded):
-                source = self.source([self.row()], directory=f"original-{recorded}")
-                if recorded:
-                    (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
-                before = load_analysis([source]).configs[0]["config_id"]
-                moved = self.root / f"renamed-{recorded}"
-                source.parent.rename(moved)
-                after = load_analysis([moved]).configs[0]["config_id"]
-                self.assertEqual(after, before)
+        source = self.source([self.row()], directory=f"original-{recorded}")
+        if recorded:
+            (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        before = load_analysis([source]).configs[0]["config_id"]
+        moved = self.root / f"renamed-{recorded}"
+        source.parent.rename(moved)
+        after = load_analysis([moved]).configs[0]["config_id"]
+        assert (after) == (before)
 
     def test_backup_is_rejected_as_duplicate_instead_of_another_configuration(self):
         from acprof.analysis.model import load_analysis
@@ -186,7 +186,7 @@ class AnalysisModelTests(unittest.TestCase):
         (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
         copy = self.root / "backup"
         shutil.copytree(source.parent, copy)
-        with self.assertRaisesRegex(ValueError, "duplicate measurement.*stable-run"):
+        with pytest.raises(ValueError, match="duplicate measurement.*stable-run"):
             load_analysis([source, copy])
 
     def test_same_recorded_measurement_with_changed_values_is_a_content_conflict(self):
@@ -195,12 +195,12 @@ class AnalysisModelTests(unittest.TestCase):
         other = self.source([self.row(latency_app_p95_s=".02")], directory="edited-backup")
         for path in (source, other):
             (path.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
-        with self.assertRaisesRegex(ValueError, "conflicting measurement.*stable-run"):
+        with pytest.raises(ValueError, match="conflicting measurement.*stable-run"):
             load_analysis([source, other])
 
     def test_recorded_csv_run_id_cannot_override_run_state(self):
         from acprof.analysis.model import load_analysis
         source = self.source([self.row(run_id="another-run")])
         (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
-        with self.assertRaisesRegex(ValueError, "inconsistent run_id"):
+        with pytest.raises(ValueError, match="inconsistent run_id"):
             load_analysis([source])

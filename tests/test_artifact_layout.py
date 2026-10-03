@@ -3,12 +3,12 @@ import csv
 import io
 import json
 import tempfile
-import unittest
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from client_fixtures import patch_client
 
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
@@ -17,10 +17,12 @@ from acprof.host.client_config import ClientConfig
 from acprof.host.run_state import RunState
 
 
-class ArtifactLayoutTests(unittest.TestCase):
-    def setUp(self):
+class TestArtifactLayout:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from platform_fixtures import native_policy
-        native_policy(self)
+        native_policy(self._request)
         self.runner = ClientRunner(ClientConfig())
 
     def test_client_uses_the_experiment_slo_from_nested_case_directory(self):
@@ -55,8 +57,8 @@ class ArtifactLayoutTests(unittest.TestCase):
             self.runner.main()
             with case.csv.open() as stream:
                 row = next(csv.DictReader(stream))
-            self.assertEqual(float(row["latency_app_slow_ratio"]), 0.5)
-            self.assertEqual(json.loads(case.requests.read_text())["latency_app_s"], [0.1, 0.4])
+            assert (float(row["latency_app_slow_ratio"])) == (0.5)
+            assert (json.loads(case.requests.read_text())["latency_app_s"]) == ([0.1, 0.4])
 
     def test_flat_run_state_still_resumes_without_creating_a_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -69,10 +71,10 @@ class ArtifactLayoutTests(unittest.TestCase):
             with patch("acprof.host.run_state.host_identity", return_value={}), \
                  patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", Path(temporary)):
                 state = RunState(root, {}, resume=True, project_dir=temporary)
-                self.assertEqual(state.path, root / "run_state.json")
+                assert (state.path) == (root / "run_state.json")
                 state.close()
-            self.assertFalse((root / "result_manifest.json").exists())
-            self.assertFalse((root / ".acprof").exists())
+            assert not ((root / "result_manifest.json").exists())
+            assert not ((root / ".acprof").exists())
 
     def test_request_publication_does_not_move_a_symlink(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -84,56 +86,55 @@ class ArtifactLayoutTests(unittest.TestCase):
             target = root / "unrelated.txt"
             target.write_text("preserve")
             case.requests.symlink_to(target)
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 case.retain_requests()
-            self.assertEqual(target.read_text(), "preserve")
-            self.assertTrue(case.requests.is_symlink())
-            self.assertFalse(case.retained_requests.exists())
+            assert (target.read_text()) == ("preserve")
+            assert (case.requests.is_symlink())
+            assert not (case.retained_requests.exists())
 
     def test_legacy_discovery_is_read_only_and_keeps_flat_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "input_scale_plan.json").write_text("{}")
             layout = ArtifactLayout.discover(root)
-            self.assertEqual(layout.layout_version, 1)
-            self.assertEqual(layout.path("input_scale_plan.json"), root / "input_scale_plan.json")
-            self.assertEqual(layout.path("posthoc_backups"), root / "posthoc_backups")
-            self.assertEqual(layout.case("org/model", 4, 8, "on").csv.name, "result_case_org--model_4c_8g_on.csv")
-            self.assertEqual([p.name for p in root.iterdir()], ["input_scale_plan.json"])
+            assert (layout.layout_version) == (1)
+            assert (layout.path("input_scale_plan.json")) == (root / "input_scale_plan.json")
+            assert (layout.path("posthoc_backups")) == (root / "posthoc_backups")
+            assert (layout.case("org/model", 4, 8, "on").csv.name) == ("result_case_org--model_4c_8g_on.csv")
+            assert ([p.name for p in root.iterdir()]) == (["input_scale_plan.json"])
 
-    def test_unknown_or_unsafe_manifest_does_not_fall_back_to_flat_layout(self):
+    @pytest.mark.parametrize('payload_case', range(5), ids=["{**original, 'layout_version': 99}", "{**original, 'schema_version': True}", "{**original, 'metadata': '../elsewhere'}", "{'layout_version': 2}", '[]'])
+    def test_unknown_or_unsafe_manifest_does_not_fall_back_to_flat_layout(self, payload_case):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
             path = root / "result_manifest.json"
             original = json.loads(path.read_text())
-            for payload in ({**original, "layout_version": 99}, {**original, "schema_version": True},
-                            {**original, "metadata": "../elsewhere"}, {"layout_version": 2}, []):
-                with self.subTest(payload=payload):
-                    path.write_text(json.dumps(payload))
-                    with self.assertRaises(ValueError):
-                        ArtifactLayout.discover(root)
+            payload = tuple(({**original, 'layout_version': 99}, {**original, 'schema_version': True}, {**original, 'metadata': '../elsewhere'}, {'layout_version': 2}, []))[payload_case]
+            path.write_text(json.dumps(payload))
+            with pytest.raises(ValueError):
+                ArtifactLayout.discover(root)
 
     def test_new_layout_rejects_occupied_directory_without_moving_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             result = root / "result_all.csv"
             result.write_bytes(b"existing data")
-            with self.assertRaisesRegex(ValueError, "已有实验产物"):
+            with pytest.raises(ValueError, match="已有实验产物"):
                 ArtifactLayout.for_new_run(root).initialize()
-            self.assertEqual(result.read_bytes(), b"existing data")
-            self.assertFalse((root / "result_manifest.json").exists())
+            assert (result.read_bytes()) == (b"existing data")
+            assert not ((root / "result_manifest.json").exists())
 
-    def test_symlinked_metadata_and_escaping_paths_are_rejected(self):
+    @pytest.mark.parametrize('name', ('input_scale_plan.json', '../outside.json', '/outside.json'))
+    def test_symlinked_metadata_and_escaping_paths_are_rejected(self, name):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "result"
             layout = ArtifactLayout.for_new_run(root)
             layout.initialize()
             (root / "metadata").rmdir()
             (root / "metadata").symlink_to(Path(temporary), target_is_directory=True)
-            for name in ("input_scale_plan.json", "../outside.json", "/outside.json"):
-                with self.subTest(name=name), self.assertRaises(ValueError):
-                    layout.path(name)
+            with pytest.raises(ValueError):
+                layout.path(name)
 
     def test_startup_error_is_written_directly_into_case_work_directory(self):
         from acprof.host.detect import TaskInfo
@@ -147,12 +148,12 @@ class ArtifactLayoutTests(unittest.TestCase):
                 output = run_single_case(TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "a" * 40, "manual"),
                                          1, 4, "off", ImageInfo(tag="sha256:" + "b" * 64), str(root), temporary,
                                          warmup=0, repeat=1, input_scales="64", profiling_mode="basic")
-            self.assertEqual(Path(output), root / ".acprof/work/cases/1c_4g_off/result.csv")
-            self.assertEqual(list(root.glob("result_case_*")), [])
+            assert (Path(output)) == (root / ".acprof/work/cases/1c_4g_off/result.csv")
+            assert (list(root.glob("result_case_*"))) == ([])
             with Path(output).open() as stream:
                 rows = list(csv.DictReader(stream))
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["status"], "error")
+            assert (len(rows)) == (1)
+            assert (rows[0]["status"]) == ("error")
 
     def test_packet_merge_uses_root_metadata_and_nested_request_samples(self):
         from acprof.packet.merge_packet_latency import main
@@ -173,11 +174,11 @@ class ArtifactLayoutTests(unittest.TestCase):
             case.latency.write_text(json.dumps({"schema_version": 2, "requests": {"window:0": {"latency_s": 0.25}}}))
             merged = Path(str(case.csv) + ".merged")
             main([str(case.csv), str(case.latency), str(merged)])
-            self.assertEqual(json.loads(case.requests.read_text())["latency_packet_s"], [0.25, None])
+            assert (json.loads(case.requests.read_text())["latency_packet_s"]) == ([0.25, None])
             with merged.open() as stream:
                 row = next(csv.DictReader(stream))
-            self.assertEqual(float(row["throughput_samples_per_s"]), 12)
-            self.assertEqual(case_sidecar(case.csv, "requests"), case.requests)
+            assert (float(row["throughput_samples_per_s"])) == (12)
+            assert (case_sidecar(case.csv, "requests")) == (case.requests)
 
     def test_ncu_report_reference_is_relative_to_the_experiment_root(self):
         from acprof.host.profilers.ncu import _ncu_report_reference
@@ -185,8 +186,7 @@ class ArtifactLayoutTests(unittest.TestCase):
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
             directory = root / "raw/compute_profiles"
-            self.assertEqual(_ncu_report_reference(str(directory), str(directory / "ncu_scale_8.csv")),
-                             "raw/compute_profiles/ncu_scale_8.csv")
+            assert (_ncu_report_reference(str(directory), str(directory / "ncu_scale_8.csv"))) == ("raw/compute_profiles/ncu_scale_8.csv")
 
     def test_new_run_publishes_manifest_and_keeps_state_internal(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -195,16 +195,12 @@ class ArtifactLayoutTests(unittest.TestCase):
                  patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", Path(temporary)):
                 state = RunState(root, {}, resume=False, project_dir=temporary)
                 try:
-                    self.assertTrue((root / "result_manifest.json").is_file())
+                    assert ((root / "result_manifest.json").is_file())
                     manifest = json.loads((root / "result_manifest.json").read_text())
-                    self.assertEqual(manifest["layout_version"], 2)
-                    self.assertTrue((root / ".acprof/run_state.json").is_file())
-                    self.assertTrue((root / ".acprof/result.lock").is_file())
-                    self.assertFalse((root / "run_state.json").exists())
-                    self.assertFalse((root / ".acprof-result.lock").exists())
+                    assert (manifest["layout_version"]) == (2)
+                    assert ((root / ".acprof/run_state.json").is_file())
+                    assert ((root / ".acprof/result.lock").is_file())
+                    assert not ((root / "run_state.json").exists())
+                    assert not ((root / ".acprof-result.lock").exists())
                 finally:
                     state.close()
-
-
-if __name__ == "__main__":
-    unittest.main()
