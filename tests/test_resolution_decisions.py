@@ -92,6 +92,67 @@ class ResolutionDecisionTests(unittest.TestCase):
         require_resolved_candidate(task)
         self.assertEqual(task.pipeline_tag, "translation")
 
+    def test_library_loader_tag_does_not_override_a_compatible_workload(self):
+        cases = (
+            ("summarization", "text2text-generation", "AutoModelForSeq2SeqLM", "BartForConditionalGeneration"),
+            ("translation", "text2text-generation", "AutoModelForSeq2SeqLM", "T5ForConditionalGeneration"),
+            ("zero-shot-classification", "text-classification", "AutoModelForSequenceClassification", "BartForSequenceClassification"),
+            ("text-ranking", "text-classification", "AutoModelForSequenceClassification", "BertForSequenceClassification"),
+            ("table-question-answering", "text2text-generation", "AutoModelForSeq2SeqLM", "BartForConditionalGeneration"),
+            ("image-to-text", "image-text-to-text", "AutoModelForImageTextToText", "BlipForConditionalGeneration"),
+            ("image-to-text", "image-text-to-text", "AutoModelForMultimodalLM", "BlipForConditionalGeneration"),
+        )
+        for tag, library_tag, loader, architecture in cases:
+            with self.subTest(task=tag):
+                task = candidate(tag=tag, config={"architectures": [architecture]}, hub={
+                    "transformers_info": {"pipeline_tag": library_tag, "auto_model": loader},
+                })
+                require_resolved_candidate(task)
+                self.assertEqual(task.pipeline_tag, tag)
+                observations = task.model_resolution["provenance"]["observations"]
+                hint = next(item for item in observations if item["field"] == "hub.transformers_info.pipeline_tag")
+                self.assertEqual(hint["kind"], "loader_hint")
+                self.assertEqual(hint["value"], library_tag)
+                self.assertTrue(hint["reason"])
+
+    def test_shared_loader_does_not_erase_two_distinct_task_declarations(self):
+        for tag, library_tag, loader in (
+            ("summarization", "translation", "AutoModelForSeq2SeqLM"),
+            ("text-ranking", "zero-shot-classification", "AutoModelForSequenceClassification"),
+            ("text-ranking", "text-generation", "AutoModelForCausalLM"),
+            ("summarization", "text2text-generation", "AutoModelForMaskedLM"),
+            ("summarization", "text2text-generation", None),
+        ):
+            with self.subTest(task=tag, library_task=library_tag, loader=loader):
+                task = candidate(tag=tag, hub={"transformers_info": {
+                    "pipeline_tag": library_tag, "auto_model": loader,
+                }})
+                with self.assertRaisesRegex(ValueError, "conflict"):
+                    require_resolved_candidate(task)
+
+    def test_sentence_transformer_modules_establish_the_encoder_interface(self):
+        for architecture, loader, library_tag in (
+            ("BertModel", "AutoModel", "feature-extraction"),
+            ("MPNetForMaskedLM", "AutoModelForMaskedLM", "fill-mask"),
+            ("Qwen3ForCausalLM", "AutoModelForCausalLM", "text-generation"),
+        ):
+            with self.subTest(architecture=architecture):
+                task = candidate(tag="sentence-similarity", config={"architectures": [architecture]}, hub={
+                    "transformers_info": {"auto_model": loader, "pipeline_tag": library_tag},
+                })
+                task.library_name = "sentence-transformers"
+                task.repository_metadata["modules.json"] = [
+                    {"idx": 0, "path": "", "type": "sentence_transformers.models.Transformer"},
+                    {"idx": 1, "path": "1_Pooling", "type": "sentence_transformers.models.Pooling"},
+                ]
+                task.model_resolution = discover_model_candidates(task)
+                require_resolved_candidate(task)
+                self.assertEqual(task.runtime_backend, "sentence_transformers")
+                task.repository_metadata.pop("modules.json")
+                task.model_resolution = discover_model_candidates(task)
+                with self.assertRaisesRegex(ValueError, "conflict"):
+                    require_resolved_candidate(task)
+
     def test_native_registry_reverse_lookup_resolves_architecture(self):
         task = candidate(config={"architectures": ["GPT2LMHeadModel"], "model_type": "gpt2"})
         self.assertEqual(task.pipeline_tag, "text-generation")

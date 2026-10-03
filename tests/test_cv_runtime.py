@@ -20,13 +20,16 @@ class CVRuntimeTests(unittest.TestCase):
 
         torch.set_num_threads(1)
 
-    def _exercise(self, model, processor, task, spec=None):
+    def _exercise(self, model, processor, task, spec=None, device="cpu"):
         handler = CVHandler()
         with tempfile.TemporaryDirectory() as directory:
             snapshot = Path(directory) / "snapshot"
             model.save_pretrained(snapshot)
             processor.save_pretrained(snapshot)
-            context = handler.load(str(snapshot), task, "transformers_model", "cpu")
+            context = handler.load(str(snapshot), task, "transformers_model", device)
+            if task == "mask-generation":
+                from acprof.container.load_policy import actual_dtype
+                self.assertEqual(actual_dtype(context), "torch.float32")
             manifest = None
             if spec is not None:
                 manifest = Path(directory) / "workload.json"
@@ -100,6 +103,15 @@ class CVRuntimeTests(unittest.TestCase):
         self.assertLessEqual(result["keypoint_count"], 20)
 
     def test_sam_mask_pipeline_returns_a_mask_count(self):
+        self._sam_mask_pipeline("cpu")
+
+    def test_sam_mask_pipeline_defaults_to_fp32_on_cuda(self):
+        import torch
+        if not torch.cuda.is_available():
+            self.skipTest("requires CUDA")
+        self._sam_mask_pipeline("cuda")
+
+    def _sam_mask_pipeline(self, device):
         from transformers import (
             SamConfig,
             SamImageProcessor,
@@ -121,7 +133,7 @@ class CVRuntimeTests(unittest.TestCase):
         result = self._exercise(model, processor, "mask-generation", {"params": {
             "points_per_batch": 4, "points_per_crop": 2, "pred_iou_thresh": 0.0,
             "stability_score_thresh": 0.0,
-        }})
+        }}, device=device)
         self.assertEqual(result["output_type"], "masks")
         self.assertIsInstance(result["n_results"], int)
 

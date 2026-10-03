@@ -23,7 +23,7 @@ def content_digest(value: Any) -> str:
 def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | None,
                           selected: str | None, status: str, explicit_task: str | None,
                           explicit_backend: str | None, overridden_conflicts: list[str],
-                          loader_hint: bool) -> dict:
+                          loader_hint: str | None) -> dict:
     """Capture correlated observations; no counting of fields as independent votes."""
     from acprof.model_spec import task_model_spec
     revision = task_info.model_revision
@@ -60,8 +60,8 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
         elif field_name == "pipeline_tag" and loader_hint:
             observations.append({"field": "hub.transformers_info.pipeline_tag", "source_id": "hub",
                                  "task": None, "value": value, "kind": "loader_hint",
-                                 "reason": "AutoModel is a generic loader for config.custom_pipelines, not a task declaration"})
-    identity = {"schema_version": 1, "resolver_version": "model-selection-v2",
+                                 "reason": loader_hint})
+    identity = {"schema_version": 1, "resolver_version": "model-selection-v3",
                 "model_id": task_info.model_id, "revision": revision, "sources": sources,
                 "observations": observations, "selected_task": selected, "status": status,
                 "overridden_conflicts": overridden_conflicts}

@@ -14,6 +14,28 @@ from acprof.tui.progress import RunProgressTracker
 
 
 class RuntimeEvidenceTests(unittest.TestCase):
+    def test_hub_access_errors_preserve_http_status_through_exception_chains(self):
+        import requests
+        from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
+
+        from acprof.failures import compatibility_status, failure_from_exception
+
+        for status in (401, 403, 429):
+            with self.subTest(status=status):
+                response = requests.Response()
+                response.status_code = status
+                error = (GatedRepoError if status == 401 else HfHubHTTPError)("opaque server detail", response=response)
+                wrapped = RuntimeError("artifact planning failed")
+                wrapped.__cause__ = error
+                failure = failure_from_exception(wrapped, stage="artifact_planning")
+                if status in (401, 403):
+                    self.assertEqual(failure.reason_code, "access_denied")
+                    self.assertEqual(failure.evidence["http_status"], status)
+                    self.assertEqual(failure.stage, "artifact_planning")
+                    self.assertEqual(compatibility_status(failure), "access_denied")
+                else:
+                    self.assertNotEqual(failure.reason_code, "access_denied")
+
     def test_actual_dtype_reports_mixed_parameters_instead_of_primary_property(self):
         from acprof.container.load_policy import actual_dtype
         parameters = [SimpleNamespace(dtype=dtype, is_floating_point=lambda: True) for dtype in ("torch.float16", "torch.float32")]

@@ -156,9 +156,11 @@
             "blocked_dtypes": [
               "FP16"
             ],
+            "preferred_dtype": "FP32",
             "evidence": {
               "source": "2026-09-27 frozen compatibility audit",
-              "reason": "torchvision NMS boxes/scores dtype mismatch observed on sam-vit-base and sam2.1-hiera-tiny; FP32 GPU remains unverified"
+              "reason": "FP16 NMS boxes/scores mismatch observed on sam-vit-base and sam2.1-hiera-tiny; Transformers 4.57.6 casts NMS boxes to FP32, so select FP32 scores by default",
+              "reference": "https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/sam/image_processing_sam.py"
             }
           }
         ]

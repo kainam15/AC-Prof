@@ -61,6 +61,10 @@ def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unk
         if isinstance(cause, ModuleNotFoundError):
             return Failure(stage, "runtime_dependency_missing", str(exc), device, runtime_profile,
                            "after_configuration", {"module": cause.name, **(evidence or {})}, type(cause).__name__)
+        http_status = getattr(getattr(cause, "response", None), "status_code", None)
+        if http_status in (401, 403):
+            return Failure(stage, "access_denied", str(exc), device, runtime_profile,
+                           "after_configuration", {**(evidence or {}), "http_status": http_status}, type(cause).__name__)
         if isinstance(cause, (TimeoutError, MemoryError, PermissionError)):
             code, retry = ("request_timeout", "higher_budget") if isinstance(cause, TimeoutError) else (
                 ("resource_limit", "higher_budget") if isinstance(cause, MemoryError) else ("access_denied", "after_configuration"))

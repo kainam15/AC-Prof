@@ -75,6 +75,14 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
                     records.append({"status": "unknown", "source": name, "detail": str(exc)})
     for name, requirement in requirements:
         distribution = normalized_name(requirement.name)
+        # The obsolete, unpinned typing backport is supplied by target Python.
+        # Versioned requirements and typing-extensions remain real distributions.
+        target_python = profile.environment.platform.python_version
+        if (distribution == "typing" and not requirement.specifier
+                and tuple(map(int, target_python.split(".")[:2])) >= (3, 5)):
+            records.append({"distribution": distribution, "required": "", "source": name,
+                            "status": "stdlib", "python_version": ".".join(target_python.split(".")[:2])})
+            continue
         version = installed.get(distribution)
         records.append({"distribution": distribution, "required": str(requirement.specifier), "installed": version,
                         "source": name, "status": "missing" if version is None else

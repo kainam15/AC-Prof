@@ -3,6 +3,7 @@
 import functools
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -169,17 +170,35 @@ class DiffusionRuntimeTests(unittest.TestCase):
         )
         handler = DiffusionHandler()
         task = "unconditional-image-generation"
-        with tempfile.TemporaryDirectory() as directory:
-            pipe.save_pretrained(directory)
-            context = handler.load(directory, task, "diffusers", "cpu")
-            payload = DiffusionWorkloadGenerator("local/ddpm", task, 1).generate(2)
-            processed = handler.preprocess(context, payload)
-            first = handler.predict(context, processed)
-            second = handler.predict(context, processed)
-            metadata = handler.postprocess(context, first)
-            self.assertEqual(first.images[0].tobytes(), second.images[0].tobytes())
-            self.assertEqual(metadata["output_shape"], [1, 32, 32, 3])
-            self.assertEqual(handler.get_scale_metadata(context, payload)["native_output_width"], 32)
+        from acprof.container.model_files import plan_download
+        for root_layout in (False, True):
+            with self.subTest(root_layout=root_layout), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory, "source")
+                snapshot = Path(directory, "selected")
+                snapshot.mkdir()
+                pipe.save_pretrained(source)
+                if root_layout:
+                    for component in ("unet", "scheduler"):
+                        for path in (source / component).iterdir():
+                            path.rename(source / path.name)
+                        (source / component).rmdir()
+                plan = plan_download(model_id="local/ddpm", revision="a" * 40,
+                    family="diffusion", backend="diffusers",
+                    files={str(p.relative_to(source)): {"size": p.stat().st_size} for p in source.rglob("*") if p.is_file()},
+                    read_json=lambda name: json.loads((source / name).read_text()))
+                for record in plan["files"]:
+                    target = snapshot / record["path"]
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source / record["path"], target)
+                context = handler.load(str(snapshot), task, "diffusers", "cpu")
+                payload = DiffusionWorkloadGenerator("local/ddpm", task, 1).generate(2)
+                processed = handler.preprocess(context, payload)
+                first = handler.predict(context, processed)
+                second = handler.predict(context, processed)
+                metadata = handler.postprocess(context, first)
+                self.assertEqual(first.images[0].tobytes(), second.images[0].tobytes())
+                self.assertEqual(metadata["output_shape"], [1, 32, 32, 3])
+                self.assertEqual(handler.get_scale_metadata(context, payload)["native_output_width"], 32)
 
     def test_new_native_video_and_shap_e_signatures_match_pinned_runtime(self):
         import types

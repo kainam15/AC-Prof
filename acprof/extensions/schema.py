@@ -103,9 +103,11 @@ def validate_precision_policy(policy: dict) -> None:
         for override in overrides.values():
             validate_precision_policy(override)
     for rule in policy.get("rules", []):
-        if (not isinstance(rule, dict) or set(rule) - {"task", "device", "model_types", "transformers_versions", "blocked_dtypes", "evidence"}
+        if (not isinstance(rule, dict) or set(rule) - {"task", "device", "model_types", "transformers_versions", "blocked_dtypes", "preferred_dtype", "evidence"}
                 or not rule.get("evidence") or not isinstance(rule.get("blocked_dtypes"), list)
-                or any(value not in dtypes for value in rule["blocked_dtypes"])):
+                or any(value not in dtypes for value in rule["blocked_dtypes"])
+                or "preferred_dtype" in rule and (rule["preferred_dtype"] not in dtypes
+                                                  or rule["preferred_dtype"] in rule["blocked_dtypes"])):
             raise ValueError("precision exclusions require scoped dtype evidence")
 
 

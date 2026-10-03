@@ -119,6 +119,7 @@ _AUTO_TASKS = {
     "AutoModelForImageClassification": "image-classification", "AutoModelForAudioClassification": "audio-classification",
     "AutoModelForCTC": "automatic-speech-recognition", "AutoModelForSpeechSeq2Seq": "automatic-speech-recognition",
     "AutoModelForImageTextToText": "image-text-to-text", "AutoModelForVision2Seq": "image-to-text",
+    "AutoModelForMultimodalLM": "image-text-to-text",
 }
 
 
@@ -161,6 +162,16 @@ def _generic_pipeline_loader_hint(config: dict, transformers_info: dict) -> bool
     return False
 
 
+def _sentence_transformer_encoder(task_info: Any, task: str | None, backend: str) -> bool:
+    """The declared Transformer module loads AutoModel, not the checkpoint head."""
+    modules = (task_info.repository_metadata or {}).get("modules.json")
+    return (backend == "sentence_transformers" and task in {"feature-extraction", "sentence-similarity"}
+            and isinstance(modules, list) and any(
+                isinstance(module, dict) and module.get("path") == ""
+                and module.get("type") == "sentence_transformers.models.Transformer"
+                for module in modules))
+
+
 def discover_model_candidates(task_info: Any, *, override_tag: str | None = None,
                               override_backend: str | None = None) -> dict:
     """Collect static evidence before selecting a route. Never import model code."""
@@ -187,15 +198,6 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
         hub_task = spec["task"]
     declared_task = spec.get("task")
     transformers_info = hub_metadata.get("transformers_info", {})
-    loader_hint = _generic_pipeline_loader_hint(config, transformers_info)
-    transformers_task = None if loader_hint else transformers_info.get("pipeline_tag")
-    if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
-        transformers_task = declared_task
-    observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
-    overridden_conflicts = []
-    if len(observed_tasks) > 1:
-        disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
-        (overridden_conflicts if override_tag else conflicts).append(disagreement)
     if declared_task and hub_task and hub_task != declared_task and not override_tag:
         conflicts.append(f"task conflict: Hub={hub_task}, model spec={declared_task}; select --task explicitly")
     if override_tag and declared_task and override_tag != declared_task:
@@ -219,6 +221,34 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
             if required and str(exc) not in errors:
                 errors.append(str(exc))
             return "unknown"
+
+    primary_task = declared_task or hub_task
+    encoder = _sentence_transformer_encoder(
+        task_info, primary_task, backend_for(primary_task) if primary_task else "unknown")
+    loader_hint = None
+    if _generic_pipeline_loader_hint(config, transformers_info):
+        loader_hint = "AutoModel is a generic loader for config.custom_pipelines, not a task declaration"
+    else:
+        auto_model = transformers_info.get("auto_model")
+        generic_task = "feature-extraction" if auto_model == "AutoModel" else _AUTO_TASKS.get(auto_model)
+        # Only the canonical library task for a matching Auto class is a hint.
+        # Two authored tasks sharing a loader (e.g. translation/summarization)
+        # still disagree. A library tag without its Auto class is not enough.
+        if (primary_task and generic_task and primary_task != generic_task
+                and transformers_info.get("pipeline_tag") == generic_task):
+            shared_operation = set(_TASK_MAPPINGS.get(primary_task, ())) & set(_TASK_MAPPINGS.get(generic_task, ()))
+            if encoder:
+                loader_hint = "modules.json selects SentenceTransformer AutoModel encoding, not the checkpoint head"
+            elif shared_operation and auto_model != "AutoModel":
+                loader_hint = f"{auto_model} is a shared loader for {primary_task}; its library tag does not declare another workload"
+    transformers_task = None if loader_hint else transformers_info.get("pipeline_tag")
+    if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
+        transformers_task = declared_task
+    observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
+    overridden_conflicts = []
+    if len(observed_tasks) > 1:
+        disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
+        (overridden_conflicts if override_tag else conflicts).append(disagreement)
 
     def add(task: str | None, source: str) -> None:
         if not task:
@@ -268,8 +298,8 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
 
     selected = override_tag or declared_task or hub_task or transformers_task
     selected_operations = set(_TASK_MAPPINGS.get(selected, ()))
-    hints = [("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))]
-    if not config.get("auto_map") and not config.get("custom_pipelines"):
+    hints = [] if encoder else [("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))]
+    if not encoder and not config.get("auto_map") and not config.get("custom_pipelines"):
         hints.extend((f"config.architectures:{architecture}", _architecture_tasks(architecture))
                      for architecture in config.get("architectures") or [] if isinstance(architecture, str))
     for source, hint_tasks in hints:

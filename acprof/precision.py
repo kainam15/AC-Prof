@@ -27,6 +27,8 @@ def resolve_precision(profile, extension, *, device, task, model_type="", versio
                 and version in rule.get("transformers_versions", [version])):
             blocked.update(rule.get("blocked_dtypes", []))
             evidence.append(rule.get("evidence", {}))
+            if requested is None and rule.get("preferred_dtype"):
+                preferred = rule["preferred_dtype"]
     if preferred not in supported or preferred not in DTYPES or preferred in blocked:
         raise RuntimeFailure(Failure("precision_preflight", "precision_mismatch",
             f"dtype {preferred!r} is not supported for {task}/{model_type} on {device}", device,

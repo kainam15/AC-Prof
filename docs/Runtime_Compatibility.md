@@ -136,7 +136,8 @@ AC-Prof/
 即使 Hub 没有 `pipeline_tag`，仍保留 revision、文件与元数据，并从 architecture、`auto_map`、
 `custom_pipelines` 和制品格式汇总候选。选择优先级为显式任务、本地／仓库声明、Hub 任务，
 最后才使用唯一推导候选；多候选为 `ambiguous`，信息不足为 `needs_configuration`。
-Hub 与模型声明的任务冲突必须显式选择；`--task`／`--backend` 不能与有效模型声明矛盾。
+Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按下节规则分类。
+`--task`／`--backend` 不能与有效模型声明矛盾。
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。
 
 `model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
@@ -180,6 +181,20 @@ source，Hub 与仓库配置保留共同 snapshot 的派生关系，不按字段
 唯一 custom Pipeline 可以继续进入静态契约分析，多个 Pipeline 仍须选择；
 loader hint 本身不能补全缺失的任务语义，也不能使未解决的输入或依赖通过预检。
 
+Hub 主任务存在时，`transformers_info.pipeline_tag` 若恰好是其 `auto_model` 对应的通用库任务，
+且两个任务共享已登记的加载操作，则只记作 `loader_hint`。例如 summarization/translation 的
+`text2text-generation + AutoModelForSeq2SeqLM`，以及 text-ranking/zero-shot-classification 的
+`text-classification + AutoModelForSequenceClassification`。image-to-text 也可接受共享视觉生成
+Auto loader 的 image-text-to-text 标签，包括 Hub 的 `AutoModelForMultimodalLM` 提示；
+最终可用版本仍由所选 runtime 的注册表检查，不因此升级或借用其它环境的支持资格。
+缺少匹配 Auto class、明确 head 不相容，以及 summarization 与 translation 这类两个具体任务
+的冲突仍须选择。解析报告保留原标签、分类理由和来源哈希，不按榜单任务强制覆盖。
+
+Sentence Transformers 的 feature-extraction/sentence-similarity 路径，若 `modules.json` 明确
+声明从根目录加载 `sentence_transformers.models.Transformer`，实际使用的是 `AutoModel`。
+此时底层 checkpoint 的 MLM/CausalLM head 与库标签只描述存储架构，不阻止声明的编码操作；
+缺少该模块声明或选择了其它 backend 时不应用此规则。模块、processor、依赖与实际输出仍需验证。
+
 声明、Hub task、具有任务语义的 `transformers_info.pipeline_tag` 冲突，或原生模型的明确 head 与任务操作
 不相容时，保留候选并 abstain。显式 `--task` 可以解决元数据冲突，原冲突进入
 `provenance.overridden_conflicts`；它仍不能违背有效的模型声明。
@@ -194,6 +209,10 @@ Optimum 或主机端推理依赖，也不在正式测量窗口执行来源分析
 [Transformers 4.57.6 的 pipeline 实现](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
 （Apache-2.0）：借鉴唯一接口优先的规则，继续使用本项目已有的受限 AST 分析和依赖检查，
 不在主机执行 `trust_remote_code`，也不增加依赖或测量开销。
+通用 loader 标签的分类同时参考固定版本
+[Transformers pipeline registry](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
+和 [Sentence Transformers Transformer 模块](https://github.com/huggingface/sentence-transformers/blob/v5.1.2/sentence_transformers/models/Transformer.py)。
+两者为 Apache-2.0；复用现有执行接口，不新增 backend 或放宽未知 library 的限制。
 
 `audio-text-to-text` 的预检与容器加载共用 `model_resolution.audio_text_loader`，依据相同版本的
 Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`。对于组合模型，
@@ -234,11 +253,17 @@ pipeline registry。硬件选择 CPU/CUDA 平台后，会对最终 lock 再检�
 `device_overrides`、`task_overrides` 和 `model_type_overrides`。应用顺序为基础策略、设备覆盖、
 task 覆盖、model type 覆盖；task/model type 内部也可声明设备覆盖。支持集合还必须满足
 extension 的 `dtypes`。显式 loader `dtype` 不能越过支持集合或有证据的排除规则。
-策略不满足时返回 `precision_mismatch`，不会猜测另一种精度安全。
+带版本、任务、设备和模型类型约束的 `rules` 可声明 `preferred_dtype`，覆盖匹配范围内的默认值；
+显式请求仍有最高优先级，并接受同一支持集合与排除规则的检查。
+策略不满足时返回 `precision_mismatch`，不会遍历其它 dtype 重试。
 
 SAM/SAM2 目前只排除 `mask-generation + GPU + FP16 + Transformers 4.57.6`，依据是
 2026-09-27 冻结审计中 sam-vit-base、sam2.1-hiera-tiny 的 NMS dtype 失败。
-没有把所有 SAM2 强制为 FP32，也没有将 GPU FP32 标为已验证。
+同一范围的默认值为 FP32，因为锁定版本的
+[SAM processor](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/sam/image_processing_sam.py)
+将 NMS boxes 转为 FP32，scores 必须匹配；显式 FP16 继续提前拒绝。
+这不改变其它版本、任务或模型的默认策略。离线随机小型 SAM 已验证 CPU/CUDA FP32 的
+四阶段接口，不能外推为 sam-vit-base/huge 或全部 SAM2 checkpoint 已完成真实推理验收。
 容器 probe 的 `dtype` 取自实际加载模型的浮点参数；无法观察时为 `unknown`，不从 CPU/GPU 名称猜测。
 静态元数据中的精度是策略选择，实际 probe dtype 才是运行证据。混合精度模型列出观察到的
 浮点参数类型，如 `mixed[torch.float16, torch.float32]`；原生 adapter 的局部精度约束仍需单独核验。
@@ -252,6 +277,9 @@ Python imports，最多 64 个文件、每文件 512 KiB；结合 tokenizer 配�
 动态 import、未知 import/distribution 映射、未固定 revision、URL/extras 等不能自动证明可用，
 须补充受审阅的锁定环境。分析不 import 仓库代码、不执行安装命令，也不修改基础镜像。
 RMBG 的 `skimage` 映射为 `scikit-image`；manga-ocr 的 MeCab tokenizer 明确要求 `fugashi`。
+未指定版本的旧 `typing` backport 在目标 Python 3.5+ 中记录为 `stdlib`，保留 requirements
+来源与目标 Python 版本；带版本限制的 `typing` 和 `typing-extensions` 仍按发行包检查。
+这不消除 RMBG 对 `scikit-image` 的真实依赖缺口。
 
 `trust_remote_code` 的有效值是 profile 允许且 extension 没有显式禁止。loader options 可进一步
 收紧为 false，不能将 false 提升为 true。普通 family-default 遵循 profile；只有明确注册的
@@ -266,6 +294,8 @@ TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver �
 真实推理异常使用 `inference_failed`，不能仅因为 60 秒未完成就认定不兼容。
 默认 timeout 仍为 300 秒；显式重试使用更高 `--timeout-seconds` 和新的输出目录，不自动循环。
 质量警告独立于 Capability，字段及历史结果边界见[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
+HTTP 响应为 401/403 的失败在原阶段记录 `access_denied` 和 `http_status`，包括文件计划阶段的
+gated 配置读取；不会因已有缓存配置可通过静态检查而宣称获得权重权限，也不将 429 当作权限失败。
 
 实现参考锁定的 [Transformers 4.57.6 pipeline registry](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
 和 [5.6.0 registry](https://github.com/huggingface/transformers/blob/v5.6.0/src/transformers/pipelines/__init__.py)，
@@ -1008,6 +1038,13 @@ Docker 查询只在上述空闲窗口执行，不增加正式测量窗口内的�
 ## 模型文件选择规则
 
 模型文件默认采用 `--model-download-policy auto`。程序在主机准备阶段读取固定 commit 的文件清单、配置和分片索引，按照目标 runtime 的加载器选择权重：标准 Transformers 优先默认 safetensors（含分片），否则保留默认 PyTorch `.bin`；Sentence Transformers 保留模块结构；已覆盖的 Stable Diffusion／SDXL／DDPM／DDIM pipeline 按组件选择；TorchScript／skops 遵循现有 artifact 清单。配置、tokenizer、processor 和其它未确认可省略的附属文件会保留。分片缺失直接报错，不静默换一套权重。
+
+DDPM/DDIM 还支持原生根目录布局：组件目录不存在时，`UNet2DModel` 使用根目录的
+`config.json` 和默认权重，`DDPMScheduler`/`DDIMScheduler` 使用 `scheduler_config.json`。
+已有组件目录优先；缺少所需配置、权重或分片仍报错。筛选保留选中的根目录 safetensors，
+不会将其当作冗余单文件删掉。此规则对齐锁定版本
+[Diffusers 的组件加载](https://github.com/huggingface/diffusers/blob/v0.39.0/src/diffusers/pipelines/pipeline_loading_utils.py)，
+不为未知 pipeline 猜测组件。离线随机 DDPM 已验证筛选后的根目录及子目录快照可加载并生成图像。
 
 自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`run.py` 和 `probe.py` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
 

@@ -205,7 +205,22 @@ def plan_download(
                 prefix = safe_path(component) + "/"
                 component_names = {name for name in names if name.startswith(prefix)}
                 if not component_names:
-                    raise ModelFilesError(f"missing pipeline component: {component}")
+                    # Diffusers loads from the root when the component directory
+                    # is absent. Limit selection to reviewed DDPM/DDIM layouts;
+                    # unrelated root files cannot satisfy a missing component.
+                    root_component = (pipeline in {"DDPMPipeline", "DDIMPipeline"} and library == "diffusers")
+                    if root_component and component == "scheduler" and class_name in {"DDPMScheduler", "DDIMScheduler"}:
+                        if "scheduler_config.json" not in names:
+                            raise ModelFilesError(f"missing pipeline component: {component}")
+                        continue
+                    if (root_component and component == "unet" and class_name == "UNet2DModel"
+                            and "config.json" in names):
+                        prefix = ""
+                        component_names = {name for name in names if "/" not in name}
+                        if not _checkpoint(names, read_json, prefix, diffusion=True):
+                            raise ModelFilesError(f"missing pipeline component weights: {component}")
+                    else:
+                        raise ModelFilesError(f"missing pipeline component: {component}")
                 has_weights = any(_alternate_weights(name, prefix) for name in component_names)
                 if not has_weights:
                     if not any(marker in str(class_name) for marker in ("Scheduler", "Tokenizer", "Processor", "FeatureExtractor")):
@@ -220,9 +235,10 @@ def plan_download(
             else:
                 if weights:
                     for checkpoint in weights:
-                        prefix = checkpoint["component"] + "/"
+                        prefix = "" if checkpoint["component"] == "." else checkpoint["component"] + "/"
                         selected -= {name for name in names if _alternate_weights(name, prefix)} - set(checkpoint["files"])
-                    selected -= {name for name in names if "/" not in name and name.endswith((".ckpt", ".safetensors"))}
+                    chosen_weights = {name for checkpoint in weights for name in checkpoint["files"]}
+                    selected -= {name for name in names if "/" not in name and name.endswith((".ckpt", ".safetensors"))} - chosen_weights
                     effective = "selected"
         else:
             reason = "unregistered_diffusers_pipeline"

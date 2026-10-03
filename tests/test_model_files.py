@@ -117,6 +117,43 @@ class ModelFilePlanTests(unittest.TestCase):
                 plan = self.plan(names, {"model_index.json": {"_class_name": pipeline}}, backend="diffusers")
                 self.assertEqual(self.selected(plan), set(names))
 
+    def test_ddpm_root_components_preserve_selected_weights_and_scheduler(self):
+        for pipeline, scheduler in (("DDPMPipeline", "DDPMScheduler"), ("DDIMPipeline", "DDIMScheduler")):
+            with self.subTest(pipeline=pipeline):
+                names = ["model_index.json", "config.json", "scheduler_config.json",
+                         "diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.bin",
+                         "diffusion_pytorch_model.fp16.safetensors", "README.md"]
+                plan = self.plan(names, {"model_index.json": {
+                    "_class_name": pipeline, "unet": ["diffusers", "UNet2DModel"],
+                    "scheduler": ["diffusers", scheduler],
+                }}, family="diffusion", backend="diffusers")
+                self.assertEqual(plan["effective_policy"], "selected")
+                self.assertEqual(self.selected(plan), {
+                    "model_index.json", "config.json", "scheduler_config.json",
+                    "diffusion_pytorch_model.safetensors", "README.md",
+                })
+                self.assertEqual(plan["weights"][0]["component"], ".")
+                self.assertEqual(plan["weights"][0]["files"], ["diffusion_pytorch_model.safetensors"])
+
+    def test_ddpm_missing_components_still_fail(self):
+        for missing in ("scheduler_config.json", "config.json", "diffusion_pytorch_model.safetensors"):
+            with self.subTest(missing=missing), self.assertRaises(ModelFilesError):
+                self.plan({"model_index.json", "config.json", "scheduler_config.json",
+                           "diffusion_pytorch_model.safetensors"} - {missing}, {"model_index.json": {
+                    "_class_name": "DDPMPipeline", "unet": ["diffusers", "UNet2DModel"],
+                    "scheduler": ["diffusers", "DDPMScheduler"],
+                }}, backend="diffusers")
+
+    def test_diffusers_component_directory_takes_precedence_over_root(self):
+        names = ["model_index.json", "unet/config.json", "unet/diffusion_pytorch_model.bin",
+                 "config.json", "diffusion_pytorch_model.safetensors", "scheduler_config.json"]
+        plan = self.plan(names, {"model_index.json": {
+            "_class_name": "DDPMPipeline", "unet": ["diffusers", "UNet2DModel"],
+            "scheduler": ["diffusers", "DDPMScheduler"],
+        }}, backend="diffusers")
+        self.assertEqual(plan["weights"][0]["component"], "unet")
+        self.assertIn("unet/diffusion_pytorch_model.bin", self.selected(plan))
+
     def test_nonstandard_diffusers_component_keeps_complete_repository(self):
         names = ["model_index.json", "unet/diffusion_pytorch_model.safetensors", "extra.ckpt"]
         for spec in ((["custom"], "Model"), ("diffusers", {"custom": "Model"}), ("custom",), {"custom": "Model"}):

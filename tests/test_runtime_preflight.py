@@ -89,7 +89,7 @@ class RuntimePreflightTests(unittest.TestCase):
         self.assertEqual(caught.exception.failure.reason_code, "runtime_dependency_incompatible")
         pipeline.assert_not_called()
 
-    def test_sam_gpu_dtype_failure_is_detected_before_pipeline_loading(self):
+    def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected(self):
         from acprof.container.handlers.cv import CVHandler
         for model_type in ("sam", "sam2"):
             pipeline = Mock(return_value=SimpleNamespace())
@@ -98,10 +98,25 @@ class RuntimePreflightTests(unittest.TestCase):
                 "torch": fake_torch, "transformers": SimpleNamespace(pipeline=pipeline, __version__="4.57.6"),
             }), patch.dict(os.environ, {"ACPROF_RUNTIME_PROFILE": "cv-cu128"}):
                 Path(directory, "config.json").write_text(json.dumps({"model_type": model_type}))
+                CVHandler().load(directory, "mask-generation", "transformers_pipeline", "cuda")
+                self.assertEqual(pipeline.call_args.kwargs["torch_dtype"], "float32")
+                pipeline.reset_mock()
                 with self.assertRaises(ValueError) as caught:
-                    CVHandler().load(directory, "mask-generation", "transformers_pipeline", "cuda")
+                    CVHandler().load(directory, "mask-generation", "transformers_pipeline", "cuda", load_options={"dtype": "FP16"})
                 self.assertEqual(caught.exception.failure.reason_code, "precision_mismatch")
                 pipeline.assert_not_called()
+
+    def test_unversioned_typing_backport_uses_target_python_stdlib(self):
+        from acprof.runtime_dependencies import dependency_preflight
+        from acprof.runtime_profiles import PROFILES
+        task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+        report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing\ntyping-extensions\n")
+        typing = next(item for item in report["dependencies"] if item["distribution"] == "typing")
+        self.assertEqual(typing["status"], "stdlib")
+        self.assertEqual(typing["source"], "requirements.txt")
+        self.assertEqual(typing["python_version"], "3.10")
+        with self.assertRaises(ValueError):
+            dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing==3.7.4.3")
 
     def test_remote_rmbg_missing_scikit_image_is_preflight_failure(self):
         task = model("image-segmentation", "cv", "birefnet",
