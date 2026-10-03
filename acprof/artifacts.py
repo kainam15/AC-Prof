@@ -49,6 +49,13 @@ def require_schema_version(payload: Any, expected: int, artifact: str) -> None:
         )
 
 
+def read_input_scale_plan(path: str | Path) -> dict:
+    """Read the current bounded input plan before any runtime or measurement starts."""
+    payload = read_json_object(path, label="input scale plan")
+    require_schema_version(payload, 2, "input_scale_plan.json")
+    return payload
+
+
 def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> dict:
     """读取当前静态元数据；旧 CSV 和内嵌采集历史均不能自动转换。"""
     from acprof.config import STATIC_META_SCHEMA_VERSION

@@ -387,11 +387,8 @@ class ClientRunner:
 
     def _load_input_scale_entries(self) -> List[Dict[str, Any]]:
         if self.config.input_scale_plan_file:
-            with open(self.config.input_scale_plan_file, "r", encoding="utf-8") as f:
-                plan = json.load(f)
-
-            from acprof.artifacts import require_schema_version
-            require_schema_version(plan, 2, "input_scale_plan.json")
+            from acprof.artifacts import read_input_scale_plan
+            plan = read_input_scale_plan(self.config.input_scale_plan_file)
 
             entries = plan.get("entries")
             if not isinstance(entries, list) or not entries:

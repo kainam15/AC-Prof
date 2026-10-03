@@ -109,6 +109,20 @@ class TestEffectiveEnergyWarning:
                     with pytest.raises(ValueError, match="frozen matrix input-scale"):
                         self.runner._load_input_scale_entries()
 
+    @pytest.mark.parametrize('invalid_value, expected', [('NaN', 'non-finite'), ('1e999', 'non-finite')])
+    def test_input_plan_rejects_nonfinite_numbers_before_measurement(self, invalid_value, expected):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "input_scale_plan.json")
+            path.write_text(
+                '{"schema_version":2,"entries":[{"input_scale":' + invalid_value
+                + ',"payload":{"text":"unchanged"}}]}'
+            )
+            original = path.read_bytes()
+            with patch_client(self.runner, "INPUT_SCALE_PLAN_FILE", str(path)):
+                with pytest.raises(ValueError, match=expected):
+                    self.runner._load_input_scale_entries()
+            assert (path.read_bytes()) == (original)
+
     @pytest.mark.parametrize('dram_case', range(3))
     def test_full_client_dram_policy_and_separate_window_request_units(self, dram_case):
         (policy, available) = ((('auto', False), ('required', False), ('required', True)))[dram_case]

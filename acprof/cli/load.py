@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import start_container_session, stop_container_session
@@ -71,6 +71,32 @@ def validate_packets(path, result):
             "per_request_wire_bytes": "unavailable_on_shared_streams"}
 
 
+def _read_source_input_entry(
+    plan_path: Path, expected_sha256: str | None, requested_scale: float | None,
+) -> dict[str, Any]:
+    if not expected_sha256 or file_sha256(plan_path) != expected_sha256:
+        raise ValueError("source input plan identity mismatch")
+    entries = read_input_scale_plan(plan_path).get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"invalid input scale plan file: {plan_path}")
+    entry = entries[0] if requested_scale is None else next(
+        (
+            item for item in entries
+            if isinstance(item, dict)
+            and item.get("input_scale") is not None
+            and float(item["input_scale"]) == requested_scale
+        ),
+        None,
+    )
+    if entry is None:
+        raise ValueError("input scale must be present in the source experiment")
+    if (not isinstance(entry, dict) or entry.get("input_scale") is None
+            or not isinstance(entry.get("payload"), dict)):
+        raise ValueError(f"invalid input scale plan entry: {entry!r}")
+    float(entry["input_scale"])
+    return entry
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="已完成的正式实验目录")
@@ -109,13 +135,7 @@ def main(argv=None):
             raise ValueError("load resources must be present in the source experiment")
         plan_path = ArtifactLayout.discover(args.source).path("input_scale_plan.json")
         expected = state["artifacts"].get(str(plan_path.relative_to(args.source)))
-        if not expected or file_sha256(plan_path) != expected:
-            raise ValueError("source input plan identity mismatch")
-        entries = json.loads(plan_path.read_text())["entries"]
-        entry = entries[0] if args.input_scale is None else next(
-            (item for item in entries if float(item["input_scale"]) == args.input_scale), None)
-        if entry is None:
-            raise ValueError("input scale must be present in the source experiment")
+        entry = _read_source_input_entry(plan_path, expected, args.input_scale)
         task, image = TaskInfo(**state["runtime"]["task"]), ImageInfo(**state["runtime"]["image"])
         output = args.output_dir.resolve()
         output.mkdir(parents=True, exist_ok=True)

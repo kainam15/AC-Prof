@@ -62,6 +62,19 @@ class TestRuntimeValidation:
         ), planned=SimpleNamespace(plan_file=str(plan)), cpu_list=[1, 4], mem_list=[2, 8],
                     gpu_list=['off', 'on'], output_dir=str(root), timeout_seconds=30)
 
+    def test_input_plan_is_bounded_before_runtime_start(self, tmp_path):
+        options = self.fixture(tmp_path)
+        Path(options['planned'].plan_file).write_text(json.dumps({
+            'schema_version': 2,
+            'entries': [{'input_scale': 1, 'payload': {'text': 'small'}}],
+            'padding': 'x' * (4 * 1024 * 1024),
+        }))
+        with patch(
+            'acprof.host.runtime_validation.run_command',
+            side_effect=AssertionError('runtime must not start'),
+        ), pytest.raises(ValueError, match='4 MiB'):
+            validate_runtime(**options)
+
     def test_both_devices_use_smallest_planned_payload_and_separate_containers(self):
         commands = []
 

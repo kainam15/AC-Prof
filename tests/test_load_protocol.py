@@ -1,9 +1,12 @@
 """Real local HTTP verifies concurrency, persistence and failed-response accounting."""
+import hashlib
 import json
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -47,6 +50,48 @@ def server(*, fail=False, close=False):
         httpd.shutdown()
         httpd.server_close()
         thread.join()
+
+
+def test_source_input_plan_preserves_identity_schema_and_exact_payload():
+    from acprof.cli.load import _read_source_input_entry
+
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "input_scale_plan.json"
+        payload = {"text": "unchanged", "params": {"seed": 7}}
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [
+                {"input_scale": 1, "payload": {"text": "first"}},
+                {"input_scale": 2, "payload": payload},
+            ],
+        }))
+        original = path.read_bytes()
+        expected = hashlib.sha256(original).hexdigest()
+        assert (_read_source_input_entry(path, expected, 2)["payload"]) == (payload)
+        assert (path.read_bytes()) == (original)
+        with pytest.raises(ValueError, match="identity mismatch"):
+            _read_source_input_entry(path, "0" * 64, 2)
+        path.write_text(json.dumps({"schema_version": 1, "entries": []}))
+        old_schema_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        with pytest.raises(ValueError, match="schema_version"):
+            _read_source_input_entry(path, old_schema_hash, None)
+
+
+def test_source_input_plan_is_bounded_after_identity_verification():
+    from acprof.cli.load import _read_source_input_entry
+
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [{"input_scale": 1, "payload": {"text": "unchanged"}}],
+            "padding": "x" * (4 * 1024 * 1024),
+        }))
+        original = path.read_bytes()
+        expected = hashlib.sha256(original).hexdigest()
+        with pytest.raises(ValueError, match="4 MiB"):
+            _read_source_input_entry(path, expected, None)
+        assert (path.read_bytes()) == (original)
 
 
 class TestLoadProtocol:

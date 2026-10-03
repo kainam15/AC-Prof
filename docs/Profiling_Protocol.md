@@ -349,7 +349,7 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 | `metadata/model_resolution.json` | 运行准备阶段写入的解析报告，包含候选、字段来源、语义和独立运行验证引用；失败 draft 也可独立导出。与可执行 `acprof_model.json` 分离，静态裁决不是推理／测量成功证据。 |
 | `metadata/auto_report.json` | `acprof auto` 的预检与收尾报告，保存请求／实际采集模式及静态决策身份；验证与实际采集结果独立引用，不作为 CSV 的替代证据。 |
 | `metadata/collection_history.json` | schema v1 的采集/修复 provenance。分别记录 post-hoc profiler 补采、timeout retry、quality retry 和静态元数据回填历史；最新一次状态由对应 history 的最后一项得到。 |
-| `metadata/input_scale_plan.json` | 所有任务族共用的 input scale/payload 计划。schema v2 额外记录 workload provenance、per-scale 输入元数据和模型约束；读取端要求 schema v2，拒绝缺少版本或 v1 计划。主采集和 compute profiler 复用同一份 payload。 |
+| `metadata/input_scale_plan.json` | 所有任务族共用的 input scale/payload 计划。schema v2 额外记录 workload provenance、per-scale 输入元数据和模型约束；读取端要求 schema v2、UTF-8 的有限数值 JSON object，大小不超过 4 MiB，拒绝缺少版本或 v1 计划。主采集、独立 load、runtime validation 和 profiler 在启动容器或进入测量窗口前复用并校验同一份 payload。 |
 | `metadata/startup_oom_pruning.json` | 独立 startup probe 证据 schema v2；记录最低 CPU、逐次启动结果、Docker State、错误、时间与连续 confirmed OOM 前缀，不含性能测量。 |
 | `metadata/matrix_plan.json` | probe 完成后冻结的正式计划 schema v1；含实际资源与 input scale 执行顺序、算法版本、seed、剪枝来源与内容 hash。resume 原样复用。 |
 | `metadata/compute_profile_plan.json` | per-scale FLOP profiling 结果。每个 CPU/GPU scale 可同时记录独立的 `torch_profiler_eager` 与 `ncu` profile；NCU 只存在于 GPU profile。失败信息按工具保存，只读取当前按 profiler 分层的 plan 结构。 |

@@ -46,13 +46,12 @@ def validate_runtime(
         raise ValueError("镜像缺少 runtime_environment；请使用当前版本重新构建运行环境")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_info.tag):
         raise ValueError("runtime validation requires an immutable image ID")
-    from acprof.artifacts import atomic_write_json, require_schema_version
+    from acprof.artifacts import atomic_write_json, read_input_scale_plan
     from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
     from acprof.host.model_store import mount_args
 
-    plan = json.loads(Path(planned.plan_file).read_text())
-    require_schema_version(plan, 2, "input_scale_plan.json")
+    plan = read_input_scale_plan(planned.plan_file)
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     encoded = json.dumps(entry["payload"], ensure_ascii=False).encode()
     from acprof.platform import detect_environment

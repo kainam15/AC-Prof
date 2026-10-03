@@ -6,7 +6,7 @@ import os
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Sequence
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, read_input_scale_plan
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
@@ -48,15 +48,7 @@ def load_input_scale_plan_entries(
             f"input scale plan not found: {input_scale_plan_file}"
         )
 
-    with open(input_scale_plan_file, "r", encoding="utf-8") as f:
-        plan = json.load(f)
-    if not isinstance(plan, dict):
-        raise ValueError(
-            f"invalid input scale plan (expected object): {input_scale_plan_file}"
-        )
-
-    from acprof.artifacts import require_schema_version
-    require_schema_version(plan, 2, "input_scale_plan.json")
+    plan = read_input_scale_plan(input_scale_plan_file)
     raw_entries = plan.get("entries")
     if not isinstance(raw_entries, list) or not raw_entries:
         raise ValueError(

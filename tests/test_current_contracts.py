@@ -98,6 +98,19 @@ def test_old_input_plan_is_rejected_and_current_payload_is_preserved(version):
         path.write_text(json.dumps({"schema_version": 2, "entries": [entry]}))
         assert (load_input_scale_plan_entries(str(path))[0]["payload"]) == (entry["payload"])
 
+def test_profiler_input_plan_read_is_bounded_without_rewriting_source():
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [{"input_scale": 1, "payload": {"text": "exact input"}}],
+            "padding": "x" * (4 * 1024 * 1024),
+        }))
+        original = path.read_bytes()
+        with pytest.raises(ValueError, match="4 MiB"):
+            load_input_scale_plan_entries(str(path))
+        assert (path.read_bytes()) == (original)
+
 def test_unlocked_runtime_is_rejected_before_building():
     with pytest.raises(ValueError, match="锁|lock"):
         runtime_fingerprint(RuntimeProfile("unlocked", "nlp"))
