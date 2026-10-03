@@ -514,7 +514,9 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 不安装推理依赖，也不需要 Docker/GPU。检查内容及 hook 版本与本地一致。
 
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
-每个版本将完整测试集按排序后的 test ID 轮转分成四片，保留 20 分钟作业超时。
+每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
+工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
+修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
 所有分片都执行完整 discovery，新增测试会自动分配；不使用手写文件白名单。
 指标文档的编码与同步检查在独立的命名步骤中先于测试分片执行；失败时可直接定位到
 `render_metric_reference.py --check`，不会混入 CLI 帮助步骤。
@@ -568,10 +570,10 @@ CSV/TUI/audit/report 统一原因、质量与能力独立、selected artifact �
 `test_metric_reference.py` 在关闭 UTF-8 mode、启用 `EncodingWarning` 错误的独立进程中
 验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
 工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。
-本地可用 `--shard-index 0 --shard-count 4` 重现一个 CI 分片；省略参数执行完整测试集。
+本地可用 `--shard-index 0 --shard-count 8` 重现一个 CI 分片；省略参数执行完整测试集。
 runner 在进程内为测量锁注入独立临时目录，分片测试互不争用生产锁；生产入口仍固定使用
 `/tmp` 的同用户锁，设置 `TMPDIR` 不能绕过它。直接调用 unittest/pytest 不经过此注入。
-本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --report <新报告.json>`；
+本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --shard-count 8 --report <新报告.json>`；
 单版本验证用 `--python-versions 3.12`。缺分片、失败、计数／摘要不符或测试归属错误均使汇总失败。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
 `host-summary` job 自动下载两个 Python 版本的全部分片到各自目录；
@@ -581,9 +583,9 @@ runner 在进程内为测量锁注入独立临时目录，分片测试互不争�
 ### Host coverage baseline
 
 `requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.10+。
-CI 仅在 Python 3.12 的四个 host shard 使用 branch coverage；Python 3.10 继续原 unittest runner。
+CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 继续原 unittest runner。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
-再确认四个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
+再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
 第一阶段只记录覆盖情况，不设全仓百分比 gate、不迁移到 pytest，也不排除错误与清理路径来提高数字。
@@ -593,13 +595,13 @@ CI 仅在 Python 3.12 的四个 host shard 使用 branch coverage；Python 3.10 
 ```bash
 # 使用装有 host/dev lock 的 Python 3.12 环境，每个 index 执行一次。
 python -m coverage erase
-for shard in 0 1 2 3; do
+for shard in 0 1 2 3 4 5 6 7; do
   python -m coverage run --branch --parallel-mode scripts/run_tests.py \
-    --shard-index "$shard" --shard-count 4 \
+    --shard-index "$shard" --shard-count 8 \
     --report "internal-testing/coverage/host-3.12-$shard/host.json" || exit 1
 done
 python scripts/aggregate_test_reports.py internal-testing/coverage \
-  --python-versions 3.12 --report internal-testing/coverage/host-summary.json
+  --python-versions 3.12 --shard-count 8 --report internal-testing/coverage/host-summary.json
 python -m coverage combine --keep
 python -m coverage xml
 python -m coverage json
