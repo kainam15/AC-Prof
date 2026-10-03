@@ -59,6 +59,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements/host.lock
       - run: python -m pip install --require-hashes -r requirements/host.lock
+      - run: python -m pip install --no-deps -e .
       - name: 安装 coverage 开发锁（仅 Python 3.12）
         if: matrix.python == '3.12'
         run: python -m pip install --require-hashes -r requirements/dev.lock
@@ -81,13 +82,15 @@ jobs:
           COVERAGE_FILE: evidence/coverage/.coverage
       - name: 检查 CLI 帮助与源码编译
         run: |
-          python run.py --help
-          python probe.py --help
-          python profile.py --help
-          python plot.py --help
-          python audit.py --help
-          python stats.py --help
-          python -m compileall -q acprof scripts run.py probe.py profile.py plot.py audit.py stats.py tui.py
+          acprof --help
+          acprof run --help
+          acprof probe --help
+          acprof profile --help
+          acprof plot --help
+          acprof audit --help
+          acprof stats --help
+          acprof tui --help
+          python -m compileall -q acprof scripts packaging
           git diff --check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -161,17 +164,24 @@ jobs:
       - name: 构建并隔离安装当前提交的 wheel
         run: |
           uv build --wheel --out-dir "$RUNNER_TEMP/wheel-dist"
+          uv build --sdist --out-dir "$RUNNER_TEMP/sdist-dist"
+          uv build "$RUNNER_TEMP"/sdist-dist/*.tar.gz --wheel --out-dir "$RUNNER_TEMP/sdist-wheel-dist"
           uv venv "$RUNNER_TEMP/acprof-wheel" --python 3.12
           uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --require-hashes -r requirements/host.lock
           uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --no-deps "$RUNNER_TEMP"/wheel-dist/*.whl
           uv pip check --python "$RUNNER_TEMP/acprof-wheel/bin/python"
+          uv venv "$RUNNER_TEMP/acprof-sdist-wheel" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" --require-hashes -r requirements/host.lock
+          uv pip install --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" --no-deps "$RUNNER_TEMP"/sdist-wheel-dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python"
       - name: 从空目录验证安装包、公共入口、报告资源与子进程
         shell: bash
         run: |
           mkdir -p evidence
           cp scripts/check_distribution.py "$RUNNER_TEMP/check_distribution.py"
           cd "$(mktemp -d)"
-          env -u PYTHONPATH "$RUNNER_TEMP/acprof-wheel/bin/python" -I "$RUNNER_TEMP/check_distribution.py" --report "$GITHUB_WORKSPACE/evidence/wheel.json" 2>&1 | tee "$GITHUB_WORKSPACE/evidence/wheel.log"
+          env -u PYTHONPATH "$RUNNER_TEMP/acprof-wheel/bin/python" -I "$RUNNER_TEMP/check_distribution.py" --wheel "$RUNNER_TEMP"/wheel-dist/*.whl --sdist "$RUNNER_TEMP"/sdist-dist/*.tar.gz --report "$GITHUB_WORKSPACE/evidence/wheel.json" 2>&1 | tee "$GITHUB_WORKSPACE/evidence/wheel.log"
+          env -u PYTHONPATH "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" -I "$RUNNER_TEMP/check_distribution.py" --wheel "$RUNNER_TEMP"/sdist-wheel-dist/*.whl --report "$GITHUB_WORKSPACE/evidence/sdist-wheel.json" 2>&1 | tee "$GITHUB_WORKSPACE/evidence/sdist-wheel.log"
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

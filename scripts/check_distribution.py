@@ -5,19 +5,43 @@ import argparse
 import csv
 import json
 import os
+import re
 import subprocess
 import sys
+import sysconfig
+import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, help="默认使用当前 Python 的已安装 acprof")
+    parser.add_argument("--wheel", type=Path, help="检查 wheel 的资源、许可及排除规则")
+    parser.add_argument("--sdist", type=Path, help="检查 sdist 的构建 hook 与根目录约束")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
-    prefix = [str(args.binary.resolve())] if args.binary else [sys.executable, "-m", "acprof"]
+    executable = args.binary.resolve() if args.binary else Path(sysconfig.get_path("scripts")) / (
+        "acprof.exe" if os.name == "nt" else "acprof")
+    prefix = [str(executable)]
     evidence = []
+    if args.wheel:
+        with zipfile.ZipFile(args.wheel) as archive:
+            names = set(archive.namelist())
+        bundle = "acprof/_bundle/"
+        for directory in ("acprof", "dockerfiles", "assets", "examples"):
+            assert any(name.startswith(f"{bundle}{directory}/") for name in names), directory
+        assert {bundle + name for name in ("LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt", ".dockerignore")} <= names
+        assert not any("AGENTS.md" in Path(name).parts or "__pycache__" in Path(name).parts
+                       or Path(name).parts.count("_bundle") > 1 for name in names)
+        evidence.append({"check": "wheel_contents", "path": str(args.wheel), "files": len(names)})
+    if args.sdist:
+        with tarfile.open(args.sdist) as archive:
+            names = {Path(*Path(member.name).parts[1:]) for member in archive.getmembers() if member.isfile()}
+        assert Path("packaging/hatch_build.py") in names
+        assert not any(len(name.parts) == 1 and (name.suffix == ".py" or name.name == "acprof-tui") for name in names)
+        evidence.append({"check": "sdist_contents", "path": str(args.sdist), "files": len(names)})
     with tempfile.TemporaryDirectory(prefix="acprof-install-check-") as temporary:
         workspace = Path(temporary)
         environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
@@ -41,13 +65,35 @@ def main(argv=None) -> int:
             assert Path(installed["path"]).resolve().is_relative_to(Path(installed["prefix"]).resolve()), installed
             evidence.append({"check": "installed_package_origin", "path": installed["path"]})
             commands = installed["commands"]
+            # Exercise the same staging used by runtime_images, from installed resources.
+            context = subprocess.run([sys.executable, "-I", "-c", """
+import json
+from pathlib import Path
+from acprof.installation import resource_root
+from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
+root = resource_root()
+assert root.name == '_bundle', root
+destination = Path('docker-context')
+stage_service_context(root, destination)
+files = service_context_files(destination)
+assert (destination / 'acprof/container/server.py').is_file()
+assert (destination / 'dockerfiles/runtime-final.Dockerfile').is_file()
+assert (destination / 'LICENSE').is_file() and (destination / 'NOTICE').is_file()
+expected = source_fingerprint(root, service_context_files(root), scope='service-context-v1')
+assert source_fingerprint(destination, files, scope='service-context-v1') == expected
+print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expected}))
+"""], cwd=workspace, env=environment, text=True, capture_output=True, timeout=30, check=True)
+            evidence.append({"check": "installed_docker_context", **json.loads(context.stdout)})
         else:
             commands = ("run", "probe", "plot", "tui", "doctor", "profile", "audit", "stats", "inspect", "auto",
                         "coverage", "report", "compare", "load", "model-store")
         run(["--version"])
-        run(["--help"])
+        top_help = run(["--help"])
+        assert "usage: acprof" in top_help.stdout
         for command in commands:
-            run([command, "--help"])
+            help_result = run([command, "--help"])
+            assert f"usage: acprof {command}" in help_result.stdout, help_result.stdout
+            assert not re.search(r"\b(?:run|probe|profile|plot|audit|stats|tui)\.py\b", help_result.stdout)
         run(["invalid-command"], accepted=(2,))
         # Simulate a machine without Docker; JSON must still include valid bundled resources.
         doctor = run(["doctor", "--profiling-mode", "basic", "--json"], accepted=(1,),
@@ -55,7 +101,7 @@ def main(argv=None) -> int:
         report = json.loads(doctor.stdout)
         assert not report["ready"] and report["scope"] == "prerequisites_only", report
         assert next(item for item in report["checks"] if item["name"] == "resources")["status"] == "available", report
-        assert all(path.name == "config" for path in workspace.iterdir()), "Help/doctor created result files"
+        assert all(path.name in {"config", "docker-context"} for path in workspace.iterdir()), "Help/doctor created result files"
 
         visualization_source = workspace / "visualization.csv"
         visualization_source.write_text(

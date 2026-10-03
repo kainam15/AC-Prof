@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'requirements/**', 'pyproject.toml', 'hatch_build.py', 'packaging/**', 'scripts/check_distribution.py', '.github/workflows/release.yml', '.github/workflows/ci.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'requirements/**', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:
