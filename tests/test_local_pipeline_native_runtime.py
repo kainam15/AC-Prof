@@ -6,23 +6,27 @@ The override exists only in test subprocesses, never in the production loader.
 """
 import os
 
+import pytest
 import test_custom_multimodal_runtime as fixtures
 
 from acprof.model_resolution import transformers_capabilities
 
+pytestmark = pytest.mark.runtime
 
-class NativeLocalPipelineRuntimeTests(fixtures.LocalPipelineDependencyRuntimeTests):
-    def setUp(self):
+
+class TestNativeLocalPipelineRuntime(fixtures.TestLocalPipelineDependencyRuntime):
+    @pytest.fixture(autouse=True)
+    def _native_capabilities(self):
         import transformers
 
         candidate = os.environ.get("ACPROF_TEST_NATIVE_TRANSFORMERS")
         if candidate:
-            self.assertEqual(transformers.__version__, candidate, "install the exact candidate before acceptance")
+            assert (transformers.__version__) == (candidate), "install the exact candidate before acceptance"
         else:
             capabilities = transformers_capabilities(transformers.__version__)
             if not all(capabilities.values()):
-                self.skipTest("runtime requires compat; select an exact native candidate for acceptance")
+                pytest.skip("runtime requires compat; select an exact native candidate for acceptance")
 
     @staticmethod
     def probe(root, cache, *, native: bool = True):
-        return fixtures.LocalPipelineDependencyRuntimeTests.probe(root, cache, native=native)
+        return fixtures.TestLocalPipelineDependencyRuntime.probe(root, cache, native=native)

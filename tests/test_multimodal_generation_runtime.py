@@ -3,33 +3,35 @@
 The ordinary host suite skips these without Torch/Transformers. No Hub access
 or pretrained weights are required, and all models execute on a single CPU thread.
 """
-
 import base64
 import importlib.util
 import io
-import unittest
 import wave
+from functools import partial
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from acprof.container.handlers.multimodal import MultimodalHandler
 
 _RUNTIME_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('torch', 'transformers', 'tokenizers'))
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(_RUNTIME_AVAILABLE, 'requires the Transformers multimodal container')
-class MultimodalGenerationRuntimeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+@pytest.mark.skipif(not (_RUNTIME_AVAILABLE), reason='requires the Transformers multimodal container')
+class TestMultimodalGenerationRuntime:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request):
         import torch
         threads = torch.get_num_threads()
         torch.set_num_threads(1)
-        cls.addClassCleanup(torch.set_num_threads, threads)
-
-    def setUp(self):
+        request.addfinalizer(partial(torch.set_num_threads, threads))
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         import torch
-        self.addCleanup(torch.set_rng_state, torch.get_rng_state().clone())
+        self._request.addfinalizer(partial(torch.set_rng_state, torch.get_rng_state().clone()))
 
     def tokenizer(self, omni=False):
         from tokenizers import Tokenizer, models, pre_tokenizers
@@ -67,7 +69,8 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
             wav.writeframes(np.zeros(16000, dtype='<i2').tobytes())
         return base64.b64encode(out.getvalue()).decode()
 
-    def test_tiny_qwen2_vl_generates_from_image_and_video(self):
+    @pytest.mark.parametrize('task_case', range(2), ids=["('image-text-to-text', {'image_base64': image()}, 'resolution_px', 28)", "('video-text-to-text', {'video_frames_base64': [image(), image()], 'fps': 2}, 'f"])
+    def test_tiny_qwen2_vl_generates_from_image_and_video(self, task_case):
         import torch
         from transformers import (
             Qwen2VLConfig,
@@ -89,19 +92,15 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
             tokenizer=self.tokenizer(), chat_template=self.template(),
         )
         handler = MultimodalHandler()
-        for task, sample, scale_type, scale in (
-            ('image-text-to-text', {'image_base64': self.image()}, 'resolution_px', 28),
-            ('video-text-to-text', {'video_frames_base64': [self.image(), self.image()], 'fps': 2}, 'frame_count', 2),
-        ):
-            with self.subTest(task=task):
-                ctx = {'model': model, 'processor': processor, 'mode': 'generate', 'model_type': 'qwen2_vl', 'task_type': task, 'device': 'cpu'}
-                payload = {'samples': [{'text': 'Describe media.', **sample}], 'params': {'max_new_tokens': 2}, 'input_scale_type': scale_type, 'input_scale': scale}
-                processed = handler.preprocess(ctx, payload)
-                self.assertEqual(processed['_effective_input_scale'], scale)
-                first = handler.postprocess(ctx, handler.predict(ctx, processed))
-                second = handler.postprocess(ctx, handler.predict(ctx, processed))
-                self.assertEqual(first, second)
-                self.assertEqual(first['output_type'], 'text')
+        (task, sample, scale_type, scale) = tuple((('image-text-to-text', {'image_base64': self.image()}, 'resolution_px', 28), ('video-text-to-text', {'video_frames_base64': [self.image(), self.image()], 'fps': 2}, 'frame_count', 2)))[task_case]
+        ctx = {'model': model, 'processor': processor, 'mode': 'generate', 'model_type': 'qwen2_vl', 'task_type': task, 'device': 'cpu'}
+        payload = {'samples': [{'text': 'Describe media.', **sample}], 'params': {'max_new_tokens': 2}, 'input_scale_type': scale_type, 'input_scale': scale}
+        processed = handler.preprocess(ctx, payload)
+        assert (processed['_effective_input_scale']) == (scale)
+        first = handler.postprocess(ctx, handler.predict(ctx, processed))
+        second = handler.postprocess(ctx, handler.predict(ctx, processed))
+        assert (first) == (second)
+        assert (first['output_type']) == ('text')
 
     def test_tiny_qwen2_audio_generates_from_audio_and_text(self):
         import torch
@@ -123,12 +122,12 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
         payload = {'samples': [{'text': 'Describe media.', 'audio_base64': self.audio(), 'sampling_rate': 16000}], 'params': {'max_new_tokens': 2}, 'input_scale_type': 'duration_s', 'input_scale': 1}
         handler = MultimodalHandler()
         processed = handler.preprocess(ctx, payload)
-        self.assertEqual(processed['_effective_input_scale'], 1)
-        self.assertIn('input_features', processed['inputs'])
+        assert (processed['_effective_input_scale']) == (1)
+        assert ('input_features') in (processed['inputs'])
         first = handler.postprocess(ctx, handler.predict(ctx, processed))
         second = handler.postprocess(ctx, handler.predict(ctx, processed))
-        self.assertEqual(first, second)
-        self.assertEqual(first['output_type'], 'text')
+        assert (first) == (second)
+        assert (first['output_type']) == ('text')
 
     def test_omni_seed_repeats_audio_and_restores_external_rng(self):
         import torch
@@ -145,11 +144,11 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
         first = handler.predict(ctx, processed)['generated'][1]
         after = torch.get_rng_state().clone()
         second = handler.predict(ctx, processed)['generated'][1]
-        self.assertTrue(torch.equal(before, after))
-        self.assertTrue(torch.equal(first, second))
+        assert (torch.equal(before, after))
+        assert (torch.equal(first, second))
         processed['params']['seed'] = 99
         different = handler.predict(ctx, processed)['generated'][1]
-        self.assertFalse(torch.equal(first, different))
+        assert not (torch.equal(first, different))
 
     def test_real_omni_processor_retains_audio_image_and_video(self):
         from types import SimpleNamespace
@@ -170,9 +169,5 @@ class MultimodalGenerationRuntimeTests(unittest.TestCase):
         ctx = {'model': model, 'processor': processor, 'mode': 'omni', 'model_type': 'qwen2_5_omni', 'task_type': 'any-to-any', 'device': 'cpu'}
         payload = {'samples': [{'text': 'Describe media.', 'image_base64': self.image(), 'video_frames_base64': [self.image(), self.image()], 'fps': 2, 'audio_base64': self.audio(), 'sampling_rate': 16000}], 'params': {'return_audio': True}, 'input_scale_type': 'duration_s', 'input_scale': 1}
         processed = MultimodalHandler().preprocess(ctx, payload)
-        self.assertTrue({'input_features', 'pixel_values', 'pixel_values_videos'} <= set(processed['inputs']))
-        self.assertEqual(processed['_effective_input_scale'], 1)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        assert ({'input_features', 'pixel_values', 'pixel_values_videos'} <= set(processed['inputs']))
+        assert (processed['_effective_input_scale']) == (1)

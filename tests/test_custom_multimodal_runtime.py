@@ -5,10 +5,10 @@ import os
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from test_custom_multimodal import pipeline_spec
 from test_multimodal_handler import audio_payload, image_payload
 
@@ -63,11 +63,11 @@ class AudioPipeline(Pipeline):
         label = int(outputs["scores"].argmax())
         return f"answer {label} samples {outputs['samples']} limit {outputs['limit']}"
 '''
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "transformers")),
-                     "requires the custom multimodal container")
-class CustomMultimodalRuntimeTests(unittest.TestCase):
+@pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in ("torch", "transformers"))), reason="requires the custom multimodal container")
+class TestCustomMultimodalRuntime:
     @staticmethod
     def snapshot(root: Path):
         import torch
@@ -110,11 +110,12 @@ class CustomMultimodalRuntimeTests(unittest.TestCase):
             with patch.dict(os.environ, environment):
                 result = validate({"samples": [{"text": "What is said?", "audio_base64": audio_payload(),
                                                "sampling_rate": 16000}], "params": {"max_new_tokens": 1}})
-            self.assertEqual(result["status"], "ok")
-            self.assertEqual(result["validation"]["task"]["status"], "verified")
-            self.assertIn("limit 1", result["response"]["texts"][0])
+            assert (result["status"]) == ("ok")
+            assert (result["validation"]["task"]["status"]) == ("verified")
+            assert ("limit 1") in (result["response"]["texts"][0])
 
-    def test_modalities_match_official_pipeline_and_runtime_validation(self):
+    @pytest.mark.parametrize('task', ('audio-text-to-text', 'image-text-to-text', 'video-text-to-text'))
+    def test_modalities_match_official_pipeline_and_runtime_validation(self, task):
         import numpy as np
         import torch
         from PIL import Image
@@ -125,66 +126,65 @@ class CustomMultimodalRuntimeTests(unittest.TestCase):
 
         device = os.getenv("ACPROF_TEST_DEVICE", "cpu")
         if device == "cuda" and not torch.cuda.is_available():
-            self.fail("CUDA runtime verification requested but unavailable")
-        for task in ("audio-text-to-text", "image-text-to-text", "video-text-to-text"):
-            with self.subTest(task=task), tempfile.TemporaryDirectory(prefix="acprof_custom_") as directory:
-                root = Path(directory)
-                self.snapshot(root)
-                spec = pipeline_spec()
-                spec.pop("dependencies")
-                spec["task"] = task
-                sample = {"text": "What is said?"}
+            pytest.fail("CUDA runtime verification requested but unavailable")
+        with tempfile.TemporaryDirectory(prefix="acprof_custom_") as directory:
+            root = Path(directory)
+            self.snapshot(root)
+            spec = pipeline_spec()
+            spec.pop("dependencies")
+            spec["task"] = task
+            sample = {"text": "What is said?"}
+            if task == "audio-text-to-text":
+                sample.update(audio_base64=audio_payload(), sampling_rate=16000)
+            elif task == "image-text-to-text":
+                sample["image_base64"] = image_payload()
+                spec["multimodal"]["inputs"] = {"picture": "image", "question": "text"}
+            else:
+                sample.update(video_frames_base64=[image_payload(), image_payload()], fps=2.0)
+                spec["multimodal"]["inputs"] = {"frames": "video", "fps": "fps", "question": "text"}
+            payload = {"samples": [sample], "params": {"max_new_tokens": 4}}
+            environment = {"ACPROF_MODEL_SPEC_B64": encode_model_spec(spec), "MODEL_LOCAL_PATH": directory,
+                           "MODEL_ID": "fixture/unseen", "MODEL_REVISION": "a" * 40,
+                           "TASK_TYPE": task, "TASK_FAMILY": "multimodal", "RUNTIME_BACKEND": "transformers_pipeline",
+                           "USE_GPU": "1" if device == "cuda" else "0", "TORCH_NUM_THREADS": "1",
+                           "ACPROF_MODEL_ADAPTER": "family-default", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+            with patch.dict(os.environ, environment):
+                handler = MultimodalHandler()
+                context = handler.load(directory, task, "transformers_pipeline", device)
+                assert (type(context["pipeline"].model).__name__) == ("AudioModel")
+                processed = handler.preprocess(context, payload)
+                assert (context["pipeline"].events) == (["preprocess"])
+                first = handler.postprocess(context, handler.predict(context, processed))
+                second = handler.postprocess(context, handler.predict(context, processed))
+                assert (first) == (second)
+                assert (context["pipeline"].events) == (["preprocess", "predict", "postprocess", "predict", "postprocess"])
+                assert ("limit 4") in (first["texts"][0])
+                direct_payload = {"question": sample["text"]}
                 if task == "audio-text-to-text":
-                    sample.update(audio_base64=audio_payload(), sampling_rate=16000)
+                    direct_payload.update(waveform=np.zeros(160, dtype=np.float32), rate=16000)
                 elif task == "image-text-to-text":
-                    sample["image_base64"] = image_payload()
-                    spec["multimodal"]["inputs"] = {"picture": "image", "question": "text"}
+                    direct_payload["picture"] = Image.new("RGB", (8, 8), "white")
                 else:
-                    sample.update(video_frames_base64=[image_payload(), image_payload()], fps=2.0)
-                    spec["multimodal"]["inputs"] = {"frames": "video", "fps": "fps", "question": "text"}
-                payload = {"samples": [sample], "params": {"max_new_tokens": 4}}
-                environment = {"ACPROF_MODEL_SPEC_B64": encode_model_spec(spec), "MODEL_LOCAL_PATH": directory,
-                               "MODEL_ID": "fixture/unseen", "MODEL_REVISION": "a" * 40,
-                               "TASK_TYPE": task, "TASK_FAMILY": "multimodal", "RUNTIME_BACKEND": "transformers_pipeline",
-                               "USE_GPU": "1" if device == "cuda" else "0", "TORCH_NUM_THREADS": "1",
-                               "ACPROF_MODEL_ADAPTER": "family-default", "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
-                with patch.dict(os.environ, environment):
-                    handler = MultimodalHandler()
-                    context = handler.load(directory, task, "transformers_pipeline", device)
-                    self.assertEqual(type(context["pipeline"].model).__name__, "AudioModel")
-                    processed = handler.preprocess(context, payload)
-                    self.assertEqual(context["pipeline"].events, ["preprocess"])
-                    first = handler.postprocess(context, handler.predict(context, processed))
-                    second = handler.postprocess(context, handler.predict(context, processed))
-                    self.assertEqual(first, second)
-                    self.assertEqual(context["pipeline"].events, ["preprocess", "predict", "postprocess", "predict", "postprocess"])
-                    self.assertIn("limit 4", first["texts"][0])
-                    direct_payload = {"question": sample["text"]}
-                    if task == "audio-text-to-text":
-                        direct_payload.update(waveform=np.zeros(160, dtype=np.float32), rate=16000)
-                    elif task == "image-text-to-text":
-                        direct_payload["picture"] = Image.new("RGB", (8, 8), "white")
-                    else:
-                        direct_payload.update(frames=np.full((2, 8, 8, 3), 255, dtype=np.uint8), fps=2.0)
-                    expected = context["pipeline"](direct_payload, limit=4, temperature=0.0)
-                    self.assertEqual(first["texts"], [expected])
-                    # Real operators remain visible to the existing Torch profiling path.
-                    activities = [torch.profiler.ProfilerActivity.CPU]
-                    if device == "cuda":
-                        activities.append(torch.profiler.ProfilerActivity.CUDA)
-                    with torch.profiler.profile(activities=activities) as profiler:
-                        handler.predict(context, processed)
-                    self.assertTrue(any(event.key.startswith("aten::") for event in profiler.key_averages()))
-                    if device == "cuda":
-                        self.assertTrue(any(event.device_type == torch.autograd.DeviceType.CUDA for event in profiler.events()))
-                    report = validate(payload)
-                    self.assertEqual(report["status"], "ok")
-                    self.assertEqual(report["validation"]["task"]["status"], "verified")
-                    self.assertTrue(all(stage["status"] == "verified" for stage in report["stages"]))
+                    direct_payload.update(frames=np.full((2, 8, 8, 3), 255, dtype=np.uint8), fps=2.0)
+                expected = context["pipeline"](direct_payload, limit=4, temperature=0.0)
+                assert (first["texts"]) == ([expected])
+                # Real operators remain visible to the existing Torch profiling path.
+                activities = [torch.profiler.ProfilerActivity.CPU]
+                if device == "cuda":
+                    activities.append(torch.profiler.ProfilerActivity.CUDA)
+                with torch.profiler.profile(activities=activities) as profiler:
+                    handler.predict(context, processed)
+                assert (any(event.key.startswith("aten::") for event in profiler.key_averages()))
+                if device == "cuda":
+                    assert (any(event.device_type == torch.autograd.DeviceType.CUDA for event in profiler.events()))
+                report = validate(payload)
+                assert (report["status"]) == ("ok")
+                assert (report["validation"]["task"]["status"]) == ("verified")
+                assert (all(stage["status"] == "verified" for stage in report["stages"]))
 
 
-@unittest.skipUnless(importlib.util.find_spec("transformers"), "requires the custom multimodal container")
-class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
+@pytest.mark.skipif(not (importlib.util.find_spec("transformers")), reason="requires the custom multimodal container")
+class TestLocalPipelineDependencyRuntime:
     @staticmethod
     def snapshot(root: Path):
         root.mkdir()
@@ -234,13 +234,13 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             root, cache = Path(directory) / "model-snapshot", Path(directory) / "cache"
             self.snapshot(root)
             result = self.probe(root, cache)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            assert (result.returncode) == (0), result.stderr
             report = json.loads(result.stdout)
-            self.assertEqual(report["status"], "ok")
-            self.assertEqual(report["inference"], "not_run")
-            self.assertEqual(report["preprocess"], "not_run")
-            self.assertEqual({item["stage"] for item in report["stages"]}, {"import", "signature"})
-            self.assertEqual(list(root.glob("__pycache__")), [])
+            assert (report["status"]) == ("ok")
+            assert (report["inference"]) == ("not_run")
+            assert (report["preprocess"]) == ("not_run")
+            assert ({item["stage"] for item in report["stages"]}) == ({"import", "signature"})
+            assert (list(root.glob("__pycache__"))) == ([])
 
     def test_missing_transitive_import_fails_at_snapshot_before_entry_execution(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -251,10 +251,10 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             (root / "entry.py").write_text(
                 f"from pathlib import Path\nPath({str(marker)!r}).touch()\nfrom .bridge import FixturePipeline\n")
             result = self.probe(root, cache)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("FileNotFoundError", result.stderr)
-            self.assertIn(str(root / "leaf.py"), result.stderr)
-            self.assertFalse(marker.exists())
+            assert (result.returncode) != (0)
+            assert ("FileNotFoundError") in (result.stderr)
+            assert (str(root / "leaf.py")) in (result.stderr)
+            assert not (marker.exists())
 
     def test_snapshot_symlinks_keep_relative_names_and_original_contents(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -272,9 +272,9 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             alias = base / "model-snapshot"
             alias.symlink_to(root, target_is_directory=True)
             result = self.probe(alias, cache)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual({path: path.read_bytes() for path in originals}, originals)
-            self.assertTrue(all(path.is_symlink() for path in root.glob("*.py")))
+            assert (result.returncode) == (0), result.stderr
+            assert ({path: path.read_bytes() for path in originals}) == (originals)
+            assert (all(path.is_symlink() for path in root.glob("*.py")))
 
     def test_circular_relative_imports_terminate(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -284,7 +284,7 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             leaf = root / "leaf.py"
             leaf.write_text("from .bridge import READY\nassert READY\n" + leaf.read_text())
             result = self.probe(root, cache)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            assert (result.returncode) == (0), result.stderr
 
     def test_import_exception_is_not_hidden(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -293,9 +293,5 @@ class LocalPipelineDependencyRuntimeTests(unittest.TestCase):
             leaf = root / "leaf.py"
             leaf.write_text("raise RuntimeError('fixture dependency import failed')\n" + leaf.read_text())
             result = self.probe(root, cache)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("RuntimeError: fixture dependency import failed", result.stderr)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (result.returncode) != (0)
+            assert ("RuntimeError: fixture dependency import failed") in (result.stderr)

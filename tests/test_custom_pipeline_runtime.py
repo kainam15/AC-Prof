@@ -3,16 +3,21 @@ import importlib.util
 import json
 import os
 import tempfile
-import unittest
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
-@unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "transformers")),
-                     "requires the NLP container")
-class CustomPipelineRuntimeTests(unittest.TestCase):
-    def setUp(self):
+pytestmark = pytest.mark.runtime
+
+
+@pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in ("torch", "transformers"))), reason="requires the NLP container")
+class TestCustomPipelineRuntime:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         from acprof.runtime_profiles import PROFILES
         base = PROFILES[os.environ.get("ACPROF_RUNTIME_PROFILE", "nlp-cpu")]
         # Only generated test code opts in; production remote-code policy stays strict.
@@ -20,7 +25,7 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
         denied = replace(base, profile_id="fixture-nlp-denied", trust_remote_code=False)
         profiles = patch.dict(PROFILES, {allowed.profile_id: allowed, denied.profile_id: denied})
         profiles.start()
-        self.addCleanup(profiles.stop)
+        self._request.addfinalizer(partial(profiles.stop))
 
     @staticmethod
     def snapshot(root: Path, *, broken=False):
@@ -62,7 +67,7 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
             root = Path(directory)
             encoded = self.snapshot(root)
             environment = {**self.environment(root, encoded), "ACPROF_RUNTIME_PROFILE": "fixture-nlp-denied"}
-            with patch.dict(os.environ, environment), self.assertRaisesRegex(ValueError, "trust_remote_code=True"):
+            with patch.dict(os.environ, environment), pytest.raises(ValueError, match="trust_remote_code=True"):
                 NLPHandler().load(str(root), "text-classification", "transformers_pipeline", "cpu")
 
     def test_custom_pipeline_matches_native_predictions_and_independent_validation(self):
@@ -77,20 +82,20 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
             with patch.dict(os.environ, self.environment(root, encoded)):
                 handler = NLPHandler()
                 context = handler.load(str(root), "text-classification", "transformers_pipeline", "cpu")
-                self.assertEqual(type(context["pipeline"]).__name__, "Classifier")
-                self.assertEqual(context["task_type"], "text-classification")
+                assert (type(context["pipeline"]).__name__) == ("Classifier")
+                assert (context["task_type"]) == ("text-classification")
                 payload = {"text": "hello world", "batch_size": 1, "input_scale": 2}
                 actual = handler.predict(context, handler.preprocess(context, payload))
                 expected = pipeline("text-classification", model=str(root), device="cpu", trust_remote_code=False)("hello world")
-                self.assertEqual(actual[0]["label"], expected[0]["label"])
-                self.assertAlmostEqual(actual[0]["score"], expected[0]["score"], places=6)
+                assert (actual[0]["label"]) == (expected[0]["label"])
+                assert (actual[0]["score"]) == (expected[0]["score"]) or round(abs((actual[0]["score"]) - (expected[0]["score"])), 6) == 0
                 report = validate(payload)
-                self.assertEqual(report["status"], "ok")
-                self.assertEqual(report["validation"]["task"]["status"], "verified")
-                self.assertIn("classification_labels_scores", report["validation"]["task"]["checks"])
-                self.assertEqual(report["model_spec"]["pipeline_task"], "acme-classify")
-                self.assertEqual(report["workload_contract"]["input"]["actual_scale"], 2)
-                self.assertTrue(all(item["status"] == "verified" for item in report["stages"]))
+                assert (report["status"]) == ("ok")
+                assert (report["validation"]["task"]["status"]) == ("verified")
+                assert ("classification_labels_scores") in (report["validation"]["task"]["checks"])
+                assert (report["model_spec"]["pipeline_task"]) == ("acme-classify")
+                assert (report["workload_contract"]["input"]["actual_scale"]) == (2)
+                assert (all(item["status"] == "verified" for item in report["stages"]))
 
     def test_custom_code_failure_keeps_the_prediction_stage_and_cause(self):
         from acprof.container.runtime_validate import validate
@@ -100,10 +105,10 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
             encoded = self.snapshot(root, broken=True)
             with patch.dict(os.environ, self.environment(root, encoded)):
                 stages = []
-                with self.assertRaisesRegex(RuntimeError, "fixture prediction failure"):
+                with pytest.raises(RuntimeError, match="fixture prediction failure"):
                     validate({"text": "hello world", "batch_size": 1, "input_scale": 2}, stages=stages)
-                self.assertEqual(stages[-1]["stage"], "predict")
-                self.assertEqual(stages[-1]["status"], "error")
+                assert (stages[-1]["stage"]) == ("predict")
+                assert (stages[-1]["status"]) == ("error")
 
     def test_custom_auto_map_loads_unknown_architecture_from_local_snapshot(self):
         from acprof.container.handlers.nlp import NLPHandler
@@ -125,12 +130,8 @@ class CustomPipelineRuntimeTests(unittest.TestCase):
                 "class CustomClassifier(BertForSequenceClassification):\n    config_class = CustomConfig\n")
             with patch.dict(os.environ, self.environment(root, "")):
                 context = NLPHandler().load(str(root), "text-classification", "transformers_pipeline", "cpu")
-                self.assertEqual(type(context["pipeline"].model).__name__, "CustomClassifier")
+                assert (type(context["pipeline"].model).__name__) == ("CustomClassifier")
                 report = validate({"text": "hello world", "batch_size": 1, "input_scale": 2})
-                self.assertEqual(report["status"], "ok")
-                self.assertEqual(report["validation"]["task"]["status"], "verified")
-                self.assertEqual(report["workload_contract"]["input"]["actual_scale"], 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                assert (report["status"]) == ("ok")
+                assert (report["validation"]["task"]["status"]) == ("verified")
+                assert (report["workload_contract"]["input"]["actual_scale"]) == (2)

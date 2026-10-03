@@ -5,20 +5,24 @@ import os
 import runpy
 import string
 import sys
-import tempfile
-import unittest
 from contextlib import ExitStack
+from functools import partial
 from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 
-@unittest.skipUnless(all(importlib.util.find_spec(name) for name in
-                        ('onnx', 'onnxruntime', 'tokenizers', 'flask', 'httpx')),
-                     'requires the no-Torch ONNX Runtime CPU container')
-class ONNXWordPiecePlanningTests(unittest.TestCase):
-    def setUp(self):
+pytestmark = pytest.mark.runtime
+
+
+@pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in
+                        ('onnx', 'onnxruntime', 'tokenizers', 'flask', 'httpx'))), reason='requires the no-Torch ONNX Runtime CPU container')
+class TestONNXWordPiecePlanning:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         import httpx
         from tokenizers import Tokenizer, models, pre_tokenizers, processors
         from werkzeug.serving import make_server
@@ -27,11 +31,10 @@ class ONNXWordPiecePlanningTests(unittest.TestCase):
         from acprof.host.detect import TaskInfo
         from examples.onnxruntime.fixtures import create_text_fixture
 
-        self.assertIsNone(importlib.util.find_spec('torch'))
-        self.assertIsNone(importlib.util.find_spec('transformers'))
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        assert (importlib.util.find_spec('torch')) is None
+        assert (importlib.util.find_spec('transformers')) is None
+        temporary = tmp_path
+        self.root = Path(str(temporary))
         (self.root / 'plan').mkdir()
         model = create_text_fixture(self.root / 'model', max_length=32)
         words = ['[PAD]', '[UNK]', '[CLS]', '[SEP]', *string.ascii_lowercase,
@@ -45,7 +48,7 @@ class ONNXWordPiecePlanningTests(unittest.TestCase):
         tokenizer.save(str(model / 'tokenizer.json'))
         self.tokenizer = tokenizer
         self.contexts = ExitStack()
-        self.addCleanup(self.contexts.close)
+        self._request.addfinalizer(partial(self.contexts.close))
         self.contexts.enter_context(patch.dict(os.environ, {
             'TASK_FAMILY': 'nlp', 'TASK_TYPE': 'text-classification', 'RUNTIME_BACKEND': 'onnxruntime',
             'MODEL_ID': 'local/wordpiece-fixture', 'MODEL_REVISION': 'fixture', 'MODEL_LOCAL_PATH': str(model),
@@ -61,10 +64,10 @@ class ONNXWordPiecePlanningTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-        self.addCleanup(cleanup)
+        self._request.addfinalizer(partial(cleanup))
         self.base = f'http://127.0.0.1:{server.server_port}'
         self.client = self.contexts.enter_context(httpx.Client(trust_env=False, timeout=3))
-        self.assertEqual(self.client.get(self.base + '/ready').status_code, 200)
+        assert (self.client.get(self.base + '/ready').status_code) == (200)
         self.probe_results = []
 
         def post(url, **kwargs):
@@ -91,44 +94,40 @@ class ONNXWordPiecePlanningTests(unittest.TestCase):
 
     def test_auto_planner_recovers_from_over_limit_wordpiece_probe_without_truncating(self):
         planned = self.plan()
-        self.assertEqual(planned.scales, [3., 8., 16., 21., 25., 28.])
-        self.assertTrue(any(body.get('limit_exceeded') for _, body in self.probe_results))
+        assert (planned.scales) == ([3., 8., 16., 21., 25., 28.])
+        assert (any(body.get('limit_exceeded') for _, body in self.probe_results))
         for status, body in self.probe_results:
-            self.assertEqual(status, 200)
-            self.assertFalse(body['truncated_by_limit'])
+            assert (status) == (200)
+            assert not (body['truncated_by_limit'])
         plan = json.loads(Path(planned.plan_file).read_text())
         for entry in plan['entries']:
             payload = dict(entry['payload'], input_scale=entry['input_scale'])
             tokens = self.tokenizer.encode(payload['text'])
-            self.assertLessEqual(len(tokens.ids), 32)
-            self.assertEqual(sum(not item for item in tokens.special_tokens_mask), entry['input_scale'])
+            assert (len(tokens.ids)) <= (32)
+            assert (sum(not item for item in tokens.special_tokens_mask)) == (entry['input_scale'])
             response = self.client.post(self.base + '/predict', json=payload)
-            self.assertEqual(response.status_code, 200, response.text)
+            assert (response.status_code) == (200), response.text
             contract = response.json()['workload_contract']['input']['text']
-            self.assertEqual(contract['tokens'], len(tokens.ids))
-            self.assertEqual(contract['truncation'], 'reject')
+            assert (contract['tokens']) == (len(tokens.ids))
+            assert (contract['truncation']) == ('reject')
         self.stop.assert_called_once()
 
     def test_manual_plan_rejects_only_over_limit_and_predict_never_accepts_it(self):
         legal = self.plan(input_scales='2')
-        self.assertEqual(legal.scales, [8.])
-        with self.assertRaisesRegex(RuntimeError, 'manual NLP input scales exceed'):
+        assert (legal.scales) == ([8.])
+        with pytest.raises(RuntimeError, match='manual NLP input scales exceed'):
             self.plan(input_scales='30')
         payload = {'text': ' '.join(['hello'] * 10), 'batch_size': 1}
         probe = self.client.post(self.base + '/probe', json=payload)
-        self.assertEqual(probe.status_code, 200, probe.text)
-        self.assertTrue(probe.json()['limit_exceeded'])
-        self.assertFalse(probe.json()['truncated_by_limit'])
+        assert (probe.status_code) == (200), probe.text
+        assert (probe.json()['limit_exceeded'])
+        assert not (probe.json()['truncated_by_limit'])
         prediction = self.client.post(self.base + '/predict', json=payload)
-        self.assertEqual(prediction.status_code, 500)
-        self.assertNotIn('workload_contract', prediction.json())
+        assert (prediction.status_code) == (500)
+        assert ('workload_contract') not in (prediction.json())
 
     def test_probe_does_not_convert_configuration_errors_into_recoverable_limits(self):
         response = self.client.post(self.base + '/probe', json={'text': 'hello', 'batch_size': 2})
-        self.assertEqual(response.status_code, 500)
-        self.assertIn('batch_size', response.json()['error'])
-        self.assertNotIn('limit_exceeded', response.json())
-
-
-if __name__ == '__main__':
-    unittest.main()
+        assert (response.status_code) == (500)
+        assert ('batch_size') in (response.json()['error'])
+        assert ('limit_exceeded') not in (response.json())

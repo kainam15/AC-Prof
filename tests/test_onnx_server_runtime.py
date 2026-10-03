@@ -3,18 +3,25 @@ import importlib.util
 import json
 import os
 import runpy
-import unittest
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
+from functools import partial
 from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
+import pytest
 
-@unittest.skipUnless(importlib.util.find_spec('flask'), 'requires Flask in the runtime container')
-class ONNXServerCompletionTests(unittest.TestCase):
+pytestmark = pytest.mark.runtime
+
+
+@pytest.mark.skipif(not (importlib.util.find_spec('flask')), reason='requires Flask in the runtime container')
+class TestONNXServerCompletion:
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
     def start_server(self, future):
         from werkzeug.serving import make_server
 
@@ -53,7 +60,7 @@ class ONNXServerCompletionTests(unittest.TestCase):
         runtime = SimpleNamespace(inference_context=nullcontext, metadata=lambda: {},
                                   wait_for_completion=wait_for_completion)
         contexts = ExitStack()
-        self.addCleanup(contexts.close)
+        self._request.addfinalizer(partial(contexts.close))
         contexts.enter_context(patch('acprof.container.handlers.HandlerRegistry.get', return_value=AsyncHandler()))
         contexts.enter_context(patch('acprof.container.execution.configured_execution', return_value=(runtime, 'cpu')))
         contexts.enter_context(patch.dict(os.environ, {
@@ -71,10 +78,10 @@ class ONNXServerCompletionTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-        self.addCleanup(cleanup)
+        self._request.addfinalizer(partial(cleanup))
         base = f'http://127.0.0.1:{server.server_port}'
         with build_opener(ProxyHandler({})).open(base + '/ready', timeout=2) as response:
-            self.assertEqual(json.load(response)['status'], 'ok')
+            assert (json.load(response)['status']) == ('ok')
         return base, events, entered
 
     @staticmethod
@@ -95,41 +102,37 @@ class ONNXServerCompletionTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             request = executor.submit(self.request, base)
             try:
-                self.assertTrue(entered.wait(1), 'server never entered completion hook')
-                self.assertFalse(request.done())
-                self.assertEqual(events, ['submitted'])
+                assert (entered.wait(1)), 'server never entered completion hook'
+                assert not (request.done())
+                assert (events) == (['submitted'])
             finally:
                 future.set_result([[3.]])
             status, body = request.result(timeout=2)
-        self.assertEqual(status, 200, body)
-        self.assertEqual(body['output_shape'], [1, 1])
-        self.assertEqual(body['workload_contract']['input']['rows'], 1)
-        self.assertEqual(events, ['submitted', 'completed', 'postprocessed'])
+        assert (status) == (200), body
+        assert (body['output_shape']) == ([1, 1])
+        assert (body['workload_contract']['input']['rows']) == (1)
+        assert (events) == (['submitted', 'completed', 'postprocessed'])
 
     def test_background_error_becomes_failed_http_response(self):
         future = Future()
         future.set_exception(RuntimeError('background execution failed'))
         base, events, _ = self.start_server(future)
         status, body = self.request(base)
-        self.assertEqual(status, 500)
-        self.assertIn('background execution failed', body['error'])
-        self.assertEqual(body['failure']['reason_code'], 'inference_failed')
-        self.assertEqual(body['failure']['stage'], 'completion')
-        self.assertNotIn('workload_contract', body)
-        self.assertEqual(events, ['submitted'])
+        assert (status) == (500)
+        assert ('background execution failed') in (body['error'])
+        assert (body['failure']['reason_code']) == ('inference_failed')
+        assert (body['failure']['stage']) == ('completion')
+        assert ('workload_contract') not in (body)
+        assert (events) == (['submitted'])
 
     def test_timeout_never_returns_success_or_runs_postprocess(self):
         base, events, entered = self.start_server(Future())
         status, body = self.request(base)
-        self.assertTrue(entered.is_set())
-        self.assertEqual(status, 500)
-        self.assertTrue(body['error'], 'timeout needs a diagnostic instead of an empty error')
-        self.assertEqual(body['failure']['reason_code'], 'request_timeout')
-        self.assertEqual(body['failure']['evidence']['timeout_seconds'], 0.2)
-        self.assertIs(body['failure']['evidence']['service_alive'], True)
-        self.assertNotIn('workload_contract', body)
-        self.assertEqual(events, ['submitted'])
-
-
-if __name__ == '__main__':
-    unittest.main()
+        assert (entered.is_set())
+        assert (status) == (500)
+        assert (body['error']), 'timeout needs a diagnostic instead of an empty error'
+        assert (body['failure']['reason_code']) == ('request_timeout')
+        assert (body['failure']['evidence']['timeout_seconds']) == (0.2)
+        assert (body['failure']['evidence']['service_alive']) is (True)
+        assert ('workload_contract') not in (body)
+        assert (events) == (['submitted'])

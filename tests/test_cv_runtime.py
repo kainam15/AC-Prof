@@ -1,46 +1,47 @@
 """Offline CPU checks against real Transformers using random tiny model weights."""
-
 import importlib.util
 import json
 import tempfile
-import unittest
 from pathlib import Path
 
+import pytest
 from cv_runtime_fixtures import CVRuntimeFixture
 
 from acprof.container.handlers.cv import CVHandler
 from acprof.workloads.cv import CVWorkloadGenerator
 
 _RUNTIME_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("torch", "transformers"))
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(_RUNTIME_AVAILABLE, "requires the CV image runtime")
-class CVRuntimeTests(CVRuntimeFixture):
-    @unittest.skipUnless(importlib.util.find_spec("timm") is not None, "requires timm")
-    def test_timm_architectures_share_transformers_loading_and_preprocessing(self):
+@pytest.mark.skipif(not (_RUNTIME_AVAILABLE), reason="requires the CV image runtime")
+class TestCVRuntime(CVRuntimeFixture):
+    @pytest.mark.skipif(_RUNTIME_AVAILABLE and importlib.util.find_spec("timm") is None,
+                        reason="requires timm")
+    @pytest.mark.parametrize('architecture', ('mobilenetv3_small_050', 'resnet18'))
+    def test_timm_architectures_share_transformers_loading_and_preprocessing(self, architecture):
         import timm
         import torch
         from timm.models._hub import save_for_hf
         from transformers import TimmWrapperImageProcessor
 
-        for architecture in ("mobilenetv3_small_050", "resnet18"):
-            with self.subTest(architecture=architecture), tempfile.TemporaryDirectory() as directory:
-                model = timm.create_model(architecture, pretrained=False, num_classes=3).eval()
-                model.pretrained_cfg.update(input_size=(3, 32, 32), crop_pct=1., interpolation="bilinear",
-                                            mean=(0.5,) * 3, std=(0.5,) * 3)
-                processor = TimmWrapperImageProcessor(pretrained_cfg=model.pretrained_cfg)
-                save_for_hf(model, directory, safe_serialization=True)
-                handler = CVHandler()
-                context = handler.load(directory, "image-classification", "transformers_model", "cpu")
-                payload = CVWorkloadGenerator("unseen/checkpoint", "image-classification", 1).generate(0.25)
-                prepared = handler.preprocess(context, payload)
-                output = handler.predict(context, prepared)
-                with torch.inference_mode():
-                    reference = model(processor(prepared["image"], return_tensors="pt")["pixel_values"]).softmax(-1)[0]
-                actual = {item["label"]: item["score"] for item in output}
-                for index in range(3):
-                    self.assertAlmostEqual(actual[context["pipeline"].model.config.id2label[index]], reference[index].item(), places=5)
-                self.assertEqual(handler.postprocess(context, output)["output_type"], "classification")
+        with tempfile.TemporaryDirectory() as directory:
+            model = timm.create_model(architecture, pretrained=False, num_classes=3).eval()
+            model.pretrained_cfg.update(input_size=(3, 32, 32), crop_pct=1., interpolation="bilinear",
+                                        mean=(0.5,) * 3, std=(0.5,) * 3)
+            processor = TimmWrapperImageProcessor(pretrained_cfg=model.pretrained_cfg)
+            save_for_hf(model, directory, safe_serialization=True)
+            handler = CVHandler()
+            context = handler.load(directory, "image-classification", "transformers_model", "cpu")
+            payload = CVWorkloadGenerator("unseen/checkpoint", "image-classification", 1).generate(0.25)
+            prepared = handler.preprocess(context, payload)
+            output = handler.predict(context, prepared)
+            with torch.inference_mode():
+                reference = model(processor(prepared["image"], return_tensors="pt")["pixel_values"]).softmax(-1)[0]
+            actual = {item["label"]: item["score"] for item in output}
+            for index in range(3):
+                assert (actual[context["pipeline"].model.config.id2label[index]]) == (reference[index].item()) or round(abs((actual[context["pipeline"].model.config.id2label[index]]) - (reference[index].item())), 5) == 0
+            assert (handler.postprocess(context, output)["output_type"]) == ("classification")
 
     def test_videomae_loads_local_snapshot_and_consumes_every_frame(self):
         from transformers import (
@@ -56,10 +57,10 @@ class CVRuntimeTests(CVRuntimeFixture):
         ))
         processor = VideoMAEImageProcessor(size={"shortest_edge": 32}, crop_size={"height": 32, "width": 32})
         result = self._exercise(model, processor, "video-classification", {"num_frames": 4, "params": {"top_k": 2}})
-        self.assertEqual(result["output_type"], "classification")
-        self.assertEqual(result["n_results"], 2)
-        self.assertEqual(len(result["classifications"]), 2)
-        self.assertTrue(all(0 <= record["score"] <= 1 for record in result["classifications"]))
+        assert (result["output_type"]) == ("classification")
+        assert (result["n_results"]) == (2)
+        assert (len(result["classifications"])) == (2)
+        assert (all(0 <= record["score"] <= 1 for record in result["classifications"]))
 
     def test_superpoint_loads_local_snapshot_and_counts_valid_keypoints(self):
         from transformers import (
@@ -74,9 +75,9 @@ class CVRuntimeTests(CVRuntimeFixture):
         ))
         processor = SuperPointImageProcessor(size={"height": 64, "width": 64})
         result = self._exercise(model, processor, "keypoint-detection")
-        self.assertEqual(result["output_type"], "keypoints")
-        self.assertEqual(result["n_results"], 1)
-        self.assertLessEqual(result["keypoint_count"], 20)
+        assert (result["output_type"]) == ("keypoints")
+        assert (result["n_results"]) == (1)
+        assert (result["keypoint_count"]) <= (20)
 
     def test_sam_mask_pipeline_returns_a_mask_count(self):
         self._sam_mask_pipeline("cpu")
@@ -115,11 +116,12 @@ class CVRuntimeTests(CVRuntimeFixture):
             payload["candidate_labels"] = ["a", "cat"]
             payload["params"] = {"threshold": 0.0}
             raw = handler.predict(context, handler.preprocess(context, payload))
-            self.assertTrue(raw)
-            self.assertTrue({record["label"] for record in raw}.issubset({"a", "cat"}))
-            self.assertEqual(handler.postprocess(context, raw)["output_type"], "detection")
+            assert (raw)
+            assert ({record["label"] for record in raw}.issubset({"a", "cat"}))
+            assert (handler.postprocess(context, raw)["output_type"]) == ("detection")
 
-    @unittest.skipUnless(importlib.util.find_spec("scipy") is not None, "VitPose requires scipy")
+    @pytest.mark.skipif(_RUNTIME_AVAILABLE and importlib.util.find_spec("scipy") is None,
+                        reason="VitPose requires scipy")
     def test_vitpose_loads_local_snapshot_and_uses_every_coco_box(self):
         from transformers import (
             VitPoseBackboneConfig,
@@ -137,10 +139,6 @@ class CVRuntimeTests(CVRuntimeFixture):
         result = self._exercise(model, processor, "keypoint-detection", {
             "boxes": [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]], "params": {"dataset_index": 0},
         })
-        self.assertEqual(result["output_type"], "keypoints")
-        self.assertEqual(result["n_results"], 2)
-        self.assertEqual(result["keypoint_count"], 34)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (result["output_type"]) == ("keypoints")
+        assert (result["n_results"]) == (2)
+        assert (result["keypoint_count"]) == (34)

@@ -1,20 +1,23 @@
 """Shared tiny CV snapshots for separate CPU and CUDA runtime checks."""
-
 import json
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from acprof.container.handlers.cv import CVHandler
 from acprof.workloads.cv import CVWorkloadGenerator
 
 
-class CVRuntimeFixture(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+class CVRuntimeFixture:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request):
         import torch
 
+        previous = torch.get_num_threads()
         torch.set_num_threads(1)
+        yield
+        torch.set_num_threads(previous)
 
     def _exercise(self, model, processor, task, spec=None, device="cpu"):
         handler = CVHandler()
@@ -25,7 +28,7 @@ class CVRuntimeFixture(unittest.TestCase):
             context = handler.load(str(snapshot), task, "transformers_model", device)
             if task == "mask-generation":
                 from acprof.container.load_policy import actual_dtype
-                self.assertEqual(actual_dtype(context), "torch.float32")
+                assert (actual_dtype(context)) == ("torch.float32")
             manifest = None
             if spec is not None:
                 manifest = Path(directory) / "workload.json"
@@ -59,5 +62,5 @@ class CVRuntimeFixture(unittest.TestCase):
             "points_per_batch": 4, "points_per_crop": 2, "pred_iou_thresh": 0.0,
             "stability_score_thresh": 0.0,
         }}, device=device)
-        self.assertEqual(result["output_type"], "masks")
-        self.assertIsInstance(result["n_results"], int)
+        assert (result["output_type"]) == ("masks")
+        assert isinstance(result["n_results"], int)

@@ -1,12 +1,12 @@
 """Offline CPU checks using real Diffusers; no pretrained weights are downloaded."""
-
 import functools
 import importlib.util
 import json
 import shutil
 import tempfile
-import unittest
 from pathlib import Path
+
+import pytest
 
 from acprof.container.handlers.diffusion import (
     DiffusionHandler,
@@ -19,37 +19,36 @@ _RUNTIME_AVAILABLE = all(
     importlib.util.find_spec(name) is not None
     for name in ("torch", "diffusers", "transformers")
 )
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(_RUNTIME_AVAILABLE, "requires the diffusion image runtime")
-class DiffusionRuntimeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+@pytest.mark.skipif(not (_RUNTIME_AVAILABLE), reason="requires the diffusion image runtime")
+class TestDiffusionRuntime:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request):
         import torch
+        previous = torch.get_num_threads()
         torch.set_num_threads(1)
+        yield
+        torch.set_num_threads(previous)
 
-    def test_native_image_and_video_signatures_preserve_both_conditions(self):
+    @pytest.mark.parametrize('pipeline_class_case', range(4), ids=["(StableDiffusionImg2ImgPipeline, 'image-text-to-image')", "(StableDiffusionInstructPix2PixPipeline, 'image-text-to-image')", "(CogVideoXImageToVideoPipeline, 'image-text-to-video')", "(WanImageToVideoPipeline, 'image-text-to-video')"])
+    def test_native_image_and_video_signatures_preserve_both_conditions(self, pipeline_class_case):
         from diffusers import (
             CogVideoXImageToVideoPipeline,
             StableDiffusionImg2ImgPipeline,
             StableDiffusionInstructPix2PixPipeline,
             WanImageToVideoPipeline,
         )
-        for pipeline_class, task in [
-            (StableDiffusionImg2ImgPipeline, "image-text-to-image"),
-            (StableDiffusionInstructPix2PixPipeline, "image-text-to-image"),
-            (CogVideoXImageToVideoPipeline, "image-text-to-video"),
-            (WanImageToVideoPipeline, "image-text-to-video"),
-        ]:
-            with self.subTest(pipeline=pipeline_class.__name__):
-                call = functools.partial(pipeline_class.__call__, None)
-                parameters = _conditioned_pipeline_parameters(call, task)
-                self.assertIn("image", parameters)
-                self.assertIn("prompt", parameters)
-                if task == "image-text-to-video":
-                    self.assertIn("num_frames", parameters)
-                    self.assertIn("height", parameters)
-                    self.assertIn("width", parameters)
+        (pipeline_class, task) = tuple([(StableDiffusionImg2ImgPipeline, 'image-text-to-image'), (StableDiffusionInstructPix2PixPipeline, 'image-text-to-image'), (CogVideoXImageToVideoPipeline, 'image-text-to-video'), (WanImageToVideoPipeline, 'image-text-to-video')])[pipeline_class_case]
+        call = functools.partial(pipeline_class.__call__, None)
+        parameters = _conditioned_pipeline_parameters(call, task)
+        assert ("image") in (parameters)
+        assert ("prompt") in (parameters)
+        if task == "image-text-to-video":
+            assert ("num_frames") in (parameters)
+            assert ("height") in (parameters)
+            assert ("width") in (parameters)
 
     @staticmethod
     def _tiny_pipeline(directory, instruct):
@@ -108,54 +107,55 @@ class DiffusionRuntimeTests(unittest.TestCase):
             feature_extractor=None, requires_safety_checker=False,
         )
 
-    def test_tiny_native_image_pipelines_load_offline_and_generate_seeded_images(self):
+    @pytest.mark.parametrize('instruct', (False, True))
+    def test_tiny_native_image_pipelines_load_offline_and_generate_seeded_images(self, instruct):
         import torch
 
         handler = DiffusionHandler()
-        for instruct in (False, True):
-            with self.subTest(instruct=instruct), tempfile.TemporaryDirectory() as directory:
-                pipe = self._tiny_pipeline(directory, instruct)
-                snapshot = Path(directory) / "snapshot"
-                pipe.save_pretrained(snapshot)
-                context = handler.load(
-                    str(snapshot), "image-to-image", "diffusers", "cpu",
-                    model_revision="offline-random-weights",
-                    load_options={"attention_implementation": "eager"},
-                )
-                payload = DiffusionWorkloadGenerator(
-                    "local/tiny", "image-to-image", 1,
-                ).generate(64)
-                payload["prompt"] = ["a"]
-                payload["params"].update(num_inference_steps=2, guidance_scale=2.0)
-                if not instruct:
-                    payload["params"]["strength"] = 0.8
-                processed = handler.preprocess(context, payload)
-                with torch.inference_mode():
-                    first = handler.predict(context, processed)
-                    second = handler.predict(context, processed)
-                metadata = handler.postprocess(context, first)
-                self.assertEqual(metadata["output_shape"], [1, 64, 64, 3])
-                self.assertEqual(metadata["n_results"], 1)
-                self.assertEqual(first.result.images[0].tobytes(), second.result.images[0].tobytes())
-                self.assertEqual(context["model"].config._attn_implementation, "eager")
+        with tempfile.TemporaryDirectory() as directory:
+            pipe = self._tiny_pipeline(directory, instruct)
+            snapshot = Path(directory) / "snapshot"
+            pipe.save_pretrained(snapshot)
+            context = handler.load(
+                str(snapshot), "image-to-image", "diffusers", "cpu",
+                model_revision="offline-random-weights",
+                load_options={"attention_implementation": "eager"},
+            )
+            payload = DiffusionWorkloadGenerator(
+                "local/tiny", "image-to-image", 1,
+            ).generate(64)
+            payload["prompt"] = ["a"]
+            payload["params"].update(num_inference_steps=2, guidance_scale=2.0)
+            if not instruct:
+                payload["params"]["strength"] = 0.8
+            processed = handler.preprocess(context, payload)
+            with torch.inference_mode():
+                first = handler.predict(context, processed)
+                second = handler.predict(context, processed)
+            metadata = handler.postprocess(context, first)
+            assert (metadata["output_shape"]) == ([1, 64, 64, 3])
+            assert (metadata["n_results"]) == (1)
+            assert (first.result.images[0].tobytes()) == (second.result.images[0].tobytes())
+            assert (context["model"].config._attn_implementation) == ("eager")
 
-    def test_native_video_output_containers_return_frame_metadata(self):
+    @pytest.mark.parametrize('output_class_case', range(2), ids=['CogVideoXPipelineOutput', 'WanPipelineOutput'])
+    def test_native_video_output_containers_return_frame_metadata(self, output_class_case):
         from diffusers.pipelines.cogvideo.pipeline_output import CogVideoXPipelineOutput
         from diffusers.pipelines.wan.pipeline_output import WanPipelineOutput
         from PIL import Image
 
         frames = [[Image.new("RGB", (64, 64), (10, 20, 30)) for _ in range(5)]]
-        for output_class in (CogVideoXPipelineOutput, WanPipelineOutput):
-            with self.subTest(output=output_class.__name__):
-                metadata = DiffusionHandler().postprocess(
-                    {"task_type": "image-to-video"}, output_class(frames=frames),
-                )
-                self.assertEqual(metadata["output_shape"], [1, 5, 64, 64, 3])
-                self.assertEqual(metadata["video_frame_count"], 5)
-                self.assertEqual(metadata["output_length"], 5)
-                self.assertNotIn("frames", metadata)
+        output_class = tuple((CogVideoXPipelineOutput, WanPipelineOutput))[output_class_case]
+        metadata = DiffusionHandler().postprocess(
+            {"task_type": "image-to-video"}, output_class(frames=frames),
+        )
+        assert (metadata["output_shape"]) == ([1, 5, 64, 64, 3])
+        assert (metadata["video_frame_count"]) == (5)
+        assert (metadata["output_length"]) == (5)
+        assert ("frames") not in (metadata)
 
-    def test_tiny_ddpm_runs_offline_with_native_resolution_and_step_scales(self):
+    @pytest.mark.parametrize('root_layout', (False, True))
+    def test_tiny_ddpm_runs_offline_with_native_resolution_and_step_scales(self, root_layout):
         import torch
         from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
 
@@ -171,36 +171,36 @@ class DiffusionRuntimeTests(unittest.TestCase):
         handler = DiffusionHandler()
         task = "unconditional-image-generation"
         from acprof.container.model_files import plan_download
-        for root_layout in (False, True):
-            with self.subTest(root_layout=root_layout), tempfile.TemporaryDirectory() as directory:
-                source = Path(directory, "source")
-                snapshot = Path(directory, "selected")
-                snapshot.mkdir()
-                pipe.save_pretrained(source)
-                if root_layout:
-                    for component in ("unet", "scheduler"):
-                        for path in (source / component).iterdir():
-                            path.rename(source / path.name)
-                        (source / component).rmdir()
-                plan = plan_download(model_id="local/ddpm", revision="a" * 40,
-                    family="diffusion", backend="diffusers",
-                    files={str(p.relative_to(source)): {"size": p.stat().st_size} for p in source.rglob("*") if p.is_file()},
-                    read_json=lambda name: json.loads((source / name).read_text()))
-                for record in plan["files"]:
-                    target = snapshot / record["path"]
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(source / record["path"], target)
-                context = handler.load(str(snapshot), task, "diffusers", "cpu")
-                payload = DiffusionWorkloadGenerator("local/ddpm", task, 1).generate(2)
-                processed = handler.preprocess(context, payload)
-                first = handler.predict(context, processed)
-                second = handler.predict(context, processed)
-                metadata = handler.postprocess(context, first)
-                self.assertEqual(first.images[0].tobytes(), second.images[0].tobytes())
-                self.assertEqual(metadata["output_shape"], [1, 32, 32, 3])
-                self.assertEqual(handler.get_scale_metadata(context, payload)["native_output_width"], 32)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory, "source")
+            snapshot = Path(directory, "selected")
+            snapshot.mkdir()
+            pipe.save_pretrained(source)
+            if root_layout:
+                for component in ("unet", "scheduler"):
+                    for path in (source / component).iterdir():
+                        path.rename(source / path.name)
+                    (source / component).rmdir()
+            plan = plan_download(model_id="local/ddpm", revision="a" * 40,
+                family="diffusion", backend="diffusers",
+                files={str(p.relative_to(source)): {"size": p.stat().st_size} for p in source.rglob("*") if p.is_file()},
+                read_json=lambda name: json.loads((source / name).read_text()))
+            for record in plan["files"]:
+                target = snapshot / record["path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source / record["path"], target)
+            context = handler.load(str(snapshot), task, "diffusers", "cpu")
+            payload = DiffusionWorkloadGenerator("local/ddpm", task, 1).generate(2)
+            processed = handler.preprocess(context, payload)
+            first = handler.predict(context, processed)
+            second = handler.predict(context, processed)
+            metadata = handler.postprocess(context, first)
+            assert (first.images[0].tobytes()) == (second.images[0].tobytes())
+            assert (metadata["output_shape"]) == ([1, 32, 32, 3])
+            assert (handler.get_scale_metadata(context, payload)["native_output_width"]) == (32)
 
-    def test_new_native_video_and_shap_e_signatures_match_pinned_runtime(self):
+    @pytest.mark.parametrize('pipeline_class_case', range(7), ids=["(CogVideoXPipeline, 'text-to-video')", "(CogVideoXVideoToVideoPipeline, 'video-to-video')", "(StableVideoDiffusionPipeline, 'image-to-video')", "(TextToVideoSDPipeline, 'text-to-video')", "(VideoToVideoSDPipeline, 'video-to-video')", "(ShapEPipeline, 'text-to-3d')", "(ShapEImg2ImgPipeline, 'image-to-3d')"])
+    def test_new_native_video_and_shap_e_signatures_match_pinned_runtime(self, pipeline_class_case):
         import types
 
         from diffusers import (
@@ -213,28 +213,20 @@ class DiffusionRuntimeTests(unittest.TestCase):
             VideoToVideoSDPipeline,
         )
 
-        for pipeline_class, task in [
-            (CogVideoXPipeline, "text-to-video"),
-            (CogVideoXVideoToVideoPipeline, "video-to-video"),
-            (StableVideoDiffusionPipeline, "image-to-video"),
-            (TextToVideoSDPipeline, "text-to-video"),
-            (VideoToVideoSDPipeline, "video-to-video"),
-            (ShapEPipeline, "text-to-3d"),
-            (ShapEImg2ImgPipeline, "image-to-3d"),
-        ]:
-            with self.subTest(task=task):
-                call = functools.partial(pipeline_class.__call__, None)
-                call.shap_e_renderer = types.SimpleNamespace(decode_to_mesh=lambda: None)
-                parameters = _native_pipeline_parameters(call, task)
-                self.assertIn("num_inference_steps", parameters)
-                if task in {"text-to-3d", "image-to-3d"}:
-                    self.assertIn("frame_size", parameters)
-                    self.assertNotIn("height", parameters)
-                elif task == "video-to-video":
-                    self.assertIn("video", parameters)
-                    self.assertNotIn("num_frames", parameters)
+        (pipeline_class, task) = tuple([(CogVideoXPipeline, 'text-to-video'), (CogVideoXVideoToVideoPipeline, 'video-to-video'), (StableVideoDiffusionPipeline, 'image-to-video'), (TextToVideoSDPipeline, 'text-to-video'), (VideoToVideoSDPipeline, 'video-to-video'), (ShapEPipeline, 'text-to-3d'), (ShapEImg2ImgPipeline, 'image-to-3d')])[pipeline_class_case]
+        call = functools.partial(pipeline_class.__call__, None)
+        call.shap_e_renderer = types.SimpleNamespace(decode_to_mesh=lambda: None)
+        parameters = _native_pipeline_parameters(call, task)
+        assert ("num_inference_steps") in (parameters)
+        if task in {"text-to-3d", "image-to-3d"}:
+            assert ("frame_size") in (parameters)
+            assert ("height") not in (parameters)
+        elif task == "video-to-video":
+            assert ("video") in (parameters)
+            assert ("num_frames") not in (parameters)
 
-    def test_tiny_native_video_generation_and_task_conversion(self):
+    @pytest.mark.parametrize('task', ('text-to-video', 'video-to-video'))
+    def test_tiny_native_video_generation_and_task_conversion(self, task):
         from diffusers import TextToVideoSDPipeline, UNet3DConditionModel
 
         with tempfile.TemporaryDirectory() as directory:
@@ -254,18 +246,12 @@ class DiffusionRuntimeTests(unittest.TestCase):
             snapshot = Path(directory) / "video"
             pipe.save_pretrained(snapshot)
             handler = DiffusionHandler()
-            for task in ("text-to-video", "video-to-video"):
-                with self.subTest(task=task):
-                    context = handler.load(str(snapshot), task, "diffusers", "cpu")
-                    payload = DiffusionWorkloadGenerator("local/video", task, 1).generate(64)
-                    payload["prompt"] = ["a"]
-                    payload["params"].update(num_inference_steps=2, num_frames=5, guidance_scale=2.0)
-                    if task == "video-to-video":
-                        payload["frames_base64"] = payload["frames_base64"][:5]
-                    processed = handler.preprocess(context, payload)
-                    output = handler.predict(context, processed)
-                    self.assertEqual(handler.postprocess(context, output)["output_shape"], [1, 5, 64, 64, 3])
-
-
-if __name__ == "__main__":
-    unittest.main()
+            context = handler.load(str(snapshot), task, "diffusers", "cpu")
+            payload = DiffusionWorkloadGenerator("local/video", task, 1).generate(64)
+            payload["prompt"] = ["a"]
+            payload["params"].update(num_inference_steps=2, num_frames=5, guidance_scale=2.0)
+            if task == "video-to-video":
+                payload["frames_base64"] = payload["frames_base64"][:5]
+            processed = handler.preprocess(context, payload)
+            output = handler.predict(context, processed)
+            assert (handler.postprocess(context, output)["output_shape"]) == ([1, 5, 64, 64, 3])

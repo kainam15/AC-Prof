@@ -4,67 +4,68 @@ Tiny random weights test execution contracts, not checkpoint accuracy. The
 Tekken fixture uses the public mistral-common v7 audio format (Apache-2.0).
 Run in either locked multimodal environment; no Hub downloads are needed.
 """
-
 import base64
 import importlib.util
 import json
 import tempfile
-import unittest
+from functools import partial
 from pathlib import Path
 
+import pytest
 import test_multimodal_generation_runtime as fixtures
 
 from acprof.container.handlers.multimodal import MultimodalHandler
 from acprof.container.validation import validate_output
 
 _AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('torch', 'transformers', 'mistral_common'))
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(_AVAILABLE, 'requires the locked native audio generation environment')
-class AudioGenerationRuntimeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+@pytest.mark.skipif(not (_AVAILABLE), reason='requires the locked native audio generation environment')
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"] if _AVAILABLE and __import__("torch").cuda.is_available() else ["cpu"])
+class TestAudioGenerationRuntime:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request):
         import torch
         threads = torch.get_num_threads()
         torch.set_num_threads(1)
-        cls.addClassCleanup(torch.set_num_threads, threads)
-
-    def setUp(self):
+        request.addfinalizer(partial(torch.set_num_threads, threads))
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         import torch
-        self.addCleanup(torch.set_rng_state, torch.get_rng_state().clone())
+        self._request.addfinalizer(partial(torch.set_rng_state, torch.get_rng_state().clone()))
         torch.manual_seed(0)
-        self.media = fixtures.MultimodalGenerationRuntimeTests()
+        self.media = fixtures.TestMultimodalGenerationRuntime()
 
-    def assert_snapshot_generates(self, snapshot, expected_model, *, prefix=''):
+    def assert_snapshot_generates(self, snapshot, expected_model, device, *, prefix=''):
         import torch
 
         handler = MultimodalHandler()
-        devices = ['cpu', 'cuda:0'] if torch.cuda.is_available() else ['cpu']
-        for device in devices:
-            with self.subTest(device=device):
-                ctx = handler.load(str(snapshot), 'audio-text-to-text', 'transformers_model', device,
-                                   load_options={'attention_implementation': 'eager'})
-                self.assertIsInstance(ctx['model'], type(expected_model))
-                for key, value in expected_model.state_dict().items():
-                    loaded = ctx['model'].state_dict()[key]
-                    self.assertTrue(torch.equal(loaded.cpu(), value.to(dtype=loaded.dtype).cpu()), prefix + key)
-                payload = {'samples': [{'text': 'Describe media.', 'audio_base64': self.media.audio(), 'sampling_rate': 16000}],
-                           'params': {'max_new_tokens': 2}, 'input_scale_type': 'duration_s', 'input_scale': 1}
-                processed = handler.preprocess(ctx, payload)
-                self.assertIn('input_features', processed['inputs'])
-                self.assertEqual(processed['inputs']['input_features'].device.type, device.split(':')[0])
-                self.assertTrue(torch.isfinite(processed['inputs']['input_features']).all())
-                raw = handler.predict(ctx, processed)
-                response = handler.postprocess(ctx, raw)
-                validate_output(ctx, payload, processed, raw, response)
-                self.assertEqual(response['output_type'], 'text')
-                self.assertGreater(response['actual_output_tokens'], 0)
-                self.assertLessEqual(response['actual_output_tokens'], 2)
-                again = handler.postprocess(ctx, handler.predict(ctx, processed))
-                self.assertEqual(response, again)
-                del ctx
+        ['cpu', 'cuda:0'] if torch.cuda.is_available() else ['cpu']
+        ctx = handler.load(str(snapshot), 'audio-text-to-text', 'transformers_model', device,
+                           load_options={'attention_implementation': 'eager'})
+        assert isinstance(ctx['model'], type(expected_model))
+        for key, value in expected_model.state_dict().items():
+            loaded = ctx['model'].state_dict()[key]
+            assert (torch.equal(loaded.cpu(), value.to(dtype=loaded.dtype).cpu())), prefix + key
+        payload = {'samples': [{'text': 'Describe media.', 'audio_base64': self.media.audio(), 'sampling_rate': 16000}],
+                   'params': {'max_new_tokens': 2}, 'input_scale_type': 'duration_s', 'input_scale': 1}
+        processed = handler.preprocess(ctx, payload)
+        assert ('input_features') in (processed['inputs'])
+        assert (processed['inputs']['input_features'].device.type) == (device.split(':')[0])
+        assert (torch.isfinite(processed['inputs']['input_features']).all())
+        raw = handler.predict(ctx, processed)
+        response = handler.postprocess(ctx, raw)
+        validate_output(ctx, payload, processed, raw, response)
+        assert (response['output_type']) == ('text')
+        assert (response['actual_output_tokens']) > (0)
+        assert (response['actual_output_tokens']) <= (2)
+        again = handler.postprocess(ctx, handler.predict(ctx, processed))
+        assert (response) == (again)
+        del ctx
 
-    def test_qwen_audio_snapshot_uses_auto_loader_and_native_audio_messages(self):
+    def test_qwen_audio_snapshot_uses_auto_loader_and_native_audio_messages(self, device):
         from transformers import (
             Qwen2AudioConfig,
             Qwen2AudioForConditionalGeneration,
@@ -86,9 +87,9 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model.save_pretrained(directory)
             processor.save_pretrained(directory)
-            self.assert_snapshot_generates(Path(directory), model)
+            self.assert_snapshot_generates(Path(directory), model, device)
 
-    def test_voxtral_snapshot_uses_native_mistral_audio_tokenizer_without_jinja(self):
+    def test_voxtral_snapshot_uses_native_mistral_audio_tokenizer_without_jinja(self, device):
         from mistral_common.tokens.tokenizers.tekken import Tekkenizer
         from transformers import (
             AutoTokenizer,
@@ -125,13 +126,13 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
             config.save_pretrained(directory)
             processor = VoxtralProcessor(feature_extractor=WhisperFeatureExtractor(feature_size=128),
                                          tokenizer=AutoTokenizer.from_pretrained(directory, local_files_only=True))
-            self.assertFalse(getattr(processor, 'chat_template', None))
+            assert not (getattr(processor, 'chat_template', None))
             snapshot = Path(directory) / 'snapshot'
             model.save_pretrained(snapshot)
             processor.save_pretrained(snapshot)
-            self.assert_snapshot_generates(snapshot, model)
+            self.assert_snapshot_generates(snapshot, model, device)
 
-    def test_composite_omni_snapshot_loads_only_registered_multimodal_text_head(self):
+    def test_composite_omni_snapshot_loads_only_registered_multimodal_text_head(self, device):
         import transformers
 
         from acprof.model_resolution import audio_text_loader
@@ -140,7 +141,7 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
             # The default version cannot expose this head through Auto. Host
             # preflight must select the newer environment instead of direct classes.
             from acprof.model_resolution import supports_transformers_task
-            self.assertFalse(supports_transformers_task(transformers.__version__, 'audio-text-to-text', 'qwen2_5_omni'))
+            assert not (supports_transformers_task(transformers.__version__, 'audio-text-to-text', 'qwen2_5_omni'))
             return
         from safetensors.torch import save_file
         from transformers import (
@@ -183,8 +184,4 @@ class AudioGenerationRuntimeTests(unittest.TestCase):
             save_file({'thinker.' + key: value for key, value in model.state_dict().items()}, str(snapshot / 'model.safetensors'))
             model.generation_config.save_pretrained(snapshot)
             processor.save_pretrained(snapshot)
-            self.assert_snapshot_generates(snapshot, model, prefix='thinker.')
-
-
-if __name__ == '__main__':
-    unittest.main()
+            self.assert_snapshot_generates(snapshot, model, device, prefix='thinker.')

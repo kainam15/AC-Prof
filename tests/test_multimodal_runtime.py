@@ -3,39 +3,41 @@
 These require the container's Transformers/Torch dependencies. They skip on the
 lightweight host and never download pretrained weights or use the GPU.
 """
-
 import importlib.util
 import tempfile
-import unittest
+from functools import partial
 from pathlib import Path
+
+import pytest
 
 RUNTIME_AVAILABLE = all(
     importlib.util.find_spec(name) is not None
     for name in ("torch", "transformers", "tokenizers")
 )
+pytestmark = pytest.mark.runtime
 
 
-@unittest.skipUnless(RUNTIME_AVAILABLE, "requires container Transformers/Torch runtime")
-class MultimodalRuntimeTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
+@pytest.mark.skipif(not (RUNTIME_AVAILABLE), reason="requires container Transformers/Torch runtime")
+class TestMultimodalRuntime:
+    @pytest.fixture(scope="class", autouse=True)
+    def _class_setup(self, request):
+        cls = request.cls
         import torch
 
         cls.previous_threads = torch.get_num_threads()
         torch.set_num_threads(1)
-
-    @classmethod
-    def tearDownClass(cls):
+        yield
         import torch
 
         torch.set_num_threads(cls.previous_threads)
-
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup(self, request, tmp_path, monkeypatch):
+        self._request = request
         import torch
 
         state = torch.random.fork_rng(devices=[])
         state.__enter__()
-        self.addCleanup(state.__exit__, None, None, None)
+        self._request.addfinalizer(partial(state.__exit__, None, None, None))
 
     def test_blip_visual_qa_load_preprocess_generate_postprocess(self):
         import torch
@@ -90,11 +92,11 @@ class MultimodalRuntimeTests(unittest.TestCase):
             processed = handler.preprocess(ctx, payload)
             first = handler.postprocess(ctx, handler.predict(ctx, processed))
             second = handler.postprocess(ctx, handler.predict(ctx, processed))
-            self.assertEqual(first, second)
-            self.assertEqual(first["output_type"], "answers")
-            self.assertEqual(len(first["answers"]), 1)
-            self.assertIsInstance(first["answers"][0]["answer"], str)
-            self.assertEqual(processed["_effective_input_scale"], 32)
+            assert (first) == (second)
+            assert (first["output_type"]) == ("answers")
+            assert (len(first["answers"])) == (1)
+            assert isinstance(first["answers"][0]["answer"], str)
+            assert (processed["_effective_input_scale"]) == (32)
 
     def test_colpali_local_load_encodes_query_and_document_then_scores(self):
         import torch
@@ -157,11 +159,11 @@ class MultimodalRuntimeTests(unittest.TestCase):
             processed = handler.preprocess(ctx, payload)
             first = handler.postprocess(ctx, handler.predict(ctx, processed))
             second = handler.postprocess(ctx, handler.predict(ctx, processed))
-            self.assertEqual(first, second)
-            self.assertEqual(len(first["scores"]), 1)
-            self.assertEqual(len(first["scores"][0]), 1)
-            self.assertEqual(first["retrieval_scope"], "query_and_document_encoding_plus_scoring")
-            self.assertEqual(processed["_effective_input_scale"], 32)
+            assert (first) == (second)
+            assert (len(first["scores"])) == (1)
+            assert (len(first["scores"][0])) == (1)
+            assert (first["retrieval_scope"]) == ("query_and_document_encoding_plus_scoring")
+            assert (processed["_effective_input_scale"]) == (32)
 
     def test_layoutlm_document_qa_reuses_all_chunks_without_ocr(self):
         import torch
@@ -190,14 +192,10 @@ class MultimodalRuntimeTests(unittest.TestCase):
             payload["samples"][0]["boxes"] = [[0, 0, 100, 100]] * 40
             payload["params"] = {"max_seq_len": 16, "doc_stride": 2, "top_k": 1}
             processed = handler.preprocess(ctx, payload)
-            self.assertGreater(len(processed["chunks"]), 1)
+            assert (len(processed["chunks"])) > (1)
             first = handler.postprocess(ctx, handler.predict(ctx, processed))
             second = handler.postprocess(ctx, handler.predict(ctx, processed))
-            self.assertEqual(first, second)
-            self.assertEqual(first["output_type"], "answers")
-            self.assertEqual(len(first["answers"]), 1)
-            self.assertEqual(processed["_effective_input_scale"], 32)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (first) == (second)
+            assert (first["output_type"]) == ("answers")
+            assert (len(first["answers"])) == (1)
+            assert (processed["_effective_input_scale"]) == (32)
