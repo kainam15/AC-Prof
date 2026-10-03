@@ -288,6 +288,8 @@ Python imports，最多 64 个文件、每文件 512 KiB；结合 tokenizer 配�
 源码与 requirements 的 SHA256、模型 revision、lock 路径和比较结果保存在解析报告中。
 动态 import、未知 import/distribution 映射、未固定 revision、URL/extras 等不能自动证明可用，
 须补充受审阅的锁定环境。分析不 import 仓库代码、不执行安装命令，也不修改基础镜像。
+裸相对 from-list 先核对包 `__init__.py` 的明确顶层绑定或重导出；无法证明时仍要求同名
+子模块存在。条件、动态绑定以及 initializer 自引用均保持 unknown，不执行包代码来猜测结果。
 RMBG 的 `skimage` 映射为 `scikit-image`；manga-ocr 的 MeCab tokenizer 明确要求 `fugashi`。
 未指定版本的旧 `typing` backport 在目标 Python 3.5+ 中记录为 `stdlib`，保留 requirements
 来源与目标 Python 版本；带版本限制的 `typing` 和 `typing-extensions` 仍按发行包检查。

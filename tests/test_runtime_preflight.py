@@ -6,7 +6,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -68,6 +68,83 @@ def test_dependency_versions_dynamic_imports_and_training_requirements(sources_c
         assert (caught.value.failure.reason_code) == (reason)
     else:
         assert (dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)["dependencies"]) == ([])
+
+
+@pytest.mark.parametrize("initializer", [
+    "VALUE = 1\n",
+    "from .constants import VALUE\n",
+])
+def test_dependency_preflight_accepts_name_exported_by_package_initializer(initializer):
+    from acprof.runtime_dependencies import dependency_preflight
+    from acprof.runtime_profiles import PROFILES
+    sources = {
+        "pkg/__init__.py": initializer,
+        "pkg/constants.py": "VALUE = 1\n",
+        "pkg/consumer.py": "from . import VALUE\nclass Model: pass\n",
+    }
+    task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
+    task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
+
+    report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)
+
+    expected = {"pkg/__init__.py", "pkg/consumer.py"}
+    if "constants" in initializer:
+        expected.add("pkg/constants.py")
+    assert set(report["source_sha256"]) == expected
+    assert report["dependencies"] == []
+
+
+@pytest.mark.parametrize("initializer", [
+    "OTHER = 1\n",
+    "if True:\n    VALUE = 1\n",
+    "VALUE = 1\ndel VALUE\n",
+    "from . import VALUE\n",
+])
+def test_dependency_preflight_rejects_unproven_package_export(initializer):
+    from acprof.runtime_dependencies import dependency_preflight
+    from acprof.runtime_profiles import PROFILES
+    sources = {
+        "pkg/__init__.py": initializer,
+        "pkg/consumer.py": "from . import VALUE\nclass Model: pass\n",
+    }
+    task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
+    task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
+
+    with pytest.raises(ValueError) as caught:
+        dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)
+
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+    problems = caught.value.failure.evidence["dependencies"]
+    assert all(item["status"] == "unknown" for item in problems)
+    assert {
+        "status": "unknown",
+        "source": "pkg/consumer.py",
+        "detail": "unresolved relative import VALUE",
+    } in problems
+
+
+def test_package_export_lookup_respects_source_file_budget():
+    from acprof.runtime_dependencies import dependency_preflight
+    from acprof.runtime_profiles import PROFILES
+    sources = {
+        "pkg/__init__.py": "VALUE = 1\n",
+        "pkg/consumer.py": "from . import VALUE\nclass Model: pass\n",
+    }
+    read_source = Mock(side_effect=sources.__getitem__)
+    task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
+    task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
+
+    with patch("acprof.runtime_dependencies.MAX_FILES", 1), pytest.raises(ValueError) as caught:
+        dependency_preflight(task, PROFILES["cv-cpu"], read_source=read_source)
+
+    assert caught.value.failure.reason_code == "runtime_dependency_unknown"
+    assert caught.value.failure.evidence["dependencies"] == [{
+        "status": "unknown",
+        "source": "pkg/consumer.py",
+        "detail": "source dependency file budget exceeded",
+    }]
+    assert read_source.call_args_list == [call("pkg/consumer.py")]
+
 
 def test_cv_profile_false_reaches_pipeline_as_false():
     from acprof.container.handlers.cv import CVHandler

@@ -11,6 +11,7 @@ from acprof.dependency_locks import normalized_name, package_versions, read_pyth
 from acprof.failures import Failure, RuntimeFailure
 from acprof.installation import resource_root
 from acprof.model_evidence import pinned_revision
+from acprof.model_source_analysis import top_level_bound_names
 from acprof.model_spec import custom_code_files
 
 # Import names and distribution names are different namespaces. Unknown names
@@ -37,7 +38,7 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
     metadata = task.repository_metadata or {}
     configs = [task.model_config, *(value for value in metadata.values() if isinstance(value, dict))]
     pending = set().union(*(custom_code_files(config) for config in configs))
-    records, sources, requirements = [], {}, []
+    records, sources, requirements, trees, processed = [], {}, [], {}, set()
     tokenizer = metadata.get("tokenizer_config.json", {})
     if tokenizer.get("tokenizer_class") in {"BertJapaneseTokenizer", "MecabTokenizer"} and tokenizer.get("word_tokenizer_type", "mecab") == "mecab":
         records.append({"module": "fugashi", "source": "tokenizer_config.json", "conditional": False})
@@ -88,6 +89,28 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
                         "source": name, "status": "missing" if version is None else
                         "present" if requirement.specifier.contains(version, prereleases=True) else "incompatible"})
 
+
+    def load_tree(name):
+        if name in trees:
+            return trees[name]
+        if len(sources) >= MAX_FILES:
+            raise ValueError("source dependency file budget exceeded")
+        text = read_source(name)
+        if len(text.encode()) > 512 * 1024:
+            raise ValueError("source exceeds dependency analysis budget")
+        tree = ast.parse(text, filename=name)
+        sources[name] = hashlib.sha256(text.encode()).hexdigest()
+        trees[name] = tree
+        return tree
+
+    def initializer_binds(module_path, exported):
+        initializer = str(module_path / "__init__.py")
+        if initializer not in files:
+            return False
+        tree = load_tree(initializer)
+        pending.add(initializer)
+        return exported in top_level_bound_names(tree)
+
     def visit(nodes, name, conditional=False):
         for node in nodes:
             if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
@@ -109,6 +132,8 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
                         matched = next((path for path in candidates if path in files), None)
                         if matched:
                             pending.add(matched)
+                        elif not node.module and initializer_binds(base, module):
+                            continue
                         else:
                             records.append({"status": "unknown", "source": name, "detail": f"unresolved relative import {module}"})
                 else:
@@ -129,17 +154,15 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
     while pending:
         name = min(pending)
         pending.remove(name)
-        if name in sources:
+        if name in processed:
             continue
-        if len(sources) >= MAX_FILES:
+        if name not in trees and len(sources) >= MAX_FILES:
             records.append({"status": "unknown", "detail": "source dependency file budget exceeded"})
             break
         try:
-            text = read_source(name)
-            if len(text.encode()) > 512 * 1024:
-                raise ValueError("source exceeds dependency analysis budget")
-            sources[name] = hashlib.sha256(text.encode()).hexdigest()
-            visit(ast.parse(text, filename=name).body, name)
+            tree = load_tree(name)
+            processed.add(name)
+            visit(tree.body, name)
         except (OSError, SyntaxError, ValueError, RecursionError) as exc:
             records.append({"status": "unknown", "source": name, "detail": str(exc)})
     for record in records:

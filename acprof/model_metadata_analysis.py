@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 from typing import Callable
 
 from acprof.model_evidence import ModelEvidence
-from acprof.model_source_analysis import model_card_examples, parse_source
+from acprof.model_source_analysis import model_card_examples, parse_source, top_level_bound_names
 from acprof.model_spec import custom_code_files
 
 MAX_SOURCE_FILES = 32
@@ -74,31 +74,7 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
             return False
         queue.append(initializer)
         tree = load_source(initializer)
-        bound = set()
-        for statement in tree.body:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                bound.add(statement.name)
-            elif isinstance(statement, ast.Assign):
-                for target in statement.targets:
-                    if isinstance(target, ast.Name):
-                        bound.add(target.id)
-            elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
-                if isinstance(statement.target, ast.Name):
-                    bound.add(statement.target.id)
-            elif isinstance(statement, ast.Import):
-                for alias in statement.names:
-                    bound.add(alias.asname or alias.name.split(".")[0])
-            elif isinstance(statement, ast.ImportFrom):
-                if statement.level and not statement.module:
-                    continue
-                for alias in statement.names:
-                    if alias.name != "*":
-                        bound.add(alias.asname or alias.name)
-            elif isinstance(statement, ast.Delete):
-                for target in statement.targets:
-                    if isinstance(target, ast.Name):
-                        bound.discard(target.id)
-        return name in bound
+        return name in top_level_bound_names(tree)
 
     while queue:
         filename = queue.pop(0)

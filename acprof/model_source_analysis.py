@@ -26,6 +26,36 @@ def parse_source(source: str, filename: str) -> ast.Module:
     return tree
 
 
+def top_level_bound_names(tree: ast.Module) -> set[str]:
+    """Return names conservatively proven to remain bound by module execution."""
+    bound: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(statement.name)
+        elif isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    bound.add(target.id)
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            if isinstance(statement.target, ast.Name):
+                bound.add(statement.target.id)
+        elif isinstance(statement, ast.Import):
+            for alias in statement.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(statement, ast.ImportFrom):
+            # A bare relative from-list cannot prove its own package export.
+            if statement.level and not statement.module:
+                continue
+            for alias in statement.names:
+                if alias.name != "*":
+                    bound.add(alias.asname or alias.name)
+        elif isinstance(statement, ast.Delete):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    bound.discard(target.id)
+    return bound
+
+
 def _literal(node: ast.AST | None) -> Any:
     if node is None:
         return _MISSING
