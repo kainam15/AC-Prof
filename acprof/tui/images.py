@@ -231,6 +231,9 @@ class ImageWorkspace(Vertical):
 class ImageDetailResizeHandle(Static, can_focus=True):
     """单行分隔条；使用屏幕坐标拖动，避免控件移动时位置跳变。"""
 
+    # Screen 在控件捕获鼠标前启动文本选择；分隔条拖动不能触发选区自动滚动。
+    ALLOW_SELECT = False
+
     BINDINGS = [
         Binding("up", "adjust(1)", show=False),
         Binding("down", "adjust(-1)", show=False),

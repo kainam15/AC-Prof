@@ -10,6 +10,7 @@ import pytest
 from rich.cells import cell_len
 from test_image_management import FINAL, RUNTIME, WEIGHTS, DockerFixture, dependency_images, image
 from test_tui_table_resize import drag, header_offset
+from textual import events
 from textual.widgets import (
     Button,
     Collapsible,
@@ -109,6 +110,61 @@ class TestTuiImages:
             assert not (app._selected_image_ids)
             assert (detail.region.bottom) <= (app.query_one("#image-panel").content_region.bottom)
             assert (len(self.docker.commands)) == (before), "调整详情高度不能查询 Docker"
+
+    @pytest.mark.parametrize('view, widget_id', (
+        ('tree', '#image-tree'), ('list', '#image-table'), ('layers', '#image-layer-table'),
+    ))
+    @pytest.mark.parametrize('size, language, scroll_y', (
+        ((80, 24), 'zh', 0), ((120, 30), 'en', 0), ((150, 45), 'zh', 5),
+    ))
+    async def test_detail_drag_preserves_browser_scroll_position(self, view, widget_id, size, language, scroll_y):
+        for number in range(30):
+            key = f"sha256:{number:064x}"
+            self.docker.images[key] = image(
+                key, [f"acprof-runtime-extra-{number:02}:env"], 200, [f"extra-{number}"])
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await self.load_images(app, pilot, view="tree")
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            await pilot.click("#image-view-" + view)
+            browser = app.query_one(widget_id)
+            handle = app.query_one("#image-detail-resize")
+            detail = app.query_one("#image-detail-scroll")
+            # 先给短终端的列表留出两行可缩空间，再逐行向上拖动。
+            handle.focus()
+            await pilot.press("down", "down")
+            browser.scroll_to(y=scroll_y, animate=False, immediate=True)
+            await pilot.pause()
+            assert browser.max_scroll_y > scroll_y
+            assert browser.scroll_y == scroll_y
+            initial_height = detail.size.height
+            current = detail._detail_key
+            before = len(self.docker.commands)
+            x, y = handle.region.x + handle.size.width // 2, handle.region.y
+            await pilot.mouse_down(handle, offset=(handle.size.width // 2, 0))
+            # Pilot.hover 的 delta_y 固定为 0，无法触发真实拖动的选区自动滚动。
+            previous_y = y
+            for moved in (-1, -2, 0):
+                target_y = y + moved
+                app.post_message(events.MouseMove(
+                    app.screen, x, target_y, delta_x=0, delta_y=target_y - previous_y, button=1,
+                    shift=False, meta=False, ctrl=False, screen_x=x, screen_y=target_y,
+                ))
+                await pilot.pause()
+                assert detail.size.height == initial_height - moved
+                assert browser.scroll_y == scroll_y, "按住分隔条拖动不能触发浏览区自动滚动"
+                assert not app.screen.get_selected_text(), "分隔条拖动不能建立文本选区"
+                assert app.mouse_captured is handle
+                previous_y = target_y
+            await pilot.mouse_up(offset=(x, y))
+            await pilot.pause()
+            assert app.mouse_captured is None
+            assert browser.scroll_y == scroll_y
+            assert detail._detail_key == current
+            assert not app._selected_image_ids
+            assert len(self.docker.commands) == before
 
     async def test_detail_resize_clamps_restores_height_and_preserves_reading_state(self):
         app = self.make_app()
