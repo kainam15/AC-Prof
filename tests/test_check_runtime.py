@@ -5,13 +5,59 @@ import os
 import subprocess
 import tempfile
 from contextlib import redirect_stderr
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from packaging.requirements import Requirement
 
+from acprof.runtime_profiles import PROFILES
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
+
+
+@pytest.mark.parametrize('python_version', ('3.10.21', '3.12.3'))
+def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tmp_path, monkeypatch, python_version):
+    profile = PROFILES['onnxruntime-cpu']
+    platform = replace(profile.environment.platform, python_version=python_version)
+    monkeypatch.setitem(PROFILES, profile.profile_id,
+                        replace(profile, environment=replace(profile.environment, platform=platform)))
+    image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
+                            platform_image_id='sha256:' + 'b' * 64, manifest={})
+    downloads = []
+
+    def execute(command, **kwargs):
+        if 'download' in command:
+            downloads.append((command, Path(command[command.index('-r') + 1]).read_text()))
+        return subprocess.CompletedProcess(command, 0)
+
+    with patch('scripts.check_runtime.prepare_environment_image', return_value=image), patch(
+        'scripts.check_runtime.subprocess.run', side_effect=execute,
+    ):
+        assert main(['--profile', profile.profile_id, '--output-dir', str(tmp_path)]) == 0
+
+    (command, lock), = downloads
+    assert '--python-version' in command
+    assert command[command.index('--python-version') + 1] == python_version
+    assert '--no-deps' in command
+    assert '--require-hashes' in command
+    assert '--platform' in command
+    requirements = {}
+    for line in lock.replace('\\\n', '').splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        requirement, _, hashes = line.partition('--hash=')
+        parsed = Requirement(requirement.strip())
+        assert parsed.marker is None  # pip must not re-evaluate markers using the host Python.
+        assert hashes.strip()
+        requirements[parsed.name] = hashes
+    assert 'colorama' not in requirements
+    assert {'pytest', 'pytest-asyncio'} <= requirements.keys()
+    for package in ('backports-asyncio-runner', 'exceptiongroup', 'tomli'):
+        assert (package in requirements) == python_version.startswith('3.10.')
+    if 'backports-asyncio-runner' in requirements:
+        assert 'sha256:0da0a936a8aeb554eccb426dc55af3ba63bcdc69fa1a600b5bb305413a4477b5' in requirements['backports-asyncio-runner']
 
 
 class TestRuntimeCheckSelection:

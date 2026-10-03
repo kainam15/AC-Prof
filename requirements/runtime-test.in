@@ -1,7 +1,7 @@
 # 临时容器测试工具，独立于推理镜像的运行依赖和身份。
 pytest==8.4.2
 pytest-asyncio==1.2.0
-# 主机可能是 Python 3.12；wheelhouse 也必须包含 Python 3.10 的依赖。
-backports-asyncio-runner==1.2.0
-exceptiongroup==1.3.1
-tomli==2.4.1
+# 按安装目标保留 Python 3.10 的依赖；容器 wheelhouse 使用 runtime platform 筛选。
+backports-asyncio-runner==1.2.0 ; python_version < "3.11"
+exceptiongroup==1.3.1 ; python_version < "3.11"
+tomli==2.4.1 ; python_version < "3.11"

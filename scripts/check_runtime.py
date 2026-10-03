@@ -9,6 +9,8 @@ import time
 import uuid
 from pathlib import Path
 
+from packaging.requirements import Requirement
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置仓库导入路径。
@@ -19,6 +21,10 @@ from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导�
     DEFAULT_PROFILES,
     PROFILES,
     environment_id,
+)
+from scripts.compile_locks import (  # noqa: E402 -- 复用已注册的容器目标平台。
+    target_markers,
+    target_tags,
 )
 
 PATTERNS = {
@@ -43,15 +49,38 @@ print('ONNX dependencies imported; torch and transformers are absent')
 """
 
 
-def prepare_test_wheels(output, timeout):
+def prepare_test_wheels(output, timeout, platform):
     """Download the hashed test tools before entering the network-isolated container."""
     wheels = output / "test-wheels"
     wheels.mkdir()
+    # pip's target flags select wheels, but requirement markers still use the host.
+    # Select the complete locked closure for the runtime, retaining every hash.
+    markers = target_markers(platform)
+    selected = []
+    source = (ROOT / "requirements/runtime-test.lock").read_text(encoding="utf-8")
+    for line in source.replace("\\\n", "").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        value, separator, hashes = line.partition("--hash=")
+        requirement = Requirement(value.strip())
+        if requirement.marker and not requirement.marker.evaluate(markers):
+            continue
+        requirement.marker = None
+        selected.append(f"{requirement} {separator}{hashes}\n")
+    lock = output / "runtime-test-target.lock"
+    lock.write_text("".join(selected), encoding="utf-8")
+    command = [
+        sys.executable, "-m", "pip", "download", "--require-hashes", "--only-binary=:all:",
+        "--no-deps", "--python-version", platform.python_version, "--implementation", "cp",
+        "-r", str(lock), "--dest", str(wheels),
+    ]
+    tags = target_tags(platform)
+    for value in dict.fromkeys(tag.platform for tag in tags):
+        command += ["--platform", value]
+    for value in dict.fromkeys(tag.abi for tag in tags):
+        command += ["--abi", value]
     with (output / "test-tools.log").open("w") as log:
-        subprocess.run([
-            sys.executable, "-m", "pip", "download", "--require-hashes", "--only-binary=:all:",
-            "-r", str(ROOT / "requirements/runtime-test.lock"), "--dest", str(wheels),
-        ], check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
+        subprocess.run(command, check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
 
 
 def main(argv=None):
@@ -104,7 +133,7 @@ def main(argv=None):
             result["successful"] = True
             code = 0
         else:
-            prepare_test_wheels(output, args.timeout_seconds)
+            prepare_test_wheels(output, args.timeout_seconds, profile.environment.platform)
             command = [
                 "docker", "run", "--rm", "--name", container_name, "--network", "none", "--cpus", "2", "--memory", "4g",
                 "--user", f"{os.getuid()}:{os.getgid()}",
@@ -130,7 +159,7 @@ def main(argv=None):
             )
             run_command = [*command, image_id, "sh", "-c", bootstrap, "acprof-runtime-tests",
                            "/tmp/acprof-tests/bin/python", "scripts/run_tests.py",
-                           "--require-no-skips", "--report", "/evidence/tests.json"]
+                           "--require-no-skips", "--report", "/evidence/tests.json", "-p", "no:cacheprovider"]
             for pattern in result["test_patterns"]:
                 run_command += ["--pattern", pattern]
             code = subprocess.run(run_command, cwd=ROOT, timeout=args.timeout_seconds).returncode

@@ -580,7 +580,12 @@ xfail/xpass 分别对应 `expected_failure` / `unexpected_success`；后者始�
 筛选先于分片：对完整筛选后 node ID 排序，用 `index::count` 分配，SHA256 包含整个筛选集。
 新增测试或参数改变 suite hash；同一 revision、参数与依赖环境的重复收集必须一致。
 
-容器接口验证先下载带 hash 的 `runtime-test.lock` wheelhouse，再在 `--network none` 容器内
+容器接口验证按 runtime platform 的 Python、Linux wheel tags 和依赖 markers，
+从 `runtime-test.lock` 生成保留原始 hashes 的 `runtime-test-target.lock`，下载对应 wheelhouse。
+这避免 Python 3.12 主机漏掉 Python 3.10 容器所需的 backport；普通主机安装仍遵守版本条件。
+依赖条件沿用 [pytest-asyncio 的声明](https://github.com/pytest-dev/pytest-asyncio/blob/v1.2.0/pyproject.toml)，
+目标筛选复用项目锁工具，避免 [pip 按主机解释 markers](https://github.com/pypa/pip/issues/6117) 的跨版本下载问题。
+下载后在 `--network none` 容器内
 创建 `/tmp/acprof-tests` 临时环境，复用镜像的推理依赖；不向推理镜像添加 pytest，也不改变
 环境身份或硬件采集入口。硬件 workflow 仍调用真实 `check_hardware.py`，pytest 通过不能替代它。
 Runtime policy 的最小固定回归在 `test_runtime_preflight.py`：覆盖 GLM-OCR task registry、
