@@ -319,6 +319,14 @@ CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TU
 `acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
 `diagnostics` 负责提示性预检和结果摘要。TUI 提示性检查与 CLI 权威检查保留各自用途。
+启动检查直接复用 `diagnostics.quick_preflight` 及其 host 探测，不新增环境检测器。`app` 在首屏
+刷新后调用现有 thread worker，以测量锁隔离诊断，保存请求身份、检查配置和结果；UI 回调只接受
+当前请求，退出后的结果不再访问控件。检查不锁定表单，但采集需等待结果且不能使用失效配置。
+正常结果不产生 UI 通知；`warn` 只呈现对应能力限制，`fail` 与检查异常阻断采集，最终运行仍须通过
+CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题和返回重试意图。
+线程生命周期与主线程更新参考 [Textual 8.2.8 worker](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py)
+和 [上游线程安全说明](https://github.com/Textualize/textual/discussions/2853)（MIT）。复用项目已锁定且
+上游维护的 API，不复制框架源码、不新增依赖；诊断仅在启动或显式重试时运行，不进入测量窗口。
 `presentation` 统一数值输入格式与不适用、计算中、未知的显示标记，不改动配置、进度或结果协议。
 `reports` 用标准库校验已有统计/对照 JSON，并提供带单位和口径的表格数据；不加载 Textual 或采集依赖。
 统计页通过 `commands.build_stats_command` 启动既有 `stats.py`，沿用 App 的进程互斥、停止和日志流程；
