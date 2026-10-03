@@ -21,9 +21,15 @@ def main():
     config = RunConfig(**payload["config"])
 
     class ValidationTui(AcprofTui):
-        def on_mount(self):
-            # Textual 按 MRO 分发 Mount，父类 handler 会自动执行。
-            self.call_after_refresh(self._launch, PendingLaunch(tuple(payload["command"]), "run", config))
+        def _show_quick_check(self, checks, error, token):
+            if token is not self._check_request:
+                return
+            super()._show_quick_check(checks, error, token)
+            reason = self._preflight_run_reason()
+            if reason:
+                self.call_after_refresh(self._process_finished, "run", 1, None, self.tr(reason))
+            else:
+                self.call_after_refresh(self._launch, PendingLaunch(tuple(payload["command"]), "run", config))
 
         def _process_finished(self, kind, returncode, snapshot, launch_error):
             super()._process_finished(kind, returncode, snapshot, launch_error)

@@ -21,6 +21,10 @@ class TuiValidationRunnerTests(unittest.TestCase):
             config = replace(RunConfig.smoke("test/model"), output_dir=str(output / "results"), notify="none")
             command = output / "command.json"
             command.write_text(json.dumps({"config": asdict(config), "command": child}))
+            runner = runner or "import runpy, sys; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+            runner = ("from unittest.mock import patch\n"
+                      "with patch('acprof.tui.app.quick_preflight', return_value=[]):\n"
+                      "    exec(" + repr(runner) + ")\n")
             result = subprocess.run([
                 sys.executable, *(["-c", runner] if runner else []),
                 str(ROOT / "scripts/run_tui_validation.py"), str(command),
@@ -76,3 +80,15 @@ with patch.object(AcprofTui, "_execute_command", finish_after_focus):
     def test_launch_error_is_rendered_before_nonzero_exit(self):
         self.run_validation([str(ROOT / "missing-validation-child")], returncode=1,
                             expected="FileNotFoundError")
+
+    def test_startup_check_failure_exits_without_launching_child(self):
+        runner = '''import runpy, sys
+from unittest.mock import patch
+
+sys.argv = sys.argv[1:]
+with patch("acprof.tui.app.quick_preflight", side_effect=OSError("host unavailable")), patch(
+    "acprof.tui.app.AcprofTui._execute_command", side_effect=AssertionError("unexpected child"),
+):
+    runpy.run_path(sys.argv[0], run_name="__main__")
+'''
+        self.run_validation(["unused"], returncode=1, expected="host unavailable", runner=runner)
