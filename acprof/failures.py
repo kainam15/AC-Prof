@@ -12,7 +12,7 @@ REASON_CODES = frozenset({
     "runtime_dependency_unknown", "precision_mismatch", "request_timeout", "resource_limit",
     "model_contract_required", "artifact_layout_unsupported", "processor_incompatible",
     "access_denied", "runtime_initialization_failed", "remote_code_disallowed",
-    "compatibility_budget_exhausted", "inference_failed",
+    "compatibility_budget_exhausted", "recorded_evidence_invalid", "inference_failed",
 })
 FAILURE_PREFIX = "ACPROF_FAILURE="
 
@@ -79,7 +79,8 @@ def compatibility_status(failure: Failure | dict) -> str:
     code = failure.reason_code if isinstance(failure, Failure) else failure["reason_code"]
     if code == "resource_limit":
         return "unverified"
-    if code in {"request_timeout", "compatibility_budget_exhausted", "runtime_dependency_unknown"}:
+    if code in {"request_timeout", "compatibility_budget_exhausted", "runtime_dependency_unknown",
+                "recorded_evidence_invalid"}:
         return "inconclusive"
     if code == "model_contract_required":
         return "needs_configuration"

@@ -305,6 +305,9 @@ TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver �
 失败由 [`Failure`](../acprof/failures.py) 统一描述，CLI、audit、`models.csv`、TUI 和 `REPORT.md`
 直接传递 `reason_code`；异常链与原始日志保留用于诊断。`request_timeout` 表示请求期限耗尽，
 `compatibility_budget_exhausted` 表示独立验证整体预算耗尽，均为 `inconclusive`。
+已有结果中的兼容性 JSON 按单文件 4 MiB 上限读取，并要求对象结构及有限数值；损坏证据记录为
+`recorded_evidence_invalid` 和 `inconclusive`。同一结果目录中的有效 typed failure 继续优先展示，
+不会因另一份产物损坏而被覆盖，也不会把损坏产物解释成模型本身不兼容。
 真实推理异常使用 `inference_failed`，不能仅因为 60 秒未完成就认定不兼容。
 默认 timeout 仍为 300 秒；显式重试使用更高 `--timeout-seconds` 和新的输出目录，不自动循环。
 质量警告独立于 Capability，字段及历史结果边界见[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。

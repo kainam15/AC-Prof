@@ -600,7 +600,8 @@ client 在请求及 monitor 结束后写入 case sidecar，资源矩阵退出时
 timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_id`、`input_scale`、
 `model_loaded`、`service_alive` 与 `timeout_scope`。正式 HTTP 请求沿用 connect/read inactivity
 超时语义；兼容性验证沿用整个子进程预算。未观察的布尔字段为 null，不能补成 true 或 false。
-`request_timeout` 和 `compatibility_budget_exhausted` 在兼容性报告中为 `inconclusive`；
+`request_timeout`、`compatibility_budget_exhausted` 和只表示已有报告产物损坏的
+`recorded_evidence_invalid` 在兼容性报告中为 `inconclusive`；后者不覆盖同目录已有的有效 typed failure。
 预算筛查或实测资源限制为 `unverified`，用 `evidence.measured_oom` 区分是否有真实 OOM 证据。
 提高预算需显式重试并使用新目录，不覆盖原始预算与失败证据。
 

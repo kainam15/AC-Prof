@@ -88,6 +88,86 @@ def test_recorded_result_report_preserves_warnings_and_legacy_unknown():
         assert (result_status(report["rows"][1])) == ("full_success_quality_unknown")
         assert (before) == ({path: path.read_bytes() for path in before})
 
+@pytest.mark.parametrize('content', (
+    '{',
+    '[]',
+    '{"full_profile_complete": NaN}',
+    '{"full_profile_complete": 1e999}',
+    json.dumps({"padding": "x" * (4 * 1024 * 1024)}),
+))
+def test_recorded_result_report_marks_invalid_artifact_inconclusive(tmp_path, content):
+    from acprof.analysis.compatibility import report_results, result_status
+    source = tmp_path / 'fixture'
+    source.mkdir()
+    (source / 'static_meta.json').write_text(json.dumps({
+        'model_id': 'fixture/model', 'model_revision': 'a' * 40,
+    }))
+    artifact = source / 'capability_report.json'
+    artifact.write_text(content)
+
+    report = report_results([source], tmp_path / 'report')
+
+    row = report['rows'][0]
+    assert (result_status(row)) == ('inconclusive')
+    assert not row['full_profile_complete']
+    assert (row['failure']['reason_code']) == ('recorded_evidence_invalid')
+    assert (row['failure']['evidence']['artifact']) == (str(artifact.resolve()))
+    assert (tmp_path / 'report' / 'coverage.json').is_file()
+
+
+@pytest.mark.parametrize(('name', 'content'), (
+    ('runtime_failures.json', '{"failures": {}}'),
+    ('runtime_failures.json', '{"failures": [{}]}'),
+    ('runtime_validation.json', '{"devices": []}'),
+    ('runtime_validation.json', '{"devices": {"off": {"failure": {"reason_code": "invalid"}}}}'),
+    ('model_resolution.json', '{"failure": []}'),
+    ('model_resolution.json', '{"failure": {"reason_code": "invalid"}}'),
+))
+def test_recorded_result_report_rejects_invalid_nested_evidence(tmp_path, name, content):
+    from acprof.analysis.compatibility import report_results, result_status
+    source = tmp_path / 'fixture'
+    source.mkdir()
+    (source / 'static_meta.json').write_text(json.dumps({'model_id': 'fixture/model'}))
+    (source / name).write_text(content)
+
+    row = report_results([source], tmp_path / 'report')['rows'][0]
+
+    assert (result_status(row)) == ('inconclusive')
+    assert (row['failure']['reason_code']) == ('recorded_evidence_invalid')
+    assert (row['failure']['evidence']['artifact_name']) == (name)
+
+
+def test_recorded_result_report_accepts_failure_only_directory(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+    source = tmp_path / 'fixture'
+    source.mkdir()
+    failure = Failure('preflight', 'runtime_task_unsupported', 'unsupported task').to_dict()
+    (source / 'runtime_failures.json').write_text(json.dumps({'failures': [failure]}))
+
+    row = report_results([source], tmp_path / 'report')['rows'][0]
+
+    assert (row['model_id']) == ('fixture')
+    assert (row['failure']) == (failure)
+    assert (result_status(row)) == ('failed')
+
+
+def test_recorded_result_report_keeps_runtime_failure_ahead_of_invalid_artifact(tmp_path):
+    from acprof.analysis.compatibility import report_results, result_status
+    source = tmp_path / 'fixture'
+    source.mkdir()
+    failure = Failure('predict', 'inference_failed', 'request failed').to_dict()
+    (source / 'static_meta.json').write_text(json.dumps({'model_id': 'fixture/model'}))
+    (source / 'runtime_failures.json').write_text(json.dumps({'failures': [failure]}))
+    (source / 'capability_report.json').write_text('{')
+
+    row = report_results([source], tmp_path / 'report')['rows'][0]
+
+    assert (result_status(row)) == ('failed')
+    assert (row['failure']) == (failure)
+    assert [item['reason_code'] for item in row['failures']] == [
+        'inference_failed', 'recorded_evidence_invalid',
+    ]
+
 def test_quality_does_not_revoke_verified_capability():
     from acprof.analysis.compatibility import result_status
     from acprof.capabilities import Capability, CapabilityReport, apply_runtime_validation

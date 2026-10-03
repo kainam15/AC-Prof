@@ -5,10 +5,40 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 from pathlib import Path
 
-from acprof.failures import compatibility_status
+from acprof.failures import Failure, compatibility_status
 from acprof.quality import combine_quality, read_quality, summarize_quality
+
+MAX_COMPATIBILITY_ARTIFACT_BYTES = 4 * 1024 * 1024
+
+
+def _finite_json_number(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("non-finite number")
+    return value
+
+
+def _read_recorded_object(path: Path) -> dict:
+    with path.open("rb") as stream:
+        content = stream.read(MAX_COMPATIBILITY_ARTIFACT_BYTES + 1)
+    if len(content) > MAX_COMPATIBILITY_ARTIFACT_BYTES:
+        raise ValueError("artifact exceeds the 4 MiB read limit")
+    payload = json.loads(content, parse_float=_finite_json_number,
+                         parse_constant=_finite_json_number)
+    if not isinstance(payload, dict):
+        raise ValueError("top-level JSON value must be an object")
+    return payload
+
+
+def _recorded_evidence_failure(path: Path, error: Exception) -> dict:
+    return Failure(
+        "compatibility_report", "recorded_evidence_invalid", f"{path.name}: {error}",
+        evidence={"artifact": str(path.resolve()), "artifact_name": path.name},
+        exception_type=type(error).__name__,
+    ).to_dict()
 
 
 def result_status(row):
@@ -59,18 +89,82 @@ def report_results(sources: list[Path], output: Path) -> dict:
     rows = []
     for source in sources:
         layout = ArtifactLayout.discover(source)
+        invalid = []
+
         def read(name):
             path = layout.path(name)
-            return json.loads(path.read_text()) if path.is_file() else {}
+            if not path.is_file():
+                return {}
+            try:
+                return _read_recorded_object(path)
+            except (OSError, UnicodeError, ValueError, RecursionError) as error:
+                invalid.append(_recorded_evidence_failure(path, error))
+                return {}
+
+        def invalid_shape(name, detail):
+            invalid.append(_recorded_evidence_failure(layout.path(name), ValueError(detail)))
+
+        def validated_failure(name, value, location):
+            try:
+                if not isinstance(value, dict):
+                    raise ValueError("must be an object")
+                failure = Failure(**value)
+                if (not isinstance(failure.stage, str) or not failure.stage
+                        or not isinstance(failure.detail, str)
+                        or not isinstance(failure.evidence, dict)):
+                    raise ValueError("has invalid typed failure fields")
+                return failure.to_dict()
+            except (TypeError, ValueError) as error:
+                invalid_shape(name, f"{location} must be a valid typed failure: {error}")
+                return None
+
         metadata, resolution = read("static_meta.json"), read("model_resolution.json")
         capability = read("capability_report.json")
         validation = read("runtime_validation.json")
-        if not any((metadata, resolution, capability, validation)):
+        failure_report = read("runtime_failures.json")
+        if not any((metadata, resolution, capability, validation, failure_report, invalid)):
             raise ValueError(f"No recorded compatibility evidence: {source}")
-        failures = read("runtime_failures.json").get("failures", [])
-        failures.extend(value["failure"] for value in validation.get("devices", {}).values() if value.get("failure"))
-        if resolution.get("failure"):
-            failures.append(resolution["failure"])
+
+        recorded_failures = failure_report.get("failures", [])
+        if not isinstance(recorded_failures, list):
+            invalid_shape("runtime_failures.json", "failures must be a list")
+            recorded_failures = []
+        else:
+            recorded_failures = [
+                failure for index, value in enumerate(recorded_failures)
+                if (failure := validated_failure(
+                    "runtime_failures.json", value, f"failures[{index}]",
+                )) is not None
+            ]
+
+        devices = validation.get("devices", {})
+        if not isinstance(devices, dict):
+            invalid_shape("runtime_validation.json", "devices must be an object")
+            devices = {}
+        device_failures = []
+        for device, value in devices.items():
+            if not isinstance(value, dict):
+                invalid_shape("runtime_validation.json", f"device {device!r} must be an object")
+                continue
+            failure = value.get("failure")
+            if failure is None:
+                continue
+            failure = validated_failure(
+                "runtime_validation.json", failure, f"device {device!r} failure",
+            )
+            if failure is not None:
+                device_failures.append(failure)
+
+        resolution_failure = resolution.get("failure")
+        if resolution_failure is not None:
+            resolution_failure = validated_failure(
+                "model_resolution.json", resolution_failure, "failure",
+            )
+        failures = [*recorded_failures, *device_failures]
+        if resolution_failure:
+            failures.append(resolution_failure)
+        failures.extend(invalid)
+
         quality = read_quality(source)
         rows.append({"model_id": metadata.get("model_id", resolution.get("model_id", source.name)),
                      "revision": metadata.get("model_revision", resolution.get("model_revision", "unknown")),
