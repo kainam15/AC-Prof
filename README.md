@@ -82,6 +82,9 @@ After installation, open a new terminal and start the TUI with the standard comm
 acprof tui
 ```
 
+The public interface is `acprof <command>` in both source and installed environments.
+Use `acprof --help` or `acprof <command> --help` to discover commands and options.
+
 Use `acprof tui --preset smoke` to load the introductory preset. In your current terminal, use the full executable path printed by the script;
 see [installation and command paths](docs/Distribution.md#clone-后初始化).
 You can then launch AC-Prof from any working directory; output paths are relative to that directory. The setup script starts it from the repository root.
@@ -111,7 +114,7 @@ The first run downloads the model and any required dependencies and builds image
 AC-Prof checks the environment before starting downloads and experiments.
 This `basic` example collects only basic metrics; `nan` values in energy, packet capture, and independent profiler fields are expected.
 After it finishes, follow the next section to inspect the results. Use a new `--output-dir` for a new experiment.
-To [resume an interrupted experiment](docs/Profiling_Protocol.md#结果完整性与断点续跑), add `--resume` to the original command.
+To [resume an interrupted experiment](docs/Profiling_Protocol.md#结果完整性与断点续跑), add `--resume` to the same `acprof run` command, preserving its parameters.
 
 You can also use [`acprof auto MODEL`](docs/CLI_Reference.md#acprof-auto) to check permissions and host requirements before measurement;
 it accepts the same resource options as `run`. It selects between `full` and `basic` based on host capabilities only when you explicitly pass `--profiling-mode auto`.

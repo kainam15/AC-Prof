@@ -11,7 +11,7 @@ AC-Prof 对 Docker 中的 Hugging Face 推理服务进行可复现分析，输�
 
 | 位置 | 职责 |
 | --- | --- |
-| 根 CLI → `acprof/cli/` | 采集、探测、补采、绘图与 TUI 入口 |
+| `acprof <command>` → `acprof/cli/` | 采集、探测、补采、绘图与 TUI 入口 |
 | `acprof/host/`、`acprof/container/`、`acprof/workloads/` | 主机编排、容器推理、确定性输入 |
 | `acprof/monitors/`、`acprof/packet/` | 原始测量、抓包与合并 |
 | `acprof/analysis/`、`acprof/plotting/`、`acprof/tui/` | 结果分析、绘图、终端界面 |
@@ -50,7 +50,7 @@ hardware-dependent feature work under WSL.
 
 | 任务 | 入口 |
 | --- | --- |
-| 修改 Python（含根脚本与测试） | [PyCharm MCP 工具与验证约定](docs/Testing.md#python-修改工作流) |
+| 修改 Python（含开发脚本与测试） | [PyCharm MCP 工具与验证约定](docs/Testing.md#python-修改工作流) |
 | 新建或修改 Skill、`AGENTS.md` | [编写规则](docs/README.md#skill-与-agent-文档编写) |
 | 选择验证范围、命令或开发工具 | [验证范围](docs/Testing.md#验证范围)、[开发检查](docs/Testing.md#开发质量检查)、[自动化入口](docs/Testing.md#自动化验证入口) |
 | 安装、运行、参数 | [快速开始](docs/i18n/README_zh-CN.md#快速开始)、[CLI 与设置](docs/CLI_Reference.md) |

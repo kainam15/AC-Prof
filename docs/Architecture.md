@@ -1,14 +1,14 @@
 # AC-Prof 代码架构
 
 AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运行时采集、结果分析与界面组织。
-根目录脚本负责命令启动；Python 调用直接引用职责所属模块，不保留已被替代的导入入口。
+唯一公开入口是 `acprof <command>`；Python 调用直接引用职责所属模块。
 
 `acprof/platform.py` 是环境识别和平台能力策略的唯一入口，保持标准库依赖；
 `capabilities.py` 分开维护平台 support 与采集 evidence。`host/platform_metadata.py` 只在准备阶段
 采集版本信息，analysis/plotting 只读取保存的环境身份，不探测当前主机来解释历史结果。
 WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 
-安装包通过 `acprof.cli.main` 惰性分发 `acprof <command>`，根脚本继续调用同一实现。
+源码开发、editable、wheel 和 standalone 均通过 `acprof.cli.main` 惰性分发 `acprof <command>`。
 `installation.py` 区分只读构建资源和用户工作目录，并生成 Python/standalone 子进程命令。
 资源、安装与发布边界见[发行包说明](Distribution.md)。
 
@@ -55,7 +55,8 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 
 ```mermaid
 flowchart TD
-    scripts[根目录脚本] --> cli[CLI 参数与调度]
+    public[Public interface] --> command["acprof &lt;command&gt;"]
+    command --> cli["acprof.cli.* 参数与调度"]
     cli --> host[主机业务模块]
     cli --> tui[TUI 应用]
     cli --> plotting[绘图]
@@ -79,8 +80,11 @@ flowchart TD
 现有条目，后续按职责处理，不以消除下划线数量为目标。
 
 用户统一使用 `acprof <command>`，TUI 的正式入口为 `acprof tui`，由 `acprof.cli.main:main` 分发。
-根目录的 Python 脚本用于源码开发；`acprof.cli.tui` 是 TUI 命令的内部实现模块。
-`profile.py` 在被 Python 导入时继续代理标准库 `profile`，使 `cProfile` 正常工作。
+`acprof.cli.tui` 是 TUI 命令的内部实现模块。根目录不包含 Python 文件；
+构建 hook 只存在于 `packaging/hatch_build.py`，开发工具位于 `scripts/`。
+`profile` 和 `cProfile` 直接使用 Python 标准库。
+TUI 预览、terminal log 和新 metadata 的命令统一展示为可复制的 `acprof <command>`；
+子进程内部通过 `installation.cli_command()` 选择当前 Python 或 standalone 可执行文件。
 `acprof.host.client`、容器 server/runner 和 packet 命令的模块路径保持原样。
 
 产物路径由 `ArtifactLayout` 根据 `result_manifest.json` 统一路由。新主实验显式初始化 v2，
@@ -198,7 +202,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 
 `metric_registry` 统一 CSV 字段、单位、来源、窗口和 profiler 完成条件；`config.CSV_FIELDS`
 保留同一列表对象。`analysis/audit` 和 `analysis/uncertainty` 负责只读审计与窗口统计，
-根 `audit.py` / `stats.py` 仅处理参数和报告输出。生成的 `docs/Metric_Reference.md` 可在 CI 检查漂移。
+`acprof.cli.audit` / `acprof.cli.stats` 仅处理参数和报告输出。生成的 `docs/Metric_Reference.md` 可在 CI 检查漂移。
 
 指标模块不读取环境、不创建 workload 或 monitor。慢请求阈值由 client 在调用时显式传入；
 冷启动状态仍由 client 管理。对照窗口、monitor 启停、正式请求和停止后的统计顺序保持一致。
@@ -336,7 +340,7 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 上游维护的 API，不复制框架源码、不新增依赖；诊断仅在启动或显式重试时运行，不进入测量窗口。
 `presentation` 统一数值输入格式与不适用、计算中、未知的显示标记，不改动配置、进度或结果协议。
 `reports` 用标准库校验已有统计/对照 JSON，并提供带单位和口径的表格数据；不加载 Textual 或采集依赖。
-统计页通过 `commands.build_stats_command` 启动既有 `stats.py`，沿用 App 的进程互斥、停止和日志流程；
+统计页通过 `commands.build_stats_command` 启动既有 `acprof stats`，沿用 App 的进程互斥、停止和日志流程；
 完成后在后台读取一次报告并更新表格。读取期间锁定启动入口，允许切换读取目标和退出；不定时扫描 CSV 或自动运行开销实验。
 绘图页摘要复用 `analysis.uncertainty.summarize_windows` 的分组、过滤和窗口均值，只关闭 bootstrap。
 借鉴 [Textual 8.2.8 thread worker 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/guide/workers/weather05.py)
@@ -403,7 +407,7 @@ TUI 应用从 `acprof.tui.app` 导入；共享配置与运行命令从 `acprof.e
 采集只支持 cgroup v2 和锁定依赖的镜像；CPU/GPU 使用匹配 monitor 的对照窗口作为能耗基线。
 Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要求重建，不派生兼容镜像。
 未知 backend、丢失的显式本地快照和无法查询的 NCU counters 都明确报错。
-驱动分支、任务专用 handler 和 `profile.py` 的标准库代理具有独立用途，继续保留。
+驱动分支和任务专用 handler 具有独立用途，继续保留。
 
 ### 可靠性设计参考
 

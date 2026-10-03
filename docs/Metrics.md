@@ -43,8 +43,8 @@
 可只读检查结果完整性，并按独立测量窗口估计均值区间：
 
 ```bash
-.venv/bin/python audit.py results/<model-dir>/ --require-complete --require-ok
-.venv/bin/python stats.py results/<model-dir>/ --metric latency_app_s
+acprof audit results/<model-dir>/ --require-complete --require-ok
+acprof stats results/<model-dir>/ --metric latency_app_s
 ```
 
 历史实验可能缺少完成状态，先省略 `--require-complete` 查看审计说明。区间的样本单位、
@@ -113,7 +113,7 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | `output_length_avg` | 同一 workload window 内响应长度的平均值：文字任务为该请求所有返回文本的 Unicode 字符数之和（不是 UTF-8 字节）；Diffusers 图像生成为图像数，视频生成为总帧数；检索等不适用任务为 `nan`。 |
 | `output_token_count_avg` | 同一 workload window 内每次响应文本 tokenizer token 数的平均值；ASR/图像描述按输出文本重新分词，`add_special_tokens=False`。图像描述先逐条分词再求和，不拼接 caption，也不等于实际生成 token ID 数或解码步数。tokenizer 不可用或统计失败时响应为 `null`；窗口内全部不可得时 CSV 为 `nan`，有效空文本为 `0`。 |
 | `repeat_idx` | 当前 warmup 或 repeat phase 内的 0-based iteration index。 |
-| `warmup` | `1` 表示 warmup 行，`0` 表示正式测量行。`plot.py` 默认排除 warmup 行。 |
+| `warmup` | `1` 表示 warmup 行，`0` 表示正式测量行。`acprof plot` 默认排除 warmup 行。 |
 | `repeat_in_window` | 本行内部连续发送的 request 数量。`latency_app_s` 和 `latency_s` 都是该 window 内 request 的平均值。 |
 
 ### 延迟与吞吐
@@ -257,7 +257,7 @@ cycles / ref-cycles 为可选 PMU 事件，不改变 instructions 的必需性�
 
 - `latency_app_s` 是 client 侧应用层计时，只要 `/predict` 请求成功，一般就能写出。
 - `latency_s` 是 packet-level 计时，需要完整完成 `tcpdump` capture、`acprof.packet.sniff_parse_pcap` parse、`acprof.packet.merge_packet_latency` merge。
-- 当前默认行为是严格模式：如果无法保证 `latency_s` 有值，`run.py` 会退出，不继续 merge 最终结果。
+- 当前默认行为是严格模式：如果无法保证 `latency_s` 有值，`acprof run` 会退出，不继续 merge 最终结果。
 
 `workload_contract` 是新增的 JSON 文本列，不参与数值聚合。每行保存已完成请求的实际工作量摘要，
 以 `request_count` 和 `variants[{count, contract}]` 保留请求数量与不同工作量的分布；不保存请求顺序。
@@ -375,10 +375,10 @@ Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不�
 ### 只读审计
 
 ```bash
-.venv/bin/python audit.py results/<model>/
-.venv/bin/python audit.py results/<model>/ --json
-.venv/bin/python audit.py results/<model>/ --require-complete --require-ok
-.venv/bin/python audit.py --metrics
+acprof audit results/<model>/
+acprof audit results/<model>/ --json
+acprof audit results/<model>/ --require-complete --require-ok
+acprof audit --metrics
 ```
 
 审计检查 CSV 结构、唯一测量键、状态枚举、非法数值、输入计划 hash 和新实验的计划覆盖，
@@ -397,9 +397,9 @@ Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不�
 跨后端比较沿用同一只读入口：
 
 ```bash
-.venv/bin/python audit.py results/<left-model>/ --compare results/<right-model>/ --json
+acprof audit results/<left-model>/ --compare results/<right-model>/ --json
 # 条件不完整或不一致时要求非零退出：
-.venv/bin/python audit.py results/<left-model>/ --compare results/<right-model>/ --require-comparable
+acprof audit results/<left-model>/ --compare results/<right-model>/ --require-comparable
 ```
 
 比较分别返回 `compatible`、`incompatible`、`unknown`，检查任务/场景、物化输入内容与顺序、
@@ -411,7 +411,7 @@ Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不�
 `expected_difference`，继续检查输入、线程与测量协议。示例：
 
 ```bash
-.venv/bin/python audit.py results/left --compare results/right \
+acprof audit results/left --compare results/right \
   --comparison-purpose cross-hardware --require-comparable --json
 ```
 
@@ -433,7 +433,7 @@ actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repe
 ### 窗口置信区间与开销对照
 
 ```bash
-.venv/bin/python stats.py results/<model>/ --metric latency_app_s --metric latency_s \
+acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
   --confidence 0.95 --resamples 5000 --seed 0 --output internal-testing/window-statistics.json
 ```
 
@@ -469,11 +469,11 @@ actual workload 的 `variants` 计数必须覆盖 `request_count`，已有 `repe
 负值表示该次对照中更快，不能直接解释成监测器提升了推理性能；区间跨零时没有检测到稳定方向。
 所有报告均在窗口结束后写出，新目录保护失败和中断证据。正式采集的 monitor 生命周期保持原协议。
 
-TUI 的“统计报告”页调用同一个 `stats.py`，默认分析应用延迟、抓包延迟和容器归因有效能耗，
+TUI 的“统计报告”页调用同一个 `acprof stats`，默认分析应用延迟、抓包延迟和容器归因有效能耗，
 使用 95% 区间、5000 次重采样、seed=0、block-size=1。点击计算后显示表格：完整报告内容相同则复用已有 JSON 并提示，否则按日期时间保存新文件；
 需要其他指标或连续块参数时，可先用 CLI 生成报告，再在 TUI 打开。
 表格将秒转换为 ms，能耗保留报告中的单位；真实零、无有效窗口、窗口不足和连续块中断分别显示。
-统计只描述已写入的正式成功窗口，不能代替 `audit.py --require-complete --require-ok` 对实验完成度的验收。
+统计只描述已写入的正式成功窗口，不能代替 `acprof audit --require-complete --require-ok` 对实验完成度的验收。
 
 该页还可直接读取上述两种开销工具的成功报告，显示配对轮数、延迟变化和区间；headless 与 terminal
 的测量范围分别注明。未完成、失败、损坏或未知版本的报告显示错误，不保留上一份结果冒充新报告。
@@ -556,13 +556,13 @@ HTML 条件资格与严格比较一致，数值变化仍是描述性汇总；跨
 ### 绘图入口
 
 ```bash
-python plot.py \
+acprof plot \
   results/smoke/google-bert--bert-base-uncased/result_all.csv
 ```
 
 图表按环境写入绘图根目录下的 `<environment_class>/cpu/`、`<environment_class>/gpu/` 和 `<environment_class>/gpu+cpu/`，延迟模型仍写入 `latency_model/`；没有适用数据的分组会自动跳过。除原有指标总览外，还会按可用字段生成资源失败边界、P50/P90/P95 尾延迟、延迟–能耗 Pareto 前沿和冷启动阶段分解图。历史 CSV 缺少新字段时只跳过对应图，不影响其余图表。
 
-`plot.py` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
+`acprof plot` 读取实验根目录的 `static_meta.json`，用其中的 `input_scale_type` 作为横轴语义名；静态元数据要求 schema v7，旧 `static_meta.csv` 会直接报错。新实验的图片会写入结果目录的 `plots/`；没有清单的旧目录仍直接写到根部。绘图根目录下包含：
 
 - `<environment_class>/cpu/`：只使用该环境下 `gpu_mode=off` 的 CPU 数据
 - `<environment_class>/gpu/`：只使用该环境下 `gpu_mode=on` 的 GPU 数据

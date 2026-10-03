@@ -528,7 +528,7 @@ shim 只有同时满足以下条件才能删除：
 
 ### 本地模型声明与自定义 pipeline
 
-`run.py` 和 `probe.py` 接受 `--model-spec /path/to/model.json`，覆盖 snapshot 中的
+`acprof run` 和 `acprof probe` 接受 `--model-spec /path/to/model.json`，覆盖 snapshot 中的
 `acprof_model.json`。JSON 必须声明 `schema_version=1`、`format`、标准任务 `task`，最大 64 KiB。
 制品接口使用 `format=onnxruntime/torchscript/skops` 和相对 snapshot 的 `model_file`；
 ONNX 图像／文本还需[对应预处理声明](#扩展声明与按需加载)。结构化任务的 `feature_dim`
@@ -538,7 +538,7 @@ ONNX 图像／文本还需[对应预处理声明](#扩展声明与按需加载)�
 例如没有 Hub 任务标签的 Iris 可使用仓库中的声明与合成输入清单：
 
 ```bash
-.venv/bin/python run.py --model Ritual-Net/iris-classification \
+acprof run --model Ritual-Net/iris-classification \
   --model-spec examples/onnxruntime/iris.model.json \
   --workload-spec examples/onnxruntime/iris.json \
   --profiling-mode basic --cpus 1 --mems 2 --gpus off \
@@ -632,7 +632,7 @@ Whisper processor。Llama 仓库要求账号已获访问许可，并在构建时
 `examples/multimodal/ultravox.model.json`，或在 CLI 使用：
 
 ```bash
-.venv/bin/python run.py --model fixie-ai/ultravox-v0_5-llama-3_2-1b \
+acprof run --model fixie-ai/ultravox-v0_5-llama-3_2-1b \
   --model-spec examples/multimodal/ultravox.model.json \
   --profiling-mode basic --cpus 2 --mems 12 --gpus on \
   --input-scales 1 --batch-size 1 --warmup 1 --repeat 2 \
@@ -1053,7 +1053,7 @@ DDPM/DDIM 还支持原生根目录布局：组件目录不存在时，`UNet2DMod
 [Diffusers 的组件加载](https://github.com/huggingface/diffusers/blob/v0.39.0/src/diffusers/pipelines/pipeline_loading_utils.py)，
 不为未知 pipeline 猜测组件。离线随机 DDPM 已验证筛选后的根目录及子目录快照可加载并生成图像。
 
-自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`run.py` 和 `probe.py` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
+自定义 adapter、`auto_map`、量化配置、未知模型类型或未覆盖的 pipeline 使用完整快照，并打印回退原因。GPU 推理 dtype 不用于选择文件名中的 FP16／FP32 variant；不会自动转换、量化权重或切换 EMA checkpoint。需要完整仓库时，`acprof run` 和 `acprof probe` 均可传入 `--model-download-policy full`。TUI 使用默认 `auto`；两种策略具有不同的镜像指纹。
 
 共享环境层不包含 AC-Prof 业务代码或模型。默认构建使用带完整依赖锁的 runtime 镜像，
 再构建不含权重的模型清单和最终代码层。模型清单层不再包含权重，指纹绑定真实环境 image ID、模型 commit、backend、adapter、
@@ -1189,7 +1189,7 @@ MOSS 直接使用 [OpenMOSS 官方实现](https://github.com/OpenMOSS/MOSS-Trans
 CV 镜像同时安装 `build-essential`，供 PyTorch/Triton 在首次 GPU 推理时编译所需模块，以及 VitPose 图像变换需要的 SciPy。首次验证 BLIP 可运行以下命令。适配代码或依赖变化后需构建匹配指纹的镜像；复用前核验环境清单。
 
 ```bash
-.venv/bin/python run.py --model Salesforce/blip-image-captioning-base \
+acprof run --model Salesforce/blip-image-captioning-base \
   --cpus 2 --mems 8 --gpus off,on --input-scales 1 --batch-size 1 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
   --compute-profile-tool none --execution-profile-tool none \
@@ -1242,7 +1242,7 @@ sample 和 quantile 数值语义混为一谈。输入序列留在 CPU，由原�
 例如运行一个表格问答尺度，或将 `--task` 换为表中任务并选择对应模型：
 
 ```bash
-.venv/bin/python run.py --model google/tapas-base-finetuned-wtq \
+acprof run --model google/tapas-base-finetuned-wtq \
   --task table-question-answering --cpus 2 --mems 8 --gpus off \
   --input-scales 4 --batch-size 1 --warmup 0 --repeat 1 --repeat-in-window 1 \
   --compute-profile-tool none --execution-profile-tool none --notify none \
@@ -1356,7 +1356,7 @@ CV 可使用 `--workload-spec` 指定图片、视频帧、候选标签、姿态�
 TUI 的高级配置可选 `Multimodal`，也可使用 CLI。首次运行应重建模型镜像，后续再用 `--skip-build` 复用。以下例子只运行一个 VQA 输入尺度：
 
 ```bash
-.venv/bin/python run.py --model dandelin/vilt-b32-finetuned-vqa \
+acprof run --model dandelin/vilt-b32-finetuned-vqa \
   --task visual-question-answering --task-family multimodal \
   --backend transformers_model --cpus 2 --mems 8 --gpus off \
   --input-scales 224 --batch-size 1 --warmup 0 --repeat 1 \
@@ -1404,7 +1404,7 @@ Diffusers 清单示例（还可设置 `strength`、`image_guidance_scale`、`neg
 MOSS 自动选择专用 adapter 和依赖锁，不需要修改主机 `.venv`。默认提示词要求带时间戳和说话人编号的转写，`max_new_tokens=512`，CPU 使用 FP32，GPU 使用 BF16；processor 按官方方式分块处理音频，输出保留原始标记文本。可先运行：
 
 ```bash
-.venv/bin/python run.py --model OpenMOSS-Team/MOSS-Transcribe-Diarize \
+acprof run --model OpenMOSS-Team/MOSS-Transcribe-Diarize \
   --cpus 1 --mems 8 --gpus off,on --input-scales 1 --batch-size 1 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
   --compute-profile-tool none --execution-profile-tool none \

@@ -61,7 +61,7 @@ Nsys 主程序仍从宿主机挂载，可用 `--nsys-root` 指定；host 无需�
 需要严格采完整资源矩阵时显式传入：
 
 ```bash
-python run.py --model google-bert/bert-base-uncased \
+acprof run --model google-bert/bert-base-uncased \
   --gpus off,on \
   --execution-profile-tool both \
   --massif-sampling full --nsys-sampling full
@@ -78,8 +78,8 @@ Nsys 的 `per-cpu-scale` 只使用代表内存，`per-scale` 同时使用代表 
 `metadata/input_scale_plan.json`（flat 目录仍在根部）。先检查计划，再执行补采：
 
 ```bash
-python profile.py results/google-bert--bert-base-uncased --dry-run
-python profile.py results/google-bert--bert-base-uncased --tools torch,ncu
+acprof profile results/google-bert--bert-base-uncased --dry-run
+acprof profile results/google-bert--bert-base-uncased --tools torch,ncu
 ```
 
 不传 `--tools` 时，默认补齐适用且尚未成功的 `torch,ncu,nsys,massif`。
@@ -152,7 +152,7 @@ Torch eager 记录模型逻辑计算量，NCU 记录 GPU 实际执行量；两�
 | `cpu_heap_peak_bytes_massif` | CPU-only Massif 全部 snapshot 中 useful heap 的独立最大值，单位 bytes。该 process lifetime 包含模型加载、预热与 inference，不是单 request 内存增量。 |
 | `cpu_heap_extra_peak_bytes_massif` | 全部 Massif snapshot 中 allocator bookkeeping、alignment 等 heap extra 的独立最大值，单位 bytes。 |
 | `cpu_stack_peak_bytes_massif` | 全部 Massif snapshot 中 stack 的独立最大值，单位 bytes。 |
-| `cpu_heap_peak_total_bytes_massif` | 全部 Massif snapshot 中 `heap + heap extra + stack` 总量的最大值，单位 bytes。三个 component 的独立 maxima 可能来自不同 snapshot，不保证三者相加等于该 total。`plot.py` 会据此派生 GiB 图，但不改写 CSV。 |
+| `cpu_heap_peak_total_bytes_massif` | 全部 Massif snapshot 中 `heap + heap extra + stack` 总量的最大值，单位 bytes。三个 component 的独立 maxima 可能来自不同 snapshot，不保证三者相加等于该 total。`acprof plot` 会据此派生 GiB 图，但不改写 CSV。 |
 | `cpu_heap_peak_at_ms_massif` | 上述 total 最大值 snapshot 相对被剖析进程启动的时间，单位 ms；包含加载/预热阶段，不能当作单 request latency。 |
 | `compute_profile_error_massif` | Massif execution probe 的独立诊断；正常为空，未安装、执行失败或输出解析失败时记录原因。虽然沿用 `compute_profile_error_*` CSV 命名，它与 FLOP compute probe 独立。 |
 | `host_inference_wall_time_ms_per_request_nsys` | Nsight Systems probe 中同步 inference window 的 host wall time，按 `--nsys-repeat` 归一化为 ms/request。 |

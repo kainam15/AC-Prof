@@ -346,19 +346,19 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 | `metadata/compute_profile_plan.json` | per-scale FLOP profiling 结果。每个 CPU/GPU scale 可同时记录独立的 `torch_profiler_eager` 与 `ncu` profile；NCU 只存在于 GPU profile。失败信息按工具保存，只读取当前按 profiler 分层的 plan 结构。 |
 | `metadata/execution_profile_plan.json` | 显式 execution profiling 的采样与 per-resource-config/per-scale 汇总。Massif 条目对应 `gpu_mode=off`，Nsight Systems 条目对应 `gpu_mode=on`；复用 entry 记录实际 source resource 与 sampling strategy，失败按工具记录且不阻断主实验。 |
 | `raw/compute_profiles/` | 默认保留的原始 compute profiler artifacts；`--discard-compute-profiles` 可在汇总后删除。 |
-| `raw/posthoc_profiles/` | `profile.py` 生成的补采 plan、原始报告与可恢复 checkpoint。 |
+| `raw/posthoc_profiles/` | `acprof profile` 生成的补采 plan、原始报告与可恢复 checkpoint。 |
 | `.acprof/recovery/posthoc_backups/<timestamp>/` | 成功补采替换文件前保留的原始 CSV、静态元数据与已有历史记录备份。 |
-| `raw/probes/largest_scale_<timestamp>_<pid>/` | `probe.py` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
+| `raw/probes/largest_scale_<timestamp>_<pid>/` | `acprof probe` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
 | `raw/execution_profiles/` | 默认保留 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；stats 导出的 `.sqlite` 缓存会自动删除。传入 `--discard-execution-profiles` 时 raw artifacts 也会在汇总后删除。 |
-| `logs/terminal.log` | 在 tmux pane 内运行 `run.py` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |
-| `plots/latency_model/latency_model_report.json` | `plot.py` 生成的 latency 拟合报告。包含分 CPU/GPU 的正值模型、整配置留一与最大尺度外推指标、质量门槛、系数和训练范围。 |
-| `plots/latency_model/latency_model_residuals.csv` | `plot.py` 生成的 case-level residual。每个 `GPU mode × CPU × memory × input scale` 聚合 case 一行，包含重复数/离散度、full-fit、resource-config OOF 和最大尺度 holdout 预测。 |
-| `plots/latency_model/latency_model_fit_curves.png` | `plot.py` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |
-| `plots/latency_model/latency_model_residuals.png` | `plot.py` 在 residual CSV 有有效数据时生成的模型诊断图，包含 OOF 实际值/预测值、相对残差分布及残差随预测延迟和输入尺度的变化。 |
+| `logs/terminal.log` | 在 tmux pane 内运行 `acprof run` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |
+| `plots/latency_model/latency_model_report.json` | `acprof plot` 生成的 latency 拟合报告。包含分 CPU/GPU 的正值模型、整配置留一与最大尺度外推指标、质量门槛、系数和训练范围。 |
+| `plots/latency_model/latency_model_residuals.csv` | `acprof plot` 生成的 case-level residual。每个 `GPU mode × CPU × memory × input scale` 聚合 case 一行，包含重复数/离散度、full-fit、resource-config OOF 和最大尺度 holdout 预测。 |
+| `plots/latency_model/latency_model_fit_curves.png` | `acprof plot` 生成的 full-fit 曲线图。横轴为 input scale，CPU-off 与 GPU-on 分面展示，每个 `CPU × memory` 资源配置一条拟合曲线，并叠加实测 case 中位数。 |
+| `plots/latency_model/latency_model_residuals.png` | `acprof plot` 在 residual CSV 有有效数据时生成的模型诊断图，包含 OOF 实际值/预测值、相对残差分布及残差随预测延迟和输入尺度的变化。 |
 | `debug/idle/<case-id>.jsonl` | 仅 `--idle-debug` 时生成。每行对应一个 workload window 的 idle 诊断记录，包含 GPU NVML idle power trace、`nvidia-smi` GPU/process 快照、CPU idle window 内 RAPL 子窗口功率、host/container CPU delta、top proc CPU delta，以及 after-idle 快照，用于定位 `gpu_idle_power_w` / `cpu_idle_power_w` case 内波动来源。 |
-| `plots/<environment_class>/cpu/*.png` | `plot.py` 生成的该环境 CPU-only 图表；历史身份缺失时归入 `unknown`。 |
-| `plots/<environment_class>/gpu/*.png` | `plot.py` 生成的该环境 GPU-only 图表。 |
-| `plots/<environment_class>/gpu+cpu/*.png` | `plot.py` 生成的同一环境内 GPU/CPU 对比图表。 |
+| `plots/<environment_class>/cpu/*.png` | `acprof plot` 生成的该环境 CPU-only 图表；历史身份缺失时归入 `unknown`。 |
+| `plots/<environment_class>/gpu/*.png` | `acprof plot` 生成的该环境 GPU-only 图表。 |
+| `plots/<environment_class>/gpu+cpu/*.png` | `acprof plot` 生成的同一环境内 GPU/CPU 对比图表。 |
 
 `.acprof/work/cases/` 下本次已完成 case 的中间文件会在 `result_all.csv` 成功 merge、完成状态持久化后清理。
 旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
@@ -457,7 +457,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `input_scale_type` | `result_all.csv/input_scale` 的语义名，例如 `seq_length`。 |
 | `workload` | workload 清单的可复现元数据，包括素材 SHA256、来源、变换、推理模式以及模型侧输入约束。 |
 | `input_scale_plan_sha256` | 本次实际执行的 `input_scale_plan.json` SHA256。 |
-| `run_command` | 启动本次 profiling 的 `python run.py ...` 命令，便于复现实验参数。 |
+| `run_command` | 启动本次 profiling 的 `acprof run ...` 命令，便于复现实验参数。 |
 | `model_download_url` | Hugging Face model page URL。 |
 | `gpu` | 存在 GPU case 时为选定物理 GPU 的名称；仅 CPU 实验保留主机设备信息，没有可见 NVIDIA GPU 时为 `unknown`。 |
 | `gpu_mem_total_bytes` | 对应上述设备的 total VRAM，单位 bytes；无法读取时为 `null`。 |
@@ -605,7 +605,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 | 字段 | 含义 |
 | --- | --- |
 | `schema_version` | `collection_history.json` schema 版本，当前为 `1`。 |
-| `posthoc_profile_history` | `profile.py` 事后补采记录，包括工具、采样策略、完成时间与备份位置。 |
+| `posthoc_profile_history` | `acprof profile` 事后补采记录，包括工具、采样策略、完成时间与备份位置。 |
 | `timeout_retry_history` | 请求超时后的重采/合并记录。当前仓库没有自动生成该记录的入口，保留独立历史文件中的已有记录。 |
 | `quality_retry_history` | 质量检查后的定向重采/合并记录。当前仓库没有自动生成该记录的入口，保留独立历史文件中的已有记录。 |
 | `static_meta_backfill_history` | 对历史结果补充静态元数据时的来源、字段、备份位置及无法回溯的字段。 |
@@ -614,7 +614,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 
 ### 最大输入探测结果
 
-`probe.py` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
+`acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。
 后者当前为 schema v3，主要字段如下：
 
 | 字段 | 含义 |

@@ -60,7 +60,7 @@ find /sys/class/powercap -name energy_uj -readable -print -quit
 perf stat -e instructions -- true
 ```
 
-权限安装见下一节；`run.py` 会在下载模型之前执行完整 preflight，权限不足时报告错误。
+权限安装见下一节；`acprof run` 会在下载模型之前执行完整 preflight，权限不足时报告错误。
 
 ### 最小权限安装
 
@@ -172,7 +172,7 @@ HF_ENDPOINT=https://hf-mirror.com
 本例还要求前述 RAPL、perf 和抓包条件。
 
 ```bash
-python run.py --model google-bert/bert-base-uncased \
+acprof run --model google-bert/bert-base-uncased \
   --cpus 1 --mems 4 --gpus off \
   --input-scales 64 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
@@ -184,7 +184,7 @@ python run.py --model google-bert/bert-base-uncased \
 Stable Diffusion 建议先做单 GPU、单分辨率 smoke test（同样使用 `full` 模式）：
 
 ```bash
-python run.py --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
+acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
   --cpus 4 --mems 16 --gpus on --gpu-device 0 --input-scales 256 \
   --warmup 0 --repeat 1 --repeat-in-window 1 \
   --compute-profile-tool none --execution-profile-tool none \
@@ -215,7 +215,7 @@ results/smoke/google-bert--bert-base-uncased/
 cgroup v2。RAPL、perf、抓包不参与此模式，结果明确记录模式和能力状态。默认 `full` 保留原有严格条件。
 
 ```bash
-.venv/bin/python run.py --model Ritual-Net/iris-classification \
+acprof run --model Ritual-Net/iris-classification \
   --task tabular-classification --backend onnxruntime \
   --workload-spec examples/onnxruntime/iris.json --input-scales 1 \
   --cpus 1 --mems 1 --gpus off --batch-size 1 \
@@ -239,7 +239,7 @@ cgroup v2。RAPL、perf、抓包不参与此模式，结果明确记录模式和
 
 ## 查看结果
 
-用 `python plot.py <result_all.csv 路径>` 生成图表；[结果阅读指南](Metrics.md#从结果目录开始)说明输出目录、分析过滤、只读审计与统计入口。
+用 `acprof plot <result_all.csv 路径>` 生成图表；[结果阅读指南](Metrics.md#从结果目录开始)说明输出目录、分析过滤、只读审计与统计入口。
 
 ## 运行正式实验
 
@@ -255,7 +255,7 @@ cgroup v2。RAPL、perf、抓包不参与此模式，结果明确记录模式和
 完整矩阵开始前，可先扫描候选内存上限，确认最大输入能否完成一次请求：
 
 ```bash
-python probe.py --model google-bert/bert-base-uncased \
+acprof probe --model google-bert/bert-base-uncased \
   --cpus 1,2,4 --mems 2,4,8 --gpus off,on --skip-build
 ```
 
@@ -274,7 +274,7 @@ TUI 的“探测最大输入”调用同一入口。
 ### CPU-only 矩阵
 
 ```bash
-python run.py --model google-bert/bert-base-uncased \
+acprof run --model google-bert/bert-base-uncased \
   --cpus 1,2,4 --mems 4,8 --gpus off \
   --compute-profile-tool none \
   --output-dir results/bert-cpu
@@ -283,18 +283,18 @@ python run.py --model google-bert/bert-base-uncased \
 ### CPU / GPU 对比矩阵
 
 ```bash
-python run.py --model google-bert/bert-base-uncased \
+acprof run --model google-bert/bert-base-uncased \
   --cpus 1,2,4 --mems 4,8 --gpus off,on \
   --compute-profile-tool none \
   --output-dir results/bert-cpu-gpu
 ```
 
-上面两个例子使用默认 `full` 模式，先完成主矩阵，之后可用 `profile.py` 补采计算指标。计算分析器现在默认关闭；若希望在矩阵开始前直接采集 Torch / NCU，请显式传入 `--compute-profile-tool both`。`--execution-profile-tool` 默认也是 `none`。
+上面两个例子使用默认 `full` 模式，先完成主矩阵，之后可用 `acprof profile` 补采计算指标。计算分析器现在默认关闭；若希望在矩阵开始前直接采集 Torch / NCU，请显式传入 `--compute-profile-tool both`。`--execution-profile-tool` 默认也是 `none`。
 
 ### 默认完整矩阵
 
 ```bash
-python run.py --model google-bert/bert-base-uncased
+acprof run --model google-bert/bert-base-uncased
 ```
 
 默认配置如下：
@@ -323,22 +323,22 @@ python run.py --model google-bert/bert-base-uncased
 
 ```bash
 # 手动指定输入规模
-python run.py --model google-bert/bert-base-uncased \
+acprof run --model google-bert/bert-base-uncased \
   --input-scales 64,128,256,512
 
 # 时间序列模型
-python run.py --model amazon/chronos-bolt-base \
+acprof run --model amazon/chronos-bolt-base \
   --task-family timeseries --backend chronos
 
 # 复用已有镜像
-python run.py --model google-bert/bert-base-uncased --skip-build
+acprof run --model google-bert/bert-base-uncased --skip-build
 
 # 单个推理请求最多等待 30 分钟
-python run.py --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
+acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
   --request-timeout-seconds 1800
 
 # 查看全部参数
-python run.py --help
+acprof run --help
 ```
 
 ### 镜像复用、超时与失败处理

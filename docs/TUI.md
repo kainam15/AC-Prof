@@ -144,7 +144,7 @@ TUI 关联当前子进程与 `run_state` 中新增的 attempt，再通过既有�
 “统计报告”页可查看窗口置信区间、独立实验比较、CPU/GPU 监测开销和 CLI/TUI 对照：
 
 - 采集结束后，统计路径会自动带入结果 CSV（保留已手动编辑的路径）；确认路径后点击“计算统计”，也可输入其他实验目录或 CSV。
-  计算调用 `stats.py`，新报告保存到 v2 结果目录的 `plots/analysis/window-statistics-YYYYMMDD-HHMMSS-ffffff.json`（旧目录继续使用 `analysis/`），使用本地日期、时间和六位微秒。
+  计算调用 `acprof stats`，新报告保存到 v2 结果目录的 `plots/analysis/window-statistics-YYYYMMDD-HHMMSS-ffffff.json`（旧目录继续使用 `analysis/`），使用本地日期、时间和六位微秒。
   保存前比较该目录已有 JSON 的完整内容；相同则提示“已有相同报告”及路径，并直接显示已有报告，不新增文件。旧 UUID 文件名也参与比较，JSON 缩进或字段顺序不影响判断。
   源 CSV、统计参数或统计结果不同会保存新报告；旧报告保留，时间戳重名时递增微秒避免覆盖。
 - 查看已生成的报告时，输入 JSON 路径后点击“查看报告”。表格支持方向键、滚动和选行查看口径；延迟以 ms 显示。
@@ -404,7 +404,7 @@ Warmup 和 Repeat 分别输入，次数、Hz 和 s 放在输入框右侧。采�
 默认不自动 SIGKILL；协议和退出限制见[进程与界面边界](Profiling_Protocol.md#进程与界面边界)。
 
 
-界面不会重写采集逻辑，而是启动现有 `run.py`、`probe.py`、`plot.py`、`stats.py` 和 `profile.py`。为了降低
+界面不会重写采集逻辑，而是启动现有 `acprof run`、`acprof probe`、`acprof plot`、`acprof stats` 和 `acprof profile`。为了降低
 对能耗与延迟实验的影响，正式 workload 窗口内停止常规日志重绘，不运行实时绘图，
 也不轮询正在写入的 CSV；状态仅从已有进程输出中事件驱动更新。TUI 内运行时还会
 禁用子进程的 tmux pane 捕获，避免把全屏 ANSI 重绘写进 `logs/terminal.log`（旧目录为 `tmux_all.log`）。论文复现仍可

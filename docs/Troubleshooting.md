@@ -60,7 +60,7 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 
 ### 任务尚未适配的预检退出
 
-- `run.py` 与 `probe.py` 在任务识别及显式覆盖后，检查已知采集缺口、未登记的任务标签和任务族不匹配；失败时显示 `[task-support][ERROR]` 及解决办法，退出码为 `2`。TUI 显示“任务不支持”，详细原因保留在日志中。
+- `acprof run` 与 `acprof probe` 在任务识别及显式覆盖后，检查已知采集缺口、未登记的任务标签和任务族不匹配；失败时显示 `[task-support][ERROR]` 及解决办法，退出码为 `2`。TUI 显示“任务不支持”，详细原因保留在日志中。
 - `image-to-text` 已支持 CV 单图请求及图像描述输出，要求 `--batch-size 1`；多图 batch 会在预检退出。`image-text-to-text` 等九类多模态任务及适配边界见 [README](Runtime_Compatibility.md#多模态任务)，同样要求单样本请求。预检不是对全部模型架构或依赖版本的兼容保证。
 - 预检在模型镜像准备、输入规划和测量前执行，因此不新增测量 CSV、OOM/超时占位行或探测请求记录；已有测量结果保留。不要将此类退出解释为资源不足或一次实际推理失败。
 - 支持范围与适配步骤见 [README 的任务支持诊断](#task-supporterror--tui-显示任务不支持)。Hub 连接、鉴权或缺少元数据导致的识别失败继续使用独立诊断。
@@ -68,7 +68,7 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 ### 启动 OOM 与剪枝占位
 
 - 容器在模型加载期间触达 `--memory` cgroup 上限并被内核终止；错误会同时记录 memory cap、Docker 状态和 exit code。
-- 该 case 的占位行保留为 `status=error`，latency、throughput、energy 和 resource usage 等未执行指标保持 `nan`。`plot.py` 的性能图与 latency model 只使用 `status=ok` 行；资源可行性热力图会单独读取这些占位行，用来展示失败边界。
+- 该 case 的占位行保留为 `status=error`，latency、throughput、energy 和 resource usage 等未执行指标保持 `nan`。`acprof plot` 的性能图与 latency model 只使用 `status=ok` 行；资源可行性热力图会单独读取这些占位行，用来展示失败边界。
 - 增大 memory cap，或改用更小/量化模型；不要用推测值回填失败 case 的指标。
 - 默认剪枝在正式矩阵前执行独立 startup probe，按最低 CPU 的连续低内存 confirmed Docker OOM 前缀推断；probe 不写性能 CSV。对应全部 CPU（含参考 CPU）的正式 case 写为 `result_origin=inferred_not_measured`，热力图显示 `P-OOM`。正式尝试自身发生启动 OOM 才显示 `OOM-S`，不会回头扩大冻结计划的剪枝范围。需要每个资源格独立实测时使用 `--no-prune-startup-oom`；冻结顺序与证据见[采集协议](Profiling_Protocol.md#startup-probe-与冻结矩阵)。
 
@@ -85,7 +85,7 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 
 ### MIPS、cache miss 与 dTLB miss
 
-- `cpu_mips_*` 字段来自 Linux `perf` 的 `instructions` 硬件事件，不是 CPU frequency 推导值。`run.py` 会在 task detection 前检查 `perf` 权限，失败时打印 `[mips][ERROR]`、当前 `perf_event_paranoid` 和恢复步骤。
+- `cpu_mips_*` 字段来自 Linux `perf` 的 `instructions` 硬件事件，不是 CPU frequency 推导值。`acprof run` 会在 task detection 前检查 `perf` 权限，失败时打印 `[mips][ERROR]`、当前 `perf_event_paranoid` 和恢复步骤。
 - TUI 快速检查与正式启动共用 `resolve_perf_command_prefix()`：直接运行 `perf`，先读取有效 `instructions` 计数，再附加主机 PID 1 检查跨用户权限，每个探测最多 5 秒。环境检查不尝试 sudo 或自动 setcap；权限不足时可在 `F2` → “连接与权限 → 采集权限”显式配置，或参照[最小权限安装](Getting_Started.md#最小权限安装)。`ACPROF_SUDO_PASSWORD` 已移除，须从进程和本地 env 文件删除。TUI 使用独立环境副本，并将旧配置报告为迁移错误；实际容器 PID 仍由采集时的探测验证。
 - `cpu_cache_*` 和 `cpu_dtlb_*` 字段来自 Linux `perf` generic PMU events。可先用 `perf list` 和 `perf stat -e cache-references,cache-misses,dTLB-loads,dTLB-load-misses -- true` 检查当前 CPU / kernel 是否支持；事件不支持不表示 miss 为 0。
 - 这些 cache / dTLB 字段用于描述访存行为，不提供 DRAM GB/s。实际 read/write bandwidth 需要 uncore memory-controller、Intel PCM、AMD IBS/DF 或其他硬件专用计数器，不能由 miss 数直接换算。
@@ -151,7 +151,7 @@ perf stat -e instructions -- true
 cat /proc/sys/kernel/perf_event_paranoid
 ```
 
-若权限不足，`run.py` 会输出适合当前主机的修复步骤。修好权限后用普通用户运行 AC-Prof，不要使用 `sudo python run.py`，以免结果文件归 root 所有。
+若权限不足，`acprof run` 会输出适合当前主机的修复步骤。修好权限后用普通用户运行 AC-Prof，不要使用 `sudo acprof run`，以免结果文件归 root 所有。
 
 即使 `perf_event_paranoid=-1`，普通用户也可能无法附加 root 所属的 Docker 服务进程。
 若自启动 perf 成功、PID 附加失败，需要给真实 perf ELF 配置 `CAP_PERFMON`；Ubuntu 的

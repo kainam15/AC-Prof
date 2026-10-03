@@ -104,23 +104,23 @@ ACPROF_WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xx
 chmod 600 .env.local
 ```
 
-配置 Webhook 后，`run.py` 默认启用企业微信通知，无需额外参数：
+配置 Webhook 后，`acprof run` 默认启用企业微信通知，无需额外参数：
 
 ```bash
-python run.py --model google-bert/bert-base-uncased
+acprof run --model google-bert/bert-base-uncased
 ```
 
 `--notify` 默认为 `auto`（检测到 Webhook 自动启用）；传入 `--notify wecom` 显式启用，传入 `--notify none` 临时关闭：
 
 ```bash
-python run.py --model google-bert/bert-base-uncased --notify none
+acprof run --model google-bert/bert-base-uncased --notify none
 ```
 
 通知覆盖实验开始、已启用 profiler 的各工具阶段完成、每个资源 case 完成和最终总结。
 CPU Torch、GPU Torch、NCU、Massif、Nsys 各自汇总实际采样项、失败数、阶段耗时和累计耗时；
 vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失败、失败和无结果。
 关闭或不适用的工具不发阶段通知，代表资源复用不重复计数。最终总结区分成功、部分成功、
-无结果、失败和用户取消。TUI 启动的 `run.py` 使用同一设置，独立 `profile.py` 不发送这些通知。
+无结果、失败和用户取消。TUI 启动的 `acprof run` 使用同一设置，独立 `acprof profile` 不发送这些通知。
 
 通知在测量窗口外发送：profiler 阶段返回后、下一个阶段前，或 case 的容器、监控器与抓包
 全部停止后。input scale、warmup 和 repeat 窗口内部不发送网络通知。每次发送超时 5 秒，
@@ -128,9 +128,8 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 
 ## CLI 参数
 
-安装后的统一入口为 `acprof <command>`；公共子命令有 `run`、`tui`、`probe`、`plot`、
-`doctor`、`profile`、`audit`、`stats`、`inspect`、`auto`、`coverage`、`compare`、`load`、`model-store`、`report`。现有根脚本仍用于源码运行；所有子命令也可用
-`python -m acprof <command>` 调用。
+源码开发与安装环境的唯一公开入口为 `acprof <command>`；公共子命令有 `run`、`tui`、`probe`、`plot`、
+`doctor`、`profile`、`audit`、`stats`、`inspect`、`auto`、`coverage`、`compare`、`load`、`model-store`、`report`。
 `acprof --version` 查看版本，`acprof <command> --help` 查看对应帮助。
 
 ### `acprof doctor`
@@ -154,10 +153,10 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 `available` 不等于真实 workload 的 `verified`。低磁盘余量为提示，不自动删除镜像。
 `doctor` 不检测所有模型的联网和容量需求，`run` 仍在正式采集前执行权威 preflight。
 
-以下参数表对应 `run.py`。示例命令见[运行指南](Getting_Started.md#运行正式实验)，
+以下参数表对应 `acprof run`。示例命令见[运行指南](Getting_Started.md#运行正式实验)，
 默认值与实际选项以当前入口的 `--help` 和 [acprof/config.py](../acprof/config.py) 为准。
 
-[run.py](#runpy) · [probe.py](#probepy) · [profile.py](#profilepy) · [其他入口](#其他入口) · [输入规模与音频清单](#输入规模与音频清单)
+[acprof run](#acprof-run) · [acprof probe](#acprof-probe) · [acprof profile](#acprof-profile) · [其他入口](#其他入口) · [输入规模与音频清单](#输入规模与音频清单)
 
 ### `acprof inspect`
 
@@ -296,7 +295,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 对已完成、未完成和失败任务的区分（Apache-2.0，维护中的实现）。AC-Prof 沿用已有 JSON 原子写入和目录锁，
 只借鉴选择与证据保留原则，不引入 Ray、训练 checkpoint 或 pickle 依赖；记录发生在独立验证之外，不进入正式测量窗口。
 
-### `run.py`
+### `acprof run`
 
 #### 模型与资源矩阵
 
@@ -313,7 +312,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 | `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
 | `--mems` | `2,4,8,16` | Memory cap GB 列表。 |
 | `--gpus` | `off,on` | GPU mode 列表。`on` 只向容器暴露选定的物理 GPU。 |
-| `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`probe.py` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |
+| `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`acprof probe` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |
 | `--prune-startup-oom` / `--no-prune-startup-oom` | enabled | 正式矩阵前，用最低选中 CPU、内存升序执行独立 startup probe，只启动并等待 `/ready`，不产生性能结果。仅 Docker 确认启动 OOM 的连续低内存前缀用于剪枝；遇到 ready、timeout、CUDA OOM 或普通错误即停止扩展。所有被剪枝 case 标为 `inferred_not_measured`。禁用后逐格正式尝试。 |
 | `--matrix-order` | `seeded` | `seeded` 用版本化的确定性 hash 排序资源 case，并用每个 case 的独立派生 seed 排列 input scale；`declared` 保持资源参数与物化输入尺度的顺序。probe 完成后将实际顺序冻结到 `metadata/matrix_plan.json`。 |
 | `--matrix-seed` | `0` | 整数 seed；相同实验身份、probe 结论、算法版本和 seed 生成相同计划。resume 校验并复用已冻结顺序，不重新排序；不能在原目录改变 seed 或 order。 |
@@ -389,7 +388,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 
 `--allow-cgroup-v1`、`--no-compute-profile` 和 `--compute-profile-tool auto` 已删除，使用它们会在参数解析时退出。关闭计算分析使用 `--compute-profile-tool none`。
 
-结果目录存在异常中断留下的 `result_case_*.csv` 时，`run.py` 会先读取同目录 `static_meta.json/cgroup_version`。只有版本与当前 host 一致才允许续写；版本不同、缺失或元数据不可读时会退出，避免把 v1/v2 窗口合并到同一结果文件。
+结果目录存在异常中断留下的 `result_case_*.csv` 时，`acprof run` 会先读取同目录 `static_meta.json/cgroup_version`。只有版本与当前 host 一致才允许续写；版本不同、缺失或元数据不可读时会退出，避免把 v1/v2 窗口合并到同一结果文件。
 
 ### 输入规模与音频清单
 
@@ -463,7 +462,7 @@ prompt 和 special tokens，预处理还验证拼接后的实际长度，防止�
 自定义素材时可复制内置 `source.json`，设置新的 `workload_id`，再修改相对素材路径、SHA256、provenance 和 inference 字段。自定义 provenance 可以描述单条录音或既有重采样/增益流程；运行时仍会严格验证派生 WAV 本身是单声道、16 kHz、PCM16 且哈希匹配。然后传入：
 
 ```bash
-python run.py --model openai/whisper-large-v3 \
+acprof run --model openai/whisper-large-v3 \
   --workload-spec /path/to/source.json
 ```
 
@@ -481,7 +480,7 @@ CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数�
 
 主请求延迟包含输入预处理、模型推理和结果摘要。后置 profiler 测量 handler 的 `predict()`：多模态理解、视频分类和关键点的直接模型路径不包含在 `preprocess()` 中运行的 processor；使用 Transformers pipeline 的 CV 路径仍包含 pipeline 内部预处理和后处理。Base64 解码与 handler 的摘要处理均在 profiler 的预测段之外；Diffusers 的完整生成／媒体解码、检索的两个编码器 forward 与 MaxSim 则在预测段内。Omni GPU 采用 thinker/talker FP16 和 Token2Wav FP32；其 eager FLOP 请求明确不支持，NCU/Nsys 仍可测完整推理。Shap-E 及 Diffusers Transformer 视频架构在没有可验证 eager 替换时同样报告工具错误，不伪填 FLOP。生成媒体不会作为图片／音频／视频／网格响应体返回，因此网络指标描述当前摘要服务协议。
 
-### `probe.py`
+### `acprof probe`
 
 `--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、模型检查和最大输入探测共用当前填写的 revision。
 
@@ -497,10 +496,10 @@ CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数�
 | `--input-scales` | 自动规划 | 只探测已确定尺度中的最大值。 |
 | `--timeout-seconds` | 不设超时 | 单次探测请求的等待上限；显式值必须有限且大于 0。 |
 
-`probe.py` 不接收 `run.py` 的 `--request-timeout-seconds`、warmup/repeat、能耗采样或 profiler 参数。
+`acprof probe` 不接收 `acprof run` 的 `--request-timeout-seconds`、warmup/repeat、能耗采样或 profiler 参数。
 详细用法见[先探测最大输入](Getting_Started.md#先探测最大输入)。
 
-### `profile.py`
+### `acprof profile`
 
 位置参数 `result_dir` 是已完成的模型结果目录。操作和恢复规则见
 [补采说明](Profilers.md#补采已有结果)。
@@ -518,7 +517,7 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 | `--massif-reference-cpu` / `--massif-reference-mem` | 结果矩阵最大值 | 在已有 CPU-only 资源配置中选择代表值。 |
 | `--nsys-reference-cpu` / `--nsys-reference-mem` | 结果矩阵最大值 | 在已有 GPU 资源配置中选择代表值；`per-cpu-scale` 只用代表内存。 |
 | `--torch-profiler-repeat` / `--torch-repeat` | `1` | 同一参数的两个名称；控制 Torch probe 内推理次数。 |
-| `--ncu-repeat` / `--nsys-repeat` / `--massif-repeat` | `1` | 对应工具的 probe 内推理次数，归一化口径同 `run.py`。 |
+| `--ncu-repeat` / `--nsys-repeat` / `--massif-repeat` | `1` | 对应工具的 probe 内推理次数，归一化口径同 `acprof run`。 |
 | `--ncu-root` / `--nsys-root` | 自动检测 | Host 工具安装目录或可执行文件。 |
 | `--compute-profile-cpus` / `--compute-profile-mem` | host 逻辑 CPU / 75% host memory | 临时 compute profiler 的 CPU/内存上限，内存单位 GB。 |
 

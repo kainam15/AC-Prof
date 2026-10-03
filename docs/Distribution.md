@@ -1,7 +1,7 @@
 # 安装包、standalone 与发布
 
 AC-Prof 支持源码开发、`uv tool install` 隔离安装和 Linux x86_64 standalone。
-三种入口执行相同的主机采集代码；Docker Engine、cgroup v2、GPU driver 和采集工具仍由主机提供。
+三种安装方式通过 `acprof <command>` 执行相同的主机采集代码；Docker Engine、cgroup v2、GPU driver 和采集工具仍由主机提供。
 安装与首次运行见[安装指南](Getting_Started.md)，环境检查参数见 [doctor](CLI_Reference.md#acprof-doctor)。
 
 分发包的 `License-Expression` 为 `Apache-2.0 AND CC-BY-4.0`：项目代码采用 Apache-2.0，
@@ -94,8 +94,8 @@ acprof tui
 `uv tool install git+https://github.com/kainam15/AC-Prof.git`；复现实验应固定 Git tag 或 commit。
 这里只使用源码和 Release 制品，不假设 PyPI 已有同名官方发行包。
 
-安装后的公共命令是 `acprof run / tui / probe / plot / doctor / profile / audit / stats / inspect / auto / coverage`，
-也支持 `python -m acprof`。根目录的 Python 脚本保留给源码使用。
+唯一公开入口是 `acprof <command>`；子命令见 [CLI 参数](CLI_Reference.md#cli-参数)。
+源码开发先安装 editable 包，再使用同一入口。根目录不包含 Python 文件或额外启动器。
 `run --help` 等命令沿用各自的参数定义；顶层帮助和版本查询不会加载 Textual、绘图库或推理框架。
 Python 依赖声明位于 `pyproject.toml`；开发和 Release 构建采用 `requirements/host.lock` 中已验证的制品。
 
@@ -107,7 +107,11 @@ TUI 设置仍写入 XDG 用户配置目录，以工作目录的摘要隔离不�
 
 wheel 内置 Dockerfile、平台/环境锁、扩展声明、音频素材及构建所需的 Python 源码。
 `installation.resource_root()` 定位这些只读资源；它不是输出目录。
-构建 hook 使用明确的目录、文件后缀白名单，排除 `.env`、缓存、结果和 Agent 规则。
+唯一 custom build hook 位于 `packaging/hatch_build.py`，由 wheel target 的 `hooks.custom.path` 指定，
+并随 `packaging/` 进入 sdist。它使用临时目录复制 `acprof/`、`dockerfiles/`、`assets/`、`examples/`，
+按原有文件后缀白名单筛选，排除 `.env`、`AGENTS.md`、`__pycache__` 与嵌套 `_bundle`。
+`.dockerignore`、`LICENSE`、`NOTICE`、`licenses/CC-BY-4.0.txt` 一并复制，通过
+`build_data["force_include"]` 写入 wheel 的 `acprof/_bundle`；构建结束清理临时目录。
 Docker 模型层仍由本机按固定 revision 下载，令牌经 BuildKit secret 传入。
 
 离线 report 的 HTML/CSS/JavaScript 和 Plotly.js MIT 许可随 `acprof.plotting` 打包；
@@ -117,6 +121,23 @@ standalone 同时收集 Plotly 的 bundle 数据。报告生成时内嵌资源�
 editable 安装（`uv pip install -e .`）直接从当前 checkout 读取这些资源，build hook
 不生成 `acprof/_bundle` 副本，避免保留过期源码副本，以及 IDE 同时索引两份同名 Python 符号。
 普通 wheel 仍携带完整资源，standalone 继续从 wheel 收集资源。
+
+### 发行包验证
+
+使用独立的构建环境安装 `build` 后执行 `python -m build`，生成 sdist 并从该 sdist 构建 wheel；
+另用 `python -m build --wheel --outdir <direct-wheel-dir>` 验证直接从 checkout 构建的 wheel。
+两份 wheel 分别安装到全新 venv，依赖使用 `requirements/host.lock`，从仓库外的空目录执行：
+
+```bash
+<venv>/bin/python -I <checkout>/scripts/check_distribution.py \
+  --wheel <wheel-file> --sdist <sdist-file> --report <evidence-file>
+```
+
+此检查通过真实 console script 运行所有公共命令的帮助，检查 wheel 资源与 sdist 的 hook、
+根目录约束，确认安装包来源位于 venv 内，并实际暂存 Docker service context、核对源文件指纹。
+同时验证缺少 Docker 时的 doctor JSON、离线 HTML 与 packet worker。context 暂存不代表镜像构建或推理成功。
+checkout 与 editable 从同一源码树取资源；两种 wheel 从 `_bundle` 取资源，相同输入应生成相同的
+service context 指纹。editable 的安装路径应回到 checkout，且不生成 `_bundle`。
 
 ## Linux standalone
 
@@ -192,6 +213,10 @@ GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或
   （MIT）：用一个小型 build hook 打包既有资源；按官方
   [wheel 构建版本](https://github.com/pypa/hatch/blob/master/docs/plugins/builder/wheel.md)
   区分 `standard` 与 `editable`，只在发行 wheel 中复制资源，不改变运行时依赖和镜像配方。
+  [custom hook 源码](https://github.com/pypa/hatch/blob/master/backend/src/hatchling/builders/hooks/custom.py)
+  支持项目内的显式 `path`；迁移路径时保留 `BuildHookInterface` 和 `force_include` 逻辑。
+  [Issue #1627](https://github.com/pypa/hatch/issues/1627) 记录了 editable 中 force-include 同名包遮蔽源码的风险，
+  因此保留 editable 跳过 bundle 的分支。复用既有 Hatchling 1.x 构建接口，无新增运行依赖或测量期开销。
 - [PyInstaller](https://github.com/pyinstaller/pyinstaller)（GPL 与分发例外）：使用官方冻结工具，
   按其[资源与子进程说明](https://pyinstaller.org/en/stable/runtime-information.html)处理真实源码、动态模块和系统库路径。
   构建工具不进入主机运行依赖，不将 Torch/CUDA 安装到主机包。

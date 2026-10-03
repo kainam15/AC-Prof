@@ -136,7 +136,7 @@ J/request，避免改变旧结果含义；新增 DRAM 明确区分 window 与 pe
 
 ### CPU / vCPU energy 字段全是 `nan`
 
-- 当前版本会在 task detection 前检查 RAPL；计数器不存在或不可读时，`run.py` 会退出并给出权限修复步骤，不会继续生成新的完整结果。
+- 当前版本会在 task detection 前检查 RAPL；计数器不存在或不可读时，`acprof run` 会退出并给出权限修复步骤，不会继续生成新的完整结果。
 - 历史结果或中断产生的 CSV 仍可能包含 `nan`。这类缺失值不应使用 TDP 或 CPU utilization 猜测回填。
 - `cpu_*` 字段是 host CPU package/root domain 的真实 RAPL 测量值，不累加 `intel-rapl:*:*` 这类 core 子 domain；`vcpu_*` 字段是在同一窗口内按 container cgroup CPU share 分摊出来的估计值。
 

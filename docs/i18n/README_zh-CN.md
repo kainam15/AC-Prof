@@ -69,6 +69,9 @@ Docker 或基础采集条件缺失时会给出处理建议，修复后可重新�
 acprof tui
 ```
 
+源码开发与安装环境的公开入口均为 `acprof <command>`。
+使用 `acprof --help` 或 `acprof <command> --help` 查看命令与参数。
+
 需要入门预设时运行 `acprof tui --preset smoke`。当前终端可使用脚本输出的完整路径命令，
 详见[安装与命令路径说明](../Distribution.md#clone-后初始化)。
 后续可从任意工作目录启动，结果写入该目录；`setup.sh` 启动的工作目录为源码根目录。
@@ -94,7 +97,7 @@ acprof run --model google-bert/bert-base-uncased \
 
 首次运行会下载模型和依赖、构建镜像，准备阶段可能较久。程序会先检查环境，再开始下载和实验。
 这个 `basic` 示例只采集基础指标；能耗、抓包和独立 profiler 的字段为 `nan` 属于预期结果。
-完成后按下一节查看结果。重新做一个实验请换新的 `--output-dir`；中断后可用原命令加 `--resume` [恢复实验](../Profiling_Protocol.md#结果完整性与断点续跑)。
+完成后按下一节查看结果。重新做一个实验请换新的 `--output-dir`；中断后在同一条 `acprof run` 命令中保留原参数并添加 `--resume` [恢复实验](../Profiling_Protocol.md#结果完整性与断点续跑)。
 
 也可使用 [`acprof auto MODEL`](../CLI_Reference.md#acprof-auto) 完成权限和主机预检后采集；
 资源参数与 `run` 相同。只有显式指定 `--profiling-mode auto` 才按能力选择 full/basic，

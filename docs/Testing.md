@@ -34,7 +34,7 @@ Native Linux 执行完整测试。仅显式平台集成测试按真实环境 ski
 
 ## Python 修改工作流
 
-修改 Python 代码时优先使用 PyCharm MCP，覆盖根脚本、`acprof/`、`scripts/` 和 `tests/`。
+修改 Python 代码时优先使用 PyCharm MCP，覆盖 `acprof/`、`packaging/`、`scripts/` 和 `tests/`。
 只使用本次任务涉及的工具；纯文档修改按[文档检查](#文档与-skill-检查)验证。
 
 | 场景 | 工具与约束 |
@@ -351,7 +351,7 @@ PY
 # 终端 A：开发控制台
 .venv/bin/textual console
 # 终端 B：连接控制台运行 TUI
-.venv/bin/textual run --dev tui.py
+TEXTUAL=devtools,debug acprof tui
 ```
 
 Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/run_tests.py --pattern`
@@ -435,7 +435,8 @@ PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 安装分发修改除普通回归外，还需构建 sdist/wheel，在隔离环境从空目录执行
 `scripts/check_distribution.py`；standalone 用 `--binary <path>` 执行相同验收。
 该脚本核对全部公共帮助入口、参数错误、无 Docker 时的 doctor JSON、内置资源和 packet worker 的实际输出。
-日常 CI 的独立 `wheel` job 构建当前提交，并在新的 venv 中按 `host.lock` 安装依赖及 wheel。
+日常 CI 的独立 `wheel` job 分别从当前 checkout 和 sdist 构建 wheel，
+在两个新的 venv 中按 `host.lock` 安装依赖及对应 wheel，并检查归档内容与 Docker context 暂存。
 验证脚本复制到源码树外，从空目录执行，清除 `PYTHONPATH` 并使用 Python `-I`；同时核对
 `acprof.__file__` 位于安装环境内，拒绝意外使用源码或 editable 安装。公共入口从安装包 dispatcher
 读取，包含 `compare`、`load`、`model-store`；实际生成离线 HTML 并运行 packet worker，验证
@@ -455,10 +456,14 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 .venv/bin/python -m unittest discover -s tests -p 'test_env_utils.py' -v
 # 跨模块变更的全套回归
 .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python run.py --help
-.venv/bin/python -m compileall -q acprof run.py probe.py plot.py profile.py tui.py
+acprof run --help
+.venv/bin/python -m compileall -q acprof scripts packaging
 git diff --check
 ```
+
+`test_architecture.py` 禁止根目录出现任何 `.py` 文件，检查标准库 `profile/cProfile` 可直接导入。
+`test_distribution.py`、`test_tui_interaction.py` 与 terminal-log 回归保护公开帮助、
+TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shell 特殊字符的参数。
 
 | 实现范围 | 测试入口示例 |
 | --- | --- |
@@ -825,7 +830,7 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 
 镜像依赖变化后，主机 `.venv` 测试不能证明容器已更新；构建与复用契约见[运行兼容](Runtime_Compatibility.md#构建复用和验证)。
 最小采集示例见[运行指南](Getting_Started.md#3-跑一个最小-smoke-test)。用独立输出目录运行验证，保留模型 revision、输入计划与日志。
-`examples/` 下脚本是手动接口示例，不会自动运行，也不产生与正式 `run.py` 等价的测量证据。
+`examples/` 下脚本是手动接口示例，不会自动运行，也不产生与正式 `acprof run` 等价的测量证据。
 
 `internal-testing/` 用于本地临时验证和截图；原始实验结果留在对应结果目录。
 普通推理成功不能证明 Torch/NCU/Massif/Nsys 都支持；每种设备、dtype 和工具分别报告实际覆盖范围。

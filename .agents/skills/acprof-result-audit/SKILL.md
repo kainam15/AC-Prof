@@ -59,7 +59,7 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 复用只读入口，完整参数见[其他 CLI 入口](../../../docs/CLI_Reference.md#其他入口)：
 
 ```bash
-.venv/bin/python audit.py '用户指定的目录或CSV' --json
+acprof audit '用户指定的目录或CSV' --json
 ```
 
 验收已结束的新实验时按目标添加 `--require-complete --require-ok`；正在运行或历史部分结果的解释不机械套用该验收条件。读取退出码、`accepted`、`completion`、`counts`、`coverage`、`issues` 和缺失指标证据，不把工具输出 JSON 视为自动通过。保存报告时写入本次独立验证目录，保留原实验不变。
