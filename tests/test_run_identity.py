@@ -9,7 +9,38 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.artifact_layout import ArtifactLayout
 from acprof.host import run_state
+
+
+def write_run_state(root: Path, content: str) -> Path:
+    layout = ArtifactLayout.for_new_run(root)
+    layout.initialize()
+    path = layout.path("run_state.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    return path
+
+
+@pytest.mark.parametrize("number", ("NaN", "Infinity", "-Infinity", "1e999"))
+def test_load_run_state_rejects_nonfinite_numbers(tmp_path, number):
+    root = tmp_path / "result"
+    write_run_state(root, '{"schema_version":1,"layout_version":2,"value":' + number + "}")
+
+    with pytest.raises(run_state.RunStateError, match="非有限数值"):
+        run_state.load_run_state(root)
+
+
+def test_load_run_state_rejects_oversized_json(tmp_path):
+    root = tmp_path / "result"
+    write_run_state(root, json.dumps({
+        "schema_version": 1,
+        "layout_version": 2,
+        "padding": "x" * (4 * 1024 * 1024),
+    }))
+
+    with pytest.raises(run_state.RunStateError, match="4 MiB"):
+        run_state.load_run_state(root)
 
 
 def test_changed_manifest_prevents_resume():

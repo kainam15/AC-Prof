@@ -8,7 +8,7 @@ from pathlib import Path
 
 from acprof.analysis.audit import audit_result
 from acprof.artifact_layout import ArtifactLayout
-from acprof.host.run_state import load_run_state
+from acprof.host.run_state import RunStateError, load_run_state
 from acprof.messages import Message, join_messages, message
 
 MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
@@ -49,13 +49,22 @@ class RunArtifacts:
     directory: Path
     state: dict = field(default_factory=dict)
     csv_stamp: tuple[int, int, int, int] | None = None
+    state_error: str = ""
 
     @classmethod
-    def read(cls, directory: Path) -> RunArtifacts:
+    def read(cls, directory: Path, *, capture_state_error: bool = False) -> RunArtifacts:
         layout = ArtifactLayout.discover(directory)
         path = layout.path("run_state.json")
-        state = load_run_state(directory) if path.is_file() else {}
-        return cls(directory, state, _stamp(layout.result_csv))
+        state = {}
+        state_error = ""
+        if path.is_file():
+            try:
+                state = load_run_state(directory)
+            except RunStateError as exc:
+                if not capture_state_error:
+                    raise
+                state_error = exc.args[0] if exc.args and isinstance(exc.args[0], Message) else str(exc)
+        return cls(directory, state, _stamp(layout.result_csv), state_error)
 
 
 @dataclass(frozen=True)
@@ -82,7 +91,13 @@ class RunResult:
 
 def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     """Run after process exit; PID plus appended attempt separates resume/history."""
-    after = RunArtifacts.read(before.directory)
+    after = RunArtifacts.read(before.directory, capture_state_error=True)
+    layout = ArtifactLayout.discover(before.directory)
+    if after.state_error:
+        details = [message("无法核验本次运行状态：{0}", after.state_error)]
+        if after.csv_stamp and after.csv_stamp != before.csv_stamp:
+            details.append(message("检测到未核验的结果 CSV：{0}", layout.result_csv))
+        return RunResult(detail=join_messages("; ", details), retained_dir=str(layout.root))
     state, previous = after.state, before.state
     attempts = state.get("attempts", [])
     if (not state.get("run_id") or not isinstance(attempts, list) or not attempts
@@ -99,7 +114,6 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     total = 1
     for name in ("cpus", "mems", "gpus"):
         total *= len([part for part in str(options.get(name, "")).split(",") if part])
-    layout = ArtifactLayout.discover(before.directory)
     current_csv = str(layout.result_csv) if after.csv_stamp and after.csv_stamp != before.csv_stamp else ""
     audit = audit_result(layout.result_csv) if after.csv_stamp else {}
     coverage = audit.get("coverage") or {}

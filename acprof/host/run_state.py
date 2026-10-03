@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import shutil
@@ -16,12 +17,14 @@ from uuid import uuid4
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.host.execution_conditions import measurement_environment
+from acprof.messages import Message, message
 from acprof.platform import detect_environment
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.source_identity import measurement_sources, source_fingerprint
 
 RUN_STATE_NAME = "run_state.json"
 RESULT_LOCK_NAME = ".acprof-result.lock"
+MAX_RUN_STATE_BYTES = 4 * 1024 * 1024
 # Native Linux only. Never derive this machine-wide per-user namespace from TMPDIR.
 # Test runners inject an isolated directory in-process, not via a production env option.
 MEASUREMENT_LOCK_ROOT = Path("/tmp")
@@ -29,6 +32,13 @@ MEASUREMENT_LOCK_ROOT = Path("/tmp")
 
 class RunStateError(RuntimeError):
     pass
+
+
+def _finite_json_number(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError(message("run_state.json 包含非有限数值"))
+    return value
 
 
 def utc_now() -> str:
@@ -99,13 +109,24 @@ def load_run_state(directory: str | Path) -> dict:
     try:
         layout = ArtifactLayout.discover(directory)
         path = layout.path(RUN_STATE_NAME)
-        payload = json.loads(path.read_text())
-    except (OSError, ValueError) as exc:
-        raise RunStateError(f"无法读取恢复状态 {directory}；历史实验请使用新输出目录：{exc}") from exc
+        with path.open("rb") as stream:
+            content = stream.read(MAX_RUN_STATE_BYTES + 1)
+        if len(content) > MAX_RUN_STATE_BYTES:
+            raise ValueError(message("run_state.json 超过 4 MiB 读取上限"))
+        try:
+            payload = json.loads(content.decode("utf-8"), parse_float=_finite_json_number,
+                                 parse_constant=_finite_json_number)
+        except json.JSONDecodeError as exc:
+            raise ValueError(message("run_state.json 的 JSON 格式无效")) from exc
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
+        reason = exc.args[0] if exc.args and isinstance(exc.args[0], Message) else str(exc)
+        raise RunStateError(message(
+            "无法读取恢复状态 {0}；历史实验请使用新输出目录：{1}", directory, reason,
+        )) from exc
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise RunStateError(f"不支持的主实验状态格式：{path}")
+        raise RunStateError(message("不支持的主实验状态格式：{0}", path))
     if payload.get("layout_version", 1) != layout.layout_version:
-        raise RunStateError(f"恢复状态与产物布局不一致：{path}")
+        raise RunStateError(message("恢复状态与产物布局不一致：{0}", path))
     return payload
 
 

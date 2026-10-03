@@ -149,6 +149,19 @@ class TestRunAttribution:
         assert (result.new_cases) == (1)
         assert (result.result_csv) == ("")
 
+    def test_corrupt_post_run_state_reports_unverified_csv_without_attribution(self):
+        state_path = self.layout.path("run_state.json")
+        state_path.write_text("{")
+
+        result = inspect_run_result(self.before, 123)
+
+        assert not result.belongs_to_attempt
+        assert (result.result_csv) == ("")
+        assert (result.stage(0, False, "")) == ("失败")
+        assert "无法核验本次运行状态" in result.detail
+        assert str(self.layout.result_csv) in result.detail
+        assert "Could not verify this attempt's run state" in translate(result.detail, "en")
+
 
 class TestTuiReliability:
     @pytest.fixture(autouse=True)
