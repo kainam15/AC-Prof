@@ -338,7 +338,7 @@ Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
 
 快照用例使用 `snap_compare` fixture，显式指定 `terminal_size`，固定语言、主题和输入，
 仓库的 `tests/visual/test_snapshots.py` 固定九个场景：中文窄终端、英文常规尺寸、宽终端、
-弹窗覆盖、实际拖动表格之后、测量中、清理未完成和中英文 WSL2 采集确认；覆盖 `80×24`、`120×30`、`150×45`。
+弹窗覆盖、实际拖动表格之后、测量中、清理未完成和中英文 WSL2 模型检测等待；覆盖 `80×24`、`120×30`、`150×45`。
 通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
 基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
 普通功能测试与 SVG 回归共用开发环境和 pytest 配置：
@@ -501,10 +501,10 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 期望值，保留完整对象比较，不从被测函数的返回值生成期望。
 
 自动解析与编排回归使用 `test_resolution_decisions.py`、`test_auto.py`、`test_model_coverage.py`
-和 `test_model_inspection.py`，覆盖同源证据、显式冲突处理、Probe 不提升语义、固定 SHA、
-主机失败与模式选择、原生模型 Probe、冻结覆盖率分母及人工语义参考。已有模型／契约／镜像／
+和 `test_model_inspection.py`，覆盖同源证据、显式冲突处理、验证不提升静态裁决、固定 SHA、
+主机失败与旧 CLI 选项拒绝、原生模型验证、冻结覆盖率分母及人工语义参考。已有模型／契约／镜像／
 恢复测试继续保护协议。滚动模型检查使用 [coverage 命令](CLI_Reference.md#acprof-coverage)，
-其静态、容器 full Probe 与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
+其静态、接口检查、容器运行验证与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
 
 采集准备与重试使用 `test_collection_workflow.py`、`test_run_native_docker.py`、
 `test_run_notifications.py` 和 `test_tui_collection_workflow.py`。当前顺序为采集平台策略检查、
@@ -716,11 +716,15 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 ```
 
 第二条命令核验锁定环境并在断网 CPU 容器执行加载、预处理、推理及输出验证，拒绝跳过。
-同一容器测试还覆盖 basic 仅导入／签名、不加载权重，以及经显式审阅生成的嵌套 `turns` 模板。
+同一容器测试还覆盖 Interface Probe 仅导入／签名、不加载权重，以及经显式审阅生成的嵌套 `turns` 模板。
 M4～M6 的主机回归使用 `test_model_dependencies.py`、`test_model_review.py`、`test_model_transforms.py`、
 `test_model_probe.py`、`test_model_inspection.py`：覆盖依赖角色／SHA／过滤、条件和动态路径、逐字段决策、
-DSL 深度和引用限制、只读断网命令、证据完整性、CLI 导出及失败状态。TUI 的字段编辑、导出、
-Probe 子进程交接、语言／resize 和测量禁用由 `test_tui_model_resolution.py` 在三种终端尺寸验证。
+DSL 深度和引用限制、只读断网命令、证据完整性、CLI 导出及失败状态。`test_interface_probe.py` 验证
+不进入模型准备或 Model Store、缓存零联网、缺图拒绝、文件边界、SHA、递归源码与取消清理。
+TUI 的一键开始、只读字段、resolver 重新确认、同窗错误／重试和中英文三种终端尺寸由
+`test_tui_model_resolution.py` 与 `test_tui_collection_workflow.py` 验证；后者用真实子进程检查取消后
+临时目录、锁和进程释放。`test_collection_workflow.py` 阻断 postprocess／validate_output 失败及非成功报告；
+`test_runtime_validation.py` 检查 CPU/GPU、最小输入和完整阶段证据。
 真实断网容器检查之外，外部依赖验收应保留 Hub SHA、实际选择文件和缓存内容，确认未下载无关权重；
 真实只读 Probe 应使用独立测试镜像和目录，不能只用 mock Docker 命令代替。
 `test_dependency_flow.py` 覆盖 active/inactive/unknown、参数绑定、main-model 转发、primary/fallback、
@@ -734,7 +738,8 @@ Probe 子进程交接、语言／resize 和测量禁用由 `test_tui_model_resol
 需各自取得运行证据，不能从这项 CPU fixture 验证外推。
 
 生产模型声明与服务镜像的完整链路可使用 [Iris 示例](Runtime_Compatibility.md#本地模型声明与自定义-pipeline)，
-按实际结果分别验收 basic／full；接口检查、预热、正式行和 profiler 结果分别计数。
+按 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement` 分层验收；
+接口检查、Smoke、预热、正式行和 profiler 结果分别计数，Smoke 不写正式 CSV。
 
 ### 无 Torch 运行时验收
 

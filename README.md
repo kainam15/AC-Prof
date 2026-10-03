@@ -170,9 +170,10 @@ The [results guide](docs/Metrics.md#从结果目录开始) explains fields, stat
 
 ## Interactive terminal interface
 
-**Start run** automatically resolves and validates the model. Only unresolved choices require input;
-confirming continues the same collection. Failed preparation stages can be retried, while **Inspect model**
-remains an optional diagnostic tool. See [collection preparation](docs/TUI.md#模型契约解析与验证).
+Fill in the experiment settings and select **Start run**. AC-Prof automatically resolves the model, checks
+its interface, and validates a minimal request on each selected device. Only unresolved choices require input.
+The preparation dialog shows progress or retryable errors; successful validation starts collection automatically.
+See [model confirmation and preparation](docs/TUI.md#模型契约解析与验证).
 
 The full-screen TUI lets you configure experiments, view logs, generate plots, and manage images. After installation, run:
 

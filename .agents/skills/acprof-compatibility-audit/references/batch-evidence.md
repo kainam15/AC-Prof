@@ -5,7 +5,7 @@
 先核对当前 [CLI 契约](../../../../docs/CLI_Reference.md#acprof-coverage)和 `--help`。以下示例从仓库根目录使用已有 `.venv` 执行，无需先安装 console script；输出目录换成本次独立目录。已安装的 `acprof` 与 `python -m acprof` 使用相同命令分发。
 
 ```bash
-.venv/bin/python -m acprof inspect MODEL --revision FULL_SHA --probe none --explain --output-dir internal-testing/compatibility/inspect
+.venv/bin/python -m acprof inspect MODEL --revision FULL_SHA --explain --output-dir internal-testing/compatibility/inspect
 .venv/bin/python -m acprof coverage run examples/coverage/regression.json --output-dir internal-testing/compatibility/static
 ```
 
@@ -26,8 +26,8 @@
 | 层级 | 可以证明 | 仍不能证明 |
 | --- | --- | --- |
 | 静态解析 | 所读配置、路由和依赖证据 | 权重可下载、真实推理、任务质量 |
-| basic Probe | 当前定义下的导入/签名检查 | 完整推理和正式采集 |
-| full Probe | 所测设备与最小输入的推理及输出检查 | full profiling 或所有输入尺度 |
+| Interface Probe | 当前定义下的导入/签名检查 | 完整推理和正式采集 |
+| Runtime Validation | 所测设备与最小输入的推理及输出检查 | full profiling 或所有输入尺度 |
 | basic profiling | 所选 basic 指标与计划的采集情况 | full 所需能耗、perf、packet 均完整 |
 | full profiling | 所选计划及必需指标的实际验收结果 | 未选择的 profiler、其它设备和模型质量 |
 

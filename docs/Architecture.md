@@ -43,7 +43,8 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 | `acprof/model_resolution.py`、`acprof/model_spec.py` | 静态接口候选、schema 校验与执行契约；本地／作者声明优先于自动生成 |
 | `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](Runtime_Compatibility.md#自动生成模型契约m1m6) |
 | `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
-| `acprof/host/model_inspection.py`、`acprof/container/model_probe.py`、`acprof/tui/model_resolution.py` | CLI／TUI 的解释和契约审阅、隔离 basic 导入／签名检查；full 复用 `runtime_validation`，所有 Probe 在正式测量前结束 |
+| `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
+| `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
 | `acprof/host/automation.py`、`acprof/host/model_coverage.py` | 精确模型的访问／能力预检、自动运行报告，以及固定样本的解析／运行覆盖率；`cli/auto.py` 委派现有 run 入口，不复制测量循环 |
 | `acprof/extensions/` | schema v2 类型校验与 `ExtensionCatalog.resolve`；集中维护路由、尺度、IO、精度、输入规划能力及环境声明 |
 | `acprof/capabilities.py` | execution / measurement 状态、验证证据和画像完整性报告 |
@@ -297,14 +298,19 @@ context ← backfill / plans / storage ← service ← CLI
 dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿用既有语义。
 项目根目录由 `context` 统一定位，避免更深的包目录影响 Dockerfile 和结果路径解析。
 
+采集准备按 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement` 执行。
+接口检查不接触权重；完整运行验证使用每个选中设备的最小输入，全部成功才允许正式矩阵。
+两者分别保存证据，不产生测量行，详见[运行兼容](Runtime_Compatibility.md#自动生成模型契约m1m6)。
+
 ## TUI 与兼容维护
 
 `app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
-`review_inputs` 为模型检查与准备阶段提供同一套候选选择／JSON 输入，不复制模型裁决规则。
+`preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
+答案回到 resolver 重新解析，必填字段 resolved 后才允许确认，不在 TUI 改写最终 contract。
 `host.model_errors` 保留模型查找失败的类型、身份和诊断；`detect` 抛出业务异常，公共 CLI dispatcher
-将其转换为退出码。模型检查与准备弹窗翻译同一组结构化提示，原始诊断放入折叠详情。
+将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
 `run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
 `app` 继续持有控件、busy/measurement 状态、确认框、报告加载与显示，不把 `self.query_*()` 搬到新 controller。

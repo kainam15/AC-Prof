@@ -160,31 +160,35 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 
 ### `acprof inspect`
 
-`acprof inspect MODEL --explain` 显示固定 revision、字段来源和未决项；默认只解析文本，不运行模型。
-`--output-dir DIR` 导出 `model_resolution.json`。静态有缺口时退出码为 2，保留 draft。
-模型 ID、仓库访问、revision 或网络导致的查找失败会显示具体原因和处理建议，退出码为 1，
-不启动 Probe；分类见[共享接口解析](Runtime_Compatibility.md#共享接口解析)。
+`acprof inspect MODEL` 只进行静态解析；`--explain` 显示固定 revision、字段来源和未决项。
+`--output-dir DIR` 导出 `model_resolution.json`。静态缺口退出 2，保留 draft；模型访问或网络错误退出 1，
+分类见[共享接口解析](Runtime_Compatibility.md#共享接口解析)。
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `--model-spec`、`--task`、`--backend` | 自动解析 | 声明或选择覆盖，仍检查冲突 |
-| `--expected-revision` | 空 | 要求当前模型 SHA 与已审阅 SHA 相同，变更时拒绝 |
-| `--revision` | Hub 默认分支 | 在指定分支、tag 或完整 SHA 上解析，读到的文件绑定解析后的 SHA |
-| `--probe none/basic/full` | `none` | basic 导入／签名；full 最小尺度的一次实际推理 |
-| `--cpus`、`--mems` | `2`、`4` | Probe 的 CPU 核数与 GiB 内存上限，各为单个正整数 |
-| `--gpus off/on` | `off` | basic 只支持 CPU；full 可显式开启 GPU |
-| `--timeout-seconds` | `300` | 单次验证容器超时；不包含镜像构建时间 |
-| `--skip-build` | 关闭 | 复用身份匹配的镜像，不存在时构建 |
+| `--expected-revision` | 空 | 要求模型 SHA 与已审阅 SHA 相同 |
+| `--revision` | Hub 默认分支 | 解析 branch、tag 或完整 SHA，文件固定到解析后的 SHA |
+| `--probe-interface` | 关闭 | 使用纯源码 bundle，在依赖镜像内检查 import 和 method signature |
+| `--cpus`、`--mems` | `2`、`4` | 接口检查的 CPU 核数和 GiB 内存上限 |
+| `--timeout-seconds` | `300` | 单次接口检查容器超时，不包括依赖镜像准备 |
 
-Probe 未指定输出目录时使用独立的 `results/inspection/` 子目录；已有验证结果的目录不能复用。
-full 支持普通已适配模型；basic 的导入／签名检查仍要求 Pipeline contract。
-验证失败或资源不足退出码为 1。准备镜像可能下载模型，Probe 本身断网且不生成测量 CSV。
-契约、依赖与输入模板边界见[自动生成模型契约](Runtime_Compatibility.md#自动生成模型契约m1m6)。
+```bash
+acprof inspect MODEL --explain
+acprof inspect MODEL --probe-interface --output-dir results/inspection/model-interface
+```
+
+接口检查不调用 `prepare_image()`、`prepare_model()` 或 Model Store，不下载模型权重、不执行推理。
+首次可能准备依赖基础镜像。未指定输出目录时使用独立 `results/inspection/` 子目录，已有接口报告的
+目录不能复用；写入 `interface_validation.json` 和 `logs/interface_validation.log`，不生成正式 CSV。
+源码图缺失直接失败，禁止整仓下载回退。容器使用断网、只读文件系统和只读源码挂载。
+旧 `--probe basic/full`、`--gpus`、`--skip-build` 不再用于 inspect；完整运行验证由采集流程自动执行，
+批量独立验证可用 `coverage run --validate-runtime`。接口与运行证据边界见[运行兼容](Runtime_Compatibility.md#自动生成模型契约m1m6)。
 
 ### `acprof auto`
 
 `acprof auto MODEL` 接受精确 Hub ID 或 Hub 本身支持的别名，检查主模型及声明依赖的访问权限，
-导出静态裁决，检查主机，然后复用 `run` 的镜像准备、输入规划、独立 full runtime validation、
+导出静态裁决，检查主机，然后复用 `run` 的镜像准备、输入规划、独立 runtime validation、
 正式矩阵和报告。模糊名称不按下载量替换，访问失败不改选其他模型；语义冲突保留解释和 draft 后退出。
 
 除模型改为位置参数外，其余资源、输入、窗口和 profiler 参数与 `run` 相同，默认矩阵也相同。
@@ -199,7 +203,7 @@ acprof auto google-bert/bert-base-uncased --profiling-mode basic \
 默认仍为 `--profiling-mode full`。只有显式选择 `--profiling-mode auto`，才允许因
 RAPL/perf/packet 不可用而选择 basic；Docker、Linux/cgroup、安装资源或所选 GPU 不可用时仍停止。
 `--dram-energy required` 等显式要求仍由正式入口检查，不能通过 auto 绕过。
-Probe 的 basic/full 与采集模式是两个概念，basic 采集也必须完成真实推理验证。
+`profiling-mode basic/full` 只决定性能指标范围；两种模式都必须通过完整运行验证。
 
 `auto_report.json` 位于 `OUTPUT/MODEL--NAME/`，保存请求模式、实际模式、来源身份、预检和最终状态。
 只有主采集与所需指标均成功才退出 0；冲突、缺条件或部分失败退出 2。已有实验不会覆盖；
@@ -222,19 +226,19 @@ acprof coverage snapshot --stratum fill-mask:transformers \
 acprof coverage run internal-testing/coverage-sample.json \
   --output-dir internal-testing/coverage-static
 # 显式运行容器验证；可能构建镜像和下载权重
-acprof coverage run internal-testing/coverage-sample.json --probe full \
+acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
   --cpus 2 --mems 4 --gpus off --timeout-seconds 300 \
   --output-dir internal-testing/coverage-runtime
 # 在下载前应用 conservative 预算；大小来自选中的制品而非整个仓库
-acprof coverage run internal-testing/coverage-sample.json --probe full \
+acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
   --max-parameters 1000000000 --max-download-bytes 4294967296 \
   --output-dir internal-testing/coverage-budgeted
 # 中断后使用原参数继续；已经完成的模型不重复执行
-acprof coverage run internal-testing/coverage-sample.json --probe full \
+acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
   --cpus 2 --mems 4 --gpus off --timeout-seconds 300 --resume \
   --output-dir internal-testing/coverage-runtime
 # 只重试超时失败项；新 attempt 保留提高预算前的证据
-acprof coverage run internal-testing/coverage-sample.json --probe full \
+acprof coverage run internal-testing/coverage-sample.json --validate-runtime \
   --timeout-seconds 600 --resume --retry-reason request_timeout \
   --output-dir internal-testing/coverage-runtime
 # 只读取已有结果，输出统一的 CSV、JSON 和 Markdown 报告
@@ -243,7 +247,7 @@ acprof coverage report results/model-a results/model-b \
 ```
 
 snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。
-run 默认只做静态检查；full 验证时间限制不包含构建和下载。`coverage.json` 的分母始终是
+run 默认只做静态检查；`--validate-runtime` 的验证时间限制不包含构建和下载。`coverage.json` 的分母始终是
 冻结样本总权重，分别报告解析、适配、运行、拒绝、权限与资源限制；静态检查不检查权重读取权限，
 运行成功率、权限拒绝率与资源限制率均为 null。
 独立审阅的 `semantic_reference: {"task": "...", "source": "..."}` 才用于语义正确率；
@@ -253,7 +257,7 @@ snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅
 run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败列保留稳定的
 `reason_code` 及 evidence，质量警告单独保留在 `quality_checks`；TUI 的 `/report <coverage.json>`
 可读取两种报告。report 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
-full probe 成功只表示独立推理验证通过；已有采集是否完成由记录的 `full_profile_complete` 决定。
+Runtime Validation 成功只表示独立推理验证通过；已有采集是否完成由记录的 `full_profile_complete` 决定。
 
 `--max-parameters` 和 `--max-download-bytes` 默认不设置，传入时须为正整数。
 超预算或无法确定所需大小时保存 `resource_limit` 与 `unverified`，不下载权重、不宣称实测 OOM。
@@ -291,7 +295,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 `cleanup_recovery` 保存核验结果，原始 attempt 不改写；旧重试记录缺少明确清理证明时继续阻断。
 冻结条件还包括 `ACPROF_NLP_TORCH_INDEX_URL`、`ACPROF_NLP_TORCH_SPEC`、`ACPROF_HOST_CUDA_VERSION`；
 修改这些运行依赖选型参数须显式重试，attempt 会记录前后差异，普通续跑不能静默混用锁定环境。
-同一报告目录通过现有目录锁排除并发写入，full probe 继续使用原有测量锁。
+同一报告目录通过现有目录锁排除并发写入，运行验证继续使用原有测量锁。
 
 恢复语义参考 [Ray Tune 的 `Tuner.restore`](https://github.com/ray-project/ray/blob/f8a314bf077c9772fee2a8a1073368ca2ef9360b/python/ray/tune/tuner.py)
 对已完成、未完成和失败任务的区分（Apache-2.0，维护中的实现）。AC-Prof 沿用已有 JSON 原子写入和目录锁，
@@ -484,7 +488,7 @@ CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数�
 
 ### `acprof probe`
 
-`--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、模型检查和最大输入探测共用当前填写的 revision。
+`--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、采集前自动解析和最大输入探测共用当前填写的 revision。
 
 复用 `--model`、`--task`、`--task-family`、`--backend`、`--model-spec`、`--batch-size`、`--workload-spec`、
 `--output-dir` 和 `--skip-build` 的参数及默认值。

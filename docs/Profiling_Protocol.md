@@ -6,7 +6,9 @@
 
 ## 采集生命周期
 
-根 CLI 先完成环境与任务预检、镜像准备、输入计划和独立接口验证，再运行所选 profiler。
+根 CLI 顺序为 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement`。
+任务解析和环境预检通过后，先检查无权重的源码接口，再准备正式镜像和输入计划，完成每个选中设备
+的最小真实请求，最后运行所选 profiler 与正式矩阵。validation 不属于 measurement。
 启用启动剪枝时，先执行独立 startup-OOM probe，再冻结正式矩阵计划并开始采集。
 每个正式 case 创建新容器；client 控制已有预热、冷却、无请求对照与 workload 窗口，
 监控停止后才计算派生值和写行。case 产物经抓包解析与校验后合并；图表及通知属于测量之外的操作。
@@ -17,7 +19,7 @@
 
 ### 容器清理与失败证据
 
-正式 case、startup probe 和独立 runtime validation 使用同一组 owner 标签（主机、用户、
+正式 case、startup probe、Interface Probe 和独立 runtime validation 使用同一组 owner 标签（主机、用户、
 boot、PID 与进程 starttime），并通过 Docker 的 `--cidfile` 或成功启动返回的完整容器 ID
 确定清理对象。名称只用于显示；进程被强杀后，下一次启动只回收可证明 owner 已退出的本机容器。
 启动前若发现完整 owner 标签仍属于当前进程的容器（包括已退出但尚未删除的容器），
@@ -336,6 +338,7 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 | `capability_report.json` | 本次采集的能力状态及实际完整性，和静态元数据中的准备阶段快照分开。 |
 | `quality_checks.json` | 独立 schema v1 的质量观察；普通 warning 不撤销已验证 Capability 或 `full_profile_complete`。 |
 | `runtime_failures.json` | 存在正式请求失败时汇总的 typed failure 列表，保留请求 ID、阶段与环境；不改变测量 CSV 数值协议。 |
+| `metadata/interface_validation.json` | schema v1 的源码 import／signature 报告，含模型 SHA、source/runner SHA256、dependency image ID、状态与 `inference=not_run`；失败记录 `failed_stage/error`，清理异常另存 `cleanup_error`。原始输出在 `logs/interface_validation.log`，不含测量指标。 |
 | `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
 | `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
 | `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
@@ -450,7 +453,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `quantization_config` | Hub model config 中的完整量化配置；没有时为空 object。 |
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
 | `model_metadata_source` | 参数量、参数 payload、精度、量化和许可证的元数据来源，当前在线 Hub 检测成功时为 `huggingface_hub`。 |
-| `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅和 basic／full 的实际观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](Runtime_Compatibility.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`ambiguous/needs_configuration` 在镜像准备前拒绝。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
+| `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](Runtime_Compatibility.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`ambiguous/needs_configuration` 在镜像准备前拒绝。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
 | `task_family` | 任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `pipeline_tag` | Hugging Face pipeline tag，例如 `fill-mask`、`image-classification`。 |
 | `runtime_backend` | 容器内使用的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`。 |
@@ -558,7 +561,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 也不能追溯本地 cache 最初从哪里取得文件。历史清单缺失时视为 unknown，不默认补成官方或镜像。
 主地址和显式备用列表参与模型层、服务层指纹；下载失败不发布已验证清单或模型镜像。
 
-`runtime_validation.json` 使用独立 schema v1：`devices.off/on` 分别保存 CPU／GPU 的 `ok`、`error`、`inconclusive` 或明确 cgroup OOM 的 `resource_limit`；总状态为 `ok`、`error`、`inconclusive` 或 `resource_limited`。每个模式只执行一次最小计划输入，资源上限为本次配置的最大 CPU／内存。错误或验证预算耗尽会在矩阵之前退出；已观测的资源限制允许正式矩阵继续测定 OOM 边界。stdout/stderr 保存在 `runtime_validation_off/on.log`，超时也清理验证容器。它们不是 warmup、测量行或 profiler 结果。验证前已有的结果不因此变为本次成功结果。
+`runtime_validation.json` 使用独立 schema v1：`devices.off/on` 分别保存 CPU／GPU 的 `ok`、`error`、`inconclusive` 或明确 cgroup OOM 的 `resource_limit`；总状态为 `ok`、`error`、`inconclusive` 或 `resource_limited`。每个模式只执行一次最小计划输入，资源上限为本次配置的最大 CPU／内存。load、preprocess、predict、postprocess、validate_output 五阶段都须成功；错误、验证预算耗尽和资源限制均阻止正式矩阵，CPU + GPU 必须两者通过。stdout/stderr 保存在 `runtime_validation_off/on.log`，超时也清理验证容器。它们不是 warmup、测量行或 profiler 结果。验证前已有的结果不因此变为本次成功结果。
 
 每个设备的可选 `stages` 依次记录 `execution/load/preprocess/predict/completion/postprocess/validate_output/metadata`，
 每项包含阶段名与 `verified/error`；错误保存原异常类型和消息。失败报告的 `failed_stage` 指向

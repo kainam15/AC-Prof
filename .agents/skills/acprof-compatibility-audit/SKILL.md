@@ -15,7 +15,7 @@ description: 审计 AC-Prof 指定模型集或 Hub 任务榜单的兼容性，�
 
 1. 冻结样本：任务、library、模型 ID、完整 revision、排名查询与时间、取样规则及分母。固定项目 commit；若工作区有相关未提交内容，再记录源码差异或内容身份。失败、gated 或过大模型保留在样本中。
 2. 复用当前 [inspect / coverage 入口](../../../docs/CLI_Reference.md#acprof-coverage)逐模型检查格式、接口、架构、依赖与来源。静态解析不执行远程模型代码；冲突保留，不能用热门程度替换用户模型。
-3. 根据授权层级与预算执行验证。静态、basic/full Probe 和 basic/full profiling 分别记录；涉及真实采集时遵循[实验流程](../acprof-profiling-workflow/SKILL.md)的隔离与验收要求。
+3. 根据授权层级与预算执行验证。静态、Interface Probe、Runtime Validation 和 basic/full profiling 分别记录；涉及真实采集时遵循[实验流程](../acprof-profiling-workflow/SKILL.md)的隔离与验收要求。
 4. 对每次设备尝试保存命令、revision、项目来源、image ID、计划、退出码与产物路径。恢复批次前核对这些身份；检测到版本漂移时分批报告，不混算为同一版本结果。
 5. 按证据分类：已通过、带警告、解析阻塞、准备/推理/采集失败、权限限制、资源限制、超时或未实测。具体阶段与原始错误保留；本机放不下和超时不能推出永久不支持。
 6. 使用冻结分母汇总，说明设备、验证层级、未实测和语义未核验项。下载量榜单不是随机样本，接口或采集成功不证明模型任务准确率。

@@ -210,7 +210,7 @@ Sentence Transformers 的 feature-extraction/sentence-similarity 路径，若 `m
 声明、Hub task、具有任务语义的 `transformers_info.pipeline_tag` 冲突，或原生模型的明确 head 与任务操作
 不相容时，保留候选并 abstain。显式 `--task` 可以解决元数据冲突，原冲突进入
 `provenance.overridden_conflicts`；它仍不能违背有效的模型声明。
-basic/full Probe 成功不能修改这些静态裁决。静态来源摘要进入服务镜像 request fingerprint，
+Interface Probe 或 Runtime Validation 成功不能修改这些静态裁决。静态来源摘要进入服务镜像 request fingerprint，
 模型 SHA、声明与依赖仍沿用已有模型层和服务层身份规则。
 
 实现复用 [Hugging Face Hub 的 ModelInfo/TransformersInfo](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/hf_api.py)，
@@ -295,7 +295,7 @@ RMBG 的 `skimage` 映射为 `scikit-image`；manga-ocr 的 MeCab tokenizer 明�
 
 `trust_remote_code` 的有效值是 profile 允许且 extension 没有显式禁止。loader options 可进一步
 收紧为 false，不能将 false 提升为 true。普通 family-default 遵循 profile；只有明确注册的
-custom-code profile/adapter 才能开启，basic probe 也遵守同一策略。
+custom-code profile/adapter 才能开启，Interface Probe 也遵守同一策略。
 TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver 消费：缺少
 `acprof_model.json` 时返回 `needs_configuration` 和 `model_contract_required`，不猜输入语义。
 已有 ONNX/skops 的安全格式推断规则保持独立，不推广到任意 TorchScript。
@@ -349,7 +349,7 @@ resolver 版本、锁定环境的 Transformers 版本、draft、依赖候选和�
 `contract.status=resolved` 表示静态契约完整，外层仍为 `candidate`；真实执行证据继续保存在
 独立 `runtime_validation`。冲突或缺口使外层成为 `ambiguous/needs_configuration`，并在构建前停止。
 `contract.status=needs_confirmation` 汇总未决字段；TUI 正式采集只在有可裁决的未决项时暂停询问，
-回答后在原进程继续。高级“模型检查”可独立审阅这些字段，已解析证据默认折叠。
+答案交回 resolver 重新解析，所有必填字段 resolved 后在原进程继续。已确定字段只读展示，修改与内部证据默认折叠。
 输入映射和依赖选择写入 `reviews`，来源标为 `user.review`；多 Pipeline 选择会在同一 SHA 上重新分析。
 动态源码、任务冲突等不能由当前字段编辑器解决的问题仍要求显式声明／adapter。
 
@@ -427,25 +427,49 @@ processor；主模型转发、音频权重分支及已证明的 tokenizer fallba
 依赖仓库／SHA 和所需角色与 `examples/multimodal/ultravox.model.json` 一致；文件按实际角色精确选择，
 不照搬示例中的宽泛 `*.json`。该案例以固定源码 fixture 验收，生产逻辑没有 checkpoint 名称特判。
 
-`acprof inspect MODEL --probe basic` 在镜像内导入固定代码并绑定实际方法签名，不实例化模型权重、
-不执行 preprocess 或推理。basic 仍要求 Pipeline contract；full 同时支持已登记的普通模型。
-`--probe full` 使用默认 workload 的最小尺度；多模态 Pipeline contract 使用一个输出 token，执行
-load → preprocess → predict → postprocess → 输出验证。两者默认 CPU 2 核、4 GiB，单次容器上限
-300 秒；准备镜像仍可能下载模型。Probe 使用断网、只读镜像／snapshot／依赖缓存、临时 `/tmp`、
-移除 capabilities 和禁止提升权限；不挂载主机项目、凭据或 Docker socket，只挂载只读请求。
-生成动态模块缓存使用 `/tmp/hf-modules`。同一用户的采集锁防止独立 Probe 与正式实验同时运行。
+采集生命周期统一为：
 
-basic Probe 与自定义多模态 Pipeline 加载共用
-[`load_local_pipeline_class`](../acprof/container/local_pipeline.py)：按实际安装的 Transformers 精确版本读取
-capability 表，选择原生 loader 或隔离的 recursive-cache shim；规则与退出条件见
-[dynamic-module 兼容生命周期](#transformers-dynamic-module-兼容生命周期)。两条路径都使用固定 snapshot
-和 `local_files_only=True`，不下载文件或读取权重，准备工作位于加载阶段，不进入正式推理测量窗口。
+```text
+resolve → interface validation → prepare runtime → runtime validation → matrix measurement
+```
 
-Probe 写入 `contract_probe_input.json`、`runtime_validation.json` 和设备日志，并更新
-`model_resolution.contract.runtime_validation` 的 mode、image ID、build fingerprint、payload hash 与设备证据。
-basic 成功为 `basic_verified`，full 成功为 `verified`；失败／OOM 保留错误或资源限制，不产生正式 CSV。
-正式采集仍执行自身的完整 runtime validation，不能复用 basic 结果或将其外推为 GPU／profiler 支持。
-TUI 的 Probe 交给现有子进程管理器，支持停止；复查时若主模型 SHA 已变化会拒绝执行。
+Static Resolution 只读取固定 revision 的文本和 AST，不在主机执行仓库源码。
+Interface Probe 使用 `source_bundle.py` 消费静态解析已有的源码图、`repository_sources` 和 metadata；
+缓存存在时不重新联网，缺少已声明文件时只获取该文件。bundle 只包含已确认的 `.py`、`config.json`、
+tokenizer／processor 的小型 JSON metadata 与 `acprof_model.json`；源码数量、大小和 SHA256 都有界，
+并核对完整 commit SHA。相对导入的子模块与 package initializer 同样进入源码图。
+权重后缀、路径越界、缺失依赖或源码身份不一致直接失败，缺图报告
+`interface probe source graph incomplete`，不调用 snapshot 下载，也不扩展 `model_download_policy`。
+
+`acprof inspect MODEL --probe-interface` 可独立运行相同的 Interface Probe。runner 只使用选定
+profile 的 dependency base、AC-Prof 服务源码副本和 Source Bundle，完全脱离 `prepare_image()`、
+`prepare_model()` 与 Model Store。它检查 import 和 `inspect.signature.bind`，不实例化权重、不做
+preprocess 或 inference；默认 CPU 2 核、4 GiB，容器上限 300 秒，依赖镜像准备不在此超时内。
+容器断网、read-only、挂载只读、移除 capabilities、禁止提升权限；临时缓存写入 `/tmp`，
+不挂载主机凭据、Docker socket 或模型目录。结束或取消后按不可变 ID 清理容器和临时目录。
+
+自定义 Pipeline 共用 [`load_local_pipeline_class`](../acprof/container/local_pipeline.py) 和既有
+remote-code 策略；`auto_map` 同样检查策略，导入均为 `local_files_only=True`。
+Transformers 精确版本的 loader 选择与能力声明继续遵循
+[dynamic-module 兼容生命周期](#transformers-dynamic-module-兼容生命周期)。
+接口证据单独写入 `interface_validation.json`、`logs/interface_validation.log` 和
+`model_resolution.interface_validation`，不改写静态裁决或冒充真实推理。
+
+Runtime Validation 就是现有 `validate_runtime()`，按 `prepare_image → plan_input_scales →
+validate_runtime → run_matrix` 顺序使用正式镜像、Model Store、adapter 和 workload。
+每个选中设备执行一次最小合法输入，完整经过 load、preprocess、predict、postprocess、validate_output。
+CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻止正式矩阵。
+报告仍为 `runtime_validation.json`，含每个设备的日志、输入 hash 和镜像身份；历史协议的 `mode=full`
+表示端到端验证，新执行入口不再提供 basic/full 选择。它不产生正式 CSV row，不开启 profiler 测量窗口。
+
+两类验证都不能代替所选 profiler 或正式矩阵实测。`profiling-mode basic/full` 只表示采集指标范围，
+不表示模型检查深度。TUI 自动执行整个准备流程，交互见[模型确认](TUI.md#模型契约解析与验证)。
+
+实现参考 [Hugging Face 单文件缓存下载](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/file_download.py)
+与 [Transformers dynamic modules](https://github.com/huggingface/transformers/blob/main/src/transformers/dynamic_module_utils.py)
+（Apache-2.0），以及 [Textual worker 取消讨论](https://github.com/Textualize/textual/discussions/4510)
+（项目为 MIT）。复用现有依赖和版本能力表，只借鉴缓存、隔离与生命周期处理方式，不复制整套实现、
+不新增下载模式或第三方依赖；新增准备工作均在正式测量窗口外。
 
 输入 DSL 在 schema v1 中兼容旧字符串重命名，并增加 `from`、`literal` 和 `template`：
 
@@ -505,7 +529,7 @@ TUI 的 Probe 交给现有子进程管理器，支持停止；复查时若主模
 调用者统一使用 `acprof.container.local_pipeline`。
 
 新增 runtime 的固定验收顺序为：**固定 tag/commit 上游源码确认 → transitive import test →
-snapshot→blobs symlink test → offline + clean-cache test → 代表性模型 basic/full Probe → 标记 capability=true**。
+snapshot→blobs symlink test → offline + clean-cache test → 代表性模型 Interface Probe 与 Runtime Validation → 标记 capability=true**。
 同时保留 circular import 终止、missing dependency 原路径诊断与 import exception 传播检查。
 验收须保存精确包版本、源码 commit/SHA256、运行环境及测试/Probe 产物；不能仅凭新版号或某个 PR 已合并改表。
 
@@ -523,7 +547,7 @@ ACPROF_TEST_NATIVE_TRANSFORMERS=<精确版本> python scripts/run_tests.py \
 测试只在子进程中临时替换 capability 声明，不替换上游 loader；实际安装版本不符会失败。
 正式 loader 不读取这个测试开关。候选依赖需提前准备，执行回归时容器断网、snapshot 只读，
 `HF_MODULES_CACHE` 指向新的可写临时目录。该组通过只证明动态加载契约，仍需在目标环境执行
-Ultravox 等代表性 checkpoint 的 basic/full Probe；不据此宣称 GPU、profiler 或完整模型推理已通过。
+Ultravox 等代表性 checkpoint 的 Interface Probe 与 Runtime Validation；不据此宣称 GPU、profiler 或完整模型推理已通过。
 代表性 Probe 使用隔离候选 checkout／镜像中的临时能力声明，所有验收通过后才更新正式支持表。
 
 shim 只有同时满足以下条件才能删除：
@@ -531,7 +555,7 @@ shim 只有同时满足以下条件才能删除：
 - 所有正式支持的 Transformers runtime 都原生支持 transitive relative imports。
 - snapshot→blobs symlink、clean-cache + offline、circular 和 missing dependency 回归全部通过。
 - 不再支持任何仍需 workaround 的旧 runtime。
-- Ultravox 等代表性模型的 basic/full Probe 与相关实际推理验证通过。
+- Ultravox 等代表性模型的 Interface Probe、Runtime Validation 及相关实际推理验证通过。
 
 参考上游 [递归复制 PR #46022](https://github.com/huggingface/transformers/pull/46022)、
 [symlink 修复讨论 PR #46611](https://github.com/huggingface/transformers/pull/46611) 和
