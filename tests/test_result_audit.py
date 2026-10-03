@@ -47,6 +47,49 @@ class TestResultAudit:
         assert (self.path.read_bytes()) == (before)
         assert (list(self.root.iterdir())) == ([self.path])
 
+    def test_csv_snapshot_uses_two_bounded_binary_passes(self, monkeypatch):
+        self.write(self.row())
+        original_open = Path.open
+        original_read_bytes = Path.read_bytes
+        modes = []
+
+        def tracked_open(target, *args, **kwargs):
+            if target == self.path:
+                modes.append(args[0] if args else kwargs.get("mode", "r"))
+            return original_open(target, *args, **kwargs)
+
+        def reject_materialized_read(target):
+            if target == self.path:
+                raise AssertionError("audit must not materialize the result CSV")
+            return original_read_bytes(target)
+
+        monkeypatch.setattr(Path, "open", tracked_open)
+        monkeypatch.setattr(Path, "read_bytes", reject_materialized_read)
+        report = audit_result(self.root)
+        assert (report["valid"])
+        assert (modes) == (["rb", "rb"])
+
+    def test_csv_change_between_streaming_passes_is_reported(self, monkeypatch):
+        self.write(self.row())
+        original_open = Path.open
+        binary_opens = 0
+
+        def mutate_before_second_pass(target, *args, **kwargs):
+            nonlocal binary_opens
+            mode = args[0] if args else kwargs.get("mode", "r")
+            if target == self.path and mode == "rb":
+                binary_opens += 1
+                if binary_opens == 2:
+                    with original_open(target, "ab") as stream:
+                        stream.write(b"\n")
+            return original_open(target, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", mutate_before_second_pass)
+        report = audit_result(self.root)
+        assert not (report["valid"])
+        assert ("changing_snapshot") in ({issue["code"] for issue in report["issues"]})
+        assert (binary_opens) == (2)
+
     def test_formal_filter_excludes_warmup_warn_and_error(self):
         self.write(self.row(), self.row(warmup="1"), self.row(repeat_idx="1", status="warn", error="idle drift"),
                    self.row(repeat_idx="2", status="error", error="timeout"))

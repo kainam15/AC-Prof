@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -7,7 +8,12 @@ import pytest
 
 from acprof.config import CSV_FIELDS
 from acprof.host.orchestrator import merge_all_csvs
-from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
+from acprof.result_csv import (
+    expected_measurements,
+    measurement_key,
+    read_result_csv,
+    read_result_csv_snapshot,
+)
 
 
 class TestResultMerge:
@@ -47,6 +53,17 @@ class TestResultMerge:
     def test_close_scales_do_not_collapse_to_one_measurement(self):
         keys = expected_measurements([1], [4], ["off"], [0.13392851, 0.13392852], 0, 1)
         assert (len(keys)) == (2)
+
+    def test_snapshot_hashes_exact_bytes_and_preserves_csv_newlines(self):
+        raw = (b"\xef\xbb\xbfcpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,note\r"
+               b"1,4,off,64,0,0,ok,\"line one\nline two\"\r")
+        path = self.directory / "snapshot.csv"
+        path.write_bytes(raw)
+        fields, rows, digest, unchanged = read_result_csv_snapshot(path)
+        assert (fields[-2:]) == (["status", "note"])
+        assert (rows[0]["note"]) == ("line one\nline two")
+        assert (digest) == (hashlib.sha256(raw).hexdigest())
+        assert (unchanged)
 
     def test_fractional_error_row_preserves_plan_scale(self):
         from acprof.host.detect import TaskInfo

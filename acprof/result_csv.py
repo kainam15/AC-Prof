@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
 from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path
@@ -66,34 +68,53 @@ def expected_measurements(cpus: Sequence[int], mems: Sequence[int], gpus: Sequen
     }
 
 
-def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
-                    ) -> tuple[list[str], list[dict[str, str]]]:
-    path = Path(path)
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream, strict=True)
-        fields = reader.fieldnames or []
-        require_current_fields(fields)
-        if not fields or len(fields) != len(set(fields)):
-            raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
-        missing = set(KEY_FIELDS) - set(fields)
-        if missing:
-            raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
-        rows, keys = [], set()
-        for index, row in enumerate(reader, 2):
-            if None in row or any(value is None for value in row.values()):
-                raise ResultValidationError(f"malformed CSV row: {path}:{index}")
-            try:
-                key = measurement_key(row)
-            except ResultValidationError as exc:
-                raise ResultValidationError(f"{path}:{index}: {exc}") from exc
-            if key in keys:
-                raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
-            if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
-                raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
-            keys.add(key)
-            if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
-                row["environment_class"] = "unknown"
-            rows.append(row)
+_HASH_BUFFER_BYTES = 2**18
+
+
+class _DigestingRawReader(io.RawIOBase):
+    """Forward raw reads while hashing the exact bytes consumed by TextIOWrapper."""
+
+    def __init__(self, stream, digest):
+        super().__init__()
+        self._stream = stream
+        self._digest = digest
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int | None:
+        size = self._stream.readinto(buffer)
+        if size:
+            self._digest.update(memoryview(buffer)[:size])
+        return size
+
+
+def _parse_result_csv(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None
+                      ) -> tuple[list[str], list[dict[str, str]]]:
+    reader = csv.DictReader(stream, strict=True)
+    fields = reader.fieldnames or []
+    require_current_fields(fields)
+    if not fields or len(fields) != len(set(fields)):
+        raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
+    missing = set(KEY_FIELDS) - set(fields)
+    if missing:
+        raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
+    rows, keys = [], set()
+    for index, row in enumerate(reader, 2):
+        if None in row or any(value is None for value in row.values()):
+            raise ResultValidationError(f"malformed CSV row: {path}:{index}")
+        try:
+            key = measurement_key(row)
+        except ResultValidationError as exc:
+            raise ResultValidationError(f"{path}:{index}: {exc}") from exc
+        if key in keys:
+            raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
+        if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
+            raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
+        keys.add(key)
+        if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
+            row["environment_class"] = "unknown"
+        rows.append(row)
     if not rows:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
     if expected is not None:
@@ -104,6 +125,41 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
                 f"unexpected={len(keys - planned)}"
             )
     return fields, rows
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    buffer = bytearray(_HASH_BUFFER_BYTES)
+    view = memoryview(buffer)
+    with path.open("rb", buffering=0) as stream:
+        while True:
+            size = stream.readinto(buffer)
+            if size is None:
+                raise BlockingIOError("CSV hash read would block")
+            if size == 0:
+                break
+            digest.update(view[:size])
+    return digest.hexdigest()
+
+
+def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
+                    ) -> tuple[list[str], list[dict[str, str]]]:
+    path = Path(path)
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        return _parse_result_csv(stream, path, expected)
+
+
+def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
+                             ) -> tuple[list[str], list[dict[str, str]], str, bool]:
+    """Parse and hash exact CSV bytes, then verify the file stayed unchanged."""
+    path = Path(path)
+    digest = hashlib.sha256()
+    with path.open("rb", buffering=0) as raw:
+        buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
+        with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
+            fields, rows = _parse_result_csv(stream, path, expected)
+    before = digest.hexdigest()
+    return fields, rows, before, _file_sha256(path) == before
 
 
 def merge_result_csvs(paths: Sequence[str], destination: str, *,

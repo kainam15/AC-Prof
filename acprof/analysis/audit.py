@@ -15,7 +15,7 @@ from acprof.failures import Failure
 from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
-from acprof.result_csv import expected_measurements, measurement_key, read_result_csv
+from acprof.result_csv import expected_measurements, measurement_key, read_result_csv_snapshot
 
 MISSING = {"", "nan", "none", "null", "n/a"}
 
@@ -181,10 +181,9 @@ def audit_result(source: str | Path) -> dict:
         report["run_id"] = state.get("run_id")
         report["completion"] = "complete" if state.get("status") == "complete" else "incomplete"
     try:
-        before = hashlib.sha256(path.read_bytes()).hexdigest()
-        fields, rows = read_result_csv(path)
+        fields, rows, before, unchanged = read_result_csv_snapshot(path)
         report["result_sha256"] = before
-        if hashlib.sha256(path.read_bytes()).hexdigest() != before:
+        if not unchanged:
             issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")
     except (ValueError, OSError, csv.Error) as error:
         issue("invalid_csv", error)
