@@ -81,7 +81,9 @@ class RuntimeEvidenceTests(unittest.TestCase):
                 source.mkdir()
                 (source / "static_meta.json").write_text(json.dumps({"model_id": "fixture/model", "model_revision": "a" * 40}))
                 (source / "capability_report.json").write_text('{"full_profile_complete": true}')
-            (sources[0] / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": [{"code": "cpu_idle_baseline_unstable", "severity": "warning"}]}))
+            (sources[0] / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": [{
+                "code": "unused_checkpoint_weights", "severity": "warning", "observed": ["unused.weight"],
+                "threshold": 0, "detail": "Unused checkpoint weight", "evidence": {"source": "from_pretrained"}}]}))
             before = {path: path.read_bytes() for source in sources for path in source.iterdir()}
             report = report_results(sources, root / "report")
             self.assertEqual(result_status(report["rows"][0]), "full_success_with_warnings")
@@ -141,7 +143,8 @@ class RuntimeEvidenceTests(unittest.TestCase):
             (root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": [check]}))
             report = audit_result(root)
         self.assertEqual(report.get("failures"), [failure])
-        self.assertEqual(report.get("quality_checks"), [check])
+        self.assertEqual(report.get("quality_checks"), [{**check, "evidence": {
+            **check["evidence"], "artifact": str(root / "quality_checks.json")}}])
 
 
 if __name__ == "__main__":
