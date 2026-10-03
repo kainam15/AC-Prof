@@ -201,7 +201,9 @@ acprof --version
 开发环境继续以现有带哈希的 requirements 为准。
 需要将 checkout 安装为隔离工具并检查主机时，可使用可选的 [`setup.sh` 辅助脚本](../Distribution.md#clone-后初始化)。
 
-[`pyproject.toml`](../../pyproject.toml) 声明主机依赖；[`requirements/`](../../requirements/) 集中保存 `host`、`dev` 和 `tui-snapshot` 的输入与锁文件。
+[`pyproject.toml`](../../pyproject.toml) 声明主机依赖；[`requirements/`](../../requirements/) 集中保存 `host`、`dev`、`test` 和 `runtime-test` 的输入与锁文件。
+
+安装 `requirements/dev.lock` 后，使用 `python -m pytest` 运行开发测试；测试工具与运行依赖分离。
 模块职责见[代码架构](../Architecture.md)，开发依赖、pre-commit 和测试入口见[测试指南](../Testing.md#开发质量检查)。
 新增模型或 backend 参见[适配契约](../Runtime_Compatibility.md#新增一个模型适配)；Agent 协作规则见 [AGENTS.md](../../AGENTS.md)。
 

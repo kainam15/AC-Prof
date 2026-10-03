@@ -239,7 +239,9 @@ acprof --version
 The existing hashed requirements remain the source of truth for development environments.
 To install a checkout as an isolated tool with host checks, use the optional [`setup.sh` helper](docs/Distribution.md#clone-后初始化).
 
-[`pyproject.toml`](pyproject.toml) declares host dependencies; [`requirements/`](requirements/) contains the `host`, `dev`, and `tui-snapshot` inputs and locks.
+[`pyproject.toml`](pyproject.toml) declares host dependencies; [`requirements/`](requirements/) contains the `host`, `dev`, `test`, and `runtime-test` inputs and locks.
+
+Run development tests with `python -m pytest` after installing `requirements/dev.lock`; test tools are separate from runtime dependencies.
 See [architecture](docs/Architecture.md) for module responsibilities and the [testing guide](docs/Testing.md#开发质量检查) for development dependencies, pre-commit, and test commands.
 To add a model or backend, follow the [adaptation contract](docs/Runtime_Compatibility.md#新增一个模型适配).
 Agent collaboration rules are in [AGENTS.md](AGENTS.md).

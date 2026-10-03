@@ -1,11 +1,15 @@
 # 测试与验证
 
+唯一测试入口是 `python -m pytest`；CI 的 `scripts/run_tests.py` 仅转发 pytest 参数并启用同一插件。
+
+本次迁移的基线、集合映射与验证限制见 [2026-10-03 pytest 迁移验收记录](reviews/2026-10-03-pytest-migration.md)。
+
 选择本次改动能改变的行为和失败路径。下列命令均从仓库根目录执行，使用已有 `.venv`。
 测试数量、设备余量和镜像可用性由本次执行确认，不把历史通过记录作为当前验证结果。
 
 ## 验证范围
 
-WSL2 是开发与 PARTIAL 采集平台。可选 pytest runner 注册 `unit`、`wsl`、`native_linux`、`hardware`
+WSL2 是开发与 PARTIAL 采集平台。pytest 注册 `unit`、`wsl`、`native_linux`、`hardware`
 markers；未标集成边界的测试归入 unit。WSL 默认执行 `.venv/bin/python -m pytest -m "not native_linux"`，
 Native Linux 执行完整测试。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
 模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
@@ -18,8 +22,8 @@ Native Linux 执行完整测试。仅显式平台集成测试按真实环境 ski
 | --- | --- |
 | 文档、导航或链接迁移 | 本地文件与章节锚点可达、旧入口仍可跳转、代码块与差异格式正确；无需为措辞运行模型 |
 | Skill | frontmatter、名称与描述匹配、相对路径、流程边界和可用验证器的格式检查 |
-| 单个逻辑或失败路径 | 能观察目标行为的相关 unittest；修复缺陷时先复现，再验证修复 |
-| 模块搬迁、依赖方向或兼容入口 | 当前入口成功、已删除入口拒绝、全套 unittest、CLI 帮助和编译；mock 放到函数实际查找依赖的模块 |
+| 单个逻辑或失败路径 | 能观察目标行为的相关 pytest；修复缺陷时先复现，再验证修复 |
+| 模块搬迁、依赖方向或兼容入口 | 当前入口成功、已删除入口拒绝、全套 pytest、CLI 帮助和编译；mock 放到函数实际查找依赖的模块 |
 | 指标或产物协议 | 独立推导的期望值、当前 schema 成功与旧 schema 拒绝、缺失/失败/不适用字段和受影响消费者 |
 | 模型、backend、依赖或 Dockerfile | 路由与离线加载测试、镜像构建、所声明设备的真实推理；profiler 分别验证 |
 | TUI | 受影响的交互与尺寸检查；原生终端问题还需对应终端证据 |
@@ -46,13 +50,12 @@ Native Linux 执行完整测试。仅显式平台集成测试按真实环境 ski
 | 执行 IDE 测试或 smoke test | 用 `get_run_configurations` 选择相关的已有 Run Configuration，通过 `execute_run_configuration` 执行 |
 | 核对最终改动 | 使用 `git_status` 并结合 diff，检查新增、被忽略文件，确认没有混入无关变更 |
 
-按[验证范围](#验证范围)运行相关 unittest / evidence runner、Ruff 及真实 workload；
+按[验证范围](#验证范围)运行相关 pytest / evidence、Ruff 及真实 workload；
 命令见[开发质量检查](#开发质量检查)与[自动化验证入口](#自动化验证入口)。
 局部修改不默认跑完整测试集；只有新改动、失败或未解决问题才扩大或重复验证。
 
 MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限制并用源码分析和项目 CLI 入口继续；
-不把空调用树当作没有依赖。pytest 是可选本地 runner，不可用时使用现有 unittest / evidence 入口，
-不宣称 pytest 通过；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](#pycharm-mcp-的验证边界)。
+不把空调用树当作没有依赖。pytest 缺失时先安装开发锁；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](#pycharm-mcp-的验证边界)。
 真实 workload 缺少 Docker、GPU、模型等运行条件时，明确标为未验证，不用 IDE diagnostics 或 smoke test 代替。
 
 ## 开发质量检查
@@ -176,12 +179,13 @@ Ruff 版本由 [`pyproject.toml`](../pyproject.toml) 的 `required-version` 强�
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
 只在对应行标注具体规则及原因，不统一忽略 `__init__.py`。
 
-本地 Python 修改先运行 Ruff，再按受影响行为选择已有 runner 的测试模式；`--pattern` 可重复。
-未指定 `--pattern` 会执行完整测试集，不作为局部修改的默认要求。Git hook 不运行业务测试或硬件采集。
+本地 Python 修改先运行 Ruff，再按受影响行为选择 pytest 文件、node ID 或 marker。
+需要 evidence 时追加 `--report`，或使用 CI wrapper；后者的 `--pattern` 可重复。
+局部修改默认验证受影响范围。Git hook 不运行业务测试或硬件采集。
 
 ```bash
 .venv/bin/ruff check acprof/host/env_utils.py tests/test_env_utils.py
-.venv/bin/python scripts/run_tests.py --pattern 'test_env_utils.py' \
+.venv/bin/python -m pytest tests/test_env_utils.py \
   --report internal-testing/env-tests.json
 git diff --check
 ```
@@ -301,49 +305,22 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 
 ### 辅助开发工具
 
-下列工具用于按需调试和补充验证；使用前检查实际环境，已有可用入口时直接复用。
-`textual-dev` 和 Hypothesis 未列入开发锁，使用前核对本机环境。快照插件使用独立
-`requirements/tui-snapshot.lock`，由 CI 的 `tui-snapshots` job 安装；主 unittest job 保持原 runner。
+`requirements/test.in` / `test.lock` 统一固定 pytest、pytest-asyncio、pytest-cov 和
+pytest-textual-snapshot；`dev.in` 包含它，主机和推理 runtime 的依赖声明不包含测试工具。
+Textual 与主机锁一致；pytest 8.4.2 / syrupy 4.8.0 保留已有 SVG 序列化格式。
+`textual-dev` 与 Hypothesis 仍是按需工具，添加普通测试依赖前须同步开发锁和 CI。
 
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
-| `textual-dev` | 查看 Textual 开发日志、事件和调试界面 | 项目 `.venv/bin/textual` |
-| Hypothesis | 为输入解析、边界值和状态转换生成样例，检查应始终成立的性质 | 项目 `.venv/bin/python`；测试中使用 `@given` 与 `strategies` |
-| `pytest-textual-snapshot` | 比较固定场景下的 SVG 快照，发现视觉回归 | `acprof-snapshot-test`，使用独立的 pytest 环境 |
-
-从仓库根目录检查主环境的导入、版本与命令入口：
+| `textual-dev` | Textual 开发日志、事件和调试界面 | `.venv/bin/textual` |
+| Hypothesis | 同步输入与状态转换的性质测试 | pytest 中的 `@given` / `strategies` |
+| `pytest-textual-snapshot` | 固定场景 SVG 视觉回归 | `.venv/bin/python -m pytest tests/visual` |
 
 ```bash
-.venv/bin/python - <<'PY'
-import textual_dev
-import hypothesis
-from importlib.metadata import version
-for name in ("textual", "textual-dev", "hypothesis"):
-    print(f"{name}: {version(name)}")
-PY
-.venv/bin/textual --help
-command -v acprof-snapshot-test
-acprof-snapshot-test --version
-acprof-snapshot-test --help
+.venv/bin/python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+.venv/bin/python -m pytest --version
+.venv/bin/python -m pip check
 ```
-
-`acprof-snapshot-test` 是本机包装命令，当前约定位于 `$HOME/.local/bin`，
-转发到 `$HOME/.local/share/acprof/tui-tools/bin/python -m pytest`，透传 pytest 参数。
-它不是 AC-Prof 的发行命令；更换机器时检查实际包装脚本与解释器路径。
-下面按该本机约定检查插件和 Textual 版本；若包装脚本指向其他位置，使用实际解释器：
-
-```bash
-"$HOME/.local/share/acprof/tui-tools/bin/python" - <<'PY'
-import pytest_textual_snapshot
-from importlib.metadata import version
-for name in ("textual", "pytest", "pytest-textual-snapshot"):
-    print(f"{name}: {version(name)}")
-PY
-```
-
-快照环境的 Textual 版本应与项目 `.venv` 一致。插件及其 `syrupy` 依赖对 pytest 有版本
-约束，保持独立环境，避免为截图改动主环境的 pytest。若入口缺失、导入失败或版本不符，
-记录缺口并继续可运行的现有验证；只有任务确需该工具时才补齐兼容环境。
 
 交互调试时，在两个终端中分别从仓库根目录运行：
 
@@ -354,7 +331,7 @@ PY
 TEXTUAL=devtools,debug acprof tui
 ```
 
-Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/run_tests.py --pattern`
+Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
 执行选定用例。每个生成样例应隔离可变状态；发现失败后保留最小输入，加入稳定回归。
 不要直接用 `@given` 包装异步 `Pilot` 交互；优先生成同步输入处理或状态转换的样例。
 新增依赖这些工具的常规测试时，先补齐相应开发依赖与 CI 环境，不能仅依赖本机安装。
@@ -364,21 +341,22 @@ Hypothesis 可用于同步的 `unittest.TestCase` 方法，并沿用 `scripts/ru
 弹窗覆盖、实际拖动表格之后、测量中、清理未完成和中英文 WSL2 采集确认；覆盖 `80×24`、`120×30`、`150×45`。
 通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
 基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
-独立环境使用 Python 3.12、Textual 8.2.8、pytest 8.4.2、pytest-textual-snapshot 1.1.0 和 syrupy 4.8.0：
+普通功能测试与 SVG 回归共用开发环境和 pytest 配置：
 
 ```bash
-# 新建专用环境时安装；已有 acprof-snapshot-test 环境符合锁时直接复用。
-python3.12 -m venv /path/to/tui-snapshot-env
-/path/to/tui-snapshot-env/bin/python -m pip install --require-hashes \
-  -r requirements/host.lock -r requirements/tui-snapshot.lock
-acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snapshot-report.html
+TZ=UTC PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/visual -q \
+  --snapshot-report internal-testing/tui-snapshot-report.html
 ```
 
-更新快照工具锁：
+更新测试工具和开发锁（保持 `host.lock` 约束，Python 3.10+）：
 
 ```bash
-.venv/bin/uv pip compile requirements/tui-snapshot.in --python-version 3.12 \
-  --generate-hashes --no-annotate --no-header --output-file requirements/tui-snapshot.lock
+.venv/bin/uv pip compile requirements/runtime-test.in --python-version 3.10 --universal \
+  --generate-hashes --no-annotate --no-header -o requirements/runtime-test.lock
+.venv/bin/uv pip compile requirements/test.in --python-version 3.10 --universal \
+  --generate-hashes --no-annotate --no-header -o requirements/test.lock
+.venv/bin/uv pip compile requirements/dev.in --python-version 3.10 --universal \
+  --generate-hashes --no-annotate --no-header -o requirements/dev.lock
 ```
 
 快照用例固定主题、语言、路径与颜色模式，规范化 SVG 行末空白以兼容仓库格式检查；
@@ -389,7 +367,7 @@ acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snap
 并隔离停止操作；截取前断言停止按钮可用，不启动真实采集或向真实进程发送信号。
 
 先查看失败报告的 HTML / SVG 差异，再在预期变更或首次建立基线时对选定用例追加
-`--snapshot-update`；普通验证不更新基线。快照补充现有 unittest / evidence runner，
+`--snapshot-update`；普通验证不更新基线。快照与功能测试使用同一 pytest runner，
 不能代替行为断言、evidence JSON 或[真实终端证据](#tui-与终端证据)。
 上述调试、样例生成和截图均在正式测量窗口之外运行；按任务选择流程见
 [TUI 回归 Skill](../.agents/skills/acprof-textual-regression/SKILL.md#按需选择辅助工具)。
@@ -397,7 +375,7 @@ acprof-snapshot-test tests/visual -q --snapshot-report internal-testing/tui-snap
 用法参考上游维护的 [textual-dev](https://github.com/Textualize/textual-dev)
 与 [pytest-textual-snapshot](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
 以及 [Hypothesis](https://github.com/HypothesisWorks/hypothesis)（MPL-2.0）。
-复用现有 CLI、性质测试和快照机制；通过按需运行及独立快照环境控制依赖与维护成本，
+复用现有 CLI、性质测试和快照机制；通过统一测试锁及按需运行控制依赖与维护成本，
 不向推理环境或正式采集进程加入开发工具。
 
 ### PyCharm MCP 的验证边界
@@ -421,11 +399,12 @@ PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 实现依据见 [JetBrains Call Hierarchy](https://github.com/JetBrains/intellij-community/blob/master/plugins/mcp-server/mcpserver.toolsets/src/general/CallHierarchyAnalysisSupport.kt)
 与 [Python Usage View](https://github.com/JetBrains/intellij-community/blob/master/python/src/com/jetbrains/python/findUsages/PyElementDescriptionProvider.java)。
 
-测试用例使用 `unittest`；GitHub Actions 的 host job 执行 `scripts/run_tests.py`，
-以 unittest runner 生成 evidence JSON。本地 PyCharm Run Configuration 可以用已安装的 pytest
-运行同一批 unittest 用例，这不代表 CI 已迁移为 pytest。pytest 是可选本地 runner，
-主机开发锁不安装 pytest；独立 UI job 的 pytest 仅用于 SVG 快照。主机解释器未安装 pytest 时选择 unittest 配置或本页的 `scripts/run_tests.py` 入口。
-本地 pytest 输出不能代替项目要求的 evidence JSON。执行证据必须包含实际输出和退出码。
+PyCharm 在 **Settings → Tools → Python Integrated Tools → Testing** 中选择 **pytest**，
+使用项目 `.venv`；已有 Run Configuration 的 target 改为 pytest 的文件或 node ID。
+VS Code 的 Python Test Explorer 使用 `python.testing.pytestEnabled: true`、
+`python.testing.pytestArgs: ["tests"]`，解释器选择同一 `.venv`。
+CLI、IDE、host CI 与 SVG job 使用同一配置。需要 CI evidence 时追加 `--report <文件.json>`；
+普通控制台输出不能代替 JSON，证据必须包含真实输出和退出码。
 `build_project` 若提示无法收集构建诊断，不能替代 Python 编译和相关测试；
 依赖查询返回空列表也不能证明 Python 环境没有安装依赖。
 临时重命名和工具测试文件放在任务独立的 `internal-testing/` 子目录中。
@@ -448,18 +427,45 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 重复执行、非交互终端、首次配置与已有设置保留；使用隔离 uv 目录实际执行
 `./setup.sh --no-tui --no-modify-path`。真实推理另用安装后的命令运行最小 basic CPU 实验并审计结果。
 
-测试使用 `unittest`、`unittest.mock` 和临时目录；文件名为 `test_*.py`，方法名以 `test_` 开头。
+测试使用 pytest 原生函数或有明确共同主题的 `Test*` class；文件名与函数名为 `test_*`。
+保留 `unittest.mock`；临时目录、环境、输出、日志与异常优先使用 `tmp_path`、`monkeypatch`、
+`capsys`、`caplog` 和 `pytest.raises`。初始化与清理使用 function scope 的 yield fixture；
+共同的数据构造器放在领域 fixture 模块，避免实例化另一测试 class。
 模拟网络、Docker、硬件与通知边界；避免测试触发真实采集或改写用户设置。
 
 ```bash
 # 按受影响的行为选择测试文件
-.venv/bin/python -m unittest discover -s tests -p 'test_env_utils.py' -v
+.venv/bin/python -m pytest tests/test_env_utils.py -v
 # 跨模块变更的全套回归
-.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m pytest -v
 acprof run --help
 .venv/bin/python -m compileall -q acprof scripts packaging
 git diff --check
 ```
+
+单测试、标记与异步测试：
+
+```bash
+python -m pytest tests/test_env_utils.py::test_local_settings_override_env_file_but_not_explicit_process_values
+python -m pytest --collect-only
+python -m pytest -m unit
+python -m pytest -m "runtime and not hardware"
+python -m pytest -m hardware
+python -m pytest tests/test_tui_input.py
+```
+
+单个 node ID 以 `--collect-only -q` 的实际输出为准。`asyncio_mode="auto"` 收集
+`async def test_*`，测试与 async fixture 的 event loop 均为 function scope，
+Textual `run_test()` 通过 async context manager 完成退出；不要遗留后台 task。
+`--strict-markers` 拒绝未注册标记，`--import-mode=importlib` 允许领域目录中同名测试模块。
+`unit` 自动赋予无 integration/runtime/visual/platform/hardware 标记的测试；
+平台 skip 只作用于显式 `wsl`、`native_linux`，`hardware` 本身不跳过失败。
+原有缺依赖或显式 opt-in skip 原因保留；CI runtime 使用 `--require-no-skips` 拒绝缺失验证。
+
+`scripts/check_test_framework.py` 在 pre-commit 与 CI 中禁止旧执行框架的导入，允许 mock；
+不通过排除文件或忽略报错维持门禁。正式测试环境暂不安装或启用 pytest-xdist：全套测试包含
+全局模块 patch、进程锁、TUI 和资源敏感场景。未来仅在完成 port、临时目录、全局 cache、
+Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行结果；CI 继续四个确定性分片。
 
 `test_architecture.py` 禁止根目录出现任何 `.py` 文件，检查标准库 `profile/cProfile` 可直接导入。
 `test_distribution.py`、`test_tui_interaction.py` 与 terminal-log 回归保护公开帮助、
@@ -559,7 +565,24 @@ CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
 .venv/bin/python scripts/render_metric_reference.py --check
 ```
 
-`run_tests.py` 保留 unittest 输出，并将每项测试的结果、失败/跳过原因、版本及耗时写入 JSON。
+`run_tests.py` 是 pytest CLI wrapper，保留 `--directory`、重复 `--pattern`、`--report`、
+`--require-no-skips` 与分片参数；普通 pytest 也能直接使用后五项参数。
+wrapper 显式加载仓库配置；直接 pytest 写入仓库外已有报告时，追加 `-c pyproject.toml`，
+避免外部路径影响 pytest 的配置发现和 rootdir 推断。
+`tests/conftest.py` 只注册 `acprof.testing.plugin`，evidence 与 sharding 分别位于独立模块。
+报告保留 schema v1 的 test ID、outcome、reason、duration、Python/platform/package 版本、
+UTC timestamp、discovery counts、完整 suite hash 和 shard 元数据。ID 使用 pytest node ID；
+参数化 case 各有 ID，不再合并失败。call 的断言失败为 `failed`，未处理异常及 setup/teardown
+失败为 `error`；同一 case 的各阶段合为一条记录并累计耗时，保留失败原因。
+xfail/xpass 分别对应 `expected_failure` / `unexpected_success`；后者始终使 evidence 失败。
+`--require-no-skips` 同时拒绝 skip 与 xfail。空 pattern、空分片、收集错误和中断不报告成功；
+`--collect-only` 输出的 `collected_ids` 可检查稳定性，但其 evidence 不代表测试已执行。
+筛选先于分片：对完整筛选后 node ID 排序，用 `index::count` 分配，SHA256 包含整个筛选集。
+新增测试或参数改变 suite hash；同一 revision、参数与依赖环境的重复收集必须一致。
+
+容器接口验证先下载带 hash 的 `runtime-test.lock` wheelhouse，再在 `--network none` 容器内
+创建 `/tmp/acprof-tests` 临时环境，复用镜像的推理依赖；不向推理镜像添加 pytest，也不改变
+环境身份或硬件采集入口。硬件 workflow 仍调用真实 `check_hardware.py`，pytest 通过不能替代它。
 Runtime policy 的最小固定回归在 `test_runtime_preflight.py`：覆盖 GLM-OCR task registry、
 SAM/SAM2 dtype、RMBG/skimage、manga-ocr/fugashi、缺少结构化模型 contract，均不下载权重。
 `test_runtime_validation.py` 验证预算耗尽与阶段存证；`test_runtime_evidence.py` 验证
@@ -571,8 +594,8 @@ CSV/TUI/audit/report 统一原因、质量与能力独立、selected artifact �
 验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
 工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。
 本地可用 `--shard-index 0 --shard-count 8` 重现一个 CI 分片；省略参数执行完整测试集。
-runner 在进程内为测量锁注入独立临时目录，分片测试互不争用生产锁；生产入口仍固定使用
-`/tmp` 的同用户锁，设置 `TMPDIR` 不能绕过它。直接调用 unittest/pytest 不经过此注入。
+pytest 的 session autouse fixture 为测量锁注入临时目录，覆盖 setup/call/teardown；
+CLI、IDE 和 wrapper 均受保护。生产入口仍固定使用 `/tmp` 的同用户锁，`TMPDIR` 不能绕过。
 本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --shard-count 8 --report <新报告.json>`；
 单版本验证用 `--python-versions 3.12`。缺分片、失败、计数／摘要不符或测试归属错误均使汇总失败。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
@@ -583,12 +606,12 @@ runner 在进程内为测量锁注入独立临时目录，分片测试互不争�
 ### Host coverage baseline
 
 `requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.10+。
-CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 继续原 unittest runner。
+CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 使用相同 pytest wrapper。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
-第一阶段只记录覆盖情况，不设全仓百分比 gate、不迁移到 pytest，也不排除错误与清理路径来提高数字。
+第一阶段只记录覆盖情况，不设全仓百分比 gate，也不排除错误与清理路径来提高数字。
 `pyproject.toml` 固定 `source=["acprof"]`、branch 和 relative paths；未运行的模块仍进入报告。
 默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
 
@@ -612,7 +635,7 @@ python -m coverage html
 该 baseline 只度量 host runner 进程；未启用对子进程的自动注入，不能代表子进程、Docker、
 GPU、RAPL 或 perf 的实际路径。测试中的 mock 覆盖也不等于 Native validation。
 设计复用 [Coverage.py 官方合并流程](https://github.com/coveragepy/coveragepy/blob/main/coverage/data.py)
-（Apache-2.0）与现有 unittest/evidence runner；锁定版本、仅安装开发依赖，不进入采集环境。
+（Apache-2.0）与统一 pytest/evidence 插件；锁定版本、仅安装开发依赖，不进入采集环境。
 hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-artifact/issues/602)。
 
 ### 恢复与运行环境回归
@@ -771,7 +794,7 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 以及缩放后的布局和焦点可达性。字形能力有限的终端应检查基础 Unicode 线框和键盘路径，
 不能依赖 `tall` 块状边框无缝拼接；纯 ASCII 终端不属于当前中文 TUI 的支持范围。
 
-使用 `unittest.IsolatedAsyncioTestCase`、Textual `run_test()` / `Pilot` 和临时 `settings_path`。
+使用 pytest 原生 async 测试和 `pytest-asyncio`、Textual `run_test()` / `Pilot` 和临时 `settings_path`。
 普通界面测试使用 `tests/tui_fixtures.py` 的就绪环境替身，保留启动状态机但不触发真实硬件探测；
 启动 preflight 专项使用真实 `AcprofTui` 和 thread worker，只模拟 host diagnostics 边界。
 快照与验证 runner 的测试同样隔离 host 探测；runner 实际启动子进程前等待启动检查，检查失败则保存失败画面并退出。
@@ -854,7 +877,7 @@ Textual 为 MIT 许可且由上游维护；这里只覆盖现有 TCSS，
 开发检查复用 [Ruff 官方 hook](https://github.com/astral-sh/ruff-pre-commit)
 和 [pre-commit 官方基础 hooks](https://github.com/pre-commit/pre-commit-hooks)（MIT，持续维护，
 所选版本支持 Python 3.10）。参考 [HTTPX 的工具配置](https://github.com/encode/httpx/blob/master/pyproject.toml)
-把 Ruff 规则放在 `pyproject.toml`，保留本项目的 unittest 与 evidence runner。
+把 Ruff 规则放在 `pyproject.toml`，通过 pytest 插件保存本项目的 evidence。
 hooks 固定完整 commit SHA，CI 直接执行同一份配置，避免维护第二份检查清单；只新增开发依赖，
 没有采集期间的后台进程或测量开销。
 
@@ -886,9 +909,13 @@ profiler 调研了 [NVIDIA nsight-python](https://github.com/NVIDIA/nsight-pytho
 采用标准库的显式编码、LF 写入与 `EncodingWarning` 回归保护；兼容 Python 3.10+，
 不复制上游代码、不增加依赖，仅影响开发文档生成和检查。
 
-主机分片沿用 [CPython unittest 的测试集与 fixture 机制](https://github.com/python/cpython/blob/3.12/Lib/unittest/suite.py)
-和 [GitHub Actions matrix](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations)，
-保留各分片内的模块、类排序，不引入并行测试插件。涉及 `sys.modules` 隔离的测试，先用
+主机分片参考 [pytest plugin hooks](https://github.com/pytest-dev/pytest/blob/8.4.x/src/_pytest/hookspec.py)
+（MIT）和 [Textual 测试配置](https://github.com/Textualize/textual/blob/main/pyproject.toml)（MIT），
+复用官方维护的 collection/report/session hooks 与 async fixture 生命周期；不复制源码。
+[pytest-asyncio 清理讨论](https://github.com/pytest-dev/pytest-asyncio/issues/222)提示需核对
+pending task、async generator 与 executor 的退出；锁定版本并保持 function loop scope。
+项目独立实现 schema v1 聚合与排序分片，避免新增通用报告依赖。所有开销只在测试进程中，
+不会进入正式测量窗口。涉及 `sys.modules` 隔离的测试，先用
 `importlib.import_module` 获取真实目标再 `patch.object`，避免 Python 3.10 的字符串 patch
 沿父包属性找到已脱离导入缓存的模块；请求完成、异常和超时断言保持原语义。
 

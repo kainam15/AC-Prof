@@ -28,7 +28,7 @@
 已有入口示例，从仓库根目录执行，按实际场景收窄范围：
 
 ```bash
-acprof-snapshot-test tests/visual -q
+python -m pytest tests/visual -q
 ```
 
 快照依赖通过[辅助开发工具](../../../../docs/Testing.md#辅助开发工具)维护，不混入主项目 pytest 环境。缺少该环境时继续可用的交互检查并记录缺口，不把跳过描述为快照通过。

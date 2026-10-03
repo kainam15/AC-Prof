@@ -57,7 +57,7 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 先运行受影响的测试文件，例如：
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -p 'test_posthoc.py' -v
+.venv/bin/python -m pytest tests/test_posthoc.py -v
 ```
 
 再按改动范围完成项目要求的测试、编译检查和 `git diff --check`。不为文档措辞写业务测试，不把真实长矩阵当作字段变更的默认验证方式。

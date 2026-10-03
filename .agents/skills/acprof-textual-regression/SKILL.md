@@ -9,7 +9,7 @@ description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光
 
 针对 Textual 终端界面的可观察行为。先确认用户所在终端、复现操作和窗口尺寸，再选择相关检查；不把网页设计或浏览器测试直接套到 TUI。
 
-本流程参考 [Textual 官方测试指南](https://textual.textualize.io/guide/testing/) 及其 [GitHub 文档](https://github.com/Textualize/textual/blob/main/docs/guide/testing.md)，复用项目现有 `unittest` 和 Textual `Pilot`；调试、性质测试和视觉回归按需选择下述辅助工具。
+本流程参考 [Textual 官方测试指南](https://textual.textualize.io/guide/testing/) 及其 [GitHub 文档](https://github.com/Textualize/textual/blob/main/docs/guide/testing.md)，复用项目现有 `pytest` 和 Textual `Pilot`；调试、性质测试和视觉回归按需选择下述辅助工具。
 
 ## 按需查阅
 
@@ -34,15 +34,15 @@ description: 用于修改或排查 AC-Prof 的 Textual TUI 布局、焦点与光
 
 - 调查日志、事件或交互异常时，使用项目 `.venv` 的 `textual-dev` 开发控制台辅助复现。
 - 输入解析、边界值或状态转换适合性质测试时，使用项目 `.venv` 的 Hypothesis 生成同步测试样例；每个样例隔离状态，保存最小失败输入并加入稳定回归。
-- 需要可重复的布局对比时，使用 `acprof-snapshot-test` 调用独立的 `pytest-textual-snapshot` 环境，选择本次场景、语言、主题与尺寸。先审阅差异，再更新预期基线。
+- 需要可重复的布局对比时，使用 `python -m pytest` 调用统一开发锁中的 `pytest-textual-snapshot`，选择本次场景、语言、主题与尺寸。先审阅差异，再更新预期基线。
 
 更新基线后再执行不带更新选项的普通比较；更新命令成功只证明基线已写入。等待测量、解析或准备状态的 fixture 必须符合实际阶段，避免快照显示互相矛盾的状态。
 
-按任务选择需要的工具，无需每次全部运行。工具缺失时说明验证缺口；行为回归继续使用现有 `unittest` / `Pilot` 和 evidence runner。截图不能代替真实客户端终端验收。
+按任务选择需要的工具，无需每次全部运行。工具缺失时说明验证缺口；行为回归继续使用现有 `pytest` / `Pilot` 和 evidence runner。截图不能代替真实客户端终端验收。
 
 ## 自动化交互检查
 
-沿用 `unittest.IsolatedAsyncioTestCase`、`app.run_test(size=(width, height))` 和 `Pilot`；用临时 `settings_path` 隔离用户设置。模拟真正启动采集、Docker 和通知的边界，不能因点击“开始”就在测试中跑真实实验。
+沿用 pytest 原生 `async def` 与 `pytest-asyncio`、`app.run_test(size=(width, height))` 和 `Pilot`；用临时 `settings_path` 隔离用户设置。模拟真正启动采集、Docker 和通知的边界，不能因点击“开始”就在测试中跑真实实验。
 
 检查实际键盘输入、点击、焦点、滚动和输出状态，而不只断言 CSS 类名或内部字段存在。布局变化后用框架的事件处理及等待机制，不用不断增加固定 `sleep` 掩盖竞态。
 
@@ -73,9 +73,9 @@ Headless 测试能验证布局和交互，但不能证明 VS Code 终端、SSH �
 按变更选择相关测试，例如：
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -p 'test_tui_input.py' -v
+.venv/bin/python -m pytest tests/test_tui_input.py -v
 ```
 
-只有确实需要整组回归时再使用 `-p 'test_tui*.py'`，并完成项目规定的其他检查。记录测试结果、终端尺寸、复现动作与仍未确认的环境。
+只有确实需要整组回归时再使用 `--pattern 'test_tui*.py'`，并完成项目规定的其他检查。记录测试结果、终端尺寸、复现动作与仍未确认的环境。
 
 操作行为变化时更新 docs/TUI.md；首页运行示例受影响时同步 README；设置格式或持久化语义变化时更新 docs/CLI_Reference.md；模块边界变化时更新架构文档。通用约束遵循已加载的项目规则。
