@@ -539,6 +539,12 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 避免继承主机环境或在导入测试前因缺少配置而失败。
 容器测试继续保留版本检查、禁网和 `--require-no-skips`。
 
+`test_cv_runtime.py` 只包含 CPU 可执行的 CV 接口回归；CUDA 专项放在
+`test_cv_cuda_runtime.py`，两者复用 `cv_runtime_fixtures.py` 的微型 snapshot 与 dtype 断言。
+CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
+`python scripts/run_tests.py --pattern test_cv_cuda_runtime.py --require-no-skips --report <report.json>`。
+缺少 CUDA 时跳过不能作为 GPU 验收；CPU job 仍拒绝任何 skip。
+
 本地入口：
 
 ```bash
