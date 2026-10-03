@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from acprof import __version__
 from acprof.host.command import run_command
 from acprof.platform import Environment
 
@@ -53,7 +54,8 @@ def collect_platform_metadata(environment: Environment, project_dir: str | Path)
             pynvml.nvmlShutdown()
     except Exception as exc:
         errors["nvml"] = str(exc)
-    return {"git_commit": command("git", ["git", "rev-parse", "HEAD"]),
+    return {"acprof_version": __version__,
+            "git_commit": command("git", ["git", "rev-parse", "HEAD"]),
             "docker": {key: info.get(key) for key in (
                 "ServerVersion", "KernelVersion", "OperatingSystem", "OSType", "Architecture",
                 "CgroupVersion", "CgroupDriver", "Driver", "DefaultRuntime", "Runtimes",

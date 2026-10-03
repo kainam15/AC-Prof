@@ -21,6 +21,25 @@ WSL = Environment("wsl2", "Linux", "6.6-microsoft-standard-WSL2")
 
 
 class EnvironmentPolicyTests(unittest.TestCase):
+    def test_installed_version_is_recorded_without_git_or_hardware(self):
+        from acprof.host import platform_metadata
+        with patch('acprof.host.platform_metadata.__version__', '0.9.7'), \
+                patch('acprof.host.platform_metadata.run_command', side_effect=FileNotFoundError('tool missing')), \
+                patch.dict('sys.modules', {'pynvml': None}):
+            metadata = platform_metadata.collect_platform_metadata(NATIVE, '/installed/acprof/_bundle')
+        self.assertEqual(metadata.get('acprof_version'), '0.9.7')
+        self.assertIsNone(metadata['git_commit'])
+        self.assertIn('git', metadata['errors'])
+
+    def test_historical_metadata_does_not_invent_package_version(self):
+        from acprof.artifacts import read_static_metadata
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'static_meta.json'
+            for runtime in ({}, {'acprof_version': '0.1.4', 'git_commit': None}):
+                path.write_text(json.dumps({'schema_version': 7, 'platform_runtime': runtime}))
+                metadata = read_static_metadata(temporary)
+                self.assertEqual(metadata['platform_runtime'], runtime)
+
     def detect(self, *, system="Linux", kernel="6.8.0-generic", proc="", paths=(), env=None):
         return detect_environment(system=system, release=kernel, version="test", machine="x86_64",
                                   environ=env or {}, read_text=lambda _: proc, exists=lambda p: p in paths)

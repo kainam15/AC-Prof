@@ -194,9 +194,15 @@ not_measured、unfinished。OOM／timeout 是已结束的失败；剪枝未尝�
 
 static schema v7 新增可选 `platform`、`collection_tier`、`comparability_class`、`environment_class`
 和 `platform_runtime`，新采集必须写入。`platform` 包含 environment/native、system/kernel/kernel_version、
-machine、WSL generation 与识别证据；`platform_runtime` 保存 Git commit、Docker/runtime、GPU driver、
+machine、WSL generation 与识别证据；`platform_runtime` 保存 `acprof_version`、Git commit、Docker/runtime、GPU driver、
 CUDA driver/NVML 版本和探测错误，GPU 硬件身份继续保存在 `gpu_device`。版本不可读时为 null/明确错误，
 不合成版本。只在 Preparation 探测，不进入请求窗口。
+
+`platform_runtime.acprof_version` 是无单位的版本字符串，直接取当前执行包的 `acprof.__version__`，
+适用于所有安装方式，不依赖 Git 或硬件；已发布版本可对应 `v<version>` Tag。
+源码 checkout 额外记录既有 `git_commit`；wheel/standalone 取不到 Git commit 时保持 null 并保留错误原因。
+此字段是 static schema v7 的可选来源信息，旧文件缺失表示版本未知，读取时不得用当前安装版本回填。
+版本不参与数值聚合，不改变测量窗口、环境比较或 resume 身份。
 
 Capability Report v3 增加相同的环境身份及 `metric_support`，measurement 每项增加独立 `support`。
 支持状态为 supported、partial、unsupported、requires_native_validation；它们不替代原来的实测状态。
