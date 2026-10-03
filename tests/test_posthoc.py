@@ -405,6 +405,99 @@ class TestPosthocProfile:
         assert (applicable) == (("torch", "ncu", "nsys", "massif"))
         assert (skipped) == (())
 
+    @pytest.mark.parametrize(
+        "name,payload",
+        (
+            (
+                host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+                b'{"schema_version":2,"model_id":"example/model","entries":'
+                b'[{"input_scale":8,"payload":{}}],"extra":NaN}',
+            ),
+            (
+                host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+                b'{"schema_version":2,"model_id":"example/model","entries":'
+                b'[{"input_scale":8,"payload":{}}],"extra":1e999}',
+            ),
+            (host_posthoc_context.INPUT_SCALE_PLAN_NAME, b"\xff"),
+            (
+                host_collection_history.COLLECTION_HISTORY_NAME,
+                b'{"schema_version":1,"posthoc_profile_history":[],"observed":NaN}',
+            ),
+            (
+                host_collection_history.COLLECTION_HISTORY_NAME,
+                b'{"schema_version":1,"posthoc_profile_history":[],"observed":1e999}',
+            ),
+            (host_collection_history.COLLECTION_HISTORY_NAME, b"\xff"),
+        ),
+    )
+    def test_load_context_rejects_invalid_auxiliary_json_without_rewriting(self, name, payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            path = root / name
+            path.write_bytes(payload)
+            if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME:
+                static_path = root / host_posthoc_context.STATIC_META_NAME
+                static_meta = json.loads(static_path.read_text())
+                static_meta["input_scale_plan_sha256"] = hashlib.sha256(payload).hexdigest()
+                static_path.write_text(json.dumps(static_meta))
+            before = path.read_bytes()
+
+            with pytest.raises(host_posthoc_context.PosthocError, match=f"cannot read {name}"):
+                host_posthoc_context.load_result_context(root)
+
+            assert (path.read_bytes()) == (before)
+
+    @pytest.mark.parametrize(
+        "name",
+        (host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+         host_collection_history.COLLECTION_HISTORY_NAME),
+    )
+    def test_load_context_rejects_oversized_auxiliary_json_without_rewriting(self, name):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            path = root / name
+            payload = json.dumps({
+                "schema_version": 2 if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME else 1,
+                "model_id": "example/model",
+                "entries": [{"input_scale": 8, "payload": {}}],
+                "padding": "x" * (4 * 1024 * 1024),
+            }).encode()
+            path.write_bytes(payload)
+            if name == host_posthoc_context.INPUT_SCALE_PLAN_NAME:
+                static_path = root / host_posthoc_context.STATIC_META_NAME
+                static_meta = json.loads(static_path.read_text())
+                static_meta["input_scale_plan_sha256"] = hashlib.sha256(payload).hexdigest()
+                static_path.write_text(json.dumps(static_meta))
+
+            with pytest.raises(host_posthoc_context.PosthocError, match="4 MiB"):
+                host_posthoc_context.load_result_context(root)
+
+            assert (path.stat().st_size) == (len(payload))
+
+    @pytest.mark.parametrize(
+        "payload",
+        (
+            b'{"schema_version":1,"observed":NaN}',
+            b'{"schema_version":1,"observed":1e999}',
+            None,
+        ),
+    )
+    def test_optional_plan_reader_rejects_invalid_or_oversized_json_without_rewriting(
+        self, payload,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            content = payload or json.dumps({
+                "schema_version": 1,
+                "padding": "x" * (4 * 1024 * 1024),
+            }).encode()
+            path.write_bytes(content)
+
+            assert (host_posthoc_context._read_plan(path)) is (None)
+            assert (path.read_bytes()) == (content)
+
     def test_load_context_rejects_embedded_histories_without_rewriting(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"

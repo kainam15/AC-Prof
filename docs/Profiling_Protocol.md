@@ -627,6 +627,10 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 
 不再重复保存 `posthoc_profile_last_run`、`timeout_retry_last_run` 或 `quality_retry_last_run`；需要最新记录时读取对应 `*_history[-1]`。`static_meta.json` 中的 history/last-run 字段会被拒绝，不再执行迁移。
 
+`acprof profile` 读取 `input_scale_plan.json`、`collection_history.json` 及可复用 profiler plan 时，
+每份最多接收 4 MiB 的 UTF-8 JSON object，并拒绝非有限数字。必需输入损坏时保留现有
+`PosthocError` 严格失败；可选复用计划损坏时只视为不可复用，不改写历史文件，也不把损坏证据用于补采。
+
 ### 最大输入探测结果
 
 `acprof probe` 每次生成独立的 `input_scale_plan.json` 和 `largest_scale_probe.json`。

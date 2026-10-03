@@ -4,7 +4,6 @@ from __future__ import annotations
 import codecs
 import csv
 import hashlib
-import json
 import math
 import os
 import re
@@ -20,6 +19,7 @@ from typing import (
     Tuple,
 )
 
+from acprof.artifacts import read_json_object
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.compute_profile_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
@@ -185,12 +185,9 @@ def _load_json_object(path: Path, label: str) -> Dict[str, Any]:
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        return read_json_object(path, label=label)
     except (OSError, ValueError) as exc:
         raise PosthocError(f"cannot read {label} {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise PosthocError(f"invalid {label} (expected JSON object): {path}")
-    return payload
 
 
 def _load_result_csv(path: Path) -> Tuple[List[str], List[Dict[str, str]], str]:
@@ -414,7 +411,6 @@ def _read_plan(path: Path) -> Optional[Dict[str, Any]]:
     if not path.is_file():
         return None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        return read_json_object(path, label=path.name)
     except (OSError, ValueError):
         return None
-    return payload if isinstance(payload, dict) else None
