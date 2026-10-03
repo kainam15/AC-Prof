@@ -1,11 +1,12 @@
 """The local search picker supports narrow layouts and cancellation."""
 import asyncio
 import json
+import os.path
 import tempfile
 import threading
 import unittest
 from pathlib import Path
-from typing import Callable, cast
+from typing import cast
 from unittest.mock import patch
 
 from rich.text import Text
@@ -13,7 +14,7 @@ from textual.app import App
 from textual.widgets import Button, Input, Static
 
 from acprof.tui.experiment_catalog import scan_experiments
-from acprof.tui.experiment_picker import SearchPickerScreen, experiment_choice
+from acprof.tui.experiment_picker import PickerChoice, SearchPickerScreen, experiment_choice
 from acprof.tui.i18n import translate
 
 
@@ -27,6 +28,69 @@ class PickerHarness(App):
 
 
 class PickerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_catalog_and_unmatched_query_have_distinct_messages(self):
+        candidate = PickerChoice('fixture', ('demo/model',), 'fixture details', 'demo/model', frozenset({'view'}))
+        for language, empty, unmatched in (
+            ('zh', '尚无本地实验记录，请检查搜索目录。', '没有匹配项，请修改搜索词。'),
+            ('en', 'No local experiment records yet. Check the search directories.', 'No matches. Change the search terms.'),
+        ):
+            for choices in ((), (candidate,)):
+                with self.subTest(language=language, has_records=bool(choices)):
+                    app = PickerHarness(language)
+                    screen = SearchPickerScreen('选择实验', ('模型',),
+                        lambda cancelled: (choices, ()), query='asdf', actions=('view',))
+                    async with app.run_test(size=(80, 24)) as pilot:
+                        await app.push_screen(screen)
+                        await app.workers.wait_for_complete()
+                        await pilot.pause()
+                        self.assertEqual(screen.query_one('#picker-detail', Static).content, unmatched if choices else empty)
+                        self.assertEqual(screen.query_one('#picker-status', Static).content, f'0 / {len(choices)}')
+                        self.assertTrue(screen.query_one('#picker-view', Button).disabled)
+                        if choices:
+                            screen.query_one('#picker-search', Input).value = ''
+                            await pilot.pause()
+                            self.assertEqual(screen.query_one('#picker-detail', Static).content, 'fixture details')
+                            self.assertFalse(screen.query_one('#picker-view', Button).disabled)
+
+    async def test_query_changes_keep_loading_feedback_until_records_arrive(self):
+        release = threading.Event()
+
+        def loader(_cancelled):
+            if not release.wait(timeout=5):
+                raise TimeoutError('test did not release picker loader')
+            return (), ()
+
+        app = PickerHarness('en')
+        screen = SearchPickerScreen('选择实验', ('模型',), loader)
+        try:
+            async with app.run_test(size=(80, 24)) as pilot:
+                await app.push_screen(screen)
+                screen.query_one('#picker-search', Input).value = 'asdf'
+                await pilot.pause()
+                self.assertEqual(screen.query_one('#picker-status', Static).content, 'Reading known experiment roots…')
+                self.assertEqual(screen.query_one('#picker-detail', Static).content, 'Reading known experiment roots…')
+                release.set()
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                self.assertEqual(screen.query_one('#picker-detail', Static).content,
+                    'No local experiment records yet. Check the search directories.')
+        finally:
+            release.set()
+
+    async def test_read_failure_preserves_diagnostics_instead_of_claiming_no_history(self):
+        def loader(_cancelled):
+            raise OSError('fixture catalog read failure')
+
+        app = PickerHarness('en')
+        screen = SearchPickerScreen('选择实验', ('模型',), loader)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.push_screen(screen)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            self.assertEqual(screen.query_one('#picker-status', Static).content, '0 / 0 · fixture catalog read failure')
+            self.assertEqual(screen.query_one('#picker-detail', Static).content,
+                'No local records were read. See the messages above.')
+
     async def test_scope_omits_stale_paths_but_keeps_explicit_deep_scan_roots(self):
         scratch = Path.cwd() / 'internal-testing'
         scratch.mkdir(exist_ok=True)
@@ -96,14 +160,13 @@ class PickerTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary)
             denied = root / '[denied]'
             denied.mkdir()
-            original_is_dir: Callable[[Path], bool] = Path.is_dir
             inspection_threads = []
 
             def is_dir(path: Path) -> bool:
                 if path == denied:
                     inspection_threads.append(threading.get_ident())
                     raise PermissionError('fixture permission denied')
-                return original_is_dir(path)
+                return os.path.isdir(path)
 
             app = PickerHarness('en')
             screen = SearchPickerScreen('选择实验', ('模型',), lambda cancelled: ((), ()), scope=(root, denied))

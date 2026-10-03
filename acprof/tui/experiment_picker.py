@@ -66,7 +66,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     def __init__(self, title: str, columns: tuple[str, ...], loader: Callable,
                  *, query: str = '', actions: tuple[str, ...] = ('view', 'reuse', 'resume'),
                  loading_changed: Callable[[bool], None] = lambda busy: None, scope: tuple = (),
-                 project_dir: Path | None = None):
+                 project_dir: Path | None = None, empty_message: str = '尚无本地实验记录，请检查搜索目录。'):
         super().__init__()
         self._compositor = CjkCompositor()
         self.title_text, self.columns, self.loader = title, columns, loader
@@ -75,6 +75,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.choices: tuple[PickerChoice, ...] = ()
         self.filtered: tuple[PickerChoice, ...] = ()
         self.warnings: tuple[str, ...] = ()
+        self.empty_message = empty_message
+        self._choices_loading = True
         self._owner = None
         self.scope = scope
         self.project_dir = project_dir if project_dir is not None else Path.cwd()
@@ -166,6 +168,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         if not self.is_mounted or self.cancelled.is_set():
             return
         self.choices, self.warnings = tuple(choices), tuple(warnings)
+        self._choices_loading = False
         self.show_scope(roots, skipped)
         self.filter_choices()
 
@@ -174,6 +177,9 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.filter_choices()
 
     def filter_choices(self):
+        if self._choices_loading:
+            self.show_choice()
+            return
         terms = self.query_one('#picker-search', Input).value.casefold().split()
         self.filtered = tuple(choice for choice in self.choices if all(
             term in (choice.search_text + ' ' + ' '.join(self.app.tr(cell) for cell in choice.cells)).casefold()
@@ -196,7 +202,17 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     def show_choice(self):
         choice = self.selected()
-        self.query_one('#picker-detail', Static).update(choice.detail if choice else self.app.tr('没有匹配的本地记录'))
+        if choice:
+            detail = choice.detail
+        elif self._choices_loading:
+            detail = self.app.tr('正在读取已知目录内的实验……')
+        elif self.choices:
+            detail = self.app.tr('没有匹配项，请修改搜索词。')
+        elif self.warnings:
+            detail = self.app.tr('未读取到本地记录，请查看上方提示。')
+        else:
+            detail = self.app.tr(self.empty_message)
+        self.query_one('#picker-detail', Static).update(detail)
         for action in self.actions:
             self.query_one('#picker-' + action, Button).disabled = choice is None or action not in choice.actions
 

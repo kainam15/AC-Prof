@@ -78,6 +78,7 @@ class ModelActions(MessagePump):
         self._set_busy(True)
         self.push_screen(SearchPickerScreen('模型候选', ('模型', 'Revision', '验证状态', '设备'), loader,
             query=self._input('model'), actions=('use', 'view'), scope=(*roots, cache_root), project_dir=PROJECT_DIR,
+            empty_message='尚无本地模型记录，可直接输入 Hugging Face 模型 ID。',
             loading_changed=lambda busy: self._picker_loading(token, busy)),
             lambda choice: self._model_candidate_selected(choice, models))
 

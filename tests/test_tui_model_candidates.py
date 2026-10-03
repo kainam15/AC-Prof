@@ -48,9 +48,20 @@ class ModelInputTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(screen.query_one('#picker-scope-note', Static).content,
                     '已跳过 1 个不可用目录；悬停查看详情。')
                 self.assertEqual(screen.choices, ())
+                self.assertEqual(screen.query_one('#picker-detail', Static).content,
+                    '尚无本地模型记录，可直接输入 Hugging Face 模型 ID。')
                 await pilot.press('escape')
                 await pilot.pause()
                 self.assertEqual(app.query_one('#model', Input).value, 'asdf')
+                app.ui_preferences = replace(app.ui_preferences, language='en')
+                app.query_one('#model', Input).focus()
+                await pilot.press('f4')
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                self.assertEqual(app.screen.query_one('#picker-scope', Static).content, 'Search roots: results · store')
+                self.assertEqual(app.screen.query_one('#picker-detail', Static).content,
+                    'No local model records yet. Enter a Hugging Face model ID directly.')
+                await pilot.press('escape')
         self.assertEqual(settings_path.read_bytes(), original_settings)
 
     async def test_same_input_searches_pins_revision_and_changes_conditions(self):
