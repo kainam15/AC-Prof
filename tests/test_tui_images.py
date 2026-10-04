@@ -496,8 +496,119 @@ class TestTuiImages:
     def marker_offset(self, widget, row):
         # 从实际渲染字符定位，避免用控件的点击元数据验证自身。
         text = widget.render_line(row).text
-        index = next(index for index, char in enumerate(text) if char in "□☑✓—")
+        index = next(index for index, char in enumerate(text) if char in "□☑◩✓—")
         return cell_len(text[:index]), row
+
+    @pytest.mark.parametrize("view", ("tree", "list"))
+    async def test_branch_selection_and_half_selection_never_promote_ancestors(self, view):
+        sibling = "sha256:" + "d" * 64
+        self.docker.images[sibling] = image(sibling, ["acprof-nlp-sibling:code"], 420,
+                                            ["os", "deps", "weights", "sibling"])
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view=view)
+            widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
+
+            async def toggle(image_id):
+                if view == "tree":
+                    def find(node):
+                        if node.data and node.data.image_id == image_id:
+                            return node
+                        return next((found for child in node.children if (found := find(child))), None)
+                    widget.move_cursor(find(widget.root), animate=False)
+                else:
+                    widget.move_cursor(row=widget.get_row_index(image_id))
+                widget.focus()
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+
+            before = len(self.docker.commands)
+            await toggle(WEIGHTS)
+            assert app._selected_image_ids == {WEIGHTS, FINAL, sibling}
+            assert "◩" in app.query_one("#image-tree", Tree).root.children[0].label.plain
+            await toggle(FINAL)
+            assert app._selected_image_ids == {sibling}, "取消下层同时保留其上层"
+            table = app.query_one("#image-table", DataTable)
+            assert table.get_cell(WEIGHTS, "selected").plain == "◩"
+            await toggle(FINAL)
+            assert app._selected_image_ids == {FINAL, sibling}, "补齐子节点也不能自动删除父镜像"
+            await toggle(RUNTIME)
+            assert app._selected_image_ids == {RUNTIME, WEIGHTS, FINAL, sibling}
+            await toggle(RUNTIME)
+            assert not app._selected_image_ids
+            assert len(self.docker.commands) == before
+
+    @pytest.mark.parametrize("language", ("zh", "en"))
+    async def test_collapsed_filtered_branch_includes_hidden_images_and_inferred_confirmation(self, language):
+        app = self.make_app()
+        app.ui_preferences = replace(app.ui_preferences, language=language)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot, view="tree")
+            tree = app.query_one("#image-tree", Tree)
+            tree.focus()
+            await pilot.press("left")
+            await pilot.pause()
+            assert not tree.root.children[0].is_expanded
+            app.query_one("#image-search", Input).value = "acprof-runtime"
+            await pilot.pause()
+            tree.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app._selected_image_ids == {RUNTIME, WEIGHTS, FINAL}
+            assert ("筛选外 2" if language == "zh" else "2 hidden") in str(app.query_one("#image-status", Static).content)
+            assert not tree.root.children[0].is_expanded
+            await pilot.click("#image-delete")
+            await pilot.pause()
+            content = str(app.screen.query_one("#image-confirm-text", Static).content)
+            assert all(image_id in content for image_id in (RUNTIME, WEIGHTS, FINAL))
+            assert ("筛选外 2" if language == "zh" else "2 filtered-out") in content
+            assert "≈" in content and ("未确认 FROM" if language == "zh" else "FROM unconfirmed") in content
+            await pilot.press("escape")
+            assert not self.docker.removals
+
+    @pytest.mark.parametrize("container_image", (FINAL, RUNTIME), ids=("leaf", "parent"))
+    async def test_container_in_branch_preserves_ancestors_and_selects_free_siblings(self, container_image):
+        sibling = "sha256:" + "d" * 64
+        self.docker.images[sibling] = image(sibling, ["acprof-nlp-sibling:code"], 420,
+                                            ["os", "deps", "other"])
+        self.docker.containers["used"] = dict(Image=container_image, Name="/kept", State=dict(Status="exited"))
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view="tree")
+            tree = app.query_one("#image-tree", Tree)
+            tree.focus()
+            await pilot.click(tree, offset=self.marker_offset(tree, 0))
+            await pilot.pause()
+            assert app._selected_image_ids == ({sibling} if container_image == FINAL else {WEIGHTS, FINAL, sibling})
+            assert "◩" in tree.root.children[0].label.plain
+            assert any("容器" in notification.message for notification in app._notifications)
+            await pilot.press("space")
+            await pilot.pause()
+            assert not app._selected_image_ids
+
+    @pytest.mark.parametrize("change", ("tag", "container", "new_child"))
+    async def test_refresh_invalidates_ancestor_selection_without_selecting_new_images(self, change):
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view="tree")
+            tree = app.query_one("#image-tree", Tree)
+            tree.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app._selected_image_ids == {RUNTIME, WEIGHTS, FINAL}
+            if change == "tag":
+                self.docker.images[FINAL]["RepoTags"].append("extra:tag")
+            elif change == "container":
+                self.docker.containers["used"] = dict(Image=FINAL, Name="/kept", State=dict(Status="exited"))
+            else:
+                extra = "sha256:" + "d" * 64
+                self.docker.images[extra] = image(extra, ["acprof-nlp-new:code"], 420,
+                                                  ["os", "deps", "weights", "other"])
+            app.refresh_images()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app._selected_image_ids == ({FINAL} if change == "new_child" else set())
 
     def add_tree_branches(self):
         for key, name, layers in (
@@ -658,7 +769,8 @@ class TestTuiImages:
                         marker_x, _ = self.marker_offset(widget, row)
                         assert (await pilot.click(widget, offset=(marker_x + delta, row)))
                         await pilot.pause()
-                        assert (app._selected_image_ids) == ({image_id} if selected else set())
+                        expected = {RUNTIME, WEIGHTS, FINAL} if image_id == RUNTIME else {FINAL}
+                        assert (app._selected_image_ids) == (expected if selected else set())
                         assert ("☑" if selected else "□") in (widget.render_line(row).text)
                         if view == "tree":
                             assert (widget.root.children[0].is_expanded), "勾选父镜像不能同时折叠子树"
@@ -683,7 +795,7 @@ class TestTuiImages:
                     await pilot.click(widget, offset=self.marker_offset(widget, row))
                     await pilot.pause()
                     assert (app._current_image().image_id) == (image_id)
-                    assert (app._selected_image_ids) == ({FINAL} if image_id == FINAL else {FINAL, RUNTIME})
+                    assert (app._selected_image_ids) == ({FINAL} if image_id == FINAL else {FINAL, WEIGHTS, RUNTIME})
                 await pilot.click("#image-clear")
                 await pilot.pause()
 
@@ -1196,7 +1308,7 @@ class TestTuiImages:
             assert (app._selected_image_ids) == (selected)
             assert (table.scroll_offset) == (offset)
 
-    async def test_refresh_drops_only_selections_with_changed_identity_or_references(self):
+    async def test_refresh_drops_changed_images_and_ancestors_but_preserves_free_descendants(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
@@ -1205,12 +1317,15 @@ class TestTuiImages:
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert (app._selected_image_ids) == ({WEIGHTS})
+            assert not app._selected_image_ids, "下层标签变化时也应保留其上层"
+            await pilot.click("#image-model")
+            await pilot.pause()
+            assert app._selected_image_ids == {WEIGHTS, FINAL}
             self.docker.containers["used"] = dict(Image=WEIGHTS, Name="/new-user", State=dict(Status="exited"))
             app.refresh_images()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert not (app._selected_image_ids)
+            assert app._selected_image_ids == {FINAL}, "上层被引用不妨碍删除空闲下层"
             app.query_one("#image-table", DataTable).move_cursor(row=0)
             await pilot.click("#image-model")
             assert (app._selected_image_ids) == ({FINAL})
@@ -1323,7 +1438,8 @@ class TestTuiImages:
             assert ("kept-container") in (str(app.query_one("#image-metadata-detail", Static).content))
             await pilot.click("#image-model")
             await pilot.pause()
-            assert (app._selected_image_ids) == ({WEIGHTS})
+            assert not app._selected_image_ids
+            assert app.query_one("#image-delete", Button).disabled
 
     async def test_long_confirmation_can_scroll_and_keyboard_cancel_survives_resize(self):
         self.docker.images[WEIGHTS]["RepoTags"].extend(f"acprof-weights-audio-demo--model:old-{index}" for index in range(30))

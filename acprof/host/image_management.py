@@ -207,15 +207,20 @@ def _kind(tags: tuple[str, ...], labels: dict) -> str:
     return "other" if tags else "untagged"
 
 
+def _image_ids(connection: DockerConnection) -> list[str]:
+    ids = list(dict.fromkeys(_run((*connection.arguments, "image", "ls", "--all", "--quiet", "--no-trunc")).splitlines()))
+    if any(not re.fullmatch(r"sha256:[0-9a-f]{64}", key) for key in ids):
+        raise ImageManagementError("Docker 返回了无效的镜像信息")
+    return ids
+
+
 def list_images(connection: DockerConnection | None = None, *, include_space: bool = True) -> ImageInventory:
     """按 ID 去重；大小沿用 Docker 的完整 Size，不累计共享层为独占空间。"""
     connection = connection or _connection()
     daemon_id = _run((*connection.arguments, "info", "--format", "{{.ID}}"))
     if not daemon_id:
         raise ImageManagementError("无法确定 Docker 环境")
-    ids = list(dict.fromkeys(_run((*connection.arguments, "image", "ls", "--all", "--quiet", "--no-trunc")).splitlines()))
-    if any(not re.fullmatch(r"sha256:[0-9a-f]{64}", key) for key in ids):
-        raise ImageManagementError("Docker 返回了无效的镜像信息")
+    ids = _image_ids(connection)
     records = _inspect(connection, "image", ids)
     container_ids = _run((*connection.arguments, "container", "ls", "--all", "--quiet", "--no-trunc")).splitlines()
     containers: dict[str, list[str]] = {}
@@ -388,11 +393,13 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
 
 def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tuple[ImageRemoval, ...]:
     """复核整个清单后删除全部选定标签；不强制、不 prune 未选择的父镜像。"""
+    from acprof.host.image_graph import describe_inventory
+
     previous = {item.image_id: item for item in inventory.images}
     selected = set(image_ids)
     if not selected or not selected <= previous.keys():
         raise ImageManagementError("请选择列表中的镜像")
-    current = list_images(inventory.connection, include_space=False)
+    current = describe_inventory(list_images(inventory.connection, include_space=False))
     if current.daemon_id != inventory.daemon_id:
         raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
     indexed = {item.image_id: item for item in current.images}
@@ -403,9 +410,15 @@ def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tupl
         if item.containers:
             raise ImageManagementError("镜像仍被容器引用，请先单独处理容器", ", ".join(item.containers))
     outcomes = []
-    # 较深的文件层先处理，使同一次选择中的最终镜像先于权重/环境镜像删除。
-    for item in sorted((indexed[key] for key in selected), key=lambda item: (-len(item.layers), item.name)):
+    removed: set[str] = set()
+    # 元数据层不一定增加 RootFS 层数，必须按解析出的依赖深度排序。
+    for item in sorted((indexed[key] for key in selected),
+                       key=lambda item: (-len(item.ancestor_ids), -len(item.layers), item.name, item.image_id)):
         try:
+            remaining = set(item.descendant_ids) - removed
+            if remaining:
+                detail = ", ".join(f"{indexed[key].name} ({key})" for key in sorted(remaining))
+                raise ImageManagementError("下层镜像未删除，已保留上层镜像", detail)
             if _run((*inventory.connection.arguments, "info", "--format", "{{.ID}}")) != inventory.daemon_id:
                 raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
             # 批次执行期间也复核引用，防止另一个进程移动标签后删到其它镜像。
@@ -414,6 +427,10 @@ def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tupl
             if len(checked) != len(references) or any(row.get("Id") != item.image_id for row in checked):
                 raise ImageManagementError("镜像或标签已改变，请刷新后重新选择", item.name)
             detail = _run((*inventory.connection.arguments, "image", "rm", "--no-prune", *references), timeout=60)
+            remaining_ids = _image_ids(inventory.connection)
+            if item.image_id in remaining_ids:
+                raise ImageManagementError("镜像标签已处理，但镜像仍保留；已停止删除其上层", detail)
+            removed.add(item.image_id)
             outcomes.append(ImageRemoval(item.image_id, True, detail))
         except ImageManagementError as exc:
             outcomes.append(ImageRemoval(item.image_id, False, str(exc)))

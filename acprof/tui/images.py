@@ -31,7 +31,7 @@ IMAGE_KINDS = {
     "model-plan": "模型清单",
     "model": "推理服务", "debug": "调试镜像", "other": "其它镜像", "untagged": "无标签",
 }
-IMAGE_HINT = "清单自动刷新；点行查看，点 □/☑ 勾选；空格切换，←→ 展开/折叠。"
+IMAGE_HINT = "勾选含全部下层；◩ 保留本镜像；空格切换，←→ 折叠；清单自动刷新。"
 IMAGE_PLATFORMS = {
     "python-cpu": "Python CPU", "cpu": "PyTorch CPU",
     "cu124": "PyTorch CUDA 12.4", "cu128": "PyTorch CUDA 12.8",
@@ -562,6 +562,14 @@ def layer_diagnostics(layer: ImageLayer) -> str:
     ))
 
 
+def image_selection_marker(item: ManagedImage, selected: set[str]) -> str:
+    if item.image_id in selected:
+        return "☑"
+    if any(key in selected for key in item.descendant_ids):
+        return "◩"
+    return "—" if item.containers else "□"
+
+
 def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible: tuple[ManagedImage, ...],
                       selected: set[str], current_id: str, tr, width: int, *, preserve_scroll: bool = False) -> None:
     offset = tree.scroll_offset
@@ -585,7 +593,7 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
     nodes = {}
     for item in sorted((indexed[key] for key in shown), key=lambda item: (len(item.ancestor_ids), image_display_name(item), item.image_id)):
         parent = nodes.get(item.parent_id, tree.root)
-        marker = "☑" if item.image_id in selected else "—" if item.containers else "□"
+        marker = image_selection_marker(item, selected)
         # 同名镜像仍按 image ID 分别管理；完整 ID 在详情中查看。
         logical = image_display_name(item, parent.data)
         if item.model_id:
@@ -594,7 +602,7 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         name = f" {marker}  {logical}{evidence}"
         label = Text(name, style="dim" if item.image_id not in matches else "")
         # 复选框及左右各一格留白可点击，不覆盖箭头、名称或数值。
-        if not item.containers:
+        if not item.containers or item.descendant_ids:
             label.stylize(Style(meta={"image_checkbox": True}), 0, 3)
         tree.name_labels[item.image_id] = label
         nodes[item.image_id] = parent.add(label, data=item, expand=previous.get(item.image_id, True))
@@ -610,18 +618,23 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         tree.call_after_refresh(tree.scroll_to, x=offset.x, y=offset.y, animate=False, immediate=True, force=True)
 
 
-def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...]) -> str:
+def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...], *, hidden_count: int = 0) -> str:
     items = [item for item in inventory.images if item.image_id in image_ids]
     parts = [
         message("Docker 环境：{0} · 共 {1} 个镜像", inventory.connection.name, len(items)),
         message("删除全部标签后无法使用原镜像续采或补采；已保存的实验文件保留。"),
+        message("按下层到上层删除；下层未删除时保留其上层。"),
         message("删除预计释放：{0}", reclaimable_text(inventory, image_ids)),
         message("按所选集合的层引用去重估算；构建缓存仍可能保留数据。"),
     ]
+    if hidden_count:
+        parts.append(message("其中筛选外 {0} 个镜像；仍包含在本次删除清单中。", hidden_count))
     for item in items:
         parts.append(message("{0}\n镜像 ID：{1}\n完整大小：{2}",
                              "\n".join(item.tags) if item.tags else message("无标签"),
                              item.image_id, format_bytes(item.size_bytes)))
+        if item.parent_source == "layer-prefix":
+            parts.append(message("≈ 父镜像：{0}；层前缀推断，未确认 FROM。", item.parent_id))
     parts.append(message("共享层和构建缓存可能继续占用空间；镜像大小不能相加为可释放空间。"))
     return join_messages("\n\n", parts)
 

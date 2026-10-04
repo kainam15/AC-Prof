@@ -9,7 +9,7 @@ from textual import on, work
 from textual.message_pump import MessagePump
 from textual.widgets import Button, ContentSwitcher, DataTable, Select, Static, TabbedContent, Tree
 
-from acprof.host.image_graph import reclaimable_image_bytes
+from acprof.host.image_graph import reclaimable_image_bytes, retain_complete_image_selection
 from acprof.host.image_management import (
     DockerStorage,
     ImageInventory,
@@ -30,6 +30,7 @@ from acprof.tui.images import (
     filtered_images,
     image_display_name,
     image_error,
+    image_selection_marker,
     render_image_tree,
 )
 from acprof.tui.input import BarCursorInput as Input
@@ -98,7 +99,9 @@ class ImageActions(MessagePump):
         busy = self._images_unavailable(allow_refresh=True)
         current = self._current_image()
         self.query_one("#image-storage", Button).disabled = self._images_unavailable()
-        self.query_one("#image-toggle", Button).disabled = busy or current is None or bool(current.containers)
+        self.query_one("#image-toggle", Button).disabled = (
+            busy or current is None or bool(current.containers and not current.descendant_ids)
+        )
         self.query_one("#image-model", Button).disabled = busy or current is None or not current.model_key or not current.acprof
         self.query_one("#image-clear", Button).disabled = busy or not self._selected_image_ids
         self.query_one("#image-delete", Button).disabled = (
@@ -153,7 +156,7 @@ class ImageActions(MessagePump):
             repository, separator, tag = item.name.rpartition(":")
             parent = indexed.get(item.parent_id)
             table.add_row(
-                Text("☑" if item.image_id in self._selected_image_ids else "—" if item.containers else "□"),
+                Text(image_selection_marker(item, self._selected_image_ids)),
                 Text(image_display_name(item) + " · " + item.image_id[7:13], overflow="ellipsis", no_wrap=True),
                 Text(self.tr(format_bytes(item.size_bytes))), Text(self.tr(format_bytes(item.added_bytes))),
                 Text(str(len(item.containers))), Text(image_display_name(parent) if parent else self.tr(UNKNOWN), overflow="ellipsis", no_wrap=True),
@@ -251,15 +254,17 @@ class ImageActions(MessagePump):
         if self._images_unavailable(allow_refresh=True):
             return
         item = self._current_image()
-        if item is None:
+        if item is None or self._image_inventory is None:
             return
-        if item.containers:
-            self.notify("镜像仍被容器引用，请先单独处理容器", severity="warning")
-            return
-        if item.image_id in self._selected_image_ids:
-            self._selected_image_ids.remove(item.image_id)
+        branch = {item.image_id, *item.descendant_ids}
+        available = retain_complete_image_selection(self._image_inventory, branch)
+        if available and available <= self._selected_image_ids:
+            self._selected_image_ids.difference_update(branch)
         else:
-            self._selected_image_ids.add(item.image_id)
+            self._selected_image_ids.update(branch)
+            if available != branch:
+                self.notify("分支内有容器引用，已保留被引用镜像及其上层；其它下层仍可选择。", severity="warning")
+        self._selected_image_ids = retain_complete_image_selection(self._image_inventory, self._selected_image_ids)
         self._render_images()
 
     @on(Button.Pressed, "#image-clear")
@@ -273,11 +278,11 @@ class ImageActions(MessagePump):
         item = self._current_image()
         if self._images_unavailable(allow_refresh=True) or item is None or not item.model_key or self._image_inventory is None:
             return
-        self._selected_image_ids = {
+        self._selected_image_ids = retain_complete_image_selection(self._image_inventory, {
             candidate.image_id for candidate in self._image_inventory.images
             if candidate.acprof and candidate.model_key == item.model_key and not candidate.containers
             and candidate.kind not in {"runtime", "base"}
-        }
+        })
         with self.prevent(Input.Changed, Select.Changed):
             self.query_one("#image-search", Input).value = item.model_id
             self.query_one("#image-scope", Select).value = "models"
@@ -328,6 +333,7 @@ class ImageActions(MessagePump):
                     if not item.containers and item.image_id in old_images
                     and item.tags == old_images[item.image_id].tags
                 )
+                self._selected_image_ids = retain_complete_image_selection(inventory, self._selected_image_ids)
             else:
                 self._selected_image_ids.clear()
             self._image_inventory = inventory
@@ -406,9 +412,10 @@ class ImageActions(MessagePump):
                 or self._image_inventory is None or not self._selected_image_ids):
             return
         inventory, ids = self._image_inventory, tuple(sorted(self._selected_image_ids))
+        hidden = len(self._selected_image_ids - {item.image_id for item in self._visible_images})
         self._begin_image_operation("confirm", "请核对待删除镜像及全部标签。")
         self.push_screen(
-            ImageDeleteScreen("删除所选镜像？", deletion_message(inventory, ids), "删除镜像"),
+            ImageDeleteScreen("删除所选镜像？", deletion_message(inventory, ids, hidden_count=hidden), "删除镜像"),
             lambda confirmed: self._confirmed_image_delete(confirmed, inventory, ids),
         )
 

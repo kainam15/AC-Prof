@@ -367,9 +367,81 @@ class TestImageManagement:
         inventory = list_images()
         self.docker.fail_remove.add("acprof-audio-demo--model:code")
         outcome = delete_images(inventory, (FINAL, WEIGHTS))
-        assert ([(item.image_id, item.success) for item in outcome]) == ([(FINAL, False), (WEIGHTS, True)])
+        assert ([(item.image_id, item.success) for item in outcome]) == ([(FINAL, False), (WEIGHTS, False)])
         assert ("conflict") in (outcome[0].detail)
         assert (FINAL) in (self.docker.images)
+        assert WEIGHTS in self.docker.images
+        assert len(self.docker.removals) == 1
+
+    def test_failed_branch_preserves_ancestors_but_deletes_independent_branch(self):
+        other = "sha256:" + "d" * 64
+        self.docker.images[other] = image(other, ["acprof-nlp-other:code"], 120, ["other"])
+        inventory = list_images()
+        self.docker.fail_remove.add("acprof-audio-demo--model:code")
+        outcomes = delete_images(inventory, (RUNTIME, WEIGHTS, FINAL, other))
+        assert {item.image_id for item in outcomes if item.success} == {other}
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS, FINAL}
+        assert len(self.docker.removals) == 2
+
+    def test_metadata_only_child_is_deleted_before_parent_with_identical_layers(self):
+        self.docker.images[FINAL]["RootFS"]["Layers"] = ["os", "deps", "weights"]
+        self.docker.images[FINAL]["Parent"] = WEIGHTS
+        self.docker.images[FINAL]["RepoTags"] = ["acprof-z-service:code"]
+        inventory = list_images()
+        outcomes = delete_images(inventory, (WEIGHTS, FINAL))
+        assert [item.image_id for item in outcomes] == [FINAL, WEIGHTS]
+        assert all(item.success for item in outcomes)
+
+    @pytest.mark.parametrize("in_use", (False, True))
+    def test_unselected_descendant_keeps_parent_without_expanding_confirmed_scope(self, in_use):
+        if in_use:
+            self.docker.containers["kept"] = dict(Image=FINAL, Name="/kept", State=dict(Status="exited"))
+        inventory = list_images()
+        outcome = delete_images(inventory, (WEIGHTS,))
+        assert not outcome[0].success
+        assert FINAL in outcome[0].detail
+        assert not self.docker.removals
+
+    def test_new_descendant_after_confirmation_keeps_parent(self):
+        inventory = list_images()
+        extra = "sha256:" + "d" * 64
+        self.docker.images[extra] = image(extra, ["acprof-nlp-extra:code"], 415,
+                                          ["os", "deps", "weights", "extra"])
+        outcomes = delete_images(inventory, (WEIGHTS, FINAL))
+        assert [(item.image_id, item.success) for item in outcomes] == [(FINAL, True), (WEIGHTS, False)]
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS, extra}
+
+    def test_successful_untag_that_retains_image_does_not_delete_ancestors(self):
+        inventory = list_images()
+        original = self.docker.run
+
+        def untag_only(command, **kwargs):
+            if "rm" in command:
+                self.docker.commands.append(command)
+                self.docker.images[FINAL]["RepoTags"] = []
+                return subprocess.CompletedProcess(command, 0, "Untagged: service", "")
+            return original(command, **kwargs)
+
+        with patch("acprof.host.image_management.run_command", side_effect=untag_only):
+            outcomes = delete_images(inventory, (WEIGHTS, FINAL))
+        assert not any(item.success for item in outcomes)
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS, FINAL}
+        assert len(self.docker.removals) == 1
+
+    def test_invalid_post_delete_inventory_keeps_ancestors(self):
+        inventory = list_images()
+        original = self.docker.run
+
+        def invalid_after_delete(command, **kwargs):
+            if self.docker.removals and "ls" in command:
+                return subprocess.CompletedProcess(command, 0, "invalid-image-id", "")
+            return original(command, **kwargs)
+
+        with patch("acprof.host.image_management.run_command", side_effect=invalid_after_delete):
+            outcomes = delete_images(inventory, (WEIGHTS, FINAL))
+        assert not any(item.success for item in outcomes)
+        assert set(self.docker.images) == {RUNTIME, WEIGHTS}
+        assert len(self.docker.removals) == 1
 
     @pytest.mark.parametrize('effect_case', range(2), ids=["subprocess.TimeoutExpired('docker', 30)", "FileNotFoundError('docker')"])
     def test_timeout_and_bad_docker_output_are_errors_not_empty_inventory(self, effect_case):

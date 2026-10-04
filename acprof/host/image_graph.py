@@ -120,6 +120,14 @@ def describe_inventory(inventory: ImageInventory) -> ImageInventory:
     return replace(inventory, images=tuple(images), layers=layers)
 
 
+def retain_complete_image_selection(inventory: ImageInventory, image_ids: set[str]) -> set[str]:
+    """只保留无容器引用且下层全部已选的镜像；不向上或向下扩大选择。"""
+    candidates = {item.image_id for item in inventory.images
+                  if item.image_id in image_ids and not item.containers}
+    return {item.image_id for item in inventory.images
+            if item.image_id in candidates and candidates.issuperset(item.descendant_ids)}
+
+
 def reclaimable_image_bytes(inventory: ImageInventory, image_ids: tuple[str, ...]) -> int | None:
     """选中集合移除后无人引用的层总量；缓存/存储驱动未知，所以仅是镜像层估算上限。"""
     selected = set(image_ids)

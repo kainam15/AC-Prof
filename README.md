@@ -189,6 +189,10 @@ Download confirmation offers **Confirm download** and **Cancel**. Download, imag
 For the full set of metrics, select `full` under **Advanced** and complete the corresponding host checks.
 Review the command preview before starting.
 
+In image management, checking a parent selects its entire descendant branch, including hidden images.
+`◩` keeps the parent while descendants are selected. After confirmation, deletion proceeds from descendants to ancestors;
+container references or failed deletions keep the affected ancestors. See [image management](docs/TUI.md#镜像管理).
+
 When a model declares a single custom multimodal pipeline, AC-Prof attempts automatic resolution.
 A `feature-extraction` hint from the associated `AutoModel` does not override the declared task.
 Dependency branches determined by fixed configuration, local parameter forwarding, and references to the main model itself are handled automatically; dynamic conditions still require review.
