@@ -66,6 +66,7 @@ def pytest_collection_modifyitems(config, items):
                                      config.getoption("shard_count"))
     evidence.collected = [item.nodeid for item in ordered]
     evidence.selected = [item.nodeid for item in selected]
+    evidence.capture_inputs(sorted({item.path for item in ordered}))
     selected_set = set(selected)
     deselected = [item for item in items if item not in selected_set]
     items[:] = selected

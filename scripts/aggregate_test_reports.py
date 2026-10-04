@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -34,6 +35,7 @@ def aggregate_reports(reports, *, python_versions, shard_count):
         rows = groups[version]
         shards, records, totals = {}, [], Counter()
         signature = None
+        identity = None
         for report in rows:
             try:
                 shard = report["shard"]
@@ -46,6 +48,24 @@ def aggregate_reports(reports, *, python_versions, shard_count):
                     raise ValueError("duplicate or invalid shard index")
                 if report["schema_version"] != 1 or shard["count"] != shard_count:
                     raise ValueError("unsupported report schema or shard count")
+                provenance = report.get("provenance")
+                if (not isinstance(provenance, dict) or type(provenance.get("schema_version")) is not int
+                        or provenance["schema_version"] != 1
+                        or any(not isinstance(provenance.get(key), str)
+                               or not re.fullmatch(r"[0-9a-f]{64}", provenance[key])
+                               for key in ("source_sha256", "tests_sha256", "locks_sha256"))
+                        or report.get("provenance_error")):
+                    raise ValueError("missing or invalid test provenance")
+                packages = report.get("packages")
+                if not isinstance(packages, dict) or not packages or any(
+                    not isinstance(name, str) or not isinstance(value, str) or not name or not value
+                    for name, value in packages.items()
+                ):
+                    raise ValueError("missing or invalid package identity")
+                current_identity = (provenance, packages)
+                if identity is not None and current_identity != identity:
+                    raise ValueError("source, locks or package identity differs across shards")
+                identity = current_identity
                 current = (report["python"], shard["suite_sha256"], shard["discovered"],
                            report["patterns"], report["discovery_counts"])
                 if signature is not None and current != signature:
@@ -83,7 +103,12 @@ def aggregate_reports(reports, *, python_versions, shard_count):
             if sorted(test.get("id", "") for test in shard.get("tests", [])) != ids[index::shard_count]:
                 errors.append(f"Python {version}: shard {index} has incorrect test membership")
         versions[version] = {"shards": sorted(shards), "tests": len(ids), "suite_sha256": digest,
+                             "provenance": identity[0] if identity else None,
+                             "packages": identity[1] if identity else None,
                              "counts": {name: totals[name] for name in OUTCOMES.values()}}
+    identities = [value["provenance"] for value in versions.values() if value["provenance"]]
+    if identities and any(identity != identities[0] for identity in identities):
+        errors.append("source or lock identity differs across Python versions")
     return {"schema_version": 1, "successful": not errors, "errors": errors, "versions": versions}
 
 

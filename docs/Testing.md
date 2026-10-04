@@ -589,6 +589,13 @@ xfail/xpass 分别对应 `expected_failure` / `unexpected_success`；后者始�
 筛选先于分片：对完整筛选后 node ID 排序，用 `index::count` 分配，SHA256 包含整个筛选集。
 新增测试或参数改变 suite hash；同一 revision、参数与依赖环境的重复收集必须一致。
 
+schema v1 报告新增 `provenance`：内容指纹分别覆盖显式项目源码/配置/资源/文档、测试及
+fixture、依赖锁。源码树外的测试目录也按相对路径和实际文件内容计入测试指纹，不依赖 Git
+或绝对 checkout 路径。仅在请求 `--report` 时采集，并在执行前后复核；输入改变或读取失败时
+保留测试记录和 `provenance_error`，但不报告成功。生成目录、缓存、`.env.local` 不在指纹范围内。
+汇总同一 Python 版本时要求指纹及实际 `packages` 完全一致；不同 Python 版本允许依赖差异，
+但源码、测试与锁指纹必须一致。缺少身份的旧报告可以阅读，不能用于当前完整套件的成功验收。
+
 容器接口验证按 runtime platform 的 Python、Linux wheel tags 和依赖 markers，
 从 `runtime-test.lock` 生成保留原始 hashes 的 `runtime-test-target.lock`，下载对应 wheelhouse。
 这避免 Python 3.12 主机漏掉 Python 3.10 容器所需的 backport；普通主机安装仍遵守版本条件。

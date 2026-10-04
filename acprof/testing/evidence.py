@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from acprof.artifacts import atomic_write_json
+from acprof.testing.provenance import capture_provenance
 from acprof.testing.sharding import suite_digest
 
 OUTCOMES = {"passed": "passed", "failed": "failed", "error": "errors", "skipped": "skipped",
@@ -26,6 +27,17 @@ class Evidence:
         self.discovery_counts = {}
         self.collection_errors = []
         self.collection_skips = []
+        self.test_paths = []
+        self.provenance = {}
+        self.provenance_error = ""
+
+    def capture_inputs(self, paths):
+        if self.config.getoption("report"):
+            self.test_paths = paths
+            try:
+                self.provenance = capture_provenance(paths)
+            except (OSError, ValueError) as exc:
+                self.provenance_error = f"test provenance unavailable: {exc}"
 
     def record(self, report):
         self.phases.setdefault(report.nodeid, set()).add(report.when)
@@ -55,6 +67,12 @@ class Evidence:
 
     def finish(self, session, exitstatus):
         config = self.config
+        if config.getoption("report"):
+            try:
+                if self.provenance != capture_provenance(self.test_paths):
+                    self.provenance_error = "test source or locks changed during execution"
+            except (OSError, ValueError) as exc:
+                self.provenance_error = f"test provenance unavailable: {exc}"
         # Successful fixture phases alone do not establish a completed test.
         # Keep early skip/xfail/error outcomes, which legitimately lack a call.
         records = [self.records[key] for key in sorted(self.records)
@@ -64,6 +82,7 @@ class Evidence:
         totals = Counter(OUTCOMES[row["outcome"]] for row in records)
         no_skips = config.getoption("require_no_skips")
         successful = (executing and exitstatus == 0 and bool(records)
+                      and not self.provenance_error
                       and len(records) == len(self.selected)
                       and not self.collection_errors and all(self.discovery_counts.values())
                       and not any(totals[key] for key in ("failed", "errors", "unexpected_successes"))
@@ -81,6 +100,8 @@ class Evidence:
                 "packages": dict(sorted((dist.metadata["Name"], dist.version)
                                         for dist in importlib.metadata.distributions()
                                         if dist.metadata["Name"])),
+                "provenance": self.provenance,
+                "provenance_error": self.provenance_error,
                 "require_no_skips": no_skips,
                 "patterns": config.getoption("pattern") or ["test_*.py"],
                 "discovery_counts": self.discovery_counts,

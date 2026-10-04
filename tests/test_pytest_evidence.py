@@ -131,6 +131,27 @@ def test_shards_are_sorted_reproducible_and_aggregate_without_schema_changes(sui
     assert aggregate["versions"][version]["tests"] == 9
 
 
+def test_evidence_identifies_test_content_even_when_node_ids_do_not_change(suite):
+    result, first = suite("def test_case():\n    assert 1 == 1\n")
+    assert result.returncode == 0
+    result, second = suite("def test_case():\n    assert 2 == 2\n")
+    assert result.returncode == 0
+    assert first['shard']['suite_sha256'] == second['shard']['suite_sha256']
+    assert first['provenance']['tests_sha256'] != second['provenance']['tests_sha256']
+    assert first['provenance']['source_sha256'] == second['provenance']['source_sha256']
+    assert first['provenance']['locks_sha256'] == second['provenance']['locks_sha256']
+
+
+def test_source_changed_during_execution_invalidates_evidence(suite):
+    result, report = suite("from pathlib import Path\ndef test_case():\n"
+                           "    path = Path(__file__)\n"
+                           "    path.write_text(path.read_text() + '# changed\\n')\n")
+    assert result.returncode != 0
+    assert report['counts']['passed'] == 1
+    assert report['successful'] is False
+    assert 'changed during' in report['provenance_error']
+
+
 @pytest.mark.parametrize("source, args", [
     ("def test_ok():\n    pass\n", ["--pattern", "test_missing*.py"]),
     ("def test_ok():\n    pass\n", ["--shard-count", "4", "--shard-index", "3"]),
