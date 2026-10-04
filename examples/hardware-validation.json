@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "bert-fill-mask",
+      "model": "hf-internal-testing/tiny-random-bert",
+      "revision": "f171d7baecaf37b5da5a3616d8833b9969753535",
+      "task": "fill-mask",
+      "input_scales": "64"
+    },
+    {
+      "name": "vit-image-classification",
+      "model": "hf-internal-testing/tiny-random-ViTForImageClassification",
+      "revision": "5b3b44a3ed492070c273e481e30ecf4deddc5ec3",
+      "task": "image-classification",
+      "input_scales": "30"
+    }
+  ]
+}

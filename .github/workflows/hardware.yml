@@ -2,6 +2,11 @@ name: 专用主机采集验证
 on:
   workflow_dispatch:
     inputs:
+      preset:
+        description: 固定小模型矩阵或自定义单模型（都要求预先准备镜像）
+        type: choice
+        options: ['pinned-matrix', 'custom']
+        default: pinned-matrix
       model:
         description: Hugging Face 模型 ID
         required: true
@@ -10,6 +15,9 @@ on:
         description: 已支持任务覆盖
         required: true
         default: fill-mask
+      revision:
+        description: 自定义模型的 revision；留空时由运行准备阶段解析并存证
+        required: false
       gpus:
         description: off / on / off,on
         type: choice
@@ -28,13 +36,33 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           clean: false # 专用主机复用已准备的 .venv 和本地验证产物。
+      - name: 离线故障回归（取消、恢复、清理和采样失败，不作为硬件证据）
+        env:
+          ACPROF_WECOM_WEBHOOK_URL: ''
+        run: |
+          .venv/bin/python scripts/run_tests.py \
+            --pattern test_monitor_cleanup.py --pattern test_run_recovery.py \
+            --pattern test_runtime_validation.py --pattern test_perf_mips.py \
+            --pattern test_energy_cpu.py --pattern test_energy_nvml_start_stop.py \
+            --require-no-skips \
+            --report "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
       - name: 使用主机现有环境采集并验收
         env:
+          VALIDATION_PRESET: ${{ inputs.preset }}
           VALIDATION_MODEL: ${{ inputs.model }}
           VALIDATION_TASK: ${{ inputs.task }}
+          VALIDATION_REVISION: ${{ inputs.revision }}
           VALIDATION_GPUS: ${{ inputs.gpus }}
           ACPROF_WECOM_WEBHOOK_URL: ''
-        run: .venv/bin/python scripts/check_hardware.py --model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --gpus "$VALIDATION_GPUS" --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        shell: bash
+        run: |
+          if [[ "$VALIDATION_PRESET" == pinned-matrix ]]; then
+            selection=(--matrix examples/hardware-validation.json)
+          else
+            selection=(--model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --revision "$VALIDATION_REVISION")
+          fi
+          .venv/bin/python scripts/check_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
+            --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

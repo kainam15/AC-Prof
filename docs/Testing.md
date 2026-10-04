@@ -871,6 +871,27 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 
 ## 真实采集与实验隔离
 
+手动 `hardware.yml` 默认选择 `examples/hardware-validation.json` 的固定小模型矩阵，
+也可选择 `custom` 单模型。矩阵中的 BERT fill-mask 与 ViT image-classification 使用固定
+checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代表生产模型质量或完整模型兼容性。
+专用主机须预先准备对应 revision 和当前源码的 CPU/GPU 镜像，以及 host/test 锁环境。
+脚本沿用 `skip_build=True` 优先复用已验证的镜像；缺少匹配镜像时仍会按正常流程构建。
+执行前应核对所需缓存和下载预算，不能将此选项视为禁止下载。
+
+```bash
+.venv/bin/python scripts/check_hardware.py \
+  --matrix examples/hardware-validation.json --gpus off,on \
+  --output-dir internal-testing/hardware-matrix
+```
+
+矩阵 schema v1 要求 1–16 个 case，每项必须包含唯一安全目录名 `name`、`model`、40 位
+`revision`、`task` 和 `input_scales`；CPU、内存、GPU 和采样参数沿用命令行公共选项。
+全部配置先验证，再串行执行，各 case 使用独立结果目录。失败、清理错误或取消会停止后续 case，
+`hardware_matrix.json` 保存源码/主机身份以及 `passed`、`failed`、`cancelled`、`not_run`，
+中断时保留已完成证据；强制终止可能留下 `running`，不能解释为通过。
+workflow 先将取消、恢复、监测器清理和采样失败的离线回归保存到 `offline-faults/`，再把真实
+采集保存到 `measurements/`。离线故障回归使用 mock，不代表真实硬件故障已实测。
+
 `.github/workflows/hardware.yml` 只支持手动触发，在带 `acprof` 标签的专用 Linux x86_64 runner
 上使用预先准备的 `.venv`、本机 Docker/cgroup v2、RAPL、perf 和抓包权限。不会由 PR 自动触发。
 本地同一入口为：
