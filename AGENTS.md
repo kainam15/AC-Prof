@@ -1,73 +1,123 @@
-# 项目地图与协作规则
+# AC-Prof 协作规则
 
-AC-Prof 对 Docker 中的 Hugging Face 推理服务进行可复现分析，输出延迟、能耗、资源指标与实验产物。
+AC-Prof 用于对容器化 Hugging Face 推理工作负载进行可复现分析，记录延迟、吞吐、能耗、资源利用率及实验元数据。
 
-## 项目来源
+修改项目时优先保证测量语义、结果可复现性和实验数据完整性。
 
-本仓库是原始 AC-Prof 项目的延续与大幅扩展。
-涉及历史架构、测量语义、默认参数来源或遗留行为时，先阅读[项目来源与演进](docs/Project_Origin.md)。
+## 工作原则
 
-## 仓库地图
+- 使用简体中文回复；代码、CLI、Git commit message 和已有英文技术标识保持英文。
+- 只读取当前任务需要的上下文。不要因为一次局部修改而预读整个 `docs/`、全部 Skills 或完整仓库。
+- 进入目录前检查是否存在更具体的 `AGENTS.md`，并同时遵循其局部规则。
+- 非平凡代码改动涉及设计、兼容性、依赖、性能、资源管理或测量路径时，先调研成熟 GitHub 项目的官方源码、Issue 和 PR，再结合 AC-Prof 选择方案；借鉴设计思想，不机械复制，并考虑许可证、维护成本和测量开销。
+- 优先保持单一事实来源和清晰边界。已有实现可以替代旧路径时，删除无必要的 alias、shim 和重复入口。
+- 当前项目仍处于开发阶段。除非涉及已有实验结果、持久化数据协议或用户明确要求，不为尚未正式发布的内部接口保留兼容层。
+- 不得通过扩大 ignore、skip、fallback 或静默异常处理来掩盖真实问题。
+- 凭据仅存放在 Git 忽略的 `.env.local` 等本地配置中；不得提交密码、Token、webhook 或其他秘密。
 
-| 位置 | 职责 |
-| --- | --- |
-| `acprof <command>` → `acprof/cli/` | 采集、探测、补采、绘图与 TUI 入口 |
-| `acprof/host/`、`acprof/container/`、`acprof/workloads/` | 主机编排、容器推理、确定性输入 |
-| `acprof/monitors/`、`acprof/packet/` | 原始测量、抓包与合并 |
-| `acprof/analysis/`、`acprof/plotting/`、`acprof/tui/` | 结果分析、绘图、终端界面 |
-| `dockerfiles/`、`tests/`、`examples/` | 镜像、回归测试、手动示例 |
-| `docs/`、`.agents/skills/`、`internal-testing/` | 长期知识、可复用流程、临时验证 |
+## 测量语义
 
-## 全局规则
+- 正式测量窗口只包含目标工作负载及协议定义的采集行为。
+- TUI、绘图、通知、额外诊断、环境检查和开发辅助逻辑不得污染正式测量窗口。
+- 不支持或无法取得的硬件指标必须记录为 unavailable / unknown 等明确状态；禁止填 `0`、估算值或其他指标的替代值。
+- 已有实验结果的字段定义、单位、采集边界、resume 语义和 provenance 不得因内部重构而无意改变。
+- 静态检查、startup probe、正式实验和 post-hoc profiling 保持语义分离。
 
-- 使用简体中文回复；`AGENTS.md` 的标题与说明使用简体中文，保留技术标识。
-- 修改 `README.md` 或 `docs/i18n/README_zh-CN.md` 时，必须在同一次改动中同步另一语言版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径。
-- 完成本轮开发后，按功能/模块拆分为多个逻辑独立的 Git commit；每个 commit 只包含一个明确主题的改动，并使用清晰的 commit message。除非用户明确要求，不执行 push、merge、rebase 等远程或历史修改操作。
-- 当前项目仍处于开发期，尚未形成稳定的公开 API 或用户兼容基线；除非用户明确要求或涉及已有实验结果/数据协议的可复现性，否则不为未正式发布的接口、命令、路径、配置或文件布局保留旧兼容层、alias、shim 或重复入口。优先采用结构清晰、单一事实来源、维护成本更低的当前设计，避免提前积累兼容债。
-- 功能或结构改动前先检索 GitHub，评估兼容性、许可证、维护、依赖成本与测量开销，说明复用取舍。
-- 使用已有 `.venv`、Python 3.10+；FULL 采集要求 Native Linux、本机 Docker Engine、cgroup v2；WSL2 支持开发及 PARTIAL 采集，边界见[WSL2](docs/platforms/wsl2.md)。
-- 不得通过扩大忽略规则掩盖新问题。
-- 保持指标归因和可复现口径；界面活动、绘图、通知与额外诊断不进入正式测量窗口。
-- 凭据放在被 Git 忽略的 `.env.local`，不得写入文档或提交密码、令牌、webhook。
-- GPU/磁盘余量、Docker 状态、Git 分支和进程按需实时检查；临时计划不进入长期 Agent 文档。
+## 平台边界
 
-## 环境策略（Environment Policy）
+Native Linux 是 FULL 测量的基准环境。
 
-WSL is a supported development and partial collection platform.
+WSL2 可用于开发和 PARTIAL / basic 采集，但不得把 WSL 测量视为 Native Linux 测量，也不得为了兼容 WSL 修改 Native Linux 的测量语义。具体边界见 [WSL2](docs/platforms/wsl2.md)。
 
-WSL measurements must not be treated as native Linux measurements.
+环境判断集中在 `acprof/platform.py`。
 
-Do not change native measurement semantics merely to make a
-hardware-dependent feature work under WSL.
+修改以下内容后，需要明确说明真实 Native Linux 验证状态：
 
-- 环境判断集中在 `acprof/platform.py`，能力支持与真实采集证据分别记录；不支持的硬件指标保持 unavailable，禁止填 `0`、估算或替代值。
-- 旧结果缺环境身份时为 `unknown`；不得加入 Native Linux baseline，也不得混合环境续跑。
-- 修改 RAPL、PMU/perf、cgroup、NVML、CPU topology、affinity、cold start 或 energy 后，交付中必须报告 `Native validation: verified / required / not applicable` 中的一项，并说明真实证据或缺口。WSL、mock 和离线测试不能代替 Native validation。
+- RAPL / energy
+- PMU / perf
+- cgroup
+- NVML / GPU
+- CPU topology / affinity
+- cold start
+- measurement window
+
+交付时报告以下之一：
+
+- `Native validation: verified`
+- `Native validation: required`
+- `Native validation: not applicable`
+
+WSL、mock 和离线测试不能替代需要真实硬件证据的 Native validation。
 
 ## 按任务读取
 
-进入目录前检查适用的局部 `AGENTS.md`。按下表的任务触发条件读取对应章节，长文档先用 `rg` 定位；不批量加载，已加载且未变化的规则无需重读。
+只在对应任务出现时读取这些资料；长文档优先定位相关章节，不批量加载。
 
-| 任务 | 入口 |
+| 任务 | 资料 |
 | --- | --- |
-| 修改 Python（含开发脚本与测试） | [PyCharm MCP 工具与验证约定](docs/Testing.md#python-修改工作流) |
-| 新建或修改 Skill、`AGENTS.md` | [编写规则](docs/README.md#skill-与-agent-文档编写) |
-| 选择验证范围、命令或开发工具 | [验证范围](docs/Testing.md#验证范围)、[开发检查](docs/Testing.md#开发质量检查)、[自动化入口](docs/Testing.md#自动化验证入口) |
-| 安装、运行、参数 | [快速开始](docs/i18n/README_zh-CN.md#快速开始)、[CLI 与设置](docs/CLI_Reference.md) |
-| 架构或模块重构 | [代码架构](docs/Architecture.md) |
-| 协议、冷启动、字段变更 | [采集协议](docs/Profiling_Protocol.md)、[指标](docs/Metrics.md) → [变更流程](.agents/skills/acprof-schema-change/SKILL.md) |
-| 能耗、OOM、cgroup、结果异常 | [能耗](docs/Energy_Measurement.md)、[排障](docs/Troubleshooting.md) → [审计流程](.agents/skills/acprof-result-audit/SKILL.md) |
-| 新增或修复模型/backend、依赖环境 | [运行兼容](docs/Runtime_Compatibility.md) → [适配流程](.agents/skills/acprof-model-adaptation/SKILL.md) |
-| 模型集或 Hub 榜单兼容性评估 | [兼容性审计](.agents/skills/acprof-compatibility-audit/SKILL.md) |
-| 镜像身份、重建原因与空间估算 | [Docker 审计](.agents/skills/acprof-docker-audit/SKILL.md) |
-| GitHub Actions 失败定位与修复 | [CI 排障](.agents/skills/acprof-ci-triage/SKILL.md) |
-| profiling、benchmark、GPU profiler | [实验流程](.agents/skills/acprof-profiling-workflow/SKILL.md)、[分析器](docs/Profilers.md) |
-| TUI、焦点、日志、设置 | [交互说明](docs/i18n/README_zh-CN.md#交互式终端界面) → [回归流程](.agents/skills/acprof-textual-regression/SKILL.md) |
-| 绘图、文档维护 | [结果分析](docs/Metrics.md#图表与延迟拟合产物)、[文档分工](docs/README.md) |
+| Python 修改、测试范围、开发检查 | `docs/Testing.md` |
+| 架构或模块边界 | `docs/Architecture.md` |
+| CLI、参数、安装和运行 | `docs/CLI_Reference.md`、`docs/Getting_Started.md` |
+| 测量协议、结果字段、schema、resume | `docs/Profiling_Protocol.md`、`docs/Metrics.md`、`.agents/skills/acprof-schema-change/SKILL.md` |
+| 模型、backend、adapter、运行依赖 | `docs/Runtime_Compatibility.md`、`.agents/skills/acprof-model-adaptation/SKILL.md` |
+| 能耗、OOM、cgroup、结果异常 | `docs/Energy_Measurement.md`、`docs/Troubleshooting.md`、`.agents/skills/acprof-result-audit/SKILL.md` |
+| 模型集或 Hub 兼容性审计 | `.agents/skills/acprof-compatibility-audit/SKILL.md` |
+| Docker 镜像、重建和空间问题 | `.agents/skills/acprof-docker-audit/SKILL.md` |
+| GitHub Actions 失败 | `.agents/skills/acprof-ci-triage/SKILL.md` |
+| profiling、benchmark、GPU profiler | `.agents/skills/acprof-profiling-workflow/SKILL.md`、`docs/Profilers.md` |
+| TUI、焦点、日志和交互 | `docs/i18n/README_zh-CN.md`、`.agents/skills/acprof-textual-regression/SKILL.md` |
+| 文档组织或 Agent / Skill 规则 | `docs/README.md` |
+
+历史架构、旧默认值或项目来源不明确时，再读取 `docs/Project_Origin.md`。
+
+## 验证与执行边界
+
+在当前任务授权范围内，可以直接：
+
+- 修改相关代码和文档；
+- 运行与改动相称的本地、unit 和离线测试；
+- 修复由本次改动引起的测试失败并重新验证；
+- 运行 lint、type check、build 和必要的轻量 smoke check；
+- 检查完整 Git diff、未跟踪文件和受影响测试。
+
+不要仅因为完成了第一版实现就停止。若任务要求功能可用，应继续完成相关失败路径、验证、必要文档和最终 diff 检查，直到达到完成标准或遇到真实外部阻塞。
+
+除非任务明确需要，不要自行：
+
+- push、merge、rebase、force push 或改写远程历史；
+- 执行 `reset --hard` 等破坏性 Git 操作；
+- 启动正式大规模 profiling；
+- 下载大型模型或镜像；
+- 运行长时间 GPU profiler；
+- 删除已有实验结果。
+
+正式实验、硬件测量或昂贵下载不是普通代码修改的默认验证手段。
+
+## Git
+
+完成开发后按逻辑主题拆分 commit，避免把无关修改混入同一个提交。
+
+Git 提交信息统一遵循 [`docs/commit-messages.md`](docs/commit-messages.md)。
+
+## 文档
+
+`README.md` 与 `docs/i18n/README_zh-CN.md` 中对应的用户可见内容必须保持同步，包括命令、链接、功能说明和排版。
+
+长期事实放在对应 `docs/` 权威专题中。
+
+Skill 维护特定工作流，不复制长期项目知识；一个 Skill 涉及多个流程时，根 `SKILL.md` 应保持为轻量路由，仅按需要指向详细资料和脚本。
+
+临时计划、当前机器磁盘余量、Git 分支、运行中进程等易过期信息不得写入长期 Agent 文档。
 
 ## 完成标准
 
-- 在已授权范围内完成修改、相关验证和必要修复，无需逐步确认；验证范围与改动相称。
-- 处理目标行为及相关失败路径，保持需要长期稳定的实验与数据协议；未正式发布的接口默认不承担向后兼容义务，已有替代实现时删除历史兼容代码、alias、shim 与重复入口，不为假设中的旧用户保留技术债。
-- 更新对应 `docs/` 权威专题及受影响的摘要、示例和链接；Skill 只维护执行流程。
-- 检查完整变更清单（含新增、被忽略文件）；说明验证结果和未覆盖的 Docker/GPU 或终端范围。
+任务完成前：
+
+1. 实现请求的目标行为及相关合理失败路径。
+2. 运行与改动相称的验证，并处理由本次修改造成的失败。
+3. 保持测量语义、结果协议和需要长期稳定的数据行为。
+4. 更新受影响的权威文档、示例和链接。
+5. 检查完整变更集，包括新增文件和意外生成文件。
+6. 汇报已验证内容，以及未覆盖的 Docker、GPU、Native Linux 或终端范围。
+
+除非存在需要用户做真实产品决策的歧义，否则不要在中间实现阶段停下来等待确认。
