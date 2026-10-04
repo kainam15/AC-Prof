@@ -245,7 +245,9 @@ Headless Chromium 证据不等于实际 Windows 浏览器验收，也不证明 D
 `requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
 extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner，
 以及 matrix plan、run state、compute/execution plan、profiler support/纯解析器和
-comparison/independent comparison/uncertainty。当前清单以 `pyproject.toml` 为准，仍只维护 mypy。
+comparison/independent comparison/uncertainty、latency report、runtime validation 与测试身份/分片。
+runtime validation 的任务、镜像和输入计划采用具体类型，报告顶层采用 TypedDict；
+容器返回的任务专有 JSON 仍在实际运行时验证。当前清单以 `pyproject.toml` 为准，仍只维护 mypy。
 初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
 已经列出的模块仍检查已标注代码。不能用全包 `ignore_errors` 隐藏白名单内的问题。
 独立 CI `types` job 与本地运行同一条命令：

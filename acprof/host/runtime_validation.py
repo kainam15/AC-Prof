@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
@@ -26,6 +26,30 @@ from acprof.host.container_lifecycle import (
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.runtime_settings import runtime_docker_env_args
 
+if TYPE_CHECKING:
+    from acprof.host.detect import TaskInfo
+    from acprof.host.input_plan import PlannedInputScales
+    from acprof.host.runtime_images import ImageInfo
+
+
+class RuntimeValidationReport(TypedDict, total=False):
+    schema_version: int
+    status: str
+    platform: dict
+    collection_tier: str
+    comparability_class: str
+    environment_class: str
+    image_id: str
+    build_fingerprint: str
+    input_scale: float
+    payload_sha256: str
+    scope: str
+    devices: dict[str, dict[str, Any]]
+    mode: str
+    profiler_validation: str
+    cleanup_status: str
+    cleanup_error: dict
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -34,10 +58,10 @@ class RuntimeValidationError(RuntimeFailure, RuntimeError):
 
 
 def validate_runtime(
-    *, task_info: Any, image_info: Any, planned: Any, cpu_list: list[int],
+    *, task_info: TaskInfo, image_info: ImageInfo, planned: PlannedInputScales, cpu_list: list[int],
     mem_list: list[int], gpu_list: list[str], output_dir: str,
     timeout_seconds: float = 300.0,
-) -> dict:
+) -> RuntimeValidationReport:
     if (not gpu_list or any(value not in {"off", "on"} for value in gpu_list) or not cpu_list or not mem_list
             or any(type(value) is not int or value <= 0 for value in [*cpu_list, *mem_list])
             or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
@@ -51,11 +75,13 @@ def validate_runtime(
     from acprof.host.env_utils import hf_offline_docker_env_args
     from acprof.host.model_store import mount_args
 
+    if planned.plan_file is None:
+        raise ValueError("runtime validation requires an input plan file")
     plan = read_input_scale_plan(planned.plan_file)
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))
     encoded = json.dumps(entry["payload"], ensure_ascii=False).encode()
     from acprof.platform import detect_environment
-    report: dict[str, Any] = {
+    report: RuntimeValidationReport = {
         **detect_environment().metadata(),
         "schema_version": 1, "status": "running", "image_id": image_info.tag,
         "build_fingerprint": image_info.runtime_environment["build_fingerprint"],
@@ -76,7 +102,7 @@ def validate_runtime(
     try:
         recover_abandoned_containers(owner, run_command)
     except ContainerCleanupError as exc:
-        report.update(status="error", cleanup_status="incomplete", cleanup_error=exc.to_dict())
+        report.update({"status": "error", "cleanup_status": "incomplete", "cleanup_error": exc.to_dict()})
         atomic_write_json(layout.path("runtime_validation.json"), report)
         raise
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
@@ -84,6 +110,8 @@ def validate_runtime(
         payload = Path(temporary) / "payload.json"
         payload.write_bytes(encoded)
         for device_mode in dict.fromkeys(gpu_list):
+            device_result: dict[str, Any]
+            stages: list[dict[str, Any]]
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
             cidfile = Path(temporary) / f"{device_mode}.cid"
             command = [
@@ -111,7 +139,7 @@ def validate_runtime(
             command += ["--entrypoint", "python", image_info.tag, "-m", "acprof.container.runtime_validate", "/validation-input.json"]
             print(f"[runtime-check] {device_mode}: 正在验证模型运行（独立容器）", flush=True)
             log = ""
-            run_error = None
+            run_error: BaseException | None = None
             try:
                 result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
                 log = (result.stdout or "") + "\n" + (result.stderr or "")

@@ -104,6 +104,10 @@ files = [
     "acprof/analysis/comparison.py",
     "acprof/analysis/independent_comparison.py",
     "acprof/analysis/uncertainty.py",
+    "acprof/analysis/latency_report.py",
+    "acprof/host/runtime_validation.py",
+    "acprof/testing/provenance.py",
+    "acprof/testing/sharding.py",
 ]
 follow_imports = "skip"
 ignore_missing_imports = true
