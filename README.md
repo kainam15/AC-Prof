@@ -87,9 +87,9 @@ Use `acprof --help` or `acprof <command> --help` to discover commands and option
 Use `acprof tui --preset smoke` to load the small preset; select `basic` for the CPU example below.
 You can launch AC-Prof from any working directory; output paths are relative to that directory.
 Model runtime dependencies reuse verified GHCR images when available; any local-build fallback is visible and must satisfy the source policy. Budgeted runs stop on pull failure and require a new preflight. Model weights are downloaded as needed into the shared Model Store.
-For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures proxies, notifications, and profiling permissions.
+For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures notifications and profiling permissions.
 Connection settings are stored in `.env.local` in the working directory, readable and writable only by the current user. Exclude this file and its backups from Git.
-AC-Prof defaults to `mirror-only` at `https://hf-mirror.com`, disables Xet, and stops on mirror failure or unapproved redirects. Use `--max-download 5GB` to enforce a budget before bulk downloads; unknown sizes stop budgeted runs. See [download and Model Store policy](docs/Runtime_Compatibility.md#下载网络与-model-store) and [source configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
+Downloads use `auto`: reuse the Model Store offline, then try the domestic Hub entry and official Hugging Face, following trusted CDN/Xet bridge redirects. A domestic entry does not guarantee domestic storage traffic. AC-Prof uses the system network environment and does not configure VPNs or proxies. If HF remains unavailable, retry after fixing system networking or explicitly choose a ModelScope model; the two sources retain separate artifact identities. Use `--max-download 5GB` to check the budget before bulk downloads; unknown sizes stop budgeted runs. See [download and Model Store policy](docs/Runtime_Compatibility.md#下载网络与-model-store) and [advanced network configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
 See [authentication](docs/Getting_Started.md#hugging-face-认证), [installation options](docs/Getting_Started.md#安装), and [distribution details](docs/Distribution.md).
 
 <a id="3-跑通第一个-cpu-实验"></a>
@@ -184,7 +184,7 @@ acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
 The first launch without saved settings uses `smoke`: `basic` mode, CPU execution, one request, and the smallest task-specific input scale, with independent profilers and initial notifications disabled.
-Switching presets preserves download budgets, sources, cache and output paths, and notification choices. The start controls show experiment size and an estimated time with explicit assumptions; saved configurations remain unchanged.
+Switching presets preserves the model source (Hugging Face or ModelScope), download budgets, cache and output paths, and notification choices. The TUI always uses the automatic download policy, including when loading a legacy policy. The start controls show experiment size and an estimated time with explicit assumptions; switching presets does not rewrite saved configurations.
 Download confirmation offers **Confirm download** and **Cancel**. Download, image, and storage sizes automatically use decimal B/KB/MB/GB units; stored data and calculations retain the original bytes. See [download review](docs/TUI.md#下载与磁盘预检).
 For the full set of metrics, select `full` under **Advanced** and complete the corresponding host checks.
 Review the command preview before starting.

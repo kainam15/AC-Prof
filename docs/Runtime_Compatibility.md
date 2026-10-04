@@ -867,8 +867,8 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 服务标签使用 `request_fingerprint` 前 20 位查找候选，覆盖逻辑 profile、环境/构建声明、
 模型 commit、下载策略、后端、构建参数和 AC-Prof 代码；完整 `build_fingerprint` 再绑定实际模型
 父镜像 ID。模型层指纹绑定实际环境 image ID。标签是查找入口，执行与补采始终使用不可变 ID。
-主地址及显式备用列表也进入模型层、服务层指纹；切换 endpoint 会重建这两层，但复用依赖环境。
-默认严格镜像模式；来源与显式官方模式见[下载网络与 Model Store](#下载网络与-model-store)。
+模型来源参与模型身份；Hub 主地址及备用列表仅控制下载入口，不独立改变模型层或服务层的请求指纹。切换 endpoint 不因地址本身使已有模型失效。
+默认自动选择下载入口；模型来源与传输记录见[下载网络与 Model Store](#下载网络与-model-store)。
 实际成功地址随 `model_download.endpoint` 保存，历史缺失字段不推算。
 
 分层构建与文件选择细节见[模型文件选择规则](#模型文件选择规则)。
@@ -1490,22 +1490,31 @@ acprof run --model OpenMOSS-Team/MOSS-Transcribe-Diarize \
 
 ## 下载网络与 Model Store
 
-默认使用 `HF_DOWNLOAD_MODE=mirror-only` 与 `HF_ENDPOINT=https://hf-mirror.com`。镜像失败直接停止；Xet 和 hf_transfer 禁用，Hub 0.x 的 requests adapter 与 1.x 的 HTTP client hook 在请求发送前检查每个重定向。设置 endpoint 本身不能阻止跨域 302；HTTP Xet bridge URL 同样被严格模式阻止。官方下载须显式选择 `official`；`mirror-preferred` 可选择备用来源，但 DIRECT → 可能 PROXY 的 fallback 默认停止。设置见 [CLI](CLI_Reference.md#主机环境与-hugging-face-认证)。
+默认使用内部 `auto` 策略。先读取 Model Store 中相同 source、模型 ID 和 revision 的完整计划；命中后模型解析和准备不请求网络。未指定 revision 时按 HF 的 `main` 或 ModelScope 的 `master` 请求，只复用同一默认分支的已记录缓存；不能把此前指定的 tag 或 SHA 当作默认分支。显式 SHA 可匹配同一 commit，显式分支／tag 只匹配已记录的同名 ref。合适的完整缓存不联网检查分支最新提交。无完整缓存时先尝试 `HF_ENDPOINT`（默认 `https://hf-mirror.com`），正常跟随可信重定向；入口或存储传输失败后尝试备用入口及官方 `https://huggingface.co`，已经固定的 commit 在重试中保持不变。中国大陆用户通常只需选择模型、检查预计大小与预算、确认下载；“国内入口优先”不保证所有权重字节都来自国内服务器。
 
-`network_policy.py` 统一记录 source 的 URL、host、category、预期 DIRECT/PROXY、cache 状态、估算和实际 bytes。Hugging Face、Python wheels、OCI 和 Debian 使用同一汇总模型；未知 host 保守归入 PROXY。这不是 VPN 规则验证：HTTP 代理、上游 NAT 或 TUN 仍由主机/网关管理。安装 AC-Prof 之前的 uv bootstrap 不属于 runtime 下载预算。
+Hub endpoint 和 storage endpoint 分别处理。镜像可以重定向到官方 Hub、HF CDN 或 HTTP Xet bridge；可信存储按 Hugging Face 控制的 `hf.co`、`huggingface.co` 域名边界识别，允许新的区域子域，不枚举少数 CDN 机器名。不允许任意第三方、HTTP 降级、URL 内嵌凭据或异常端口，也不把通用 S3／CloudFront 域名整体加入信任范围。存储请求移除 Hub 的 Authorization／Cookie。原生 Xet 和 hf_transfer 通道禁用，以便通过公开 HTTP client factory 统一观察和检查；HTTP Xet bridge 仍可下载。未知域名明确报错，不永久标记模型不可用。
 
-所有新构建先完成 Network Preflight：模型总量、本地已有量、待下载量与 endpoint；平台/环境本地 image 命中、是否尝试 GHCR、OCI manifest 的压缩总量上界；精确 Python/Debian artifacts 的大小。BuildKit 缓存无法从主机可靠读取时显示 `unknown`，按完整制品大小保守估计；HEAD 或 manifest 不能给出大小时保留 `null`，不当作零。`expected_download_bytes`、`direct_download_bytes`、`proxy_download_bytes` 在批量下载前显示，并随 runtime 元数据保存。
+旧 CLI 的 `mirror-only`、`mirror-preferred`、`official` 仅保留为高级兼容参数：`mirror-only` 限制初始 Hub 入口，仍允许可信 CDN 重定向。TUI 的历史模式统一迁移为 `auto`。AC-Prof 不配置 VPN，不修改系统标准代理变量；历史项目配置中的代理字段读取后忽略。系统代理示例见 [CLI](CLI_Reference.md#主机环境与-hugging-face-认证)。
+
+`network_policy.py` 的新报告使用 schema v2，记录 URL、host、category、cache 状态、估算和实际 bytes。应用层连接只区分 `direct-socket` 与 `explicit-proxy`；实际公网出口为 `unknown`／`externally-managed`，上游透明代理、VPN、NAT 由系统网络负责。OCI 的网络由 Docker 管理，不依据主机应用代理推断出口。不再产生 DIRECT／PROXY 流量分摊或预计 VPN 流量；历史报告保持原样。安装 AC-Prof 之前的 uv bootstrap 不属于 runtime 下载预算。
+
+所有新构建先完成 Network Preflight：模型文件列表、总量、本地已有量、待下载量与 endpoint；Model Store 剩余空间和容量；平台/环境本地 image 命中、是否尝试 GHCR、OCI manifest 的压缩总量上界；精确 Python/Debian artifacts 的大小。HF 选一个待下载文件执行 HEAD probe，沿可信重定向检查存储可达性，不请求权重正文；完整缓存跳过该 probe。一次 CDN 失败只影响当前尝试，可重新预检／重试。BuildKit 缓存无法从主机可靠读取时显示 `unknown`，按完整制品大小保守估计；HEAD 或 manifest 不能给出大小时保留 `null`，不当作零。`expected_download_bytes` 在批量下载前显示，并随 runtime 元数据保存。
+
+HF 的合理传输路径全部失败时显示失败阶段（Hub／redirect／storage）、DNS／TLS／HTTP／timeout 等原因及最终 host，提供重试、诊断和“改用 ModelScope”。仓库、revision、文件不存在或访问受限时保留对应模型错误，提示修正身份或权限，不统一包装成 VPN 问题。`HF_HUB_OFFLINE` 启用时仍在请求发送前阻止联网，已有完整缓存可继续使用。切换需要用户明确确认 ModelScope 模型 ID 和 revision，生成独立实验配置；不会自动复制同名模型或静默替换 source。`huggingface` 与 `modelscope` 是不同来源，同名、同 revision 文本不证明内容一致。ModelScope 使用官方轻量 `modelscope-hub` SDK；分支／tag 由 `git ls-remote` 固定为仓库 commit，文件按该 commit 下载并校验 SHA256，支持 SDK 的 partial／resume。主机需安装 Git，私有仓库还需自行配置相应 Git 认证；也可直接指定完整 commit SHA。ModelScope 能下载不等于 AC-Prof 支持其所有推理架构；已有显式 HF 依赖继续保留 HF 来源。
 
 `--max-download 5GB`（十进制）或 `5GiB`（二进制）约束本次计划的批量 payload。总量未知或超限会在任何权重下载、OCI pull 或 dependency build 前退出；API、HEAD 和受限配置 JSON 查询是计划所需的小额流量，不是零流量预检。它不是 TCP/TLS 开销和失败重传的精确线速账单。预算模式下 GHCR 失败不继续未规划的本机构建；需显式选择 `ACPROF_RUNTIME_IMAGE_SOURCE=build` 后重新预检。GHCR 未被禁用，国内 OCI registry 可通过现有 `ACPROF_RUNTIME_REGISTRY` 显式选择，仍核验完整身份。
 
-Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 更改。`hf/` 是唯一权重缓存；`entries/<id>/hf/` 只用相对符号链接构成每个固定计划的视图，并保留各依赖独立的 `refs/main`，避免多个模型依赖不同 revision 时互相覆盖。清单固定 model ID、完整 commit、文件大小、每文件 SHA256 与计划 SHA256。entry 身份不包含 CPU/GPU/profile，筛选器与 catalog 的变更会失效旧 entry。
+Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 更改。`hf/` 与 `modelscope/` 按来源隔离权重缓存；`entries/<id>/hf/` 是供离线 loader 使用的相对链接视图，目录名不代表模型 source。各依赖保留独立 `refs/main`，避免不同 revision 互相覆盖。清单固定 source、model ID、完整 commit、文件大小、每文件 SHA256 与计划 SHA256。历史 HF entry 身份保持兼容；ModelScope entry 加入 source，不与同名 HF entry 混用。entry 身份不包含 CPU/GPU/profile，筛选器与 catalog 的变更会失效旧 entry。
+
+下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](Profiling_Protocol.md#static_metajson-字段)。
 
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.6.0 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
 
 模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。
 
 ```bash
-acprof run --model google-bert/bert-base-uncased --download-mode mirror-only --max-download 5GB
+acprof run --model google-bert/bert-base-uncased --max-download 5GB
+acprof run --model-source modelscope --model Qwen/Qwen3-0.6B --max-download 5GB
 acprof model-store status
 acprof model-store prune --target-size 100GB              # 预览 LRU 删除及可回收量
 acprof model-store prune --target-size 100GB --apply      # 显式执行
@@ -1551,4 +1560,4 @@ HTTP、证书、来源策略、磁盘权限和哈希错误不重试。成功记�
 
 旧 `python -m acprof.container.download_model` 下载入口已停用并明确报错，避免绕过主机预检、容量检查和预算。
 
-参考 [Hub client factory](https://github.com/huggingface/huggingface_hub/blob/v0.36.2/src/huggingface_hub/utils/_http.py)、[镜像与 Xet Issue](https://github.com/huggingface/huggingface_hub/issues/4741)、[uv 索引规则](https://github.com/astral-sh/uv/blob/main/docs/concepts/indexes.md)、[BuildKit cache mounts](https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md)。借用公开 transport、精确解析和分层 cache 思路；Hub/Transformers/BuildKit 为 Apache-2.0，uv 为 MIT/Apache-2.0。没有引入新下载框架或测量窗口内诊断。
+实现参考 [Hub client factory](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_http.py)、[Hub HEAD 重定向 PR #4739](https://github.com/huggingface/huggingface_hub/pull/4739)、[官方 ModelScope Hub SDK](https://github.com/modelscope/modelscope_hub)、[uv 索引规则](https://github.com/astral-sh/uv/blob/main/docs/concepts/indexes.md) 和 [BuildKit cache mounts](https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md)。借用公开 transport、Hub／storage 分层、SDK 断点续传和固定哈希校验；Hub/ModelScope/BuildKit 为 Apache-2.0，uv 为 MIT/Apache-2.0。ModelScope 仅新增主机侧轻量 SDK，不引入推理框架；公开 factory 的适配由真实 SDK mock transport 回归保护。所有诊断和下载均在测量窗口外。

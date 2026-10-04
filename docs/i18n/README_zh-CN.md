@@ -76,9 +76,9 @@ Docker 或其他前置条件缺失时，`doctor` 会报告缺项及处理建议�
 需要小规模预设时运行 `acprof tui --preset smoke`；下方 CPU 示例需选择 `basic`。
 可从任意工作目录启动，输出路径相对于该目录。
 模型推理依赖优先复用经过核验的 GHCR 预构建镜像；回退本机构建会明确显示，并须符合来源策略。预算模式下 pull 失败会停止，需重新预检；模型权重按需下载到共享 Model Store。
-私有或 gated 模型可在 TUI 按 `F2` → **连接与权限**填写 `HF_TOKEN`；同处可配置代理、通知和采集权限。
+私有或 gated 模型可在 TUI 按 `F2` → **连接与权限**填写 `HF_TOKEN`；同处可配置通知和采集权限。
 连接配置保存到当前工作目录的 `.env.local`（仅当前用户可读写），该文件及其备份应加入 Git 忽略。
-默认以 `mirror-only` 连接 `https://hf-mirror.com`，禁用 Xet，镜像失败或未允许的重定向直接停止。使用 `--max-download 5GB` 在大下载前检查预算；大小未知时预算模式也会停止。详见[下载与 Model Store 策略](../Runtime_Compatibility.md#下载网络与-model-store)和[来源配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
+下载统一使用 `auto`：先离线复用 Model Store，再依次尝试国内 Hub 入口和官方 Hugging Face，跟随可信 CDN/Xet bridge 重定向。国内入口不保证权重字节来自国内服务器。AC-Prof 使用系统网络环境，不负责配置 VPN 或代理。HF 仍不可用时，可修复系统网络后重试，或显式选择 ModelScope 模型；两个 source 保持独立的 artifact 身份。使用 `--max-download 5GB` 在大下载前检查预算；大小未知时预算模式也会停止。详见[下载与 Model Store 策略](../Runtime_Compatibility.md#下载网络与-model-store)和[高级网络配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
 详见[认证配置](../Getting_Started.md#hugging-face-认证)、[安装方式](../Getting_Started.md#安装)和[发行包说明](../Distribution.md)。
 
 ### 3. 跑通第一个 CPU 实验
@@ -161,7 +161,7 @@ acprof tui --model google-bert/bert-base-uncased --preset smoke
 ```
 
 没有保存配置的首次启动使用 `smoke`：`basic`、CPU、单次请求和任务对应的最小输入尺度，关闭独立 profiler，初始通知关闭。
-切换预设保留下载预算、下载源、缓存与输出路径以及通知选择。开始按钮附近显示实验规模和注明假设的时间估计；已保存配置保持不变。
+切换预设保留模型来源（Hugging Face 或 ModelScope）、下载预算、缓存与输出路径以及通知选择。TUI 统一使用自动下载策略，读取旧下载模式时也按自动策略执行。开始按钮附近显示实验规模和注明假设的时间估计；切换预设不会改写已保存配置。
 下载确认提供“确认下载”和“取消”。下载、镜像与存储大小自动使用十进制 B/KB/MB/GB 单位，保存的数据和计算仍保留原始 bytes。详见[下载与磁盘预检](../TUI.md#下载与磁盘预检)。
 需要完整指标时，在“高级参数”中改为 `full`，并完成相应的主机检查；开始前可在命令预览中核对参数。
 

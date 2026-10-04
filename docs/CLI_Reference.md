@@ -12,9 +12,9 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 
 读取完成后，Hugging Face 初始化按去除首尾空白后的非空值选择配置：
 
-- 默认 `HF_DOWNLOAD_MODE=mirror-only`，endpoint 依次取 `HF_ENDPOINT`、`HF_HUB_ENDPOINT`，为空时使用 `https://hf-mirror.com`。`mirror-only` 禁止备用 endpoint，失败直接停止；每次 HTTP 请求和重定向均检查目标 host、scheme、port，禁止绕到官方域名或 Xet。
-- 显式 `official` 使用 `https://huggingface.co`；`mirror-preferred` 按主地址、`HF_FALLBACK_ENDPOINTS`、官方地址排序。所有跨源尝试打印来源；DIRECT → 可能 PROXY 的切换默认停止，仅 `ACPROF_ALLOW_PROXY_FALLBACK=1` 显式允许。
-- 模型下载强制 `HF_HUB_DISABLE_XET=1`、禁用 `hf_transfer`，同时设置已导入 Hub 的常量。不会改写 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`、VPN 或默认路由。上游分流需要单独确认拓扑和代理规则。
+- 默认 `HF_DOWNLOAD_MODE=auto`。缓存命中先离线复用；否则 Hub 入口依次取主地址（`HF_ENDPOINT`、`HF_HUB_ENDPOINT`，默认 `https://hf-mirror.com`）、`HF_FALLBACK_ENDPOINTS`、`https://huggingface.co`。metadata 与权重下载都可回退，revision 保持固定。
+- `--download-mode` 仅供高级/兼容用途：`official` 只选官方入口，`mirror-preferred` 与 `auto` 相同；`mirror-only` 不主动选择备用入口，但仍允许合法 Hub/CDN 重定向。旧 TUI 设置中的三种模式迁移为 `auto`。`ACPROF_ALLOW_PROXY_FALLBACK`、`ACPROF_DIRECT_HOSTS` 已无作用。
+- HTTP 路径允许 HF 控制的可信存储域名，包含 Xet bridge；原生 Xet/hf_transfer 加速器仍禁用，以保证每跳请求可审计。AC-Prof 不负责配置 VPN，不改写标准代理变量或默认路由；公网出口由系统或上游网络负责，不能从 `direct-socket` 推断没有 VPN。
 - 令牌依次取 `HF_TOKEN`、`HUGGING_FACE_HUB_TOKEN`，都为空时调用已有
   `huggingface_hub.utils.get_token()`；找到令牌后回填缺失或仅含空白的令牌变量。
   两个变量都有非空值时保留各自值，解析结果以 `HF_TOKEN` 为准；没有令牌或本地读取失败时返回匿名状态。
@@ -26,17 +26,30 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 不新增依赖；该初始化发生在主机准备阶段，不进入正式测量窗口。
 令牌仅用于主机检测与 Model Store 下载，不传入 Docker 构建或正式推理容器；运行阶段只读挂载固定 snapshot 并离线加载。
 配置自定义 endpoint 也决定 Hugging Face 请求及认证令牌的接收方，应只选择信任的服务。
-主地址与备用列表同时传给 Docker 构建并进入模型层、服务层指纹；切换来源不会复用旧来源的模型层。
-实际成功请求的 Hub 基地址写入 `runtime_environment.model_download.endpoint`，依赖模型分别记录，
-随 `static_meta.json` 保存；这是 Hub endpoint，不是重定向后的 CDN/Xet URL 或本地缓存文件的首次来源。
+Hub endpoint 是传输入口，不作为模型身份，也不写入离线容器的网络配置。
+模型身份由 source、模型 ID、固定 revision 和文件哈希确定；endpoint 与脱敏后的 redirect chain 单独保存在下载 provenance 中。
+
+AC-Prof 仅使用启动进程继承的标准代理环境变量（包括小写形式与 `NO_PROXY`），不在 TUI 提供代理设置。
+旧 `.env`/`.env.local` 中的代理字段读取后忽略，原文件中的值保留。需要显式应用层代理时，在 shell 或系统配置后启动，例如：
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
+export NO_PROXY=localhost,127.0.0.1,::1
+acprof tui
+```
+
+端口仅为示例，请使用自己配置的代理地址。透明代理、系统 VPN、路由与公网出口由用户的系统网络管理。
+显式使用另一来源：`acprof run --model-source modelscope --model <ModelScope-ID>`；可通过系统环境或本地配置提供 `MODELSCOPE_API_TOKEN`。
+ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需安装 Git）；也可提供完整 commit SHA。
 
 ## TUI 本地设置
 
-`F2` → **应用设置** → **管理连接与权限**管理 `.env.example` 中的 Token、Hub 地址与备用地址、代理和企业微信 Webhook。
+`F2` → **应用设置** → **管理连接与权限**管理 Token、下载预算、Model Store 与企业微信 Webhook。Hub 入口高级配置仅通过 CLI/环境变量提供。
 连接配置保存到工作目录的 `.env.local`，原文件备份为 `.env.local.bak`，两个文件权限均为 `0600`。
 保留其他键和注释；文件在表单打开后被外部修改时拒绝覆盖，符号链接也不会被写入。
-显式保存同步更新当前 TUI 进程及后续子进程的环境，并同步认证、地址、代理的别名；
-重启后仍按上述进程环境优先级加载。清空代理/Webhook 会写入空值，屏蔽旧文件中的同名值。
+显式保存同步更新当前 TUI 进程及后续子进程的受支持配置，并同步认证别名；已有代理环境不修改。
+重启后仍按上述进程环境优先级加载。清空 Webhook 会写入空值，屏蔽旧文件中的同名值。
 关闭窗口不保存；凭据不写入 `tui.json`、命令预览或日志。保存和权限检查不发送通知。
 采集权限的系统授权单独操作，见[最小权限安装](Getting_Started.md#最小权限安装)。
 
@@ -384,7 +397,8 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 | `--output-dir` | `results` | 输出根目录。最终还会追加 model name 子目录。 |
 | `--resume` | false | 使用原参数和目录恢复实验；逐项报告身份差异，保留完成 case，备份后重测中断 case；准备未完成时先归档准备证据再重试。已完成实验不重测。TUI 的“恢复 / 重试”也可自动分配新实验目录。 |
 | `--skip-build` | false | 核验构建指纹和环境清单后复用镜像；不存在时自动构建，不匹配时退出。 |
-| `--download-mode` | `mirror-only` | `mirror-only`、`mirror-preferred`、`official`；显式参数优先于 `HF_DOWNLOAD_MODE`。 |
+| `--model-source` | `huggingface` | `huggingface`、`modelscope`；不同来源独立记录身份，不静默替换。 |
+| `--download-mode` | `auto` | 高级/兼容参数：`auto`、`mirror-only`、`mirror-preferred`、`official`；显式参数优先于 `HF_DOWNLOAD_MODE`，TUI 固定使用 `auto`。 |
 | `--max-download` | 不设上限 | 下载前核验全部批量 payload 预算，例如 `5GB`、`5GiB`；`0` 只允许缓存命中。任何来源大小未知或总量超限时，在 pull/build/权重下载前停止。环境变量为 `ACPROF_MAX_DOWNLOAD`。 |
 | `--model-store` | `~/.cache/acprof/model-store` | 单份主机模型目录，对应 `ACPROF_MODEL_STORE`；运行容器只读挂载。 |
 | `--model-store-max` | 不设上限 | Model Store 容量上限，对应 `ACPROF_MODEL_STORE_MAX`；超限须先显式清理。 |

@@ -452,7 +452,8 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | 字段 | 含义 |
 | --- | --- |
 | `schema_version` | `static_meta.json` schema 版本；新增运行环境绑定与验证记录后的当前版本为 `7`。 |
-| `model_name` | Hugging Face model ID，例如 `google-bert/bert-base-uncased`。 |
+| `model_name` | 所选来源的 model ID，例如 `google-bert/bert-base-uncased`。 |
+| `model_source` | `huggingface` 或 `modelscope`；历史缺字段沿用 HF 语义。相同模型名不代表相同来源或 artifact。 |
 | `model_revision` | 实际解析到的 model revision / commit hash。 |
 | `parameter_count` | Hugging Face Hub SafeTensors metadata 的参数总数；Hub 未提供时为 `null`。 |
 | `parameter_bytes` | 根据 `parameter_dtype_counts` 的各 dtype 元素数量与字节宽度精确求和得到的逻辑 tensor payload 大小，不含序列化 header；没有 dtype 统计或存在未知 dtype 时为 `null`。 |
@@ -482,7 +483,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `workload` | workload 清单的可复现元数据，包括素材 SHA256、来源、变换、推理模式以及模型侧输入约束。 |
 | `input_scale_plan_sha256` | 本次实际执行的 `input_scale_plan.json` SHA256。 |
 | `run_command` | 启动本次 profiling 的 `acprof run ...` 命令，便于复现实验参数。 |
-| `model_download_url` | Hugging Face model page URL。 |
+| `model_download_url` | 所选 source 的规范模型页面 URL；不是镜像／存储 endpoint。 |
 | `gpu` | 存在 GPU case 时为选定物理 GPU 的名称；仅 CPU 实验保留主机设备信息，没有可见 NVIDIA GPU 时为 `unknown`。 |
 | `gpu_mem_total_bytes` | 对应上述设备的 total VRAM，单位 bytes；无法读取时为 `null`。 |
 | `gpu_device` | schema v7 的新增可选 object：`uuid`、主机 `index`、`pci_bus_id`、`name`、`memory_total_bytes`。GPU case 运行前解析并固定 UUID，Docker、NVML 和独立 profiler 共用；容器内单卡编号为 `0`。CPU 实验为空对象；历史缺字段表示身份未知，重新执行 GPU post-hoc 采集时拒绝猜测设备。 |
@@ -572,11 +573,20 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 
 `runtime_environment.model_download` 是可选的独立 schema v1 清单，历史结果可缺失。`requested_policy` 保存 `auto/full`，`effective_policy` 保存实际 `selected/full`，`reason` 说明筛选或回退原因；`weights` 记录组件、格式、variant 和索引／分片文件。`files` 保存路径、实际逻辑大小和准备阶段计算的 SHA256，另保留 Hub 提供的 Git blob／LFS 标识；`excluded_files` 是未下载文件的远端元数据。`verification=sha256` 表示准备阶段已完成完整性检查，`plan_sha256` 校验规范化 JSON（不含自身字段）。`selected_bytes` 按清单路径求和，不对相同内容的多个路径去重，mounted 模式下其含依赖总量成为 `model_artifact_bytes`（及兼容别名 `model_cache_bytes`）；不等同于镜像大小或释放的磁盘空间。新增清单不改变 CSV 字段和历史指标定义。`runtime_environment.model_store` 记录 entry ID、计划 SHA256 和逻辑制品大小；主机结果额外记录 `host_path`，仅用于挂载定位，不参与便携镜像内容身份。
 
-新构建在该清单的 `endpoint` 字符串中记录成功使用的 Hugging Face Hub 基地址，依赖模型在
-`dependencies[].download.endpoint` 分别记录。该字段来自执行 metadata/snapshot 请求的地址，
-参与 `plan_sha256`，无单位，不属于测量窗口；它不表示重定向后的 CDN/Xet URL，
-也不能追溯本地 cache 最初从哪里取得文件。历史清单缺失时视为 unknown，不默认补成官方或镜像。
-主地址和显式备用列表参与模型层、服务层指纹；下载失败不发布已验证清单或模型镜像。
+清单新增可选的 `source`（历史缺字段为 HF）、`requested_revision`、`repository_context` 与
+`download_provenance`。身份由 source、model ID、固定 commit 和已验证文件决定，HF／ModelScope
+同名模型保持不同来源；endpoint 不作为模型身份。`endpoint` 记录成功使用的 Hub 基地址，
+依赖模型在 `dependencies[].download.endpoint` 分别记录。它参与清单完整性摘要，无单位，
+不属于测量窗口，也不等同于最终 CDN 地址。镜像入口或备用列表不再独立参与模型请求指纹。
+
+`download_provenance` 是可选 schema v1 传输记录，保存 Hub、最终 endpoint 类型、失败尝试与
+重定向响应（URL 移除 query、fragment 和内嵌凭据）；有界记录最多 256 次响应，截断有明确标志。
+应用层连接用 `direct-socket`／`explicit-proxy` 表示，不推断实际公网出口。
+ModelScope SDK 未暴露的存储链、未观察到的本地缓存原始地址保留 `unknown`。
+完整缓存命中保留原计划与 provenance，不新增虚构的网络记录。历史清单与已有实验不改写，
+缺失传输字段不补成官方、镜像或零流量；新 source 字段不改变 CSV 测量指标及单位。
+新的网络预检报告使用 schema v2，删除基于域名猜测的 DIRECT／PROXY 字节分摊，旧报告仍可读取。
+下载失败不发布已验证清单或模型镜像。
 
 `runtime_validation.json` 使用独立 schema v1：`devices.off/on` 分别保存 CPU／GPU 的 `ok`、`error`、`inconclusive` 或明确 cgroup OOM 的 `resource_limit`；总状态为 `ok`、`error`、`inconclusive` 或 `resource_limited`。每个模式只执行一次最小计划输入，资源上限为本次配置的最大 CPU／内存。load、preprocess、predict、postprocess、validate_output 五阶段都须成功；错误、验证预算耗尽和资源限制均阻止正式矩阵，CPU + GPU 必须两者通过。stdout/stderr 保存在 `runtime_validation_off/on.log`，超时也清理验证容器。它们不是 warmup、测量行或 profiler 结果。验证前已有的结果不因此变为本次成功结果。
 

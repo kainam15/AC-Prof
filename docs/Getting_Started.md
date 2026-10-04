@@ -184,8 +184,8 @@ acprof tui
 
 ```env
 HF_TOKEN=hf_xxx
-# 默认仅使用镜像；镜像失败停止，不自动切换官方源
-HF_DOWNLOAD_MODE=mirror-only
+# 默认自动尝试国内入口、可信存储重定向和官方 Hub
+HF_DOWNLOAD_MODE=auto
 HF_ENDPOINT=https://hf-mirror.com
 # 可选：批量 payload 预算，未知或超限时在下载前停止
 # ACPROF_MAX_DOWNLOAD=5GB

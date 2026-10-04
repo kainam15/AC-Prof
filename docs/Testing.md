@@ -34,8 +34,12 @@ CI 的完整回归与分片验收要求保持不变，见 [CI 与环境测试](#
 
 下载策略的定向回归包含 `test_download_network.py`、`test_model_store.py`、
 `test_network_preflight.py`、`test_dependency_download_cache.py`、`test_lock_compiler.py`
-与 `test_tui_downloads.py`。Hub transport 用真实 SDK 加受控 HTTP transport 检查重定向前阻断，
-不下载真实权重；Model Store 覆盖 SHA256、空间、预算、独立 dependency refs 和活动 lease。
+与 `test_tui_downloads.py`。`test_hf_auto_download.py` 以真实 Hub SDK 加受控 HTTP transport
+覆盖镜像 → Xet／区域 CDN、镜像 → 官方 Hub → CDN、未知第三方拒绝、鉴权隔离、HEAD probe、
+HTTP Range partial／resume、离线模式零请求、模型错误分类，以及系统代理和透明上游不推断；不下载真实权重。
+`test_modelscope_source.py` 覆盖仓库 commit 固定、文件 SHA256、source 隔离及旧设置迁移；
+`test_tui_auto_download.py` 验证失败正文／折叠诊断和显式切换来源（含取消、子进程退出及独立结果目录）。
+Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revision 隔离、原始完整仓库上下文、缓存配置大小与 SHA256、空间、预算、独立 dependency refs 和活动 lease。TUI 候选与入门回归还验证切换来源时清除旧自动 revision、保留手动值，以及预设迁移到 `auto` 后保留模型来源、预算和路径。
 依赖下载测试使用本地 HTTP 服务覆盖客户端标识、重定向后的 HEAD 方法、SHA256 校验和缓存命中，
 无需外网；锁生成测试在 Python 3.10 验证明确拒绝且不修改原锁，在 Python 3.11+ 验证镜像解析及 hash 保护。
 依赖、模型、Dockerfile 变更还需分别说明新构建、已有 runtime、小型 fixture、真实 checkpoint 的验证范围。
