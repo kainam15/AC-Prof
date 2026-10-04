@@ -14,6 +14,29 @@ class TestExperimentCatalog(CatalogFixture):
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
 
+    @pytest.mark.parametrize('broken', ('json', 'schema', 'symlink', 'artifact_symlink', 'missing_v2_manifest'))
+    def test_invalid_layout_does_not_hide_healthy_experiments(self, broken):
+        from acprof.tui.experiment_catalog import scan_experiments
+        good = self.record('z-good', run_id='healthy')
+        bad = self.record('a-bad', run_id='broken')
+        manifest = bad / 'result_manifest.json'
+        if broken == 'json':
+            manifest.write_text('{broken', encoding='utf-8')
+        elif broken == 'schema':
+            manifest.write_text('{"schema_version":999}', encoding='utf-8')
+        elif broken == 'symlink':
+            manifest.symlink_to(good / 'static_meta.json')
+        elif broken == 'artifact_symlink':
+            (bad / 'run_state.json').unlink()
+            (bad / 'run_state.json').symlink_to(good / 'run_state.json')
+        else:
+            (bad / '.acprof').mkdir()
+            (bad / 'run_state.json').rename(bad / '.acprof/run_state.json')
+        report = scan_experiments([self.root])
+        assert [record.run_id for record in report.records] == ['healthy']
+        assert any(str(bad) in warning and 'invalid_experiment' in warning
+                   for warning in report.warnings)
+
     def test_search_many_records_by_model_date_device_status_and_keep_run_identity(self):
         from acprof.tui.experiment_catalog import scan_experiments
         for i in range(25):

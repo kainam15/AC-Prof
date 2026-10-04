@@ -63,7 +63,7 @@ class TestCatalogWorkflow:
 
         assert record.state == {}
         assert not record.has_recovery_state
-        assert any("run_state.json" in warning and "metadata_non_finite_number" in warning
+        assert any("run_state.json" in warning and "non-finite" in warning
                    for warning in catalog.warnings)
 
     async def test_search_failed_run_reuse_full_config_and_confirm_frozen_resume(self):

@@ -133,6 +133,32 @@ async def test_read_failure_preserves_diagnostics_instead_of_claiming_no_history
         assert (screen.query_one('#picker-status', Static).content) == ('0 / 0 · fixture catalog read failure')
         assert (screen.query_one('#picker-detail', Static).content) == ('No local records were read. See the messages above.')
 
+
+async def test_bad_manifest_warning_keeps_healthy_experiment_selectable(tmp_path):
+    good, bad = tmp_path / 'good', tmp_path / 'bad'
+    good.mkdir()
+    bad.mkdir()
+    (good / 'static_meta.json').write_text('{"model_name":"demo/healthy"}', encoding='utf-8')
+    (bad / 'result_manifest.json').write_text('{broken', encoding='utf-8')
+
+    def loader(cancelled):
+        catalog = scan_experiments([tmp_path], cancelled=cancelled)
+        return tuple(experiment_choice(record) for record in catalog.records), catalog.warnings
+
+    app, selections = PickerHarness(), []
+    screen = SearchPickerScreen('选择实验', ('模型', '日期', '设备', '状态', 'Run ID'),
+                                loader, actions=('select',))
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.push_screen(screen, selections.append)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert 'result_manifest.json' in str(screen.query_one('#picker-status', Static).content)
+        assert not screen.query_one('#picker-select', Button).disabled
+        assert await pilot.click('#picker-select')
+        await pilot.pause()
+    assert selections[0][0] == 'select'
+    assert selections[0][1].directory == good
+
 async def test_scope_omits_stale_paths_but_keeps_explicit_deep_scan_roots():
     scratch = Path.cwd() / 'internal-testing'
     scratch.mkdir(exist_ok=True)

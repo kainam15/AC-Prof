@@ -1,11 +1,12 @@
 """Versioned experiment paths. Discovery is read-only; writers initialize v2 explicitly."""
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from acprof.artifacts import read_json_object
 
 MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({
@@ -62,7 +63,7 @@ class ArtifactLayout:
             if (root / ".acprof/run_state.json").exists():
                 raise ValueError(f"Missing {MANIFEST_NAME} for a v2 experiment: {root}")
             return cls(root)
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        payload = read_json_object(manifest, label="result manifest")
         expected = _manifest()
         if (not isinstance(payload, dict) or type(payload.get("schema_version")) is not int
                 or type(payload.get("layout_version")) is not int

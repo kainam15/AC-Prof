@@ -284,6 +284,9 @@ ONNX 独立验证记录实际 Provider、线程数及制品 SHA256；制品校�
 新主实验由 `ArtifactLayout` 创建以下布局；根目录的四个文件分别是正式结果、静态描述、
 能力报告和 `result_manifest.json`。子目录按需创建，文件缺失不能据此推断实验成功或失败。
 
+`result_manifest.json` 与其他受限 JSON 产物共用读取器：只接受不超过 4 MiB 的 UTF-8
+JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manifest 仍明确报错，不退回 flat layout。
+
 ```text
 <model-dir>/
 ├── result_all.csv

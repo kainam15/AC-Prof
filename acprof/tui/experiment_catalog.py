@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from collections import deque
 from dataclasses import dataclass, fields, replace
@@ -13,19 +12,12 @@ from typing import Callable, Iterable
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import read_json_object
 from acprof.experiment import RunConfig
 from acprof.installation import cli_command
 from acprof.run_args import flatten_run_options
 
-MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
-
-
-def _finite_json_number(raw: str) -> float:
-    value = float(raw)
-    if not math.isfinite(value):
-        raise ValueError("metadata_non_finite_number")
-    return value
 
 
 @dataclass(frozen=True)
@@ -72,18 +64,11 @@ def read_artifact(path: Path) -> dict:
     """Read bounded JSON objects; missing evidence remains empty, never invented."""
     if not path.is_file():
         return {}
-    with path.open('rb') as stream:
-        content = stream.read(MAX_JSON_BYTES + 1)
-    if len(content) > MAX_JSON_BYTES:
-        raise ValueError(f'{path.name}: metadata_size_limit')
-    value = json.loads(content, parse_float=_finite_json_number, parse_constant=_finite_json_number)
-    if not isinstance(value, dict):
-        raise ValueError(f'{path.name}: metadata_object_required')
-    return value
+    return read_json_object(path)
 
 
-def _record(directory: Path, warnings: list[str]) -> ExperimentRecord:
-    layout = ArtifactLayout.discover(directory)
+def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
+    directory = layout.root
     values = {}
     for name in ('run_state.json', 'static_meta.json', 'runtime_validation.json', 'runtime_failures.json', 'model_resolution.json'):
         path = layout.path(name)
@@ -160,13 +145,15 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
         seen.add(directory)
         if (directory / 'coverage.json').is_file() and not (directory / 'coverage.json').is_symlink():
             coverage_reports.append(directory / 'coverage.json')
-        layout = ArtifactLayout.discover(directory)
-        if any(layout.path(name).is_file() for name in ('run_state.json', 'static_meta.json', 'model_resolution.json', 'result_all.csv')):
-            try:
-                record = _record(directory, warnings)
-            except (OSError, ValueError, TypeError, AttributeError) as exc:
-                warnings.append(f'{directory}: invalid_experiment: {exc}')
-                continue
+        try:
+            layout = ArtifactLayout.discover(directory)
+            is_experiment = any(layout.path(name).is_file() for name in (
+                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_all.csv'))
+            record = _record(layout, warnings) if is_experiment else None
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            warnings.append(f'{directory}: invalid_experiment: {exc}')
+            continue
+        if record is not None:
             if record.run_id and record.run_id in identities:
                 index = identities[record.run_id]
                 previous = records[index]

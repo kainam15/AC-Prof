@@ -17,6 +17,22 @@ from acprof.host.client_config import ClientConfig
 from acprof.host.run_state import RunState
 
 
+@pytest.mark.parametrize('invalid', ('oversized', 'nonfinite'))
+def test_manifest_uses_bounded_finite_json_reader(tmp_path, invalid):
+    from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+    ArtifactLayout.for_new_run(tmp_path).initialize()
+    manifest = tmp_path / 'result_manifest.json'
+    if invalid == 'oversized':
+        content = ' ' * (MAX_JSON_ARTIFACT_BYTES + 1) + manifest.read_text(encoding='utf-8')
+        reason = 'read limit'
+    else:
+        content = manifest.read_text(encoding='utf-8').rstrip()[:-1] + ', "extra": NaN}'
+        reason = 'non-finite'
+    manifest.write_text(content, encoding='utf-8')
+    with pytest.raises(ValueError, match=reason):
+        ArtifactLayout.discover(tmp_path)
+
+
 class TestArtifactLayout:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
