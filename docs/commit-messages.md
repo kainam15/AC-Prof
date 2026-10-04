@@ -12,17 +12,17 @@ AC-Prof 使用基于 [Conventional Commits](https://www.conventionalcommits.org/
 
 ## 格式
 
-基本格式：
+标题中的 `type`、`scope` 和 summary 均为必填项；正文和 footer 可省略。需要补充说明时，在标题后空一行，用 `- ` 开头的要点表达：
 
 ```text
-<type>(<scope>): <summary>
+<type>(<scope>): <concise summary>
 
-[optional body]
+- <optional detail>
 
 [optional footer]
 ```
 
-`scope`、body 和 footer 都是可选的。
+`scope` 不可省略，也不能为空。正文要点按实际需要增减，不固定条数；核心改动、测试、行为变化和兼容说明都是可选内容，不要求逐项填写。
 
 Breaking change 可以写成：
 
@@ -37,13 +37,12 @@ feat(provenance): record installed package version in results
 
 - Add the AC-Prof package version to preparation-time platform metadata.
 - Preserve unknown versions when reading historical results.
-- Cover missing Git and hardware without changing measurement semantics.
 ```
 
 简单提交不需要为了格式强行添加正文：
 
 ```text
-docs: fix installation example
+docs(installation): fix installation example
 ```
 
 ## Type
@@ -70,7 +69,7 @@ docs: fix installation example
 
 ## Scope
 
-Scope 表示主要受影响的子系统，而不是文件名。
+Scope 为必填项，表示主要受影响的子系统，而不是文件名。
 
 AC-Prof 常用 scope 包括：
 
@@ -105,11 +104,11 @@ perf(collector): reduce idle sampling overhead
 
 Scope 不是封闭枚举。
 
-如果某次修改跨越整个仓库，或者没有一个 scope 能准确描述，可以省略：
+跨模块或仓库级改动仍需填写 scope，按主要意图选择能概括该逻辑变更的范围；没有合适的既有名称时，可以使用含义明确的新 scope：
 
 ```text
-test: migrate the test suite to pytest
-docs: reorganize development documentation
+test(runner): migrate the test suite to pytest
+docs(workflows): reorganize development documentation
 ```
 
 不要为了满足格式使用过宽或没有信息量的 scope，例如 `core`、`misc`，除非它们在项目中确实代表一个明确子系统。
@@ -136,7 +135,7 @@ fix(model): preserve unknown revisions in historical results
 feat(provenance): record installed package version in results
 refactor(cli): remove legacy root-level launchers
 test(runtime): cover missing dependency metadata
-docs: document the model inspection lifecycle
+docs(model): document the model inspection lifecycle
 ```
 
 避免：
@@ -165,9 +164,7 @@ feat(tui): add disk usage dialog
 
 ## Body
 
-Body 可选。
-
-只有当标题不足以解释变更时才写正文。
+Body 可选。只有当标题不足以解释变更时才写正文，否则省略整个正文。
 
 适合增加 body 的情况包括：
 
@@ -179,37 +176,22 @@ Body 可选。
 - 需要说明哪些语义明确保持不变；
 - reviewer 仅看标题无法理解风险。
 
-正文与标题之间留一个空行。
-
-可以使用自然段：
-
-```text
-refactor(probe): separate static inspection from runtime validation
-
-Static inspection must remain usable before a workload is selected and
-must not require downloading large model weights.
-
-Runtime-dependent validation is deferred until the execution contract
-is available.
-```
-
-也可以使用 bullet：
+正文与标题之间留一个空行，统一使用 `- ` 开头的要点。要点数量按信息量决定，可以只有一条：
 
 ```text
 feat(provenance): record installed package version in results
 
-- Add the AC-Prof package version to preparation-time platform metadata.
 - Preserve unknown versions when reading historical results.
-- Cover missing Git and hardware without changing measurement semantics.
 ```
 
-两种形式都允许。
+可按需要说明以下内容，不要求每类各写一条：
 
-优先说明：
+- 核心改动及其原因；
+- 重要行为变化或需要保留的语义；
+- 与变更直接相关的测试覆盖或实际验证结果；
+- 必要的兼容性说明。
 
-1. 为什么需要这次改动；
-2. 哪些重要行为发生变化；
-3. 哪些容易被误解的行为明确没有变化。
+测试、行为变化和兼容说明都不是必填项；声称测试通过时必须有实际验证证据。
 
 不要把 body 写成单纯的文件清单：
 
@@ -221,7 +203,7 @@ feat(provenance): record installed package version in results
 
 Git diff 已经能够表达这些信息。
 
-也不要为了显得“完整”而机械凑三条 bullet。
+不要为了显得“完整”而机械凑三条要点，或补写无关的测试与兼容说明。
 
 ## Footer
 
@@ -243,7 +225,7 @@ fix(runtime): reject unresolved execution profiles
 Closes #123
 ```
 
-Footer 与正文之间留一个空行。
+Footer 与前面的正文或标题之间留一个空行。
 
 ## Breaking Changes
 
@@ -258,7 +240,7 @@ refactor(cli)!: remove legacy root-level launchers
 ```text
 refactor(cli)!: remove legacy root-level launchers
 
-Use the installed `acprof` command as the single public entry point.
+- Use the installed `acprof` command as the single public entry point.
 
 BREAKING CHANGE: direct execution of the legacy root-level launchers is no longer supported.
 ```
@@ -307,6 +289,8 @@ README wording cleanup
 
 提交前应验证与该逻辑变化直接相关的行为。
 
+是否在正文中写测试说明，不影响提交前按改动范围完成验证的要求。
+
 不要求为了每个小 commit 都执行完整测试矩阵。
 
 例如：
@@ -334,8 +318,8 @@ refactor(schema): change result manifest resolution
 1. 检查实际 staged diff，而不是仅根据任务描述猜 commit message。
 2. 确认 staged changes 属于同一个逻辑主题。
 3. 将无关改动留给其他 commit。
-4. 根据实际行为选择 type 和 scope。
-5. 只有在标题不足以解释修改时才添加 body。
+4. 根据实际行为选择 type 和 scope；scope 不可省略或留空。
+5. 只有在标题不足以解释修改时才添加 body，使用按需列出的 `- ` 要点，不固定条数。
 6. 不在 commit message 中声称尚未验证或实际没有发生的行为。
 7. Commit message 应描述最终 diff，而不是开发过程中尝试过的方案。
 
@@ -356,7 +340,6 @@ feat(provenance): record installed package version in results
 
 - Add the AC-Prof package version to preparation-time platform metadata.
 - Preserve unknown versions when reading historical results.
-- Cover missing Git and hardware without changing measurement semantics.
 ```
 
 ### 架构重构
@@ -364,10 +347,8 @@ feat(provenance): record installed package version in results
 ```text
 refactor(probe): separate static inspection from runtime validation
 
-Static inspection should resolve metadata and source requirements without
-requiring model weights or an executable workload.
-
-Defer runtime-dependent checks until the execution contract is available.
+- Resolve metadata and source requirements without model weights.
+- Defer runtime checks until the execution contract is available.
 ```
 
 ### 性能优化
@@ -385,13 +366,13 @@ test(runtime): cover unresolved adapter dependencies
 ### 文档
 
 ```text
-docs: add commit message guidelines
+docs(git): add commit message guidelines
 ```
 
 ### 构建
 
 ```text
-build: move the Hatch hook into the packaging directory
+build(packaging): move the Hatch hook into the packaging directory
 ```
 
 ### Breaking change
@@ -399,7 +380,7 @@ build: move the Hatch hook into the packaging directory
 ```text
 refactor(cli)!: remove legacy root-level launchers
 
-Use `acprof <command>` as the single supported command-line entry point.
+- Use `acprof <command>` as the single supported command-line entry point.
 
 BREAKING CHANGE: direct execution of the removed wrapper scripts is no longer supported.
 ```
@@ -409,17 +390,15 @@ BREAKING CHANGE: direct execution of the removed wrapper scripts is no longer su
 最常见的形式：
 
 ```text
-<type>(<scope>): <imperative summary>
+<type>(<scope>): <concise summary>
 ```
 
-复杂提交：
+需要补充说明时，按需列出一条或多条要点：
 
 ```text
-<type>(<scope>): <imperative summary>
+<type>(<scope>): <concise summary>
 
-- <important behavioral change>
-- <important behavioral change>
-- <important invariant or compatibility detail>
+- <relevant detail>
 ```
 
 Breaking change：
@@ -427,9 +406,9 @@ Breaking change：
 ```text
 <type>(<scope>)!: <imperative summary>
 
-<optional explanation>
+- <optional explanation>
 
 BREAKING CHANGE: <description>
 ```
 
-正文、scope 和 footer 都是按需使用，不要为了满足模板添加无信息内容。
+标题中的 `type`、`scope` 和 summary 均为必填项；正文和 footer 按需使用。正文不固定条数，测试、行为变化和兼容说明均可省略，不要为了满足模板添加无信息内容。
