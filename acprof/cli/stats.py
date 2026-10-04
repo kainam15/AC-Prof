@@ -1,7 +1,6 @@
 """将结果按独立测量窗口汇总，输出均值、标准差和 bootstrap 置信区间。"""
 import argparse
 import csv
-import hashlib
 import json
 import os
 from datetime import datetime, timedelta
@@ -11,7 +10,7 @@ from acprof.analysis.audit import audit_result
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifacts import atomic_write_json
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import read_result_csv
+from acprof.result_csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
 
 
 def _save_unique_report(directory: Path, report: dict) -> tuple[Path, bool]:
@@ -61,17 +60,14 @@ def main(argv=None):
     if args.output and (args.output.resolve() == path.resolve() or args.output.exists()):
         parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
     try:
-        before = hashlib.sha256(path.read_bytes()).hexdigest()
-        _, rows = read_result_csv(path)
-        report = summarize_windows(rows, args.metric or ["latency_app_s", "latency_s", "container_attributed_energy_eff_j"],
+        snapshot = read_result_csv_snapshot(path)
+        report = summarize_windows(snapshot.rows, args.metric or ["latency_app_s", "latency_s", "container_attributed_energy_eff_j"],
                                    confidence=args.confidence, resamples=args.resamples, seed=args.seed, block_size=args.block_size)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != before:
-            raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")
-        report["result_sha256"] = before
+        report["result_sha256"] = snapshot.sha256
         report["result_csv"] = str(path.resolve())
-        audit = audit_result(path)
+        audit = audit_result(path, result_snapshot=snapshot, verify_result_snapshot=False)
         report.update({key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")})
-        if hashlib.sha256(path.read_bytes()).hexdigest() != before:
+        if not result_csv_snapshot_unchanged(snapshot):
             raise ValueError("统计期间结果 CSV 发生变化，请采集结束后重试")
     except (ValueError, OSError, csv.Error) as error:
         parser.exit(1, f"统计失败：{error}\n")

@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path
@@ -15,6 +16,16 @@ from acprof.metric_registry import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ResultCsvSnapshot:
+    """One parsed result file together with the digest of its exact source bytes."""
+
+    path: Path
+    fields: list[str]
+    rows: list[dict[str, str]]
+    sha256: str
 
 
 class ResultValidationError(ValueError):
@@ -150,16 +161,20 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
 
 
 def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
-                             ) -> tuple[list[str], list[dict[str, str]], str, bool]:
-    """Parse and hash exact CSV bytes, then verify the file stayed unchanged."""
-    path = Path(path)
+                             ) -> ResultCsvSnapshot:
+    """Parse the CSV once while hashing its exact source bytes."""
+    path = Path(path).resolve()
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
             fields, rows = _parse_result_csv(stream, path, expected)
-    before = digest.hexdigest()
-    return fields, rows, before, _file_sha256(path) == before
+    return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest.hexdigest())
+
+
+def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
+    """Verify the current file bytes still match a previously parsed snapshot."""
+    return _file_sha256(snapshot.path) == snapshot.sha256
 
 
 def merge_result_csvs(paths: Sequence[str], destination: str, *,

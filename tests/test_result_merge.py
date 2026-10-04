@@ -13,6 +13,7 @@ from acprof.result_csv import (
     measurement_key,
     read_result_csv,
     read_result_csv_snapshot,
+    result_csv_snapshot_unchanged,
 )
 
 
@@ -59,11 +60,11 @@ class TestResultMerge:
                b"1,4,off,64,0,0,ok,\"line one\nline two\"\r")
         path = self.directory / "snapshot.csv"
         path.write_bytes(raw)
-        fields, rows, digest, unchanged = read_result_csv_snapshot(path)
-        assert (fields[-2:]) == (["status", "note"])
-        assert (rows[0]["note"]) == ("line one\nline two")
-        assert (digest) == (hashlib.sha256(raw).hexdigest())
-        assert (unchanged)
+        snapshot = read_result_csv_snapshot(path)
+        assert (snapshot.fields[-2:]) == (["status", "note"])
+        assert (snapshot.rows[0]["note"]) == ("line one\nline two")
+        assert (snapshot.sha256) == (hashlib.sha256(raw).hexdigest())
+        assert (result_csv_snapshot_unchanged(snapshot))
 
     def test_fractional_error_row_preserves_plan_scale(self):
         from acprof.host.detect import TaskInfo

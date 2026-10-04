@@ -39,6 +39,49 @@ class TestStatisticsOutput:
         assert (line.startswith("ACPROF_STATS ")), line
         return json.loads(line.removeprefix("ACPROF_STATS "))
 
+    def test_statistics_reuses_one_bounded_result_snapshot(self, monkeypatch):
+        original_open = Path.open
+        original_read_bytes = Path.read_bytes
+        modes = []
+
+        def tracked_open(target, *args, **kwargs):
+            if target == self.csv:
+                modes.append(args[0] if args else kwargs.get("mode", "r"))
+            return original_open(target, *args, **kwargs)
+
+        def reject_materialized_read(target):
+            if target == self.csv:
+                raise AssertionError("statistics must not materialize the result CSV")
+            return original_read_bytes(target)
+
+        monkeypatch.setattr(Path, "open", tracked_open)
+        monkeypatch.setattr(Path, "read_bytes", reject_materialized_read)
+        self.calculate()
+        assert (modes) == (["rb", "rb"])
+
+    def test_statistics_rejects_source_change_before_publication(self, monkeypatch):
+        original_open = Path.open
+        binary_opens = 0
+
+        def mutate_before_verification(target, *args, **kwargs):
+            nonlocal binary_opens
+            mode = args[0] if args else kwargs.get("mode", "r")
+            if target == self.csv and mode == "rb":
+                binary_opens += 1
+                if binary_opens == 2:
+                    with original_open(target, "ab") as stream:
+                        stream.write(b"\n")
+            return original_open(target, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", mutate_before_verification)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), pytest.raises(SystemExit) as raised:
+            main(self.arguments())
+        assert (raised.value.code) == (1)
+        assert ("统计期间结果 CSV 发生变化") in (stderr.getvalue())
+        assert (binary_opens) == (2)
+        assert not (self.output.exists())
+
     def test_timestamp_and_duplicate_reuse_leave_source_and_existing_report_unchanged(self):
         source = self.csv.read_bytes()
         first = self.calculate()
