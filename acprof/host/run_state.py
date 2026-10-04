@@ -17,7 +17,7 @@ from uuid import uuid4
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json
 from acprof.host.execution_conditions import measurement_environment
-from acprof.messages import Message, message
+from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.run_args import flatten_run_options
@@ -131,6 +131,79 @@ def load_run_state(directory: str | Path) -> dict:
     return payload
 
 
+def _expected(data: dict, cpu=None, mem=None, gpu=None):
+    options = data["options"]
+    return expected_measurements(
+        [cpu] if cpu is not None else [int(x) for x in options["cpus"].split(",")],
+        [mem] if mem is not None else [int(x) for x in options["mems"].split(",")],
+        [gpu] if gpu is not None else options["gpus"].split(","),
+        data["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
+    )
+
+
+def recovery_phase(directory: str | Path, data: dict) -> str:
+    layout = ArtifactLayout.discover(directory)
+    if data.get("status") == "complete":
+        return "complete"
+    if (data.get("runtime") or data.get("cases") or layout.result_csv.exists()
+            or any(layout.root.glob("result_case_*.csv"))
+            or any((layout.root / ".acprof/work/cases").glob("*/result.csv"))):
+        return "measurement"
+    return "preparation"
+
+
+def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Path,
+                    options: dict | None = None) -> str:
+    """Read-only checks shared by recovery review and the locked writer.
+
+    Image availability and live hardware preflight remain the runner's responsibility.
+    Returning a phase never grants permission to mix changed measurement identities.
+    """
+    layout = ArtifactLayout.discover(directory)
+    issues = []
+    if not isinstance(data.get("options"), dict) or not isinstance(data.get("host"), dict):
+        raise RunStateError(message("原实验缺少完整的参数或主机身份，无法续跑。"))
+    if options is not None:
+        previous = {"profiling_mode": "full", **flatten_run_options(data["options"])}
+        current = {"profiling_mode": "full", **flatten_run_options(options)}
+        changed = sorted(name for name in previous.keys() | current.keys()
+                         if (name in previous) != (name in current) or previous.get(name) != current.get(name))
+        if changed:
+            issues.append(message("实验参数已变化：{0}", ", ".join(changed)))
+    previous_host, current_host = data["host"], host_identity(project_dir)
+    labels = {"source_sha256": "AC-Prof 采集源码", "packages_sha256": "Python 依赖",
+              "python": "Python 版本"}
+    for name in sorted(previous_host.keys() | current_host.keys()):
+        if previous_host.get(name) != current_host.get(name):
+            issues.append(message("{0}已变化", message(labels.get(name, "主机身份（{0}）"), name)))
+    if issues:
+        raise RunStateError(message("无法续跑；请使用新实验保留原结果。\n{0}", join_messages("\n", issues)))
+    if not isinstance(data.get("cases", {}), dict) or not isinstance(data.get("artifacts", {}), dict):
+        raise RunStateError(message("原实验的 case 或产物记录无效。"))
+    phase = recovery_phase(directory, data)
+    complete = phase == "complete"
+    if not data.get("runtime") and phase != "preparation":
+        raise RunStateError(message("已有测量证据但缺少冻结运行环境，不能按准备失败重试。"))
+    # Completed CSVs may have documented posthoc changes; preserve that contract.
+    if complete:
+        read_result_csv(layout.result_csv, expected=_expected(data))
+    for name, digest in data.get("artifacts", {}).items():
+        if complete and Path(name).name not in {"matrix_plan.json", "startup_oom_pruning.json"}:
+            continue
+        path = layout.contained(name)
+        if not path.is_file() or file_sha256(path) != digest:
+            raise RunStateError(message("恢复产物缺失或已改变：{0}；请恢复原文件或创建新实验。", path))
+    if not complete:
+        for name, record in data.get("cases", {}).items():
+            if not isinstance(record, dict):
+                raise RunStateError(message("原实验的 case 或产物记录无效。"))
+            if record.get("status") == "complete":
+                path = layout.contained(name)
+                if not path.is_file() or file_sha256(path) != record.get("sha256"):
+                    raise RunStateError(message("已完成 case 的 CSV 缺失或改变：{0}", path))
+    return phase
+
+
 class ResultDirectoryLock:
     """Linux advisory lock: process exit releases ownership without stale PID recovery."""
     def __init__(self, directory: str | Path, *, new: bool = False):
@@ -192,15 +265,13 @@ class RunState:
         self.measurement_lock.__enter__()
         try:
             self.lock.__enter__()
+            attempt = {"started_at": utc_now(), "pid": os.getpid(), "resume": resume}
             if resume:
                 self.data = load_run_state(self.directory)
-                previous_options = {"profiling_mode": "full", **flatten_run_options(self.data.get("options", {}))}
-                current_options = {"profiling_mode": "full", **flatten_run_options(options)}
-                if previous_options != current_options:
-                    raise RunStateError("恢复参数与原实验不一致；请使用原命令加 --resume，或选择新输出目录")
-                if self.data.get("host") != host_identity(project_dir):
-                    raise RunStateError("恢复时主机、Python 依赖或 AC-Prof 源码已变化；请使用新输出目录")
-                self.verify_artifacts()
+                phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options)
+                if phase == "preparation":
+                    attempt["preparation_backup"] = self._archive_preparation()
+                    self.data["status"] = "preparing"
             else:
                 prepared = preparation_artifacts or {}
                 allowed_prepared = {str(self.layout.path(name).relative_to(self.directory))
@@ -218,7 +289,7 @@ class RunState:
                 self.data = {"schema_version": 1, "layout_version": 2, "run_id": uuid4().hex, "created_at": utc_now(),
                              "status": "preparing", "options": options, "host": host_identity(project_dir),
                              "cases": {}, "artifacts": {}, "attempts": []}
-            self.data["attempts"].append({"started_at": utc_now(), "pid": os.getpid(), "resume": resume})
+            self.data["attempts"].append(attempt)
             self.save()
         except BaseException:
             self.lock.__exit__(None, None, None)
@@ -243,21 +314,30 @@ class RunState:
         except ValueError as exc:
             raise RunStateError(str(exc)) from exc
 
-    def verify_artifacts(self) -> None:
-        # A finalized result may subsequently be changed by documented post-hoc tools.
-        if self.complete:
-            read_result_csv(self.layout.result_csv, expected=self.expected())
-            for name in ("matrix_plan.json", "startup_oom_pruning.json"):
-                name = str(self.layout.path(name).relative_to(self.directory))
-                if name in self.data.get("artifacts", {}):
-                    path = self.artifact_path(name)
-                    if not path.is_file() or file_sha256(path) != self.data["artifacts"][name]:
-                        raise RunStateError(f"冻结执行计划或探测证据缺失/改变：{path}")
-            return
-        for name, digest in self.data.get("artifacts", {}).items():
-            path = self.artifact_path(name)
-            if not path.is_file() or file_sha256(path) != digest:
-                raise RunStateError(f"恢复产物缺失或已改变：{path}；请恢复原文件或使用新输出目录")
+    def _archive_preparation(self) -> str:
+        """Copy preparation evidence under the writer lock before any retry overwrites it."""
+        names = ("run_state.json", "auto_report.json", "model_resolution.json",
+                 "interface_validation.json", "runtime_validation.json", "static_meta.json",
+                 "capability_report.json", "collection_history.json", "input_scale_plan.json",
+                 "compute_profile_plan.json", "execution_profile_plan.json")
+        sources = [self.layout.path(name) for name in names]
+        for name in ("logs", "compute_profiles", "execution_profiles"):
+            sources.extend(self.layout.path(name).rglob("*"))
+        backup = self.layout.path("interrupted_cases").parent / "preparation_attempts" / uuid4().hex
+        for source in sources:
+            source = self.artifact_path(str(source.relative_to(self.directory)))
+            if not source.exists():
+                continue
+            if source.is_dir():
+                continue
+            if not source.is_file():
+                raise RunStateError(message("不支持的准备产物类型：{0}", source))
+            target = backup / source.relative_to(self.directory)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            with target.open("rb") as stream:
+                os.fsync(stream.fileno())
+        return str(backup.relative_to(self.directory))
 
     def bind_matrix_plan(self, plan: dict) -> None:
         from acprof.host.matrix_plan import MATRIX_PLAN_NAME
@@ -317,13 +397,7 @@ class RunState:
                 str(self.artifact_path(snapshot["execution_plan"])) if snapshot["execution_plan"] else "")
 
     def expected(self, cpu=None, mem=None, gpu=None):
-        options = self.data["options"]
-        return expected_measurements(
-            [cpu] if cpu is not None else [int(x) for x in options["cpus"].split(",")],
-            [mem] if mem is not None else [int(x) for x in options["mems"].split(",")],
-            [gpu] if gpu is not None else options["gpus"].split(","),
-            self.data["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
-        )
+        return _expected(self.data, cpu, mem, gpu)
 
     def prepare_case(self, filename: str, cpu: int, mem: int, gpu: str) -> str | None:
         path = (self.layout.case("", cpu, mem, gpu).csv if self.layout.layout_version == 2
