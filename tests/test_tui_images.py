@@ -1195,7 +1195,7 @@ class TestTuiImages:
             hint = ("实际释放空间可能受共享镜像层和构建缓存影响，以清理后核验为准。" if language == "zh" else
                     "Actual space reclaimed may be affected by shared image layers and build cache; verify after cleanup.")
             assert str(estimate.content) == expected
-            assert str(info.content) == "ⓘ"
+            assert str(info.content) == "ℹ\ufe0e"
             assert info.region.y == estimate.region.y
             assert info.region.x == estimate.region.right + 1
             assert app.screen.region.contains_region(info.region)

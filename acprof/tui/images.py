@@ -386,7 +386,10 @@ class ImageDeleteScreen(ConfirmActionScreen):
     ImageDeleteScreen #confirm-dialog { height: 85%; max-height: 40; }
     #image-reclaim-row { height: auto; margin-bottom: 1; }
     #image-reclaim-estimate { width: auto; }
-    #image-reclaim-info { width: auto; margin-left: 1; color: $text-muted; }
+    #image-reclaim-info {
+        width: 3; margin-left: 1; content-align: center middle;
+        color: $accent; text-style: bold;
+    }
     #image-confirm-content { height: 1fr; margin-bottom: 1; }
     #image-confirm-text { height: auto; }
     """
@@ -401,7 +404,8 @@ class ImageDeleteScreen(ConfirmActionScreen):
             yield Static(tr(self.dialog_title), id="confirm-title", markup=False)
             with Horizontal(id="image-reclaim-row"):
                 yield Static(tr(self.estimate), id="image-reclaim-estimate", markup=False)
-                info = Static("ⓘ", id="image-reclaim-info", markup=False)
+                # 使用文本样式的信息符号，避免终端自动切换成 emoji。
+                info = Static("ℹ\ufe0e", id="image-reclaim-info", markup=False)
                 info.tooltip = tr("实际释放空间可能受共享镜像层和构建缓存影响，以清理后核验为准。")
                 yield info
             with VerticalScroll(id="image-confirm-content"):
