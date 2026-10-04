@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
@@ -29,6 +29,27 @@ class PickerChoice:
     detail: str
     search_text: str
     actions: frozenset[str]
+    cell_tooltips: tuple[str | None, ...] = ()
+
+
+class PickerTable(DataTable):
+    """Use rendered cell coordinates so tooltips follow scrolling and filtering."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cell_tooltips: dict[tuple[int, int], str] = {}
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        meta = event.style.meta
+        text = None if meta.get('out_of_bounds') else self.cell_tooltips.get(
+            (meta.get('row', -1), meta.get('column', -1)))
+        self.tooltip = Text(text) if text else None
+
+    @on(events.Leave)
+    @on(events.MouseScrollUp)
+    @on(events.MouseScrollDown)
+    def clear_tooltip(self) -> None:
+        self.tooltip = None
 
 
 def experiment_choice(record: ExperimentRecord) -> PickerChoice:
@@ -50,9 +71,12 @@ def experiment_choice(record: ExperimentRecord) -> PickerChoice:
     detail = json.dumps({'run_id': record.run_id or 'unknown', 'directories': [str(path) for path in record.aliases],
         'issues': record.issues, 'options': record.options, 'failures': record.failures,
         'runtime_validation': record.validation}, ensure_ascii=False, indent=2)
-    return PickerChoice(record, (record.model_id, date_text, record.device, {'complete': '已完成', 'failed': '失败',
+    device = str((record.metadata.get('gpu_device') or {}).get('name') or record.device)
+    device_uuid = record.device if record.device.startswith('GPU-') else None
+    return PickerChoice(record, (record.model_id, date_text, device, {'complete': '已完成', 'failed': '失败',
         'interrupted': '已停止', 'running': '运行中', 'preparing': '准备中'}.get(record.status, record.status),
-        record.run_id or 'unknown'), detail, record.search_text, frozenset(actions))
+        record.run_id or 'unknown'), detail, record.search_text, frozenset(actions),
+        cell_tooltips=(None, None, device_uuid))
 
 
 
@@ -99,7 +123,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
             yield Static('', id='picker-scope-note', markup=False)
             yield Input(self.initial_query, placeholder=tr('搜索模型、日期、设备或状态'), id='picker-search')
             yield Static(tr('正在读取已知目录内的实验……'), id='picker-status', markup=False)
-            yield DataTable(id='picker-table', cursor_type='row', fixed_columns=1)
+            yield PickerTable(id='picker-table', cursor_type='row', fixed_columns=1)
             yield Static('', id='picker-detail', markup=False)
             with Horizontal(id='picker-actions'):
                 for action in self.actions:
@@ -194,8 +218,11 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.filtered = tuple(choice for choice in self.choices if all(
             term in (choice.search_text + ' ' + ' '.join(self.app.tr(cell) for cell in choice.cells)).casefold()
             for term in terms))
-        table = self.query_one('#picker-table', DataTable)
+        table = self.query_one('#picker-table', PickerTable)
         table.clear()
+        table.clear_tooltip()
+        table.cell_tooltips = {(row, column): tooltip for row, choice in enumerate(self.filtered)
+                               for column, tooltip in enumerate(choice.cell_tooltips) if tooltip}
         for index, choice in enumerate(self.filtered):
             table.add_row(*(self.app.tr(cell) for cell in choice.cells), key=str(index))
         self.query_one('#picker-status', Static).update(f'{len(self.filtered)} / {len(self.choices)}' +
