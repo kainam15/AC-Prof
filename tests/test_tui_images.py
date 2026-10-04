@@ -20,6 +20,7 @@ from textual.widgets import (
     Static,
     TabbedContent,
     TabPane,
+    Tooltip,
     Tree,
 )
 from tui_fixtures import AcprofTui
@@ -333,7 +334,7 @@ class TestTuiImages:
             assert ("transformers==") not in (summary), "包清单不应挤占摘要"
             assert ("history") not in (summary)
             assert ("完整大小") in (summary)
-            assert ("删除预计释放") in (summary)
+            assert ("预计可释放") in (summary)
             dependencies = app.query_one("#image-dependencies", Collapsible)
             metadata = app.query_one("#image-metadata", Collapsible)
             diagnostics = app.query_one("#image-diagnostics", Collapsible)
@@ -1151,7 +1152,6 @@ class TestTuiImages:
             message = str(app.screen.query_one("#image-confirm-text", Static).content)
             assert ("acprof-build-source:") in (message)
             assert ("acprof-audio-demo--model:code") in (message)
-            assert ("续采或补采") in (message)
             dialog = app.screen.query_one("#confirm-dialog")
             assert (dialog.region.x) > (0), "删除确认应沿用居中的有边框弹窗"
             assert (dialog.region.width) < (80)
@@ -1174,6 +1174,45 @@ class TestTuiImages:
             assert ("已处理 2") in (str(app.query_one("#image-status", Static).content))
             assert not (app._is_busy())
             assert not (app.query_one("#start-run", Button).disabled)
+
+    @pytest.mark.parametrize("language", ("zh", "en"))
+    @pytest.mark.parametrize("size", ((80, 24), (120, 30), (150, 45)))
+    async def test_confirmation_reclaim_tooltip_on_hover(self, language, size):
+        app = self.make_app()
+        app.TOOLTIP_DELAY = 0.01
+        async with app.run_test(size=(150, 45), tooltips=True) as pilot:
+            await self.load_images(app, pilot)
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            await pilot.click("#image-model")
+            await pilot.click("#image-delete")
+            await pilot.resize_terminal(*size)
+            await pilot.pause()
+            estimate = app.screen.query_one("#image-reclaim-estimate", Static)
+            info = app.screen.query_one("#image-reclaim-info", Static)
+            expected = "预计可释放：约 310 B" if language == "zh" else "Estimated reclaim: about 310 B"
+            hint = ("实际释放空间可能受共享镜像层和构建缓存影响，以清理后核验为准。" if language == "zh" else
+                    "Actual space reclaimed may be affected by shared image layers and build cache; verify after cleanup.")
+            assert str(estimate.content) == expected
+            assert str(info.content) == "ⓘ"
+            assert info.region.y == estimate.region.y
+            assert info.region.x == estimate.region.right + 1
+            assert app.screen.region.contains_region(info.region)
+            before = len(self.docker.commands)
+            assert await pilot.hover(info)
+            await pilot.pause(app.TOOLTIP_DELAY + 0.05)
+            tooltip = app.screen.query_one(Tooltip)
+            assert tooltip.display
+            assert str(tooltip.content) == hint
+            assert app.screen.region.contains_region(tooltip.region)
+            assert await pilot.hover(estimate)
+            await pilot.pause()
+            assert not tooltip.display
+            assert len(self.docker.commands) == before
+            assert await pilot.click("#confirm-no")
+            await pilot.pause()
+            assert not self.docker.removals
 
     async def test_read_failure_keeps_inventory_and_selection_until_refresh_recovers(self):
         app = self.make_app()

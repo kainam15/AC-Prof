@@ -384,14 +384,26 @@ class ImageDeleteScreen(ConfirmActionScreen):
     CSS = ConfirmActionScreen.CSS + """
     ImageDeleteScreen { align: center middle; }
     ImageDeleteScreen #confirm-dialog { height: 85%; max-height: 40; }
+    #image-reclaim-row { height: auto; margin-bottom: 1; }
+    #image-reclaim-estimate { width: auto; }
+    #image-reclaim-info { width: auto; margin-left: 1; color: $text-muted; }
     #image-confirm-content { height: 1fr; margin-bottom: 1; }
     #image-confirm-text { height: auto; }
     """
+
+    def __init__(self, inventory: ImageInventory, image_ids: tuple[str, ...], *, hidden_count: int = 0) -> None:
+        super().__init__("删除所选镜像？", deletion_message(inventory, image_ids, hidden_count=hidden_count), "删除镜像")
+        self.estimate = message("预计可释放：{0}", reclaimable_text(inventory, image_ids))
 
     def compose(self) -> ComposeResult:
         tr = self.app.tr
         with Vertical(id="confirm-dialog"):
             yield Static(tr(self.dialog_title), id="confirm-title", markup=False)
+            with Horizontal(id="image-reclaim-row"):
+                yield Static(tr(self.estimate), id="image-reclaim-estimate", markup=False)
+                info = Static("ⓘ", id="image-reclaim-info", markup=False)
+                info.tooltip = tr("实际释放空间可能受共享镜像层和构建缓存影响，以清理后核验为准。")
+                yield info
             with VerticalScroll(id="image-confirm-content"):
                 yield Static(tr(self.message), id="image-confirm-text", markup=False)
             with Horizontal(id="confirm-buttons"):
@@ -502,7 +514,7 @@ def image_summary(item: ManagedImage, inventory: ImageInventory) -> str:
     return join_messages("\n", (
         message("完整大小：{0} · 继承：{1} · 本镜像新增：{2}", format_bytes(item.size_bytes),
                 format_bytes(item.inherited_bytes), format_bytes(item.added_bytes)),
-        message("删除预计释放：{0} · 容器引用：{1}", reclaimable_text(inventory, (item.image_id,)), len(item.containers)),
+        message("预计可释放：{0} · 容器引用：{1}", reclaimable_text(inventory, (item.image_id,)), len(item.containers)),
     ))
 
 
@@ -545,7 +557,7 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
 
 def reclaimable_text(inventory: ImageInventory, image_ids: tuple[str, ...]) -> str:
     value = reclaimable_image_bytes(inventory, image_ids)
-    return UNKNOWN if value is None else "0 B" if value == 0 else message("0 B ～ 约 {0}", format_bytes(value))
+    return UNKNOWN if value is None else "0 B" if value == 0 else message("约 {0}", format_bytes(value))
 
 
 def layer_image_detail(layer: ImageLayer, inventory: ImageInventory) -> str:
@@ -622,10 +634,6 @@ def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...], *, h
     items = [item for item in inventory.images if item.image_id in image_ids]
     parts = [
         message("Docker 环境：{0} · 共 {1} 个镜像", inventory.connection.name, len(items)),
-        message("删除全部标签后无法使用原镜像续采或补采；已保存的实验文件保留。"),
-        message("按下层到上层删除；下层未删除时保留其上层。"),
-        message("删除预计释放：{0}", reclaimable_text(inventory, image_ids)),
-        message("按所选集合的层引用去重估算；构建缓存仍可能保留数据。"),
     ]
     if hidden_count:
         parts.append(message("其中筛选外 {0} 个镜像；仍包含在本次删除清单中。", hidden_count))
@@ -635,7 +643,6 @@ def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...], *, h
                              item.image_id, format_bytes(item.size_bytes)))
         if item.parent_source == "layer-prefix":
             parts.append(message("≈ 父镜像：{0}；层前缀推断，未确认 FROM。", item.parent_id))
-    parts.append(message("共享层和构建缓存可能继续占用空间；镜像大小不能相加为可释放空间。"))
     return join_messages("\n\n", parts)
 
 

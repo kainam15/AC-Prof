@@ -26,7 +26,6 @@ from acprof.tui.images import (
     ImageDeleteScreen,
     ImageDetailPanel,
     ImageTree,
-    deletion_message,
     filtered_images,
     image_display_name,
     image_error,
@@ -415,7 +414,7 @@ class ImageActions(MessagePump):
         hidden = len(self._selected_image_ids - {item.image_id for item in self._visible_images})
         self._begin_image_operation("confirm", "请核对待删除镜像及全部标签。")
         self.push_screen(
-            ImageDeleteScreen("删除所选镜像？", deletion_message(inventory, ids, hidden_count=hidden), "删除镜像"),
+            ImageDeleteScreen(inventory, ids, hidden_count=hidden),
             lambda confirmed: self._confirmed_image_delete(confirmed, inventory, ids),
         )
 
