@@ -7,11 +7,15 @@ import json
 import os
 import platform
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
+from http.client import IncompleteRead
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import unquote, urlsplit
 
 from dependency_locks import (
@@ -49,6 +53,13 @@ def _record_transfer(entry, category, actual_bytes, source_host, cache_status):
             "wire_bytes": None, "cache_status": cache_status}) + "\n")
 
 
+def _retryable_download_error(error):
+    # HTTP/certificate/policy/hash errors are not transient transport failures.
+    if isinstance(error, URLError):
+        error = error.reason
+    return isinstance(error, (TimeoutError, ConnectionError, ssl.SSLEOFError, IncompleteRead))
+
+
 def cached_artifact(entry, path, category):
     """Content-addressed payload cache with guarded redirects and no source fallback."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,9 +73,22 @@ def cached_artifact(entry, path, category):
     opener = urllib.request.build_opener(PolicyRedirectHandler())
     request = urllib.request.Request(entry["url"], headers={"User-Agent": DEPENDENCY_USER_AGENT})
     try:
-        with opener.open(request, timeout=60) as source, temporary.open("wb") as target:
-            shutil.copyfileobj(source, target)
-            actual_source = urlsplit(source.geturl()).hostname
+        for attempt in range(1, 4):
+            try:
+                with opener.open(request, timeout=60) as source, temporary.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+                    actual_source = urlsplit(source.geturl()).hostname
+            except (OSError, IncompleteRead) as exc:
+                temporary.unlink(missing_ok=True)
+                if attempt == 3 or not _retryable_download_error(exc):
+                    raise
+                delay = 2 ** (attempt - 1)
+                reason = type(exc.reason if isinstance(exc, URLError) else exc).__name__
+                print(f"[dependency-cache] {category} retry name={entry['name']} attempt={attempt}/3 "
+                      f"source={urlsplit(entry['url']).hostname} reason={reason} retry_in_s={delay}", flush=True)
+                time.sleep(delay)
+            else:
+                break
         if _digest(temporary) != entry["sha256"]:
             raise ValueError(f"artifact SHA256 mismatch: {entry['name']}")
         temporary.replace(path)

@@ -1527,6 +1527,17 @@ Python/CUDA runtime build 消费精确 wheel URL，`PYPI_MIRROR_INDEX` 不能改
 
 依赖下载及大小预检统一使用 `acprof-dependency-downloader/1.0` 的 `User-Agent`，避免官方制品源拒绝默认 `Python-urllib` 客户端。预检在重定向后仍保持 HEAD；HTTP 错误返回未知大小，预算检查继续拒绝未知总量。客户端标识不会改写锁定 URL、SHA256 或放宽来源切换策略。做法参考 [PyTorch 的 `torch.hub` 下载器](https://github.com/pytorch/pytorch/blob/v2.11.0/torch/hub.py)（BSD 风格许可证），沿用现有标准库 `urllib`，没有新增运行依赖或测量窗口开销。
 
+构建时的 wheel / `.deb` GET 遇到 TLS EOF、连接中断、超时或 `IncompleteRead` 时，
+最多尝试 3 次，重试前分别等待 1、2 秒；每次保持同一锁定 URL、客户端标识和重定向策略，
+丢弃未完成的 `.part` 后重新下载，完整 SHA256 核验通过才发布缓存。耗尽次数后传播原错误；
+HTTP、证书、来源策略、磁盘权限和哈希错误不重试。成功记录中的 payload bytes 是最终通过核验的文件大小，
+不包含失败尝试的未知传输量，`wire_bytes` 仍为未知。
+有限重试参考 [pip 网络会话](https://github.com/pypa/pip/blob/main/src/pip/_internal/network/session.py)
+与 [urllib3 Retry](https://github.com/urllib3/urllib3/blob/main/src/urllib3/util/retry.py) 的故障分类和退避思路
+（MIT），并核对 [pip Issue #11843](https://github.com/pypa/pip/issues/11843) 与
+[PR #12500](https://github.com/pypa/pip/pull/12500) 对瞬时错误的取舍；这里仅重试传输错误，
+沿用标准库实现，不引入 pip 私有 API、额外依赖或测量窗口内重试。
+
 旧 `python -m acprof.container.download_model` 下载入口已停用并明确报错，避免绕过主机预检、容量检查和预算。
 
 参考 [Hub client factory](https://github.com/huggingface/huggingface_hub/blob/v0.36.2/src/huggingface_hub/utils/_http.py)、[镜像与 Xet Issue](https://github.com/huggingface/huggingface_hub/issues/4741)、[uv 索引规则](https://github.com/astral-sh/uv/blob/main/docs/concepts/indexes.md)、[BuildKit cache mounts](https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md)。借用公开 transport、精确解析和分层 cache 思路；Hub/Transformers/BuildKit 为 Apache-2.0，uv 为 MIT/Apache-2.0。没有引入新下载框架或测量窗口内诊断。

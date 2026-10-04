@@ -1,15 +1,18 @@
 import hashlib
 import importlib.util
 import json
+import ssl
 import sys
 import tempfile
 from contextlib import contextmanager
+from http.client import IncompleteRead
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 from pathlib import Path
 from threading import Thread
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -123,3 +126,82 @@ class TestDependencyDownloadCache:
         request = urllib.request.Request("https://hf-mirror.com/artifact")
         with patch.dict("os.environ", {}, clear=True), pytest.raises(network_policy.DownloadPolicyError):
             helper.PolicyRedirectHandler().redirect_request(request, None, 302, "Found", {}, "https://files.pythonhosted.org/artifact")
+
+    @pytest.mark.parametrize('error', (
+        URLError(ssl.SSLEOFError(8, 'unexpected EOF during handshake')),
+        TimeoutError('connection timeout'), ConnectionResetError('connection reset'),
+        IncompleteRead(b'partial', 100),
+    ))
+    def test_transient_get_failure_retries_same_source_before_publishing(self, tmp_path, error):
+        helper = self.helper()
+        payload = b'verified dependency payload'
+        entry = {'name': 'example', 'sha256': hashlib.sha256(payload).hexdigest(),
+                 'url': 'https://files.pythonhosted.org/example.whl'}
+        stream = BytesIO(payload)
+        stream.geturl = lambda: entry['url']
+        opener = SimpleNamespace(open=Mock(side_effect=[error, stream]))
+        target = tmp_path / 'example.whl'
+        with patch('urllib.request.build_opener', return_value=opener), \
+                patch('time.sleep') as sleep, patch.object(helper, '_record_transfer') as recorded:
+            assert helper.cached_artifact(entry, target, 'python') == target
+        assert target.read_bytes() == payload
+        assert [call.args[0].full_url for call in opener.open.call_args_list] == [entry['url']] * 2
+        assert all(call.args[0].get_header('User-agent') == network_policy.DEPENDENCY_USER_AGENT
+                   for call in opener.open.call_args_list)
+        assert sleep.call_count == 1
+        recorded.assert_called_once_with(entry, 'python', len(payload), 'files.pythonhosted.org', 'miss')
+        assert not target.with_suffix('.whl.part').exists()
+
+    def test_partial_download_is_discarded_before_retry(self, tmp_path):
+        helper = self.helper()
+        payload = b'verified dependency payload'
+        entry = {'name': 'example', 'sha256': hashlib.sha256(payload).hexdigest(),
+                 'url': 'https://files.pythonhosted.org/example.whl'}
+        broken, complete = BytesIO(), BytesIO(payload)
+        broken.read = Mock(side_effect=[b'partial corrupt bytes', ssl.SSLEOFError(8, 'interrupted body')])
+        complete.geturl = lambda: entry['url']
+        opener = SimpleNamespace(open=Mock(side_effect=[broken, complete]))
+        target = tmp_path / 'example.whl'
+        with patch('urllib.request.build_opener', return_value=opener), \
+                patch('time.sleep'), patch.object(helper, '_record_transfer') as recorded:
+            helper.cached_artifact(entry, target, 'python')
+        assert target.read_bytes() == payload
+        assert broken.closed and complete.closed
+        assert not target.with_suffix('.whl.part').exists()
+        assert recorded.call_count == 1
+
+    def test_transient_download_failure_exhausts_budget_and_leaves_no_cache(self, tmp_path):
+        helper = self.helper()
+        entry = {'name': 'example', 'sha256': 'a' * 64, 'url': 'https://files.pythonhosted.org/example.whl'}
+        error = URLError(ssl.SSLEOFError(8, 'unexpected EOF'))
+        opener = SimpleNamespace(open=Mock(side_effect=error))
+        with patch('urllib.request.build_opener', return_value=opener), \
+                patch('time.sleep') as sleep, patch.object(helper, '_record_transfer') as recorded:
+            with pytest.raises(URLError) as caught:
+                helper.cached_artifact(entry, tmp_path / 'example.whl', 'python')
+        assert caught.value is error
+        assert opener.open.call_count == 3
+        assert [call.args[0] for call in sleep.call_args_list] == [1, 2]
+        recorded.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize('error', (
+        URLError(ssl.SSLCertVerificationError(1, 'certificate rejected')),
+        URLError(ssl.SSLError(1, 'unsupported TLS version')),
+        HTTPError('https://files.pythonhosted.org/example.whl', 403, 'Forbidden', {}, None),
+        network_policy.DownloadPolicyError('source transition forbidden'),
+        PermissionError('cache not writable'),
+    ))
+    def test_permanent_download_errors_are_not_retried(self, tmp_path, error):
+        helper = self.helper()
+        entry = {'name': 'example', 'sha256': 'a' * 64, 'url': 'https://files.pythonhosted.org/example.whl'}
+        opener = SimpleNamespace(open=Mock(side_effect=error))
+        with patch('urllib.request.build_opener', return_value=opener), \
+                patch('time.sleep') as sleep, patch.object(helper, '_record_transfer') as recorded:
+            with pytest.raises(type(error)) as caught:
+                helper.cached_artifact(entry, tmp_path / 'example.whl', 'python')
+        assert caught.value is error
+        assert opener.open.call_count == 1
+        sleep.assert_not_called()
+        recorded.assert_not_called()
+        assert list(tmp_path.iterdir()) == []
