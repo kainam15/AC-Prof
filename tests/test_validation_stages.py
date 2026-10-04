@@ -4,15 +4,20 @@ import json
 import os
 import tempfile
 from contextlib import ExitStack, nullcontext, redirect_stdout
+from importlib import import_module
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
+
+import pytest
 
 from acprof.container import runtime_validate
 
 
 class TestValidationStage:
     def fixtures(self, stack, *, failed=None):
+        handlers = import_module('acprof.container.handlers')
+        execution_module = import_module('acprof.container.execution')
         handler = Mock()
         handler.load.return_value = {}
         handler.preprocess.return_value = {"_effective_input_scale": 1}
@@ -26,10 +31,10 @@ class TestValidationStage:
         stack.enter_context(patch.dict(os.environ, {"TASK_FAMILY": "nlp", "TASK_TYPE": "text-classification",
                                                    "RUNTIME_BACKEND": "transformers_pipeline", "MODEL_ID": "fixture",
                                                    "MODEL_REVISION": "a" * 40, "USE_GPU": "0"}))
-        stack.enter_context(patch("acprof.container.handlers.HandlerRegistry.get", return_value=handler))
-        stack.enter_context(patch("acprof.container.handlers.load_handler", side_effect=lambda *args: handler.load()))
-        stack.enter_context(patch("acprof.container.execution.configured_execution", return_value=(execution, "cpu")))
-        stack.enter_context(patch("acprof.container.execution.complete_prediction", side_effect=lambda e, c, output: output))
+        stack.enter_context(patch.object(handlers.HandlerRegistry, "get", return_value=handler))
+        stack.enter_context(patch.object(handlers, "load_handler", side_effect=lambda *args: handler.load()))
+        stack.enter_context(patch.object(execution_module, "configured_execution", return_value=(execution, "cpu")))
+        stack.enter_context(patch.object(execution_module, "complete_prediction", side_effect=lambda e, c, output: output))
         return handler
 
     def test_success_records_each_phase_separately(self):
@@ -56,14 +61,23 @@ class TestValidationStage:
         assert (record["stages"][-1]["status"]) == ("error")
         assert ("ValueError: bad input contract") in (record["error"])
 
-    def test_completion_timeout_records_actual_request_budget(self):
+    @pytest.mark.parametrize('stale_parent', (False, True))
+    def test_completion_timeout_records_actual_request_budget(self, stale_parent, monkeypatch):
+        if stale_parent:
+            # Import-isolation tests can restore sys.modules while retaining an
+            # older module on its package; Python 3.10 dotted patch uses that alias.
+            execution = import_module('acprof.container.execution')
+            stale = ModuleType(execution.__name__)
+            stale.__dict__.update(execution.__dict__)
+            monkeypatch.setattr(import_module('acprof.container'), 'execution', stale)
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             payload = Path(directory) / "input.json"
             payload.write_text('{"text":"hello"}')
             stack.enter_context(patch("sys.argv", ["runtime_validate", str(payload)]))
             handler = self.fixtures(stack)
             stack.enter_context(patch.dict(os.environ, {"ACPROF_REQUEST_TIMEOUT_S": "2.5"}))
-            stack.enter_context(patch("acprof.container.execution.complete_prediction", side_effect=TimeoutError("fixture timeout")))
+            stack.enter_context(patch.object(import_module('acprof.container.execution'), "complete_prediction",
+                                            side_effect=TimeoutError("fixture timeout")))
             stack.enter_context(patch("acprof.container.runtime_validate.traceback.print_exc"))
             output = stack.enter_context(redirect_stdout(io.StringIO()))
             assert (runtime_validate.main()) == (1)
