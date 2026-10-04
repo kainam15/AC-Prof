@@ -27,7 +27,7 @@ AC-Prof 用于对容器化 Hugging Face 推理工作负载进行可复现分析�
 
 Native Linux 是 FULL 测量的基准环境。
 
-WSL2 可用于开发和 PARTIAL / basic 采集，但不得把 WSL 测量视为 Native Linux 测量，也不得为了兼容 WSL 修改 Native Linux 的测量语义。具体边界见 [WSL2](docs/platforms/wsl2.md)。
+WSL2 可用于开发和 PARTIAL / basic 采集，但不得把 WSL 测量视为 Native Linux 测量，也不得为了兼容 WSL 修改 Native Linux 的测量语义。具体边界见 `docs/platforms/wsl2.md`
 
 环境判断集中在 `acprof/platform.py`。
 
@@ -97,7 +97,7 @@ WSL、mock 和离线测试不能替代需要真实硬件证据的 Native validat
 
 完成开发后按逻辑主题拆分 commit，避免把无关修改混入同一个提交。
 
-Git 提交信息统一遵循 [`docs/commit-messages.md`](docs/commit-messages.md)。
+Git 提交信息统一遵循 `.github/commit-message.instructions.md`
 
 ## 文档
 
