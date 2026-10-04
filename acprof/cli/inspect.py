@@ -11,7 +11,8 @@ from pathlib import Path
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("model", help="Hugging Face model ID")
+    parser.add_argument("model", help="Model ID in the selected source")
+    parser.add_argument("--model-source", choices=("huggingface", "modelscope"), default=None)
     parser.add_argument("--model-spec", help="Explicit local model declaration")
     parser.add_argument("--revision", help="Model branch, tag or full commit SHA")
     parser.add_argument("--expected-revision", help="Refuse a model commit that changed since review")
@@ -24,12 +25,13 @@ def main(argv=None) -> int:
     parser.add_argument("--mems", type=int, default=4, help="Probe memory limit in GiB")
     parser.add_argument("--timeout-seconds", type=float, default=300)
     args = parser.parse_args(argv)
+    from acprof.cli.download_args import apply_download_arguments
     from acprof.host.detect import detect_task
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.interface_probe import probe_interface
     from acprof.host.model_inspection import explain_resolution
     from acprof.model_contract import write_model_resolution
-
+    apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
     task = detect_task(args.model, model_spec_path=args.model_spec, override_tag=args.task, override_backend=args.backend,
                        **({"revision": args.revision} if args.revision else {}))

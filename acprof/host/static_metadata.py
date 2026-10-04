@@ -97,6 +97,7 @@ class StaticMeta:
     quantization_config: Dict[str, Any] = field(default_factory=dict)
     model_license: Optional[str] = None
     model_metadata_source: Optional[str] = None
+    model_source: str = "huggingface"
     model_resolution: Dict[str, Any] = field(default_factory=dict)
     compute_profile_tools: List[str] = field(default_factory=list)
     torch_profiler_eager_flop_semantics: str = ""
@@ -681,6 +682,7 @@ def collect_static_meta(
         quantization_config=dict(task_info.quantization_config),
         model_license=task_info.model_license,
         model_metadata_source=task_info.model_metadata_source,
+        model_source=getattr(task_info, "model_source", "huggingface"),
         model_resolution=dict(task_info.model_resolution),
         task_family=task_info.task_family,
         pipeline_tag=task_info.pipeline_tag,
@@ -692,8 +694,9 @@ def collect_static_meta(
         batch_size=batch_size,
         input_scale_type=input_scale_type,
         run_command=run_command,
-        model_download_url=(manifest.get("model_download", {}).get("endpoint", "").rstrip("/") + "/" + task_info.model_id
-                            if manifest.get("model_download", {}).get("endpoint") else _build_model_download_url(task_info.model_id)),
+        model_download_url=(f"https://modelscope.cn/models/{task_info.model_id}"
+                            if getattr(task_info, "model_source", "huggingface") == "modelscope"
+                            else _build_model_download_url(task_info.model_id)),
         gpu_device=dict(gpu_device or {}),
         gpu=(gpu_device["name"] if gpu_device else _get_gpu_name(device_index=device_index)),
         gpu_mem_total_bytes=(gpu_device["memory_total_bytes"] if gpu_device

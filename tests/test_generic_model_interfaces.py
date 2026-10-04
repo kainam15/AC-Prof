@@ -130,18 +130,20 @@ def test_embedding_parameters_are_materialized_by_shared_workload():
     assert (generator.plan_metadata()["workload_spec_sha256"])
 
 
-def test_mirror_metadata_failure_does_not_contact_undeclared_endpoint():
+def test_mirror_metadata_failure_automatically_tries_official_at_fixed_commit():
     from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
 
+    from acprof.hf_download import HfDownloadError
     from acprof.host.detect import _download_metadata
     error = LocalEntryNotFoundError("metadata request failed")
     error.__cause__ = FileMetadataError("missing X-Repo-Commit")
     with patch.dict("os.environ", {"HF_ENDPOINT": "https://mirror.example"}, clear=True), patch(
         "huggingface_hub.hf_hub_download", side_effect=error,
-    ) as download, pytest.raises(LocalEntryNotFoundError):
+    ) as download, pytest.raises(HfDownloadError) as caught:
         _download_metadata("unseen/encoder", "config.json", "a" * 40)
-    download.assert_called_once_with(repo_id="unseen/encoder", filename="config.json",
-                                     revision="a" * 40, endpoint="https://mirror.example", dry_run=True)
+    assert caught.value.__cause__ is error
+    assert [call.kwargs["endpoint"] for call in download.call_args_list] == ["https://mirror.example", "https://huggingface.co"]
+    assert all(call.kwargs["revision"] == "a" * 40 and call.kwargs["dry_run"] for call in download.call_args_list)
 
 def test_offline_metadata_miss_does_not_retry_another_endpoint():
     from huggingface_hub.errors import LocalEntryNotFoundError

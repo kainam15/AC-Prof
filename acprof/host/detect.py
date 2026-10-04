@@ -25,6 +25,8 @@ class TaskInfo:
     library_name: str
     model_revision: str
     detection_method: str  # "hub_api" / "config_infer" / "manual"
+    model_source: str = "huggingface"
+    requested_revision: str | None = None
     parameter_count: Optional[int] = None
     parameter_bytes: Optional[int] = None
     precision_dtype: Optional[str] = None
@@ -64,48 +66,46 @@ METADATA_MAX_BYTES = 1024 * 1024
 
 def _download_metadata(
     model_id: str, name: str, revision: str | None = None, *,
-    max_bytes: int = METADATA_MAX_BYTES,
+    max_bytes: int = METADATA_MAX_BYTES, source: str | None = None,
 ) -> str:
     """Bound pinned downloads and preserve the SDK's mutable-ref fallback cache."""
+    from acprof.host.model_store import cached_metadata
+    from acprof.model_repository import model_source, modelscope_metadata
+    source = model_source(source)
+    cached = cached_metadata(model_id, name, revision, source=source, max_bytes=max_bytes)
+    if cached is not None:
+        return str(cached)
+    if source == "modelscope":
+        return modelscope_metadata(model_id, name, revision, max_bytes)
     from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import FileMetadataError, LocalEntryNotFoundError
 
-    from acprof.hf_endpoints import hf_endpoints
+    from acprof.hf_download import try_hf_endpoints
     from acprof.hf_transport import configure_hf_transport
     from acprof.model_evidence import pinned_revision
-    from acprof.network_policy import require_source_transition
 
     configure_hf_transport()
     kwargs = {"repo_id": model_id, "filename": name}
     if revision is not None:
         kwargs["revision"] = revision
-    endpoints = hf_endpoints()
-    for index, endpoint in enumerate(endpoints):
-        if index:
-            require_source_transition(endpoints[index - 1], endpoint)
-        try:
-            size = None
-            if pinned_revision(revision):
-                metadata = hf_hub_download(**kwargs, endpoint=endpoint, dry_run=True)
-                size = getattr(metadata, "file_size", None)
-                if type(size) is not int or not 0 <= size <= max_bytes:
-                    raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
-                if getattr(metadata, "commit_hash", None) != revision:
-                    raise ValueError("metadata preflight returned a different model revision")
-            # Mutable-ref fallback must let the SDK record its ref for offline use.
-            # A dry-run followed by a SHA download would leave a fresh ref absent.
-            path = hf_hub_download(**kwargs, endpoint=endpoint)
-            actual_size = Path(path).stat().st_size
-            if actual_size > max_bytes:
-                raise ValueError(f"{name} exceeds {max_bytes} bytes")
-            if size is not None and actual_size != size:
-                raise ValueError(f"{name} size changed after metadata preflight")
-            return path
-        except LocalEntryNotFoundError as exc:
-            # Retry missing metadata headers only on explicitly configured endpoints.
-            if not isinstance(exc.__cause__, FileMetadataError) or index == len(endpoints) - 1:
-                raise
-    raise AssertionError("endpoint policy must contain a primary endpoint")
+    def download(endpoint):
+        size = None
+        if pinned_revision(revision):
+            metadata = hf_hub_download(**kwargs, endpoint=endpoint, dry_run=True)
+            size = getattr(metadata, "file_size", None)
+            if type(size) is not int or not 0 <= size <= max_bytes:
+                raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
+            if getattr(metadata, "commit_hash", None) != revision:
+                raise ValueError("metadata preflight returned a different model revision")
+        # Mutable-ref fallback must let the SDK record its ref for offline use.
+        # A dry-run followed by a SHA download would leave a fresh ref absent.
+        path = hf_hub_download(**kwargs, endpoint=endpoint)
+        actual_size = Path(path).stat().st_size
+        if actual_size > max_bytes:
+            raise ValueError(f"{name} exceeds {max_bytes} bytes")
+        if size is not None and actual_size != size:
+            raise ValueError(f"{name} size changed after metadata preflight")
+        return path
+    return try_hf_endpoints(model_id, download)
 
 
 def _read_json_metadata(path: str, *, max_bytes: int = METADATA_MAX_BYTES) -> Any:
@@ -147,17 +147,22 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
     """Resolve identity and lazily read bounded checkpoint metadata, never weights."""
     from huggingface_hub import HfApi
 
-    from acprof.hf_endpoints import hf_endpoints
+    from acprof.hf_download import try_hf_endpoints
     try:
-        api = HfApi(endpoint=hf_endpoints()[0])
-        info = api.model_info(repo_id, revision=revision, files_metadata=False)
+        from acprof.host.model_store import cached_model_info
+        info = cached_model_info(repo_id, revision, source="huggingface")
+        if info is None:
+            from acprof.hf_transport import configure_hf_transport
+            configure_hf_transport()
+            info = try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
+                repo_id, revision=revision, files_metadata=False))
         def read_json(name):
             from acprof.container.model_files import safe_path
             from acprof.model_evidence import pinned_revision
             if not pinned_revision(info.sha):
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)
-            path = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024)
+            path = _download_metadata(repo_id, name, info.sha, max_bytes=4 * 1024 * 1024, source="huggingface")
             return _read_json_metadata(path, max_bytes=4 * 1024 * 1024)
         return {"revision": info.sha, "files": [item.rfilename for item in info.siblings or []],
                 "read_json": read_json}
@@ -446,9 +451,18 @@ def _detect_from_hub(
     try:
         from huggingface_hub import HfApi
 
-        from acprof.hf_endpoints import hf_endpoints
-
-        info = HfApi(endpoint=hf_endpoints()[0]).model_info(model_id, **({"revision": revision} if revision else {}))
+        from acprof.hf_download import try_hf_endpoints
+        from acprof.hf_transport import configure_hf_transport
+        from acprof.host.model_store import cached_model_info
+        from acprof.model_repository import model_source, modelscope_info
+        info = cached_model_info(model_id, revision, source=model_source())
+        if info is None:
+            if model_source() == "modelscope":
+                info = modelscope_info(model_id, revision)
+            else:
+                configure_hf_transport()
+                info = try_hf_endpoints(model_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
+                    model_id, **({"revision": revision} if revision else {})))
     except Exception as exc:
         _record_failure(diagnostics, "hub_api", _format_failure(exc))
         if failures is not None:
@@ -611,6 +625,11 @@ def detect_task(
     if model_spec_path:
         from acprof.model_spec import read_model_spec
         info.model_spec = read_model_spec(Path(model_spec_path).expanduser())
+    from acprof.model_repository import model_source
+    info.model_source = model_source()
+    info.requested_revision = revision
+    if info.model_source == "modelscope":
+        info.model_metadata_source = "modelscope_hub"
     from acprof.model_resolution import discover_model_candidates
     info.model_resolution = discover_model_candidates(info, override_tag=override_tag, override_backend=override_backend)
     if not info.metadata_errors:

@@ -77,15 +77,12 @@ from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
 from acprof.workloads.contract import summarize_workload_contracts
 
 
-def _ensure_local_proxy_bypass() -> None:
-    local_hosts = ("localhost", "127.0.0.1", "::1")
-    for key in ("NO_PROXY", "no_proxy"):
-        current = os.environ.get(key, "")
-        parts = [part.strip() for part in current.split(",") if part.strip()]
-        known = {part.lower() for part in parts}
-        missing = [host for host in local_hosts if host.lower() not in known]
-        if missing:
-            os.environ[key] = ",".join(parts + missing)
+def _local_proxy_options(url: str) -> dict:
+    from urllib.parse import urlsplit
+    # Keep the existing loopback bypass scoped to inference requests. Never
+    # change the user's proxy environment or affect later Hub requests.
+    return {"proxies": {"http": "", "https": "", "all": ""}} if urlsplit(url).hostname in {
+        "localhost", "127.0.0.1", "::1"} else {}
 
 
 def _parse_float_list(s: str) -> List[float]:
@@ -209,6 +206,7 @@ class ClientRunner:
 
     def __init__(self, config: ClientConfig):
         self.config = config
+        self._proxy_options = _local_proxy_options(config.base_url)
         from acprof.platform import detect_environment
         self.collection_environment = detect_environment()
         self.first_predict_app_s = float("nan")
@@ -344,6 +342,7 @@ class ClientRunner:
                 json=payload,
                 headers=headers,
                 timeout=(self.config.request_timeout_seconds, self.config.request_timeout_seconds),
+                **self._proxy_options,
             )
         except requests.exceptions.Timeout as exc:
             raise RequestTimeoutAbort(
@@ -1010,7 +1009,8 @@ class ClientRunner:
 
             # /ready check
             try:
-                rr = requests.get(self.config.base_url + "/ready", timeout=60, headers={"Connection": "close"})
+                rr = requests.get(self.config.base_url + "/ready", timeout=60, headers={"Connection": "close"},
+                                  **self._proxy_options)
                 if rr.status_code >= 400:
                     raise RuntimeError(f"/ready HTTP {rr.status_code}: {rr.text[:200]}")
             except Exception as e:
@@ -1099,7 +1099,6 @@ class ClientRunner:
 def main(config: ClientConfig | None = None) -> None:
     config = ClientConfig.from_env() if config is None else config
     config.validate()
-    _ensure_local_proxy_bypass()
     logging.getLogger(__name__).debug("client configuration: pipeline_tag=%s", config.pipeline_tag)
     ClientRunner(config).run_cli()
 

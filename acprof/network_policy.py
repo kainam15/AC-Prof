@@ -7,8 +7,8 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import Mapping
 from urllib.parse import urlsplit
+from urllib.request import proxy_bypass_environment
 
-DIRECT_HOSTS = frozenset({"hf-mirror.com", "docker.m.daocloud.io"})
 DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
 
@@ -30,33 +30,33 @@ def parse_bytes(value: str | int | None) -> int | None:
     return int(result)
 
 
-def direct_hosts(environ: Mapping[str, str] | None = None) -> set[str]:
-    env = os.environ if environ is None else environ
-    extra = env.get("ACPROF_DIRECT_HOSTS", "").split(",")
-    hosts = set(DIRECT_HOSTS)
-    for host in extra:
-        host = host.strip().lower()
-        if not host:
-            continue
-        if not re.fullmatch(r"[a-z0-9.-]+", host):
-            raise DownloadPolicyError("ACPROF_DIRECT_HOSTS requires exact hostnames")
-        hosts.add(host)
-    return hosts
-
-
 def source_route(url: str, environ: Mapping[str, str] | None = None) -> str:
-    """Conservative routing expectation; unknown hosts are potentially proxied."""
-    return "DIRECT" if urlsplit(url).hostname in direct_hosts(environ) else "PROXY"
+    """Application socket configuration only, never a claim about VPN/egress.
+
+    Match standard proxy environment precedence without modifying the process
+    or exposing credentials. Transparent proxies are outside our observation.
+    """
+    env = os.environ if environ is None else environ
+    proxies = {key.lower()[:-6]: value for key, value in env.items()
+               if key.lower().endswith("_proxy") and value}
+    if "REQUEST_METHOD" in env:
+        proxies.pop("http", None)
+    for key, value in env.items():
+        if key.endswith("_proxy"):
+            if value:
+                proxies[key[:-6]] = value
+            else:
+                proxies.pop(key[:-6], None)
+    parsed = urlsplit(url)
+    if proxy_bypass_environment(parsed.netloc, proxies):
+        return "direct-socket"
+    return "explicit-proxy" if proxies.get(parsed.scheme) or proxies.get("all") else "direct-socket"
 
 
-def require_source_transition(previous: str, current: str, *, allow_proxy: bool | None = None) -> None:
+def require_source_transition(previous: str, current: str) -> None:
     if previous == current:
         return
-    old, new = source_route(previous), source_route(current)
-    print(f"[network] source fallback: {urlsplit(previous).hostname} ({old}) -> {urlsplit(current).hostname} ({new})", flush=True)
-    allowed = os.environ.get("ACPROF_ALLOW_PROXY_FALLBACK") == "1" if allow_proxy is None else allow_proxy
-    if old == "DIRECT" and new == "PROXY" and not allowed:
-        raise DownloadPolicyError("DIRECT -> PROXY fallback 已停止；请显式选择源，或设置 ACPROF_ALLOW_PROXY_FALLBACK=1 后重试")
+    print(f"[network] endpoint fallback: {urlsplit(previous).hostname} -> {urlsplit(current).hostname}; system-network", flush=True)
 
 
 @dataclass
@@ -71,7 +71,9 @@ class DownloadSource:
     detail: str = ""
 
     def to_dict(self) -> dict:
-        return {**asdict(self), "host": urlsplit(self.url).hostname, "route": source_route(self.url)}
+        return {**asdict(self), "host": urlsplit(self.url).hostname,
+                "route": "externally-managed" if self.category == "oci" else source_route(self.url),
+                "public_egress": "unknown"}
 
 
 def summarize_downloads(sources: list[DownloadSource]) -> dict:
@@ -79,12 +81,12 @@ def summarize_downloads(sources: list[DownloadSource]) -> dict:
         values = [item.estimated_bytes for item in items]
         return sum(values) if all(type(value) is int and value >= 0 for value in values) else None
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "expected_download_bytes": total(sources),
-        "direct_download_bytes": total([s for s in sources if source_route(s.url) == "DIRECT"]),
-        "proxy_download_bytes": total([s for s in sources if source_route(s.url) == "PROXY"]),
         "sources": [s.to_dict() for s in sources],
-        "route_evidence": "configured expectation; upstream VPN routing must be verified separately",
+        "network": "system-network",
+        "public_egress": "externally-managed",
+        "route_evidence": "application proxy configuration only; public egress unknown",
     }
 
 

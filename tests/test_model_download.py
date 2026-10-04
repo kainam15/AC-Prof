@@ -21,9 +21,9 @@ class TestModelDownload:
                 download_model.main([])
             download.assert_not_called()
 
-    def test_explicit_mirror_has_no_implicit_fallback(self):
+    def test_explicit_mirror_defaults_to_auto_fallback(self):
         with patch.dict(os.environ, {"HF_ENDPOINT": "https://mirror.example/"}, clear=True):
-            assert (hf_endpoints()) == (["https://mirror.example"])
+            assert (hf_endpoints()) == (["https://mirror.example", "https://huggingface.co"])
 
     def test_mirror_preferred_exposes_explicit_fallback(self):
         with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-preferred", "HF_FALLBACK_ENDPOINTS": "https://mirror.example"}, clear=True):

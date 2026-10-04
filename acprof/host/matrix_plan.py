@@ -33,6 +33,7 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
     from acprof.cpu_affinity import normalize_cpu_set
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     return {**({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}),
+            **({"model_source": task.model_source} if getattr(task, "model_source", "huggingface") != "huggingface" else {}),
             "model_id": task.model_id, "model_revision": task.model_revision,
             "image_id": image.tag, "cpus": list(cpus), "mems": list(mems),
             "gpus": list(gpus), "input_scales": list(scales), "order": order,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -14,7 +13,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
-from acprof.hf_endpoints import hf_download_mode, hf_endpoints
 from acprof.host import command as host_command
 from acprof.host.dependency_images import (
     platform_fingerprint,
@@ -93,14 +91,13 @@ def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) 
     logical_profile["environment"] = environment_id(profile.environment, root)
     digest = hashlib.sha256(json.dumps({
         "schema_version": 2, "model_id": task_info.model_id,
+        "source": getattr(task_info, "model_source", "huggingface"),
         "model_revision": task_info.model_revision,
         "task": task_info.pipeline_tag, "backend": task_info.runtime_backend,
         "profile": logical_profile,
         "dependency_build": runtime_fingerprint(profile.environment, root),
         "build_overrides": overrides,
         "model_download_policy": download_policy(task_info),
-        "hf_endpoints": hf_endpoints(),
-        "hf_download_mode": hf_download_mode(),
         "model_spec": task_model_spec(task_info),
         "resolution_identity": getattr(task_info, "model_resolution", {}).get("provenance", {}).get("identity_sha256"),
     }, sort_keys=True).encode())
@@ -120,11 +117,10 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
     root = Path(project_dir)
     digest = hashlib.sha256(json.dumps({
         "runtime_id": runtime_id, "model_id": task_info.model_id, "revision": task_info.model_revision,
+        "source": getattr(task_info, "model_source", "huggingface"),
         "family": task_info.task_family, "backend": task_info.runtime_backend,
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
-        "hf_endpoints": hf_endpoints(),
-        "hf_download_mode": hf_download_mode(),
     }, sort_keys=True).encode())
     for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/model_spec.py", "acprof/hf_endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
         digest.update((root / relative).read_bytes())
@@ -212,6 +208,8 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
             raise ModelFilesError("model download plan has not been verified")
     except ModelFilesError as exc:
         raise RuntimeError(f"镜像模型文件清单缺失或无效；请重新构建：{exc}") from exc
+    if plan.get("source", "huggingface") != getattr(task_info, "model_source", "huggingface"):
+        raise RuntimeError("Model artifact source differs from the requested source")
     if any(plan.get(key) != value for key, value in {
         "model_id": task_info.model_id, "model_revision": task_info.model_revision,
         "requested_policy": download_policy(task_info), "backend": task_info.runtime_backend,
@@ -232,8 +230,12 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
         from huggingface_hub import HfApi
 
         try:
-            revision = HfApi(endpoint=hf_endpoints()[0]).model_info(
-                task_info.model_id, revision=task_info.model_revision or "main").sha
+            from acprof.hf_download import try_hf_endpoints
+            from acprof.model_repository import modelscope_revision
+            revision = (modelscope_revision(task_info.model_id, task_info.model_revision)
+                if getattr(task_info, "model_source", "huggingface") == "modelscope" else
+                try_hf_endpoints(task_info.model_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
+                    task_info.model_id, revision=task_info.model_revision or "main")).sha)
         except Exception as exc:
             raise RuntimeError(f"无法固定模型 revision，尚未构建或复用镜像：{exc}") from exc
         if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -256,7 +258,6 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
 
 def build_runtime_image(task_info: Any, project_dir: str):
     profile = select_runtime_profile(task_info)
-    endpoints = hf_endpoints()
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if not re.fullmatch(r"[0-9a-f]{40}", task_info.model_revision or ""):
         raise RuntimeError("镜像构建要求固定 model revision；请通过 prepare_image 准备镜像")
@@ -317,10 +318,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
     if model_identity is None:
         candidate = build("runtime-model.Dockerfile", {
             "RUNTIME_IMAGE": runtime_source, "MODEL_ID": task_info.model_id,
-            "MODEL_REVISION": task_info.model_revision, "HF_ENDPOINT": endpoints[0],
-            "HF_DOWNLOAD_MODE": hf_download_mode(),
-            "ACPROF_ALLOW_PROXY_FALLBACK": os.environ.get("ACPROF_ALLOW_PROXY_FALLBACK", "0"),
-            "HF_FALLBACK_ENDPOINTS": ",".join(endpoints[1:]),
+            "MODEL_REVISION": task_info.model_revision,
             "TASK_FAMILY": task_info.task_family, "RUNTIME_BACKEND": task_info.runtime_backend,
             "MODEL_ADAPTER": profile.adapter, "MODEL_DOWNLOAD_POLICY": download_policy(task_info),
             "MODEL_FILES_KEY": model_key,

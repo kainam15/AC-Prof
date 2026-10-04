@@ -20,7 +20,7 @@ def test_save_config_preserves_unrelated_lines_and_secures_backup():
         original = '# keep this comment\nUNRELATED=value\nHF_TOKEN=previous\n'
         target.write_text(original)
         env = {'HF_TOKEN': 'previous', 'HUGGING_FACE_HUB_TOKEN': 'previous'}
-        env_utils.save_project_env(root, {'HF_TOKEN': 'hf_testonly', 'HTTPS_PROXY': ''}, environ=env)
+        env_utils.save_project_env(root, {'HF_TOKEN': 'hf_testonly'}, environ=env)
         loaded = {}
         env_utils.load_project_env(root, environ=loaded)
         assert (loaded['HF_TOKEN']) == ('hf_testonly')
@@ -49,10 +49,10 @@ def test_save_config_roundtrips_literal_quotes_and_shell_text_without_evaluation
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         value = 'literal "quoted" \\ ${UNCHANGED} $(never-execute) # fragment'
-        env_utils.save_project_env(root, {'NO_PROXY': value}, environ={})
+        env_utils.save_project_env(root, {'HF_TOKEN': value}, environ={})
         loaded = {}
         env_utils.load_project_env(root, environ=loaded)
-        assert (loaded['NO_PROXY']) == (value)
+        assert (loaded['HF_TOKEN']) == (value)
 
 def test_save_config_refuses_symlinks_and_external_edits():
     with tempfile.TemporaryDirectory() as directory:

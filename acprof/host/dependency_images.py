@@ -183,9 +183,6 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         iidfile = context / "image-id"
         command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
                    "-f", str(context / recipe)]
-        for key in ("ACPROF_ALLOW_PROXY_FALLBACK", "ACPROF_DIRECT_HOSTS"):
-            if os.environ.get(key):
-                command += ["--build-arg", f"{key}={os.environ[key]}"]
         for key, value in arguments.items():
             command += ["--build-arg", f"{key}={value}"]
         command.append(str(context))

@@ -68,6 +68,75 @@ class TestModelStore:
         assert (first) == (second)
         assert (download.call_args.kwargs["local_files_only"])
 
+    def test_storage_failure_retries_official_with_same_commit(self):
+        import httpx
+        visited = []
+        def snapshot(**kwargs):
+            visited.append((kwargs["endpoint"], kwargs["revision"]))
+            if kwargs["endpoint"] == "https://hf-mirror.com":
+                raise httpx.ConnectError("storage unavailable",
+                    request=httpx.Request("GET", "https://us.aws.cdn.hf.co/file"))
+            return self.snapshot(**kwargs)
+        with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "auto", "HF_ENDPOINT": "https://hf-mirror.com",
+                                      "HF_FALLBACK_ENDPOINTS": ""}), patch(
+                "huggingface_hub.snapshot_download", side_effect=snapshot):
+            record = model_store.prepare_model(self.task, self.plan, self.root)
+        assert visited == [("https://hf-mirror.com", "a" * 40), ("https://huggingface.co", "a" * 40)]
+        assert record["model_download"]["source"] == "huggingface"
+        assert record["model_download"]["files"][0]["sha256"] == hashlib.sha256(self.content).hexdigest()
+        assert record["model_download"]["download_provenance"]["hub_endpoint"] == "https://huggingface.co"
+
+    def test_cached_model_detection_makes_zero_network_requests(self):
+        from acprof.host.detect import detect_task
+        self.plan["requested_revision"] = None
+        self.plan["repository_context"] = {"schema_version": 1, "repository_files": ["config.json"],
+            "pipeline_tag": "feature-extraction", "library_name": "transformers",
+            "config": {"model_type": "bert", "architectures": ["BertModel"]},
+            "tags": [], "card_data": {}, "safetensors": None, "transformers_info": {}}
+        self.prepare()
+        with patch.dict(os.environ, {"ACPROF_MODEL_STORE": str(self.root), "ACPROF_MODEL_SOURCE": "huggingface"}), patch(
+                "huggingface_hub.HfApi.model_info", side_effect=AssertionError("cache hit used network")), patch(
+                "huggingface_hub.hf_hub_download", side_effect=AssertionError("cache hit downloaded metadata")):
+            task = detect_task(self.task.model_id)
+        assert task.model_revision == "a" * 40
+        assert task.model_source == "huggingface"
+
+
+    def test_default_revision_does_not_reuse_a_cached_release(self):
+        self.plan["requested_revision"] = "release-v1"
+        self.prepare()
+        with patch("acprof.host.model_store.store_root", return_value=self.root):
+            assert model_store.cached_model_info(self.task.model_id, None, source="huggingface") is None
+            assert model_store.cached_metadata(self.task.model_id, "config.json", None, source="huggingface") is None
+            assert model_store.cached_metadata(self.task.model_id, "config.json", "release-v1",
+                                              source="huggingface").read_bytes() == self.content
+
+    def test_incomplete_legacy_context_is_not_a_full_repository_inventory(self):
+        self.prepare()
+        with patch("acprof.host.model_store.store_root", return_value=self.root):
+            assert model_store.cached_model_info(self.task.model_id, self.task.model_revision,
+                                                source="huggingface") is None
+            assert model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
+                                              source="huggingface").read_bytes() == self.content
+
+    def test_cached_metadata_rechecks_hash_and_enforces_read_limit(self):
+        from acprof.container.model_files import ModelFilesError
+        record = self.prepare()
+        with patch("acprof.host.model_store.store_root", return_value=self.root):
+            with pytest.raises(ModelFilesError, match="exceeds"):
+                model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
+                                            source="huggingface", max_bytes=1)
+            path = self.root / "entries" / record["entry_id"] / "hf/models--example--test/snapshots"
+            (path / self.task.model_revision / "config.json").write_bytes(b"[]")
+            with pytest.raises(ModelFilesError, match="SHA256"):
+                model_store.cached_metadata(self.task.model_id, "config.json", self.task.model_revision,
+                                            source="huggingface")
+
+    def test_identical_names_in_distinct_sources_have_distinct_entries(self):
+        hf_key = model_store.entry_key(self.task)
+        self.task.model_source = "modelscope"
+        assert model_store.entry_key(self.task) != hf_key
+
     def test_unknown_size_or_disk_shortage_stops_before_snapshot(self):
         for free in (0, 1):
             with patch("shutil.disk_usage", return_value=SimpleNamespace(free=free)), patch("huggingface_hub.snapshot_download") as download:

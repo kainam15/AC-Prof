@@ -120,12 +120,14 @@ class TestDependencyDownloadCache:
             assert not (target.exists())
             assert (list(Path(directory).iterdir())) == ([])
 
-    def test_wheel_and_debian_redirects_cannot_silently_escalate_to_proxy(self):
+    def test_wheel_and_debian_redirects_use_system_network_without_egress_guessing(self):
         helper = self.helper()
         import urllib.request
         request = urllib.request.Request("https://hf-mirror.com/artifact")
-        with patch.dict("os.environ", {}, clear=True), pytest.raises(network_policy.DownloadPolicyError):
-            helper.PolicyRedirectHandler().redirect_request(request, None, 302, "Found", {}, "https://files.pythonhosted.org/artifact")
+        with patch.dict("os.environ", {}, clear=True):
+            redirected = helper.PolicyRedirectHandler().redirect_request(request, None, 302, "Found", {}, "https://files.pythonhosted.org/artifact")
+            assert redirected.full_url == "https://files.pythonhosted.org/artifact"
+            assert network_policy.source_route(redirected.full_url) == "direct-socket"
 
     @pytest.mark.parametrize('error', (
         URLError(ssl.SSLEOFError(8, 'unexpected EOF during handshake')),

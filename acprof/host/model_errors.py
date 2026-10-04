@@ -20,14 +20,19 @@ _TERMINAL = frozenset({"invalid_model_id", "repository_unavailable", "access_den
 class ModelLookupError(ValueError):
     """Preserve the model identity, reason and diagnostics without exiting Python."""
 
-    def __init__(self, model_id: str, reason_code: str, *, revision: str = "", detail: str = ""):
+    def __init__(self, model_id: str, reason_code: str, *, revision: str = "", detail: str = "",
+                 download_error: dict | None = None):
         self.model_id = model_id
         self.reason_code = reason_code if reason_code in _MESSAGES else "lookup_failed"
         self.revision = revision
         self.detail = detail
+        self.download_error = download_error
         summary, hint = _MESSAGES[self.reason_code]
         self.summary = message(summary, model_id, revision)
         self.hint = message(hint)
+        from acprof.model_repository import model_source
+        if model_source() == "modelscope" and self.reason_code in {"repository_unavailable", "access_denied"}:
+            self.hint = message("请核对 ModelScope 模型 ID、访问权限和 MODELSCOPE_API_TOKEN。")
         super().__init__(f"{self.summary}\n{self.hint}\n{detail}".rstrip())
 
     @property
@@ -40,7 +45,8 @@ class ModelLookupError(ValueError):
 
     def to_dict(self) -> dict:
         return {"model_id": self.model_id, "reason_code": self.reason_code,
-                "revision": self.revision, "detail": self.detail}
+                "revision": self.revision, "detail": self.detail,
+                **({"download_error": self.download_error} if self.download_error else {})}
 
 
 def _reason(exc: BaseException) -> str:
@@ -52,6 +58,15 @@ def _reason(exc: BaseException) -> str:
         RepositoryNotFoundError,
         RevisionNotFoundError,
     )
+    from modelscope_hub.errors import (
+        AuthenticationError,
+        NotExistError,
+        PermissionDeniedError,
+        RateLimitError,
+        ServerError,
+    )
+
+    from acprof.model_repository import ModelScopeRevisionError
 
     # GatedRepoError subclasses RepositoryNotFoundError. Status 401 alone cannot
     # distinguish a missing repository from a private, inaccessible repository.
@@ -61,10 +76,16 @@ def _reason(exc: BaseException) -> str:
         return "access_denied"
     if isinstance(exc, RepositoryNotFoundError):
         return "repository_unavailable"
-    if isinstance(exc, RevisionNotFoundError):
+    if isinstance(exc, (RevisionNotFoundError, ModelScopeRevisionError)):
         return "revision_not_found"
     if isinstance(exc, OfflineModeIsEnabled):
         return "offline"
+    if isinstance(exc, NotExistError):
+        return "repository_unavailable"
+    if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+        return "access_denied"
+    if isinstance(exc, (RateLimitError, ServerError)):
+        return "hub_unavailable"
     if isinstance(exc, (httpx.TransportError, ConnectionError, TimeoutError)):
         return "network_error"
     status = getattr(getattr(exc, "response", None), "status_code", None)
@@ -88,4 +109,6 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
             break
         cause = cause.__cause__
     detail = "\n".join(diagnostics) if diagnostics else f"{type(exc).__name__}: {exc}"
-    return ModelLookupError(model_id, reason, revision=revision or "", detail=detail)
+    from acprof.hf_download import HfDownloadError, exception_chain
+    download_error = next((cause.to_dict() for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
+    return ModelLookupError(model_id, reason, revision=revision or "", detail=detail, download_error=download_error)

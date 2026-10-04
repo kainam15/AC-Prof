@@ -9,23 +9,36 @@ from acprof.artifacts import atomic_write_json
 from acprof.model_evidence import pinned_revision
 
 
-def check_repository_access(repo_id: str) -> dict:
+def check_repository_access(repo_id: str, *, source: str = "huggingface", revision: str | None = None) -> dict:
     """Check access without accepting terms or exposing credentials in reports."""
     from huggingface_hub import HfApi
 
-    from acprof.hf_endpoints import hf_endpoints
+    from acprof.hf_download import HfDownloadError, exception_chain, try_hf_endpoints
+    from acprof.hf_transport import configure_hf_transport
+    from acprof.host.model_errors import model_lookup_error
+    from acprof.host.model_store import cached_model_info
+    from acprof.model_repository import model_source, modelscope_info
+    source = model_source(source)
+    if cached_model_info(repo_id, revision, source=source) is not None:
+        return {"repo_id": repo_id, "source": source, "status": "cached", "scope": "local_model_store_only"}
     try:
-        HfApi(endpoint=hf_endpoints()[0]).auth_check(repo_id)
+        if source == "modelscope":
+            modelscope_info(repo_id, revision)
+        else:
+            configure_hf_transport()
+            try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint).auth_check(repo_id))
     except Exception as exc:
         # Provider exceptions can include URLs/headers. Persist a typed reason only.
-        from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
-
         from acprof.failures import Failure, RuntimeFailure
-        code = "access_denied" if isinstance(exc, (GatedRepoError, RepositoryNotFoundError, PermissionError)) else "runtime_initialization_failed"
-        raise RuntimeFailure(Failure("access", code,
-            f"{repo_id}: {type(exc).__name__}; check repository ID, network and authorized HF credentials",
-            retryability="after_configuration", exception_type=type(exc).__name__)) from None
-    return {"repo_id": repo_id, "status": "accessible", "scope": "repository_read_access_only"}
+        lookup = model_lookup_error(repo_id, exc, revision=revision)
+        code = "access_denied" if lookup.reason_code in {"access_denied", "repository_unavailable"} else "runtime_initialization_failed"
+        exhausted = next((cause for cause in exception_chain(exc) if isinstance(cause, HfDownloadError)), None)
+        detail = (str(exhausted) if exhausted else
+                  f"{repo_id} ({source}): {type(exc).__name__}; check repository ID, network and source credentials")
+        raise RuntimeFailure(Failure("access", code, detail,
+            retryability="after_configuration",
+            exception_type=exhausted.attempts[-1]["exception_type"] if exhausted else type(exc).__name__)) from None
+    return {"repo_id": repo_id, "source": source, "status": "accessible", "scope": "repository_read_access_only"}
 
 
 def select_profiling_mode(requested: str, checks: list) -> tuple[str, list[dict]]:
@@ -90,7 +103,9 @@ class AutomaticRun:
             self.data["access"] = {"status": "not_requested", "reason": "resume reuses immutable local image"}
         else:
             self.data["stage"] = "access"
-            self.data["access"] = {"repositories": [check_repository_access(args.model)]}
+            from acprof.model_repository import model_source
+            self.data["access"] = {"repositories": [check_repository_access(args.model,
+                source=model_source(), revision=args.revision or None)]}
             self.data["stage"] = "resolution"
             task = detect_task(args.model, override_tag=args.task, override_family=args.task_family,
                                override_backend=args.backend, model_spec_path=args.model_spec,
@@ -101,11 +116,13 @@ class AutomaticRun:
             raise ValueError("automatic collection requires a full model commit SHA")
         if not saved.get("runtime"):
             for dependency in task_model_spec(task).get("dependencies", []):
-                self.data["access"]["repositories"].append(check_repository_access(dependency["repo_id"]))
+                self.data["access"]["repositories"].append(check_repository_access(dependency["repo_id"],
+                    revision=dependency["revision"]))
         args.revision = task.model_revision
         args.resolution_identity = task.model_resolution.get("provenance", {}).get("identity_sha256")
         args.requested_profiling_mode = self.data["requested_profiling_mode"]
-        self.data.update(revision=task.model_revision, resolution_identity=args.resolution_identity, stage="host")
+        self.data.update(source=task.model_source, revision=task.model_revision,
+                         resolution_identity=args.resolution_identity, stage="host")
         checks = collect_checks(profiling_mode="full" if args.profiling_mode == "auto" else args.profiling_mode,
                                 gpus="on" if "on" in {part.strip().lower() for part in args.gpus.split(",")} else "off",
                                 sniff_iface=args.sniff_iface, output_dir=self.root)

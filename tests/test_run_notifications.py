@@ -437,7 +437,7 @@ class TestRunNotificationLifecycle:
             side_effect=fake_case,
         ):
             result_csvs = orchestrator.run_matrix(
-                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp"),
+                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface"),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
                 cpu_list=[1, 2],
@@ -469,7 +469,7 @@ class TestRunNotificationLifecycle:
             return_value="/tmp/result.csv",
         ), redirect_stderr(io.StringIO()):
             result_csvs = orchestrator.run_matrix(
-                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp"),
+                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface"),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
                 cpu_list=[1],

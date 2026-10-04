@@ -69,6 +69,7 @@ STATIC_META_FIELDS = [
     "schema_version",
     "model_name",
     "model_revision",
+    "model_source",
     "parameter_count",
     "parameter_bytes",
     "precision_dtype",

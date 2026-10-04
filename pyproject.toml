@@ -26,6 +26,7 @@ license-files = ["LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt"]
 dependencies = [
     "requests>=2.31,<3",
     "huggingface-hub>=1.0,<2",
+    "modelscope-hub>=0.1.9,<0.2",
     "packaging>=25,<27",
     "socksio>=1.0,<2",
     "textual>=8.2.8,<9",

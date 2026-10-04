@@ -9,8 +9,8 @@ from acprof.hf_transport import _request_hook, configure_hf_transport
 from acprof.network_policy import DownloadPolicyError, enforce_download_budget, parse_bytes
 
 
-def test_default_is_mirror_only():
-    assert (hf_endpoints({})) == (["https://hf-mirror.com"])
+def test_default_is_auto():
+    assert (hf_endpoints({})) == (["https://hf-mirror.com", "https://huggingface.co"])
 
 def test_mirror_only_rejects_official_fallback():
     with pytest.raises(ValueError, match="mirror-only"):
@@ -24,7 +24,7 @@ def test_mirror_preferred_requires_explicit_proxy_fallback_opt_in():
     assert (hf_endpoints({"HF_DOWNLOAD_MODE": "mirror-preferred"})) == (["https://hf-mirror.com", "https://huggingface.co"])
 
 @pytest.mark.parametrize('download_case', range(2), ids=['hub.hf_hub_download', 'hub.snapshot_download'])
-@pytest.mark.parametrize('target', ('https://huggingface.co/file', 'https://cas-bridge.xethub.hf.co/file', 'https://hf-mirror.com.evil.example/file'))
+@pytest.mark.parametrize('target', ('https://unknown.example/file', 'https://hf-mirror.com.evil.example/file'))
 def test_actual_hub_downloads_block_redirect_before_transport(download_case, target):
     import httpx
     import huggingface_hub as hub
@@ -78,7 +78,7 @@ def test_requests_transport_checks_redirect_before_network():
         response.url = request.url
         response.request = request
         response._content = b""
-        response.headers["Location"] = "https://cas-server.xethub.hf.co/file"
+        response.headers["Location"] = "https://untrusted.example/file"
         return response
 
     with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-only", "HF_ENDPOINT": "https://hf-mirror.com",

@@ -38,11 +38,23 @@ def _library_versions() -> dict[str, str]:
 
 
 def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dependency: dict | None = None,
-                             cache_dir: str | None = None, task=None, native_types=None, library_versions=None) -> dict:
+                             cache_dir: str | None = None, task=None, native_types=None, library_versions=None,
+                             source: str = "huggingface") -> dict:
     from huggingface_hub import HfApi, hf_hub_download
 
-    configure_hf_transport()
-    info = HfApi(endpoint=endpoint).model_info(model_id, revision=revision, files_metadata=True)
+    from acprof.model_repository import (
+        model_source,
+        modelscope_file,
+        modelscope_info,
+        repository_context,
+    )
+
+    source = model_source(source)
+    if source == "modelscope":
+        info = modelscope_info(model_id, revision)
+    else:
+        configure_hf_transport()
+        info = HfApi(endpoint=endpoint).model_info(model_id, revision=revision, files_metadata=True)
     if len(revision) == 40 and info.sha != revision:
         raise ModelFilesError("Hub response does not match the requested model commit")
     files = {}
@@ -57,7 +69,9 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
     def read_json(name: str):
         if files[name].get("size") is None or files[name]["size"] > 4 * 1024 * 1024:
             raise ModelFilesError(f"metadata size is unknown or exceeds 4 MiB: {name}")
-        path = hf_hub_download(model_id, name, revision=info.sha, cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint)
+        path = (modelscope_file(model_id, name, info.sha, Path(cache_dir).parent, sha256=files[name]["lfs_sha256"])
+                if source == "modelscope" else hf_hub_download(model_id, name, revision=info.sha,
+                    cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint))
         try:
             with Path(path).open("rb") as stream:
                 data = stream.read(4 * 1024 * 1024 + 1)
@@ -90,6 +104,9 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
     if dependency is not None:
         plan.update(reason="declared_dependency", excluded_files=excluded)
     plan["endpoint"] = endpoint
+    plan["source"] = source
+    plan["repository_context"] = repository_context(info)
+    plan["requested_revision"] = revision
     return seal_plan(plan)
 
 

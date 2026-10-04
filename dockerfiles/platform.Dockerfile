@@ -3,8 +3,6 @@ ARG PYTHON_BASE_IMAGE
 FROM ${PYTHON_BASE_IMAGE}
 ARG PLATFORM_BUILD_FINGERPRINT
 ARG PLATFORM_ID
-ARG ACPROF_ALLOW_PROXY_FALLBACK=0
-ARG ACPROF_DIRECT_HOSTS=
 COPY system.lock /opt/acprof/system.lock
 RUN --mount=type=bind,source=environment_tools.py,target=/build/environment_tools.py \
     --mount=type=bind,source=network_policy.py,target=/build/network_policy.py \

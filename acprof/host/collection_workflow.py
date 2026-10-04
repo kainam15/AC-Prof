@@ -99,6 +99,11 @@ class PreparationWorkflow:
                 if not self.interactive:
                     raise
                 fields = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                from acprof.hf_download import HfDownloadError, exception_chain
+                download_error = next((cause.to_dict() for cause in exception_chain(exc)
+                                       if isinstance(cause, HfDownloadError)), None)
+                if download_error:
+                    fields["download_error"] = download_error
                 failure = getattr(exc, "failure", None)
                 fields["failed_stage"] = getattr(failure, "stage", getattr(exc, "stage", stage))
                 if failure is not None:
@@ -213,6 +218,7 @@ class PreparationWorkflow:
             )
             self._explicit(task, args)
             identity = {"model": task.model_id, "revision": task.model_revision,
+                        "source": getattr(task, "model_source", "huggingface"),
                         "contract": task.model_resolution.get("contract", {}).get("cache_key"),
                         "evidence": task.model_resolution.get("provenance", {}).get("identity_sha256"),
                         "explicit": {name: getattr(args, name, None) for name in ("task", "task_family", "backend", "model_spec")}}

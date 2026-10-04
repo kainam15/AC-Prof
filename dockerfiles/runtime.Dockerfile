@@ -4,8 +4,6 @@ ARG PLATFORM_IMAGE
 FROM ${PLATFORM_IMAGE}
 ARG ENVIRONMENT_ID
 ARG ENVIRONMENT_BUILD_FINGERPRINT
-ARG ACPROF_ALLOW_PROXY_FALLBACK=0
-ARG ACPROF_DIRECT_HOSTS=
 COPY requirements.lock expectation.json /opt/acprof/
 RUN --mount=type=bind,source=environment_tools.py,target=/build/environment_tools.py \
     --mount=type=bind,source=network_policy.py,target=/build/network_policy.py \

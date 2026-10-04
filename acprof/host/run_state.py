@@ -73,6 +73,12 @@ def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
     ignored = {"resume", "skip_build", "output_dir", "notify"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
+    from acprof.model_repository import model_source
+    source = model_source(options.get("model_source"))
+    if source == "huggingface":
+        options.pop("model_source", None)  # Preserve historical HF resume options.
+    else:
+        options["model_source"] = source
     if options.get("revision") is None:
         options.pop("revision", None)
     if options.get("input_scale_policy", "auto") == "auto":

@@ -32,6 +32,7 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
             DownloadSource("model", plan["endpoint"], download_bytes),
         ]),
         patch("acprof.host.model_store.require_space", return_value=disk),
+        patch("acprof.host.model_store.probe_model_download", return_value=[]),
         patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
         patch("acprof.host.static_metadata._docker_storage_metadata", return_value={}),
     ):
@@ -56,15 +57,15 @@ def test_route_totals_do_not_treat_unknown_as_zero():
     report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100),
                                  DownloadSource("oci", "https://ghcr.io/repo", 50),
                                  DownloadSource("python", "https://files.pythonhosted.org/a.whl", None)])
-    assert (report["direct_download_bytes"]) == (100)
-    assert (report["proxy_download_bytes"]) is None
+    assert "direct_download_bytes" not in report
+    assert "proxy_download_bytes" not in report
+    assert report["public_egress"] == "externally-managed"
     assert (report["expected_download_bytes"]) is None
     with pytest.raises(DownloadPolicyError):
         enforce_download_budget(report, "5GB")
 
-def test_domestic_to_proxy_fallback_requires_explicit_consent():
-    with pytest.raises(DownloadPolicyError):
-        require_source_transition("https://docker.m.daocloud.io/repo", "https://ghcr.io/repo", allow_proxy=False)
+def test_endpoint_fallback_does_not_infer_or_gate_proxy_routes():
+    require_source_transition("https://docker.m.daocloud.io/repo", "https://ghcr.io/repo")
 
 def test_local_runtime_hit_does_not_probe_registry_or_packages():
     profile = PROFILES["nlp-cpu"]

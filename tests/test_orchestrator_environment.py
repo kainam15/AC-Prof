@@ -220,7 +220,7 @@ class TestDetectEnvironment:
 
     def test_select_nlp_torch_index_url_respects_explicit_override(self) -> None:
         with patch.dict(
-            "acprof.host.runtime_images.os.environ",
+            "os.environ",
             {"ACPROF_NLP_TORCH_INDEX_URL": "https://example.invalid/torch"},
             clear=True,
         ):

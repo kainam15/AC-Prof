@@ -140,18 +140,29 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
 
 
 def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dict:
-    from acprof.host.model_store import model_sources, require_space, store_root
+    from acprof.host.model_store import (
+        model_sources,
+        probe_model_download,
+        require_space,
+        store_root,
+    )
     from acprof.network_policy import parse_bytes
     models = model_sources(model_plan, root)
+    disk = require_space(model_plan, root)
+    enforce_download_budget(summarize_downloads(models), os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    probes = probe_model_download(model_plan, root)
+    models = model_sources(model_plan, root)  # Probe may have selected another Hub entry.
     sources, runtime = runtime_sources(profile, Path(project_dir))
     report = summarize_downloads([*models, *sources])
     report["runtime"] = runtime
-    report["disk"] = require_space(model_plan, root)
+    report["disk"] = disk
+    report["network_probe"] = probes
     report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
     report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
     from acprof.host.static_metadata import _docker_storage_metadata
     report["docker_storage"] = _docker_storage_metadata()
     report["model"] = {"model_id": task.model_id, "revision": task.model_revision,
+        "source": model_plan.get("source", "huggingface"),
         "total_bytes": model_plan.get("total_selected_bytes", model_plan["selected_bytes"]),
         "cached_bytes": sum(s.cached_bytes for s in models), "endpoint": model_plan["endpoint"]}
     report["metadata_traffic"] = "small API/HEAD/config requests precede bulk budget; no weights, wheel or OCI layers"
@@ -161,7 +172,7 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dic
         from acprof.host.collection_workflow import PreparationWorkflow
         workflow = PreparationWorkflow(interactive=True)
         summary = {key: report[key] for key in (
-            "expected_download_bytes", "direct_download_bytes", "proxy_download_bytes", "runtime", "disk",
+            "expected_download_bytes", "network", "public_egress", "network_probe", "runtime", "disk",
             "max_download_bytes", "model_store_path", "docker_storage", "model",
         )}
         workflow.ask("image", "review", resolved=True, questions=[], download_report=summary)

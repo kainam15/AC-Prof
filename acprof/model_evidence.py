@@ -28,6 +28,7 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
     from acprof.model_spec import task_model_spec
     revision = task_info.model_revision
     snapshot = {"model_id": task_info.model_id, "revision": revision,
+                "source": getattr(task_info, "model_source", "huggingface"),
                 "files_sha256": content_digest(sorted(task_info.repository_files or ())),
                 "derived_from": []}
     sources = {"repository_snapshot": snapshot}

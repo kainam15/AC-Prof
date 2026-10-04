@@ -278,6 +278,7 @@ def load_comparison_snapshot(source: str | Path) -> dict:
         },
         "identity": {**{key: metadata.get(key) for key in (
             "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment")},
+            "model_source": metadata.get("model_source", "huggingface"),
             "runtime_requested_environment": runtime_environment,
             **{key: host.get(key) for key in ("source_sha256", "packages_sha256")}},
     }

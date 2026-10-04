@@ -9,7 +9,6 @@ import stat
 import tempfile
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping
-from urllib.parse import urlsplit
 
 from acprof.config import (
     CONTAINER_HF_HOME,
@@ -20,13 +19,12 @@ from acprof.hf_endpoints import hf_endpoints
 CONFIGURABLE_ENV_KEYS = (
     "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE",
     "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
-    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "ACPROF_WECOM_WEBHOOK_URL",
+    "ACPROF_WECOM_WEBHOOK_URL",
 )
 _ENV_ALIASES = {
     "HF_TOKEN": "HUGGING_FACE_HUB_TOKEN", "HF_ENDPOINT": "HF_HUB_ENDPOINT",
-    "HTTP_PROXY": "http_proxy", "HTTPS_PROXY": "https_proxy",
-    "ALL_PROXY": "all_proxy", "NO_PROXY": "no_proxy",
 }
+_RETIRED_PROXY_KEYS = frozenset({"http_proxy", "https_proxy", "all_proxy", "no_proxy"})
 
 
 def _parse_env_line(raw_line: str) -> tuple[str, str] | None:
@@ -110,18 +108,6 @@ def save_project_env(
     from acprof.network_policy import parse_bytes
     for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
         parse_bytes(updates.get(key))
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
-        if updates.get(key):
-            try:
-                parsed = urlsplit(updates[key])
-                valid = (parsed.scheme in {"http", "https", "socks5", "socks5h"}
-                         and parsed.hostname and not parsed.query and not parsed.fragment)
-                port = parsed.port
-                valid = valid and (port is None or port > 0)
-            except ValueError:
-                valid = False
-            if not valid:
-                raise ValueError(f"{key}: invalid proxy URL")
     if updates.get("ACPROF_WECOM_WEBHOOK_URL"):
         from acprof.notifications import NotificationConfigError, validate_wecom_webhook_url
         try:
@@ -176,7 +162,10 @@ def load_project_env(
     if retired_setting in values:
         raise ValueError(migration)
     for key, value in values.items():
-        target_environ.setdefault(key, value)
+        # Historical TUI proxy fields remain untouched on disk. Only the user's
+        # inherited system environment configures HTTP clients now.
+        if key.lower() not in _RETIRED_PROXY_KEYS:
+            target_environ.setdefault(key, value)
 
 
 def _set_default_if_blank(key: str, value: str) -> None:

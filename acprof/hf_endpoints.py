@@ -7,14 +7,14 @@ from urllib.parse import urlsplit
 
 HF_DEFAULT_ENDPOINT = "https://hf-mirror.com"
 HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
-HF_DOWNLOAD_MODES = ("mirror-only", "mirror-preferred", "official")
+HF_DOWNLOAD_MODES = ("auto", "mirror-only", "mirror-preferred", "official")
 
 
 def hf_download_mode(environ: Mapping[str, str] | None = None) -> str:
     env = os.environ if environ is None else environ
-    mode = env.get("HF_DOWNLOAD_MODE", "").strip() or "mirror-only"
+    mode = env.get("HF_DOWNLOAD_MODE", "").strip() or "auto"
     if mode not in HF_DOWNLOAD_MODES:
-        raise ValueError("HF_DOWNLOAD_MODE must be mirror-only/mirror-preferred/official")
+        raise ValueError("HF_DOWNLOAD_MODE must be auto/mirror-only/mirror-preferred/official")
     return mode
 
 
@@ -35,7 +35,11 @@ def normalize_hf_endpoint(value: str) -> str:
 
 
 def hf_endpoints(environ: Mapping[str, str] | None = None) -> list[str]:
-    """Choose sources explicitly; mirror-only never admits the official Hub."""
+    """Hub entry order only; this policy never restricts trusted storage hosts.
+
+    Legacy CLI modes remain available for advanced use. TUI settings migrate to
+    auto; mirror-only restricts *entry selection*, not legitimate redirects.
+    """
     env = os.environ if environ is None else environ
     mode = hf_download_mode(env)
     if mode == "official":
@@ -53,6 +57,6 @@ def hf_endpoints(environ: Mapping[str, str] | None = None) -> list[str]:
             endpoint = normalize_hf_endpoint(value)
             if endpoint not in endpoints:
                 endpoints.append(endpoint)
-    if mode == "mirror-preferred" and HF_OFFICIAL_ENDPOINT not in endpoints:
+    if mode in {"auto", "mirror-preferred"} and HF_OFFICIAL_ENDPOINT not in endpoints:
         endpoints.append(HF_OFFICIAL_ENDPOINT)
     return endpoints

@@ -19,18 +19,23 @@ from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from threading import Event
+from urllib.parse import urlsplit
 
 from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
 from acprof.dependency_locks import content_digest
+from acprof.hf_download import try_hf_endpoints
 from acprof.hf_endpoints import hf_endpoints
-from acprof.hf_transport import configure_hf_transport, observed_hf_sources
+from acprof.hf_transport import (
+    configure_hf_transport,
+    observed_hf_provenance,
+    observed_hf_sources,
+)
 from acprof.model_spec import task_model_spec
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,
     enforce_download_budget,
     parse_bytes,
-    require_source_transition,
 )
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
@@ -67,7 +72,9 @@ def entry_key(task) -> str:
     import hashlib
 
     from acprof.installation import resource_root
-    return content_digest({"schema": 1, "planner": hashlib.sha256((resource_root() / "acprof/container/model_files.py").read_bytes()).hexdigest(),
+    source = getattr(task, "model_source", "huggingface")
+    return content_digest({"schema": 1, **({"source": source} if source != "huggingface" else {}),
+        "planner": hashlib.sha256((resource_root() / "acprof/container/model_files.py").read_bytes()).hexdigest(),
         "model_types": hashlib.sha256((resource_root() / "acprof/container/compat/transformers_model_types.json").read_bytes()).hexdigest(),
         "model": task.model_id, "revision": task.model_revision,
         "policy": task.model_download_policy, "family": task.task_family, "backend": task.runtime_backend,
@@ -143,6 +150,81 @@ def read_entry(key: str, root: Path | None = None) -> dict | None:
     return plan
 
 
+def _cached_repositories(model_id: str, revision: str | None, source: str):
+    """Read bounded, verified entry metadata before attempting any network I/O."""
+    root = store_root()
+    entries = root / "entries"
+    if not entries.is_dir():
+        return
+    for entry in sorted(entries.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not re.fullmatch(r"[a-f0-9]{64}", entry.name) or entry.is_symlink():
+            continue
+        plan = read_entry(entry.name, root)
+        if plan is None:
+            continue
+        for repo in repository_plans(plan):
+            if repo["model_id"] != model_id or repo.get("source", "huggingface") != source:
+                continue
+            if revision != repo["model_revision"]:
+                default_ref = "master" if source == "modelscope" else "main"
+                if ("requested_revision" not in repo
+                        or (revision or default_ref) != (repo["requested_revision"] or default_ref)):
+                    continue
+            snapshot = entry / "hf" / ("models--" + model_id.replace("/", "--")) / "snapshots" / repo["model_revision"]
+            if all((snapshot / f["path"]).is_file() and (snapshot / f["path"]).stat().st_size == f["size"]
+                   for f in repo["files"]):
+                yield repo, snapshot
+
+
+def cached_metadata(model_id: str, name: str, revision: str | None, *, source: str,
+                    max_bytes: int = ENTRY_METADATA_MAX_BYTES) -> Path | None:
+    import hashlib
+
+    from acprof.container.model_files import ModelFilesError, safe_path
+    name = safe_path(name)
+    for plan, snapshot in _cached_repositories(model_id, revision, source):
+        record = next((item for item in plan["files"] if item["path"] == name), None)
+        if record is None:
+            continue
+        if record["size"] > max_bytes:
+            raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
+        path = snapshot / name
+        with path.open("rb") as stream:
+            data = stream.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ModelFilesError(f"cached metadata exceeds {max_bytes} bytes: {name}")
+        if hashlib.sha256(data).hexdigest() != record["sha256"]:
+            raise ModelFilesError(f"cached model metadata SHA256 mismatch: {name}")
+        return path
+    return None
+
+
+def cached_model_info(model_id: str, revision: str | None, *, source: str):
+    from types import SimpleNamespace
+
+    from acprof.container.model_files import ModelFilesError, safe_path
+    for plan, _ in _cached_repositories(model_id, revision, source):
+        metadata = plan.get("repository_context", {})
+        # Historical entries remain valid runtime snapshots, but their selected
+        # payload files and resolved task are not complete original Hub evidence.
+        if not isinstance(metadata, dict) or metadata.get("schema_version") != 1:
+            continue
+        files = metadata.get("repository_files")
+        if (not isinstance(files, list) or not files
+                or any(not isinstance(metadata.get(key), dict) for key in ("config", "transformers_info", "card_data"))
+                or not isinstance(metadata.get("tags"), list)
+                or not {"pipeline_tag", "library_name", "safetensors"}.issubset(metadata)):
+            raise ModelFilesError("invalid cached repository metadata")
+        files = [safe_path(name) for name in files]
+        if not {item["path"] for item in plan["files"]}.issubset(files):
+            raise ModelFilesError("cached repository inventory omits selected model files")
+        return SimpleNamespace(sha=plan["model_revision"],
+            siblings=[SimpleNamespace(rfilename=name) for name in files],
+            **{key: metadata[key] for key in ("pipeline_tag", "library_name", "config",
+                                            "transformers_info", "card_data", "tags", "safetensors")})
+    return None
+
+
 def plan_model(task, root: Path | None = None) -> dict:
     from acprof.container.download_model import _prepare_repository_plan
     from acprof.dependency_locks import package_versions, read_python_lock
@@ -157,32 +239,37 @@ def plan_model(task, root: Path | None = None) -> dict:
     cached = read_entry(entry_key(task), root)
     if cached:
         return cached
-    endpoints = hf_endpoints()
-    for index, endpoint in enumerate(endpoints):
-        if index:
-            require_source_transition(endpoints[index - 1], endpoint)
-        try:
-            plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
+    from acprof.model_repository import MODELSCOPE_ENDPOINT
+    source = getattr(task, "model_source", "huggingface")
+    endpoints = [MODELSCOPE_ENDPOINT] if source == "modelscope" else hf_endpoints()
+    def prepare(endpoint):
+        plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
                                             cache_dir=str(root / "hf"), task=task,
-                                            native_types=native_types, library_versions=versions)
-            dependencies = task_model_spec(task).get("dependencies", [])
-            if dependencies:
-                plan["dependencies"] = [{**item, "download": _prepare_repository_plan(
-                    endpoint, item["repo_id"], item["revision"], dependency=item,
-                    cache_dir=str(root / "hf"), task=task,
-                    native_types=native_types, library_versions=versions)} for item in dependencies]
-                sizes = [p["selected_bytes"] for p in repository_plans(plan)]
-                plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
-            return seal_plan(plan)
-        except (DownloadPolicyError, ValueError):
-            raise
-        except Exception:
-            if index == len(endpoints) - 1:
-                raise
-    raise AssertionError("empty endpoint policy")
+                                            native_types=native_types, library_versions=versions, source=source)
+        dependencies = task_model_spec(task).get("dependencies", [])
+        if dependencies:
+            plan["dependencies"] = []
+            for item in dependencies:
+                if source != "huggingface" and item["repo_id"] == task.model_id:
+                    raise ValueError("Main model and HF dependency share an offline loader ID but differ in source")
+                def prepare_dependency(hub):
+                    return _prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
+                        cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
+                dependency = (try_hf_endpoints(item["repo_id"], prepare_dependency)
+                              if source == "modelscope" else prepare_dependency(endpoint))
+                plan["dependencies"].append({**item, "download": dependency})
+            sizes = [p["selected_bytes"] for p in repository_plans(plan)]
+            plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
+        plan["requested_revision"] = getattr(task, "requested_revision", None)
+        return seal_plan(plan)
+    return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
 
 def cached_file(root: Path, plan: dict, record: dict) -> Path | None:
+    if plan.get("source", "huggingface") == "modelscope":
+        from acprof.model_repository import modelscope_snapshot
+        path = modelscope_snapshot(root, plan["model_id"], plan["model_revision"]) / record["path"]
+        return path if path.is_file() and path.stat().st_size == record.get("size") else None
     from huggingface_hub import try_to_load_from_cache
     result = try_to_load_from_cache(plan["model_id"], record["path"], revision=plan["model_revision"],
                                    cache_dir=str(root / "hf"))
@@ -211,6 +298,36 @@ def model_sources(plan: dict, root: Path | None = None) -> list[DownloadSource]:
             "hit" if not missing else "partial" if cached else "miss",
             detail=f"{repo['model_id']}@{repo['model_revision']}; total_bytes={repo['selected_bytes']}"))
     return result
+
+
+def probe_model_download(plan: dict, root: Path | None = None) -> list[dict]:
+    """HEAD a missing artifact through storage; no GET and no availability cache."""
+    from urllib.parse import quote
+
+    from huggingface_hub.utils import build_hf_headers, get_session
+
+    root = root or store_root()
+    reports = []
+    for repo in repository_plans(plan):
+        missing = [item for item in repo["files"] if cached_file(root, repo, item) is None]
+        if not missing or repo.get("source", "huggingface") != "huggingface":
+            continue
+        configure_hf_transport()
+        sample = max(missing, key=lambda item: item.get("size") or 0)
+        def probe(endpoint):
+            url = f"{endpoint}/{repo['model_id']}/resolve/{repo['model_revision']}/{quote(sample['path'])}"
+            with get_session().stream("HEAD", url, headers=build_hf_headers(), follow_redirects=True, timeout=8) as response:
+                response.raise_for_status()
+            return endpoint
+        endpoint = try_hf_endpoints(repo["model_id"], probe,
+                                   endpoints=list(dict.fromkeys([repo["endpoint"], *hf_endpoints()])))
+        reports.append({"model_id": repo["model_id"], "method": "HEAD", "sample_file": sample["path"],
+                        "scope": "one missing file; not a permanent availability verdict",
+                        "transport": observed_hf_provenance()})
+        repo["endpoint"] = endpoint
+        seal_plan(repo)
+    seal_plan(plan)
+    return reports
 
 
 def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dict:
@@ -284,15 +401,42 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         targets = []
         escape = {"[": "[[]", "*": "[*]", "?": "[?]"}
         for repo in repository_plans(plan):
-            observed_hf_sources(reset=True)
-            target = snapshot_download(repo_id=repo["model_id"], revision=repo["model_revision"],
-                cache_dir=str(root / "hf"), endpoint=repo["endpoint"],
-                allow_patterns=["".join(escape.get(c, c) for c in f["path"]) for f in repo["files"]],
-                local_files_only=existing is not None or all(cached_file(root, repo, f) for f in repo["files"]))
+            offline = existing is not None or all(cached_file(root, repo, f) for f in repo["files"])
+            source = repo.get("source", "huggingface")
+            def download(endpoint):
+                if source == "modelscope":
+                    from acprof.model_repository import modelscope_file, modelscope_snapshot
+                    if not offline:
+                        for record in repo["files"]:
+                            modelscope_file(repo["model_id"], record["path"], repo["model_revision"], root,
+                                            sha256=record["lfs_sha256"])
+                    return str(modelscope_snapshot(root, repo["model_id"], repo["model_revision"])), endpoint
+                target = snapshot_download(repo_id=repo["model_id"], revision=repo["model_revision"],
+                    cache_dir=str(root / "hf"), endpoint=endpoint,
+                    allow_patterns=["".join(escape.get(c, c) for c in f["path"]) for f in repo["files"]],
+                    local_files_only=offline)
+                return target, endpoint
+            if offline or source == "modelscope":
+                target, endpoint = download(repo["endpoint"])
+            else:
+                choices = list(dict.fromkeys([repo["endpoint"], *hf_endpoints()]))
+                target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
             # Verification happens before any runtime or formal measurement starts.
             verify_download(target, repo)
             if not existing:
-                repo["actual_source_hosts"] = observed_hf_sources()
+                repo["source"] = source
+                repo["endpoint"] = endpoint
+                repo["actual_source_hosts"] = [] if offline or source == "modelscope" else observed_hf_sources()
+                repo["download_provenance"] = ({"schema_version": 1, "cache_hit": True,
+                    "public_egress": "externally-managed"} if offline else {"schema_version": 1,
+                    "public_egress": "externally-managed", "requests": [], "observation": "SDK redirects unobserved"}
+                    if source == "modelscope" else observed_hf_provenance())
+                events = repo["download_provenance"].get("requests", [])
+                payloads = [event for event in events if event["method"] == "GET" and event["status"] in {200, 206}
+                            and "/api/" not in urlsplit(event["url"]).path]
+                repo["download_provenance"]["final_endpoint_type"] = ("cache" if offline else
+                    payloads[-1]["endpoint_type"] if payloads else "unknown")
+                repo["download_provenance"]["hub_endpoint"] = endpoint
                 seal_plan(repo)
             targets.append(Path(target))
         if plan.get("dependencies"):
@@ -396,9 +540,11 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
             stamp = path.parent / "last-used"
             candidates.append((stamp.stat().st_mtime if stamp.exists() else 0, key))
     blobs = {}
-    for path in (root / "hf").glob("models--*/blobs/*"):
+    from itertools import chain
+    for path in chain((root / "hf").glob("models--*/blobs/*"),
+                      (root / "modelscope").glob("models--*/snapshots/*/**/*")):
         _check_cancelled(cancel)
-        if path.is_file() and not path.is_symlink():
+        if path.is_file() and not path.is_symlink() and not path.name.endswith((".lock", ".incomplete")):
             blobs[path.resolve()] = (path, path.stat().st_size)
     unused = {blob for blob in blobs if not references[blob]}
     reclaimed = sum(blobs[blob][1] for blob in unused)

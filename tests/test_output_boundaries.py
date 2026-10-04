@@ -25,7 +25,7 @@ def test_library_imports_are_silent_and_do_not_configure_root_logging():
 
 def test_client_startup_configuration_is_debug_only(caplog):
     config = Mock(pipeline_tag="fill-mask")
-    with redirect_stdout(io.StringIO()) as stdout, patch.object(client, "ClientRunner"), patch.object(client, "_ensure_local_proxy_bypass"), caplog.at_level("DEBUG", logger="acprof.host.client"):
+    with redirect_stdout(io.StringIO()) as stdout, patch.object(client, "ClientRunner"), caplog.at_level("DEBUG", logger="acprof.host.client"):
         client.main(config)
     assert (stdout.getvalue()) == ("")
     assert ("pipeline_tag=fill-mask") in (caplog.messages[0])

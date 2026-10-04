@@ -133,7 +133,7 @@ class TestRuntimeImageBuild:
             download.assert_not_called()
         assert (self.commands) == ([])
 
-    def test_endpoint_policy_reaches_build_and_invalidates_only_model_and_service(self):
+    def test_hub_endpoint_is_not_model_identity_or_runtime_configuration(self):
         runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         self.commands.clear()
         with patch.dict(os.environ, {"HF_DOWNLOAD_MODE": "mirror-preferred", "HF_ENDPOINT": "https://mirror.example",
@@ -141,10 +141,9 @@ class TestRuntimeImageBuild:
             runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         builds = self.build_commands()
         assert ([Path(cmd[cmd.index("-f") + 1]).name for cmd in builds]) == ([
-            "runtime-model.Dockerfile", "runtime-final.Dockerfile",
+            "runtime-final.Dockerfile",
         ])
-        assert ("HF_ENDPOINT=https://mirror.example") in (builds[0])
-        assert ("HF_FALLBACK_ENDPOINTS=https://huggingface.co") in (builds[0])
+        assert not any("HF_ENDPOINT=" in item or "HF_FALLBACK_ENDPOINTS=" in item for cmd in builds for item in cmd)
 
     def test_prebuilt_images_are_verified_and_used_without_dependency_builds(self):
         from acprof.host.dependency_images import prepare_environment_image

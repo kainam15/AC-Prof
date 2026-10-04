@@ -99,6 +99,7 @@ class RunConfig:
     """Common experiment options independent of presentation."""
 
     model: str = ""
+    model_source: str = "huggingface"
     revision: str = ""
     extra_options: dict = dataclass_field(default_factory=dict)
     task: str = ""
@@ -112,7 +113,7 @@ class RunConfig:
     input_scale_policy: str = "auto"
     workload_spec: str = ""
     model_spec: str = ""
-    download_mode: str = "mirror-only"
+    download_mode: str = "auto"
     max_download: str = ""
     model_store: str = ""
     model_store_max: str = ""
@@ -203,9 +204,12 @@ class RunConfig:
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+        from acprof.model_repository import MODEL_SOURCES
+        if self.model_source not in MODEL_SOURCES:
+            errors.append(ConfigIssue("model_source", message("模型来源必须是 huggingface 或 modelscope")))
         from acprof.network_policy import parse_bytes
         if self.download_mode not in HF_DOWNLOAD_MODES:
-            errors.append(ConfigIssue("download_mode", message("下载源模式必须是 mirror-only、mirror-preferred 或 official")))
+            errors.append(ConfigIssue("download_mode", message("下载源模式必须是 auto、mirror-only、mirror-preferred 或 official")))
         for field in ("max_download", "model_store_max"):
             try:
                 parse_bytes(getattr(self, field))
@@ -403,6 +407,7 @@ def build_run_command(
     ]
     for option, value in (
         ("--revision", config.revision),
+        ("--model-source", config.model_source),
         ("--cpuset-cpus", config.cpuset_cpus),
         ("--task", config.task),
         ("--task-family", config.task_family),
