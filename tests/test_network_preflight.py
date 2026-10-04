@@ -1,8 +1,10 @@
+import io
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from acprof.host.network_preflight import format_summary, runtime_sources
+from acprof.host.network_preflight import format_summary, preflight, runtime_sources
 from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -11,7 +13,39 @@ from acprof.network_policy import (
     require_source_transition,
     summarize_downloads,
 )
+from acprof.preparation_events import parse_event
 from acprof.runtime_profiles import PROFILES
+
+
+@pytest.mark.parametrize("download_bytes", [890_152_505, None])
+def test_download_review_keeps_technical_details_out_of_main_summary(tmp_path, capsys, download_bytes):
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    plan = {"selected_bytes": 890_152_505, "endpoint": "https://hf-mirror.com"}
+    disk = {"total_bytes": 0, "free_bytes": 41_370_132_480,
+            "reclaimable_bytes": 0, "remaining_bytes": 40_479_979_975}
+    reply = '{"id": 1, "action": "answer", "answers": {"下载计划": "按此计划下载"}}\n'
+    with (
+        patch.dict("os.environ", {"ACPROF_INTERACTIVE_PREPARATION": "1"}, clear=True),
+        patch("sys.stdin", io.StringIO(reply)),
+        patch("acprof.host.model_store.model_sources", return_value=[
+            DownloadSource("model", plan["endpoint"], download_bytes),
+        ]),
+        patch("acprof.host.model_store.require_space", return_value=disk),
+        patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
+        patch("acprof.host.static_metadata._docker_storage_metadata", return_value={}),
+    ):
+        preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
+    events = [event for line in capsys.readouterr().out.splitlines() if (event := parse_event(line))]
+    request = events[-1]["request"]
+    assert not request.get("detail")
+    assert request["fields"]["预计下载"] == (
+        "890,152,505 B (0.890 GB)" if download_bytes is not None else None
+    )
+    assert request["fields"]["可用空间"] == "41,370,132,480 B (41.370 GB)"
+    assert request["fields"]["下载源"] == "https://hf-mirror.com"
+    assert "expected_download_bytes:" in request["summary"]
+    assert "Docker storage:" in request["summary"]
+    assert "upstream routing is not verified." in request["summary"]
 
 
 def test_download_confirmation_contains_budget_and_cache_path():

@@ -102,22 +102,26 @@ class PreparationScreen(ModalScreen):
             yield Label(tr("模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
-                    fields = "\n".join(f"✓ {name}    {value}" for name, value in request.get("fields", {}).items())
+                    fields = "\n".join(f"✓ {tr(name)}    {tr('未知') if value is None else value}"
+                                       for name, value in request.get("fields", {}).items())
                     yield Static(fields, id="preparation-fields", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
-                        yield Label(question["path"])
+                        yield Label(tr(question["path"]))
                         yield Static(tr(question.get("reason", "")), markup=False)
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
-                    yield Static(request.get("detail", ""), id="preparation-detail", markup=False)
+                    if request.get("detail"):
+                        yield Static(request["detail"], id="preparation-detail", markup=False)
                     if request.get("advanced"):
                         with Collapsible(title=tr("高级修改"), collapsed=True):
                             for index, question in enumerate(request["advanced"]):
                                 yield Label(question["path"])
                                 yield review_input(question, identifier=f"preparation-advanced-{index}", translate=tr)
                             yield Button(tr("重新解析"), id="preparation-revise")
-                    with Collapsible(title=tr("高级详情"), collapsed=True):
-                        yield Static(request.get("summary", ""), markup=False)
+                    summary = request.get("summary")
+                    if summary and summary.strip():
+                        with Collapsible(title=tr("高级详情"), id="preparation-advanced-details", collapsed=True):
+                            yield Static(summary, markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):

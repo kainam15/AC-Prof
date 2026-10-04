@@ -13,7 +13,7 @@ def review_input(question: dict, *, identifier: str, translate, classes: str = "
     options = question.get("options")
     if options:
         value = question.get("value")
-        return Select([(str(item), item) for item in options],
+        return Select([(translate(str(item)), item) for item in options],
                       value=value if value in options else Select.NULL,
                       prompt=translate("请选择"), id=identifier, classes=classes)
     value = question.get("value")
