@@ -50,7 +50,7 @@ class TestTuiPageChrome:
     @pytest.mark.parametrize('page,primary,secondary', (('run-tab', 'start-run', ('open-run-settings', 'probe-largest')), ('monitor-tab', 'stop-run', ('copy-log', 'follow-log', 'expand-log', 'clear-log')), ('plot-tab', 'plot-results', ('summarize-results',)), ('reports-tab', 'report-calculate', ('report-open',)), ('profile-tab', 'profile-run', ('profile-dry-run',)), ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')), ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',))))
     @pytest.mark.parametrize('language', ('zh', 'en'))
     @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
-    async def test_all_pages_keep_headers_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, page, primary, secondary, language, size):
+    async def test_all_pages_keep_top_content_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, page, primary, secondary, language, size):
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.resize_terminal(*size)
@@ -64,14 +64,14 @@ class TestTuiPageChrome:
             assert (button.region.bottom) == (pane.region.bottom)
             assert (button.region.right) == (pane.region.right - 2)
             self.assert_actions_aligned(pane, secondary, button)
-            header = pane.query_one(".page-header")
-            header_region, button_region = header.region, button.region
-            assert (header_region.y) == (pane.region.y)
+            top = pane.query_one("#profile-body" if page == "profile-tab" else ".page-header")
+            top_region, button_region = top.region, button.region
+            assert (top_region.y) == (pane.region.y)
             for scroll in pane.query(VerticalScroll):
                 if scroll.display and scroll.region.height:
                     scroll.scroll_end(animate=False, immediate=True)
             await pilot.pause()
-            assert (header.region) == (header_region)
+            assert (top.region) == (top_region)
             assert (button.region) == (button_region)
             self.assert_actions_aligned(pane, secondary, button)
             for action in pane.query(".action-bar Button"):

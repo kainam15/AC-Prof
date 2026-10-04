@@ -569,11 +569,6 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
 
 def compose_profile_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("补采工具", id="profile-tab"):
-        with Vertical(classes="page-header"):
-            yield app._localized_widget(Static(
-                "补采计划与执行日志会显示在“运行监控”页。",
-                classes="page-summary", markup=False,
-            ))
         with VerticalScroll(id="profile-body", classes="pane-scroll"):
             with Grid(classes="form-grid tool-form-grid"):
                 yield app._localized_widget(Label("结果目录"))

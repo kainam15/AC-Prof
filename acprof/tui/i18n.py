@@ -705,7 +705,6 @@ ENGLISH: dict[str, str] = {
     "返回监控": "Restore log",
     "绘图工具": "Plotting",
     "已有结果": "Existing results",
-    "补采计划与执行日志会显示在“运行监控”页。": "Backfill plans and execution logs appear on the Monitor page.",
     "结果目录": "Result directory",
     "结果 CSV": "Result CSV",
     "补采工具": "Backfill tools",
