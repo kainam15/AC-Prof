@@ -372,6 +372,12 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `plots/<environment_class>/gpu/*.png` | `acprof plot` 生成的该环境 GPU-only 图表。 |
 | `plots/<environment_class>/gpu+cpu/*.png` | `acprof plot` 生成的同一环境内 GPU/CPU 对比图表。 |
 
+输入计划在准备阶段写入同目录临时文件；生成新计划前不删除旧计划。序列化拒绝非有限数字，
+并按最终 UTF-8 字节检查 4 MiB 上限（包括平台换行），同批字节增量计算 SHA256。
+合法计划沿用原有字段顺序、ASCII 转义、缩进和平台换行，不重写历史实验的计划或 hash。
+生成、序列化、文件 `fsync` 或原子替换在发布前失败时，保留已有完整计划并向上报错，
+不能将旧文件视为本次规划成功。目录 `fsync` 位于替换之后；此时失败仍报错，但完整的新计划可能已经发布。
+
 `.acprof/work/cases/` 下本次已完成 case 的中间文件会在 `result_all.csv` 成功 merge、完成状态持久化后清理。
 旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
 若运行被中断，中间文件保留用于恢复。

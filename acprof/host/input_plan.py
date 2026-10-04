@@ -7,8 +7,10 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from itertools import chain
+from typing import Any, Dict, List, Optional, TextIO
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
 from acprof.config import SCALING_DIMENSIONS
 from acprof.extensions import CATALOG
 from acprof.host.detect import TaskInfo
@@ -65,11 +67,6 @@ def _scale_plan_file_path(output_dir: str) -> str:
     return str(ArtifactLayout.discover(output_dir).path("input_scale_plan.json"))
 
 
-def _clear_scale_plan_file(path: str) -> None:
-    if os.path.exists(path):
-        os.remove(path)
-
-
 def _write_scale_plan_file(
     path: str,
     task_info: TaskInfo,
@@ -88,11 +85,23 @@ def _write_scale_plan_file(
         "scenario": {"type": "serial"},
         "entries": entries,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=True, indent=2)
-        f.write("\n")
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+    digest = hashlib.sha256()
+
+    def write(stream: TextIO) -> None:
+        size = 0
+        encoder = json.JSONEncoder(ensure_ascii=True, indent=2, allow_nan=False)
+        for chunk in chain(encoder.iterencode(payload), ("\n",)):
+            # Preserve the former text-mode writer's exact bytes on this platform.
+            chunk = chunk.replace("\n", os.linesep)
+            data = chunk.encode("utf-8")
+            size += len(data)
+            if size > MAX_JSON_ARTIFACT_BYTES:
+                raise ValueError(f"{path}: input scale plan exceeds the 4 MiB read limit")
+            stream.write(chunk)
+            digest.update(data)
+
+    atomic_write(path, write)
+    return digest.hexdigest()
 
 
 def _materialize_scale_plan(
@@ -906,8 +915,6 @@ def _plan_input_scales(
     capabilities = CATALOG.describe(task_info).declaration.input_plan
     if workload_spec_path and not capabilities.accepts_workload_spec:
         raise ValueError(f"--workload-spec is not declared for {task_info.pipeline_tag}")
-    plan_file = _scale_plan_file_path(output_dir)
-    _clear_scale_plan_file(plan_file)
     if capabilities.requires_scale_meta:
         return _plan_timeseries_scales(
             task_info, image_info, cpu_list, mem_list, gpu_list, batch_size, output_dir, input_scales,
