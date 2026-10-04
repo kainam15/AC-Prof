@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -37,10 +38,19 @@ def experiment_choice(record: ExperimentRecord) -> PickerChoice:
         actions.add('reuse')
     if record.has_recovery_state:
         actions.add('resume')
+    date_text = record.created_at
+    try:
+        timestamp = datetime.fromisoformat(date_text.replace('Z', '+00:00'))
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone()
+        date_text = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    except (ValueError, OverflowError):
+        # Keep missing or invalid historical timestamps visible as recorded.
+        pass
     detail = json.dumps({'run_id': record.run_id or 'unknown', 'directories': [str(path) for path in record.aliases],
         'issues': record.issues, 'options': record.options, 'failures': record.failures,
         'runtime_validation': record.validation}, ensure_ascii=False, indent=2)
-    return PickerChoice(record, (record.model_id, record.created_at, record.device, {'complete': '已完成', 'failed': '失败',
+    return PickerChoice(record, (record.model_id, date_text, record.device, {'complete': '已完成', 'failed': '失败',
         'interrupted': '已停止', 'running': '运行中', 'preparing': '准备中'}.get(record.status, record.status),
         record.run_id or 'unknown'), detail, record.search_text, frozenset(actions))
 
