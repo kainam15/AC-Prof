@@ -1535,16 +1535,16 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
     def _network_preflight_report(self, line: str) -> None:
         import json
         report = json.loads(line.split(" ", 1)[1])
-        from acprof.host.network_preflight import format_summary
-        self.query_one("#network-download-summary", Static).update(format_summary(report))
+        from acprof.tui.downloads import download_summary
+        self.query_one("#network-download-summary", Static).update(download_summary(report, self.tr))
 
     def _network_download_report(self, line: str) -> None:
         import json
+
+        from acprof.tui.downloads import download_result_summary
         report = json.loads(line.split(" ", 1)[1])
         summary = self.query_one("#network-download-summary", Static)
-        summary.update(f"{summary.content}\n{report['category']}: "
-            f"verified_new_payload_bytes={report['verified_new_payload_bytes']:,}; "
-            f"cache_savings_bytes={report['cache_savings_bytes']:,}; wire_bytes=unknown")
+        summary.update(f"{summary.content}\n{self.tr(download_result_summary(report))}")
 
     @on(Button.Pressed, "#open-model-store")
     def open_model_store(self):

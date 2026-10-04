@@ -160,33 +160,9 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dic
     if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1" and report["expected_download_bytes"] != 0:
         from acprof.host.collection_workflow import PreparationWorkflow
         workflow = PreparationWorkflow(interactive=True)
-        fields = {name: None if value is None else _format_size(value) for name, value in (
-            ("预计下载", report["expected_download_bytes"]), ("可用空间", report["disk"]["free_bytes"]),
+        summary = {key: report[key] for key in (
+            "expected_download_bytes", "direct_download_bytes", "proxy_download_bytes", "runtime", "disk",
+            "max_download_bytes", "model_store_path", "docker_storage", "model",
         )}
-        fields["下载源"] = model_plan["endpoint"]
-        workflow.ask("image", "review", fields=fields, summary=format_summary(report), questions=[
-            {"path": "下载计划", "reason": "仅在准备阶段下载，正式测量离线。", "options": ["按此计划下载"]}])
+        workflow.ask("image", "review", resolved=True, questions=[], download_report=summary)
     return report
-
-
-def _format_size(value) -> str:
-    return "unknown" if value is None else f"{value:,} B ({value / 1e9:.3f} GB)"
-
-
-def format_summary(report: dict) -> str:
-    model, disk = report.get("model", {}), report.get("disk", {})
-    budget = ("unknown" if "max_download_bytes" not in report else "unlimited"
-              if report["max_download_bytes"] is None else _format_size(report["max_download_bytes"]))
-    return "\n".join([
-        f"expected_download_bytes: {_format_size(report['expected_download_bytes'])}",
-        f"Effective download budget: {budget}",
-        f"Model Store path: {report.get('model_store_path', 'unknown')}",
-        f"DIRECT: {_format_size(report['direct_download_bytes'])} | PROXY: {_format_size(report['proxy_download_bytes'])}",
-        f"Model total: {_format_size(model.get('total_bytes'))} | cached: {_format_size(model.get('cached_bytes'))}",
-        f"Endpoint: {model.get('endpoint', '')}",
-        f"Runtime: {json.dumps(report.get('runtime', {}), ensure_ascii=False)}",
-        f"Model Store: {_format_size(disk.get('total_bytes'))} | free: {_format_size(disk.get('free_bytes'))}",
-        f"Reclaimable: {_format_size(disk.get('reclaimable_bytes'))} | remaining: {_format_size(disk.get('remaining_bytes'))}",
-        f"Docker storage: {json.dumps(report.get('docker_storage', {}), ensure_ascii=False)}",
-        "DIRECT/PROXY are source policy expectations; upstream routing is not verified.",
-    ])

@@ -9,6 +9,7 @@ from textual.widgets import Button, Collapsible, Label, Static
 from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
 from acprof.preparation_events import encode_reply
+from acprof.tui.downloads import download_fields, download_summary
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
 
@@ -57,7 +58,7 @@ class PreparationScreen(ModalScreen):
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 0 1; }
     #preparation-title { height: auto; text-style: bold; }
-    #preparation-scroll { height: auto; max-height: 24; }
+    #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
     #preparation-detail, #preparation-error { color: $error; }
     #preparation-actions { height: 3; }
@@ -98,13 +99,19 @@ class PreparationScreen(ModalScreen):
         review = request.get("kind") == "review"
         failed = request.get("kind") == "error"
         ready = request.get("resolved") is True
+        report = request.get("download_report")
+        download = review and report is not None
+        title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
         with Vertical(id="preparation-dialog"):
-            yield Label(tr("模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"), id="preparation-title")
+            yield Label(tr("下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
-                    fields = "\n".join(f"✓ {tr(name)}    {tr('未知') if value is None else value}"
-                                       for name, value in request.get("fields", {}).items())
+                    values = download_fields(report) if download else request.get("fields", {})
+                    fields = "\n".join(f"✓ {tr(name)}    {tr('未知') if value is None else tr(value) if download else value}"
+                                       for name, value in values.items())
                     yield Static(fields, id="preparation-fields", markup=False)
+                    if download:
+                        yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
                         yield Label(tr(question["path"]))
                         yield Static(tr(question.get("reason", "")), markup=False)
@@ -118,7 +125,7 @@ class PreparationScreen(ModalScreen):
                                 yield Label(question["path"])
                                 yield review_input(question, identifier=f"preparation-advanced-{index}", translate=tr)
                             yield Button(tr("重新解析"), id="preparation-revise")
-                    summary = request.get("summary")
+                    summary = download_summary(report, tr) if download else request.get("summary")
                     if summary and summary.strip():
                         with Collapsible(title=tr("高级详情"), id="preparation-advanced-details", collapsed=True):
                             yield Static(summary, markup=False)
@@ -137,7 +144,8 @@ class PreparationScreen(ModalScreen):
                 if review:
                     if not ready:
                         yield Button(tr("应用字段"), id="preparation-apply", variant="primary")
-                    yield Button(tr("确定"), id="preparation-continue", disabled=not ready, variant="primary" if ready else "default")
+                    yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
+                                 disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
                     yield Button(tr("重试"), id="preparation-continue", variant="primary")
 

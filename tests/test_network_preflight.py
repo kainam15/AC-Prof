@@ -1,10 +1,11 @@
 import io
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from acprof.host.network_preflight import format_summary, preflight, runtime_sources
+from acprof.host.network_preflight import preflight, runtime_sources
 from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -18,12 +19,12 @@ from acprof.runtime_profiles import PROFILES
 
 
 @pytest.mark.parametrize("download_bytes", [890_152_505, None])
-def test_download_review_keeps_technical_details_out_of_main_summary(tmp_path, capsys, download_bytes):
+def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_bytes):
     task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
     plan = {"selected_bytes": 890_152_505, "endpoint": "https://hf-mirror.com"}
     disk = {"total_bytes": 0, "free_bytes": 41_370_132_480,
             "reclaimable_bytes": 0, "remaining_bytes": 40_479_979_975}
-    reply = '{"id": 1, "action": "answer", "answers": {"下载计划": "按此计划下载"}}\n'
+    reply = '{"id": 1, "action": "confirm"}\n'
     with (
         patch.dict("os.environ", {"ACPROF_INTERACTIVE_PREPARATION": "1"}, clear=True),
         patch("sys.stdin", io.StringIO(reply)),
@@ -34,27 +35,22 @@ def test_download_review_keeps_technical_details_out_of_main_summary(tmp_path, c
         patch("acprof.host.network_preflight.runtime_sources", return_value=([], {"platform_local": True})),
         patch("acprof.host.static_metadata._docker_storage_metadata", return_value={}),
     ):
-        preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
-    events = [event for line in capsys.readouterr().out.splitlines() if (event := parse_event(line))]
+        report = preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
+    lines = capsys.readouterr().out.splitlines()
+    events = [event for line in lines if (event := parse_event(line))]
     request = events[-1]["request"]
-    assert not request.get("detail")
-    assert request["fields"]["预计下载"] == (
-        "890,152,505 B (0.890 GB)" if download_bytes is not None else None
-    )
-    assert request["fields"]["可用空间"] == "41,370,132,480 B (41.370 GB)"
-    assert request["fields"]["下载源"] == "https://hf-mirror.com"
-    assert "expected_download_bytes:" in request["summary"]
-    assert "Docker storage:" in request["summary"]
-    assert "upstream routing is not verified." in request["summary"]
+    assert request["resolved"] is True
+    assert request["questions"] == []
+    assert "sources" not in request["download_report"]
+    assert request["download_report"]["expected_download_bytes"] == download_bytes
+    assert request["download_report"]["disk"]["free_bytes"] == 41_370_132_480
+    assert report["expected_download_bytes"] == download_bytes
+    assert report["disk"]["free_bytes"] == 41_370_132_480
+    assert report["model"]["total_bytes"] == 890_152_505
+    assert report["model"]["endpoint"] == "https://hf-mirror.com"
+    logged = next(json.loads(line.split(" ", 1)[1]) for line in lines if line.startswith("[network-preflight] "))
+    assert logged == report
 
-
-def test_download_confirmation_contains_budget_and_cache_path():
-    report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100)])
-    report.update(max_download_bytes=5_000_000_000, model_store_path="/custom/cache")
-    summary = format_summary(report)
-    assert ("5.000 GB") in (summary)
-    assert ("/custom/cache") in (summary)
-    assert ("100 B") in (summary)
 
 def test_route_totals_do_not_treat_unknown_as_zero():
     report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100),
