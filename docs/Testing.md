@@ -531,10 +531,10 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
 所有分片都执行完整 discovery，新增测试会自动分配；不使用手写文件白名单。
-指标文档的编码与同步检查在独立的命名步骤中先于测试分片执行；失败时可直接定位到
-`render_metric_reference.py --check`，不会混入 CLI 帮助步骤。
+独立 Python 3.12 `contracts` job 统一执行容器锁、主机锁声明和指标文档同步检查，
+不在 16 个 host shard 重复运行。CLI 帮助和 compileall 在每个 Python 版本的第 0 片执行。
 每片分别上传 `host.json` 和实时保存的 `host.log`，失败时继续执行其他分片。
-同时运行 `compile_locks.py --check`。七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
+七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
 另有 `nlp-transformers560-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
@@ -898,6 +898,12 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 普通推理成功不能证明 Torch/NCU/Massif/Nsys 都支持；每种设备、dtype 和工具分别报告实际覆盖范围。
 
 ## 参考实现与复用取舍
+
+测试和硬件证据的身份约束参考 [MLPerf 审计指南的软硬件一致性检查](https://github.com/mlcommons/inference_policies/blob/master/MLPerf_Audit_Guidelines.adoc)。
+测试调度核对了 [pytest-xdist 的 work-stealing 实现](https://github.com/pytest-dev/pytest-xdist/blob/master/src/xdist/scheduler/worksteal.py)
+与 [PR #858](https://github.com/pytest-dev/pytest-xdist/pull/858)（MIT）。本项目保持串行分片和现有
+pytest evidence 协议，先消除重复 CI 检查，再依据当前节点耗时评估分片；不直接引入 worker 调度依赖。
+身份计算复用现有标准库 fingerprint，相关逻辑只在测试或测量窗口外执行。
 
 表单边框复用 [Textual 8.2.8 的 `solid` 字符集](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/_border.py)，
 并根据 [Select 上游说明](https://github.com/Textualize/textual/discussions/4061)覆盖 `SelectCurrent`
