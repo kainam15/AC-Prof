@@ -353,7 +353,6 @@ AcprofTui.short #report-detail { max-height: 3; margin-top: 0; }
 AcprofTui.short #confirm-dialog { padding: 0 2; }
 /* Keep the image detail groups visible alongside the fixed footer at 80x24. */
 AcprofTui.narrow.short #image-heading { layout: horizontal; height: 1; }
-AcprofTui.narrow.short #image-header .page-title { width: 8; margin-right: 1; }
 AcprofTui.narrow.short #image-status { width: 1fr; max-height: 1; }
 AcprofTui.narrow.short #image-storage {
     height: 1;

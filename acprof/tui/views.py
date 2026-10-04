@@ -194,7 +194,6 @@ def compose_number_field(app: AcprofTui, label: str, widget_id: str, value: int 
 def compose_run_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("实验配置", id="run-tab"):
         with Vertical(classes="page-header"):
-            yield app._localized_widget(Static("配置实验", id="run-title", classes="page-title"))
             yield app._localized_widget(Static("", id="config-summary", classes="page-summary", markup=False))
             yield Static("", id="preflight-run-reason", markup=False)
         with ContentSwitcher(initial="run-form", id="experiment-pages"):
@@ -512,7 +511,6 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
 def compose_plot_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("绘图工具", id="plot-tab"):
         with Vertical(classes="page-header"):
-            yield app._localized_widget(Static("绘图工具", classes="page-title"))
             yield app._localized_widget(Static(
                 "读取结果 CSV，查看摘要或生成图表。", classes="page-summary", markup=False,
             ))
@@ -537,7 +535,6 @@ def compose_plot_tab(app: AcprofTui) -> ComposeResult:
 def compose_reports_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("统计报告", id="reports-tab"):
         with Vertical(classes="page-header"):
-            yield app._localized_widget(Static("统计报告", classes="page-title"))
             yield app._localized_widget(Static(
                 "CSV / 目录：计算统计；JSON：查看报告。采集结束后操作。",
                 id="report-status", classes="page-summary", markup=False,
@@ -581,7 +578,6 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
 def compose_profile_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("补采工具", id="profile-tab"):
         with Vertical(classes="page-header"):
-            yield app._localized_widget(Static("已有结果补采", classes="page-title"))
             yield app._localized_widget(Static(
                 "补采计划与执行日志会显示在“运行监控”页。",
                 classes="page-summary", markup=False,
@@ -687,7 +683,6 @@ def compose_images_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("镜像管理", id="images-tab"):
         with Horizontal(id="image-header", classes="page-header"):
             with Vertical(id="image-heading"):
-                yield app._localized_widget(Static("镜像管理", classes="page-title"))
                 yield app._localized_widget(Static(IMAGE_HINT, id="image-status", classes="page-summary", markup=False))
             yield app._localized_widget(Button("存储空间", id="image-storage", classes="image-control"))
         with Vertical(id="image-panel"):

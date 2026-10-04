@@ -494,7 +494,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
     def _show_run_form(self, page: str) -> None:
         self.query_one("#experiment-pages", ContentSwitcher).current = page
         show_advanced = page == "advanced-form"
-        self._set_text(self.query_one("#run-title", Static), "采集参数" if show_advanced else "配置实验")
         self._set_text(
             self.query_one("#open-run-settings", Button),
             "返回基本配置" if show_advanced else "高级参数", "label",
