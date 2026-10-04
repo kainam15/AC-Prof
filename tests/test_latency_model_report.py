@@ -20,6 +20,18 @@ from acprof.platform import Environment
 
 
 class TestLatencyModelReport:
+    def test_report_calculation_returns_artifacts_without_writing_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        frame = pd.DataFrame(self._rows(gpu_modes=("off",)))
+        result = analysis_latency_report.build_latency_model_report(frame, {})
+        assert result.report['report_schema_version'] == 2
+        assert result.report['status'] == 'ok'
+        assert len(result.residuals) == 48
+        assert list(tmp_path.iterdir()) == []
+        skipped = analysis_latency_report.build_latency_model_report(pd.DataFrame(), {})
+        assert skipped.report['status'] == 'skipped'
+        assert skipped.residuals == ()
+
     def test_export_keeps_environment_identity_and_rejects_mixed_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             frame = pd.DataFrame(self._rows(gpu_modes=("off",)))

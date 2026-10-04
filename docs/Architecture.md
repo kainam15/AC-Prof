@@ -269,6 +269,9 @@ CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采
 ## 结果分析与补采
 
 `analysis/latency_model.py` 负责拟合、预测与验证，`latency_report.py` 负责报告和残差数据。
+`build_latency_model_report()` 只计算并返回 `LatencyModelReport`，不创建目录或写文件；
+CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write_latency_model_report()`
+负责发布既有 schema v2 JSON 与 CSV，包括跳过拟合时清空旧残差的行为。
 `plotting` 内的 `config`、`data`、`styles` 分别管理图表声明、CSV 整理和样式；
 `metrics`、`diagnostics`、`latency` 分别渲染常规指标、诊断图和模型图。
 

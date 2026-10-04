@@ -4,6 +4,8 @@ import csv
 import json
 import math
 import os
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -80,18 +82,15 @@ def _format_optional_float(value: float | None) -> str:
     return f"{float(value):.9f}"
 
 
-def _write_skipped_latency_model_report(
-    output_dir: str,
-    static_meta: dict[str, object],
-    reason: str,
-) -> None:
-    report_path = os.path.join(output_dir, LATENCY_MODEL_REPORT)
-    residuals_path = os.path.join(output_dir, LATENCY_MODEL_RESIDUALS)
-    # Always replace any previous residual artifact so a skipped rerun cannot
-    # leave stale predictions that appear to belong to the new report.
-    with open(residuals_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=LATENCY_MODEL_RESIDUAL_FIELDS)
-        writer.writeheader()
+@dataclass(frozen=True)
+class LatencyModelReport:
+    """Calculated report and formatted residual rows, without filesystem ownership."""
+
+    report: dict[str, Any]
+    residuals: tuple[dict[str, object], ...]
+
+
+def _skipped_latency_model_report(static_meta: dict[str, object], reason: str) -> LatencyModelReport:
     report = {
         "report_schema_version": 2,
         **recorded_identity(static_meta),
@@ -104,61 +103,83 @@ def _write_skipped_latency_model_report(
         "residuals_csv": LATENCY_MODEL_RESIDUALS,
         "residuals_granularity": "header only because model generation was skipped",
     }
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=True, indent=2)
-        f.write("\n")
-    print(f"[saved] {report_path}")
+    return LatencyModelReport(report, ())
 
 
-def write_latency_model_report(
-    df: pd.DataFrame,
-    static_meta: dict[str, object],
-    output_dir: str,
-) -> None:
-    """Fit validated positive latency models and write report/residual artifacts."""
-    identity = recorded_identity(static_meta)
-    if "environment_class" in df:
-        environments = set(df["environment_class"].fillna("unknown"))
-        if len(environments) > 1 or not environments <= {"unknown", identity["environment_class"]}:
-            raise ValueError("cannot fit a latency model from mixed or inconsistent environments")
-    model_output_dir = os.path.join(output_dir, LATENCY_MODEL_DIR)
-    os.makedirs(model_output_dir, exist_ok=True)
-
-    if "latency_s" not in df.columns:
-        _write_skipped_latency_model_report(
-            model_output_dir,
-            static_meta,
-            "latency_s column missing",
+def _input_scale_basis(hardware_model: str, fitted_model: dict) -> dict:
+    if hardware_model == "gpu":
+        upper_tail_model = fitted_model.get("gpu_upper_tail", {})
+        upper_tail_feature_names = upper_tail_model.get(
+            "feature_names",
+            [],
         )
-        return
-
-    try:
-        model_df = _latency_model_frame(df)
-    except ValueError as exc:
-        _write_skipped_latency_model_report(
-            model_output_dir,
-            static_meta,
-            str(exc),
+        upper_tail_coefficients = upper_tail_model.get(
+            "coefficients",
+            [],
         )
-        return
+        upper_tail_report = {
+            "type": "continuous_affine_latency_tail",
+            "enabled": bool(upper_tail_model.get("enabled")),
+            "activation_rule": (
+                "enable when nested one-step-forward spline MAPE exceeds "
+                f"{LATENCY_MODEL_GPU_UPPER_TAIL_ACTIVATION_MAPE}, the "
+                "training scale span is at least "
+                f"{LATENCY_MODEL_GPU_UPPER_TAIL_MIN_SCALE_SPAN_RATIO}x, "
+                "and all fitted training-configuration slopes are positive"
+            ),
+            "continuity_rule": (
+                "spline prediction at the upper training boundary plus "
+                "the affine tail's change beyond that boundary"
+            ),
+            "feature_columns": upper_tail_feature_names,
+            "selected_feature_columns": upper_tail_model.get(
+                "selected_feature_names",
+                [],
+            ),
+            "dropped_feature_columns": upper_tail_model.get(
+                "dropped_feature_names",
+                [],
+            ),
+            "coefficients": dict(zip(
+                upper_tail_feature_names,
+                upper_tail_coefficients,
+            )),
+            "minimum_fitted_slope_s_per_scale": upper_tail_model.get(
+                "minimum_fitted_slope_s_per_scale"
+            ),
+            "training_input_scale_span_ratio": upper_tail_model.get(
+                "training_input_scale_span_ratio"
+            ),
+            "calibration": upper_tail_model.get("calibration", {}),
+        }
+        if upper_tail_model.get("reason"):
+            upper_tail_report["reason"] = upper_tail_model["reason"]
+        input_scale_basis = {
+            "type": "continuous_piecewise_linear_spline_in_log_space",
+            "knots": fitted_model["input_scale_spline_knots"],
+            "knot_rule": "all interior observed training input scales",
+            "interpolation": (
+                "piecewise linear in log(input_scale) and log(latency_s)"
+            ),
+            "lower_extrapolation": (
+                "continue the nearest boundary segment in log-log space"
+            ),
+            "upper_extrapolation": upper_tail_report,
+        }
+    else:
+        input_scale_basis = {
+            "type": "quadratic_response_surface_in_log_space",
+            "knots": [],
+            "interactions": [
+                "log_input_scale_x_log_cpu_cores",
+                "log_input_scale_x_log_mem_cap_gb",
+                "log_cpu_cores_x_log_mem_cap_gb",
+            ],
+        }
+    return input_scale_basis
 
-    if len(model_df) < 3:
-        _write_skipped_latency_model_report(
-            model_output_dir,
-            static_meta,
-            f"need at least 3 valid raw rows, got {len(model_df)}",
-        )
-        return
 
-    points = _aggregate_latency_model_points(model_df)
-    if len(points) < 3:
-        _write_skipped_latency_model_report(
-            model_output_dir,
-            static_meta,
-            f"need at least 3 unique configuration-scale cases, got {len(points)}",
-        )
-        return
-
+def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[str]]:
     model_reports = {}
     fit_predictions: dict[tuple[str, float, float, float], float] = {}
     configuration_predictions: dict[
@@ -238,75 +259,7 @@ def write_latency_model_report(
                 fitted_model["coefficients"],
             )
         }
-        if hardware_model == "gpu":
-            upper_tail_model = fitted_model.get("gpu_upper_tail", {})
-            upper_tail_feature_names = upper_tail_model.get(
-                "feature_names",
-                [],
-            )
-            upper_tail_coefficients = upper_tail_model.get(
-                "coefficients",
-                [],
-            )
-            upper_tail_report = {
-                "type": "continuous_affine_latency_tail",
-                "enabled": bool(upper_tail_model.get("enabled")),
-                "activation_rule": (
-                    "enable when nested one-step-forward spline MAPE exceeds "
-                    f"{LATENCY_MODEL_GPU_UPPER_TAIL_ACTIVATION_MAPE}, the "
-                    "training scale span is at least "
-                    f"{LATENCY_MODEL_GPU_UPPER_TAIL_MIN_SCALE_SPAN_RATIO}x, "
-                    "and all fitted training-configuration slopes are positive"
-                ),
-                "continuity_rule": (
-                    "spline prediction at the upper training boundary plus "
-                    "the affine tail's change beyond that boundary"
-                ),
-                "feature_columns": upper_tail_feature_names,
-                "selected_feature_columns": upper_tail_model.get(
-                    "selected_feature_names",
-                    [],
-                ),
-                "dropped_feature_columns": upper_tail_model.get(
-                    "dropped_feature_names",
-                    [],
-                ),
-                "coefficients": dict(zip(
-                    upper_tail_feature_names,
-                    upper_tail_coefficients,
-                )),
-                "minimum_fitted_slope_s_per_scale": upper_tail_model.get(
-                    "minimum_fitted_slope_s_per_scale"
-                ),
-                "training_input_scale_span_ratio": upper_tail_model.get(
-                    "training_input_scale_span_ratio"
-                ),
-                "calibration": upper_tail_model.get("calibration", {}),
-            }
-            if upper_tail_model.get("reason"):
-                upper_tail_report["reason"] = upper_tail_model["reason"]
-            input_scale_basis = {
-                "type": "continuous_piecewise_linear_spline_in_log_space",
-                "knots": fitted_model["input_scale_spline_knots"],
-                "knot_rule": "all interior observed training input scales",
-                "interpolation": (
-                    "piecewise linear in log(input_scale) and log(latency_s)"
-                ),
-                "lower_extrapolation": (
-                    "continue the nearest boundary segment in log-log space"
-                ),
-                "upper_extrapolation": upper_tail_report,
-            }
-        else:
-            input_scale_basis = {
-                "type": "quadratic_response_surface_in_log_space",
-                "knots": [],
-                "interactions": [
-                    "log_input_scale_x_log_cpu_cores",
-                    "log_input_scale_x_log_mem_cap_gb",
-                    "log_cpu_cores_x_log_mem_cap_gb",
-                ],
-            }
+        input_scale_basis = _input_scale_basis(hardware_model, fitted_model)
         model_reports[hardware_model] = {
             "status": model_status,
             "prediction_ready": model_status == "ok",
@@ -361,6 +314,104 @@ def write_latency_model_report(
             f"{hardware_model}: {failure}" for failure in quality_failures
         )
 
+    return model_reports, fit_predictions, configuration_predictions, scale_predictions, top_level_failures
+
+
+def _residual_rows(points: list, environment_class: str, fit_predictions: dict,
+                   configuration_predictions: dict, scale_predictions: dict) -> tuple[dict[str, object], ...]:
+    rows: list[dict[str, object]] = []
+    for case_id, row in enumerate(points):
+        key = _point_key(row)
+        actual = float(row.latency_s)
+        fitted_prediction = fit_predictions.get(key)
+        configuration_prediction = configuration_predictions.get(key)
+        scale_prediction = scale_predictions.get(key)
+        rows.append({
+            "report_schema_version": 2,
+            "environment_class": environment_class,
+            "case_id": case_id,
+            "split": (
+                "out_of_fold_test"
+                if configuration_prediction is not None
+                else "validation_unavailable"
+            ),
+            "hardware_model": row.hardware_model,
+            "cpu_cores": int(row.cpu_cores),
+            "mem_cap_gb": int(row.mem_cap_gb),
+            "gpu_mode": "on" if row.hardware_model == "gpu" else "off",
+            "input_scale": f"{float(row.input_scale):.6f}",
+            "repeat_count": int(row.repeat_count),
+            "latency_s": f"{actual:.9f}",
+            "latency_mean_s": f"{float(row.latency_mean_s):.9f}",
+            "latency_std_s": f"{float(row.latency_std_s):.9f}",
+            "fitted_predicted_latency_s": _format_optional_float(
+                fitted_prediction
+            ),
+            "fitted_residual_s": _format_optional_float(
+                None
+                if fitted_prediction is None
+                else actual - fitted_prediction
+            ),
+            "resource_config_oof_predicted_latency_s": _format_optional_float(
+                configuration_prediction
+            ),
+            "resource_config_oof_residual_s": _format_optional_float(
+                None
+                if configuration_prediction is None
+                else actual - configuration_prediction
+            ),
+            "max_scale_holdout_predicted_latency_s": _format_optional_float(
+                scale_prediction
+            ),
+            "max_scale_holdout_residual_s": _format_optional_float(
+                None if scale_prediction is None else actual - scale_prediction
+            ),
+        })
+
+    return tuple(rows)
+
+
+def build_latency_model_report(
+    df: pd.DataFrame,
+    static_meta: dict[str, object],
+) -> LatencyModelReport:
+    """Fit and validate models without creating directories or publishing artifacts."""
+    identity = recorded_identity(static_meta)
+    if "environment_class" in df:
+        environments = set(df["environment_class"].fillna("unknown"))
+        if len(environments) > 1 or not environments <= {"unknown", identity["environment_class"]}:
+            raise ValueError("cannot fit a latency model from mixed or inconsistent environments")
+
+    if "latency_s" not in df.columns:
+        return _skipped_latency_model_report(
+            static_meta,
+            "latency_s column missing",
+        )
+
+    try:
+        model_df = _latency_model_frame(df)
+    except ValueError as exc:
+        return _skipped_latency_model_report(
+            static_meta,
+            str(exc),
+        )
+
+    if len(model_df) < 3:
+        return _skipped_latency_model_report(
+            static_meta,
+            f"need at least 3 valid raw rows, got {len(model_df)}",
+        )
+
+    points = _aggregate_latency_model_points(model_df)
+    if len(points) < 3:
+        return _skipped_latency_model_report(
+            static_meta,
+            f"need at least 3 unique configuration-scale cases, got {len(points)}",
+        )
+
+    (model_reports, fit_predictions, configuration_predictions,
+     scale_predictions, top_level_failures) = _fit_hardware_reports(points)
+
     if not fit_predictions:
         status = "skipped"
     elif any(
@@ -383,60 +434,8 @@ def write_latency_model_report(
             [predictions[_point_key(row)] for row in predicted_rows],
         )
 
-    residuals_path = os.path.join(
-        model_output_dir,
-        LATENCY_MODEL_RESIDUALS,
-    )
-    with open(residuals_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=LATENCY_MODEL_RESIDUAL_FIELDS)
-        writer.writeheader()
-        for case_id, row in enumerate(points):
-            key = _point_key(row)
-            actual = float(row.latency_s)
-            fitted_prediction = fit_predictions.get(key)
-            configuration_prediction = configuration_predictions.get(key)
-            scale_prediction = scale_predictions.get(key)
-            writer.writerow({
-                "report_schema_version": 2,
-                "environment_class": identity["environment_class"],
-                "case_id": case_id,
-                "split": (
-                    "out_of_fold_test"
-                    if configuration_prediction is not None
-                    else "validation_unavailable"
-                ),
-                "hardware_model": row.hardware_model,
-                "cpu_cores": int(row.cpu_cores),
-                "mem_cap_gb": int(row.mem_cap_gb),
-                "gpu_mode": "on" if row.hardware_model == "gpu" else "off",
-                "input_scale": f"{float(row.input_scale):.6f}",
-                "repeat_count": int(row.repeat_count),
-                "latency_s": f"{actual:.9f}",
-                "latency_mean_s": f"{float(row.latency_mean_s):.9f}",
-                "latency_std_s": f"{float(row.latency_std_s):.9f}",
-                "fitted_predicted_latency_s": _format_optional_float(
-                    fitted_prediction
-                ),
-                "fitted_residual_s": _format_optional_float(
-                    None
-                    if fitted_prediction is None
-                    else actual - fitted_prediction
-                ),
-                "resource_config_oof_predicted_latency_s": _format_optional_float(
-                    configuration_prediction
-                ),
-                "resource_config_oof_residual_s": _format_optional_float(
-                    None
-                    if configuration_prediction is None
-                    else actual - configuration_prediction
-                ),
-                "max_scale_holdout_predicted_latency_s": _format_optional_float(
-                    scale_prediction
-                ),
-                "max_scale_holdout_residual_s": _format_optional_float(
-                    None if scale_prediction is None else actual - scale_prediction
-                ),
-            })
+    residuals = _residual_rows(points, identity["environment_class"], fit_predictions,
+                               configuration_predictions, scale_predictions)
 
     fit_metrics = metrics_for_predictions(fit_predictions)
     configuration_metrics = metrics_for_predictions(configuration_predictions)
@@ -547,13 +546,24 @@ def write_latency_model_report(
             "one median-aggregated hardware/cpu/memory/input-scale case per row"
         ),
     }
-    report_path = os.path.join(
-        model_output_dir,
-        LATENCY_MODEL_REPORT,
-    )
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(_clean_json_value(report), f, ensure_ascii=True, indent=2)
-        f.write("\n")
+    return LatencyModelReport(_clean_json_value(report), residuals)
 
+
+def write_latency_model_report(df: pd.DataFrame, static_meta: dict[str, object], output_dir: str) -> None:
+    """Publish the existing JSON/CSV protocol after all calculation has completed."""
+    result = build_latency_model_report(df, static_meta)
+    model_output_dir = os.path.join(output_dir, LATENCY_MODEL_DIR)
+    os.makedirs(model_output_dir, exist_ok=True)
+    residuals_path = os.path.join(model_output_dir, LATENCY_MODEL_RESIDUALS)
+    # A skipped calculation still replaces stale residuals with a header-only CSV.
+    with open(residuals_path, "w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=LATENCY_MODEL_RESIDUAL_FIELDS)
+        writer.writeheader()
+        writer.writerows(result.residuals)
+    report_path = os.path.join(model_output_dir, LATENCY_MODEL_REPORT)
+    with open(report_path, "w", encoding="utf-8") as stream:
+        json.dump(result.report, stream, ensure_ascii=True, indent=2)
+        stream.write("\n")
     print(f"[saved] {report_path}")
-    print(f"[saved] {residuals_path}")
+    if result.residuals:
+        print(f"[saved] {residuals_path}")
