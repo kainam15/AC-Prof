@@ -146,14 +146,14 @@ class TestTuiEnvironment:
             assert (token.password)
             token.focus()
             await pilot.press(*'hf_testonly')
-            app.screen.query_one('#env-hf-endpoint', Input).value = 'https://hub.example'
+            assert not app.screen.query('#env-hf-endpoint, #env-http-proxy, #env-https-proxy, #env-all-proxy, #env-no-proxy, #env-hf-download-mode')
             assert (await pilot.click('#save-environment-settings'))
             await pilot.pause()
             env = {}
             load_project_env(self.root, environ=env)
             assert (env['HF_TOKEN']) == ('hf_testonly')
             assert (os.environ['HF_TOKEN']) == ('hf_testonly')
-            assert (env['HF_ENDPOINT']) == ('https://hub.example')
+            assert 'HTTP_PROXY' not in env and 'HTTPS_PROXY' not in env
             assert not ((self.root / 'tui.json').exists())
             status = app.screen.query_one('#environment-status', Static).content
             assert isinstance(status, str)

@@ -46,7 +46,7 @@ def test_download_summary_formats_sizes_without_mutating_report(download_report)
     ):
         assert expected in summary
     assert download_fields(download_report) == {
-        "预计下载": "708 MB", "可用空间": "33.0 GB", "下载源": "https://hf-mirror.com",
+        "预计下载": "708 MB", "可用空间": "33.0 GB", "模型来源": "huggingface",
     }
     assert download_report == original
 
@@ -57,7 +57,8 @@ def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
     report = {"expected_download_bytes": None, "direct_download_bytes": None, "proxy_download_bytes": 0}
     summary = download_summary(report, lambda value: translate(value, "en"))
     assert "Expected download: Unknown" in summary
-    assert "DIRECT: Unknown | PROXY: 0 B" in summary
+    assert "DIRECT" not in summary and "PROXY" not in summary
+    assert "Using the system network environment" in summary
     assert "Effective download budget: Unknown" in summary
     assert "Docker storage: Unknown" in summary
     report["max_download_bytes"] = None
@@ -104,6 +105,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 for ancestor in budget.ancestors:
                     if isinstance(ancestor, Collapsible):
                         ancestor.collapsed = False
+                await pilot.pause()
                 budget.focus()
                 await pilot.pause()
                 assert (await pilot.click(budget))
@@ -119,7 +121,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 restored, warning = load_settings(settings_path, project)
                 assert not (warning)
                 assert (restored.run_defaults.max_download) == ("5GB")
-                assert (restored.run_defaults.download_mode) == ("mirror-only")
+                assert (restored.run_defaults.download_mode) == ("auto")
                 button = app.query_one("#open-model-store", Button)
                 button.focus()
                 await pilot.pause()

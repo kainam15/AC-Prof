@@ -27,10 +27,11 @@ class ModelCandidate:
     report: Path | None = None
     history_status: str = ""
     record: ExperimentRecord | None = None
+    model_source: str = "huggingface"
 
     @property
     def search_text(self) -> str:
-        return ' '.join((self.model_id, self.revision, self.status, self.reason,
+        return ' '.join((self.model_id, self.model_source, self.revision, self.status, self.reason,
                          json.dumps(self.conditions, ensure_ascii=False))).casefold()
 
 
@@ -104,7 +105,11 @@ def candidate_from_record(record: ExperimentRecord, current: dict) -> ModelCandi
     detail = json.dumps({'conditions': conditions, 'current_conditions': current, 'condition_changes': reasons,
         'run_id': record.run_id, 'aliases': [str(path) for path in record.aliases],
         'validation': record.validation, 'failures': record.failures, 'status': record.status}, ensure_ascii=False, indent=2)
-    return ModelCandidate(record.model_id, record.revision, status, reason, conditions, detail, record.directory, history_status=history_status, record=record)
+    source = record.metadata.get('model_source', record.state.get('runtime', {}).get('task', {}).get('model_source', 'huggingface'))
+    if source != current.get('model_source', 'huggingface'):
+        status, reason = 'revalidate', reason + '; model_source: changed'
+    return ModelCandidate(record.model_id, record.revision, status, reason, conditions, detail, record.directory,
+                          history_status=history_status, record=record, model_source=source)
 
 
 def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: False,
@@ -133,13 +138,14 @@ def cached_candidates(root: Path, *, cancelled: Callable[[], bool] = lambda: Fal
             plan = read_entry(path.parent.name, root)
             if not plan or not all(source.cache_status == 'hit' for source in model_sources(plan, root)):
                 continue
-            identity = (plan['model_id'], plan['model_revision'])
+            identity = (plan['model_id'], plan['model_revision'], plan.get('source', 'huggingface'))
             if identity in identities or not pinned_revision(identity[1]):
                 continue
             identities.add(identity)
             detail = json.dumps({'cache_entry': str(path.parent), 'plan_sha256': plan.get('plan_sha256'),
-                'model_id': identity[0], 'revision': identity[1], 'inference_verified': False}, ensure_ascii=False, indent=2)
-            values.append(ModelCandidate(*identity, 'cached_unverified', 'verified cache entry; runtime validation required', {}, detail))
+                'model_id': identity[0], 'revision': identity[1], 'source': identity[2], 'inference_verified': False}, ensure_ascii=False, indent=2)
+            values.append(ModelCandidate(*identity[:2], 'cached_unverified', 'verified cache entry; runtime validation required', {}, detail,
+                                         model_source=identity[2]))
         except (ValueError, OSError, KeyError, TypeError) as exc:
             warnings.append(f'{path.parent.name}: {exc}')
     return tuple(values), tuple(warnings)
@@ -218,7 +224,7 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
     options = {name: getattr(config, name) for name in ('cpuset_cpus', 'input_scales', 'input_scale_policy',
                'model_spec', 'workload_spec', 'request_timeout_seconds')}
     options['measurement_environment'] = measurement_environment()
-    current = {'revision': revision, 'runtime_profile': None, 'runtime_environment': None,
+    current = {'revision': revision, 'model_source': config.model_source, 'runtime_profile': None, 'runtime_environment': None,
         'device': context['gpu_uuid'] if 'on' in config.gpus.split(',') else (
             'cpu:' + host['machine_id_sha256'] if host.get('machine_id_sha256') else None),
         'cpus': config.cpus, 'mems': config.mems, 'gpus': config.gpus, 'batch_size': config.batch_size,
@@ -257,6 +263,6 @@ def model_choice(candidate: ModelCandidate):
     status = MODEL_STATUS_LABELS[candidate.status]
     if candidate.history_status and candidate.history_status != candidate.status:
         status = join_messages(' · ', (message(status), message(MODEL_STATUS_LABELS[candidate.history_status])))
-    return PickerChoice(candidate, (candidate.model_id, candidate.revision[:12], status,
+    return PickerChoice(candidate, (f'{candidate.model_id} ({candidate.model_source})', candidate.revision[:12], status,
         str(candidate.conditions.get('device') or 'unknown')), candidate.reason + '\n' + candidate.detail, candidate.search_text,
         frozenset(actions))

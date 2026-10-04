@@ -133,11 +133,15 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
     if defaults_values is not None:
         if not isinstance(defaults_values, dict):
             raise ValueError(message('实验默认配置必须是 JSON 对象'))
+        defaults_values = {key: value for key, value in defaults_values.items()
+                           if key.lower() not in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}}
         if "allow_cgroup_v1" in defaults_values:
             raise UnsupportedSettingsError(
                 "设置包含已删除的 allow_cgroup_v1；请归档旧设置文件后重新配置。"
             )
         _validate_field_types(defaults_values, RunConfig, message('实验默认配置'))
+        if defaults_values.get("download_mode") in {"mirror-only", "mirror-preferred", "official"}:
+            defaults_values = {**defaults_values, "download_mode": "auto"}
         defaults = RunConfig(**defaults_values)
     # Ignore unknown top-level keys; only recognized fields can be saved again.
     return TuiSettings(

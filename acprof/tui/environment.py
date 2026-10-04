@@ -23,14 +23,7 @@ from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
 
 FIELDS = (
     ('HF_TOKEN', 'Hugging Face Token', True, 'hf_…'),
-    ('HF_ENDPOINT', 'Hugging Face 镜像源', False, 'https://hf-mirror.com'),
-    ('HF_FALLBACK_ENDPOINTS', '备用镜像源', False, 'https://huggingface.co'),
-    ('HTTP_PROXY', 'HTTP_PROXY', True, 'http://127.0.0.1:7890'),
-    ('HTTPS_PROXY', 'HTTPS_PROXY', True, 'http://127.0.0.1:7890'),
-    ('ALL_PROXY', 'ALL_PROXY', True, 'socks5://127.0.0.1:7890'),
-    ('NO_PROXY', 'NO_PROXY', False, 'localhost,127.0.0.1,::1'),
     ('ACPROF_WECOM_WEBHOOK_URL', '企业微信 Webhook', True, 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…'),
-    ('HF_DOWNLOAD_MODE', '下载源模式', False, 'mirror-only'),
     ('ACPROF_MAX_DOWNLOAD', '下载预算', False, '5GB'),
     ('ACPROF_MODEL_STORE', 'Model Store 路径', False, '~/.cache/acprof/model-store'),
     ('ACPROF_MODEL_STORE_MAX', 'Model Store 容量上限', False, '100GB'),
@@ -113,18 +106,16 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             with TabbedContent(id='environment-tabs'):
                 with TabPane(tr('连接配置'), id='connections-tab'):
                     with VerticalScroll(classes='environment-scroll'):
-                        yield Static(tr('Token 留空可使用 hf login；默认 mirror-only。备用地址只适用于 mirror-preferred。'),
+                        yield Static(tr('Token 留空可使用 hf login。下载策略：自动。使用系统网络环境。'),
                                      classes='environment-hint', markup=False)
-                        yield from self._fields(FIELDS[:3])
-                        yield from self._fields(FIELDS[8:])
-                        with Collapsible(title=tr('代理设置'), collapsed=True):
-                            yield Static(tr('留空关闭对应代理。NO_PROXY 决定哪些地址直连；本机推理通常需要 localhost、127.0.0.1。'),
-                                         classes='environment-hint', markup=False)
-                            yield from self._fields(FIELDS[3:7])
+                        yield from self._fields(FIELDS[:1])
+                        yield from self._fields(FIELDS[2:4])
+                        with Collapsible(title=tr('高级详情'), collapsed=True):
+                            yield from self._fields(FIELDS[4:])
                         with Collapsible(title=tr('企业微信通知'), collapsed=True):
                             yield Static(tr('配置 Webhook 后采集默认发送通知；留空关闭。保存和检查不会发送消息。'),
                                          classes='environment-hint', markup=False)
-                            yield from self._fields(FIELDS[7:8])
+                            yield from self._fields(FIELDS[1:2])
                         yield Static(tr('保存时备份原文件并设置为仅当前用户可读写。重新启动时，显式导出的环境变量仍优先于文件。'),
                                      classes='environment-hint', markup=False)
                 with TabPane(tr('采集权限'), id='permissions-tab'):

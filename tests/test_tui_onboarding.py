@@ -34,9 +34,11 @@ def test_first_launch_without_saved_configuration_is_a_small_smoke():
         app = AcprofTui(settings_path=Path(temporary) / "settings.json")
         assert (app.initial_config) == (RunConfig.smoke())
 
-async def test_changing_presets_preserves_effective_download_constraints():
+@pytest.mark.parametrize("legacy_mode", ("mirror-only", "mirror-preferred", "official"))
+async def test_changing_presets_preserves_effective_download_constraints(legacy_mode):
     with tempfile.TemporaryDirectory() as temporary:
-        config = replace(RunConfig.smoke("demo/model"), max_download="5GB", download_mode="official",
+        config = replace(RunConfig.smoke("demo/model"), model_source="modelscope",
+            max_download="5GB", download_mode=legacy_mode, model_store_max="10GB",
             model_store=str(Path(temporary) / "cache"), output_dir=str(Path(temporary) / "results"))
         app = AcprofTui(config, settings_path=Path(temporary) / "settings.json")
         async with app.run_test(size=(80, 24)) as pilot:
@@ -46,11 +48,17 @@ async def test_changing_presets_preserves_effective_download_constraints():
                 await pilot.pause()
                 effective = app._collect_config()
                 assert (effective.max_download) == ("5GB")
-                assert (effective.download_mode) == ("official")
+                assert effective.download_mode == "auto"
+                assert effective.model_source == "modelscope"
                 assert (app.query_one("#model-store", Input).value) == (config.model_store)
+                assert effective.model_store == config.model_store
+                assert effective.model_store_max == "10GB"
                 assert (effective.output_dir) == (config.output_dir)
                 command = build_run_command(effective, project_dir=Path.cwd())
-                assert (command[command.index("--max-download") + 1]) == ("5GB")
+                for option, value in (("--download-mode", "auto"), ("--model-source", "modelscope"),
+                                      ("--max-download", "5GB"), ("--model-store-max", "10GB"),
+                                      ("--model-store", config.model_store), ("--output-dir", config.output_dir)):
+                    assert command[command.index(option) + 1] == value
 
 async def test_selecting_smoke_builds_basic_cpu_command_and_preserves_notifications():
     with tempfile.TemporaryDirectory() as temporary:

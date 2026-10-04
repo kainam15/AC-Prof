@@ -208,6 +208,10 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                             tooltip="自由输入模型 ID；F4 搜索本地候选与验证记录。",
                         )), field_id="model")
                         yield app._localized_widget(Button("模型候选", id="model-candidates"))
+                    yield app._localized_widget(Label("模型来源"))
+                    yield ConfigField(app._localized_select((("Hugging Face", "huggingface"),
+                        ("ModelScope", "modelscope")), value=app.initial_config.model_source, allow_blank=False,
+                        id="model-source", classes="config-control"), field_id="model-source")
                     yield app._localized_widget(Label("输出目录"))
                     yield ConfigField(app._localized_widget(Input(
                         value=app.initial_config.output_dir,
@@ -400,21 +404,21 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
 
                 with Collapsible(title=app.tr("下载与 Model Store"), collapsed=True):
                     with Grid(classes="form-grid"):
-                        yield app._localized_widget(Label("下载源模式"))
-                        yield ConfigField(app._localized_select((("mirror-only", "mirror-only"),
-                            ("mirror-preferred", "mirror-preferred"), ("official", "official")),
-                            value=app.initial_config.download_mode, allow_blank=False,
-                            id="download-mode", classes="config-control"), field_id="download-mode")
                         for key, label, placeholder in (
                             ("max-download", "下载预算", "5GB；留空不设上限"),
                             ("model-store", "Model Store 路径", "留空使用用户缓存目录"),
-                            ("model-store-max", "Model Store 容量上限", "100GB；留空不设上限"),
                         ):
                             yield app._localized_widget(Label(label))
                             yield ConfigField(app._localized_widget(Input(value=getattr(app.initial_config, key.replace("-", "_")),
                                 placeholder=placeholder, id=key, classes="config-control")), field_id=key)
-                    yield app._localized_widget(Static("启动前显示流量与磁盘预检；预算不明或超限会停止。", markup=False))
-                    yield Static("", id="network-download-summary", markup=False)
+                        yield app._localized_widget(Label("预计下载大小"))
+                        yield app._localized_widget(Static("待解析", id="download-estimate", markup=False))
+                    yield app._localized_widget(Static("下载策略：自动。使用系统网络环境。", markup=False))
+                    with Collapsible(title=app.tr("高级详情"), collapsed=True):
+                        yield app._localized_widget(Label("Model Store 容量上限"))
+                        yield ConfigField(app._localized_widget(Input(value=app.initial_config.model_store_max,
+                            placeholder="100GB；留空不设上限", id="model-store-max", classes="config-control")), field_id="model-store-max")
+                        yield Static("", id="network-download-summary", markup=False)
                     yield app._localized_widget(Button("Model Store 占用与清理", id="open-model-store", classes="config-control"))
 
                 with Horizontal(classes="checkbox-row"):

@@ -149,6 +149,7 @@ def build_probe_command(
     ]
     for option, value in (
         ("--revision", config.revision),
+        ("--model-source", config.model_source),
         ("--task", config.task),
         ("--task-family", config.task_family),
         ("--backend", config.backend),

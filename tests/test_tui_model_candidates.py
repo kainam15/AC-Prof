@@ -7,10 +7,10 @@ from unittest.mock import patch
 import model_candidate_fixtures as candidate_fixture
 import pytest
 from rich.text import Text
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
 
-from acprof.experiment import RunConfig
+from acprof.experiment import RunConfig, build_run_command
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.model_candidates import record_conditions
 from acprof.tui.settings import TuiSettings, save_settings
@@ -67,6 +67,40 @@ class TestModelInput:
                 await pilot.pause()
                 assert (app._collect_config().model) == ('unlisted/new-model')
                 assert (app._collect_config().revision) == ('')
+
+    @pytest.mark.parametrize("manual_revision", ("", "user-branch"))
+    async def test_changing_source_clears_only_the_candidate_revision(self, manual_revision):
+        record = self.fixture.recorded()
+        root = self.fixture.fixture.root
+        config = replace(RunConfig.smoke(record.model_id), output_dir=str(root), model_store=str(root / 'store'))
+        app = AcprofTui(config, settings_path=root / 'settings.json')
+        with patch('acprof.tui.model_candidates.current_context', return_value={'warnings': []}), \
+             patch('acprof.tui.model_candidates.current_conditions', return_value=record_conditions(record)):
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                assert await pilot.click('#model-candidates')
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                assert await pilot.click('#picker-use')
+                await pilot.pause()
+                assert app.query_one('#revision', Input).value == record.revision
+                if manual_revision:
+                    app.query_one('#revision', Input).value = manual_revision
+                    await pilot.pause()
+                source = app.query_one('#model-source', Select)
+                source.focus()
+                await pilot.press('enter', 'end', 'enter')
+                await pilot.pause()
+                effective = app._collect_config()
+                assert effective.model == record.model_id
+                assert effective.model_source == 'modelscope'
+                assert effective.revision == manual_revision
+                command = build_run_command(effective, project_dir=root)
+                assert command[command.index('--model-source') + 1] == 'modelscope'
+                if manual_revision:
+                    assert command[command.index('--revision') + 1] == manual_revision
+                else:
+                    assert '--revision' not in command
 
     async def test_measurement_blocks_candidate_io(self):
         root = self.fixture.fixture.root

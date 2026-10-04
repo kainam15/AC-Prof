@@ -205,6 +205,7 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         self._environment_open = False
         self._preparation_screen = None
         self._preparation_cancelled = False
+        self._pending_source_change = None
         self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
         self._form_ready = False
         self._config_issues = ()
@@ -1438,6 +1439,14 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         if self._preparation_cancelled and not self._is_busy():
             self._activate_tab("run-tab")
             self._preparation_cancelled = False
+            if self._pending_source_change is not None:
+                from uuid import uuid4
+                change, self._pending_source_change = self._pending_source_change, None
+                config = self._active_run_config or self.initial_config
+                self._apply_config(replace(config, model=change["model_id"], revision=change["revision"],
+                    model_source="modelscope", download_mode="auto", task="", task_family="", backend="",
+                    model_spec="", resume=False, skip_build=False,
+                    output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
         if current_csv:
             self._update_result_summary(current_csv, notify=False)
         self._sync_image_refresh_timer()
@@ -1521,6 +1530,8 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         report = json.loads(line.split(" ", 1)[1])
         from acprof.tui.downloads import download_summary
         self.query_one("#network-download-summary", Static).update(download_summary(report, self.tr))
+        from acprof.tui.presentation import format_bytes
+        self.query_one("#download-estimate", Static).update(format_bytes(report.get("expected_download_bytes")))
 
     def _network_download_report(self, line: str) -> None:
         import json
@@ -1588,6 +1599,9 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
     def _preparation_answered(self, result) -> None:
         from acprof.preparation_events import encode_reply
         pending = self._preparation_request
+        if result["action"] == "switch-source":
+            self._pending_source_change = result
+            result = {"action": "cancel"}
         self._preparation_request = None
         if result["action"] == "cancel":
             self._preparation_cancelled = True

@@ -22,7 +22,7 @@ class RunEstimate:
 
 def input_identity(config: RunConfig) -> tuple:
     return tuple(getattr(config, name) for name in (
-        "model", "task", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
+        "model", "model_source", "task", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
         "input_scales", "input_scale_policy",
     ))
 
@@ -86,6 +86,7 @@ def preparation_details(config: RunConfig, planned: dict | None = None) -> str:
     return join_messages("\n", (plan_summary(config, planned),
         message("输入：{0} {1}", scales, input_unit(config, planned)),
         message("预计下载：待解析；权重传输前显示实际计划与有效预算。"),
-        message("缓存：{0} · 下载源：{1}", cache, config.download_mode),
+        message("缓存：{0} · 模型来源：{1}", cache, config.model_source),
+        message("下载策略：自动。使用系统网络环境。"),
         message("时间为假设估计；不包含下载、构建、服务启动和额外验证。"),
         message("续跑只接受原实验参数；更改参数需要新的输出目录。") if config.resume else ""))

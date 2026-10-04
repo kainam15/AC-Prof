@@ -36,7 +36,7 @@ INPUT_FIELDS = {
 }
 SELECT_FIELDS = {
     "input-scale-policy": "input_scale_policy",
-    "download-mode": "download_mode",
+    "model-source": "model_source",
     "task-family": "task_family",
     "gpus": "gpus",
     "compute-profile-tool": "compute_profile_tool",

@@ -12,7 +12,7 @@ def download_fields(report: dict) -> dict[str, str]:
     return {
         "预计下载": format_bytes(report.get("expected_download_bytes")),
         "可用空间": format_bytes(report.get("disk", {}).get("free_bytes")),
-        "下载源": report.get("model", {}).get("endpoint") or UNKNOWN,
+        "模型来源": report.get("model", {}).get("source") or "huggingface",
     }
 
 
@@ -27,8 +27,7 @@ def download_summary(report: dict, translate: Callable[[str], str]) -> str:
         message("预计下载：{0}", format_bytes(report.get("expected_download_bytes"))),
         message("有效下载预算：{0}", budget),
         message("Model Store 路径：{0}", report.get("model_store_path", UNKNOWN)),
-        message("DIRECT: {0} | PROXY: {1}", format_bytes(report.get("direct_download_bytes")),
-                format_bytes(report.get("proxy_download_bytes"))),
+        message("使用系统网络环境"),
         message("模型总量：{0} | 已缓存：{1}", format_bytes(model.get("total_bytes")),
                 format_bytes(model.get("cached_bytes"))),
         message("下载源：{0}", model.get("endpoint", UNKNOWN)),
@@ -42,7 +41,11 @@ def download_summary(report: dict, translate: Callable[[str], str]) -> str:
     ]
     if docker_details:
         lines.append(message("Docker 存储详情：{0}", json.dumps(format_byte_fields(docker_details, translate), ensure_ascii=False)))
-    lines.append(message("DIRECT/PROXY 是来源策略预期，尚未验证实际网络路由。"))
+    lines.append(message("公网出口由系统或上游网络管理，AC-Prof 不判断 VPN。"))
+    if report.get("sources"):
+        lines.append(json.dumps(report["sources"], ensure_ascii=False, indent=2))
+    if report.get("network_probe"):
+        lines.append(json.dumps(report["network_probe"], ensure_ascii=False, indent=2))
     return "\n".join(translate(line) for line in lines)
 
 

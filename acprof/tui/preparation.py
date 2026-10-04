@@ -10,6 +10,7 @@ from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
 from acprof.preparation_events import encode_reply
 from acprof.tui.downloads import download_fields, download_summary
+from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
 
@@ -29,7 +30,17 @@ def phase_summary(snapshot):
                                                          snapshot.measurement_status)))
 
 
+def download_failure(request):
+    return request.get("download_error") or request.get("model_error", {}).get("download_error")
+
+
 def failure_text(request, stage, tr):
+    if failure := download_failure(request):
+        last = failure["attempts"][-1]
+        return "\n".join((tr("无法获取 Hugging Face 模型"),
+            tr(message("失败阶段：{0} / {1}", last["stage"], last["reason"])),
+            tr(message("最终失败 host：{0}", last["host"])),
+            tr("请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。")))
     if request.get("model_error"):
         failure = ModelLookupError(**request["model_error"])
         return f"{tr(failure.summary)}\n{tr(failure.hint)}"
@@ -132,6 +143,9 @@ class PreparationScreen(ModalScreen):
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):
+                        if failure := download_failure(request):
+                            import json
+                            yield Static(json.dumps(failure, ensure_ascii=False, indent=2), markup=False)
                         yield Static(request.get("detail", ""), id="preparation-traceback", markup=False)
                         if self.event["stage"] == "runtime":
                             yield Button(tr("重新准备环境"), id="preparation-rebuild")
@@ -148,6 +162,9 @@ class PreparationScreen(ModalScreen):
                                  disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
                     yield Button(tr("重试"), id="preparation-continue", variant="primary")
+                    yield Button(tr("查看诊断"), id="preparation-show-diagnostics")
+                    if download_failure(request):
+                        yield Button(tr("改用 ModelScope"), id="preparation-modelscope")
 
     def send(self, result):
         if self.sending or self._close_requested:
@@ -192,3 +209,53 @@ class PreparationScreen(ModalScreen):
     @on(Button.Pressed, "#preparation-rebuild")
     def rebuild(self):
         self.send({"action": "rebuild"})
+
+    @on(Button.Pressed, "#preparation-show-diagnostics")
+    def show_diagnostics(self):
+        self.query_one("#preparation-diagnostics", Collapsible).collapsed = False
+
+    @on(Button.Pressed, "#preparation-modelscope")
+    def switch_modelscope(self):
+        self.app.push_screen(ModelSourceScreen(), lambda result: self.send(result) if result else None)
+
+
+class ModelSourceScreen(ModalScreen):
+    """A source change requires a new, user-supplied identity and confirmation."""
+    BINDINGS = [("escape", "cancel", "取消")]
+    DEFAULT_CSS = """
+    ModelSourceScreen { align: center middle; }
+    #source-dialog { width: 90%; max-width: 90; height: auto; max-height: 90%;
+        border: round $accent; background: $surface; padding: 1; }
+    #source-dialog Static, #source-dialog Label { height: auto; }
+    #source-actions { height: 3; }
+    """
+
+    def compose(self):
+        tr = self.app.tr
+        with Vertical(id="source-dialog"):
+            yield Label(tr("改用 ModelScope"))
+            yield Static(tr("HF 与 ModelScope 是不同来源；同名不代表相同权重。请填写 ModelScope 模型 ID，确认后返回配置并创建新实验。"), markup=False)
+            yield Input(placeholder="namespace/model", id="source-model-id")
+            yield Input(placeholder=tr("revision（留空使用默认分支）"), id="source-revision")
+            yield Static("", id="source-error", markup=False)
+            with Horizontal(id="source-actions"):
+                yield Button(tr("取消"), id="source-cancel")
+                yield Button(tr("确认切换来源"), id="source-confirm", variant="primary")
+
+    @on(Button.Pressed, "#source-confirm")
+    def confirm(self):
+        from huggingface_hub.utils import validate_repo_id
+        model_id = self.query_one("#source-model-id", Input).value.strip()
+        revision = self.query_one("#source-revision", Input).value.strip()
+        try:
+            validate_repo_id(model_id)
+            if any(char.isspace() for char in revision):
+                raise ValueError("invalid revision")
+        except ValueError as exc:
+            self.query_one("#source-error", Static).update(str(exc))
+            return
+        self.dismiss({"action": "switch-source", "model_id": model_id, "revision": revision})
+
+    @on(Button.Pressed, "#source-cancel")
+    def action_cancel(self):
+        self.dismiss(None)

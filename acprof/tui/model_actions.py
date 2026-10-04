@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from textual import on
 from textual.message_pump import MessagePump
 from textual.suggester import SuggestFromList
-from textual.widgets import Button
+from textual.widgets import Button, Select
 
 from acprof.experiment import RunConfigError
 from acprof.messages import message
@@ -89,8 +89,9 @@ class ModelActions(MessagePump):
         self.query_one('#model', Input).suggester = SuggestFromList(sorted(models), case_sensitive=False)
         action, candidate = choice
         if action == 'use':
-            self._candidate_pin = (candidate.model_id, candidate.revision)
+            self._candidate_pin = (candidate.model_id, candidate.model_source, candidate.revision)
             self.query_one('#model', Input).value = candidate.model_id
+            self.query_one('#model-source', Select).value = candidate.model_source
             self.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
             self._refresh_command_preview()
             self.notify(message('模型候选已填入；开始前仍会执行当前条件验证。{0}', candidate.reason))
@@ -101,9 +102,10 @@ class ModelActions(MessagePump):
             self._open_report(str(candidate.report))
 
     @on(Input.Changed, '#model')
-    def candidate_model_changed(self: AcprofTui, event: Input.Changed) -> None:
+    @on(Select.Changed, '#model-source')
+    def candidate_identity_changed(self: AcprofTui, event: Input.Changed | Select.Changed) -> None:
         selected = getattr(self, '_candidate_pin', None)
-        if selected and event.value != selected[0]:
-            if self._input('revision') == selected[1]:
+        if selected and (self._input('model'), self._select('model-source')) != selected[:2]:
+            if self._input('revision') == selected[2]:
                 self.query_one('#revision', Input).value = ''
             self._candidate_pin = None
