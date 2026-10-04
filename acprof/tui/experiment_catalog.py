@@ -15,6 +15,7 @@ from uuid import uuid4
 from acprof.artifact_layout import ArtifactLayout
 from acprof.experiment import RunConfig
 from acprof.installation import cli_command
+from acprof.run_args import flatten_run_options
 
 MAX_JSON_BYTES = 4 * 1024 * 1024
 MAX_DUPLICATE_BYTES = 32 * 1024 * 1024
@@ -109,7 +110,7 @@ def _record(directory: Path, warnings: list[str]) -> ExperimentRecord:
     run_id = state.get('run_id')
     issues = ('unsupported_run_state',) if state and state.get('schema_version') != 1 else ()
     return ExperimentRecord(directory, (directory,), run_id if isinstance(run_id, str) and run_id else None,
-        str(metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or 'unknown'),
+        str(metadata.get('model_name') or metadata.get('model_id') or task.get('model_id') or resolution.get('model_id') or options.get('model') or 'unknown'),
         str(metadata.get('model_revision') or task.get('model_revision') or resolution.get('model_revision') or 'unknown'),
         str(metadata.get('runtime_profile_id') or task.get('runtime_profile_id') or resolution.get('runtime_profile') or 'unknown'),
         str(state.get('created_at') or metadata.get('created_at') or 'unknown'),
@@ -215,10 +216,11 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
 def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     if not record.options or record.issues:
         raise ValueError('frozen configuration unavailable: ' + ', '.join(record.issues))
-    config = RunConfig.from_namespace(SimpleNamespace(**record.options))
+    options = flatten_run_options(record.options)
+    config = RunConfig.from_namespace(SimpleNamespace(**options))
     explicit = {item.name for item in fields(RunConfig)}
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
-    extra = {name: value for name, value in record.options.items() if name not in explicit | derived}
+    extra = {name: value for name, value in options.items() if name not in explicit | derived}
     config = replace(config, extra_options=extra)
     from acprof.model_evidence import pinned_revision
     if reuse and pinned_revision(record.revision):
@@ -239,7 +241,7 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
         raise ValueError('experiment changed since discovery; refresh before resuming')
     from acprof.run_args import arguments_from_options
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
-    options = {name: value for name, value in record.options.items()
+    options = {name: value for name, value in flatten_run_options(record.options).items()
                if name not in derived | {'resume', 'output_dir', 'notify', 'skip_build'}}
     arguments = arguments_from_options(options)
     arguments.extend(('--resume', '--output-dir', str(record.directory.parent)))

@@ -20,6 +20,7 @@ from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, message
 from acprof.platform import detect_environment
 from acprof.result_csv import expected_measurements, read_result_csv
+from acprof.run_args import flatten_run_options
 from acprof.source_identity import measurement_sources, source_fingerprint
 
 RUN_STATE_NAME = "run_state.json"
@@ -71,7 +72,7 @@ def host_identity(project_dir: str | Path) -> dict:
 def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
     ignored = {"resume", "skip_build", "output_dir", "notify"}
-    options = {name: value for name, value in vars(args).items() if name not in ignored}
+    options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
     if options.get("revision") is None:
         options.pop("revision", None)
     if options.get("input_scale_policy", "auto") == "auto":
@@ -193,8 +194,8 @@ class RunState:
             self.lock.__enter__()
             if resume:
                 self.data = load_run_state(self.directory)
-                previous_options = {"profiling_mode": "full", **self.data.get("options", {})}
-                current_options = {"profiling_mode": "full", **options}
+                previous_options = {"profiling_mode": "full", **flatten_run_options(self.data.get("options", {}))}
+                current_options = {"profiling_mode": "full", **flatten_run_options(options)}
                 if previous_options != current_options:
                     raise RunStateError("恢复参数与原实验不一致；请使用原命令加 --resume，或选择新输出目录")
                 if self.data.get("host") != host_identity(project_dir):

@@ -304,6 +304,22 @@ Examples:
     return parser
 
 
+def flatten_run_options(options: dict) -> dict:
+    """Recover the public fields from saved RunConfig containers without losing values."""
+    flattened = dict(options)
+    extra = flattened.pop("extra_options", {})
+    if not isinstance(extra, dict):
+        raise ValueError("invalid frozen extra_options: expected an object")
+    # Old experiment states include this internal form container. Validate its
+    # public contents before flattening; never silently resolve contradictory data.
+    arguments_from_options(extra)
+    for name, value in extra.items():
+        if name in flattened and flattened[name] != value:
+            raise ValueError(f"conflicting frozen option: {name}")
+        flattened[name] = value
+    return flattened
+
+
 def arguments_from_options(options: dict) -> list[str]:
     """Serialize recorded public options through the authoritative parser declarations."""
     actions: dict[str, list] = {}
