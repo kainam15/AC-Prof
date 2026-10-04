@@ -382,7 +382,7 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 | --- | --- | --- |
 | `--sniff-iface` | `docker0` | 本机 Docker 默认 bridge 对应的 `tcpdump` 抓包网卡。只有 daemon 改过 bridge 名时才覆盖。 |
 | `--output-dir` | `results` | 输出根目录。最终还会追加 model name 子目录。 |
-| `--resume` | false | 使用原参数和目录恢复实验；核对运行身份、保留完成 case，并备份后重测中断 case。已完成实验不重测。 |
+| `--resume` | false | 使用原参数和目录恢复实验；逐项报告身份差异，保留完成 case，备份后重测中断 case；准备未完成时先归档准备证据再重试。已完成实验不重测。TUI 的“恢复 / 重试”也可自动分配新实验目录。 |
 | `--skip-build` | false | 核验构建指纹和环境清单后复用镜像；不存在时自动构建，不匹配时退出。 |
 | `--download-mode` | `mirror-only` | `mirror-only`、`mirror-preferred`、`official`；显式参数优先于 `HF_DOWNLOAD_MODE`。 |
 | `--max-download` | 不设上限 | 下载前核验全部批量 payload 预算，例如 `5GB`、`5GiB`；`0` 只允许缓存命中。任何来源大小未知或总量超限时，在 pull/build/权重下载前停止。环境变量为 `ACPROF_MAX_DOWNLOAD`。 |

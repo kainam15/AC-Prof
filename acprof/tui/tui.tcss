@@ -244,6 +244,7 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #status-detail { height: 1; text-overflow: ellipsis; }
 #status-preparation { height: auto; padding: 0 1; }
 #log-panel { width: 100%; height: 1fr; min-height: 5; padding: 0; }
+#run-recovery-actions { display: none; height: auto; }
 #log-toolbar { height: 4; background: transparent; }
 #log-toolbar Button {
     min-width: 12;

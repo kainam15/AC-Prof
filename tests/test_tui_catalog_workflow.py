@@ -62,7 +62,7 @@ class TestCatalogWorkflow:
         record = catalog.records[0]
 
         assert record.state == {}
-        assert not record.can_resume
+        assert not record.has_recovery_state
         assert any("run_state.json" in warning and "metadata_non_finite_number" in warning
                    for warning in catalog.warnings)
 
@@ -108,10 +108,12 @@ class TestCatalogWorkflow:
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
             with patch.object(app, '_launch') as launch:
                 app._experiment_selected('result-csv', ('resume', record))
+                await app.workers.wait_for_complete()
                 await pilot.pause()
                 launch.assert_not_called()
-                assert ('--resume') in (app._pending_launch.command)
-                assert (await pilot.click('#confirm-yes'))
+                assert ('--resume') in (app.screen.review.resume.command)
+                assert (await pilot.click('#recovery-resume'))
+                await app.workers.wait_for_complete()
                 await pilot.pause()
                 pending = launch.call_args.args[0]
                 parsed = build_parser().parse_args(pending.command[pending.command.index('--model'):])

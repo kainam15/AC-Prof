@@ -1,7 +1,10 @@
 """Rebuildable local discovery and exact frozen-argument recovery."""
 import json
+from dataclasses import asdict
 from pathlib import Path
 
+from acprof.experiment import RunConfig
+from acprof.host.run_state import host_identity, run_options
 from acprof.run_args import build_parser
 
 
@@ -14,13 +17,14 @@ class CatalogFixture:
     def record(self, name, *, run_id='run-a', status='interrupted', model='demo/model', revision='a' * 40):
         path = self.root / name / model.replace('/', '--')
         path.mkdir(parents=True)
-        options = vars(build_parser().parse_args(['--model', model, '--cpus', '1', '--mems', '4', '--gpus', 'off',
-            '--matrix-order', 'declared', '--matrix-seed', '71', '--latency-slo', 'default=3', '--no-prune-startup-oom']))
-        for key in ('resume', 'output_dir', 'skip_build', 'notify'):
-            options.pop(key)
-        options['revision'] = revision
-        options['measurement_environment'] = {'execution_environment': 'native_linux'}
+        args = build_parser().parse_args(['--model', model, '--cpus', '1', '--mems', '4', '--gpus', 'off',
+            '--matrix-order', 'declared', '--matrix-seed', '71', '--latency-slo', 'default=3',
+            '--no-prune-startup-oom', '--revision', revision])
+        for key, value in asdict(RunConfig.from_namespace(args).validate(project_dir=self.root)).items():
+            setattr(args, key, value)
+        options = run_options(args)
         state = {'schema_version': 1, 'run_id': run_id, 'status': status, 'created_at': '2026-10-01T12:00:00Z',
+            'host': host_identity(Path.cwd()),
             'options': options, 'artifacts': {}, 'runtime': {'task': {'model_id': model, 'model_revision': revision,
                 'runtime_profile_id': 'transformers-cpu'}, 'image': {'runtime_environment': {'environment_id': 'env-a'}}}}
         (path / 'run_state.json').write_text(json.dumps(state))

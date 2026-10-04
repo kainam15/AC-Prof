@@ -11,16 +11,14 @@ from textual.message_pump import MessagePump
 from textual.widgets import Button, Static
 
 from acprof.messages import message
-from acprof.tui.commands import PendingLaunch, format_command, resolve_result_path
+from acprof.tui.commands import PendingLaunch, resolve_result_path
 from acprof.tui.experiment_catalog import (
     ExperimentRecord,
     config_from_record,
-    resume_command,
     scan_experiments,
 )
 from acprof.tui.experiment_picker import SearchPickerScreen, experiment_choice
 from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.views import ConfirmActionScreen
 
 if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
@@ -111,18 +109,14 @@ class CatalogActions(MessagePump):
                 message('尚无结果 CSV；保留的实验状态与失败证据：\n{0}', experiment_choice(record).detail))
 
     def _resume_experiment(self: AcprofTui, record: ExperimentRecord) -> None:
-        from acprof.tui.app import PYTHON_EXECUTABLE
+        from acprof.experiment import build_run_command
+        from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         try:
-            command = resume_command(record, python_executable=PYTHON_EXECUTABLE)
             config = config_from_record(record, reuse=False)
-            self._apply_config(config)
-            self._show_run_form('run-form')
+            command = build_run_command(config, project_dir=PROJECT_DIR,
+                                        python_executable=PYTHON_EXECUTABLE)
         except ValueError as exc:
             self.notify(str(exc), severity='error')
             return
-        self._pending_launch = PendingLaunch(command, 'run', config, result_dir=str(record.directory))
-        preview = format_command(command)
-        self._set_text(self.query_one('#command-preview', Static), preview)
-        self.push_screen(ConfirmActionScreen('继续未完成实验',
-            message('将使用冻结配置续跑。后端会核对主机、依赖、源码、输入与已有产物；不兼容时必须创建新实验。\n\n{0}', preview),
-            '继续未完成实验'), self._confirmed_launch)
+        self._review_run_destination(PendingLaunch(tuple(command), 'run', config,
+                                                   result_dir=str(record.directory)), record=record)

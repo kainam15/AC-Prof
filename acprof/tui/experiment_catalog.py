@@ -47,7 +47,7 @@ class ExperimentRecord:
     issues: tuple[str, ...] = ()
 
     @property
-    def can_resume(self) -> bool:
+    def has_recovery_state(self) -> bool:
         return bool(self.run_id and self.options and self.status != 'complete' and not self.issues)
 
     @property
@@ -213,6 +213,19 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
                              tuple(warnings), tuple(coverage_reports))
 
 
+def new_experiment_config(config: RunConfig, output_root: Path) -> RunConfig:
+    """Allocate a proposed sibling attempt without creating any files."""
+    root = output_root
+    if root.name.startswith("experiment-") and len(root.name) == 43:
+        try:
+            int(root.name[11:], 16)
+        except ValueError:
+            pass
+        else:
+            root = root.parent
+    return replace(config, output_dir=str(root / ("experiment-" + uuid4().hex)), resume=False)
+
+
 def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     if not record.options or record.issues:
         raise ValueError('frozen configuration unavailable: ' + ', '.join(record.issues))
@@ -225,14 +238,15 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     from acprof.model_evidence import pinned_revision
     if reuse and pinned_revision(record.revision):
         config = replace(config, revision=record.revision)
-    output = record.directory.parent / ('reuse-' + uuid4().hex[:12]) if reuse else record.directory.parent
-    return replace(config, output_dir=str(output), resume=not reuse)
+    if reuse:
+        return new_experiment_config(config, record.directory.parent)
+    return replace(config, output_dir=str(record.directory.parent), resume=True)
 
 
 def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tuple[str, ...]:
     """Restore all frozen CLI options, including options not exposed in the form."""
     from acprof.run_args import build_parser
-    if not record.can_resume:
+    if not record.has_recovery_state:
         raise ValueError('run_id/frozen configuration cannot resume: ' + ', '.join(record.issues))
     config = config_from_record(record, reuse=False)
     if record.directory.name != config.model.replace('/', '--'):

@@ -356,6 +356,13 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
 `catalog_actions` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
+`recovery` 在启动前读取原实验，复用 `host.run_state.validate_resume` 检查身份与产物；
+`recovery_actions` 统一承接开始采集、历史选择和失败监控页，提供准备重试、续跑或自动新建实验。
+确认后重新核验记录；需要切换采集模式时复用现有环境预检，配置变化或过期 worker 不得启动进程。
+准备重试的证据归档由持有目录锁的 `RunState` 完成，TUI 的评估及目录分配始终只读。
+流程借鉴 [Ray Tune 的恢复与重启区分](https://github.com/ray-project/ray/blob/master/python/ray/tune/tuner.py)
+和 [Accelerate 的恢复目录管理](https://github.com/huggingface/accelerate/pull/1741)（均为 Apache-2.0 项目）；
+只复用设计思想，保留 AC-Prof 的 JSON 与严格测量身份协议，不复制训练状态机制、不新增依赖或测量窗口开销。
 选择器在同一个空闲 worker 中检查搜索目录，显示有效路径摘要，并在悬停提示中保留完整路径及跳过原因；
 父子路径合并只用于摘要，不改变有深度上限和实验目录边界的实际扫描入口。借鉴
 [pytest 的 collection 路径规范化](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py)（MIT）思路，

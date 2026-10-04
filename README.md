@@ -114,6 +114,8 @@ This `basic` example collects only basic metrics; `nan` values in energy, packet
 After it finishes, follow the next section to inspect the results. Use a new `--output-dir` for a new experiment.
 To [resume an interrupted experiment](docs/Profiling_Protocol.md#结果完整性与断点续跑), add `--resume` to the same `acprof run` command, preserving its parameters.
 
+In the TUI, **Recovery / retry** checks the saved experiment before offering preparation retry or resume. If its sources or environment changed, **New experiment** preserves the original directory and selects a new output path automatically.
+
 You can also use [`acprof auto MODEL`](docs/CLI_Reference.md#acprof-auto) to check permissions and host requirements before measurement;
 it accepts the same resource options as `run`. It selects between `full` and `basic` based on host capabilities only when you explicitly pass `--profiling-mode auto`.
 Semantic conflicts still stop the run and produce an explanation. Use [`acprof coverage`](docs/CLI_Reference.md#acprof-coverage)

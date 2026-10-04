@@ -83,6 +83,7 @@ from acprof.tui.model_actions import ModelActions
 from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.recovery_actions import RecoveryActions
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.reports import ReportView, read_report
 from acprof.tui.run_results import RunArtifacts, RunResult, inspect_run_result
@@ -114,7 +115,7 @@ PROJECT_DIR = Path.cwd()
 PYTHON_EXECUTABLE = Path(sys.executable).absolute()
 
 
-class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
+class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, BarCursorApp):
     """Full-screen controller for AC-Prof collection and diagnostics."""
 
     TITLE = "AC-Prof"
@@ -193,6 +194,8 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._preflight_checks: tuple[PreflightCheck, ...] = ()
         self._preflight_error = ""
         self._summary_request: Event | None = None
+        self._recovery_request: Event | None = None
+        self._recovery_after_check = None
         self._summary_path: Path | None = None
         self._report_request = None
         self._report_path: Path | None = None
@@ -793,6 +796,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             widget.disabled = (busy and self._image_operation != "refresh") or self._latest_snapshot.measurement_active
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
+            "#review-run-recovery": "run",
             "#summarize-results": "summary", "#plot-results": "plot",
             "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
@@ -916,7 +920,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             return
         preview = format_command(command)
         self._set_text(self.query_one('#command-preview', Static), preview)
-        self._launch(PendingLaunch(tuple(command), "run", config))
+        self._review_run_destination(PendingLaunch(tuple(command), "run", config))
 
     def _confirmed_launch(self, confirmed: bool | None) -> None:
         pending = self._pending_launch
@@ -966,6 +970,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
         if pending.kind == "run":
+            self.query_one("#run-recovery-actions").display = False
             self._planned_input = None
             self._planned_input_identity = None
             self._remember_last_used(model=model)
@@ -1376,7 +1381,8 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             final_state = snapshot or self._latest_snapshot
             detail = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
                              result.total_cases or final_state.total_cases,
-                             message("可查看结果或使用相同参数续跑") if stage != "已完成" else message("可查看结果与计算统计"))
+                             message("可查看结果，或检查恢复与重试选项") if stage != "已完成" else message("可查看结果与计算统计"))
+            self.query_one("#run-recovery-actions").display = stage != "已完成"
             if result.detail:
                 detail = join_messages("\n", (detail, result.detail))
             if result.new_cases and result.retained_dir:
@@ -1711,6 +1717,7 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         self._preflight_checks = tuple(checks)
         self._preflight_error = error
         self._set_busy(False)
+        self._finish_recovery_check()
 
     @on(Button.Pressed, "#clear-log")
     def clear_log_button(self) -> None:
@@ -1781,6 +1788,9 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
             self.notify("结果摘要已更新", timeout=3)
 
     def _cancel_result_reads(self) -> None:
+        if self._recovery_request is not None:
+            self._recovery_request.set()
+        self._recovery_after_check = None
         if self._summary_request is not None:
             self._summary_request.set()
         self._summary_request = self._report_request = None
@@ -2120,6 +2130,9 @@ class AcprofTui(ModelActions, CatalogActions, ImageActions, BarCursorApp):
         """Use the same bounded cleanup policy even after widgets are gone."""
         self._form_ready = False
         self._ui_closing = True
+        if self._recovery_request is not None:
+            self._recovery_request.set()
+        self._recovery_after_check = None
         if self._summary_request is not None:
             self._summary_request.set()
         self._summary_request = self._report_request = self._check_request = None

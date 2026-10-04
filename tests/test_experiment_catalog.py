@@ -41,7 +41,7 @@ class TestExperimentCatalog(CatalogFixture):
         (copy / 'result_all.csv').write_text('changed\n')
         report = scan_experiments([self.root])
         assert ('run_id_content_conflict') in (report.records[0].issues)
-        assert not (report.records[0].can_resume)
+        assert not (report.records[0].has_recovery_state)
 
     def test_scan_is_bounded_skips_symlink_and_reports_bad_json(self):
         from acprof.tui.experiment_catalog import scan_experiments
@@ -104,7 +104,7 @@ class TestExperimentCatalog(CatalogFixture):
         shutil.copytree(original, self.root / 'b' / original.name)
         report = scan_experiments([self.root], max_duplicate_bytes=3)
         assert (report.records[0].issues) == (('duplicate_evidence_unverified',))
-        assert not (report.records[0].can_resume)
+        assert not (report.records[0].has_recovery_state)
         for index in range(30):
             (self.root / f'file-{index}').touch()
         report = scan_experiments([self.root], max_entries=5)

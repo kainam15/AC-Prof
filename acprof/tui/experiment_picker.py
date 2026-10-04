@@ -17,7 +17,7 @@ from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 
-ACTION_LABELS = {'select': '选入路径', 'view': '查看结果', 'reuse': '复用配置', 'resume': '继续实验', 'use': '使用模型'}
+ACTION_LABELS = {'select': '选入路径', 'view': '查看结果', 'reuse': '复用配置', 'resume': '恢复 / 重试', 'use': '使用模型'}
 
 
 
@@ -35,7 +35,7 @@ def experiment_choice(record: ExperimentRecord) -> PickerChoice:
     actions = {'select', 'view'}
     if record.options and not record.issues:
         actions.add('reuse')
-    if record.can_resume:
+    if record.has_recovery_state:
         actions.add('resume')
     detail = json.dumps({'run_id': record.run_id or 'unknown', 'directories': [str(path) for path in record.aliases],
         'issues': record.issues, 'options': record.options, 'failures': record.failures,

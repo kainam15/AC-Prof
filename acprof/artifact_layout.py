@@ -123,8 +123,8 @@ class ArtifactLayout:
     def plots_dir(self) -> Path:
         return self.path("plots") if self.layout_version == 2 else self.root
 
-    def initialize(self, *, allowed_files=()) -> None:
-        """Publish the immutable routing manifest under the caller's directory lock."""
+    def check_new_run(self, *, allowed_files=()) -> None:
+        """Inspect a destination without creating a directory, lock or manifest."""
         if self.layout_version != 2:
             raise ValueError("Only new v2 experiments may be initialized")
         allowed = {MANIFEST_NAME, ".acprof/result.lock", *allowed_files}
@@ -144,7 +144,12 @@ class ArtifactLayout:
         manifest = self.root / MANIFEST_NAME
         if manifest.exists():
             self.discover(self.root)
-        else:
+
+    def initialize(self, *, allowed_files=()) -> None:
+        """Publish the immutable routing manifest under the caller's directory lock."""
+        self.check_new_run(allowed_files=allowed_files)
+        manifest = self.root / MANIFEST_NAME
+        if not manifest.exists():
             from acprof.artifacts import atomic_write_json
             atomic_write_json(manifest, _manifest())
         self.path("collection_history.json").parent.mkdir(parents=True, exist_ok=True)

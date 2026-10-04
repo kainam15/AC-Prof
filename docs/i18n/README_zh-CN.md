@@ -99,6 +99,8 @@ acprof run --model google-bert/bert-base-uncased \
 这个 `basic` 示例只采集基础指标；能耗、抓包和独立 profiler 的字段为 `nan` 属于预期结果。
 完成后按下一节查看结果。重新做一个实验请换新的 `--output-dir`；中断后在同一条 `acprof run` 命令中保留原参数并添加 `--resume` [恢复实验](../Profiling_Protocol.md#结果完整性与断点续跑)。
 
+TUI 的 **恢复 / 重试** 会先检查原实验，再提供重试准备或续跑；源码或环境变化时，可用 **新建实验** 自动分配输出路径，原目录保留。
+
 也可使用 [`acprof auto MODEL`](../CLI_Reference.md#acprof-auto) 完成权限和主机预检后采集；
 资源参数与 `run` 相同。只有显式指定 `--profiling-mode auto` 才按能力选择 full/basic，
 语义冲突仍会停止并保存解释。模型覆盖率可通过 [`acprof coverage`](../CLI_Reference.md#acprof-coverage)

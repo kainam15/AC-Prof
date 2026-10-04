@@ -505,6 +505,8 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     max_lines=app.ui_preferences.log_max_lines,
                     wrap=app.ui_preferences.log_wrap,
                 )
+            with Horizontal(id="run-recovery-actions"):
+                yield app._localized_widget(Button("恢复 / 重试", id="review-run-recovery"))
 
 
 def compose_plot_tab(app: AcprofTui) -> ComposeResult:
