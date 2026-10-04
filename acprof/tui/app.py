@@ -262,7 +262,7 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         self._configure_scrollbars()
         self._capture_language_text()
         self._apply_ui_preferences()
-        self._update_saved_settings_summary()
+        self._set_text(self.query_one('#settings-location', Static), message('保存位置：{0}', self.settings_path))
         self._update_responsive_layout()
         self._selected_preset = self._select("run-preset")
         self._form_ready = True
@@ -376,19 +376,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             not self.ui_preferences.show_command_bar, "command-hidden",
         )
 
-    def _update_saved_settings_summary(self) -> None:
-        config = self._saved_settings.run_defaults
-        summary = (
-            message('已记住：{0} · CPU {1} · 内存 {2} GB', config.model or message('模型待填写'), config.cpus, config.mems)
-            if config else message("尚未保存实验默认参数。")
-        )
-        if self._saved_settings.last_model:
-            summary = join_messages("", (
-                summary, message('\n下次启动自动填入模型：{0}', self._saved_settings.last_model),
-            ))
-        self._set_text(self.query_one('#saved-run-summary', Static), summary)
-        self._set_text(self.query_one('#settings-location', Static), message('保存位置：{0}', self.settings_path))
-
     @on(Select.Changed, ".ui-preference")
     @on(Checkbox.Changed, ".ui-preference")
     def _ui_preference_changed(self) -> None:
@@ -446,7 +433,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             return
         self._saved_settings = settings
         self._settings_warning = ""
-        self._update_saved_settings_summary()
         message = "已记住当前实验配置" if remember_run else "界面设置已保存"
         if not remember_run:
             self._set_text(self.query_one('#settings-status', Static), message)
@@ -958,7 +944,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             self.notify(error_message(exc), title="自动记忆未保存", severity="warning")
             return
         self._saved_settings = settings
-        self._update_saved_settings_summary()
 
     def _launch(self, pending: PendingLaunch) -> None:
         if pending.kind == "run" and not self._allow_collection():

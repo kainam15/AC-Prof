@@ -30,9 +30,9 @@ from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
 
 def test_templates_translate_nested_ui_text_and_preserve_user_values():
-    value = message("已记住：{0} · CPU {1} · 内存 {2} GB", "等待/{模型}", "1,3", "4")
-    assert (translate(value, "en")) == ("Saved: 等待/{模型} · CPU 1,3 · Memory 4 GB")
-    assert (str(value)) == ("已记住：等待/{模型} · CPU 1,3 · 内存 4 GB")
+    value = message("保存位置：{0}", "等待/{模型}")
+    assert (translate(value, "en")) == ("Settings file: 等待/{模型}")
+    assert (str(value)) == ("保存位置：等待/{模型}")
     nested = message("{0}必须是{1}", message("每窗口请求数"), message("整数"))
     assert (translate(nested, "en")) == ("Requests per window must be an integer")
     assert (translate(message("{0}", "等待"), "en")) == ("等待")
@@ -190,7 +190,7 @@ class TestTuiLanguage:
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert not (warning)
             assert (saved.ui.language) == ("zh")
-            assert ("Model for next launch: demo/latest") in (app.query_one("#saved-run-summary", Static).content)
+            assert (app.query_one("#settings-location", Static).content) == (f"Settings file: {self.settings_path}")
             assert (await pilot.click("#save-ui-settings"))
             await pilot.pause()
         restarted = self.make_app()

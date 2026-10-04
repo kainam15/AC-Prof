@@ -445,14 +445,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control option-checkbox",
                         tooltip="使用相同参数与输出目录，保留已完成 case，重新测量中断的 case。",
                     ))
-
-
-                yield app._localized_widget(Static("下次启动使用的实验配置", classes="section-title"))
-                yield app._localized_widget(Static(
-                    "点击后记住当前实验表单。下次打开此项目自动填入，命令行指定的模型和预设优先。",
-                    classes="page-hint", markup=False,
-                ))
-                yield app._localized_widget(Static("", id="saved-run-summary", markup=False))
                 with Horizontal(classes="button-row"):
                     yield app._localized_widget(Button("记住实验配置", id="save-run-default"))
 

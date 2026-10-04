@@ -228,7 +228,6 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #settings-status.stage-running { color: $accent; }
 #settings-status.stage-success { color: $success; }
 #settings-status.stage-error { color: $error; }
-#saved-run-summary { height: auto; border-left: thick $accent; padding: 0 1; margin-bottom: 1; }
 
 #status-grid {
     grid-size: 4;
