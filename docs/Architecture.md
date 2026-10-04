@@ -312,6 +312,8 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
 答案回到 resolver 重新解析，必填字段 resolved 后才允许确认，不在 TUI 改写最终 contract。
+下载计划以已解析的 review 携带原始 bytes 报告，`downloads` 在 TUI 中生成摘要与详情，
+`preparation` 显示“下载确认”并直接回传 confirm / cancel，不借用未决字段表单。
 `host.model_errors` 保留模型查找失败的类型、身份和诊断；`detect` 抛出业务异常，公共 CLI dispatcher
 将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
 `run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
@@ -349,7 +351,11 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 线程生命周期与主线程更新参考 [Textual 8.2.8 worker](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py)
 和 [上游线程安全说明](https://github.com/Textualize/textual/discussions/2853)（MIT）。复用项目已锁定且
 上游维护的 API，不复制框架源码、不新增依赖；诊断仅在启动或显式重试时运行，不进入测量窗口。
-`presentation` 统一数值输入格式与不适用、计算中、未知的显示标记，不改动配置、进度或结果协议。
+`presentation` 统一数值输入格式、十进制 B/KB/MB/GB 大小显示与不适用、计算中、未知的显示标记。
+下载、镜像与存储页面共用大小格式化函数；诊断 JSON 的展示副本不修改原始 bytes 或保存结果。
+确认交互参考 [Textual 的 ModalScreen 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/guide/screens/modal02.py)，
+单位切换参考 [humanize 的十进制格式化](https://github.com/python-humanize/humanize/blob/main/src/humanize/filesize.py)（均为 MIT）；
+仅借鉴展示方式，沿用现有 Textual 和标准库，不新增依赖或测量期开销。
 `reports` 用标准库校验已有统计/对照 JSON，并提供带单位和口径的表格数据；不加载 Textual 或采集依赖。
 统计页通过 `commands.build_stats_command` 启动既有 `acprof stats`，沿用 App 的进程互斥、停止和日志流程；
 完成后在后台读取一次报告并更新表格。读取期间锁定启动入口，允许切换读取目标和退出；不定时扫描 CSV 或自动运行开销实验。

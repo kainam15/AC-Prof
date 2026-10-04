@@ -185,6 +185,7 @@ acprof tui --model google-bert/bert-base-uncased --preset smoke
 
 The first launch without saved settings uses `smoke`: `basic` mode, CPU execution, one request, and the smallest task-specific input scale, with independent profilers and initial notifications disabled.
 Switching presets preserves download budgets, sources, cache and output paths, and notification choices. The start controls show experiment size and an estimated time with explicit assumptions; saved configurations remain unchanged.
+Download confirmation offers **Confirm download** and **Cancel**. Download, image, and storage sizes automatically use decimal B/KB/MB/GB units; stored data and calculations retain the original bytes. See [download review](docs/TUI.md#下载与磁盘预检).
 For the full set of metrics, select `full` under **Advanced** and complete the corresponding host checks.
 Review the command preview before starting.
 
