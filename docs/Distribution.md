@@ -104,7 +104,8 @@ wheel 内置 Dockerfile、平台/环境锁、扩展声明、音频素材及构�
 任意层级的 `tests/`、`docs/`、`.git/`、`.github/`、`.codex/`；wheel 主包也排除这些开发文件。
 `.dockerignore`、`LICENSE`、`NOTICE`、`licenses/CC-BY-4.0.txt` 一并复制，通过
 `build_data["force_include"]` 写入 wheel 的 `acprof/_bundle`；构建结束清理临时目录。
-Docker 模型层仍由本机按固定 revision 下载，令牌经 BuildKit secret 传入。
+模型权重由主机按固定 revision 下载到 Model Store，Docker 模型层只保存清单，运行时只读挂载权重。
+令牌仅用于主机认证与下载，具体边界见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。
 
 离线 report 的 HTML/CSS/JavaScript 和 Plotly.js MIT 许可随 `acprof.plotting` 打包；
 standalone 同时收集 Plotly 的 bundle 数据。报告生成时内嵌资源，不从 CDN 下载。
@@ -244,7 +245,9 @@ Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据�
 
 工作流文件存在不代表远端资产已发布。GitHub Release 需要 `contents: write`，PyPI 需要上述
 Trusted Publisher 配置。GHCR 使用独立的 `runtime-images.yml` 和 `packages: write`：版本 Tag 自动发布，
-手动运行该 GHCR workflow 也会发布镜像。它先构建/核验 4 个平台，再让 24 个环境 job 发布依赖环境。
+手动运行该 GHCR workflow 也会发布镜像。[发布工作流](../.github/workflows/runtime-images.yml)
+通过 `scripts/publish_runtime_images.py --matrix` 从当前 runtime 声明生成平台与环境矩阵，
+先构建/核验平台，再发布依赖环境；平台与环境清单以该命令的实际输出为准。
 GHCR package 首次发布后，维护者需在 package 设置中
 确认 public 可见性，匿名用户才能直接拉取；私有 package 需要先 `docker login ghcr.io`。
 

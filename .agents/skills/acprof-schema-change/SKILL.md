@@ -32,7 +32,8 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 
 | 位置 | 检查内容 |
 | --- | --- |
-| [config.py](../../../acprof/config.py) | `CSV_FIELDS`、`STATIC_META_FIELDS`、schema 常量与默认值 |
+| [metric_registry.py](../../../acprof/metric_registry.py) | CSV 字段声明、单位、来源、窗口、顺序及派生的 `CSV_FIELDS` |
+| [config.py](../../../acprof/config.py) | `STATIC_META_FIELDS`、schema 常量与默认值；`CSV_FIELDS` 仅从登记表重导出 |
 | [host/client.py](../../../acprof/host/client.py)、[client_metrics.py](../../../acprof/host/client_metrics.py) | 请求窗口、指标计算、聚合和主实验行的生成 |
 | [monitors/](../../../acprof/monitors) | 原始采样来源、时间边界、单位与失败处理 |
 | [packet/](../../../acprof/packet) | PCAP 解析、请求匹配和结果合并 |
@@ -61,5 +62,7 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 ```
 
 再按改动范围完成项目要求的测试、编译检查和 `git diff --check`。不为文档措辞写业务测试，不把真实长矩阵当作字段变更的默认验证方式。
+
+指标登记表变更时，用 [scripts/render_metric_reference.py](../../../scripts/render_metric_reference.py) 更新生成文档，再执行 `--check` 验证同步；不手工另存字段登记表。
 
 更新 docs 对应专题中受影响的字段和兼容约定；用户操作变化时同步 README 的示例，模块或环境变化时按[文档分工](../../../docs/README.md#文档规则与流程的分工)更新对应专题。交付时说明口径、兼容策略、验证结果和未覆盖边界，不顺便修改已有实验数据。

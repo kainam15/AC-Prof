@@ -11,7 +11,7 @@
 
 WSL2 是开发与 PARTIAL 采集平台。pytest 注册 `unit`、`wsl`、`native_linux`、`hardware`
 markers；未标集成边界的测试归入 unit。WSL 默认执行 `.venv/bin/python -m pytest -m "not native_linux"`，
-Native Linux 执行完整测试。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
+Native Linux 无需此平台筛选，具体测试范围按下表选择。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
 模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
 环境检测、能力矩阵、历史 unknown、CSV 合并与比较隔离回归在 `test_environment_policy.py`、
 `test_result_comparison.py`，详见 [WSL2 支持范围](platforms/wsl2.md)。
@@ -23,10 +23,14 @@ Native Linux 执行完整测试。仅显式平台集成测试按真实环境 ski
 | 文档、导航或链接迁移 | 本地文件与章节锚点可达、旧入口仍可跳转、代码块与差异格式正确；无需为措辞运行模型 |
 | Skill | frontmatter、名称与描述匹配、相对路径、流程边界和可用验证器的格式检查 |
 | 单个逻辑或失败路径 | 能观察目标行为的相关 pytest；修复缺陷时先复现，再验证修复 |
-| 模块搬迁、依赖方向或兼容入口 | 当前入口成功、已删除入口拒绝、全套 pytest、CLI 帮助和编译；mock 放到函数实际查找依赖的模块 |
+| 模块搬迁、依赖方向或兼容入口 | 当前入口成功、已删除入口拒绝、受影响调用链的 pytest、相关 CLI 帮助和编译；mock 放到函数实际查找依赖的模块 |
 | 指标或产物协议 | 独立推导的期望值、当前 schema 成功与旧 schema 拒绝、缺失/失败/不适用字段和受影响消费者 |
 | 模型、backend、依赖或 Dockerfile | 路由与离线加载测试、镜像构建、所声明设备的真实推理；profiler 分别验证 |
 | TUI | 受影响的交互与尺寸检查；原生终端问题还需对应终端证据 |
+
+局部模块搬迁先验证受影响的入口、调用者和消费者。改动涉及公共包初始化链、公共命令分发、
+测试基础设施或多个任务族共用的执行路径，或定向验证后仍无法界定影响范围时，执行全套 pytest。
+CI 的完整回归与分片验收要求保持不变，见 [CI 与环境测试](#ci-与环境测试)。
 
 下载策略的定向回归包含 `test_download_network.py`、`test_model_store.py`、
 `test_network_preflight.py`、`test_dependency_download_cache.py`、`test_lock_compiler.py`
@@ -436,7 +440,7 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 ```bash
 # 按受影响的行为选择测试文件
 .venv/bin/python -m pytest tests/test_env_utils.py -v
-# 跨模块变更的全套回归
+# 符合“验证范围”中的全套回归条件时
 .venv/bin/python -m pytest -v
 acprof run --help
 .venv/bin/python -m compileall -q acprof scripts packaging
@@ -465,7 +469,8 @@ Textual `run_test()` 通过 async context manager 完成退出；不要遗留后
 `scripts/check_test_framework.py` 在 pre-commit 与 CI 中禁止旧执行框架的导入，允许 mock；
 不通过排除文件或忽略报错维持门禁。正式测试环境暂不安装或启用 pytest-xdist：全套测试包含
 全局模块 patch、进程锁、TUI 和资源敏感场景。未来仅在完成 port、临时目录、全局 cache、
-Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行结果；CI 继续四个确定性分片。
+Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行结果；CI 沿用
+[确定性分片与完整性验收](#ci-与环境测试)，数量以 workflow 的 `HOST_TEST_SHARDS` 为准。
 
 `test_architecture.py` 禁止根目录出现任何 `.py` 文件，检查标准库 `profile/cProfile` 可直接导入。
 `test_distribution.py`、`test_tui_interaction.py` 与 terminal-log 回归保护公开帮助、
@@ -490,8 +495,8 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 以上是定位入口，不是每次必须运行的清单。先用 `rg --files tests` 查实际受影响的测试；新改动、失败或未解决问题才需要扩大或重复验证。
 
 `test_runtime_image_build.py` 在 Docker 边界模拟环境中验证四层构建、跨 profile 的环境共享、
-模型 commit、Torch 来源、BuildKit secret、标签错配、额外包、输入变化及构建失败停止。
-环境身份测试覆盖 40 个 profile / 27 个环境、无 Torch 环境、跨任务族精确共享及 cu128 的版本差异；CV 新增 timm 后按新包集计算身份。注释、锁文件名
+模型 commit、Torch 来源、主机下载令牌不进入 Docker 构建、标签错配、额外包、输入变化及构建失败停止。
+环境身份测试覆盖当前声明的 profile / environment、无 Torch 环境、跨任务族精确共享及 cu128 的版本差异；CV 新增 timm 后按新包集计算身份。注释、锁文件名
 和条目顺序不影响身份，版本、制品、来源、平台和系统锁影响身份。配方变化改变构建缓存，业务
 代码变化只重建服务层。它们不能替代实际容器构建与推理验证。
 

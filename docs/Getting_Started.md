@@ -398,7 +398,8 @@ acprof --version
 ```
 
 主机兼容区间由 `pyproject.toml` 声明，已验证版本由 `requirements/host.in` 及带哈希的
-`requirements/host.lock` 管理；开发和 TUI 快照有独立锁。这里沿用 `uv pip` 安装现有锁，
+`requirements/host.lock` 管理；开发锁包含统一测试依赖，TUI 快照复用同一项目环境，见[辅助开发工具](Testing.md#辅助开发工具)。
+这里沿用 `uv pip` 安装现有锁，
 不引入与 requirements 重复维护的 `uv.lock` / `uv sync` 路径。
 开发检查和 Git hooks 见[测试指南](Testing.md#开发质量检查)。
 需要隔离工具安装当前 checkout 时可运行 `uv tool install .`，或使用

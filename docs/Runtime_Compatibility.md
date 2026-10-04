@@ -676,12 +676,12 @@ token 证据时，相关生成速率／逐 token 工作量保持不可用，不�
 
 可选 `dependencies` 数组声明上游代码在加载时还会读取的 Hub 仓库，每项包含 `repo_id`、
 固定 40 位 commit `revision`，以及可选的相对文件 `allow_patterns`。最多 16 个不同仓库，
-不能覆盖主模型；不声明 patterns 时下载依赖仓库完整 snapshot。构建期校验文件哈希后，
-将镜像内对应缓存的 `refs/main` 绑定到声明 commit，使上游无 revision 的 `from_pretrained(repo_id)`
-也能离线解析。主模型和全部依赖进入下载计划与镜像身份，正式服务保持断网。
+不能覆盖主模型；不声明 patterns 时下载依赖仓库完整 snapshot。主机准备阶段校验文件哈希后，
+在 Model Store 的固定计划视图中将各依赖的 `refs/main` 绑定到声明 commit，容器只读挂载该视图，
+使上游无 revision 的 `from_pretrained(repo_id)` 也能离线解析。主模型和全部依赖进入下载计划与镜像身份，正式服务保持断网。
 
 [Ultravox 完整声明](../examples/multimodal/ultravox.model.json) 包含固定版本的 Llama 基础权重与
-Whisper processor。Llama 仓库要求账号已获访问许可，并在构建时提供有效 `HF_TOKEN`；
+Whisper processor。Llama 仓库要求账号已获访问许可，并在主机准备阶段配置有效 `HF_TOKEN`；
 缺少权限不能靠修改任务覆盖项解决。在 TUI 的“高级参数 → 识别覆盖 → 模型接口声明”填入
 `examples/multimodal/ultravox.model.json`，或在 CLI 使用：
 
@@ -856,7 +856,8 @@ CPU 使用 FP32，GPU 使用 BF16；常规推理使用 SDPA，Torch FLOPs 的独
 
 `prepare_image` 将模型分支解析为完整 commit，再通过 profile 引用准备依赖环境。
 构建链路为 `platform.Dockerfile` → `runtime.Dockerfile` → `runtime-model.Dockerfile` →
-`runtime-final.Dockerfile`，分别缓存平台、完整环境、模型快照和服务代码。
+`runtime-final.Dockerfile`，分别缓存平台、完整环境、模型计划清单和服务代码。
+模型权重由主机 [Model Store](#下载网络与-model-store) 管理并只读挂载，不写入新镜像。
 
 `environment_id` 是规范化平台声明、系统锁及全部 Python 包版本、来源 URL、制品 SHA256 的摘要。
 锁的文件名、注释、顺序、profile、adapter、模型和业务代码不参与该身份。平台镜像的指纹另计

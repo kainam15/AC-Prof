@@ -434,6 +434,6 @@ Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要�
 硬件观测借鉴 [pyperf 元数据采集](https://github.com/psf/pyperf/blob/main/pyperf/_collect_metadata.py)（MIT），
 不引入 benchmark 调度依赖。Requests（Apache-2.0）的超时边界依据 [overall timeout Issue](https://github.com/psf/requests/issues/3099)，
 保留既有 Requests 和串行短连接协议。视觉回归复用 [Textual 官方插件](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
-固定 Python/Textual/插件依赖，运行环境独立；不将其依赖或事件轮询带入测量窗口。
+依赖与运行入口统一见[辅助开发工具](Testing.md#辅助开发工具)；不将其依赖或事件轮询带入测量窗口。
 依赖升级通过锁文件和独立回归验收；硬件查询仅在 case 开始边界执行，不增加窗口内采样器。
 这些改动复用当前架构中的 `MonitorGroup`、artifact layout 与 evidence runner，不复制第三方框架。
