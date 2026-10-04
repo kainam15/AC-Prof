@@ -22,7 +22,7 @@ from acprof.host.image_management import (
     ManagedImage,
 )
 from acprof.messages import join_messages, message
-from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
+from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
 
@@ -150,7 +150,7 @@ class ImageTree(Tree[ManagedImage]):
                 item = child.data
                 label = self.name_labels[item.image_id].copy()
                 label.truncate(max(4, widths[0] - depth * self.guide_depth - 2), overflow="ellipsis", pad=True)
-                for value, width in zip((format_image_size(item.size_bytes), format_image_size(item.added_bytes),
+                for value, width in zip((format_bytes(item.size_bytes), format_bytes(item.added_bytes),
                                          str(len(item.containers))), widths[1:]):
                     cell = Text(self.app.tr(value))
                     cell.truncate(width - 2, overflow="ellipsis")
@@ -372,7 +372,7 @@ class ImageDetailPanel(VerticalScroll):
 
     def show_layer(self, layer: ImageLayer, inventory: ImageInventory) -> None:
         self._show(("layer", layer.chain_id), message("层摘要"),
-                   message("层大小：{0} · 引用镜像：{1}", format_image_size(layer.size_bytes), len(layer.image_ids)), {
+                   message("层大小：{0} · 引用镜像：{1}", format_bytes(layer.size_bytes), len(layer.image_ids)), {
                        "image-metadata": (message("引用镜像 · {0}", len(layer.image_ids)), layer_image_detail(layer, inventory)),
                        "image-diagnostics": (message("诊断信息"), layer_diagnostics(layer)),
                    })
@@ -397,15 +397,6 @@ class ImageDeleteScreen(ConfirmActionScreen):
             with Horizontal(id="confirm-buttons"):
                 yield Button(tr("取消"), id="confirm-no")
                 yield Button(tr(self.confirm_label), id="confirm-yes", variant="error")
-
-
-def format_image_size(value: int | None) -> str:
-    if value is None:
-        return UNKNOWN
-    for unit, scale in (("TB", 10**12), ("GB", 10**9), ("MB", 10**6), ("kB", 1000)):
-        if value >= scale:
-            return f"{value / scale:.2f} {unit}"
-    return f"{value} B"
 
 
 def image_display_name(item: ManagedImage, parent: ManagedImage | None = None) -> str:
@@ -509,8 +500,8 @@ def image_path(item: ManagedImage, inventory: ImageInventory) -> str:
 
 def image_summary(item: ManagedImage, inventory: ImageInventory) -> str:
     return join_messages("\n", (
-        message("完整大小：{0} · 继承：{1} · 本镜像新增：{2}", format_image_size(item.size_bytes),
-                format_image_size(item.inherited_bytes), format_image_size(item.added_bytes)),
+        message("完整大小：{0} · 继承：{1} · 本镜像新增：{2}", format_bytes(item.size_bytes),
+                format_bytes(item.inherited_bytes), format_bytes(item.added_bytes)),
         message("删除预计释放：{0} · 容器引用：{1}", reclaimable_text(inventory, (item.image_id,)), len(item.containers)),
     ))
 
@@ -518,7 +509,7 @@ def image_summary(item: ManagedImage, inventory: ImageInventory) -> str:
 def image_metadata(item: ManagedImage, inventory: ImageInventory) -> str:
     return join_messages("\n\n", (
         image_path(item, inventory),
-        message("其它镜像共享：{0} · 仅当前镜像使用：{1}", format_image_size(item.shared_bytes), format_image_size(item.unique_bytes)),
+        message("其它镜像共享：{0} · 仅当前镜像使用：{1}", format_bytes(item.shared_bytes), format_bytes(item.unique_bytes)),
         message("模型：{0} · 创建时间：{1}",
                 item.model_id or (NOT_APPLICABLE if item.kind in {"base", "runtime"} else UNKNOWN), item.created or UNKNOWN),
         message("容器引用：{0}", ", ".join(item.containers) if item.containers else message("无")),
@@ -539,7 +530,7 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
         message("空间来源：{0}", message({"layers": "层链与已核验 history 字节数", "docker-df": "Docker df 近似值",
                                          "": "未知"}[item.space_source])),
     )
-    space = [message("完整大小：{0} bytes", item.size_bytes)]
+    space = [message("完整大小：{0}", format_bytes(item.size_bytes))]
     if item.inherited_bytes is not None and item.size_bytes:
         inherited_cells = min(30, round(30 * item.inherited_bytes / item.size_bytes))
         space.append(message("空间构成：{0}  █ 继承 / ░ 新增", "█" * inherited_cells + "░" * (30 - inherited_cells)))
@@ -554,7 +545,7 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
 
 def reclaimable_text(inventory: ImageInventory, image_ids: tuple[str, ...]) -> str:
     value = reclaimable_image_bytes(inventory, image_ids)
-    return UNKNOWN if value is None else "0 B" if value == 0 else message("0 B ～ 约 {0}", format_image_size(value))
+    return UNKNOWN if value is None else "0 B" if value == 0 else message("0 B ～ 约 {0}", format_bytes(value))
 
 
 def layer_image_detail(layer: ImageLayer, inventory: ImageInventory) -> str:
@@ -630,7 +621,7 @@ def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...]) -> s
     for item in items:
         parts.append(message("{0}\n镜像 ID：{1}\n完整大小：{2}",
                              "\n".join(item.tags) if item.tags else message("无标签"),
-                             item.image_id, format_image_size(item.size_bytes)))
+                             item.image_id, format_bytes(item.size_bytes)))
     parts.append(message("共享层和构建缓存可能继续占用空间；镜像大小不能相加为可释放空间。"))
     return join_messages("\n\n", parts)
 

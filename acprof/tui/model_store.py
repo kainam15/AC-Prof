@@ -9,6 +9,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from acprof.host.model_store import ModelStoreCancelled, disk_report, prune_store
+from acprof.tui.presentation import format_byte_fields
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.views import ConfirmActionScreen
 
@@ -78,7 +79,8 @@ class ModelStoreScreen(ModalScreen):
         if not self.is_mounted:
             return
         self._report = report
-        self.query_one("#store-report", Static).update(json.dumps(report, ensure_ascii=False, indent=2))
+        self.query_one("#store-report", Static).update(json.dumps(
+            format_byte_fields(report, self.app.tr), ensure_ascii=False, indent=2))
         if not self._close_requested:
             self.query_one("#store-status", Static).update(self.app.tr("正在计算清理预览……"))
 
@@ -98,7 +100,7 @@ class ModelStoreScreen(ModalScreen):
         self.query_one("#store-status", Static).update(error)
         if preview is not None:
             self.query_one("#store-report", Static).update(json.dumps(
-                {**self._report, "prune_preview": preview}, ensure_ascii=False, indent=2))
+                format_byte_fields({**self._report, "prune_preview": preview}, self.app.tr), ensure_ascii=False, indent=2))
         self.query_one("#store-prune", Button).disabled = not (
             preview and (preview["entries"] or preview["reclaimable_bytes"]))
 
@@ -122,7 +124,8 @@ class ModelStoreScreen(ModalScreen):
         if self._working or not self.preview:
             return
         self.app.push_screen(ConfirmActionScreen(self.app.tr("清理未使用模型"),
-            json.dumps(self.preview, ensure_ascii=False, indent=2), self.app.tr("清理")), self._confirmed)
+            json.dumps(format_byte_fields(self.preview, self.app.tr), ensure_ascii=False, indent=2),
+            self.app.tr("清理")), self._confirmed)
 
     def _confirmed(self, confirmed):
         if confirmed:

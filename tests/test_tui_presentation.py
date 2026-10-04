@@ -10,7 +10,8 @@ from tui_fixtures import AcprofTui
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.host.image_management import DockerConnection, ImageInventory, ImageLayer, ManagedImage
 from acprof.tui.i18n import translate
-from acprof.tui.images import ImageTree, format_image_size, image_metadata
+from acprof.tui.images import ImageTree, image_metadata
+from acprof.tui.presentation import format_byte_fields, format_bytes
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.settings import load_settings
 
@@ -151,9 +152,35 @@ class TestTuiPresentation:
 
 
 def test_unknown_image_size_keeps_real_zero_and_translates():
-    assert (format_image_size(None)) == ("未知")
-    assert (translate(format_image_size(None), "en")) == ("Unknown")
-    assert (format_image_size(0)) == ("0 B")
+    assert (format_bytes(None)) == ("未知")
+    assert (translate(format_bytes(None), "en")) == ("Unknown")
+    assert (format_bytes(0)) == ("0 B")
+
+
+@pytest.mark.parametrize("value,expected", [
+    (794, "794 B"), (985, "985 B"), (999, "999 B"),
+    (1_000, "1.00 KB"), (999_999, "1000 KB"),
+    (1_000_000, "1.00 MB"), (708_390_484, "708 MB"), (999_999_999, "1000 MB"),
+    (1_000_000_000, "1.00 GB"), (32_982_540_288, "33.0 GB"),
+    (32_274_139_804, "32.3 GB"), (30_358_750_032, "30.4 GB"),
+    (1_000_000_000_000, "1000 GB"),
+])
+def test_size_display_selects_decimal_unit(value, expected):
+    assert format_bytes(value) == expected
+
+
+def test_byte_fields_are_formatted_only_in_display_copy():
+    source = {"total_bytes": 985, "free_bytes": None, "capacity_bytes": None,
+              "models": [{"model_artifact_bytes": 708_391_278}],
+              "prune_preview": {"reclaimable_bytes": 794}, "other": 794}
+    rendered = format_byte_fields(source, lambda value: translate(value, "en"))
+    assert rendered == {"total_bytes": "985 B", "free_bytes": "Unknown", "capacity_bytes": "Unlimited",
+                        "models": [{"model_artifact_bytes": "708 MB"}],
+                        "prune_preview": {"reclaimable_bytes": "794 B"}, "other": 794}
+    assert source["total_bytes"] == 985
+    assert source["free_bytes"] is None
+    assert source["models"][0]["model_artifact_bytes"] == 708_391_278
+    assert source["prune_preview"]["reclaimable_bytes"] == 794
 
 def test_absent_model_and_unknown_created_time_are_distinct():
     item = ManagedImage("sha256:base", (), 0, "", "base")

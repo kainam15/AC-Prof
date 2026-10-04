@@ -16,18 +16,8 @@ from textual.widgets import Button, Static
 
 from acprof.host.image_management import STORAGE_KINDS, DockerStorage
 from acprof.messages import message
-from acprof.tui.presentation import UNKNOWN
+from acprof.tui.presentation import UNKNOWN, format_bytes
 from acprof.tui.rendering import CjkCompositor
-
-
-def format_storage_size(value: int | None) -> str:
-    if value is None:
-        return UNKNOWN
-    units: tuple[tuple[str, int], ...] = (("GiB", 1024**3), ("MiB", 1024**2), ("KiB", 1024))
-    for unit, scale in units:
-        if value >= scale:
-            return f"{value / scale:.2f} {unit}"
-    return f"{value} B"
 
 
 class StorageSpaceScreen(ModalScreen[None]):
@@ -110,7 +100,7 @@ class StorageSpaceScreen(ModalScreen[None]):
         )
         self.query_one("#storage-disk-percent", Static).update(f"{percentage:.1f}%" if percentage is not None else tr(UNKNOWN))
         self._pairs("#storage-disk-stats", tuple(
-            (label, format_storage_size(value)) for label, value in (
+            (label, format_bytes(value)) for label, value in (
                 ("总容量", disk.total if disk else None), ("已用", disk.used if disk else None),
                 ("可用", disk.available if disk else None),
             )
@@ -121,17 +111,17 @@ class StorageSpaceScreen(ModalScreen[None]):
         usage = {row.kind: row for row in storage.usage} if storage else {}
         for kind, label in zip(STORAGE_KINDS, ("镜像", "Docker 容器", "Volume", "Build Cache")):
             row = usage.get(kind)
-            table.add_row(tr(label), tr(format_storage_size(row.size_bytes if row else None)),
-                          tr(format_storage_size(row.reclaimable_bytes if row else None)))
+            table.add_row(tr(label), tr(format_bytes(row.size_bytes if row else None)),
+                          tr(format_bytes(row.reclaimable_bytes if row else None)))
         self.query_one("#storage-usage", Static).update(table)
         self._pairs("#storage-totals", (
-            ("Docker 合计", format_storage_size(storage.total_bytes if storage else None)),
-            ("可回收", format_storage_size(storage.reclaimable_bytes if storage else None)),
+            ("Docker 合计", format_bytes(storage.total_bytes if storage else None)),
+            ("可回收", format_bytes(storage.reclaimable_bytes if storage else None)),
         ))
         available_after = min(disk.total, disk.available + estimate) if disk and estimate is not None else None
         self._pairs("#storage-selection", (
-            ("预计释放", ("≈" if estimate else "") + format_storage_size(estimate)),
-            ("删除后可用", ("≈" if available_after is not None else "") + format_storage_size(available_after)),
+            ("预计释放", ("≈" if estimate else "") + format_bytes(estimate)),
+            ("删除后可用", ("≈" if available_after is not None else "") + format_bytes(available_after)),
         ))
         notes = [tr(note) for note in storage.warnings] if storage else []
         if not self.selected_count:

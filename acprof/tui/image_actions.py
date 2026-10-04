@@ -28,14 +28,13 @@ from acprof.tui.images import (
     ImageTree,
     deletion_message,
     filtered_images,
-    format_image_size,
     image_display_name,
     image_error,
     render_image_tree,
 )
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
-from acprof.tui.presentation import CALCULATING, UNKNOWN
+from acprof.tui.presentation import CALCULATING, UNKNOWN, format_bytes
 from acprof.tui.storage import StorageSpaceScreen
 
 if TYPE_CHECKING:
@@ -156,7 +155,7 @@ class ImageActions(MessagePump):
             table.add_row(
                 Text("☑" if item.image_id in self._selected_image_ids else "—" if item.containers else "□"),
                 Text(image_display_name(item) + " · " + item.image_id[7:13], overflow="ellipsis", no_wrap=True),
-                Text(self.tr(format_image_size(item.size_bytes))), Text(self.tr(format_image_size(item.added_bytes))),
+                Text(self.tr(format_bytes(item.size_bytes))), Text(self.tr(format_bytes(item.added_bytes))),
                 Text(str(len(item.containers))), Text(image_display_name(parent) if parent else self.tr(UNKNOWN), overflow="ellipsis", no_wrap=True),
                 Text(self.tr(IMAGE_KINDS[item.kind])),
                 Text(repository if separator else item.name, overflow="ellipsis", no_wrap=True),
@@ -189,7 +188,7 @@ class ImageActions(MessagePump):
                                   ("引用镜像", "refs", 10), ("Chain ID", "chain", 23)):
             table.add_column(self.tr(title), key=key, width=width)
         for layer in self._visible_image_layers:
-            table.add_row(Text(layer.diff_id, overflow="ellipsis", no_wrap=True), self.tr(format_image_size(layer.size_bytes)),
+            table.add_row(Text(layer.diff_id, overflow="ellipsis", no_wrap=True), self.tr(format_bytes(layer.size_bytes)),
                           str(len(layer.image_ids)), Text(layer.chain_id, overflow="ellipsis", no_wrap=True), key=layer.chain_id)
         table.move_cursor(row=next((i for i, layer in enumerate(self._visible_image_layers) if layer.chain_id == current), 0),
                           animate=False, scroll=not preserve_scroll)

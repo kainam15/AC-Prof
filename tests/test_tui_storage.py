@@ -95,11 +95,11 @@ class TestTuiStorage:
                 visible = "\n".join(strip.text for strip in app.screen._compositor.render_strips())
                 assert ("━") in (visible), "磁盘使用率需要可见的进度条"
                 totals = self.rendered(app.screen.query_one("#storage-totals", Static))
-                assert ("70.00 GiB") in (totals)
-                assert ("30.00 GiB") in (totals)
+                assert ("75.2 GB") in (totals)
+                assert ("32.2 GB") in (totals)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
                 assert ("≈310 B") in (selection), "所选父子镜像的共享层只能计一次"
-                assert ("≈128.00 GiB") in (selection)
+                assert ("≈137 GB") in (selection)
                 for expected in ("permission denied", ""):
                     refresh = app.screen.query_one("#storage-refresh", Button)
 
@@ -116,10 +116,10 @@ class TestTuiStorage:
                     status = self.rendered(app.screen.query_one("#storage-status", Static))
                     if expected:
                         assert (expected) in (status)
-                        assert ("70.00 GiB") not in (self.rendered(app.screen.query_one("#storage-totals", Static)))
+                        assert ("75.2 GB") not in (self.rendered(app.screen.query_one("#storage-totals", Static)))
                     else:
                         assert ("permission denied") not in (status)
-                        assert ("≈256.00 GiB") in (self.rendered(app.screen.query_one("#storage-selection", Static)))
+                        assert ("≈275 GB") in (self.rendered(app.screen.query_one("#storage-selection", Static)))
                 assert (read.call_count) == (3)
                 await pilot.press("escape")
                 await pilot.pause()
