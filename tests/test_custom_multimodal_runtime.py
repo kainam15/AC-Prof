@@ -215,7 +215,7 @@ class TestLocalPipelineDependencyRuntime:
                        "ACPROF_RUNTIME_PROFILE": "custom-multimodal-cpu", "ACPROF_MODEL_ADAPTER": "family-default",
                        "TASK_TYPE": "audio-text-to-text", "HF_MODULES_CACHE": str(cache),
                        "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
-        script = "import json; from acprof.container.model_probe import validate_basic; "
+        script = "import json; from acprof.container.model_probe import validate_interface; "
         if native:
             # Acceptance of a candidate happens before publishing capability=true.
             # Only the declaration is replaced; the installed upstream loader runs
@@ -226,7 +226,7 @@ class TestLocalPipelineDependencyRuntime:
                 "patch('acprof.container.local_pipeline.transformers_capabilities', return_value={"
                 "'local_dynamic_transitive_imports': True, 'local_dynamic_symlink_safe': True}).start(); "
             )
-        return subprocess.run([sys.executable, "-c", script + "print(json.dumps(validate_basic({})))"],
+        return subprocess.run([sys.executable, "-c", script + "print(json.dumps(validate_interface({})))"],
             env=environment, capture_output=True, text=True, timeout=60)
 
     def test_basic_probe_loads_transitive_imports_from_empty_cache(self):
