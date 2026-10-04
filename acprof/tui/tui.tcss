@@ -69,7 +69,6 @@ Underline { color: $accent; }
 .page-title { height: 1; color: $foreground; text-style: bold; }
 .page-summary { height: auto; max-height: 2; color: $text-muted; overflow-y: auto; }
 #image-heading { height: auto; width: 1fr; }
-#image-storage { width: auto; min-width: 14; margin-left: 1; }
 .pane-scroll { padding: 0 2; height: 1fr; }
 .section-title {
     text-style: bold;
@@ -301,6 +300,7 @@ Rule.content-divider { height: 1; margin: 0; color: $panel; }
 }
 #image-actions Button { min-width: 7; width: auto; padding: 0 1; }
 .image-view-button { min-width: 9; width: auto; padding: 0 1; margin-left: 1; }
+#image-storage { width: auto; min-width: 14; margin-left: 1; }
 #image-search { width: 1fr; min-width: 10; }
 #image-workspace { height: 1fr; min-height: 7; overflow: hidden; }
 #image-browser { height: 1fr; min-height: 3; }
@@ -323,6 +323,8 @@ Rule.content-divider { height: 1; margin: 0; color: $panel; }
 #image-detail-scroll Collapsible > Contents { padding: 1 1 1 3; }
 #image-diagnostics { color: $text-muted; }
 AcprofTui.narrow #image-actions Button { min-width: 7; padding: 0; }
+AcprofTui.narrow #image-scope { width: 19; }
+AcprofTui.narrow #image-filters Button { min-width: 9; padding: 0; }
 .stage-idle { color: $text-muted; }
 .stage-running { color: $accent; text-style: bold; }
 .stage-measuring { color: $accent; text-style: bold; }
@@ -354,17 +356,6 @@ AcprofTui.short #confirm-dialog { padding: 0 2; }
 /* Keep the image detail groups visible alongside the fixed footer at 80x24. */
 AcprofTui.narrow.short #image-heading { layout: horizontal; height: 1; }
 AcprofTui.narrow.short #image-status { width: 1fr; max-height: 1; }
-AcprofTui.narrow.short #image-storage {
-    height: 1;
-    min-height: 1;
-    border: none;
-    border-left: solid $foreground 60%;
-    border-right: solid $foreground 60%;
-}
-AcprofTui.narrow.short #image-storage:hover, AcprofTui.narrow.short #image-storage:focus {
-    border-left: solid $accent;
-    border-right: solid $accent;
-}
 AcprofTui.narrow.short #image-detail { margin-bottom: 0; }
 
 .path-picker-row { height: 3; }

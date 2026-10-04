@@ -298,11 +298,12 @@ class TestTuiImages:
             await pilot.click("#image-toggle")
             selected = set(app._selected_image_ids)
             buttons = app.query("#image-storage")
-            assert (buttons), "镜像管理右上角应提供存储空间入口"
+            assert (buttons), "镜像视图切换按钮旁应提供存储空间入口"
             button = buttons.first(Button)
             assert (str(button.label)) == ("存储空间")
-            assert (button.region.x) > (40)
-            assert (button.region.y) < (app.query_one("#image-panel").region.y)
+            layers = app.query_one("#image-view-layers", Button)
+            assert (button.region.x) > (layers.region.right)
+            assert (button.region.y, button.region.height) == (layers.region.y, layers.region.height)
             assert (await pilot.click("#image-storage"))
             await pilot.pause()
             assert (app.screen.query_one("#storage-dialog").border_title) == ("存储空间")
