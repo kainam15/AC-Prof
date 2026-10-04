@@ -621,7 +621,7 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         if not item.containers or item.descendant_ids:
             label.stylize(Style(meta={"image_checkbox": True}), 0, 3)
         tree.name_labels[item.image_id] = label
-        nodes[item.image_id] = parent.add(label, data=item, expand=previous.get(item.image_id, True))
+        nodes[item.image_id] = parent.add(label, data=item, expand=previous.get(item.image_id, False))
     for node in nodes.values():
         node.allow_expand = bool(node.children)
     tree.set_column_widths(tuple(column.get_render_width(header) for column in header.ordered_columns))

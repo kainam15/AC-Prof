@@ -434,7 +434,7 @@ class TestTuiImages:
         dependency_images(self.docker, profile="nlp-cu128")
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             before = len(self.docker.commands)
             await pilot.resize_terminal(*size)
             app.ui_preferences = replace(app.ui_preferences, language=language)
@@ -478,7 +478,7 @@ class TestTuiImages:
             assert (tree.root.children[0].children[0].data.image_id) == (WEIGHTS)
             assert (len(self.docker.commands)) == (before), "切换与搜索不能重新扫描 Docker"
 
-    async def load_images(self, app, pilot, *, view="list"):
+    async def load_images(self, app, pilot, *, view="list", expand_tree=False):
         await pilot.pause()
         app.action_show_images()
         await pilot.pause()
@@ -487,6 +487,9 @@ class TestTuiImages:
         await pilot.pause()
         assert not (app._is_busy())
         assert (app.query_one("#main-tabs", TabbedContent).active) == ("images-tab")
+        if expand_tree:
+            app.query_one("#image-tree", Tree).root.expand_all()
+            await pilot.pause()
         if view == "list" and app.query("#image-view-list"):
             await pilot.click("#image-view-list")
             table = app.query_one("#image-table", DataTable)
@@ -507,7 +510,7 @@ class TestTuiImages:
                                             ["os", "deps", "weights", "sibling"])
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
-            await self.load_images(app, pilot, view=view)
+            await self.load_images(app, pilot, view=view, expand_tree=view == "tree")
             widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
 
             async def toggle(image_id):
@@ -643,7 +646,7 @@ class TestTuiImages:
         self.add_tree_branches()
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             tree = app.query_one("#image-tree", Tree)
             before = len(self.docker.commands)
             await pilot.click(tree, offset=(14, 4))
@@ -679,7 +682,7 @@ class TestTuiImages:
         self.add_tree_branches()
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             before = len(self.docker.commands)
             await pilot.resize_terminal(*size)
             app.ui_preferences = replace(app.ui_preferences, language=language, theme=theme)
@@ -698,6 +701,8 @@ class TestTuiImages:
             self.assert_tree_path(app, tree, color, expected)
             tree.styles.height = 3
             target.set_label(target.label.copy().append(" extra" * 30))
+            # set_label 仅重绘行；按新标签重算虚拟宽度后才能横向滚动。
+            tree._invalidate()
             await pilot.pause()
             tree.scroll_to(x=2, y=2, animate=False, force=True)
             await pilot.pause()
@@ -717,7 +722,7 @@ class TestTuiImages:
     async def test_image_row_clicks_only_focus_and_show_details(self, view):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
-            await self.load_images(app, pilot, view=view)
+            await self.load_images(app, pilot, view=view, expand_tree=view == "tree")
             widget = app.query_one("#image-tree" if view == "tree" else "#image-table")
             before = len(self.docker.commands)
             for image_id in (RUNTIME, FINAL):
@@ -746,7 +751,7 @@ class TestTuiImages:
     async def test_checkbox_and_adjacent_padding_toggle_once_after_language_and_resize(self, view, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             before = len(self.docker.commands)
             await pilot.resize_terminal(*size)
             app.ui_preferences = replace(app.ui_preferences, language=language)
@@ -780,7 +785,7 @@ class TestTuiImages:
     async def test_tree_arrow_clicks_only_fold_and_checkbox_click_selects_new_row(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             tree = app.query_one("#image-tree", Tree)
             for expanded in (False, True):
                 await pilot.click(tree, offset=(0, 0))
@@ -810,13 +815,18 @@ class TestTuiImages:
             runtime = tree.root.children[0]
             assert (runtime.data.image_id) == (RUNTIME)
             assert (runtime.children[0].children[0].data.image_id) == (FINAL)
+            assert not runtime.is_expanded, "首次打开只显示顶层镜像"
+            assert not runtime.children[0].is_expanded
+            assert tree.last_line == 0
             tree.move_cursor(runtime)
             tree.focus()
             await pilot.pause()
-            await pilot.press("left")
+            await pilot.press("right")
             await pilot.pause()
-            assert not (runtime.is_expanded)
-            await pilot.press("right", "down", "down", "space")
+            assert runtime.is_expanded
+            assert not runtime.children[0].is_expanded, "展开上层不能自动展开全部下层"
+            assert tree.last_line == 1
+            await pilot.press("down", "right", "down", "space")
             await pilot.pause()
             assert (app._selected_image_ids) == ({FINAL})
             detail = str(app.query_one("#image-detail", Static).content)
@@ -844,7 +854,7 @@ class TestTuiImages:
     async def test_tree_search_keeps_ancestors_and_language_resize_keeps_collapse(self):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             assert (app.query("#image-tree")), "搜索镜像时应保留祖先路径"
             tree = app.query_one("#image-tree", Tree)
             app.query_one("#image-search", Input).value = "code"
@@ -881,7 +891,7 @@ class TestTuiImages:
                         "org.acprof.environment": environment_id(ENVIRONMENTS[profile], root)})
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
-            await self.load_images(app, pilot, view="tree")
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
             before = len(self.docker.commands)
             await pilot.resize_terminal(*size)
             app.ui_preferences = replace(app.ui_preferences, language=language)
@@ -1374,13 +1384,15 @@ class TestTuiImages:
             await pilot.pause()
             assert not (app._selected_image_ids)
 
-    async def test_refresh_preserves_tree_and_detail_folds(self):
+    @pytest.mark.parametrize("expanded", (False, True))
+    async def test_refresh_preserves_tree_and_detail_folds(self, expanded):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.load_images(app, pilot, view="tree")
             tree = app.query_one("#image-tree", Tree)
             tree.focus()
-            await pilot.press("left")
+            if expanded:
+                await pilot.press("right")
             await pilot.pause()
             root = tree.cursor_node.data.image_id
             metadata = app.query_one("#image-metadata", Collapsible)
@@ -1393,7 +1405,8 @@ class TestTuiImages:
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert (tree.cursor_node.data.image_id) == (root)
-            assert not (tree.cursor_node.is_expanded)
+            assert tree.cursor_node.is_expanded == expanded
+            assert not tree.cursor_node.children[0].is_expanded
             assert not (metadata.collapsed)
             assert (tree.scroll_offset) == (offset)
             current_node = tree.cursor_node
