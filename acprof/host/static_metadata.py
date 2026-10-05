@@ -7,11 +7,10 @@ import os
 import platform
 import re
 import shutil
-import stat
-import tempfile
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
+from acprof.artifacts import atomic_write
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
@@ -932,37 +931,10 @@ def write_static_meta_json(static_meta: StaticMeta, output_path: str) -> None:
         field: getattr(static_meta, field)
         for field in STATIC_META_FIELDS
     }
-    output_dir = os.path.dirname(os.path.abspath(output_path))
-    os.makedirs(output_dir, exist_ok=True)
-    fd, temporary_path = tempfile.mkstemp(
-        dir=output_dir,
-        prefix=f".{os.path.basename(output_path)}.",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(
-                payload,
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        output_mode = (
-            stat.S_IMODE(os.stat(output_path).st_mode)
-            if os.path.exists(output_path)
-            else 0o644
-        )
-        os.chmod(temporary_path, output_mode)
-        os.replace(temporary_path, output_path)
-        temporary_path = ""
-    finally:
-        if temporary_path:
-            try:
-                os.unlink(temporary_path)
-            except FileNotFoundError:
-                pass
 
+    def write(stream) -> None:
+        json.dump(payload, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+
+    atomic_write(output_path, write)
     print(f"[meta] Static meta JSON: {output_path}")

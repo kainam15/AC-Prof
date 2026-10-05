@@ -637,7 +637,8 @@ class TestDetectEnvironment:
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "static_meta.json")
-            static_metadata.write_static_meta_json(meta, path)
+            with patch("acprof.host.static_metadata.os.fsync", wraps=os.fsync) as fsync:
+                static_metadata.write_static_meta_json(meta, path)
             with open(path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
             leftovers = [
@@ -668,6 +669,7 @@ class TestDetectEnvironment:
         assert (payload["compute_profile_tools"]) == (["torch_profiler_eager", "ncu"])
         assert (payload["compute_profile_provenance"]) == ("direct")
         assert (leftovers) == ([])
+        assert fsync.call_count >= 2
 
     def test_compute_plan_adds_static_flops_by_input_scale(self) -> None:
         meta = static_metadata.StaticMeta(
