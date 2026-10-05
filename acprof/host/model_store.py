@@ -80,6 +80,18 @@ def _check_cancelled(cancel: Event | None) -> None:
         raise ModelStoreCancelled("Model Store operation cancelled")
 
 
+def _open_lock_file(path: Path, *, label: str):
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise OSError(f"{label} lock is not a regular file owned only by this user")
+        return os.fdopen(descriptor, "a+")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def store_root() -> Path:
     return Path(os.environ.get("ACPROF_MODEL_STORE", "").strip() or Path.home() / ".cache/acprof/model-store").expanduser().resolve()
 
@@ -121,7 +133,7 @@ def _json(path: Path, value: dict) -> None:
 def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[], None] | None = None):
     _check_cancelled(cancel)
     root.mkdir(parents=True, exist_ok=True)
-    with (root / ".lock").open("a") as stream:
+    with _open_lock_file(root / ".lock", label="Model Store") as stream:
         if cancel is None and on_wait is None:
             fcntl.flock(stream, fcntl.LOCK_EX)
         else:
@@ -546,7 +558,7 @@ def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
     root = _recorded_root(record, root)
     with store_lock(root):
         key, plan = _require_entry_plan(record, root)
-        lock = (root / (key + ".lease")).open("a")
+        lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)
             (root / "entries" / key / "last-used").touch()
@@ -566,7 +578,7 @@ def verify_entry(manifest: dict, root: Path | None = None) -> None:
     lock = None
     with store_lock(root):
         key, plan = _require_entry_plan(record, root)
-        lock = (root / (key + ".lease")).open("a")
+        lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)
             (root / "entries" / key / "last-used").touch()
@@ -595,7 +607,7 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
         key = path.parent.name
         leased = False
         try:
-            with (root / (key + ".lease")).open("a") as lock:
+            with _open_lock_file(root / (key + ".lease"), label="Model Store lease") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             leased = True

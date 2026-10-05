@@ -86,6 +86,40 @@ class TestModelStoreGc:
         two = model_store.prune_store(root=self.root, target_bytes=used - 41)
         assert (two) == ({'entries': [first, second], 'reclaimable_bytes': 180})
 
+    def test_store_lock_rejects_symlink_lock_file(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        target = self.root / "lock-target"
+        target.write_text("sentinel")
+        (self.root / ".lock").symlink_to(target)
+        with pytest.raises(OSError):
+            with model_store.store_lock(self.root):
+                pass
+        assert target.read_text() == "sentinel"
+
+    def test_store_lock_rejects_hardlinked_lock_file(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        target = self.root / "lock-target"
+        target.write_text("sentinel")
+        os.link(target, self.root / ".lock")
+        with pytest.raises(OSError):
+            with model_store.store_lock(self.root):
+                pass
+        assert target.read_text() == "sentinel"
+
+    @pytest.mark.parametrize("link_kind", ["symlink", "hardlink"])
+    def test_prune_rejects_linked_lease_file(self, link_kind):
+        key = self.entry(1, [self.blob("live", 100)])
+        target = self.root / "lease-target"
+        target.write_text("sentinel")
+        lease_path = self.root / f"{key}.lease"
+        if link_kind == "symlink":
+            lease_path.symlink_to(target)
+        else:
+            os.link(target, lease_path)
+        with pytest.raises(OSError):
+            model_store.prune_store(root=self.root)
+        assert target.read_text() == "sentinel"
+
     def test_apply_rechecks_new_leases_and_preserves_the_callers_keep_set(self):
         blob = self.blob('live', 100)
         key = self.entry(1, [blob])
