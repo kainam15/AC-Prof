@@ -1,4 +1,4 @@
-"""One modal owns model review, preparation progress, errors and cancellation."""
+"""Decision modal for model review/errors; passive preparation stays in Monitor."""
 from __future__ import annotations
 
 from textual import on
@@ -63,7 +63,7 @@ def failure_text(request, stage, tr):
 
 
 class PreparationScreen(ModalScreen):
-    BINDINGS = [("escape", "cancel", "取消")]
+    BINDINGS = [("escape", "cancel", "终止任务")]
     DEFAULT_CSS = """
     PreparationScreen { align: center middle; }
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
@@ -154,7 +154,7 @@ class PreparationScreen(ModalScreen):
                     yield Static(tr("首次使用可能需要准备模型，请稍候。"), markup=False)
                 yield Static("", id="preparation-error", markup=False)
             with Horizontal(id="preparation-actions"):
-                yield Button(tr("返回配置" if failed else "取消"), id="preparation-cancel")
+                yield Button(tr("返回配置" if failed else "终止任务"), id="preparation-cancel")
                 if review:
                     if not ready:
                         yield Button(tr("应用字段"), id="preparation-apply", variant="primary")
@@ -204,7 +204,13 @@ class PreparationScreen(ModalScreen):
 
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):
-        self.send({"action": "cancel"})
+        # Requesting stop opens the app-level confirmation first. Do not mark
+        # this decision screen as sent: rejecting the confirmation must leave
+        # the pending request fully interactive.
+        if self.respond:
+            self.respond({"action": "request-stop"})
+        else:
+            self.dismiss({"action": "request-stop"})
 
     @on(Button.Pressed, "#preparation-rebuild")
     def rebuild(self):

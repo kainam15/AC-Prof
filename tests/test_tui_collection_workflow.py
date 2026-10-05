@@ -19,7 +19,7 @@ from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker
 
 
-async def test_cancelling_wait_reaps_child_releases_lock_and_removes_bundle(tmp_path):
+async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_path):
     import os
 
     from textual.widgets import TabbedContent
@@ -52,11 +52,15 @@ async def test_cancelling_wait_reaps_child_releases_lock_and_removes_bundle(tmp_
             await asyncio.wait_for(ready(), timeout=10)
             await pilot.pause()
             pid = app._lifecycle.process.pid
-            await pilot.click("#preparation-cancel")
+            assert app._preparation_screen is None
+            assert await pilot.click("#stop-run")
+            await pilot.pause()
+            assert await pilot.click("#confirm-yes")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
             assert app._lifecycle.process is None
-            assert app.query_one(TabbedContent).active == "run-tab"
+            assert app.query_one(TabbedContent).active == "monitor-tab"
+            assert "任务已由用户终止" in app.query_one("#run-log", SelectableLog).text
             assert not app.query_one("#start-run", Button).disabled
             with pytest.raises(ProcessLookupError):
                 os.kill(pid, 0)

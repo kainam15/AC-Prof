@@ -53,7 +53,7 @@ async def test_download_review_details_expand_and_confirmation_remains_reachable
         assert not list(screen.query(Select))
         actions = screen.query("#preparation-actions Button")
         assert [str(button.label) for button in actions] == (
-            ["取消", "确认下载"] if language == "zh" else ["Cancel", "Confirm download"]
+            ["终止任务", "确认下载"] if language == "zh" else ["Stop task", "Confirm download"]
         )
         assert not any(button.disabled for button in actions)
         assert screen.query_one("#preparation-download-note", Static).content == (
@@ -97,12 +97,12 @@ async def test_download_review_details_expand_and_confirmation_remains_reachable
         assert replies == [{"action": "confirm"}]
 
 
-@pytest.mark.parametrize("action", ["confirm", "cancel", "escape"])
-async def test_download_confirmation_replies_to_waiting_process_once(tmp_path, action):
+async def test_download_confirmation_replies_once_and_returns_to_monitor(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     process = Mock(stdin=io.StringIO())
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
+        base = app.screen
         app._lifecycle.process = process
         try:
             app._preparation_event({"stage": "image", "status": "waiting", "request": {
@@ -113,41 +113,102 @@ async def test_download_confirmation_replies_to_waiting_process_once(tmp_path, a
             screen = app.screen
             assert str(screen.query_one("#preparation-continue", Button).label) == "确认下载"
             assert process.stdin.getvalue() == ""
-            if action == "escape":
-                await pilot.press("escape")
-            elif action == "cancel":
-                assert await pilot.click("#preparation-cancel")
-            else:
-                screen.query_one("#preparation-cancel", Button).focus()
-                await pilot.press("tab")
-                assert app.focused is screen.query_one("#preparation-continue", Button)
-                await pilot.press("enter", "enter")
+            assert await pilot.click("#preparation-continue")
             await pilot.pause()
-            expected = "confirm" if action == "confirm" else "cancel"
-            assert process.stdin.getvalue() == f'{{"id": 3, "action": "{expected}"}}\n'
+            assert process.stdin.getvalue() == '{"id": 3, "action": "confirm"}\n'
             assert app._preparation_request is None
-            if action == "confirm":
-                assert app.screen is screen
-                assert not list(screen.query("#preparation-continue"))
-                assert not app._stop_requested
-            else:
-                assert app.screen is not screen
-                assert app._stop_requested
+            assert app._preparation_screen is None
+            assert app.screen is base
+            assert not app._stop_requested
         finally:
             app._lifecycle.process = None
 
 
-async def test_start_opens_waiting_dialog_without_manual_inspection(tmp_path):
+@pytest.mark.parametrize("action", ["button", "escape"])
+async def test_preparation_stop_rejection_keeps_pending_request_interactive(tmp_path, action):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    process = Mock(stdin=io.StringIO())
+    process.poll.return_value = None
+    async with app.run_test(size=(80, 24)) as pilot:
+        app._lifecycle.process = process
+        app._process_kind = "run"
+        try:
+            app._preparation_event({"stage": "image", "status": "waiting", "request": {
+                "id": 3, "kind": "review", "resolved": True, "questions": [],
+                "download_report": {"expected_download_bytes": 708_390_484},
+            }})
+            await pilot.pause()
+            screen = app.screen
+            if action == "escape":
+                await pilot.press("escape")
+            else:
+                assert await pilot.click("#preparation-cancel")
+            await pilot.pause()
+            assert process.stdin.getvalue() == ""
+            assert app._preparation_request == (process, 3)
+            assert not app._stop_requested
+            assert list(app.screen.query("#confirm-yes"))
+            assert await pilot.click("#confirm-no")
+            await pilot.pause()
+            assert app.screen is screen
+            assert app._preparation_request == (process, 3)
+            assert not app._stop_requested
+            assert await pilot.click("#preparation-continue")
+            await pilot.pause()
+            assert process.stdin.getvalue() == '{"id": 3, "action": "confirm"}\n'
+            assert app._preparation_request is None
+        finally:
+            app._lifecycle.process = None
+            app._process_kind = ""
+
+
+async def test_preparation_confirmed_stop_uses_graceful_stop_path(tmp_path):
+    app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    process = Mock(stdin=io.StringIO())
+    process.poll.return_value = None
+    async with app.run_test(size=(80, 24)) as pilot:
+        base = app.screen
+        app._lifecycle.process = process
+        app._process_kind = "run"
+        try:
+            app._preparation_event({"stage": "resolution", "status": "waiting", "request": {
+                "id": 7, "kind": "review", "resolved": True, "questions": [],
+            }})
+            await pilot.pause()
+            with patch.object(app, "_stop_process_gracefully") as stop:
+                assert await pilot.click("#preparation-cancel")
+                await pilot.pause()
+                assert process.stdin.getvalue() == ""
+                assert await pilot.click("#confirm-yes")
+                await pilot.pause()
+                assert app._stop_requested
+                assert app._preparation_request is None
+                assert app._preparation_screen is None
+                assert app.screen is base
+                stop.assert_called_once_with(app._process_token, process)
+        finally:
+            app._lifecycle.process = None
+            app._process_kind = ""
+
+
+async def test_start_stays_on_monitor_without_passive_preparation_modal(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
+        base = app.screen
         assert not list(app.query("#inspect-model"))
         with patch.object(app, "_execute_command"):
             assert await pilot.click("#start-run")
             await pilot.pause()
-            assert isinstance(app.screen, PreparationScreen)
-            assert app.screen.query_one("#preparation-title", Static).content == "正在检测模型"
-            assert not list(app.screen.query("#confirm-yes"))
-            assert await pilot.click("#preparation-cancel")
+            assert app.screen is base
+            assert app._preparation_screen is None
+            assert app.query_one("#main-tabs").active == "monitor-tab"
+            log = app.query_one("#run-log")
+            assert log.display and log.region.height > 0
+            app._preparation_event({"stage": "model", "status": "running"})
+            await pilot.pause()
+            assert app.screen is base
+            assert app._preparation_screen is None
+            assert log.display and log.region.height > 0
 
 
 @pytest.mark.parametrize("language,size", [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
@@ -167,54 +228,60 @@ async def test_review_is_readonly_for_resolved_fields_and_confirm_waits_for_reso
             }}
             app._preparation_event(event)
             await pilot.pause()
-            screen = app.screen
-            assert screen.query_one("#preparation-continue", Button).disabled
-            assert screen.query_one("#preparation-fields", Static).content.startswith("✓ Model")
-            assert not list(screen.query("#resolution-basic, #resolution-full"))
-            choice = screen.query_one("#preparation-answer-0", Select)
+            first_screen = app.screen
+            assert first_screen.query_one("#preparation-continue", Button).disabled
+            assert first_screen.query_one("#preparation-fields", Static).content.startswith("✓ Model")
+            assert not list(first_screen.query("#resolution-basic, #resolution-full"))
+            choice = first_screen.query_one("#preparation-answer-0", Select)
             choice.value = "fill-mask"
             assert await pilot.click("#preparation-apply")
             await pilot.pause()
             assert '"action": "answer"' in process.stdin.getvalue()
+            assert app._preparation_screen is None
             app._preparation_event({"stage": "resolution", "status": "waiting", "request": {
                 "id": 2, "kind": "review", "questions": [], "resolved": True,
                 "fields": {**event["request"]["fields"], "Task": "fill-mask"},
             }})
             await pilot.pause()
-            assert app.screen is screen
-            assert not list(screen.query(Collapsible))
-            assert not screen.query_one("#preparation-continue", Button).disabled
+            second_screen = app.screen
+            assert isinstance(second_screen, PreparationScreen)
+            assert second_screen is not first_screen
+            assert not list(second_screen.query(Collapsible))
+            assert not second_screen.query_one("#preparation-continue", Button).disabled
             assert await pilot.click("#preparation-continue")
             await pilot.pause()
             assert '"action": "confirm"' in process.stdin.getvalue()
-            app._preparation_event({"stage": "runtime", "status": "passed"})
-            await pilot.pause()
-            assert app.screen is not screen
+            assert app._preparation_screen is None
+            assert app.screen is not second_screen
         finally:
             app._lifecycle.process = None
 
 
-async def test_runtime_error_replaces_wait_in_same_dialog_and_details_are_collapsed(tmp_path):
+async def test_runtime_running_stays_in_monitor_and_error_opens_decision_dialog(tmp_path):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     process = Mock(stdin=io.StringIO())
     process.poll.return_value = None
     async with app.run_test(size=(80, 24)) as pilot:
+        base = app.screen
         app._lifecycle.process = process
         try:
             app._preparation_event({"stage": "runtime", "status": "running"})
             await pilot.pause()
-            screen = app.screen
+            assert app.screen is base
+            assert app._preparation_screen is None
             app._preparation_event({"stage": "runtime", "status": "failed", "request": {
                 "id": 1, "kind": "error", "failed_stage": "postprocess", "detail": "Traceback: invalid output",
             }})
             await pilot.pause()
-            assert app.screen is screen
+            screen = app.screen
+            assert isinstance(screen, PreparationScreen)
             assert screen.query_one("#preparation-title", Static).content == "模型无法正常运行"
             assert "输出处理" in screen.query_one("#preparation-detail", Static).content
             assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
             assert await pilot.click("#preparation-continue")
             await pilot.pause()
-            assert app.screen is screen
+            assert app.screen is base
+            assert app._preparation_screen is None
             assert '"action": "retry"' in process.stdin.getvalue()
         finally:
             app._lifecycle.process = None

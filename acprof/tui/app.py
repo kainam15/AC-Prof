@@ -987,8 +987,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         log.write(f"$ {format_command(pending.command)}")
         log.write(self.tr("[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。"))
         self._render_snapshot(self._latest_snapshot)
-        if pending.kind == "run":
-            self._show_preparation({"stage": "resolution", "status": "running"})
         self._execute_command(list(pending.command), pending.kind)
 
     def _tick_elapsed(self) -> None:
@@ -1492,6 +1490,7 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         if not confirmed or not self._operation_state().allows("stop"):
             return
         self._stop_requested = True
+        self._close_preparation()
         self._stop_process_gracefully(self._process_token, self._lifecycle.process)
 
     @work(thread=True, group="stop", exclusive=True, exit_on_error=False)
@@ -1593,11 +1592,14 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             if request["kind"] == "error":
                 self._write_log(f"[preparation][ERROR] {event['stage']}: {request.get('detail', '')}")
             self._preparation_request = (process, request["id"])
-        if request or event.get("status") == "running":
+        if request:
             self._show_preparation(event)
 
     def _preparation_answered(self, result) -> None:
         from acprof.preparation_events import encode_reply
+        if result["action"] == "request-stop":
+            self.action_request_stop()
+            return
         pending = self._preparation_request
         if result["action"] == "switch-source":
             self._pending_source_change = result
@@ -1609,8 +1611,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             if pending is None:
                 self._stop_process_gracefully(self._process_token, self._lifecycle.process)
             self._close_preparation()
-        elif self._preparation_screen is not None:
-            self._preparation_screen.update_event({"stage": self._preparation_screen.event["stage"], "status": "running"})
         if pending is None:
             return
         process, request_id = pending
@@ -1620,6 +1620,9 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             self.notify(str(exc), severity="error")
             self._stop_requested = True
             self._stop_process_gracefully(self._process_token, process)
+        else:
+            if result["action"] != "cancel":
+                self._close_preparation()
 
     def _preflight_config(self) -> RunConfig:
         # Diagnostics remain usable without a model or valid resource matrix.
