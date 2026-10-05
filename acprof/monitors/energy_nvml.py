@@ -305,6 +305,12 @@ class GPUEnergyMonitor:
             samples,
         )
 
+    def sampling_boundary_snapshot(self) -> dict:
+        """Read existing timestamps only; no additional NVML query."""
+        return {"start_monotonic_s": self._t_start, "end_monotonic_s": self._t_end,
+                "semantics": "monitor_recorded_timestamps",
+                "reason": "timestamps precede counter queries; exact hardware read instants are unknown"}
+
     def close(self) -> None:
         if self._closed:
             return

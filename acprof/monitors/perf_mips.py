@@ -530,6 +530,12 @@ class PerfMIPSMonitor:
             ),
         )
 
+    def sampling_boundary_snapshot(self) -> dict:
+        """Do not infer an unrecorded end timestamp from perf elapsed time."""
+        return {"start_monotonic_s": self._t_start, "end_monotonic_s": None,
+                "semantics": "monitor_recorded_timestamps",
+                "reason": "start timestamp follows process spawn; no monotonic stop timestamp is recorded"}
+
     def close(self) -> None:
         self._command = None
         if self._proc is not None and self._proc.poll() is None:

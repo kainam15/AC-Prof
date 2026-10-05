@@ -586,6 +586,12 @@ class CPUEnergyMonitor:
         return result, self._runtime_error, samples
 
 
+    def sampling_boundary_snapshot(self) -> dict:
+        """Read existing timestamps only; do not claim exact RAPL read instants."""
+        return {"start_monotonic_s": self._t_start, "end_monotonic_s": self._t_end,
+                "semantics": "monitor_recorded_timestamps",
+                "reason": "end timestamp is recorded before thread join and the final counter read"}
+
     def close(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             self.stop()

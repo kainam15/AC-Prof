@@ -246,6 +246,12 @@ class ResourceUsageMonitor:
             samples,
         )
 
+    def sampling_boundary_snapshot(self) -> dict:
+        """Read existing timestamps only; no cgroup, proc, sysfs or NVML query."""
+        return {"start_monotonic_s": self._t_start, "end_monotonic_s": self._t_end,
+                "semantics": "monitor_recorded_timestamps",
+                "reason": "end timestamp precedes counter snapshots, thread join and the final sample"}
+
     def close(self) -> None:
         if self._closed:
             return

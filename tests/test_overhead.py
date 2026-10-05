@@ -1,4 +1,5 @@
 """开销对照必须按同一轮配对，不能混用不完整实验。"""
+import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -131,3 +132,88 @@ def test_monitor_stop_failure_does_not_leave_other_threads_running():
     for monitor in monitors:
         monitor.stop.assert_called_once()
         monitor.close.assert_called_once()
+
+
+@pytest.mark.parametrize("failure", [None, "request", "stop", "start", "cancel"])
+def test_opt_in_boundary_report_is_written_after_cleanup(tmp_path, failure):
+    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from scripts.measure_overhead import measure_window
+
+    path = tmp_path / "window.boundaries.json"
+    events = []
+    monitor = Mock()
+    monitor.sampling_boundary_snapshot.return_value = None
+
+    def start():
+        events.append("start")
+        if failure == "start":
+            raise RuntimeError("start failed")
+
+    def stop():
+        assert not path.exists()
+        events.append("stop")
+        if failure == "stop":
+            raise RuntimeError("stop failed")
+        return (None, "", [1, 2])
+
+    def close():
+        assert not path.exists()
+        events.append("close")
+
+    def request(*args, **kwargs):
+        assert not path.exists()
+        events.append("request")
+        if failure == "request":
+            raise RuntimeError("request failed")
+        if failure == "cancel":
+            raise KeyboardInterrupt("cancelled")
+        response = Mock(status_code=200)
+        response.json.return_value = {}
+        return response
+
+    monitor.start.side_effect = start
+    monitor.stop.side_effect = stop
+    monitor.close.side_effect = close
+    monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics())
+    monitors.add("cpu", monitor)
+    with patch("requests.post", side_effect=request):
+        if failure is None:
+            result = measure_window("http://example.invalid", {}, count=1, monitors=monitors,
+                                    token="window", boundary_output=path)
+            assert result["window_boundary_file"] == path.name
+        else:
+            expected = KeyboardInterrupt if failure == "cancel" else RuntimeError
+            with pytest.raises(expected, match="cancelled" if failure == "cancel" else failure + " failed"):
+                measure_window("http://example.invalid", {}, count=1, monitors=monitors,
+                               token="window", boundary_output=path)
+    assert events[-1] == "close"
+    report = json.loads(path.read_text())
+    assert report["window_id"] == "window"
+    assert report["kind"] == "measurement_window_boundary_diagnostic"
+    assert report["successful"] == (failure is None)
+    assert report["request_window"]["completed_requests"] == (1 if failure in {None, "stop"} else 0)
+    assert report["request_window"]["status"] == ("not_started" if failure == "start" else "recorded")
+    assert [row["operation"] for row in report["operations"]] == ["cpu.start", "cpu.stop", "cpu.close"]
+    if failure == "stop":
+        assert any("stop failed" in error for error in report["errors"])
+    elif failure:
+        assert ("cancelled" if failure == "cancel" else failure + " failed") in report["request_window"]["error"]
+
+
+@pytest.mark.parametrize("request_fails", [False, True])
+def test_boundary_write_failure_preserves_active_request_error(tmp_path, capsys, request_fails):
+    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from scripts.measure_overhead import measure_window
+
+    monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics())
+    response = Mock(status_code=200)
+    response.json.return_value = {}
+    with patch("requests.post", return_value=response,
+               side_effect=RuntimeError("original request error") if request_fails else None), \
+            patch("scripts.measure_overhead.atomic_write_json", side_effect=OSError("sidecar disk error")):
+        expected = RuntimeError if request_fails else OSError
+        with pytest.raises(expected, match="original request error" if request_fails else "sidecar disk error"):
+            measure_window("http://example.invalid", {}, count=1, monitors=monitors,
+                           token="window", boundary_output=tmp_path / "window.boundaries.json")
+    if request_fails:
+        assert "sidecar disk error" in capsys.readouterr().err

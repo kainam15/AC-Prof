@@ -4,9 +4,12 @@ from __future__ import annotations
 import math
 import time
 from contextlib import ExitStack
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.monitors.interfaces import MonitorLifecycle
+
+if TYPE_CHECKING:
+    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
 
 
 class MonitorCleanupError(RuntimeError):
@@ -19,7 +22,8 @@ class MonitorGroup:
     START_ORDER = ("gpu", "cpu", "resource", "mips")
     STOP_ORDER = ("mips", "resource", "gpu", "cpu")
 
-    def __init__(self, *, close: bool = True):
+    def __init__(self, *, close: bool = True, diagnostics: WindowBoundaryDiagnostics | None = None):
+        self.diagnostics = diagnostics
         self.monitors: dict[str, MonitorLifecycle] = {}
         self.results: dict[str, Any] = {}
         self.failures: list[tuple[str, BaseException]] = []
@@ -40,6 +44,8 @@ class MonitorGroup:
 
     def _attempt(self, operation, callback, *args):
         try:
+            if self.diagnostics is not None:
+                return self.diagnostics.observe(operation, callback, *args)
             return callback(*args)
         except BaseException as error:
             self.failures.append((operation, error))
@@ -61,7 +67,10 @@ class MonitorGroup:
             if name in self.monitors:
                 # A start implementation may acquire resources before raising.
                 self.started.add(name)
-                self.monitors[name].start()
+                if self.diagnostics is None:
+                    self.monitors[name].start()
+                else:
+                    self.diagnostics.observe(f"{name}.start", self.monitors[name].start)
 
     def finish(self, repeat_count: int, latency_app_s: float) -> None:
         try:
@@ -72,7 +81,15 @@ class MonitorGroup:
                     self.results[name] = self._attempt(f"{name}.stop", getattr(self.monitors[name], "stop"), *args)
         finally:
             self._prepared = False
-            self._closers.close()
+            try:
+                if self.diagnostics is not None:
+                    self.diagnostics.capture_boundaries(self.monitors)
+            finally:
+                try:
+                    self._closers.close()
+                finally:
+                    if self.diagnostics is not None:
+                        self.diagnostics.finish(self.failures)
 
     @property
     def error(self) -> str:

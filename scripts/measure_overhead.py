@@ -30,6 +30,9 @@ from acprof.host.measurement_window import (  # noqa: E402 -- 脚本先设置仓
     MonitorGroup,
     run_matched_control_window,
 )
+from acprof.host.window_boundary_diagnostics import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    WindowBoundaryDiagnostics,
+)
 
 
 def summarize_overhead(rows, *, seed=0):
@@ -64,13 +67,30 @@ def summarize_overhead(rows, *, seed=0):
     return result
 
 
+def _write_window_boundaries(monitors: MonitorGroup, path: Path | None, *, token: str,
+                             active_error: BaseException | None) -> None:
+    """Publish after cleanup; diagnostic I/O must not replace an active failure."""
+    if path is None or monitors.diagnostics is None:
+        return
+    try:
+        report = monitors.diagnostics.report()
+        report["window_id"] = token
+        atomic_write_json(path, report)
+    except Exception as error:
+        if active_error is None:
+            raise
+        print(f"[overhead] boundary report failed for {token}: {error}", file=sys.stderr)
+
+
 def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
-                   control_window=None, timeout: float = 60) -> dict[str, Any]:
+                   control_window=None, timeout: float = 60,
+                   boundary_output: Path | None = None) -> dict[str, Any]:
     import requests
 
     lifecycle = time.perf_counter()
     timings = []
     contracts = defaultdict(int)
+    diagnostics = monitors.diagnostics
     primary_error = None
     try:
         if count < 1:
@@ -80,6 +100,8 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
         monitors.start()
         cpu_started = time.process_time()
         wall_started = time.perf_counter()
+        if diagnostics is not None:
+            diagnostics.requests_started()
         for index in range(count):
             before = time.perf_counter()
             response = requests.post(url + "/predict", json=payload,
@@ -99,9 +121,17 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
         primary_error = error
         raise
     finally:
-        monitors.finish(len(timings), statistics.fmean(timings) if timings else math.nan)
-        if primary_error is None or isinstance(primary_error, Exception):
-            monitors.raise_if_failed()
+        try:
+            if diagnostics is not None:
+                diagnostics.requests_finished(len(timings), error=primary_error)
+        finally:
+            try:
+                monitors.finish(len(timings), statistics.fmean(timings) if timings else math.nan)
+                if primary_error is None or isinstance(primary_error, Exception):
+                    monitors.raise_if_failed()
+            finally:
+                _write_window_boundaries(monitors, boundary_output, token=token,
+                                         active_error=sys.exc_info()[1])
     stopped = [{"monitor": type(monitors.monitors[name]).__name__, "samples": len(value[-1]), "error": value[-2]}
                for name, value in monitors.results.items() if name != "mips" and value is not None]
     if any(item["error"] or item["samples"] < 2 for item in stopped):
@@ -109,11 +139,14 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
     perf_result = asdict(monitors.results["mips"]) if monitors.results.get("mips") is not None else None
     if perf_result is not None and not (math.isfinite(perf_result["instructions_total"]) and perf_result["instructions_total"] > 0):
         raise RuntimeError("perf 未取得有效 instructions")
-    return {"latency_app_s": statistics.fmean(timings), "request_count": count,
+    result = {"latency_app_s": statistics.fmean(timings), "request_count": count,
             "host_process_cpu_s": cpu_time, "request_loop_wall_s": wall_time,
             "lifecycle_wall_s": time.perf_counter() - lifecycle, "monitors": stopped,
             "perf": perf_result, "workload_contracts": [
                 {"count": n, "contract": json.loads(contract)} for contract, n in contracts.items()]}
+    if boundary_output is not None and diagnostics is not None:
+        result["window_boundary_file"] = boundary_output.name
+    return result
 
 
 def stop_capture(capture):
@@ -146,7 +179,7 @@ def validate_capture(command, pcap, *, token, count):
 
 
 def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, mem, gpu,
-                           token, output, options) -> dict[str, Any]:
+                           token, output, options, window_boundaries: bool = False) -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
     from acprof.host.packet_capture import _resolve_packet_latency_runtime
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
@@ -156,7 +189,9 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
 
     idle = float(options["idle_seconds"])
     device = session.gpu_device
-    monitors = MonitorGroup()
+    monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics() if window_boundaries else None)
+    boundary_output = output / f"{token}.boundaries.json" if window_boundaries else None
+    window_entered = False
     control = None
     primary_error = None
     try:
@@ -194,16 +229,26 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                     run_matched_control_window(monitors, idle_seconds=idle)
             else:
                 time.sleep(idle)
+            window_entered = True
             result = measure_window(session.base_url, entry["payload"], count=count, monitors=monitors,
                                     token=token, control_window=control,
-                                    timeout=float(options["request_timeout_seconds"]))
+                                    timeout=float(options["request_timeout_seconds"]), boundary_output=boundary_output)
     except BaseException as error:
         primary_error = error
         raise
     finally:
-        monitors.finish(0, math.nan)
-        if primary_error is None or isinstance(primary_error, Exception):
-            monitors.raise_if_failed()
+        try:
+            if not window_entered and monitors.diagnostics is not None:
+                monitors.diagnostics.requests_finished(0, error=primary_error)
+        finally:
+            try:
+                monitors.finish(0, math.nan)
+                if primary_error is None or isinstance(primary_error, Exception):
+                    monitors.raise_if_failed()
+            finally:
+                if not window_entered:
+                    _write_window_boundaries(monitors, boundary_output, token=token,
+                                             active_error=sys.exc_info()[1])
     if scenario == "full":
         if capture.returncode != 0 or pcap.stat().st_size <= 24:
             raise RuntimeError("full 对照未取得有效 PCAP")
@@ -212,10 +257,40 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
     return result
 
 
+def select_source_case(options: dict, plan: dict, *, cpu: int | None = None,
+                       mem: int | None = None, input_scale: float | None = None) -> tuple[dict, int, int]:
+    """Select only coordinates and the unchanged payload from the frozen source run."""
+    cpus = tuple(map(int, options["cpus"].split(",")))
+    mems = tuple(map(int, options["mems"].split(",")))
+    cpu = max(cpus) if cpu is None else cpu
+    mem = max(mems) if mem is None else mem
+    if cpu <= 0 or cpu not in cpus:
+        raise ValueError(f"--cpu 必须选择源实验中的 CPU 配额：{cpus}")
+    if mem <= 0 or mem not in mems:
+        raise ValueError(f"--mem 必须选择源实验中的内存配额：{mems}")
+    entries = plan.get("entries", [])
+    if not entries:
+        raise ValueError("源实验的输入计划没有条目")
+    entry = entries[0]
+    if input_scale is not None:
+        if not math.isfinite(input_scale):
+            raise ValueError("--input-scale 必须为源实验中的有限输入尺度")
+        matches = [item for item in entries if item.get("input_scale") == input_scale]
+        if len(matches) != 1:
+            raise ValueError("--input-scale 必须唯一匹配源实验的一个输入计划条目")
+        entry = matches[0]
+    return entry, cpu, mem
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="已完成的新实验目录")
     parser.add_argument("--gpu", choices=("off", "on"), required=True)
+    parser.add_argument("--cpu", type=int, help="源实验中的 CPU 配额；默认取最大值")
+    parser.add_argument("--mem", type=int, help="源实验中的内存配额（GiB）；默认取最大值")
+    parser.add_argument("--input-scale", type=float, help="源实验中的输入尺度；默认取计划第一项")
+    parser.add_argument("--window-boundaries", action="store_true",
+                        help="显式记录请求与监测器逻辑边界；收尾后写独立诊断文件，会增加诊断开销")
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--requests", type=int, default=100)
     parser.add_argument("--sample-hz", default="5,20,100")
@@ -257,9 +332,11 @@ def main(argv=None):
     if not expected_hash or file_sha256(plan_path) != expected_hash:
         parser.error("输入计划与原实验身份不一致")
     plan = json.loads(plan_path.read_text())
-    entry = plan["entries"][0]
-    cpu = max(map(int, state["options"]["cpus"].split(",")))
-    mem = max(map(int, state["options"]["mems"].split(",")))
+    try:
+        entry, cpu, mem = select_source_case(state["options"], plan, cpu=args.cpu, mem=args.mem,
+                                             input_scale=args.input_scale)
+    except ValueError as error:
+        parser.error(str(error))
     name = "acprof-overhead-" + uuid4().hex[:12]
     conditions = ExecutionConditions.from_options(state["options"], gpu=args.gpu)
     recorded_environment = conditions.environment
@@ -275,6 +352,12 @@ def main(argv=None):
               "scope": ("同一常驻模型、固定输入与线程的串行 /predict；none/basic/full 仅为内部采集器对照，"
                         "full 复用无请求对照与 PCAP/perf/RAPL/NVML/cgroup；不含 profiler、TUI、启动和离线合并成本，非正式画像"
                         if modes else "同一常驻模型的 HTTP 请求；比较监测线程，未开启 PCAP/perf/TUI，不是正式能耗实验")}
+    if args.window_boundaries:
+        report["window_boundaries"] = {
+            "enabled": True, "sidecar_pattern": "overhead-*.boundaries.json",
+            "scope": "request windows only; existing logical timestamps, exact counter-read instants unknown",
+            "adds_diagnostic_overhead": True,
+        }
     try:
         with MeasurementLock(), conditions.activate() as device:
             report["gpu_device"] = device
@@ -299,13 +382,16 @@ def main(argv=None):
                                 session, entry, scenario=scenario, rate=rates[0], count=args.requests,
                                 name=name, cpu=cpu, mem=mem, gpu=args.gpu,
                                 token=f"overhead-{round_index}-{scenario}", output=output,
-                                options=state["options"])
+                                options=state["options"], window_boundaries=args.window_boundaries)
                             report["rounds"].append({"round": round_index, "scenario": scenario, **result})
                             atomic_write_json(output / "overhead.json", report)
                             print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                             continue
                         # 监测器初始化与文件输出均不计入请求计时。
-                        monitors = MonitorGroup()
+                        monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics() if args.window_boundaries else None)
+                        scenario = f"monitors-{rate:g}" if rate else "none"
+                        token = f"overhead-{round_index}-{scenario}"
+                        boundary_output = output / f"{token}.boundaries.json" if args.window_boundaries else None
                         try:
                             if rate:
                                 monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, container_name=name))
@@ -317,12 +403,19 @@ def main(argv=None):
                                 if args.gpu == "on":
                                     monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate,
                                         device_index=session.gpu_device["index"], device_uuid=session.gpu_device["uuid"]))
-                        except BaseException:
-                            monitors.finish(0, math.nan)
+                        except BaseException as error:
+                            try:
+                                if monitors.diagnostics is not None:
+                                    monitors.diagnostics.requests_finished(0, error=error)
+                            finally:
+                                try:
+                                    monitors.finish(0, math.nan)
+                                finally:
+                                    _write_window_boundaries(monitors, boundary_output, token=token,
+                                                             active_error=sys.exc_info()[1])
                             raise
-                        scenario = f"monitors-{rate:g}" if rate else "none"
                         result = measure_window(session.base_url, entry["payload"], count=args.requests,
-                                                monitors=monitors, token=f"overhead-{round_index}-{scenario}",
+                                                monitors=monitors, token=token, boundary_output=boundary_output,
                                                 timeout=conditions.request_timeout_seconds)
                         report["rounds"].append({"round": round_index, "scenario": scenario, **result})
                         atomic_write_json(output / "overhead.json", report)
@@ -336,7 +429,13 @@ def main(argv=None):
         report["error"] = str(error)
         raise
     finally:
-        atomic_write_json(output / "overhead.json", report)
+        active_error = sys.exc_info()[1]
+        try:
+            atomic_write_json(output / "overhead.json", report)
+        except Exception as error:
+            if active_error is None:
+                raise
+            print(f"[overhead] final report failed: {error}", file=sys.stderr)
     return 0
 
 
