@@ -350,6 +350,18 @@ class TestAudioWorkload:
         with pytest.raises(ValueError, match="separate long-form workload"):
             self._generator()
 
+    def test_manifest_read_is_bounded_before_json_parsing(self, monkeypatch):
+        from acprof import artifacts
+
+        self.spec_path.write_text(
+            " " * 1024 + json.dumps(self.spec),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(artifacts, "MAX_JSON_ARTIFACT_BYTES", 512)
+
+        with pytest.raises(ValueError, match="audio workload spec.*4 MiB read limit"):
+            self._generator()
+
     def test_rejects_asset_path_escape_and_unknown_schema_fields(self):
         nested = self.root / "nested"
         nested.mkdir()
