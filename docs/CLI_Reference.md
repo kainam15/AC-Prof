@@ -260,8 +260,9 @@ acprof coverage report results/model-a results/model-b \
 ```
 
 snapshot 按 `TASK:LIBRARY` 各取下载量前 N 个，属于所选样本统计，不代表全 Hub 或随机长尾。
-run 默认只做静态检查；`--validate-runtime` 的验证时间限制不包含构建和下载。`coverage.json` 的分母始终是
-冻结样本总权重，分别报告解析、适配、运行、拒绝、权限与资源限制；静态检查不检查权重读取权限，
+run 默认只做静态检查；`--validate-runtime` 的验证时间限制不包含构建和下载。运行时验证会取得同机同用户的
+测量锁，与正式采集和 post-hoc profiling 串行，避免额外容器/推理污染性能与能耗窗口；静态 coverage 不取得该锁。
+`coverage.json` 的分母始终是冻结样本总权重，分别报告解析、适配、运行、拒绝、权限与资源限制；静态检查不检查权重读取权限，
 运行成功率、权限拒绝率与资源限制率均为 null。
 独立审阅的 `semantic_reference: {"task": "...", "source": "..."}` 才用于语义正确率；
 snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅样本的比率为 null。

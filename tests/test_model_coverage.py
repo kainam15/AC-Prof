@@ -32,6 +32,32 @@ def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
         assert (summary["semantic_wrong_selections"]) == (0)
         assert (summary["failure_stages"]) == ({"resource": 1, "environment": 1})
 
+def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not(tmp_path):
+    from acprof.host.model_coverage import run_sample
+
+    task = candidate(tag="text-generation")
+    manifest = {
+        "schema_version": 1,
+        "sampling": "fixed",
+        "weight_basis": "uniform",
+        "models": [{"model_id": "example/model", "revision": "a" * 40, "weight": 1}],
+    }
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.automation.check_repository_access"
+    ), patch(
+        "acprof.host.model_inspection.validate_model_runtime",
+        return_value={"status": "ok", "devices": {}},
+    ), patch("acprof.host.run_state.MeasurementLock") as measurement_lock:
+        run_sample(manifest, tmp_path / "runtime", probe="full")
+    measurement_lock.assert_called_once_with()
+
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.run_state.MeasurementLock",
+        side_effect=AssertionError("static coverage must not take measurement lock"),
+    ):
+        run_sample(manifest, tmp_path / "static", probe="none")
+
+
 def test_static_coverage_keeps_unmeasured_separate_and_requires_reference():
     first = candidate(tag="text-generation")
     second = candidate(tag="fill-mask", hub={"transformers_info": {"pipeline_tag": "text-generation"}})

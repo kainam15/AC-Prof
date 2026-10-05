@@ -197,13 +197,15 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                max_parameters: int | None = None, max_download_bytes: int | None = None,
                resume: bool = False, retry_failed: bool = False,
                retry_stages=(), retry_reasons=()) -> dict:
+    from contextlib import nullcontext
+
     from acprof.host.coverage_state import (
         CoverageState,
         confirm_previous_cleanup,
         coverage_configuration,
     )
     from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
-    from acprof.host.run_state import ResultDirectoryLock
+    from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
 
     validate_sample(sample)
     if (probe not in {"none", "full"} or type(cpus) is not int or cpus <= 0
@@ -225,7 +227,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
             raise ValueError("coverage resume requires an existing report directory")
     else:
         root.mkdir(parents=True, exist_ok=False)
-    with ResultDirectoryLock(root), gpu_device_scope():
+    measurement_lock = MeasurementLock() if probe == "full" else nullcontext()
+    with measurement_lock, ResultDirectoryLock(root), gpu_device_scope():
         device = pin_gpu_device() if gpu and probe == "full" else {}
         configuration = coverage_configuration(
             probe=probe, resources={"cpus": cpus, "memory_gb": memory_gb, "gpu": gpu,
