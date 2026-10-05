@@ -4,6 +4,12 @@ import os
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
+
+import pytest
+
+from acprof.config import CSV_FIELDS
+from acprof.packet import merge_packet_latency
 
 
 def test_recomputes_both_explicit_flop_rates_from_packet_latency() -> None:
@@ -347,3 +353,28 @@ def test_merges_packet_latency_with_sidecar_when_csv_omits_sniff_group_id() -> N
     assert (rows[0]["latency_s"]) == ("0.500000")
     assert (rows[0]["throughput_samples_per_s"]) == ("4.000000")
     assert (rows[0]["model_logical_mflops_packet_torch_profiler_eager"]) == ("400.000000")
+
+
+def test_write_failure_preserves_existing_packet_merge_output() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        fieldnames = [*CSV_FIELDS, "sniff_group_id"]
+        row = dict.fromkeys(fieldnames, "nan")
+        row.update(status="ok", error="", sniff_group_id="case_seq1_r0")
+        with open(in_csv, "w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(row)
+        with open(lat_json, "w", encoding="utf-8") as stream:
+            json.dump({"schema_version": 2, "requests": {"case_seq1_r0:0": {"latency_s": 0.25}}}, stream)
+        with open(out_csv, "wb") as stream:
+            stream.write(b"previous packet merge\n")
+
+        with patch("csv.DictWriter.writerows", side_effect=OSError("injected disk failure")):
+            with pytest.raises(OSError, match="injected disk failure"):
+                merge_packet_latency.main([in_csv, lat_json, out_csv])
+
+        with open(out_csv, "rb") as stream:
+            assert stream.read() == b"previous packet merge\n"

@@ -6,7 +6,7 @@ import sys
 from collections import defaultdict
 from typing import Sequence
 
-from acprof.artifacts import read_static_metadata
+from acprof.artifacts import atomic_write, read_static_metadata
 from acprof.latency_slo import latency_slo_threshold
 from acprof.metric_registry import order_csv_fields
 from acprof.pixel_metrics import per_megapixel
@@ -337,15 +337,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     for r in rows:
         r.pop(SNIFF_GROUP_FIELD, None)
 
-    with open(out_csv, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(
-            f,
+    def write_merged_csv(stream) -> None:
+        writer = csv.DictWriter(
+            stream,
             fieldnames=fields,
             quoting=csv.QUOTE_MINIMAL,
             extrasaction="ignore",
         )
-        w.writeheader()
-        w.writerows(rows)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    atomic_write(out_csv, write_merged_csv)
     _merge_request_samples(in_csv, request_records)
 
 

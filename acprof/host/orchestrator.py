@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, replace_file_durably
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -651,7 +651,7 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
                 raise _packet_latency_error(
                     f"packet latency merge did not produce {merged_csv}"
                 )
-            os.replace(merged_csv, out_csv)
+            replace_file_durably(merged_csv, out_csv)
             if require_packet_latency:
                 _assert_packet_latency_csv_complete(
                     out_csv,
