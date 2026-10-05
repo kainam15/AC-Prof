@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
-import stat
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, Mapping
+
+from acprof.artifacts import atomic_write_json
 
 COLLECTION_HISTORY_NAME = "collection_history.json"
 COLLECTION_HISTORY_SCHEMA_VERSION = 1
@@ -74,29 +72,4 @@ def write_collection_history_json(
 ) -> None:
     """Validate and atomically write ``collection_history.json``."""
     normalized = normalize_collection_history(payload)
-    destination = Path(output_path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(
-        dir=destination.parent,
-        prefix=f".{destination.name}.",
-        suffix=".tmp",
-    )
-    temporary_path = Path(temporary)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(normalized, f, ensure_ascii=False, indent=2, allow_nan=False)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        mode = (
-            stat.S_IMODE(destination.stat().st_mode)
-            if destination.exists()
-            else 0o644
-        )
-        temporary_path.chmod(mode)
-        os.replace(temporary_path, destination)
-    finally:
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
+    atomic_write_json(output_path, normalized)

@@ -1,6 +1,8 @@
 import json
+import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -56,3 +58,13 @@ def test_atomic_writer_emits_valid_json_without_temporary_files() -> None:
 
     assert (payload) == (normalize_collection_history(payload))
     assert (leftovers) == ([])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+def test_atomic_writer_fsyncs_file_and_parent_directory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "collection_history.json"
+        with patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
+            write_collection_history_json(empty_collection_history(), path)
+
+    assert fsync.call_count >= 2
