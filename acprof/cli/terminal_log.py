@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import replace_file_durably
 from acprof.host.command import run_command
 
 TMUX_TERMINAL_LOG_FILENAME = "tmux_all.log"
@@ -120,9 +121,15 @@ def stop_terminal_log(
         return False
 
     try:
-        os.replace(partial_path, log_path)
+        replace_file_durably(partial_path, log_path)
     except OSError as exc:
-        print(f'[terminal-log][WARN] Cannot finalize {log_path}; partial log remains at {partial_path}: {exc}', file=sys.stderr)
+        if os.path.exists(partial_path):
+            detail = f"partial log remains at {partial_path}"
+        elif os.path.exists(log_path):
+            detail = f"log was published at {log_path}, but durability could not be confirmed"
+        else:
+            detail = "neither the partial nor final log path is available"
+        print(f'[terminal-log][WARN] Cannot finalize {log_path}; {detail}: {exc}', file=sys.stderr)
         return False
 
     print(f"[terminal-log] Saved terminal display: {log_path}")

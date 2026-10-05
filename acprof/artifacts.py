@@ -77,6 +77,26 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
     return {**payload, **recorded_identity(payload)}
 
 
+def _sync_directory(directory: Path) -> None:
+    if os.name != "posix":
+        return
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def replace_file_durably(source: str | Path, destination: str | Path) -> None:
+    """Publish an already-written sibling file and make the rename durable on POSIX."""
+    source_path = Path(source)
+    destination_path = Path(destination)
+    with source_path.open("rb") as stream:
+        os.fsync(stream.fileno())
+    os.replace(source_path, destination_path)
+    _sync_directory(destination_path.parent)
+
+
 def atomic_write(
     path: str | Path,
     write: Callable[[TextIO], None],
@@ -99,12 +119,7 @@ def atomic_write(
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
         temporary = None
-        if os.name == "posix":
-            directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+        _sync_directory(destination.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

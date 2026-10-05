@@ -78,6 +78,28 @@ def test_terminal_log_records_and_atomically_finalizes_tmux_output() -> None:
     assert ("-O") in (commands[1])
     assert (commands[2]) == (["tmux", "pipe-pane", "-t", "%7"])
 
+
+@pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+def test_terminal_log_finalization_syncs_file_and_directory() -> None:
+    completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        partial_path = os.path.join(tmp, "tmux_all.log.part")
+        log_path = os.path.join(tmp, "tmux_all.log")
+        with open(partial_path, "w", encoding="utf-8") as stream:
+            stream.write("completed output\n")
+
+        with patch(
+            "acprof.cli.terminal_log.run_command",
+            return_value=completed,
+        ), patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
+            finalized = run.stop_terminal_log(("%7", partial_path, log_path))
+
+        assert finalized
+        assert os.path.exists(log_path)
+        assert not os.path.exists(partial_path)
+        assert fsync.call_count >= 2
+
 def test_main_finalizes_tmux_log_when_profiling_raises() -> None:
     terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
 
