@@ -101,6 +101,20 @@ class TestModelStore:
         assert task.model_revision == "a" * 40
         assert task.model_source == "huggingface"
 
+    def test_cached_repository_scan_ignores_broken_entry_symlink(self):
+        self.plan["repository_context"] = {"schema_version": 1, "repository_files": ["config.json"],
+            "pipeline_tag": "feature-extraction", "library_name": "transformers",
+            "config": {"model_type": "bert", "architectures": ["BertModel"]},
+            "tags": [], "card_data": {}, "safetensors": None, "transformers_info": {}}
+        self.prepare()
+        entries = self.root / "entries"
+        (entries / ("f" * 64)).symlink_to(self.root / "missing-entry")
+        with patch("acprof.host.model_store.store_root", return_value=self.root):
+            info = model_store.cached_model_info(self.task.model_id, self.task.model_revision,
+                                                 source="huggingface")
+        assert info is not None
+        assert info.sha == self.task.model_revision
+
 
     def test_default_revision_does_not_reuse_a_cached_release(self):
         self.plan["requested_revision"] = "release-v1"

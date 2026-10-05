@@ -156,9 +156,18 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
     entries = root / "entries"
     if not entries.is_dir():
         return
-    for entry in sorted(entries.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        if not re.fullmatch(r"[a-f0-9]{64}", entry.name) or entry.is_symlink():
+    candidates = []
+    for entry in entries.iterdir():
+        if not re.fullmatch(r"[a-f0-9]{64}", entry.name):
             continue
+        try:
+            metadata = entry.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(metadata.st_mode):
+            continue
+        candidates.append((metadata.st_mtime, entry))
+    for _, entry in sorted(candidates, key=lambda item: item[0], reverse=True):
         plan = read_entry(entry.name, root)
         if plan is None:
             continue
