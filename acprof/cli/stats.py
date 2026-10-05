@@ -8,7 +8,7 @@ from pathlib import Path
 
 from acprof.analysis.audit import audit_result
 from acprof.analysis.uncertainty import summarize_windows
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.quality import QUALITY_FIELDS
 from acprof.result_csv import read_result_csv_snapshot, result_csv_snapshot_unchanged
 
@@ -25,11 +25,11 @@ def _save_unique_report(directory: Path, report: dict) -> tuple[Path, bool]:
     descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
-        for candidate in sorted(directory.glob("*.json")):
+        for candidate in sorted(directory.glob("window-statistics-*.json")):
             try:
-                existing = json.loads(candidate.read_text(encoding="utf-8"))
+                existing = read_json_object(candidate, label="statistics report")
                 identical = json.dumps(existing, sort_keys=True, ensure_ascii=False, allow_nan=False) == content
-            except (FileNotFoundError, IsADirectoryError, ValueError, UnicodeError):
+            except (OSError, ValueError):
                 continue
             if identical:
                 return candidate, True

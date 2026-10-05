@@ -106,6 +106,36 @@ class TestStatisticsOutput:
         assert (list(self.output.iterdir())) == ([existing])
         assert (existing.read_bytes()) == (saved)
 
+    def test_duplicate_scan_ignores_unrelated_json(self):
+        generated = Path(self.calculate()["report_path"])
+        data = json.loads(generated.read_text(encoding="utf-8"))
+        generated.unlink()
+        unrelated = self.output / "unrelated.json"
+        unrelated.write_text(json.dumps(data), encoding="utf-8")
+
+        receipt = self.calculate()
+
+        assert not receipt["reused"]
+        assert Path(receipt["report_path"]).name.startswith("window-statistics-")
+        assert Path(receipt["report_path"]) != unrelated
+        assert unrelated.exists()
+
+    def test_duplicate_scan_bounds_existing_report_reads(self, monkeypatch):
+        from acprof import artifacts
+
+        generated = Path(self.calculate()["report_path"])
+        data = generated.read_text(encoding="utf-8")
+        generated.unlink()
+        existing = self.output / "window-statistics-oversized.json"
+        existing.write_text(" " * 512 + data, encoding="utf-8")
+        monkeypatch.setattr(artifacts, "MAX_JSON_ARTIFACT_BYTES", 256)
+
+        receipt = self.calculate()
+
+        assert not receipt["reused"]
+        assert Path(receipt["report_path"]) != existing
+        assert existing.exists()
+
     @pytest.mark.parametrize('options', (('--confidence', '0.9'), ('--seed', '1'), ('--resamples', '40'), ('--block-size', '2'), ('--metric', 'latency_app_s')))
     def test_statistics_settings_and_source_changes_create_distinct_reports(self, options):
         first = Path(self.calculate()["report_path"])
