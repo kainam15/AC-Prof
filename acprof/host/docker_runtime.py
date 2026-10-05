@@ -50,6 +50,7 @@ class RunningContainer:
     cold_start_ready_wait_s: float = float("nan")
     gpu_device: Dict[str, Any] = field(default_factory=dict)
     container_id: str = ""
+    _model_store_mount: Any = field(default=None, repr=False, compare=False)
 
 
 def _parse_csv_float(value: Any) -> float:
@@ -193,8 +194,9 @@ def start_container_session(
     owner = container_owner_labels()
     recover_abandoned_containers(owner, host_command.run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
-    from acprof.host.model_store import mount_args
+    from acprof.host.model_store import acquire_mount
 
+    model_store_mount = acquire_mount(image_info.runtime_environment)
     docker_cmd = [
         "docker", "run", "-d",
         "--name", container_name,
@@ -210,7 +212,7 @@ def start_container_session(
         "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
         "-e", f"USE_GPU={use_gpu}",
         *hf_offline_docker_env_args(),
-        *mount_args(image_info.runtime_environment),
+        *model_store_mount.args,
         "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
         *runtime_docker_env_args(),
         "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",
@@ -219,7 +221,15 @@ def start_container_session(
 
     t0_wall = time.time()
     t0 = time.perf_counter()
-    container_id = _launch_container(docker_cmd)
+    container_id = ""
+    try:
+        container_id = _launch_container(docker_cmd)
+    except BaseException:
+        # _launch_container owns best-effort cleanup when Docker created an ID.
+        # If launch itself fails, absence cannot be re-proven here without that
+        # ID, so retain the lease conservatively until process exit.
+        _UNCERTAIN_MODEL_STORE_MOUNTS.append(model_store_mount)
+        raise
 
     base_url = f"http://127.0.0.1:{host_port}"
     deadline = time.perf_counter() + READY_TIMEOUT_S
@@ -271,6 +281,7 @@ def start_container_session(
                             host_port=host_port,
                             cold_start_s=cold_start_s,
                             gpu_device=gpu_device,
+                            _model_store_mount=model_store_mount,
                             **breakdown,
                         )
 
@@ -289,6 +300,7 @@ def start_container_session(
                             host_port=host_port,
                             cold_start_s=cold_start_s,
                             gpu_device=gpu_device,
+                            _model_store_mount=model_store_mount,
                             **breakdown,
                         )
             except Exception:
@@ -309,8 +321,16 @@ def start_container_session(
             timed_out=True,
         )
     except BaseException:
-        remove_owned_container(container_id, host_command.run_command)
+        try:
+            remove_owned_container(container_id, host_command.run_command)
+        except BaseException:
+            _UNCERTAIN_MODEL_STORE_MOUNTS.append(model_store_mount)
+            raise
+        model_store_mount.close()
         raise
+
+
+_UNCERTAIN_MODEL_STORE_MOUNTS: list[Any] = []
 
 
 def stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
@@ -319,3 +339,6 @@ def stop_container_session(session: RunningContainer, log_prefix: Optional[str] 
     if log_prefix:
         print(f"{log_prefix} Stopping container...")
     remove_owned_container(session.container_id, host_command.run_command, stop=True)
+    mount, session._model_store_mount = session._model_store_mount, None
+    if mount is not None:
+        mount.close()

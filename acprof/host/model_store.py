@@ -42,6 +42,30 @@ ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
 _LEASES: dict[str, object] = {}
 
 
+class ModelStoreMount:
+    """One explicitly owned runtime mount lease.
+
+    The shared flock must stay alive for exactly as long as a consumer may
+    access the read-only Model Store bind mount. Closing is idempotent so
+    cleanup paths can hand ownership to a RunningContainer safely.
+    """
+
+    def __init__(self, args: list[str], lock=None):
+        self.args = args
+        self._lock = lock
+
+    def close(self) -> None:
+        lock, self._lock = self._lock, None
+        if lock is not None:
+            lock.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        self.close()
+
+
 class ModelStoreCancelled(RuntimeError):
     """The caller cancelled preparation or lock waiting before a GC mutation."""
 
@@ -501,6 +525,33 @@ def require_entry(manifest: dict, root: Path | None = None) -> dict | None:
     return plan
 
 
+def _runtime_mount_args(root: Path, key: str, plan: dict) -> list[str]:
+    cache = f"/models/entries/{key}/hf"
+    snapshot = f"{cache}/models--{plan['model_id'].replace('/', '--')}/snapshots/{plan['model_revision']}"
+    return ["--mount", f"type=bind,src={root},dst=/models,readonly", "-e", f"HF_HUB_CACHE={cache}",
+            "-e", f"TRANSFORMERS_CACHE={cache}", "-e", "HF_MODULES_CACHE=/tmp/acprof-hf-modules",
+            "-e", f"MODEL_LOCAL_PATH={snapshot}"]
+
+
+def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
+    """Validate a Model Store entry and hold its GC lease until close()."""
+    record = manifest.get("model_store")
+    if not record:
+        return ModelStoreMount([])
+    root = _recorded_root(record, root)
+    with store_lock(root):
+        key, plan = _require_entry_plan(record, root)
+        lock = (root / (key + ".lease")).open("a")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            (root / "entries" / key / "last-used").touch()
+            args = _runtime_mount_args(root, key, plan)
+        except BaseException:
+            lock.close()
+            raise
+    return ModelStoreMount(args, lock)
+
+
 def mount_args(manifest: dict, root: Path | None = None) -> list[str]:
     record = manifest.get("model_store")
     if not record:
@@ -514,11 +565,7 @@ def mount_args(manifest: dict, root: Path | None = None) -> list[str]:
             fcntl.flock(lock, fcntl.LOCK_SH)
             _LEASES[lease_key] = lock
         (root / "entries" / key / "last-used").touch()
-    cache = f"/models/entries/{key}/hf"
-    snapshot = f"{cache}/models--{plan['model_id'].replace('/', '--')}/snapshots/{plan['model_revision']}"
-    return ["--mount", f"type=bind,src={root},dst=/models,readonly", "-e", f"HF_HUB_CACHE={cache}",
-            "-e", f"TRANSFORMERS_CACHE={cache}", "-e", "HF_MODULES_CACHE=/tmp/acprof-hf-modules",
-            "-e", f"MODEL_LOCAL_PATH={snapshot}"]
+    return _runtime_mount_args(root, key, plan)
 
 
 def verify_entry(manifest: dict, root: Path | None = None) -> None:

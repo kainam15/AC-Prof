@@ -212,6 +212,20 @@ class TestModelStore:
         assert str(entry) not in model_store._LEASES
         assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
 
+    def test_explicit_mount_lease_tracks_each_runtime_consumer(self):
+        record = self.prepare()
+        first = model_store.acquire_mount({"model_store": record}, self.root)
+        second = model_store.acquire_mount({"model_store": record}, self.root)
+        try:
+            assert model_store.prune_store(root=self.root)["entries"] == []
+            first.close()
+            assert model_store.prune_store(root=self.root)["entries"] == []
+            second.close()
+            assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
+        finally:
+            first.close()
+            second.close()
+
     def test_entry_verification_releases_gc_lease_when_done(self):
         record = self.prepare()
         entry = self.root / "entries" / record["entry_id"]

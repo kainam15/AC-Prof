@@ -5,7 +5,7 @@ import os
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -46,6 +46,18 @@ class TestContainerOwnership:
         assert (first.name) != (second.name)
         removed = [args for args in self.commands if args[:2] in (["docker", "rm"], ["docker", "stop"])]
         assert ([args[-1] for args in removed]) == ([self.identifier, self.identifier])
+
+    def test_runtime_mount_lease_is_released_only_after_container_cleanup(self):
+        response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
+        mount = SimpleNamespace(args=[], close=Mock())
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+            "acprof.host.command.run_command", side_effect=self.command
+        ), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
+            session = self.start()
+            mount.close.assert_not_called()
+            docker_runtime.stop_container_session(session)
+        mount.close.assert_called_once_with()
+        assert session._model_store_mount is None
 
     def test_launched_container_records_process_ownership_for_crash_recovery(self):
         response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})

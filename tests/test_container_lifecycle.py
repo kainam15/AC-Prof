@@ -1,7 +1,7 @@
 """Only positive evidence of a dead owner permits crash recovery."""
 import json
 import subprocess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -90,7 +90,7 @@ class TestContainerRecovery:
 
 
 class TestContainerCleanup:
-    def stop(self, replies):
+    def stop(self, replies, *, mount=None):
         from acprof.host.docker_runtime import RunningContainer, stop_container_session
         self.calls = []
         def execute(command, **kwargs):
@@ -100,13 +100,26 @@ class TestContainerCleanup:
                 raise reply
             code, output, error = reply
             return subprocess.CompletedProcess(command, code, output, error)
-        session = RunningContainer('owned', 'http://localhost', 8002, 0, container_id='a' * 64)
+        session = RunningContainer(
+            'owned', 'http://localhost', 8002, 0, container_id='a' * 64,
+            _model_store_mount=mount,
+        )
         with patch('acprof.host.command.run_command', side_effect=execute):
             stop_container_session(session)
+        return session
 
     def test_failed_stop_then_successful_remove_is_complete_and_bounded(self):
         self.stop({'stop': (1, '', 'cannot stop'), 'rm': (0, 'a' * 64, '')})
         assert (all(0 < kwargs.get('timeout', 0) <= 30 for _, kwargs in self.calls))
+
+    def test_successful_cleanup_releases_model_store_mount(self):
+        mount = Mock()
+        session = self.stop(
+            {'stop': (0, '', ''), 'rm': (0, 'a' * 64, '')},
+            mount=mount,
+        )
+        mount.close.assert_called_once_with()
+        assert session._model_store_mount is None
 
     def test_failed_remove_requires_inspect_confirmation_of_absence(self):
         self.stop({'stop': (1, '', 'No such container'), 'rm': (1, '', 'transport interrupted'),
@@ -115,9 +128,11 @@ class TestContainerCleanup:
 
     def test_surviving_container_aborts_with_structured_evidence(self):
         state = json.dumps([{'Id': 'a' * 64, 'State': {'Running': True, 'Status': 'running'}}])
+        mount = Mock()
         with pytest.raises(RuntimeError) as raised:
             self.stop({'stop': (1, '', 'cannot stop'), 'rm': (1, '', 'cannot remove'),
-                       'inspect': (0, state, '')})
+                       'inspect': (0, state, '')}, mount=mount)
+        mount.close.assert_not_called()
         evidence = raised.value.to_dict()
         assert (evidence['container_id']) == ('a' * 64)
         assert (evidence['final_state']) == ('present')
