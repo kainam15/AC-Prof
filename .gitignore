@@ -8,6 +8,8 @@ __pycache__/
 dist/
 build/
 .release-venv/
+# Local test reports.
+snapshot_report.html
 *.egg-info/
 
 .env
