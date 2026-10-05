@@ -39,9 +39,6 @@ from acprof.network_policy import (
 )
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
-_LEASES: dict[str, object] = {}
-
-
 class ModelStoreMount:
     """One explicitly owned runtime mount lease.
 
@@ -558,22 +555,6 @@ def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
             lock.close()
             raise
     return ModelStoreMount(args, lock)
-
-
-def mount_args(manifest: dict, root: Path | None = None) -> list[str]:
-    record = manifest.get("model_store")
-    if not record:
-        return []  # Historical immutable baked images retain their original semantics.
-    root = _recorded_root(record, root)
-    with store_lock(root):
-        key, plan = _require_entry_plan(record, root)
-        lease_key = str(root / "entries" / key)
-        if lease_key not in _LEASES:
-            lock = (root / (key + ".lease")).open("a")
-            fcntl.flock(lock, fcntl.LOCK_SH)
-            _LEASES[lease_key] = lock
-        (root / "entries" / key / "last-used").touch()
-    return _runtime_mount_args(root, key, plan)
 
 
 def verify_entry(manifest: dict, root: Path | None = None) -> None:

@@ -52,13 +52,12 @@ class TestModelStore:
         assert (link.is_symlink())
         assert (link.resolve()) == (blob)
         assert (len(list(self.root.glob("hf/models--*/blobs/*")))) == (1)
-        command = model_store.mount_args({"model_store": record}, self.root)
-        assert (f"type=bind,src={self.root},dst=/models,readonly") in (command)
-        assert ("HF_MODULES_CACHE=/tmp/acprof-hf-modules") in (command)
-        # Prune cannot remove an active run's snapshot.
-        assert (model_store.prune_store(root=self.root, apply=True)["entries"]) == ([])
-        assert (blob.exists())
-        model_store._LEASES.pop(str(entry)).close()
+        with model_store.acquire_mount({"model_store": record}, self.root) as mount:
+            assert (f"type=bind,src={self.root},dst=/models,readonly") in (mount.args)
+            assert ("HF_MODULES_CACHE=/tmp/acprof-hf-modules") in (mount.args)
+            # Prune cannot remove an active run's snapshot.
+            assert (model_store.prune_store(root=self.root, apply=True)["entries"]) == ([])
+            assert (blob.exists())
 
     def test_existing_entry_is_reused_offline_and_cache_savings_are_exact(self):
         first = self.prepare()
@@ -198,18 +197,16 @@ class TestModelStore:
         path.write_text(json.dumps(value))
         with patch("huggingface_hub.snapshot_download") as download:
             with pytest.raises(ValueError, match="hash mismatch"):
-                model_store.mount_args({"model_store": record}, self.root)
+                model_store.acquire_mount({"model_store": record}, self.root)
             download.assert_not_called()
 
     def test_entry_validation_does_not_pin_cache_against_gc(self):
         record = self.prepare()
-        entry = self.root / "entries" / record["entry_id"]
 
         plan = model_store.require_entry({"model_store": record}, self.root)
 
         assert plan is not None
         assert plan["plan_sha256"] == record["plan_sha256"]
-        assert str(entry) not in model_store._LEASES
         assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
 
     def test_explicit_mount_lease_tracks_each_runtime_consumer(self):
@@ -228,11 +225,9 @@ class TestModelStore:
 
     def test_entry_verification_releases_gc_lease_when_done(self):
         record = self.prepare()
-        entry = self.root / "entries" / record["entry_id"]
 
         model_store.verify_entry({"model_store": record}, self.root)
 
-        assert str(entry) not in model_store._LEASES
         assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
 
     def test_entry_verification_releases_gc_lease_after_failure(self):
@@ -249,6 +244,6 @@ class TestModelStore:
         with patch.dict(os.environ, {"ACPROF_MODEL_STORE": ""}):
             assert (model_store.store_root()) == (Path.home() / ".cache/acprof/model-store")
             record = {**self.prepare(), "host_path": str(self.root)}
-            command = model_store.mount_args({"model_store": record})
+            with model_store.acquire_mount({"model_store": record}) as mount:
+                command = mount.args
         assert (f"type=bind,src={self.root},dst=/models,readonly") in (command)
-        model_store._LEASES.pop(str(self.root / "entries" / record["entry_id"])).close()
