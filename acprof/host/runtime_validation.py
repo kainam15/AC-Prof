@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from acprof.artifacts import atomic_write
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
 from acprof.host.command import run_command
@@ -242,7 +243,7 @@ def validate_runtime(
                     runtime_profile=task_info.runtime_profile_id).to_dict()
             log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            log_path.write_text(log)
+            atomic_write(log_path, lambda stream: stream.write(log))
             report["devices"][device_mode] = device_result
             if cleanup_failure is not None:
                 if cleanup_failure.run_error is None and device_result.get("error"):

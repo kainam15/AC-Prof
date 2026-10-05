@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write, atomic_write_json
 from acprof.container.model_probe import RESULT_PREFIX
 from acprof.host.command import run_command
 from acprof.host.container_lifecycle import (
@@ -129,7 +129,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
     finally:
         path = layout.path("logs") / "interface_validation.log"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(log)
+        atomic_write(path, lambda stream: stream.write(log))
         atomic_write_json(layout.path("interface_validation.json"), report)
         task_info.model_resolution["interface_validation"] = report
         write_model_resolution(task_info, output_dir)
