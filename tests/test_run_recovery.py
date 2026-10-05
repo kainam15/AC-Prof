@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
@@ -183,6 +184,23 @@ class TestRunRecovery(RunRecoveryFixture):
                     pytest.fail("two writers acquired the same directory")
         with ResultDirectoryLock(self.directory):
             pass
+
+    @pytest.mark.parametrize("link_kind", ("symlink", "hardlink"))
+    def test_directory_lock_rejects_link_swapped_after_path_validation(self, link_kind):
+        from acprof.host.run_state import ResultDirectoryLock, RunStateError
+
+        lock = ResultDirectoryLock(self.directory)
+        lock.path.parent.mkdir(parents=True, exist_ok=True)
+        target = self.directory.parent / f"external-{link_kind}.lock"
+        target.write_text("")
+        if link_kind == "symlink":
+            lock.path.symlink_to(target.resolve())
+        else:
+            os.link(target, lock.path)
+
+        with pytest.raises(RunStateError):
+            with lock:
+                pytest.fail("result-directory lock followed a swapped link")
 
     def test_different_output_directories_cannot_measure_concurrently(self):
         from acprof.host.run_state import RunState, RunStateError

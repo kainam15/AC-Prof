@@ -219,14 +219,25 @@ class ResultDirectoryLock:
 
     def __enter__(self):
         import fcntl
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.stream = self.path.open("a+")
         try:
+            descriptor = os.open(
+                self.path,
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            self.stream = os.fdopen(descriptor, "a+")
+            info = os.fstat(self.stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+                raise OSError("result lock is not a regular file owned only by this user")
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            self.stream.close()
-            self.stream = None
-            raise RunStateError(f"另一个采集或补采进程正在使用结果目录：{self.path.parent}") from exc
+            self.__exit__()
+            raise RunStateError(
+                "无法取得结果目录锁；另一个采集或补采进程可能正在使用结果目录，"
+                f"或锁文件不可用：{self.path} ({exc})"
+            ) from exc
         return self
 
     def __exit__(self, *_args):
