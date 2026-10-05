@@ -32,6 +32,15 @@ def test_save_config_preserves_unrelated_lines_and_secures_backup():
         assert (backup.stat().st_mode & 0o777) == (0o600)
         assert (env['HUGGING_FACE_HUB_TOKEN']) == ('hf_testonly')
 
+
+def test_new_private_config_syncs_file_and_parent_directory():
+    with tempfile.TemporaryDirectory() as directory, patch(
+        "acprof.host.env_utils.os.fsync", wraps=os.fsync,
+    ) as fsync:
+        env_utils.save_project_env(Path(directory), {"HF_TOKEN": "hf_testonly"}, environ={})
+
+    assert fsync.call_count >= 2
+
 @pytest.mark.parametrize('values', ({'HF_TOKEN': 'secret\nEVIL=1'}, {'ACPROF_SUDO_PASSWORD': 'secret'}, {'HF_ENDPOINT': 'https://user:secret@host.example'}, {'ACPROF_WECOM_WEBHOOK_URL': 'https://invalid.example?key=secret'}))
 def test_save_config_rejects_secret_injection_without_changing_file_or_environment(values):
     with tempfile.TemporaryDirectory() as directory:
