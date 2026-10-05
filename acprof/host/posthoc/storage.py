@@ -18,6 +18,7 @@ from typing import (
     Tuple,
 )
 
+from acprof.artifacts import atomic_write
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.posthoc.context import (
     BACKUP_DIRNAME,
@@ -30,26 +31,11 @@ from acprof.host.posthoc.context import (
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    temporary_path = Path(temporary)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary_path, path)
-    except Exception:
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
-        raise
+    def write(stream) -> None:
+        json.dump(payload, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+
+    atomic_write(path, write)
 
 
 def _timestamp_token() -> str:

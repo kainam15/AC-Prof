@@ -2,6 +2,7 @@ import csv
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from functools import partial
 from pathlib import Path
@@ -720,6 +721,21 @@ class TestPosthocProfile:
             assert (len(collection_history["posthoc_profile_history"])) == (1)
             assert (len(collection_history["timeout_retry_history"])) == (1)
             assert not ((root / ".posthoc.lock").exists())
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_profile_plan_atomic_write_preserves_mode_and_syncs_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            path.write_text('{"old": true}\n', encoding="utf-8")
+            path.chmod(0o640)
+
+            with patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
+                host_posthoc_storage._atomic_write_json(path, {"schema_version": 1})
+
+            assert stat.S_IMODE(path.stat().st_mode) == 0o640
+            assert json.loads(path.read_text(encoding="utf-8")) == {"schema_version": 1}
+            assert fsync.call_count >= 2
+            assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
     def test_three_file_commit_restores_csv_and_meta_if_history_publish_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
