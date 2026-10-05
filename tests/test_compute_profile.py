@@ -298,6 +298,23 @@ class TestComputeProfile:
 
             assert (host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) == (3500.0) or round(abs((host_profilers_compute_parsers.parse_ncu_profile_csv(report_path)["total_flops_per_request"]) - (3500.0)), 7) == 0
 
+    def test_ncu_atomic_text_write_syncs_file_and_directory(self) -> None:
+        real_fsync = os.fsync
+        fsync_calls = []
+
+        def record_fsync(fd):
+            fsync_calls.append(fd)
+            return real_fsync(fd)
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "acprof.artifacts.os.fsync",
+            side_effect=record_fsync,
+        ):
+            path = os.path.join(tmp, "ncu.csv")
+            ncu._write_text_atomic(path, "new")
+
+        assert len(fsync_calls) == 2
+
     def test_parse_ncu_raw_csv_weights_sass_fma_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             report_path = os.path.join(tmp, "ncu.csv")

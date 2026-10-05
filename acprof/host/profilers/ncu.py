@@ -5,9 +5,9 @@ import json
 import math
 import os
 import re
-import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from acprof.artifacts import atomic_write
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_support import (
@@ -152,25 +152,10 @@ def _ncu_section_args(ncu_bin: str) -> List[str]:
 
 
 def _write_text_atomic(path: str, text: str) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-    os.makedirs(directory, exist_ok=True)
-    fd, temporary_path = tempfile.mkstemp(
-        prefix=f".{os.path.basename(path)}.",
-        suffix=".tmp",
-        dir=directory,
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(temporary_path, path)
-    except Exception:
-        try:
-            os.unlink(temporary_path)
-        except OSError:
-            pass
-        raise
+    def write(stream) -> None:
+        stream.write(text)
+
+    atomic_write(path, write)
 
 
 def _ncu_artifact_paths(
