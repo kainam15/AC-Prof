@@ -340,6 +340,16 @@ def _backfill_row(
     )
 
 
+def _fsync_directory(path: str) -> None:
+    if os.name != "posix":
+        return
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def _publish_csv_atomically(
     *,
     input_csv: str,
@@ -387,6 +397,7 @@ def _publish_csv_atomically(
             os.link(temporary_path, output_path)
             os.unlink(temporary_path)
             temporary_path = ""
+        _fsync_directory(output_dir)
     finally:
         if temporary_path:
             try:

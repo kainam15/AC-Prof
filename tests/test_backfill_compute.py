@@ -1,7 +1,9 @@
 import csv
 import json
 import os
+import stat
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -444,6 +446,39 @@ class TestBackfillComputeProfile:
                 "model_logical_mflop_per_request_torch_profiler_eager"
             ]) == ("nan")
         assert (output_row["compute_profile_error_torch_profiler_eager"]) == ("compute_profile_missing_scale:65")
+
+    @pytest.mark.parametrize("overwrite", [False, True])
+    def test_atomic_publish_syncs_output_directory(self, overwrite):
+        fields = ["gpu_mode", "input_scale", "latency_app_s"]
+        rows = [{"gpu_mode": "off", "input_scale": "64", "latency_app_s": "0.5"}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            input_csv = os.path.join(tmp, "result_all.csv")
+            plan_path = os.path.join(tmp, "compute_profile_plan.json")
+            output_csv = os.path.join(tmp, "result_all.with_compute.csv")
+            self._write_csv(input_csv, fields, rows)
+            self._write_vendor_plan(plan_path)
+            if overwrite:
+                with open(output_csv, "w", encoding="utf-8") as f:
+                    f.write("old output")
+
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.cli.backfill_compute.os.fsync", side_effect=track_fsync):
+                backfill_compute_profile_csv(
+                    input_csv,
+                    plan_path,
+                    output_csv,
+                    overwrite=overwrite,
+                )
+
+        assert stat.S_IFREG in synced_file_types
+        assert stat.S_IFDIR in synced_file_types
 
     def test_existing_output_is_not_overwritten_without_explicit_permission(self):
         fields = ["gpu_mode", "input_scale", "latency_app_s"]
