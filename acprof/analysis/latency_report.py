@@ -34,6 +34,7 @@ from acprof.analysis.latency_model import (
     _validation_is_evaluable,
     _validation_quality_failures,
 )
+from acprof.artifacts import atomic_write
 from acprof.platform import recorded_identity
 
 LATENCY_MODEL_DIR = "latency_model"
@@ -556,14 +557,19 @@ def write_latency_model_report(df: pd.DataFrame, static_meta: dict[str, object],
     os.makedirs(model_output_dir, exist_ok=True)
     residuals_path = os.path.join(model_output_dir, LATENCY_MODEL_RESIDUALS)
     # A skipped calculation still replaces stale residuals with a header-only CSV.
-    with open(residuals_path, "w", encoding="utf-8", newline="") as stream:
+    def write_residuals(stream) -> None:
         writer = csv.DictWriter(stream, fieldnames=LATENCY_MODEL_RESIDUAL_FIELDS)
         writer.writeheader()
         writer.writerows(result.residuals)
+
+    atomic_write(residuals_path, write_residuals)
     report_path = os.path.join(model_output_dir, LATENCY_MODEL_REPORT)
-    with open(report_path, "w", encoding="utf-8") as stream:
+
+    def write_report(stream) -> None:
         json.dump(result.report, stream, ensure_ascii=True, indent=2)
         stream.write("\n")
+
+    atomic_write(report_path, write_report)
     print(f"[saved] {report_path}")
     if result.residuals:
         print(f"[saved] {residuals_path}")

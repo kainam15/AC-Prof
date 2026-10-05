@@ -52,6 +52,27 @@ class TestLatencyModelReport:
             report, _ = self._read_artifacts(temporary)
             assert (report["comparability_class"]) == ("unknown")
 
+    def test_export_failure_preserves_existing_latency_model_artifacts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            model_dir = os.path.join(temporary, analysis_latency_report.LATENCY_MODEL_DIR)
+            os.makedirs(model_dir)
+            report_path = os.path.join(model_dir, analysis_latency_report.LATENCY_MODEL_REPORT)
+            residuals_path = os.path.join(model_dir, analysis_latency_report.LATENCY_MODEL_RESIDUALS)
+            with open(report_path, "wb") as stream:
+                stream.write(b"previous report\n")
+            with open(residuals_path, "wb") as stream:
+                stream.write(b"previous residuals\n")
+
+            frame = pd.DataFrame(self._rows(gpu_modes=("off",)))
+            with patch("csv.DictWriter.writerows", side_effect=OSError("injected disk failure")):
+                with pytest.raises(OSError, match="injected disk failure"):
+                    analysis_latency_report.write_latency_model_report(frame, {}, temporary)
+
+            with open(report_path, "rb") as stream:
+                assert stream.read() == b"previous report\n"
+            with open(residuals_path, "rb") as stream:
+                assert stream.read() == b"previous residuals\n"
+
     def test_v2_plot_cli_writes_reports_and_figures_below_plots(self):
         from contextlib import ExitStack
         from pathlib import Path
