@@ -36,6 +36,9 @@ def test_actual_hub_downloads_block_redirect_before_transport(download_case, tar
 
         def respond(request):
             visited.append(request.url.host)
+            if "/tree/" in request.url.path:
+                return httpx.Response(200, json=[{"type": "file", "path": "config.json",
+                    "size": 2, "oid": "c" * 40}])
             if "/api/models/" in request.url.path:
                 return httpx.Response(200, json={"id": "example/model", "sha": "a" * 40,
                     "siblings": [{"rfilename": "config.json"}]})
