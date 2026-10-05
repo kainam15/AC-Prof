@@ -55,7 +55,13 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         app.clear_notifications()
         app.set_input_cursor_blink_enabled(False)
         if scene == "wsl-preparation":
+            # Starting a run stays on the monitor until the subprocess emits a
+            # user-decision request. Recreate that request explicitly so this
+            # visual fixture covers the modal without reviving the old passive
+            # launch overlay.
             await pilot.press("f5")
+            await pilot.pause()
+            app._show_preparation({"stage": "resolution", "status": "running"})
             await pilot.pause()
             from acprof.tui.preparation import PreparationScreen
             assert isinstance(app.screen, PreparationScreen)
