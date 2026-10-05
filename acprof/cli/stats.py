@@ -53,6 +53,9 @@ def main(argv=None):
     parser.add_argument("--resamples", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--block-size", type=int, default=1, help="连续窗口的循环移动块长度")
+    parser.add_argument("--precision-target", type=float,
+                        help="Optional within-run CI half-width/mean target (0.05 = 5%%); "
+                             "choose beforehand; not a stopping rule")
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--output", type=Path, help="保存 JSON；省略输出选项时输出到 stdout")
     output.add_argument("--output-dir", type=Path, help="按本地日期时间保存 JSON；内容相同时复用已有报告")
@@ -63,7 +66,8 @@ def main(argv=None):
     try:
         snapshot = read_result_csv_snapshot(path)
         report = summarize_windows(snapshot.rows, args.metric or ["latency_app_s", "latency_s", "container_attributed_energy_eff_j"],
-                                   confidence=args.confidence, resamples=args.resamples, seed=args.seed, block_size=args.block_size)
+                                   confidence=args.confidence, resamples=args.resamples, seed=args.seed,
+                                   block_size=args.block_size, precision_target=args.precision_target)
         report["result_sha256"] = snapshot.sha256
         report["result_csv"] = str(path.resolve())
         audit = audit_result(path, result_snapshot=snapshot, verify_result_snapshot=False)

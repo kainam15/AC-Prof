@@ -7,16 +7,19 @@ import statistics
 from collections import defaultdict
 from concurrent.futures import CancelledError
 
+from acprof.analysis.precision import assess_mean_precision, validate_precision_target
 from acprof.metric_registry import METRICS
 from acprof.result_csv import measurement_key
 
 
 def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
-                      include_intervals=True, cancelled=lambda: False):
+                      include_intervals=True, cancelled=lambda: False, precision_target=None):
     if not 0 < confidence < 1 or not isinstance(resamples, int) or resamples < 1:
         raise ValueError("confidence 必须在 0 与 1 之间，resamples 必须为正整数")
     if not isinstance(block_size, int) or block_size < 1:
         raise ValueError("block_size 必须为正整数")
+    if precision_target is not None:
+        precision_target = validate_precision_target(precision_target)
     if not metrics or len(set(metrics)) != len(metrics):
         raise ValueError("请选择不重复的数值指标")
     for name in metrics:
@@ -24,6 +27,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         if metric is None or metric.kind != "number" or metric.window not in {"request_window", "matched_control"}:
             raise ValueError(f"{name} 不属于独立测量窗口；不对复用的 profiler/生命周期值计算区间")
     cases, keys = defaultdict(list), set()
+    excluded = defaultdict(int)
     for row in rows:
         if cancelled():
             raise CancelledError()
@@ -32,11 +36,18 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         if (environment, key) in keys:
             raise ValueError(f"duplicate measurement: {key}")
         keys.add((environment, key))
-        if str(row.get("status", "")).strip().lower() == "ok" and key[4] == "0":
-            cases[(*key[:4], environment)].append(row)
+        if key[4] == "0":
+            case = (*key[:4], environment)
+            if str(row.get("status", "")).strip().lower() == "ok":
+                cases[case].append(row)
+            elif precision_target is not None:
+                excluded[case] += 1
     groups = []
     for case in sorted(cases):
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
+        gaps = ((block_size > 1 or precision_target is not None)
+                and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
+                        for a, b in zip(ordered, ordered[1:])))
         for name in metrics:
             if cancelled():
                 raise CancelledError()
@@ -60,17 +71,47 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                 result["reason"] = "insufficient_windows"
             elif block_size > 1 and count != len(ordered):
                 result["reason"] = "missing_windows_break_blocks"
-            elif block_size > 1 and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
-                                        for a, b in zip(ordered, ordered[1:])):
+            elif block_size > 1 and gaps:
                 result["reason"] = "nonconsecutive_windows"
             elif include_intervals:
                 result["ci_low"], result["ci_high"] = bootstrap_mean_interval(
                     values, confidence=confidence, resamples=resamples, seed=seed, block_size=block_size)
+            if precision_target is not None:
+                reason = result["reason"]
+                if not reason:
+                    if result["missing_windows"]:
+                        reason = "missing_windows"
+                    elif excluded[case]:
+                        reason = "excluded_windows"
+                    elif gaps:
+                        reason = "nonconsecutive_windows"
+                    elif any(value < 0 for value in values):
+                        reason = "negative_values"
+                    elif resamples < 2:
+                        reason = "insufficient_resamples"
+                    elif (result["ci_low"] is not None and result["ci_low"] == result["ci_high"]
+                          and any(value != values[0] for value in values)):
+                        reason = "degenerate_interval"
+                result.update(assess_mean_precision(
+                    result["mean"], result["ci_low"], result["ci_high"],
+                    target=precision_target, unavailable_reason=reason))
+                result["precision_excluded_windows"] = excluded[case]
             groups.append(result)
-    return {"schema_version": 1, "confidence": confidence, "resamples": resamples, "seed": seed,
-            "block_size": block_size, "method": "circular_block_percentile_bootstrap",
-            "resampling_unit": "csv_request_window", "filter": "status=ok and warmup=0",
-            "assumption": "窗口（或选定连续块）之间可视为独立；区间仅描述本实验内变异", "groups": groups}
+    report = {"schema_version": 1, "confidence": confidence, "resamples": resamples, "seed": seed,
+              "block_size": block_size, "method": "circular_block_percentile_bootstrap",
+              "resampling_unit": "csv_request_window", "filter": "status=ok and warmup=0",
+              "assumption": "窗口（或选定连续块）之间可视为独立；区间仅描述本实验内变异", "groups": groups}
+    if precision_target is not None:
+        report["precision"] = {
+            "target_relative_half_width": precision_target, "unit": "ratio",
+            "formula": "(ci_high - ci_low) / (2 * mean)",
+            "scope": "within_run_observed_windows",
+            "interpretation": (
+                "Descriptive user-selected interval-width target under the existing bootstrap "
+                "assumptions; not experiment completeness, independent-run evidence or a stopping rule."
+            ),
+        }
+    return report
 
 
 def bootstrap_mean_interval(values, *, confidence=0.95, resamples=5000, seed=0, block_size=1):

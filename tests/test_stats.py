@@ -224,3 +224,90 @@ class TestStatisticsOutput:
         summary = result_summary_text(summarize_result_csv(self.csv), self.csv)
         assert ("weights_reinitialized") in (str(summary))
         assert ("loader-log") in (translate(summary, "en"))
+
+
+def test_precision_help_states_ratio_and_within_run_scope(capsys):
+    with pytest.raises(SystemExit) as raised:
+        main(["--help"])
+    assert raised.value.code == 0
+    output = capsys.readouterr().out
+    assert "--precision-target" in output
+    assert "within-run" in output
+    assert "0.05 = 5%" in " ".join(output.split())
+
+
+@pytest.fixture
+def precision_csv(tmp_path):
+    path = tmp_path / "precision.csv"
+    path.write_text(
+        "cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s\n"
+        "2,8,off,64,0,0,ok,0.01\n2,8,off,64,0,1,ok,0.01\n2,8,off,64,0,2,ok,0.01\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_precision_cli_reports_target_without_changing_source_or_completion(precision_csv, capsys):
+    source = precision_csv.read_bytes()
+    common = [str(precision_csv), "--metric", "latency_app_s", "--resamples", "50"]
+    assert main(common) == 0
+    baseline = json.loads(capsys.readouterr().out)
+    assert "precision" not in baseline
+    assert main([*common, "--precision-target", "0.05"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["groups"][0]["precision_status"] == "met"
+    assert report["groups"][0]["relative_ci_half_width"] == 0
+    assert report["precision"]["target_relative_half_width"] == 0.05
+    for field in ("result_sha256", "run_status", "measurement_status", "quality_status"):
+        assert report[field] == baseline[field]
+    assert precision_csv.read_bytes() == source
+
+
+def test_precision_output_reuse_includes_the_user_target(precision_csv, tmp_path, capsys):
+    directory = tmp_path / "reports"
+    common = [str(precision_csv), "--metric", "latency_app_s", "--resamples", "50",
+              "--output-dir", str(directory), "--precision-target"]
+    receipts = []
+    for target in ("0.05", "0.05", "0.10"):
+        assert main([*common, target]) == 0
+        receipts.append(json.loads(capsys.readouterr().out.removeprefix("ACPROF_STATS ")))
+    assert receipts[0]["reused"] is False
+    assert receipts[1] == {**receipts[0], "reused": True}
+    assert receipts[2]["reused"] is False
+    assert receipts[2]["report_path"] != receipts[0]["report_path"]
+    assert len(list(directory.glob("*.json"))) == 2
+
+
+@pytest.mark.parametrize(
+    ("values", "options", "reason", "mean"),
+    [([1, 100, 10000], ["--resamples", "1"], "insufficient_resamples", 3367),
+     ([1, 2, 1, 2, 1, 2], ["--resamples", "50", "--block-size", "2"],
+      "degenerate_interval", 1.5)],
+)
+def test_precision_cli_does_not_treat_degenerate_resampling_as_met(
+        precision_csv, capsys, values, options, reason, mean):
+    header = precision_csv.read_text(encoding="utf-8").splitlines()[0]
+    rows = [f"2,8,off,64,0,{index},ok,{value}" for index, value in enumerate(values)]
+    precision_csv.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    source = precision_csv.read_bytes()
+    assert main([str(precision_csv), "--metric", "latency_app_s",
+                 "--precision-target", "0.05", *options]) == 0
+    report = json.loads(capsys.readouterr().out)
+    group = report["groups"][0]
+    assert group["mean"] == mean
+    assert group["ci_low"] == group["ci_high"]
+    assert group["ci_low"] is not None
+    assert group["precision_status"] == "not_assessable"
+    assert group["precision_reason"] == reason
+    assert group["relative_ci_half_width"] is None
+    assert precision_csv.read_bytes() == source
+
+
+@pytest.mark.parametrize("target", ["0", "-1", "nan", "inf"])
+def test_precision_cli_rejects_invalid_target_without_publishing(precision_csv, tmp_path, capsys, target):
+    destination = tmp_path / "invalid.json"
+    with pytest.raises(SystemExit) as raised:
+        main([str(precision_csv), "--precision-target", target, "--output", str(destination)])
+    assert raised.value.code == 1
+    assert "finite positive ratio" in capsys.readouterr().err
+    assert not destination.exists()
