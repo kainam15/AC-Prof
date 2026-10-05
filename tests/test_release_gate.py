@@ -45,6 +45,10 @@ def test_wheel_ci_resolves_declared_runtime_dependencies_without_host_lock():
     assert ('uv pip check') in (script)
     assert ('env -u PYTHONPATH') in (script)
     assert (' -I -c ') in (script)
+    assert ("'pytest==8.4.2'") in (script)
+    assert ("'pytest-asyncio==1.2.0'") in (script)
+    assert ('tests/test_hf_auto_download.py') in (script)
+    assert ('-p acprof.testing.plugin') in (script)
     assert ('--no-deps') not in (script)
     assert ('requirements/host.lock') not in (script)
 

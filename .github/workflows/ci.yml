@@ -200,11 +200,15 @@ jobs:
       - name: 验证公开依赖范围可由安装器解析
         run: |
           uv venv "$RUNNER_TEMP/acprof-resolved" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl
+          uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl \
+            'pytest==8.4.2' 'pytest-asyncio==1.2.0'
           uv pip check --python "$RUNNER_TEMP/acprof-resolved/bin/python"
           cd "$RUNNER_TEMP"
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -c 'import acprof; print(acprof.__version__)'
           "$RUNNER_TEMP/acprof-resolved/bin/acprof" --help >/dev/null
+          env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -m pytest \
+            "$GITHUB_WORKSPACE/tests/test_hf_auto_download.py" -p acprof.testing.plugin \
+            --strict-markers --import-mode=importlib -q
       - name: 从空目录验证安装包、公共入口、报告资源与子进程
         shell: bash
         run: |
