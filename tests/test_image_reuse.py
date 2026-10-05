@@ -102,6 +102,29 @@ class TestPrepareImage:
         build.assert_not_called()
         assert ('跳过构建并复用') in (stdout.getvalue())
 
+    def test_image_preparation_validates_store_without_acquiring_runtime_mount(self):
+        image = runtime_images.ImageInfo(
+            tag=self.image_id,
+            runtime_environment={"model_store": {
+                "entry_id": "a" * 64,
+                "plan_sha256": "b" * 64,
+            }},
+        )
+        with patch(
+            "acprof.host.runtime_images.prepare_runtime_image", return_value=image
+        ), patch(
+            "acprof.host.model_store.store_root", return_value=Path(self.project_dir)
+        ), patch(
+            "acprof.host.model_store.require_entry"
+        ) as require_entry, patch(
+            "acprof.host.model_store.mount_args",
+            side_effect=AssertionError("image preparation must not acquire a runtime mount lease"),
+        ) as mount_args:
+            prepared = runtime_images.prepare_image(self.task, self.project_dir)
+
+        require_entry.assert_called_once_with(prepared.runtime_environment)
+        mount_args.assert_not_called()
+
     def test_missing_image_is_announced_before_building(self):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr='Error: No such image: expected')
         stdout = io.StringIO()

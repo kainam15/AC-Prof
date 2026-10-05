@@ -408,13 +408,13 @@ def prepare_image(
     """Resolve a compatible runtime and verify exact image reuse."""
 
     image = prepare_runtime_image(task_info, project_dir, reuse_existing=reuse_existing)
-    from acprof.host.model_store import mount_args, store_root
+    from acprof.host.model_store import require_entry, store_root
     if image.runtime_environment.get("model_store"):
         # Host-only provenance for post-hoc runs; never baked into portable images.
         image.runtime_environment["model_store"] = {
             **image.runtime_environment["model_store"], "host_path": str(store_root())}
     task_info.model_store = image.runtime_environment.get("model_store", {})
-    mount_args(image.runtime_environment)
+    require_entry(image.runtime_environment)
     return image
 
 

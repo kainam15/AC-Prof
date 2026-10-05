@@ -482,16 +482,32 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
             "model_download": plan}
 
 
+def _require_entry_plan(record: dict, root: Path) -> tuple[str, dict]:
+    key = record["entry_id"]
+    plan = read_entry(key, root)
+    if not plan or plan["plan_sha256"] != record["plan_sha256"]:
+        raise RuntimeError("Model Store 缺失或计划 SHA256 不匹配；请先重新准备，禁止在线 fallback")
+    return key, plan
+
+
+def require_entry(manifest: dict, root: Path | None = None) -> dict | None:
+    """Validate a recorded Model Store entry without pinning it against GC."""
+    record = manifest.get("model_store")
+    if not record:
+        return None
+    root = _recorded_root(record, root)
+    with store_lock(root):
+        _key, plan = _require_entry_plan(record, root)
+    return plan
+
+
 def mount_args(manifest: dict, root: Path | None = None) -> list[str]:
     record = manifest.get("model_store")
     if not record:
         return []  # Historical immutable baked images retain their original semantics.
     root = _recorded_root(record, root)
-    key = record["entry_id"]
     with store_lock(root):
-        plan = read_entry(key, root)
-        if not plan or plan["plan_sha256"] != record["plan_sha256"]:
-            raise RuntimeError("Model Store 缺失或计划 SHA256 不匹配；请先重新准备，禁止在线 fallback")
+        key, plan = _require_entry_plan(record, root)
         lease_key = str(root / "entries" / key)
         if lease_key not in _LEASES:
             lock = (root / (key + ".lease")).open("a")

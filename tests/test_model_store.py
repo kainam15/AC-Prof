@@ -201,6 +201,17 @@ class TestModelStore:
                 model_store.mount_args({"model_store": record}, self.root)
             download.assert_not_called()
 
+    def test_entry_validation_does_not_pin_cache_against_gc(self):
+        record = self.prepare()
+        entry = self.root / "entries" / record["entry_id"]
+
+        plan = model_store.require_entry({"model_store": record}, self.root)
+
+        assert plan is not None
+        assert plan["plan_sha256"] == record["plan_sha256"]
+        assert str(entry) not in model_store._LEASES
+        assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
+
     def test_blank_store_setting_uses_default_and_recorded_path_supports_posthoc(self):
         with patch.dict(os.environ, {"ACPROF_MODEL_STORE": ""}):
             assert (model_store.store_root()) == (Path.home() / ".cache/acprof/model-store")
