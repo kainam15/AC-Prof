@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
+from acprof.artifacts import atomic_write
 from acprof.capabilities import measurement_requested
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -276,14 +277,11 @@ class ClientRunner:
         self.runtime_failures.append(payload["failure"])
         if not self.config.client_error_path:
             return
-        os.makedirs(os.path.dirname(self.config.client_error_path) or ".", exist_ok=True)
-        tmp_path = f"{self.config.client_error_path}.tmp-{os.getpid()}"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=True, indent=2, sort_keys=True)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, self.config.client_error_path)
+        def write(stream) -> None:
+            json.dump(payload, stream, ensure_ascii=True, indent=2, sort_keys=True)
+            stream.write("\n")
+
+        atomic_write(self.config.client_error_path, write)
 
     def _prepare_repeat_window(self,
         scale_value: float,

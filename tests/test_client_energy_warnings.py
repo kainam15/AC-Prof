@@ -1198,6 +1198,33 @@ class TestEffectiveEnergyWarning:
         assert (payload["request_phase"]) == ("auto_repeat_window_warmup")
         assert (payload["request_index_in_window"]) == (0)
 
+    def test_client_entrypoint_cleans_failed_timeout_sidecar_temporary(self) -> None:
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            sidecar_path = os.path.join(tmp_dir, "client-error.json")
+            exc = client.RequestTimeoutAbort(
+                "slow inference",
+                input_scale=30.0,
+                request_id="case_dur30_auto_warmup0",
+                timeout_s=300.0,
+            )
+            real_replace = os.replace
+
+            def fail_sidecar_replace(source, destination):
+                if os.fspath(destination) == sidecar_path:
+                    raise OSError("disk error")
+                return real_replace(source, destination)
+
+            with patch_client(self.runner, "CLIENT_ERROR_PATH", sidecar_path), patch_client(
+                    self.runner, "main", side_effect=exc), patch(
+                    "acprof.artifacts.os.replace", side_effect=fail_sidecar_replace), pytest.raises(
+                    SystemExit), redirect_stderr(stderr):
+                self.runner.run_cli()
+
+            assert not os.path.exists(sidecar_path)
+            assert os.listdir(tmp_dir) == []
+        assert "failed to persist structured timeout context" in stderr.getvalue()
+
     def test_sniff_group_id_is_hidden_from_csv_but_kept_for_packet_merge(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_csv = f"{tmp_dir}/result.csv"
