@@ -194,7 +194,7 @@ def start_container_session(
     owner = container_owner_labels()
     recover_abandoned_containers(owner, host_command.run_command)
     labels = [part for key, value in owner.items() for part in ("--label", f"{key}={value}")]
-    from acprof.host.model_store import acquire_mount
+    from acprof.host.model_store import acquire_mount, retain_mount_for_cleanup_debt
 
     model_store_mount = acquire_mount(image_info.runtime_environment)
     docker_cmd = [
@@ -228,7 +228,7 @@ def start_container_session(
         # _launch_container owns best-effort cleanup when Docker created an ID.
         # If launch itself fails, absence cannot be re-proven here without that
         # ID, so retain the lease conservatively until process exit.
-        _UNCERTAIN_MODEL_STORE_MOUNTS.append(model_store_mount)
+        retain_mount_for_cleanup_debt(model_store_mount)
         raise
 
     base_url = f"http://127.0.0.1:{host_port}"
@@ -324,13 +324,10 @@ def start_container_session(
         try:
             remove_owned_container(container_id, host_command.run_command)
         except BaseException:
-            _UNCERTAIN_MODEL_STORE_MOUNTS.append(model_store_mount)
+            retain_mount_for_cleanup_debt(model_store_mount)
             raise
         model_store_mount.close()
         raise
-
-
-_UNCERTAIN_MODEL_STORE_MOUNTS: list[Any] = []
 
 
 def stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:

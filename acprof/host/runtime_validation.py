@@ -74,7 +74,7 @@ def validate_runtime(
     from acprof.artifacts import atomic_write_json, read_input_scale_plan
     from acprof.host.container_state import inspect_container_state
     from acprof.host.env_utils import hf_offline_docker_env_args
-    from acprof.host.model_store import mount_args
+    from acprof.host.model_store import acquire_mount, retain_mount_for_cleanup_debt
 
     if planned.plan_file is None:
         raise ValueError("runtime validation requires an input plan file")
@@ -115,6 +115,7 @@ def validate_runtime(
             stages: list[dict[str, Any]]
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
             cidfile = Path(temporary) / f"{device_mode}.cid"
+            model_store_mount = acquire_mount(image_info.runtime_environment)
             command = [
                 "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
                 "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",
@@ -131,7 +132,7 @@ def validate_runtime(
                 "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds:g}",
                 *runtime_docker_env_args(),
                 *hf_offline_docker_env_args(),
-                *mount_args(image_info.runtime_environment),
+                *model_store_mount.args,
                 "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
                 "-e", "PYTHONDONTWRITEBYTECODE=1",
             ]
@@ -236,6 +237,10 @@ def validate_runtime(
                 except ContainerCleanupError as exc:
                     exc.run_error = exc.run_error or run_error
                     cleanup_failure = exc
+                if cleanup_failure is None:
+                    model_store_mount.close()
+                else:
+                    retain_mount_for_cleanup_debt(model_store_mount)
             if device_result["status"] == "error" and "failure" not in device_result:
                 device_result["failure"] = failure_from_exception(
                     RuntimeError(device_result.get("error", "runtime validation failed")),

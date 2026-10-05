@@ -66,6 +66,14 @@ class ModelStoreMount:
         self.close()
 
 
+_RETAINED_MOUNTS: list[ModelStoreMount] = []
+
+
+def retain_mount_for_cleanup_debt(mount: ModelStoreMount) -> None:
+    """Keep a lease alive when container absence could not be proven."""
+    _RETAINED_MOUNTS.append(mount)
+
+
 class ModelStoreCancelled(RuntimeError):
     """The caller cancelled preparation or lock waiting before a GC mutation."""
 

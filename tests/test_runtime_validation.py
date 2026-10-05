@@ -5,7 +5,7 @@ from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -88,9 +88,12 @@ class TestRuntimeValidation:
                 return subprocess.CompletedProcess(command, 0, stdout=SUCCESS, stderr='')
             return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
 
+        mounts = [SimpleNamespace(args=[], close=Mock()), SimpleNamespace(args=[], close=Mock())]
         with tempfile.TemporaryDirectory() as temporary, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
-        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
+            'acprof.host.model_store.acquire_mount', side_effect=mounts,
+        ):
             root = Path(temporary)
             report = validate_runtime(**self.fixture(root))
             saved = json.loads((root / 'runtime_validation.json').read_text())
@@ -107,6 +110,7 @@ class TestRuntimeValidation:
         assert ('--gpus') not in (runs[0])
         assert ('--gpus') in (runs[1])
         assert (all('ACPROF_REQUEST_TIMEOUT_S=30' in command for command in runs))
+        assert all(mount.close.call_count == 1 for mount in mounts)
 
     def test_same_process_residue_blocks_validation_and_records_preflight_failure(self):
         from acprof.host.container_lifecycle import (
@@ -269,9 +273,15 @@ class TestRuntimeValidation:
             if command[1] == 'run':
                 return subprocess.CompletedProcess(command, 1, '', 'inference failed first')
             raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+        mount = SimpleNamespace(args=[], close=Mock())
+        retained = Mock()
         with tempfile.TemporaryDirectory() as directory, patch(
             'acprof.host.runtime_validation.run_command', side_effect=run,
-        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}), patch(
+            'acprof.host.model_store.acquire_mount', return_value=mount,
+        ), patch(
+            'acprof.host.model_store.retain_mount_for_cleanup_debt', retained,
+        ):
             root = Path(directory)
             with pytest.raises(RuntimeError, match='cleanup unknown'):
                 validate_runtime(**self.fixture(root))
@@ -282,6 +292,8 @@ class TestRuntimeValidation:
             assert (device['cleanup_error']['final_state']) == ('unknown')
             assert ('inference failed first') in (device['cleanup_error']['run_error']['detail'])
             assert (sum(command[1] == 'run' for command in commands)) == (1)
+            mount.close.assert_not_called()
+            retained.assert_called_once_with(mount)
 
     @pytest.mark.parametrize('mode', ('missing', 'malformed', 'permission_denied'))
     def test_timeout_with_unusable_cidfile_preserves_both_failures(self, mode):
