@@ -88,13 +88,15 @@ def _sync_directory(directory: Path) -> None:
 
 
 def replace_file_durably(source: str | Path, destination: str | Path) -> None:
-    """Publish an already-written sibling file and make the rename durable on POSIX."""
+    """Publish an already-written file and make the rename durable on POSIX."""
     source_path = Path(source)
     destination_path = Path(destination)
     with source_path.open("rb") as stream:
         os.fsync(stream.fileno())
     os.replace(source_path, destination_path)
     _sync_directory(destination_path.parent)
+    if source_path.parent != destination_path.parent:
+        _sync_directory(source_path.parent)
 
 
 def atomic_write(

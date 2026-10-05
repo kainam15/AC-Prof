@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import os
 import tempfile
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
@@ -107,6 +108,23 @@ class TestArtifactLayout:
             assert (target.read_text()) == ("preserve")
             assert (case.requests.is_symlink())
             assert not (case.retained_requests.exists())
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_request_publication_syncs_file_and_both_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            layout = ArtifactLayout.for_new_run(root)
+            layout.initialize()
+            case = layout.case("org/model", 1, 4, "off")
+            case.csv.parent.mkdir(parents=True)
+            case.requests.write_text('{"latency_app_s":[0.1]}\n', encoding="utf-8")
+
+            with patch("os.fsync", wraps=os.fsync) as fsync:
+                case.retain_requests()
+
+            assert not case.requests.exists()
+            assert case.retained_requests.read_text(encoding="utf-8") == '{"latency_app_s":[0.1]}\n'
+            assert fsync.call_count >= 3
 
     def test_legacy_discovery_is_read_only_and_keeps_flat_paths(self):
         with tempfile.TemporaryDirectory() as temporary:

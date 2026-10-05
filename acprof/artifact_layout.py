@@ -1,12 +1,11 @@
 """Versioned experiment paths. Discovery is read-only; writers initialize v2 explicitly."""
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.artifacts import read_json_object
+from acprof.artifacts import read_json_object, replace_file_durably
 
 MANIFEST_NAME = "result_manifest.json"
 METADATA_FILES = frozenset({
@@ -243,11 +242,4 @@ class CaseArtifacts:
         if not source.is_file():
             raise ValueError(f"Request samples must be a regular file: {source}")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, destination)
-        if os.name == "posix":
-            for directory in (destination.parent, source.parent):
-                descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+        replace_file_durably(source, destination)
