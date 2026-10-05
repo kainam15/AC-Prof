@@ -291,13 +291,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 latencies, slow_latency_threshold_s=slow_latency_threshold_s,
             ).items():
                 r[field] = _fmt_float(value)
-            try:
-                bs = static_batch_size
-                if bs != bs:
-                    bs = float(r.get("batch_size", "nan"))
-                lat = float(r["latency_s"])
-                if lat > 0:
-                    r["throughput_samples_per_s"] = f"{(bs / lat):.6f}"
+            bs = static_batch_size
+            if not math.isfinite(bs):
+                bs = _to_float(r.get("batch_size", "nan"))
+            lat = _to_float(r.get("latency_s", "nan"))
+            if math.isfinite(lat) and lat > 0.0:
+                if math.isfinite(bs) and bs > 0.0:
+                    r["throughput_samples_per_s"] = _fmt_float(bs / lat)
                     input_units = _input_units_per_request(r, bs)
                     if math.isfinite(input_units) and input_units > 0.0:
                         r["latency_s_per_input_unit"] = _fmt_float(
@@ -308,30 +308,17 @@ def main(argv: Sequence[str] | None = None) -> None:
                         r["throughput_samples_per_s_per_cpu_core"] = _fmt_float(
                             (bs / lat) / cpu_cores
                         )
-            except Exception:
-                pass
-            try:
-                _set_packet_network_metrics(r, records)
-            except Exception:
-                pass
-            try:
-                _recompute_packet_flop_rates(r, float(r["latency_s"]))
-            except Exception:
-                pass
-            try:
-                lat = float(r["latency_s"])
-                cpu_cycles_est_packet = _estimate_cpu_cycles(r, lat)
-                if cpu_cycles_est_packet == cpu_cycles_est_packet:
-                    r["cpu_cycles_est_packet"] = f"{cpu_cycles_est_packet:.6f}"
-            except Exception:
-                pass
-            try:
-                lat = float(r["latency_s"])
-                cpu_mips_packet = _compute_cpu_mips(r, lat)
-                if cpu_mips_packet == cpu_mips_packet:
-                    r["cpu_mips_packet"] = f"{cpu_mips_packet:.6f}"
-            except Exception:
-                pass
+
+            _set_packet_network_metrics(r, records)
+            _recompute_packet_flop_rates(r, lat)
+
+            cpu_cycles_est_packet = _estimate_cpu_cycles(r, lat)
+            if math.isfinite(cpu_cycles_est_packet):
+                r["cpu_cycles_est_packet"] = _fmt_float(cpu_cycles_est_packet)
+
+            cpu_mips_packet = _compute_cpu_mips(r, lat)
+            if math.isfinite(cpu_mips_packet):
+                r["cpu_mips_packet"] = _fmt_float(cpu_mips_packet)
 
     fields = order_csv_fields(field for field in fields if field != SNIFF_GROUP_FIELD)
     for r in rows:

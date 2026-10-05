@@ -378,3 +378,30 @@ def test_write_failure_preserves_existing_packet_merge_output() -> None:
 
         with open(out_csv, "rb") as stream:
             assert stream.read() == b"previous packet merge\n"
+
+
+def test_internal_packet_metric_failure_is_not_silently_ignored() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        in_csv = os.path.join(tmp, "result.csv")
+        lat_json = os.path.join(tmp, "lat.json")
+        out_csv = os.path.join(tmp, "result.merged.csv")
+        fieldnames = [*CSV_FIELDS, "sniff_group_id"]
+        row = dict.fromkeys(fieldnames, "nan")
+        row.update(status="ok", error="", sniff_group_id="case_seq1_r0")
+        with open(in_csv, "w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(row)
+        with open(lat_json, "w", encoding="utf-8") as stream:
+            json.dump(
+                {"schema_version": 2, "requests": {"case_seq1_r0:0": {"latency_s": 0.25}}},
+                stream,
+            )
+
+        with patch(
+            "acprof.packet.merge_packet_latency._set_packet_network_metrics",
+            side_effect=RuntimeError("injected packet metric bug"),
+        ), pytest.raises(RuntimeError, match="injected packet metric bug"):
+            merge_packet_latency.main([in_csv, lat_json, out_csv])
+
+        assert not os.path.exists(out_csv)
