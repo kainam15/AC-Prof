@@ -15,6 +15,8 @@ from acprof.network_policy import DownloadPolicyError, source_route
     ("https://user:secret@example.com:8443/path?q=1#frag", "https://example.com:8443/path"),
     ("https://example.com/path?q=1#frag", "https://example.com/path"),
     ("http://[2001:db8::1]:8080/file?sig=x", "http://[2001:db8::1]:8080/file"),
+    ("https://example.com:bad/file?signature=secret", "invalid-url"),
+    ("https://example.com:99999/file?signature=secret", "invalid-url"),
 ])
 def test_safe_url_preserves_authority_without_secrets(url, expected):
     assert safe_url(url) == expected
@@ -169,7 +171,8 @@ def test_mirror_trusted_hub_or_storage_redirect_is_allowed(host, mode):
 
 @pytest.mark.parametrize("target", ["https://evil.example/a", "https://cdn.hf.co.evil.example/a",
                                     "https://evil-hf.co/a", "http://cdn.hf.co/a",
-                                    "https://huggingface.co:0/a"])
+                                    "https://huggingface.co:0/a", "https://huggingface.co:bad/a?signature=secret",
+                                    "https://huggingface.co:99999/a?signature=secret"])
 def test_unknown_redirect_never_reaches_network(target):
     visited = []
 

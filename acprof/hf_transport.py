@@ -26,16 +26,29 @@ _OFFICIAL_HUB_ENDPOINTS = (HF_OFFICIAL_ENDPOINT, "https://www.huggingface.co", "
 _OFFICIAL_HUB_HOSTS = frozenset(urlsplit(endpoint).hostname for endpoint in _OFFICIAL_HUB_ENDPOINTS)
 
 
+def _validated_urlsplit(url: str):
+    """Parse once and reject malformed authorities before policy checks."""
+    try:
+        parsed = urlsplit(str(url))
+        parsed.port
+    except ValueError:
+        return None
+    return parsed
+
+
 class UntrustedHfEndpointError(DownloadPolicyError):
     def __init__(self, url: str):
-        self.host = urlsplit(str(url)).hostname or "unknown"
+        parsed = _validated_urlsplit(url)
+        self.host = parsed.hostname if parsed is not None and parsed.hostname else "invalid"
         self.stage = "redirect"
         super().__init__(f"Untrusted HF endpoint rejected before request: {self.host}")
 
 
 def safe_url(url: str) -> str:
     """Provenance excludes signed query strings, credentials and fragments."""
-    parsed = urlsplit(str(url))
+    parsed = _validated_urlsplit(url)
+    if parsed is None:
+        return "invalid-url"
     host = parsed.hostname or ""
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
@@ -44,7 +57,9 @@ def safe_url(url: str) -> str:
 
 
 def endpoint_type(url: str) -> str:
-    parsed = urlsplit(str(url))
+    parsed = _validated_urlsplit(url)
+    if parsed is None:
+        return "unknown"
     if parsed.hostname in _OFFICIAL_HUB_HOSTS:
         return "official-hub"
     if any(parsed.hostname == urlsplit(value).hostname for value in hf_endpoints()):
@@ -109,8 +124,8 @@ def _response_hook(response):
 
 
 def check_hf_url(url: str) -> None:
-    parsed = urlsplit(str(url))
-    if parsed.username or parsed.password or not parsed.hostname:
+    parsed = _validated_urlsplit(url)
+    if parsed is None or parsed.username or parsed.password or not parsed.hostname:
         raise UntrustedHfEndpointError(url)
     default_ports = {"https": 443, "http": 80}
     port = parsed.port if parsed.port is not None else default_ports.get(parsed.scheme)
