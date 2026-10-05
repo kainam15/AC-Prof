@@ -138,6 +138,55 @@ class TestPosthocProfile:
         assert (explicit.nsys_reference_cpu) == (4)
         assert (explicit.nsys_reference_mem) == (8)
 
+    @pytest.mark.parametrize(
+        "recorded_source,environment_source,expected_source",
+        [
+            ("missing", "modelscope", "huggingface"),
+            ("huggingface", "modelscope", "huggingface"),
+            ("modelscope", "huggingface", "modelscope"),
+        ],
+    )
+    def test_posthoc_preserves_recorded_model_source(
+        self, tmp_path, monkeypatch, recorded_source, environment_source, expected_source
+    ):
+        self._write_fixture(tmp_path)
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if recorded_source != "missing":
+            metadata["model_source"] = recorded_source
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+        monkeypatch.setenv("ACPROF_MODEL_SOURCE", environment_source)
+
+        context = host_posthoc_context.load_result_context(tmp_path)
+
+        assert context.task_info.model_source == expected_source
+        assert context.task_info.model_id == "example/model"
+        assert context.task_info.model_revision == "revision-1"
+        assert context.static_meta == metadata
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+
+    @pytest.mark.parametrize(
+        "recorded_source",
+        [None, "", 0, False, [], {}, "unknown", "ModelScope", " modelscope "],
+        ids=["null", "empty", "number", "boolean", "array", "object", "unknown", "case", "spaces"],
+    )
+    def test_posthoc_rejects_invalid_recorded_model_source(
+        self, tmp_path, monkeypatch, recorded_source
+    ):
+        self._write_fixture(tmp_path)
+        metadata_path = tmp_path / host_posthoc_context.STATIC_META_NAME
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["model_source"] = recorded_source
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+        monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
+
+        with pytest.raises(host_posthoc_context.PosthocError, match="model_source"):
+            host_posthoc_context.load_result_context(tmp_path)
+
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+
     def _write_fixture(
         self,
         root: Path,

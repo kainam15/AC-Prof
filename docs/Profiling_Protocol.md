@@ -459,7 +459,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | --- | --- |
 | `schema_version` | `static_meta.json` schema 版本；新增运行环境绑定与验证记录后的当前版本为 `7`。 |
 | `model_name` | 所选来源的 model ID，例如 `google-bert/bert-base-uncased`。 |
-| `model_source` | `huggingface` 或 `modelscope`；历史缺字段沿用 HF 语义。相同模型名不代表相同来源或 artifact。 |
+| `model_source` | `huggingface` 或 `modelscope`；历史缺字段沿用 HF 语义。补采恢复使用原记录，不受当前来源环境变量影响；显式无效值会被拒绝。相同模型名不代表相同来源或 artifact。 |
 | `model_revision` | 实际解析到的 model revision / commit hash。 |
 | `parameter_count` | Hugging Face Hub SafeTensors metadata 的参数总数；Hub 未提供时为 `null`。 |
 | `parameter_bytes` | 根据 `parameter_dtype_counts` 的各 dtype 元素数量与字节宽度精确求和得到的逻辑 tensor payload 大小，不含序列化 header；没有 dtype 统计或存在未知 dtype 时为 `null`。 |

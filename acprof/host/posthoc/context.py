@@ -36,6 +36,7 @@ from acprof.host.detect import TaskInfo
 from acprof.host.execution_profile_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
 from acprof.installation import resource_root
 from acprof.metric_registry import tool_fields
+from acprof.model_repository import MODEL_SOURCES
 
 PROJECT_DIR = resource_root()
 
@@ -364,8 +365,13 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_tag):
         raise PosthocError("static_meta.json requires an immutable image_id; regenerate current results")
 
+    recorded_source = static_meta.get("model_source", "huggingface")
+    if not isinstance(recorded_source, str) or recorded_source not in MODEL_SOURCES:
+        raise PosthocError(f"invalid model_source in static_meta.json: {recorded_source!r}")
+
     task_info = TaskInfo(
         model_id=model_id,
+        model_source=recorded_source,
         pipeline_tag=str(static_meta.get("pipeline_tag") or "").strip(),
         task_family=str(static_meta.get("task_family") or "").strip(),
         runtime_backend=str(static_meta.get("runtime_backend") or "").strip(),
