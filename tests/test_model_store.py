@@ -212,6 +212,25 @@ class TestModelStore:
         assert str(entry) not in model_store._LEASES
         assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
 
+    def test_entry_verification_releases_gc_lease_when_done(self):
+        record = self.prepare()
+        entry = self.root / "entries" / record["entry_id"]
+
+        model_store.verify_entry({"model_store": record}, self.root)
+
+        assert str(entry) not in model_store._LEASES
+        assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
+
+    def test_entry_verification_releases_gc_lease_after_failure(self):
+        record = self.prepare()
+        with patch(
+            "acprof.container.download_model.verify_download",
+            side_effect=RuntimeError("verification failed"),
+        ), pytest.raises(RuntimeError, match="verification failed"):
+            model_store.verify_entry({"model_store": record}, self.root)
+
+        assert model_store.prune_store(root=self.root)["entries"] == [record["entry_id"]]
+
     def test_blank_store_setting_uses_default_and_recorded_path_supports_posthoc(self):
         with patch.dict(os.environ, {"ACPROF_MODEL_STORE": ""}):
             assert (model_store.store_root()) == (Path.home() / ".cache/acprof/model-store")

@@ -527,13 +527,22 @@ def verify_entry(manifest: dict, root: Path | None = None) -> None:
     if not record:
         return
     root = _recorded_root(record, root)
-    mount_args(manifest, root)  # Acquire a lease before reading the snapshot.
-    plan = read_entry(record["entry_id"], root)
-    if plan is None:
-        raise RuntimeError("Model Store entry disappeared after acquiring its lease")
-    for repo in repository_plans(plan):
-        snapshot = root / "entries" / record["entry_id"] / "hf" / ("models--" + repo["model_id"].replace("/", "--")) / "snapshots" / repo["model_revision"]
-        verify_download(snapshot, repo)
+    lock = None
+    with store_lock(root):
+        key, plan = _require_entry_plan(record, root)
+        lock = (root / (key + ".lease")).open("a")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            (root / "entries" / key / "last-used").touch()
+        except BaseException:
+            lock.close()
+            raise
+    try:
+        for repo in repository_plans(plan):
+            snapshot = root / "entries" / key / "hf" / ("models--" + repo["model_id"].replace("/", "--")) / "snapshots" / repo["model_revision"]
+            verify_download(snapshot, repo)
+    finally:
+        lock.close()
 
 
 def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
