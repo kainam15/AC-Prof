@@ -13,21 +13,27 @@ from acprof.experiment import RunConfig, build_run_command
 from acprof.tui.settings import TuiSettings, save_settings
 
 
-async def test_start_waiting_dialog_is_translated():
-    from acprof.tui.preparation import PreparationScreen
+async def test_start_waiting_state_is_translated_without_covering_monitor():
     with tempfile.TemporaryDirectory() as temporary:
-        app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=Path(temporary) / "settings.json")
+        config = replace(
+            RunConfig.smoke("demo/model"),
+            output_dir=str(Path(temporary) / "results"),
+        )
+        app = AcprofTui(config, settings_path=Path(temporary) / "settings.json")
         async with app.run_test(size=(120, 30)) as pilot:
             app.ui_preferences = replace(app.ui_preferences, language="en")
             app._apply_ui_preferences()
             await pilot.pause()
             with patch.object(app, "_execute_command"):
                 await pilot.press("f5")
+                await app.workers.wait_for_complete()
                 await pilot.pause()
-                assert isinstance(app.screen, PreparationScreen)
-                assert app.screen.query_one("#preparation-title", Static).content == "Checking model"
-                assert app.screen.query_one("#preparation-stage", Static).content == "Reading model information…"
-                await pilot.press("escape")
+                assert app.screen.id == "_default"
+                assert app.query_one("#main-tabs").active == "monitor-tab"
+                assert app._preparation_screen is None
+                assert app.query_one("#status-stage", Static).content == "Starting"
+                assert app.query_one("#status-detail", Static).content == "Creating subprocess"
+                app._process_kind = ""
 
 def test_first_launch_without_saved_configuration_is_a_small_smoke():
     with tempfile.TemporaryDirectory() as temporary:
