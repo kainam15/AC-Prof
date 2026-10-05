@@ -1,5 +1,6 @@
 """报告展示保留单位、真实零和统计边界；损坏报告不能伪装成有效结果。"""
 import json
+from concurrent.futures import CancelledError
 from copy import deepcopy
 from pathlib import Path
 
@@ -27,6 +28,11 @@ class TestReportView:
         result = read_report(self.path)
         assert (self.path.read_bytes()) == (before)
         return result
+
+    def test_cancelled_read_stops_before_parsing(self):
+        self.path.write_text(json.dumps(self.window), encoding="utf-8")
+        with pytest.raises(CancelledError):
+            read_report(self.path, cancelled=lambda: True)
 
     def test_window_units_confidence_level_zero_and_missing_values_are_explicit(self):
         data = deepcopy(self.window)

@@ -220,7 +220,7 @@ class TestTuiReliability:
         self._request.addfinalizer(partial(release.set))
         a, b = self.directory / "a.json", self.directory / "b.json"
         finished = []
-        def read(path):
+        def read(path, **_kwargs):
             if path == a:
                 started.set()
                 release.wait(10)
@@ -231,7 +231,10 @@ class TestTuiReliability:
             with patch("acprof.tui.app.read_report", side_effect=read):
                 app._open_report(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
+                first_token = app._report_request
+                assert first_token is not None
                 app._open_report(str(b))
+                assert first_token.is_set()
                 for _ in range(100):
                     await pilot.pause()
                     if app._report_view is not None:
@@ -324,6 +327,15 @@ class TestTuiReliability:
                 assert (app._is_busy())
                 app._show_result_summary(Path("cancel.csv"), token, None, "cancelled", True)
             assert ("读取已取消") in (str(app.query_one("#result-summary", Static).content))
+            assert not (app._is_busy())
+
+            with patch.object(app, "_execute_report_read"):
+                app._open_report(str(self.directory / "cancel.json"))
+                report_token = app._report_request
+                assert report_token is not None
+                app._cancel_result_reads()
+                assert report_token.is_set()
+                app._show_report(None, "cancelled", report_token)
             assert not (app._is_busy())
 
     async def test_late_checks_and_shutdown_callbacks_do_not_touch_widgets(self):

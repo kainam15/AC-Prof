@@ -197,7 +197,7 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         self._recovery_request: Event | None = None
         self._recovery_after_check = None
         self._summary_path: Path | None = None
-        self._report_request = None
+        self._report_request: Event | None = None
         self._report_path: Path | None = None
         self._read_jobs: set[object] = set()
         self._process_token = None
@@ -1794,6 +1794,8 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         self._recovery_after_check = None
         if self._summary_request is not None:
             self._summary_request.set()
+        if self._report_request is not None:
+            self._report_request.set()
         self._summary_request = self._report_request = None
         self._set_text(self.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
         self._clear_report("读取已取消；等待后台任务释放资源。")
@@ -1829,6 +1831,8 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             if (self._report_request is not None and
                     resolve_result_path(self._input("report-source"), PROJECT_DIR) == self._report_path):
                 return
+            if self._report_request is not None:
+                self._report_request.set()
             self._report_request = None
             self._clear_report("CSV / 目录：计算统计；JSON：查看报告。采集结束后操作。")
 
@@ -1852,16 +1856,18 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
             self.query_one("#report-source", Input).value = str(report_path)
         self._clear_report(message("{0} 正在读取报告", CALCULATING))
         self.screen.set_focus(self.query_one("#report-table"), scroll_visible=False)
-        token = self._report_request = object()
+        if self._report_request is not None:
+            self._report_request.set()
+        token = self._report_request = Event()
         self._report_path = report_path
         self._read_jobs.add(token)
         self._set_busy(True)
         self._execute_report_read(report_path, token)
 
     @work(thread=True, group="report", exit_on_error=False)
-    def _execute_report_read(self, path: Path, token: object) -> None:
+    def _execute_report_read(self, path: Path, token: Event) -> None:
         try:
-            view, error = read_report(path), ""
+            view, error = read_report(path, cancelled=token.is_set), ""
         except Exception as exc:
             view, error = None, error_message(exc)
         self._safe_process_callback(self._show_report, view, error, token)
@@ -2136,6 +2142,8 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Bar
         self._recovery_after_check = None
         if self._summary_request is not None:
             self._summary_request.set()
+        if self._report_request is not None:
+            self._report_request.set()
         self._summary_request = self._report_request = self._check_request = None
         self._cancel_preview_timer()
         if self._elapsed_timer is not None:

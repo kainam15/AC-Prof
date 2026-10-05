@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import math
+from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from acprof.messages import join_messages, message
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
@@ -37,6 +39,9 @@ _REASONS = {
     "missing_windows_break_blocks": "缺失窗口打断连续块",
     "nonconsecutive_windows": "窗口序号不连续",
 }
+
+_MAX_REPORT_BYTES = 32 * 1024 * 1024
+_REPORT_READ_CHUNK_BYTES = 256 * 1024
 
 
 def _number(value, *, nullable: bool = False) -> float | None:
@@ -240,13 +245,23 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
         tuple(rows), note)
 
 
-def read_report(path: str | Path) -> ReportView:
+def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: False) -> ReportView:
     """读取一次完整 JSON；失败/未知报告不能冒充成功结果。"""
     source = Path(path).expanduser().resolve()
+    content = bytearray()
     with source.open("rb") as stream:
-        content = stream.read(32 * 1024 * 1024 + 1)
-    if len(content) > 32 * 1024 * 1024:
+        while len(content) <= _MAX_REPORT_BYTES:
+            if cancelled():
+                raise CancelledError()
+            remaining = _MAX_REPORT_BYTES + 1 - len(content)
+            chunk = stream.read(min(_REPORT_READ_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            content.extend(chunk)
+    if len(content) > _MAX_REPORT_BYTES:
         raise ValueError(message("报告超过 32 MiB，请先缩小报告范围"))
+    if cancelled():
+        raise CancelledError()
     try:
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
