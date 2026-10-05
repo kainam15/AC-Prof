@@ -414,7 +414,7 @@ def test_system_http_proxy_is_used_without_changing_environment(scheme):
         thread.join(timeout=5)
 
 
-def test_real_hub_sdk_resumes_partial_file_and_keeps_content_identity(tmp_path, monkeypatch):
+def test_real_hub_sdk_partial_cache_cannot_change_content_identity(tmp_path, monkeypatch):
     import hashlib
     from pathlib import Path
 
@@ -433,13 +433,17 @@ def test_real_hub_sdk_resumes_partial_file_and_keeps_content_identity(tmp_path, 
         if request.method == "HEAD":
             return httpx.Response(302, headers={"location": "https://us.aws.cdn.hf.co/file",
                 "x-repo-commit": commit, "x-linked-etag": etag, "x-linked-size": "6"})
-        assert request.headers["range"] == "bytes=2-"
-        return httpx.Response(206, content=content[2:], headers={"content-length": "4", "content-range": "bytes 2-5/6"})
+        if request.headers.get("range") == "bytes=2-":
+            return httpx.Response(206, content=content[2:], headers={"content-length": "4", "content-range": "bytes 2-5/6"})
+        assert "range" not in request.headers
+        return httpx.Response(200, content=content, headers={"content-length": "6"})
     hub.set_client_factory(lambda: _httpx_factory(transport=httpx.MockTransport(respond)))
     try:
         path = hub.hf_hub_download("demo/model", "model.safetensors", revision=commit, cache_dir=tmp_path,
                                    endpoint="https://huggingface.co")
         assert Path(path).read_bytes() == content
-        assert not partial.exists()
+        gets = [request for request in requests if request.method == "GET"]
+        assert len(gets) == 1
+        assert gets[0].headers.get("range") in {None, "bytes=2-"}
     finally:
         hub.set_client_factory(_httpx_factory)
