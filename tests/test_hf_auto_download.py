@@ -6,9 +6,18 @@ import httpx
 import pytest
 
 from acprof.hf_endpoints import hf_download_mode, hf_endpoints
-from acprof.hf_transport import _request_hook, _response_hook
+from acprof.hf_transport import _request_hook, _response_hook, safe_url
 from acprof.host.env_utils import load_project_env, save_project_env
 from acprof.network_policy import DownloadPolicyError, source_route
+
+
+@pytest.mark.parametrize(("url", "expected"), [
+    ("https://user:secret@example.com:8443/path?q=1#frag", "https://example.com:8443/path"),
+    ("https://example.com/path?q=1#frag", "https://example.com/path"),
+    ("http://[2001:db8::1]:8080/file?sig=x", "http://[2001:db8::1]:8080/file"),
+])
+def test_safe_url_preserves_authority_without_secrets(url, expected):
+    assert safe_url(url) == expected
 
 
 def test_offline_hub_api_blocks_network_before_endpoint_fallback(monkeypatch):

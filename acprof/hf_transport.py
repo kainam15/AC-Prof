@@ -36,7 +36,11 @@ class UntrustedHfEndpointError(DownloadPolicyError):
 def safe_url(url: str) -> str:
     """Provenance excludes signed query strings, credentials and fragments."""
     parsed = urlsplit(str(url))
-    return urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    authority = host if parsed.port is None else f"{host}:{parsed.port}"
+    return urlunsplit((parsed.scheme, authority, parsed.path, "", ""))
 
 
 def endpoint_type(url: str) -> str:
