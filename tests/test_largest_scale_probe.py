@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -14,6 +15,7 @@ from acprof.host.largest_scale_probe import (
     load_largest_scale_entry,
     run_largest_scale_probe,
     select_minimum_resources,
+    write_probe_summary,
 )
 from acprof.host.orchestrator import ImageInfo
 
@@ -72,6 +74,24 @@ def test_largest_materialized_scale_is_selected() -> None:
 
     assert (entry["input_scale"]) == (512.0)
     assert (entry["payload"]) == ({"text": "largest"})
+
+
+def test_probe_summary_write_syncs_file_and_directory() -> None:
+    real_fsync = os.fsync
+    fsync_calls: list[int] = []
+
+    def record_fsync(fd: int) -> None:
+        fsync_calls.append(fd)
+        real_fsync(fd)
+
+    with tempfile.TemporaryDirectory() as temporary_dir, patch(
+        "acprof.artifacts.os.fsync",
+        side_effect=record_fsync,
+    ):
+        path = Path(temporary_dir) / PROBE_SUMMARY_NAME
+        write_probe_summary(path, {"schema_version": 3, "status": "ok"})
+
+    assert len(fsync_calls) == 2
 
 @patch("acprof.host.largest_scale_probe.stop_container_session")
 @patch("acprof.host.largest_scale_probe.start_container_session")

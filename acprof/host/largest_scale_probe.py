@@ -6,13 +6,13 @@ import json
 import math
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Sequence
 
 import requests
 
+from acprof.artifacts import atomic_write
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -113,33 +113,18 @@ def write_probe_summary(
     summary: Dict[str, Any],
 ) -> None:
     """Atomically persist a probe result."""
-    output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(
-        prefix=f".{output.name}.",
-        suffix=".tmp",
-        dir=output.parent,
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(
-                summary,
-                handle,
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-                allow_nan=False,
-            )
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, output)
-    except Exception:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
+    def write(handle) -> None:
+        json.dump(
+            summary,
+            handle,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        handle.write("\n")
+
+    atomic_write(path, write)
 
 
 def _cold_start_payload(session: RunningContainer | None) -> Dict[str, Any]:
