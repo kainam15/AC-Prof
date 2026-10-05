@@ -737,6 +737,67 @@ class TestPosthocProfile:
             assert fsync.call_count >= 2
             assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_three_file_commit_syncs_result_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "posthoc_profile_history": [],
+                        "timeout_retry_history": [],
+                        "quality_retry_history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = host_posthoc_context.load_result_context(root)
+            backup = host_posthoc_storage.create_backup(context)
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                host_posthoc_storage.commit_result_files(
+                    context,
+                    fieldnames=context.fieldnames,
+                    rows=context.rows,
+                    static_meta=context.static_meta,
+                    collection_history=context.collection_history,
+                    backup_dir=backup,
+                )
+
+            assert stat.S_IFREG in synced_file_types
+            assert stat.S_IFDIR in synced_file_types
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_restore_from_backup_syncs_file_and_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            destination = root / "result_all.csv"
+            backup = root / "result_all.backup.csv"
+            destination.write_text("new\n", encoding="utf-8")
+            backup.write_text("old\n", encoding="utf-8")
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                host_posthoc_storage._restore_from_backup(destination, backup)
+
+            assert destination.read_text(encoding="utf-8") == "old\n"
+            assert stat.S_IFREG in synced_file_types
+            assert stat.S_IFDIR in synced_file_types
+
     def test_three_file_commit_restores_csv_and_meta_if_history_publish_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"

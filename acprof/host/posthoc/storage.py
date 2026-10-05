@@ -38,6 +38,26 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     atomic_write(path, write)
 
 
+def _fsync_directory(directory: Path) -> None:
+    if os.name != "posix":
+        return
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_parent_directories(*paths: Path) -> None:
+    seen: set[Path] = set()
+    for path in paths:
+        directory = path.parent
+        if directory in seen:
+            continue
+        seen.add(directory)
+        _fsync_directory(directory)
+
+
 def _timestamp_token() -> str:
     return datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%z")
 
@@ -142,7 +162,10 @@ def _restore_from_backup(destination: Path, backup_file: Path) -> None:
     temporary_path = Path(temporary)
     try:
         shutil.copy2(backup_file, temporary_path)
+        with temporary_path.open("rb") as stream:
+            os.fsync(stream.fileno())
         os.replace(temporary_path, destination)
+        _fsync_directory(destination.parent)
     finally:
         try:
             temporary_path.unlink()
@@ -193,6 +216,11 @@ def commit_result_files(
         meta_replaced = True
         os.replace(history_temporary, context.collection_history_path)
         history_replaced = True
+        _fsync_parent_directories(
+            context.result_csv,
+            context.static_meta_path,
+            context.collection_history_path,
+        )
     except Exception:
         if csv_replaced:
             _restore_from_backup(
@@ -214,6 +242,8 @@ def commit_result_files(
                     context.collection_history_path.unlink()
                 except FileNotFoundError:
                     pass
+                else:
+                    _fsync_directory(context.collection_history_path.parent)
         raise
     finally:
         for temporary in (csv_temporary, meta_temporary, history_temporary):
