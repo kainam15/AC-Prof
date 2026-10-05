@@ -1,6 +1,7 @@
 """Users can recover or restart from the failed experiment without editing paths."""
 import asyncio
 import json
+import os
 import threading
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -173,6 +174,22 @@ def test_review_checks_active_writer_and_completed_experiment(saved_preparation)
     review = review_recovery(pending, project_dir=Path.cwd(), python_executable=Path("/fixed/python"))
     assert review.phase == "complete"
     assert review.resume is None
+    assert review.restart is not None
+
+
+def test_review_rejects_hardlinked_result_lock(saved_preparation, tmp_path):
+    config, directory = saved_preparation
+    pending = PendingLaunch(tuple(build_run_command(config, project_dir=Path.cwd())), "run", config)
+    lock_path = directory / ".acprof/result.lock"
+    external = tmp_path / "external-result.lock"
+    external.write_text("")
+    lock_path.unlink()
+    os.link(external, lock_path)
+
+    review = review_recovery(pending, project_dir=Path.cwd(), python_executable=Path("/fixed/python"))
+
+    assert review.resume is None
+    assert "锁文件不可用" in review.detail
     assert review.restart is not None
 
 

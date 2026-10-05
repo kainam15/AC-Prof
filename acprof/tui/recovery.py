@@ -7,8 +7,7 @@ from pathlib import Path
 from acprof.artifact_layout import ArtifactLayout
 from acprof.experiment import RunConfig, build_run_command
 from acprof.host.run_state import (
-    RESULT_LOCK_NAME,
-    RunStateError,
+    check_result_directory_idle,
     recovery_phase,
     run_options,
     validate_resume,
@@ -39,17 +38,7 @@ class RecoveryReview:
 
 
 def _check_writer(layout: ArtifactLayout) -> None:
-    import fcntl
-
-    try:
-        stream = layout.path(RESULT_LOCK_NAME).open("rb")
-    except FileNotFoundError:
-        return
-    with stream:
-        try:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RunStateError(message("原实验仍有进程写入，请等待其退出后再恢复。")) from exc
+    check_result_directory_idle(layout.root)
 
 
 def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executable: Path,

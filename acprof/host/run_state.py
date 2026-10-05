@@ -35,6 +35,34 @@ class RunStateError(RuntimeError):
     pass
 
 
+def _validate_lock_descriptor(descriptor: int, *, label: str) -> None:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+        raise OSError(f"{label} lock is not a regular file owned only by this user")
+
+
+def check_result_directory_idle(directory: str | Path) -> None:
+    """Fail closed when an existing result-directory lock is active or malformed."""
+    import fcntl
+
+    path = ArtifactLayout.discover(directory).path(RESULT_LOCK_NAME)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RunStateError(f"无法检查结果目录锁；锁文件不可用：{path} ({exc})") from exc
+    try:
+        _validate_lock_descriptor(descriptor, label="result")
+        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise RunStateError(message("原实验仍有进程写入，请等待其退出后再恢复。")) from exc
+    except OSError as exc:
+        raise RunStateError(f"无法检查结果目录锁；锁文件不可用：{path} ({exc})") from exc
+    finally:
+        os.close(descriptor)
+
+
 def _finite_json_number(raw: str) -> float:
     value = float(raw)
     if not math.isfinite(value):
@@ -228,9 +256,7 @@ class ResultDirectoryLock:
                 0o600,
             )
             self.stream = os.fdopen(descriptor, "a+")
-            info = os.fstat(self.stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
-                raise OSError("result lock is not a regular file owned only by this user")
+            _validate_lock_descriptor(self.stream.fileno(), label="result")
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             self.__exit__()
@@ -258,9 +284,7 @@ class MeasurementLock(ResultDirectoryLock):
         try:
             descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             self.stream = os.fdopen(descriptor, "a+")
-            info = os.fstat(self.stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
-                raise OSError("measurement lock is not a regular file owned by this user")
+            _validate_lock_descriptor(self.stream.fileno(), label="measurement")
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
             self.__exit__()
