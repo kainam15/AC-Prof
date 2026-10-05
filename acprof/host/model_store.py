@@ -544,7 +544,9 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
     for path in chain((root / "hf").glob("models--*/blobs/*"),
                       (root / "modelscope").glob("models--*/snapshots/*/**/*")):
         _check_cancelled(cancel)
-        if path.is_file() and not path.is_symlink() and not path.name.endswith((".lock", ".incomplete")):
+        # Production GC scans run under store_lock, shared with prepare_model, so any
+        # Hugging Face .incomplete blob visible here is residue from an interrupted download.
+        if path.is_file() and not path.is_symlink() and not path.name.endswith(".lock"):
             blobs[path.resolve()] = (path, path.stat().st_size)
     unused = {blob for blob in blobs if not references[blob]}
     reclaimed = sum(blobs[blob][1] for blob in unused)

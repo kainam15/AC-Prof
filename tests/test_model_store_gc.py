@@ -110,6 +110,18 @@ class TestModelStoreGc:
         assert (shared.exists())
         assert not (old.exists())
 
+    def test_prune_reclaims_abandoned_hf_incomplete_blobs(self):
+        partial = self.blob('deadbeef.12345678.incomplete', 37)
+        lock_file = self.blob('deadbeef.lock', 11)
+        preview = model_store.prune_store(root=self.root)
+        assert preview == {'entries': [], 'reclaimable_bytes': 37}
+        assert partial.exists()
+        assert lock_file.exists()
+        applied = model_store.prune_store(root=self.root, apply=True)
+        assert applied == preview
+        assert not partial.exists()
+        assert lock_file.exists()
+
     def test_waiting_for_another_process_lock_is_cancelled_before_mutation(self):
         blob = self.blob('pending', 100)
         key = self.entry(1, [blob])
