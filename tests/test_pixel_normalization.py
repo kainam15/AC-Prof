@@ -294,3 +294,25 @@ class TestPixelNormalization:
         assert ({field: rows[0][field] for field in fields}) == (original)
         assert (rows[0]["output_pixels_per_request"]) == ("nan")
         assert (rows[1]["status"]) == ("error")
+
+    def test_partial_case_write_failure_preserves_existing_measurements(self):
+        fields = list(CSV_FIELDS)
+        original = dict.fromkeys(fields, "nan")
+        original.update(input_scale="128", repeat_idx="0", warmup="0", status="ok", error="")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "partial.csv"
+            with path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                writer.writerow(original)
+            before = path.read_bytes()
+
+            with patch("csv.DictWriter.writerows", side_effect=OSError("injected disk failure")):
+                with pytest.raises(OSError, match="injected disk failure"):
+                    _write_case_error_csv(
+                        task_info=SimpleNamespace(task_family="diffusion"), out_csv=str(path),
+                        cpu=1, mem=4, gpu="off", warmup=0, repeat=1, repeat_in_window=1,
+                        input_scales="128,256", error="request failed", preserve_existing=True)
+
+            assert path.read_bytes() == before
+            assert list(path.parent.glob(".partial.csv.*.tmp")) == []

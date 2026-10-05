@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import atomic_write
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -793,10 +794,12 @@ def _write_case_error_csv(
         )
     rows = [*existing_rows, *missing_rows]
 
-    with open(out_csv, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
+    def write_error_rows(stream) -> None:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+
+    atomic_write(out_csv, write_error_rows)
 
     preserved_success_rows = sum(
         not _row_has_error_status(row)
