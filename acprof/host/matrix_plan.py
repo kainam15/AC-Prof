@@ -7,7 +7,7 @@ import math
 from itertools import product
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 
 MATRIX_PLAN_NAME = "matrix_plan.json"
 ALGORITHM_VERSION = "sha256-sort-v1"
@@ -66,7 +66,7 @@ def build_matrix_plan(identity: dict, prefixes: dict) -> dict:
 
 
 def load_matrix_plan(path: str | Path, identity: dict) -> dict:
-    plan = json.loads(Path(path).read_text())
+    plan = read_json_object(path, label="matrix plan")
     if plan.get("schema_version") != 1 or plan.get("algorithm_version") != ALGORITHM_VERSION:
         raise ValueError("unsupported matrix plan schema/algorithm; start a new experiment")
     if plan.get("identity") != identity:

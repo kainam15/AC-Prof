@@ -108,6 +108,32 @@ def test_automatic_resume_preserves_historical_decision_without_resolving(
     assert state_path.read_bytes() == original
 
 
+@pytest.mark.parametrize("payload", [
+    '{"schema_version": 1, "extra": NaN}',
+    '{"schema_version": 1, "extra": 1e999}',
+])
+def test_matrix_plan_rejects_non_finite_json_before_resume(tmp_path, historical_task, payload):
+    path = tmp_path / "matrix_plan.json"
+    path.write_text(payload)
+    task = TaskInfo(**historical_task)
+    image = ImageInfo(IMAGE_ID)
+    identity = matrix_identity(task, image, [1], [4], ["off"], [16.0],
+                               order="seeded", seed=37, prune=False)
+    with pytest.raises(ValueError, match="invalid matrix plan JSON"):
+        freeze_matrix_plan(path, identity, {})
+
+
+def test_matrix_plan_rejects_oversized_json_before_resume(tmp_path, historical_task):
+    path = tmp_path / "matrix_plan.json"
+    path.write_text('{"schema_version":1,"padding":"' + ("x" * (4 * 1024 * 1024)) + '"}')
+    task = TaskInfo(**historical_task)
+    image = ImageInfo(IMAGE_ID)
+    identity = matrix_identity(task, image, [1], [4], ["off"], [16.0],
+                               order="seeded", seed=37, prune=False)
+    with pytest.raises(ValueError, match="matrix plan exceeds the 4 MiB read limit"):
+        freeze_matrix_plan(path, identity, {})
+
+
 def test_historical_matrix_is_reused_for_hf_and_rejects_modelscope(
         tmp_path, monkeypatch, historical_task):
     # Golden v1 plan generated before source support; hashes and order are fixed.
