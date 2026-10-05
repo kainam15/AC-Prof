@@ -10,11 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import Any, TextIO, get_type_hints
 
+from acprof.artifacts import atomic_write
 from acprof.experiment import RunConfig
 from acprof.messages import message
 from acprof.tui.i18n import UI_LANGUAGES, error_message
@@ -192,15 +192,8 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
     }
     serialized = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(serialized)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, destination)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+
+    def write(stream: TextIO) -> None:
+        stream.write(serialized)
+
+    atomic_write(destination, write, default_mode=0o600)

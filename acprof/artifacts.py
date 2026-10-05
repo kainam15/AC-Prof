@@ -77,10 +77,15 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
     return {**payload, **recorded_identity(payload)}
 
 
-def atomic_write(path: str | Path, write: Callable[[TextIO], None]) -> None:
+def atomic_write(
+    path: str | Path,
+    write: Callable[[TextIO], None],
+    *,
+    default_mode: int = 0o644,
+) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else 0o644
+    mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else default_mode
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",

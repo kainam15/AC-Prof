@@ -1,4 +1,5 @@
 import os
+import stat
 import tempfile
 from dataclasses import replace
 from functools import partial
@@ -255,6 +256,22 @@ class TestTuiLayoutSettings:
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert (warning) == ("")
             assert (saved.run_defaults.gpus) == ("on,off")
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_save_settings_preserves_mode_and_syncs_directory(self):
+        self.settings_path.write_text('{"version": 4}\n', encoding="utf-8")
+        self.settings_path.chmod(0o640)
+
+        with patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
+            save_settings(
+                self.settings_path,
+                TuiSettings(last_model="demo/model"),
+                PROJECT_DIR,
+            )
+
+        assert stat.S_IMODE(self.settings_path.stat().st_mode) == 0o640
+        assert fsync.call_count >= 2
+        assert list(self.settings_path.parent.glob(f".{self.settings_path.name}.*.tmp")) == []
 
     async def test_ui_preferences_apply_save_and_restore_after_restart(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
