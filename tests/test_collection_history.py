@@ -35,6 +35,17 @@ def test_append_validates_field_and_keeps_native_json_types() -> None:
     with pytest.raises(ValueError):
         append_collection_record(updated, "unknown_history", record)
 
+def test_writer_rejects_nonfinite_provenance_numbers() -> None:
+    payload = empty_collection_history()
+    payload["quality_retry_history"].append({"retry_rows": float("nan")})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "collection_history.json"
+        with pytest.raises(ValueError, match="JSON compliant"):
+            write_collection_history_json(payload, path)
+        assert not path.exists()
+
+
 def test_atomic_writer_emits_valid_json_without_temporary_files() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "collection_history.json"
