@@ -100,9 +100,10 @@ def _resolve_ncu_metrics(
     ncu_bin: str,
     *,
     container_base_cmd: Optional[Sequence[str]] = None,
+    include_host: bool = True,
 ) -> Tuple[List[str], str]:
     query_errors = []
-    command_prefixes: List[Sequence[str]] = [()]
+    command_prefixes: List[Sequence[str]] = [()] if include_host else []
     if container_base_cmd:
         command_prefixes.append(container_base_cmd)
 
@@ -376,8 +377,11 @@ def _resume_ncu_for_entry(
     ncu_metrics: Sequence[str],
     task_info: TaskInfo,
     image_tag: str,
-    base_cmd: Sequence[str],
+    cpu: int,
+    mem: int,
+    payload_file: str,
     profile_root: str,
+    tool_mount_roots: Sequence[str],
     entry: Dict[str, Any],
     repeat: int,
 ) -> Optional[Dict[str, Any]]:
@@ -456,12 +460,22 @@ def _resume_ncu_for_entry(
             f"[compute][ncu][resume] scale={scale_label}: "
             f"exporting existing report {host_report}"
         )
-        exported, detail = _export_ncu_report(
-            ncu_bin=ncu_bin,
-            base_cmd=base_cmd,
-            report_base=report_base,
-            host_csv=host_csv,
-        )
+        with profiler_container_command(
+            task_info=task_info,
+            image_tag=image_tag,
+            cpu=cpu,
+            mem=mem,
+            use_gpu=True,
+            payload_file=payload_file,
+            profile_root=profile_root,
+            tool_mount_roots=tool_mount_roots,
+        ) as base_cmd:
+            exported, detail = _export_ncu_report(
+                ncu_bin=ncu_bin,
+                base_cmd=base_cmd,
+                report_base=report_base,
+                host_csv=host_csv,
+            )
         if exported:
             resumed = _ncu_entry_from_csv(
                 entry=entry,
@@ -511,16 +525,6 @@ def _run_ncu_for_entry(
         profile_root,
         float(entry["input_scale"]),
     )
-    base_cmd = profiler_container_command(
-        task_info=task_info,
-        image_tag=image_tag,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=True,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=tool_mount_roots,
-    )
     collect_cmd = [
         ncu_bin,
         "--target-processes", "all",
@@ -533,19 +537,39 @@ def _run_ncu_for_entry(
         "-o", report_base,
         *profile_runner_args(entry, repeat, "gpu"),
     ]
-    result = run_command([*base_cmd, *collect_cmd], check=False)
+    with profiler_container_command(
+        task_info=task_info,
+        image_tag=image_tag,
+        cpu=cpu,
+        mem=mem,
+        use_gpu=True,
+        payload_file=payload_file,
+        profile_root=profile_root,
+        tool_mount_roots=tool_mount_roots,
+    ) as base_cmd:
+        result = run_command([*base_cmd, *collect_cmd], check=False)
     if result.returncode != 0:
         return _ncu_error_entries(
             [entry],
             f"ncu_failed:{result.stderr.strip() or result.stdout.strip()}",
         )[0]
 
-    exported, detail = _export_ncu_report(
-        ncu_bin=ncu_bin,
-        base_cmd=base_cmd,
-        report_base=report_base,
-        host_csv=host_csv,
-    )
+    with profiler_container_command(
+        task_info=task_info,
+        image_tag=image_tag,
+        cpu=cpu,
+        mem=mem,
+        use_gpu=True,
+        payload_file=payload_file,
+        profile_root=profile_root,
+        tool_mount_roots=tool_mount_roots,
+    ) as base_cmd:
+        exported, detail = _export_ncu_report(
+            ncu_bin=ncu_bin,
+            base_cmd=base_cmd,
+            report_base=report_base,
+            host_csv=host_csv,
+        )
     if not exported:
         error_entry = _ncu_error_entries(
             [entry],
@@ -584,20 +608,23 @@ def _profile_gpu_entries(
             "entries": _ncu_error_entries(entries, "ncu_not_found"),
         }
     mount_roots = tool_mount_roots(ncu_bin, ncu_root)
-    metric_query_base_cmd = profiler_container_command(
-        task_info=task_info,
-        image_tag=image_tag,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=True,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=mount_roots,
-    )
-    ncu_metrics, metric_error = _resolve_ncu_metrics(
-        ncu_bin,
-        container_base_cmd=metric_query_base_cmd,
-    )
+    ncu_metrics, metric_error = _resolve_ncu_metrics(ncu_bin)
+    if metric_error:
+        with profiler_container_command(
+            task_info=task_info,
+            image_tag=image_tag,
+            cpu=cpu,
+            mem=mem,
+            use_gpu=True,
+            payload_file=payload_file,
+            profile_root=profile_root,
+            tool_mount_roots=mount_roots,
+        ) as metric_query_base_cmd:
+            ncu_metrics, metric_error = _resolve_ncu_metrics(
+                ncu_bin,
+                container_base_cmd=metric_query_base_cmd,
+                include_host=False,
+            )
     if metric_error:
         return {
             "tool": NCU_TOOL,
@@ -616,8 +643,11 @@ def _profile_gpu_entries(
                     ncu_metrics=collection_metrics,
                     task_info=task_info,
                     image_tag=image_tag,
-                    base_cmd=metric_query_base_cmd,
+                    cpu=cpu,
+                    mem=mem,
+                    payload_file=payload_file,
                     profile_root=profile_root,
+                    tool_mount_roots=mount_roots,
                     entry=entry,
                     repeat=repeat,
                 )

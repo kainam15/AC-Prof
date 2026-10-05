@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Sequence
+import subprocess
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Sequence
 
 from acprof.artifacts import atomic_write, read_input_scale_plan
 
@@ -79,6 +81,26 @@ def load_input_scale_plan_entries(
     return entries
 
 
+class _ProfilerMountScope:
+    def __init__(self, mount: Any):
+        self._mount = mount
+
+    def __enter__(self):
+        return self._mount
+
+    def __exit__(self, exc_type, _exc, _tb):
+        if exc_type is not None and issubclass(
+            exc_type, (subprocess.TimeoutExpired, KeyboardInterrupt)
+        ):
+            from acprof.host.model_store import retain_mount_for_cleanup_debt
+
+            retain_mount_for_cleanup_debt(self._mount)
+        else:
+            self._mount.close()
+        return False
+
+
+@contextmanager
 def profiler_container_command(
     *,
     task_info: TaskInfo,
@@ -89,8 +111,8 @@ def profiler_container_command(
     payload_file: str,
     profile_root: str,
     tool_mount_roots: Sequence[str],
-) -> List[str]:
-    from acprof.host.model_store import mount_args
+) -> Iterator[List[str]]:
+    from acprof.host.model_store import acquire_mount
     from acprof.installation import resource_root
     package_root = str(resource_root() / "acprof")
     cmd = [
@@ -106,7 +128,6 @@ def profiler_container_command(
         "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
         "-e", f"USE_GPU={1 if use_gpu else 0}",
         *hf_offline_docker_env_args(),
-        *mount_args({"model_store": getattr(task_info, "model_store", {})}),
         "-e", "HOME=/tmp",
         "-e", f"OMP_NUM_THREADS={max(1, int(cpu))}",
         "-e", f"MKL_NUM_THREADS={max(1, int(cpu))}",
@@ -129,8 +150,14 @@ def profiler_container_command(
             "--cap-add=SYS_PTRACE",
             "--security-opt=seccomp=unconfined",
         ])
+    mount_index = cmd.index("HOME=/tmp") - 1
+    model_store_mount = acquire_mount({
+        "model_store": getattr(task_info, "model_store", {}),
+    })
+    cmd[mount_index:mount_index] = model_store_mount.args
     cmd.append(image_tag)
-    return cmd
+    with _ProfilerMountScope(model_store_mount):
+        yield cmd
 
 
 def profile_runner_args(entry: Dict[str, Any], repeat: int, mode: str) -> List[str]:

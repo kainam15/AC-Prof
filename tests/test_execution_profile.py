@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from contextlib import nullcontext
 from functools import partial
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -774,7 +775,7 @@ heap_tree=peak
 
             with patch(
                     "acprof.host.profilers.nsys.profiler_container_command",
-                return_value=["docker", "run", "acprof-test:latest"],
+                return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
                 "acprof.host.profilers.nsys.run_command",
                 side_effect=fake_run,
@@ -836,7 +837,7 @@ heap_tree=peak
 
             with patch(
                     "acprof.host.profilers.nsys.profiler_container_command",
-                return_value=["docker", "run", "acprof-test:latest"],
+                return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
                 "acprof.host.profilers.nsys.run_command",
                 side_effect=fake_run,

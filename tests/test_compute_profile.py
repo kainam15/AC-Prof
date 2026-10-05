@@ -1,10 +1,12 @@
 import csv
 import json
 import os
+import subprocess
 import tempfile
+from contextlib import nullcontext
 from functools import partial
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -133,7 +135,7 @@ class TestComputeProfile:
             with open(payload_file, "w", encoding="utf-8") as f:
                 f.write("{}")
 
-            cmd = profiler_support.profiler_container_command(
+            with profiler_support.profiler_container_command(
                 task_info=task_info,
                 image_tag="acprof-test:latest",
                 cpu=1,
@@ -142,7 +144,8 @@ class TestComputeProfile:
                 payload_file=payload_file,
                 profile_root=profile_root,
                 tool_mount_roots=(),
-            )
+            ) as cmd:
+                cmd = list(cmd)
 
         assert (f"{os.path.abspath(payload_file)}:/payloads/input_scale_plan.json:ro") in (cmd)
         package_root = os.path.join(
@@ -154,6 +157,67 @@ class TestComputeProfile:
         assert ("MODEL_LOCAL_PATH=/models/model-snapshot") in (cmd)
         assert ("HF_TOKEN") not in (cmd)
         assert ("HUGGING_FACE_HUB_TOKEN") not in (cmd)
+
+    def test_profiler_container_command_scopes_model_store_mount(self) -> None:
+        task_info = SimpleNamespace(
+            model_id="fixture",
+            model_revision="main",
+            task_family="structured",
+            pipeline_tag="tabular-regression",
+            runtime_backend="onnxruntime",
+            runtime_profile_id="onnxruntime-cpu",
+            model_store={"entry_id": "fixture"},
+        )
+        mount = SimpleNamespace(args=["--mount", "fixture"], close=Mock())
+
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+            "acprof.host.model_store.retain_mount_for_cleanup_debt"
+        ) as retain:
+            with profiler_support.profiler_container_command(
+                task_info=task_info,
+                image_tag="acprof-test:latest",
+                cpu=1,
+                mem=2,
+                use_gpu=False,
+                payload_file="/tmp/payload.json",
+                profile_root="/tmp/profiles",
+                tool_mount_roots=(),
+            ) as command:
+                assert ("--mount") in (command)
+                mount.close.assert_not_called()
+
+        mount.close.assert_called_once_with()
+        retain.assert_not_called()
+
+    def test_profiler_container_command_retains_mount_if_execution_is_interrupted(self) -> None:
+        task_info = SimpleNamespace(
+            model_id="fixture",
+            model_revision="main",
+            task_family="structured",
+            pipeline_tag="tabular-regression",
+            runtime_backend="onnxruntime",
+            runtime_profile_id="onnxruntime-cpu",
+            model_store={"entry_id": "fixture"},
+        )
+        mount = SimpleNamespace(args=[], close=Mock())
+
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+            "acprof.host.model_store.retain_mount_for_cleanup_debt"
+        ) as retain, pytest.raises(subprocess.TimeoutExpired):
+            with profiler_support.profiler_container_command(
+                task_info=task_info,
+                image_tag="acprof-test:latest",
+                cpu=1,
+                mem=2,
+                use_gpu=False,
+                payload_file="/tmp/payload.json",
+                profile_root="/tmp/profiles",
+                tool_mount_roots=(),
+            ):
+                raise subprocess.TimeoutExpired(["docker", "run"], 1)
+
+        retain.assert_called_once_with(mount)
+        mount.close.assert_not_called()
 
     def test_parse_advisor_report_sums_self_gflop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -371,7 +435,7 @@ class TestComputeProfile:
 
         with tempfile.TemporaryDirectory() as tmp, patch(
                 "acprof.host.profilers.torch.profiler_container_command",
-            return_value=["docker"],
+            return_value=nullcontext(["docker"]),
         ), patch(
             "acprof.host.profilers.torch.run_command",
             return_value=SimpleNamespace(
@@ -433,7 +497,7 @@ class TestComputeProfile:
             os.makedirs(profile_root)
             with patch(
                     "acprof.host.profilers.ncu.profiler_container_command",
-                return_value=["docker"],
+                return_value=nullcontext(["docker"]),
             ), patch(
                 "acprof.host.profilers.ncu._ncu_collect_filter_args",
                 return_value=[],
@@ -494,7 +558,7 @@ class TestComputeProfile:
             os.makedirs(profile_root)
             with patch(
                     "acprof.host.profilers.ncu.profiler_container_command",
-                return_value=["docker"],
+                return_value=nullcontext(["docker"]),
             ), patch(
                 "acprof.host.profilers.ncu._ncu_collect_filter_args",
                 return_value=[],
@@ -657,8 +721,11 @@ class TestComputeProfile:
         )
         query = {}
 
-        def fake_resolve(ncu_bin, *, container_base_cmd=None):
+        def fake_resolve(ncu_bin, *, container_base_cmd=None, include_host=True):
             query["ncu_bin"] = ncu_bin
+            if container_base_cmd is None:
+                return [], "host query unavailable"
+            assert not include_host
             query["container_base_cmd"] = container_base_cmd
             return list(compute_parsers.NCU_SASS_FLOP_WEIGHTS), ""
 
@@ -838,8 +905,11 @@ class TestComputeProfile:
                 ncu_metrics=["metric", compute_parsers.NCU_DURATION_METRIC],
                 task_info=task_info,
                 image_tag="acprof-test:latest",
-                base_cmd=["docker"],
+                cpu=1,
+                mem=4,
+                payload_file=os.path.join(tmp, "payloads.json"),
                 profile_root=profile_root,
+                tool_mount_roots=(),
                 entry={"input_scale": 1.0},
                 repeat=2,
             )

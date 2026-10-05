@@ -295,7 +295,7 @@ def _collect_massif_entry(
     )
     filename = os.path.basename(host_report)
     relative_report = relative_artifact(host_report, output_dir)
-    base_cmd = profiler_container_command(
+    with profiler_container_command(
         task_info=task_info,
         image_tag=derived_image,
         cpu=cpu,
@@ -304,18 +304,18 @@ def _collect_massif_entry(
         payload_file=payload_file,
         profile_root=profile_root,
         tool_mount_roots=(),
-    )
-    base_cmd = execution_thread_environment(base_cmd)
-    command = [
-        *base_cmd,
-        "valgrind",
-        "--tool=massif",
-        "--time-unit=ms",
-        "--stacks=yes",
-        f"--massif-out-file=/profiles/{filename}",
-        *profile_runner_args(dict(entry), repeat, "cpu"),
-    ]
-    result = run_command(command, check=False)
+    ) as base_cmd:
+        base_cmd = execution_thread_environment(base_cmd)
+        command = [
+            *base_cmd,
+            "valgrind",
+            "--tool=massif",
+            "--time-unit=ms",
+            "--stacks=yes",
+            f"--massif-out-file=/profiles/{filename}",
+            *profile_runner_args(dict(entry), repeat, "cpu"),
+        ]
+        result = run_command(command, check=False)
     if result.returncode != 0:
         return error_entry(
             entry,

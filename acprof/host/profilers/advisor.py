@@ -50,16 +50,6 @@ def _run_advisor_for_entry(
     project_dir = f"/profiles/advisor_scale_{scale_label}"
     report_path = f"/profiles/advisor_scale_{scale_label}.csv"
     host_report_path = os.path.join(profile_root, f"advisor_scale_{scale_label}.csv")
-    base_cmd = profiler_container_command(
-        task_info=task_info,
-        image_tag=image_tag,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=False,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=tool_mount_roots,
-    )
     runner_args = profile_runner_args(entry, repeat, "cpu")
     commands = [
         [
@@ -91,7 +81,17 @@ def _run_advisor_for_entry(
         ],
     ]
     for command in commands:
-        result = run_command([*base_cmd, *command], check=False)
+        with profiler_container_command(
+            task_info=task_info,
+            image_tag=image_tag,
+            cpu=cpu,
+            mem=mem,
+            use_gpu=False,
+            payload_file=payload_file,
+            profile_root=profile_root,
+            tool_mount_roots=tool_mount_roots,
+        ) as base_cmd:
+            result = run_command([*base_cmd, *command], check=False)
         if result.returncode != 0:
             return {
                 "input_scale": float(entry["input_scale"]),

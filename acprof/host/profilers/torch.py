@@ -44,7 +44,8 @@ def _run_torch_profiler_for_entry(
     entry: Dict[str, Any],
     repeat: int,
 ) -> Dict[str, Any]:
-    base_cmd = profiler_container_command(
+    runner_mode = "torch_eager_gpu" if use_gpu else "torch_eager_cpu"
+    with profiler_container_command(
         task_info=task_info,
         image_tag=image_tag,
         cpu=cpu,
@@ -53,9 +54,11 @@ def _run_torch_profiler_for_entry(
         payload_file=payload_file,
         profile_root=profile_root,
         tool_mount_roots=(),
-    )
-    runner_mode = "torch_eager_gpu" if use_gpu else "torch_eager_cpu"
-    result = run_command([*base_cmd, *profile_runner_args(entry, repeat, runner_mode)], check=False)
+    ) as base_cmd:
+        result = run_command(
+            [*base_cmd, *profile_runner_args(entry, repeat, runner_mode)],
+            check=False,
+        )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         return _torch_error_entries(

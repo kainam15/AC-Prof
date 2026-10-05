@@ -79,11 +79,16 @@ class TestRuntimeSettings:
                                runtime_profile_id='onnxruntime-cpu')
         environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
         with patch.dict(os.environ, environment, clear=True):
-            command = profiler_container_command(task_info=task, image_tag='fixture', cpu=2, mem=2,
-                                                 use_gpu=False, payload_file='/tmp/plan.json',
-                                                 profile_root='/tmp/profiles', tool_mount_roots=())
-        forwarded = dict(command[i + 1].split('=', 1) for i, part in enumerate(command)
-                         if part == '-e')
+            with profiler_container_command(
+                task_info=task, image_tag='fixture', cpu=2, mem=2, use_gpu=False,
+                payload_file='/tmp/plan.json', profile_root='/tmp/profiles',
+                tool_mount_roots=(),
+            ) as command:
+                forwarded = dict(
+                    command[i + 1].split('=', 1)
+                    for i, part in enumerate(command)
+                    if part == '-e'
+                )
         captured = []
         runtime = SimpleNamespace(wait_for_completion=lambda ctx, output, **kwargs:
                                   captured.append(kwargs['timeout_s']) or output)

@@ -164,38 +164,38 @@ def _collect_nsys_entry(
     relative_report = relative_artifact(host_report, output_dir)
     # A failed importer may have left a huge stream from an earlier attempt.
     _discard_nsys_raw_stream(host_raw_stream)
-    base_cmd = profiler_container_command(
-        task_info=task_info,
-        image_tag=image_tag,
-        cpu=cpu,
-        mem=mem,
-        use_gpu=True,
-        payload_file=payload_file,
-        profile_root=profile_root,
-        tool_mount_roots=(nsys_mount_root,),
-    )
-    base_cmd = execution_thread_environment(base_cmd)
-    base_cmd = docker_env(
-        base_cmd,
-        "NSYS_NVTX_PROFILER_REGISTER_ONLY",
-        "0",
-    )
-    command = [
-        *base_cmd,
-        nsys_bin,
-        "profile",
-        f"--trace={NSYS_TRACE_DOMAINS}",
-        "--capture-range=nvtx",
-        f"--nvtx-capture={NSYS_NVTX_RANGE}",
-        "--capture-range-end=stop",
-        "--sample=none",
-        "--cpuctxsw=none",
-        "--force-overwrite=true",
-        f"--output=/profiles/{stem}",
-        *profile_runner_args(dict(entry), repeat, "gpu"),
-    ]
     try:
-        result = run_command(command, check=False)
+        with profiler_container_command(
+            task_info=task_info,
+            image_tag=image_tag,
+            cpu=cpu,
+            mem=mem,
+            use_gpu=True,
+            payload_file=payload_file,
+            profile_root=profile_root,
+            tool_mount_roots=(nsys_mount_root,),
+        ) as base_cmd:
+            base_cmd = execution_thread_environment(base_cmd)
+            base_cmd = docker_env(
+                base_cmd,
+                "NSYS_NVTX_PROFILER_REGISTER_ONLY",
+                "0",
+            )
+            command = [
+                *base_cmd,
+                nsys_bin,
+                "profile",
+                f"--trace={NSYS_TRACE_DOMAINS}",
+                "--capture-range=nvtx",
+                f"--nvtx-capture={NSYS_NVTX_RANGE}",
+                "--capture-range-end=stop",
+                "--sample=none",
+                "--cpuctxsw=none",
+                "--force-overwrite=true",
+                f"--output=/profiles/{stem}",
+                *profile_runner_args(dict(entry), repeat, "gpu"),
+            ]
+            result = run_command(command, check=False)
     except Exception:
         _discard_nsys_raw_stream(host_raw_stream)
         raise

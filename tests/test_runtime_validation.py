@@ -330,13 +330,13 @@ class TestRuntimeValidation:
             assert not (any(command[1] == 'rm' for command in commands))
 
     def test_managed_profilers_keep_image_adapter_code(self):
-        command = profiler_container_command(
+        with profiler_container_command(
             task_info=self.task(), image_tag='sha256:' + 'b' * 64,
             cpu=1, mem=8, use_gpu=True, payload_file='/tmp/payload.json',
             profile_root='/tmp/profiles', tool_mount_roots=[],
-        )
-        assert not (any('/app/acprof' in item for item in command))
-        assert ('--gpus') in (command)
+        ) as command:
+            assert not (any('/app/acprof' in item for item in command))
+            assert ('--gpus') in (command)
 
     def test_cli_stops_before_matrix_when_runtime_validation_fails(self):
         import sys
