@@ -34,6 +34,20 @@ def test_regression_workflow_exposes_reusable_entrypoint():
     assert ('workflow_call') in (ci['on'])
     assert ({'lint', 'host', 'onnx-cpu', 'runtime'} <= ci['jobs'].keys())
 
+
+def test_wheel_ci_resolves_declared_runtime_dependencies_without_host_lock():
+    ci = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
+    steps = ci['jobs']['wheel']['steps']
+    step = next(item for item in steps if item.get('name') == '验证公开依赖范围可由安装器解析')
+    script = step['run']
+    assert ('acprof-resolved') in (script)
+    assert ('wheel-dist/*.whl') in (script)
+    assert ('uv pip check') in (script)
+    assert ('env -u PYTHONPATH') in (script)
+    assert (' -I -c ') in (script)
+    assert ('--no-deps') not in (script)
+    assert ('requirements/host.lock') not in (script)
+
 @pytest.mark.parametrize('commit,conclusion,expired,present,expected', (('abc', 'success', False, True, 'workflow_passed'), ('other', 'success', False, True, 'not_verified'), ('abc', 'failure', False, True, 'not_verified'), ('abc', 'success', True, True, 'not_verified'), ('abc', 'success', False, False, 'not_verified')))
 def test_hardware_evidence_requires_matching_success_and_retained_artifact(commit, conclusion, expired, present, expected):
     release = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())

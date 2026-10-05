@@ -210,6 +210,7 @@ git diff --check
 主机依赖变更还需用 Python 3.11+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
 已验证 pin 与主机 lock；重新生成方式见[运行兼容](Runtime_Compatibility.md#当前配置)。CI 的 Python 3.12 job
 运行该检查；Python 3.10 job 保留容器锁检查。
+wheel CI 同时验证两层依赖契约：锁定环境先按 `requirements/host.lock` 安装并以 `--no-deps` 核对制品；另起空环境直接安装构建出的 wheel，让解析器按 `pyproject.toml` 的公开版本范围选择当前可用依赖，再执行 `pip check`、隔离 import 与 CLI help。这样锁定版本提供可复现基线，而发行范围的漂移会在发布前暴露，而不是等 PyPI 发布后的 smoke 才发现。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
 
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
