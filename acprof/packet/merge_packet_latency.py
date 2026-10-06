@@ -192,7 +192,7 @@ def _compute_cpu_mips(row: dict, latency_s: float) -> float:
     return float("nan")
 
 
-def _read_sidecar_groups(csv_path: str) -> list[str]:
+def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
     from acprof.artifact_layout import case_sidecar
     sidecar_path = case_sidecar(csv_path, "sniff_groups")
     if not os.path.exists(sidecar_path):
@@ -200,17 +200,36 @@ def _read_sidecar_groups(csv_path: str) -> list[str]:
 
     groups = []
     with open(sidecar_path, "r", encoding="utf-8") as f:
-        for line in f:
+        for line_number, line in enumerate(f, start=1):
             raw = line.strip()
             if not raw:
-                groups.append("")
-                continue
+                raise ValueError(
+                    f"invalid sniff group sidecar record at line {line_number}: blank line"
+                )
             try:
                 payload = json.loads(raw)
-            except json.JSONDecodeError:
-                groups.append("")
-                continue
-            groups.append(str(payload.get(SNIFF_GROUP_FIELD, "") or ""))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"invalid sniff group sidecar record at line {line_number}: malformed JSON"
+                ) from exc
+            if not isinstance(payload, dict) or SNIFF_GROUP_FIELD not in payload:
+                raise ValueError(
+                    f"invalid sniff group sidecar record at line {line_number}: "
+                    f"missing {SNIFF_GROUP_FIELD}"
+                )
+            group_id = payload[SNIFF_GROUP_FIELD]
+            if not isinstance(group_id, str):
+                raise ValueError(
+                    f"invalid sniff group sidecar record at line {line_number}: "
+                    f"{SNIFF_GROUP_FIELD} must be a string"
+                )
+            groups.append(group_id)
+
+    if len(groups) != expected_rows:
+        raise ValueError(
+            "sniff group sidecar row count mismatch: "
+            f"{len(groups)} sidecar rows for {expected_rows} CSV rows"
+        )
     return groups
 
 
@@ -271,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     from acprof.result_csv import require_current_fields
     require_current_fields(fields)
-    sidecar_groups = _read_sidecar_groups(in_csv)
+    sidecar_groups = _read_sidecar_groups(in_csv, len(rows))
 
     for idx, r in enumerate(rows):
         gid = r.get(SNIFF_GROUP_FIELD, "")

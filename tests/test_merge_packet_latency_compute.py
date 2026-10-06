@@ -355,6 +355,56 @@ def test_merges_packet_latency_with_sidecar_when_csv_omits_sniff_group_id() -> N
     assert (rows[0]["model_logical_mflops_packet_torch_profiler_eager"]) == ("400.000000")
 
 
+def test_sidecar_row_count_mismatch_fails_closed(tmp_path) -> None:
+    in_csv = tmp_path / "result.csv"
+    lat_json = tmp_path / "lat.json"
+    out_csv = tmp_path / "result.merged.csv"
+    sidecar = in_csv.with_name(f"{in_csv.name}.sniff_groups.jsonl")
+    row = dict.fromkeys(CSV_FIELDS, "nan")
+    row.update(status="ok", error="")
+
+    with in_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows([row, row])
+    lat_json.write_text(
+        json.dumps({
+            "schema_version": 2,
+            "requests": {"case_seq1_r0:0": {"latency_s": 0.25}},
+        }),
+        encoding="utf-8",
+    )
+    sidecar.write_text(
+        json.dumps({"sniff_group_id": "case_seq1_r0"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="sniff group sidecar row count mismatch"):
+        merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+
+
+def test_malformed_sniff_group_sidecar_fails_closed(tmp_path) -> None:
+    in_csv = tmp_path / "result.csv"
+    lat_json = tmp_path / "lat.json"
+    out_csv = tmp_path / "result.merged.csv"
+    sidecar = in_csv.with_name(f"{in_csv.name}.sniff_groups.jsonl")
+    row = dict.fromkeys(CSV_FIELDS, "nan")
+    row.update(status="ok", error="")
+
+    with in_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerow(row)
+    lat_json.write_text(
+        json.dumps({"schema_version": 2, "requests": {}}),
+        encoding="utf-8",
+    )
+    sidecar.write_text('{"sniff_group_id":', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid sniff group sidecar record"):
+        merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+
+
 def test_write_failure_preserves_existing_packet_merge_output() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         in_csv = os.path.join(tmp, "result.csv")
