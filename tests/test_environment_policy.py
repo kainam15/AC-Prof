@@ -102,6 +102,26 @@ class TestEnvironmentPolicy:
             path.write_text(json.dumps(WSL.metadata()))
             require_result_environment(directory)
 
+    def test_resume_rejects_malformed_or_oversized_provenance(self):
+        from acprof.host.preflight import require_result_environment
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "acprof.host.preflight.detect_environment", return_value=WSL,
+        ):
+            path = Path(directory) / "static_meta.json"
+            path.write_text(
+                json.dumps(WSL.metadata())[:-1] + ', "corrupt_metric": NaN}',
+                encoding="utf-8",
+            )
+            with pytest.raises(ValueError, match="Refusing to mix"):
+                require_result_environment(directory)
+
+            path.write_text(
+                json.dumps({**WSL.metadata(), "padding": "x" * (4 * 1024 * 1024)}),
+                encoding="utf-8",
+            )
+            with pytest.raises(ValueError, match="Refusing to mix"):
+                require_result_environment(directory)
+
     def test_csv_merge_refuses_cross_environment_even_with_disjoint_keys(self):
         from acprof.result_csv import ResultValidationError, merge_result_csvs
         with tempfile.TemporaryDirectory() as directory:

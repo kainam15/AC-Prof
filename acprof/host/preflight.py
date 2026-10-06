@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from acprof.artifacts import read_json_object
 from acprof.capabilities import Capability, CapabilityStatus, capability_from_error
 from acprof.host.command import run_command
 from acprof.platform import collection_policy_error, detect_environment, recorded_identity
@@ -70,7 +71,7 @@ def require_result_environment(output_dir: str) -> None:
     if not meta_path.exists() and not has_rows:
         return
     try:
-        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        payload = read_json_object(meta_path, label="static metadata")
         old = recorded_identity(payload)["comparability_class"]
     except (OSError, ValueError, TypeError, AttributeError):
         old = "unknown"
