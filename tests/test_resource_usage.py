@@ -2,7 +2,7 @@ import math
 import os
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -600,6 +600,32 @@ class TestResourceUsageMonitor:
     def test_dominant_pstate_prefers_higher_performance_on_tie(self) -> None:
         assert (resource_metrics._dominant_pstate(["P2", "p0", "P2", "P0"])) == ("P0")
         assert (resource_metrics._dominant_pstate(["invalid"])) == ("nan")
+
+    def test_stop_rejects_sampling_thread_that_did_not_quiesce(self) -> None:
+        readers = resource_readers._ContainerReaders(cpu=lambda: 0.0)
+        with patch.object(
+            resource_readers,
+            "_resolve_container_metric_readers",
+            return_value=readers,
+        ), patch.object(
+            resource_readers,
+            "_prepare_cpu_frequency_reader",
+            return_value=lambda: (None, None),
+        ):
+            monitor = resource_usage.ResourceUsageMonitor(
+                sample_hz=20.0,
+                container_name="case_container",
+            )
+
+        thread = Mock()
+        thread.is_alive.return_value = True
+        monitor._thread = thread
+        monitor._t_start = 1.0
+
+        with pytest.raises(RuntimeError, match="sampling thread did not stop"):
+            monitor.stop()
+
+        thread.join.assert_called_once_with(timeout=1.0)
 
     def test_unavailable_container_keeps_nan_result_without_raising(self) -> None:
         fake_completed = SimpleNamespace(returncode=1, stdout="", stderr="missing")

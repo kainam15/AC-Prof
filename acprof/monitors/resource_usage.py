@@ -8,6 +8,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically
 
+SAMPLER_STOP_TIMEOUT_S = 1.0
+
 try:
     import pynvml
 except Exception:  # pragma: no cover - exercised by runtime fallback
@@ -196,7 +198,13 @@ class ResourceUsageMonitor:
         window_counters_end = self._read_window_counter_snapshots()
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=SAMPLER_STOP_TIMEOUT_S)
+            if self._thread.is_alive():
+                raise RuntimeError(
+                    "resource sampling thread did not stop within "
+                    f"{SAMPLER_STOP_TIMEOUT_S:.1f}s"
+                )
+            self._thread = None
 
         self._append_sample(self._t_end)
         if self._io_reader is not None:
