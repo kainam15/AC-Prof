@@ -1,11 +1,10 @@
 """Readiness-only OOM evidence; never invokes a client, profiler or CSV writer."""
 from __future__ import annotations
 
-import json
 import time
 from datetime import datetime, timezone
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host import container_state, docker_runtime, runtime_identity
 from acprof.host.container_lifecycle import ContainerCleanupError
 
@@ -67,7 +66,7 @@ def run_startup_probes(directory, identity, task, image, *, request_timeout_seco
     from acprof.artifact_layout import ArtifactLayout
     path = ArtifactLayout.discover(directory).path(PROBE_NAME)
     if path.exists():
-        report = json.loads(path.read_text())
+        report = read_json_object(path, label="startup probe report")
         if report.get("schema_version") != 2 or report.get("identity") != identity:
             raise ValueError("startup probe identity/schema changed; use a new output directory")
     else:

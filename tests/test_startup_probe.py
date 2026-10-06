@@ -112,3 +112,25 @@ class TestStartupProbe:
                 assert (start.call_args.kwargs['mem']) == (4)
                 start.assert_called_once()
                 assert (startup_probe.startup_oom_prefixes(report)) == ({'off': [2]})
+
+    def test_resume_rejects_nonfinite_probe_report_before_starting_container(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / startup_probe.PROBE_NAME
+            path.write_text(json.dumps({
+                "schema_version": 2,
+                "identity": self.identity,
+                "status": "running",
+                "attempts": [],
+                "corrupt_metric": float("nan"),
+            }))
+            with patch(
+                "acprof.host.docker_runtime.start_container_session",
+                side_effect=AssertionError("resume evidence must fail before probing"),
+            ), pytest.raises(ValueError, match="invalid startup probe report JSON"):
+                startup_probe.run_startup_probes(
+                    tmp,
+                    self.identity,
+                    self.task,
+                    self.image,
+                    request_timeout_seconds=45,
+                )
