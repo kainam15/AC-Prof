@@ -631,8 +631,15 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
                 raise _packet_latency_error(
                     "pcap parser did not find matching request latency records"
                 )
-            with open(lat_json, "w", encoding="utf-8") as lf:
-                json.dump(latency_payload, lf, ensure_ascii=True, indent=2)
+            atomic_write(
+                lat_json,
+                lambda stream: json.dump(
+                    latency_payload,
+                    stream,
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+            )
 
             if not os.path.exists(out_csv):
                 raise _packet_latency_error(

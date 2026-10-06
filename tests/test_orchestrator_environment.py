@@ -2120,6 +2120,65 @@ class TestDetectEnvironment:
         assert ("tshark") in (message)
         assert ("sudo setcap") in (message)
 
+    def test_finalize_case_preserves_packet_latency_sidecar_on_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pcap_file = os.path.join(tmp, "case.pcap")
+            lat_json = os.path.join(tmp, "packet_latency.json")
+            out_csv = os.path.join(tmp, "result.csv")
+            with open(pcap_file, "wb") as stream:
+                stream.write(b"pcap")
+            with open(lat_json, "wb") as stream:
+                stream.write(b'{"previous": true}\n')
+            with open(lat_json, "rb") as stream:
+                original = stream.read()
+            payload = {
+                "schema_version": 2,
+                "requests": {"window:0": {"latency_s": 0.25}},
+            }
+            process = SimpleNamespace(
+                terminate=lambda: None,
+                wait=lambda timeout=None: 0,
+            )
+            runtime = packet_capture.PacketLatencyRuntime(
+                mode="local",
+                tcpdump_cmd=["tcpdump"],
+                parse_cmd=["parse-pcap"],
+            )
+
+            def fail_after_partial_write(value, stream, **kwargs):
+                del value, kwargs
+                stream.write('{"partial":')
+                raise OSError("disk full")
+
+            with patch("acprof.host.orchestrator.time.sleep"), patch(
+                "acprof.host.orchestrator.host_command.run_command",
+                return_value=SimpleNamespace(
+                    returncode=0,
+                    stdout=json.dumps(payload),
+                    stderr="",
+                ),
+            ), patch(
+                "acprof.host.orchestrator.json.dump",
+                side_effect=fail_after_partial_write,
+            ):
+                with pytest.raises(OSError, match="disk full"):
+                    orchestrator._finalize_case(
+                        process,
+                        runtime,
+                        False,
+                        0,
+                        "",
+                        pcap_file,
+                        lat_json,
+                        out_csv,
+                        True,
+                        "basic",
+                        "off",
+                    )
+
+            with open(lat_json, "rb") as stream:
+                assert stream.read() == original
+
     def test_assert_packet_latency_csv_complete_rejects_nan_latency(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = os.path.join(tmp, "result_case.csv")
