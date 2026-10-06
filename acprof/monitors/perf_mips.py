@@ -464,7 +464,10 @@ class PerfMIPSMonitor:
             stdout, stderr = self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
         except subprocess.TimeoutExpired as exc:
             self._proc.kill()
-            self._proc.communicate()
+            try:
+                self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
+            except subprocess.TimeoutExpired as kill_exc:
+                raise MIPSProfilingError("perf could not be reaped after kill") from kill_exc
             raise MIPSProfilingError("perf did not stop after workload window") from exc
 
         output = (stderr or "") + "\n" + (stdout or "")

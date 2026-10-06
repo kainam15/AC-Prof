@@ -263,6 +263,40 @@ class TestPerfMIPS:
         assert (result.instructions_total) == (500_000)
         assert (result.perf_elapsed_s) == (0.25) or round(abs((result.perf_elapsed_s) - (0.25)), 7) == 0
 
+    def test_stop_keeps_reap_after_kill_bounded(self) -> None:
+        class HungProcess:
+            returncode = None
+
+            def __init__(self):
+                self.communicate_timeouts = []
+                self.killed = False
+
+            def poll(self):
+                return None
+
+            def send_signal(self, _sig):
+                pass
+
+            def communicate(self, timeout=None):
+                self.communicate_timeouts.append(timeout)
+                raise perf_mips.subprocess.TimeoutExpired("perf", timeout)
+
+            def kill(self):
+                self.killed = True
+
+        process = HungProcess()
+        monitor = perf_mips.PerfMIPSMonitor("case_container", command_prefix=["perf"])
+        monitor._proc = process
+
+        with pytest.raises(perf_mips.MIPSProfilingError, match="reaped after kill"):
+            monitor.stop(repeat_in_window=1, latency_app_s=0.1)
+
+        assert process.killed
+        assert process.communicate_timeouts == [
+            perf_mips.PERF_STOP_TIMEOUT_S,
+            perf_mips.PERF_STOP_TIMEOUT_S,
+        ]
+
     @pytest.mark.parametrize('prefix', (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']))
     def test_monitor_rejects_legacy_sudo_command_prefix(self, prefix):
         with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
