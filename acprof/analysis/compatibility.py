@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 
+from acprof.artifacts import atomic_write
 from acprof.failures import Failure, compatibility_status
 from acprof.quality import combine_quality, read_quality, summarize_quality
 
@@ -78,8 +79,10 @@ def write_compatibility_report(root: Path, rows: list[dict]):
             return str(value).replace("|", "\\|").replace("\n", " ")
         detail = failure.get("detail", "") or ", ".join(check["code"] for check in checks)
         lines.append("| " + " | ".join(cell(value) for value in (row["model_id"], values["status"], values["reason_code"], detail)) + " |")
-    (root / "models.csv").write_text(stream.getvalue(), encoding="utf-8")
-    (root / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    csv_text = stream.getvalue()
+    report_text = "\n".join(lines) + "\n"
+    atomic_write(root / "models.csv", lambda output: output.write(csv_text))
+    atomic_write(root / "REPORT.md", lambda output: output.write(report_text))
 
 
 def report_results(sources: list[Path], output: Path) -> dict:

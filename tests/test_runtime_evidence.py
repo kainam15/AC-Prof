@@ -60,6 +60,17 @@ def test_all_consumers_preserve_the_same_reason_code():
         tracker.feed(line)
     assert (tracker.snapshot.failure) == (failure.to_dict())
 
+def test_compatibility_report_publication_is_durable(tmp_path):
+    from acprof.analysis.compatibility import write_compatibility_report
+
+    with patch("os.fsync") as fsync:
+        write_compatibility_report(tmp_path, [{"model_id": "fixture/model"}])
+
+    assert fsync.call_count >= 4
+    assert (tmp_path / "models.csv").read_text(encoding="utf-8").startswith("model_id,")
+    assert (tmp_path / "REPORT.md").read_text(encoding="utf-8").startswith("# Compatibility report\n")
+
+
 @pytest.mark.parametrize('plan', ({'total_selected_bytes': 150}, {'selected_bytes': None}))
 def test_budget_uses_selected_files_and_never_claims_measured_oom(plan):
     from acprof.analysis.compatibility import result_status
