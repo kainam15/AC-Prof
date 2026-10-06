@@ -14,7 +14,7 @@ from acprof.analysis.audit import audit_result
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, comparison_profile
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import file_sha256
+from acprof.artifacts import file_sha256, read_json_object
 from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
@@ -54,10 +54,7 @@ def _digest(value):
 def _json(path):
     if not path.exists():
         return {}
-    value = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=lambda _: None)
-    if not isinstance(value, dict):
-        raise ValueError(f"JSON must be an object: {path}")
-    return value
+    return read_json_object(path, label="analysis metadata")
 
 
 def _identity(row, meta, run_id, batch):

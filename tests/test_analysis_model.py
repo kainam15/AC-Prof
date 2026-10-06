@@ -144,6 +144,29 @@ class TestAnalysisModel:
         with pytest.raises(ValueError):
             load_analysis([path])
 
+    def test_nonfinite_run_state_is_rejected_instead_of_becoming_legacy(self):
+        from acprof.analysis.model import load_analysis
+
+        path = self.source([self.row()])
+        (path.parent / "run_state.json").write_text(
+            '{"run_id": NaN, "status": "complete"}', encoding="utf-8"
+        )
+
+        with pytest.raises(ValueError, match="non-finite|invalid .*JSON"):
+            load_analysis([path])
+
+    def test_analysis_metadata_read_is_bounded(self):
+        from acprof.analysis.model import load_analysis
+
+        path = self.source([self.row()])
+        (path.parent / "static_meta.json").write_text(json.dumps({
+            "model_name": "example/model",
+            "padding": "x" * (4 * 1024 * 1024),
+        }), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="4 MiB"):
+            load_analysis([path])
+
     def test_missing_energy_is_not_a_partial_total_and_zero_remains_a_value(self):
         from acprof.analysis.model import load_analysis
         path = self.source([self.row(cpu_energy_total_j="0", qps="2", cpu_ipc="0"),
