@@ -835,6 +835,51 @@ class TestDetectEnvironment:
             })
         assert (enriched.static_macs) is None
 
+    def test_compute_plan_rejects_nonfinite_metadata(self) -> None:
+        meta = static_metadata.StaticMeta(
+            model_name="model", model_revision="main", task_family="nlp",
+            pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+            image_tag="image", batch_size=1, input_scale_type="seq_length",
+            run_command="acprof run", model_download_url="https://example.invalid/model",
+            gpu="GPU", gpu_mem_total_bytes=123, model_cache_bytes=456,
+            docker_image_bytes=789, environment="ubuntu24.04",
+            cpu_power_source="rapl", vcpu_power_method="rapl_cgroup_cpu_share",
+            cpu_governor="performance", cpu_boost="off",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "compute_profile_plan.json")
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write('{"static_metadata":{"batch_size":NaN}}')
+            with patch("sys.stdout", new_callable=StringIO) as output:
+                enriched = static_metadata.enrich_static_meta_from_compute_plan(meta, path)
+
+        assert enriched.batch_size == 1
+        assert "invalid compute profile plan JSON" in output.getvalue()
+
+    def test_execution_plan_rejects_oversized_metadata(self) -> None:
+        meta = static_metadata.StaticMeta(
+            model_name="model", model_revision="main", task_family="nlp",
+            pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+            image_tag="image", batch_size=1, input_scale_type="seq_length",
+            run_command="acprof run", model_download_url="https://example.invalid/model",
+            gpu="GPU", gpu_mem_total_bytes=123, model_cache_bytes=456,
+            docker_image_bytes=789, environment="ubuntu24.04",
+            cpu_power_source="rapl", vcpu_power_method="rapl_cgroup_cpu_share",
+            cpu_governor="performance", cpu_boost="off",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "execution_profile_plan.json")
+            with open(path, "w", encoding="utf-8") as stream:
+                json.dump({
+                    "static_metadata": {"batch_size": 2},
+                    "padding": "x" * (4 * 1024 * 1024),
+                }, stream)
+            with patch("sys.stdout", new_callable=StringIO) as output:
+                enriched = static_metadata.enrich_static_meta_from_execution_plan(meta, path)
+
+        assert enriched.batch_size == 1
+        assert "exceeds the 4 MiB read limit" in output.getvalue()
+
     def test_cpu_frequency_policy_metadata_reads_governor_and_boost(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cpu0_cpufreq = os.path.join(tmp, "cpu0", "cpufreq")

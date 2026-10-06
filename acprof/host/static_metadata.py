@@ -10,7 +10,7 @@ import shutil
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
@@ -889,8 +889,7 @@ def enrich_static_meta_from_compute_plan(
     if not plan_path or not os.path.exists(plan_path):
         return static_meta
     try:
-        with open(plan_path, "r", encoding="utf-8") as f:
-            plan = json.load(f)
+        plan = read_json_object(plan_path, label="compute profile plan")
     except (OSError, ValueError, TypeError) as exc:
         print(f"[meta][WARN] Cannot read compute profile metadata: {exc}")
         return static_meta
@@ -913,8 +912,7 @@ def enrich_static_meta_from_execution_plan(
     if not plan_path or not os.path.exists(plan_path):
         return static_meta
     try:
-        with open(plan_path, "r", encoding="utf-8") as f:
-            plan = json.load(f)
+        plan = read_json_object(plan_path, label="execution profile plan")
     except (OSError, ValueError, TypeError) as exc:
         print(f"[meta][WARN] Cannot read execution profile metadata: {exc}")
         return static_meta
