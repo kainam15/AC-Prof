@@ -737,6 +737,23 @@ class TestPosthocProfile:
             assert fsync.call_count >= 2
             assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
+    @pytest.mark.parametrize("writer", ["atomic", "temporary"])
+    def test_posthoc_json_writers_reject_nonfinite_payloads(self, writer):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "compute_profile_plan.json"
+            original = b'{"schema_version": 1, "old": true}\n'
+            path.write_bytes(original)
+            payload = {"schema_version": 1, "metric": float("nan")}
+
+            with pytest.raises(ValueError, match="Out of range float values"):
+                if writer == "atomic":
+                    host_posthoc_storage._atomic_write_json(path, payload)
+                else:
+                    host_posthoc_storage._write_json_temporary(path, payload)
+
+            assert path.read_bytes() == original
+            assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
+
     @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
     def test_three_file_commit_syncs_result_directory(self):
         with tempfile.TemporaryDirectory() as tmp:

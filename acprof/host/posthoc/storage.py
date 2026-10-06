@@ -32,7 +32,7 @@ from acprof.host.posthoc.context import (
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
     def write(stream) -> None:
-        json.dump(payload, stream, ensure_ascii=False, indent=2)
+        json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
         stream.write("\n")
 
     atomic_write(path, write)
@@ -150,7 +150,7 @@ def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path
     temporary_path = Path(temporary)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2, allow_nan=False)
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
