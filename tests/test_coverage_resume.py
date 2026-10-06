@@ -169,6 +169,30 @@ class TestCoverageResume:
         assert (run.call_args.kwargs["retry_stages"]) == (["predict"])
         assert (run.call_args.kwargs["retry_reasons"]) == (["request_timeout"])
 
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_cli_rejects_invalid_manifest_before_runner(self, case):
+        source = Path(str(self.temporary)) / "sample.json"
+        sample = copy.deepcopy(self.sample)
+        if case == "nonfinite":
+            sample["corrupt_metric"] = float("nan")
+            source.write_text(json.dumps(sample))
+        else:
+            sample["padding"] = "x" * MAX_JSON_ARTIFACT_BYTES
+            source.write_text(json.dumps(sample))
+            assert source.stat().st_size > MAX_JSON_ARTIFACT_BYTES
+
+        stderr = io.StringIO()
+        with patch("acprof.host.env_utils.bootstrap_project_env"), patch(
+            "acprof.host.model_coverage.run_sample", return_value={"summary": {}}
+        ) as run, contextlib.redirect_stderr(stderr):
+            assert main(["run", str(source), "--output-dir", str(self.root)]) == 2
+
+        run.assert_not_called()
+        if case == "nonfinite":
+            assert "non-finite" in stderr.getvalue()
+        else:
+            assert "4 MiB read limit" in stderr.getvalue()
+
     def test_parameter_budget_retry_does_not_replace_initial_budget(self):
         def bounded_task(model_id, *, revision):
             task = self.task(model_id, revision=revision)

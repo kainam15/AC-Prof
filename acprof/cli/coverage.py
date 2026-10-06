@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+from acprof.artifacts import read_json_object
+
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -51,7 +53,8 @@ def main(argv=None) -> int:
             result = report_results(args.sources, args.output_dir)
             print(f"Reported {len(result['rows'])} recorded results: {args.output_dir}")
         else:
-            report = run_sample(json.loads(args.manifest.read_text()), args.output_dir, probe="full" if args.validate_runtime else "none",
+            report = run_sample(read_json_object(args.manifest, label="coverage sample"), args.output_dir,
+                                 probe="full" if args.validate_runtime else "none",
                                  cpus=args.cpus, memory_gb=args.mems, gpu=args.gpus == "on", timeout_seconds=args.timeout_seconds,
                                  max_parameters=args.max_parameters, max_download_bytes=args.max_download_bytes,
                                  resume=args.resume, retry_failed=args.retry_failed,
