@@ -21,7 +21,7 @@ from pathlib import Path
 from threading import Event
 from urllib.parse import urlsplit
 
-from acprof.artifacts import atomic_write
+import acprof.artifacts as artifact_io
 from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
 from acprof.dependency_locks import content_digest
 from acprof.hf_download import try_hf_endpoints
@@ -125,7 +125,14 @@ def entry_key(task) -> str:
 
 def _json(path: Path, value: dict) -> None:
     payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-    atomic_write(path, lambda stream: stream.write(payload))
+    artifact_io.atomic_write(path, lambda stream: stream.write(payload))
+
+
+def _sync_directory_tree(root: Path) -> None:
+    """Make private staged directory entries durable before publishing the root."""
+    directories = [root, *(path for path in root.rglob("*") if path.is_dir() and not path.is_symlink())]
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        artifact_io.sync_directory(directory)
 
 
 @contextmanager
@@ -509,10 +516,13 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                         link.symlink_to(os.path.relpath(blob, link.parent))
                     (cache / "refs").mkdir(exist_ok=True)
                     revision = repo["model_revision"]
-                    atomic_write(cache / "refs/main", lambda stream: stream.write(revision))
+                    artifact_io.atomic_write(cache / "refs/main", lambda stream: stream.write(revision))
                 _json(temporary / PLAN_FILENAME, plan)
-                # Rename preserves relative symlink depth.
+                # Persist every staged directory edge before publishing the tree root.
+                _sync_directory_tree(temporary)
+                # Rename preserves relative symlink depth; syncing entries makes publication durable.
                 temporary.rename(destination)
+                artifact_io.sync_directory(entries)
         (destination / "last-used").touch()
     print("[network-download] " + json.dumps({"category": "model",
         "verified_new_payload_bytes": sum(source.estimated_bytes for source in sources),

@@ -65,6 +65,17 @@ class TestModelStore:
 
         assert fsync.call_count >= 4
 
+    def test_prepared_entry_syncs_directory_tree_and_publication_edge(self):
+        synced = []
+        with patch("acprof.artifacts.sync_directory", side_effect=lambda path: synced.append(Path(path))):
+            record = self.prepare()
+
+        entry = self.root / "entries" / record["entry_id"]
+        snapshot_name = self.task.model_revision
+        assert self.root / "entries" in synced
+        assert any(path.name == snapshot_name and path.parent.name == "snapshots" for path in synced)
+        assert entry.exists()
+
     def test_existing_entry_is_reused_offline_and_cache_savings_are_exact(self):
         first = self.prepare()
         assert (model_store.model_sources(self.plan, self.root)[0].estimated_bytes) == (0)
