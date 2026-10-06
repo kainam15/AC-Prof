@@ -1,11 +1,11 @@
 """Massif isolated execution, report recovery and cleanup."""
 from __future__ import annotations
 
-import json
 import math
 import os
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from acprof.artifacts import read_json_object
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_support import (
@@ -146,11 +146,9 @@ def _write_massif_checkpoint(
 
 def _read_massif_checkpoint(path: str) -> Optional[Dict[str, Any]]:
     try:
-        with open(path, "r", encoding="utf-8") as checkpoint_file:
-            payload = json.load(checkpoint_file)
+        return read_json_object(path, label="Massif checkpoint")
     except (OSError, ValueError, TypeError):
         return None
-    return payload if isinstance(payload, dict) else None
 
 
 def _massif_checkpoint_matches(
@@ -163,13 +161,25 @@ def _massif_checkpoint_matches(
     input_scale: float,
     repeat: int,
 ) -> bool:
-    try:
-        schema_version = int(checkpoint.get("schema_version"))
-        checkpoint_cpu = int(checkpoint.get("cpu_cores"))
-        checkpoint_mem = int(checkpoint.get("mem_cap_gb"))
-        checkpoint_scale = float(checkpoint.get("input_scale"))
-        checkpoint_repeat = int(checkpoint.get("repeat"))
-    except (TypeError, ValueError):
+    raw_schema_version = checkpoint.get("schema_version")
+    raw_cpu = checkpoint.get("cpu_cores")
+    raw_mem = checkpoint.get("mem_cap_gb")
+    raw_scale = checkpoint.get("input_scale")
+    raw_repeat = checkpoint.get("repeat")
+    if (
+        type(raw_schema_version) is not int
+        or type(raw_cpu) is not int
+        or type(raw_mem) is not int
+        or type(raw_repeat) is not int
+        or type(raw_scale) not in {int, float}
+    ):
+        return False
+    schema_version = raw_schema_version
+    checkpoint_cpu = raw_cpu
+    checkpoint_mem = raw_mem
+    checkpoint_scale = float(raw_scale)
+    checkpoint_repeat = raw_repeat
+    if not math.isfinite(checkpoint_scale) or checkpoint_scale <= 0.0:
         return False
     return (
         schema_version == MASSIF_CHECKPOINT_SCHEMA_VERSION

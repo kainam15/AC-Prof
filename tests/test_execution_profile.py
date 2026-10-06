@@ -455,6 +455,48 @@ heap_tree=peak
                     f"massif_cpu_8_mem_16_scale_{scale}.checkpoint.json",
                 )))
 
+    def test_massif_checkpoint_reader_rejects_nonfinite_and_oversized_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint_path = os.path.join(tmp, "massif.checkpoint.json")
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                checkpoint_file.write('{"input_scale": NaN}\n')
+            assert massif._read_massif_checkpoint(checkpoint_path) is None
+
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                json.dump({"padding": "x" * (4 * 1024 * 1024)}, checkpoint_file)
+            assert massif._read_massif_checkpoint(checkpoint_path) is None
+
+    def test_massif_checkpoint_match_rejects_boolean_numeric_fields(self) -> None:
+        task_info = _task_info()
+        checkpoint = {
+            "schema_version": massif.MASSIF_CHECKPOINT_SCHEMA_VERSION,
+            "model_id": task_info.model_id,
+            "model_revision": task_info.model_revision,
+            "derived_image": "acprof-massif-test:latest",
+            "cpu_cores": 1,
+            "mem_cap_gb": 1,
+            "input_scale": 1.0,
+            "repeat": 1,
+        }
+        for field in (
+            "schema_version",
+            "cpu_cores",
+            "mem_cap_gb",
+            "input_scale",
+            "repeat",
+        ):
+            corrupted = dict(checkpoint)
+            corrupted[field] = True
+            assert not massif._massif_checkpoint_matches(
+                corrupted,
+                task_info=task_info,
+                derived_image="acprof-massif-test:latest",
+                cpu=1,
+                mem=1,
+                input_scale=1.0,
+                repeat=1,
+            )
+
     def test_missing_tools_fill_every_resource_and_scale_without_aborting(
         self,
     ) -> None:

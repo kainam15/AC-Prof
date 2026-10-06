@@ -951,6 +951,48 @@ class TestComputeProfile:
 
         assert (resumed) is None
 
+    def test_ncu_checkpoint_reader_rejects_nonfinite_and_oversized_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint_path = os.path.join(tmp, "ncu.checkpoint.json")
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                checkpoint_file.write('{"input_scale": NaN}\n')
+            assert ncu._read_ncu_checkpoint(checkpoint_path) is None
+
+            with open(checkpoint_path, "w", encoding="utf-8") as checkpoint_file:
+                json.dump({"padding": "x" * (4 * 1024 * 1024)}, checkpoint_file)
+            assert ncu._read_ncu_checkpoint(checkpoint_path) is None
+
+    def test_ncu_checkpoint_match_rejects_boolean_numeric_fields(self) -> None:
+        task_info = TaskInfo(
+            model_id="openai/whisper-large-v3",
+            pipeline_tag="automatic-speech-recognition",
+            task_family="audio",
+            runtime_backend="transformers_pipeline",
+            library_name="transformers",
+            model_revision="revision-1",
+            detection_method="hub_api",
+        )
+        checkpoint = {
+            "schema_version": ncu.NCU_CHECKPOINT_SCHEMA_VERSION,
+            "model_id": task_info.model_id,
+            "model_revision": task_info.model_revision,
+            "image_tag": "acprof-test:latest",
+            "input_scale": 1.0,
+            "repeat": 1,
+            "metrics": ["metric", compute_parsers.NCU_DURATION_METRIC],
+        }
+        for field in ("schema_version", "input_scale", "repeat"):
+            corrupted = dict(checkpoint)
+            corrupted[field] = True
+            assert not ncu._ncu_checkpoint_matches(
+                corrupted,
+                task_info=task_info,
+                image_tag="acprof-test:latest",
+                input_scale=1.0,
+                repeat=1,
+                metrics=["metric", compute_parsers.NCU_DURATION_METRIC],
+            )
+
     def test_vendor_mode_missing_tools_write_nan_profiles_with_errors(self) -> None:
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",

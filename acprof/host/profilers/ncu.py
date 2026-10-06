@@ -1,13 +1,12 @@
 """NCU execution, report export, checkpoint validation and resume."""
 from __future__ import annotations
 
-import json
 import math
 import os
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, read_json_object
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_support import (
@@ -295,11 +294,9 @@ def _export_ncu_report(
 
 def _read_ncu_checkpoint(path: str) -> Optional[Dict[str, Any]]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        return read_json_object(path, label="NCU checkpoint")
     except (OSError, ValueError, TypeError):
         return None
-    return payload if isinstance(payload, dict) else None
 
 
 def _ncu_checkpoint_matches(
@@ -311,11 +308,19 @@ def _ncu_checkpoint_matches(
     repeat: int,
     metrics: Sequence[str],
 ) -> bool:
-    try:
-        checkpoint_scale = float(checkpoint.get("input_scale"))
-        checkpoint_repeat = int(checkpoint.get("repeat"))
-        schema_version = int(checkpoint.get("schema_version"))
-    except (TypeError, ValueError):
+    raw_scale = checkpoint.get("input_scale")
+    raw_repeat = checkpoint.get("repeat")
+    raw_schema_version = checkpoint.get("schema_version")
+    if (
+        type(raw_schema_version) is not int
+        or type(raw_repeat) is not int
+        or type(raw_scale) not in {int, float}
+    ):
+        return False
+    checkpoint_scale = float(raw_scale)
+    checkpoint_repeat = raw_repeat
+    schema_version = raw_schema_version
+    if not math.isfinite(checkpoint_scale) or checkpoint_scale <= 0.0:
         return False
     return (
         schema_version == NCU_CHECKPOINT_SCHEMA_VERSION
