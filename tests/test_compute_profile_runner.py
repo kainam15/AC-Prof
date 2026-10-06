@@ -91,6 +91,33 @@ class TestComputeProfileRunnerITT:
 
         assert (calls) == (["resume", "pause"])
 
+    def test_itt_control_rejects_missing_collection_controls(self):
+        runner = self._import_runner()
+        control = object.__new__(runner._ITTControl)
+        control._lib = None
+        control._resume = None
+        control._pause = None
+
+        with pytest.raises(RuntimeError, match="ITT resume control unavailable"):
+            control.resume()
+
+    @pytest.mark.parametrize("operation", ("resume", "pause"))
+    def test_itt_control_surfaces_collection_control_failures(self, operation):
+        runner = self._import_runner()
+        control = object.__new__(runner._ITTControl)
+        control._lib = object()
+        control._resume = lambda: None
+        control._pause = lambda: None
+
+        def fail():
+            raise OSError(f"{operation} failed")
+
+        setattr(control, f"_{operation}", fail)
+        with pytest.raises(RuntimeError, match=rf"ITT {operation} control failed") as error:
+            getattr(control, operation)()
+
+        assert isinstance(error.value.__cause__, OSError)
+
     def test_eager_load_option_is_isolated_from_vendor_modes(self):
         runner = self._import_runner()
 

@@ -95,19 +95,19 @@ class _ITTControl:
 
     def resume(self) -> None:
         if self._resume is None:
-            return
+            raise RuntimeError("ITT resume control unavailable")
         try:
             self._resume()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("ITT resume control failed") from exc
 
     def pause(self) -> None:
         if self._pause is None:
-            return
+            raise RuntimeError("ITT pause control unavailable")
         try:
             self._pause()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError("ITT pause control failed") from exc
 
 
 def _cuda_synchronize() -> None:
