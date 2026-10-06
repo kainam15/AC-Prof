@@ -18,6 +18,8 @@ from acprof.config import DEFAULT_IDLE_SECONDS
 from acprof.monitors.common import docker_container_pid, sample_periodically
 from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
 
+SAMPLER_STOP_TIMEOUT_S = 1.0
+
 
 @dataclass
 class RaplDomain:
@@ -560,7 +562,13 @@ class CPUEnergyMonitor:
         self._t_end = time.perf_counter()
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=SAMPLER_STOP_TIMEOUT_S)
+            if self._thread.is_alive():
+                raise RuntimeError(
+                    "CPU energy sampling thread did not stop within "
+                    f"{SAMPLER_STOP_TIMEOUT_S:.1f}s"
+                )
+            self._thread = None
 
         self._append_sample(self._t_end)
         samples = [

@@ -1,5 +1,5 @@
 import math
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -138,6 +138,27 @@ def test_start_stop_samples_and_calculates_energy() -> None:
     assert (result.avg_power_eff_w) == (20.0)
     assert (result.peak_power_eff_w) == (30.0)
     assert (result.energy_eff_j) == (40.0)
+
+def test_stop_rejects_sampling_thread_that_did_not_quiesce() -> None:
+    with patch.object(energy_nvml.pynvml, "nvmlInit"), patch.object(
+        energy_nvml.pynvml, "nvmlDeviceGetHandleByIndex", return_value="handle"
+    ), patch.object(
+        energy_nvml.pynvml, "nvmlDeviceGetName", return_value="GPU"
+    ), patch.object(energy_nvml.time, "perf_counter", return_value=2.0):
+        monitor = energy_nvml.GPUEnergyMonitor()
+
+    thread = Mock()
+    thread.is_alive.return_value = True
+    monitor._thread = thread
+    monitor._t_start = 1.0
+    monitor._energy_start_mj = None
+
+    with patch.object(monitor, "_append_sample"):
+        with pytest.raises(RuntimeError, match="sampling thread did not stop"):
+            monitor.stop()
+
+    thread.join.assert_called_once_with(timeout=1.0)
+
 
 def test_nvml_init_failure_returns_error_result() -> None:
     with patch("acprof.monitors.energy_nvml.pynvml.nvmlInit", side_effect=RuntimeError("nvml boom")):

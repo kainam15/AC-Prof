@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -218,6 +218,21 @@ def test_peak_power_ignores_too_short_intervals() -> None:
     assert (result.cpu_peak_power_eff_w) == (1.0) or round(abs((result.cpu_peak_power_eff_w) - (1.0)), 7) == 0
     assert (result.vcpu_peak_power_total_w) == (1.0) or round(abs((result.vcpu_peak_power_total_w) - (1.0)), 7) == 0
     assert (result.vcpu_peak_power_eff_w) == (1.0) or round(abs((result.vcpu_peak_power_eff_w) - (1.0)), 7) == 0
+
+def test_stop_rejects_sampling_thread_that_did_not_quiesce() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        _write_rapl_domain(tmp, "intel-rapl:0", "package-0", energy_uj=123)
+        monitor = energy_cpu.CPUEnergyMonitor(powercap_root=tmp)
+        thread = Mock()
+        thread.is_alive.return_value = True
+        monitor._thread = thread
+        monitor._t_start = 1.0
+
+        with pytest.raises(RuntimeError, match="sampling thread did not stop"):
+            monitor.stop()
+
+        thread.join.assert_called_once_with(timeout=1.0)
+
 
 def test_no_rapl_returns_nan_result() -> None:
     with tempfile.TemporaryDirectory() as tmp:

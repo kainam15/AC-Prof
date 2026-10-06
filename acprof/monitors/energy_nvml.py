@@ -8,6 +8,8 @@ import pynvml
 
 from acprof.config import DEFAULT_IDLE_SECONDS
 
+SAMPLER_STOP_TIMEOUT_S = 1.0
+
 
 @dataclass
 class EnergyResult:
@@ -263,7 +265,13 @@ class GPUEnergyMonitor:
         self._stop_event.set()
         self._append_sample(self._t_end)
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=SAMPLER_STOP_TIMEOUT_S)
+            if self._thread.is_alive():
+                raise RuntimeError(
+                    "GPU energy sampling thread did not stop within "
+                    f"{SAMPLER_STOP_TIMEOUT_S:.1f}s"
+                )
+            self._thread = None
 
         samples = [
             (t, p)
