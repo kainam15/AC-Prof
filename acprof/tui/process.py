@@ -62,7 +62,12 @@ class ProcessLifecycle:
             if self.process is not process or process.poll() is None:
                 return False
             if process.stdin is not None:
-                process.stdin.close()
+                try:
+                    process.stdin.close()
+                except BrokenPipeError:
+                    # The child has already exited, so a closed peer must not
+                    # keep a reaped process occupying the TUI lifecycle.
+                    pass
             self.process = None
             self.cleanup_error = ""
             return True

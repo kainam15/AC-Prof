@@ -26,6 +26,19 @@ def test_delayed_stop_cannot_signal_a_replacement_process():
     signal_group.assert_not_called()
     assert (manager.process) is (replacement)
 
+def test_release_exited_process_ignores_broken_stdin_pipe():
+    manager = ProcessLifecycle()
+    stdin = Mock()
+    stdin.close.side_effect = BrokenPipeError("child closed stdin")
+    process = Mock(pid=333, stdin=stdin)
+    process.poll.return_value = 0
+    manager.process = process
+
+    assert manager.release(process)
+    assert manager.process is None
+    assert manager.cleanup_error == ""
+
+
 def test_callback_failure_keeps_live_process_busy_and_does_not_finish():
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(settings_path=Path(directory) / "settings.json")
