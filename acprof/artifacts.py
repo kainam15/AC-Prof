@@ -1,6 +1,7 @@
 """基于同目录临时文件发布产物；调用方负责在测量窗口之外写入。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -10,6 +11,16 @@ from pathlib import Path
 from typing import Any, Callable, TextIO, cast
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
+_HASH_CHUNK_BYTES = 1024 * 1024
+
+
+def file_sha256(path: str | Path) -> str:
+    """Hash a file with bounded memory for large experiment artifacts."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(_HASH_CHUNK_BYTES), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _finite_json_number(raw: str) -> float:

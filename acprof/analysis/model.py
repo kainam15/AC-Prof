@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import json
 import math
 import statistics
@@ -15,6 +14,7 @@ from acprof.analysis.audit import audit_result
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, comparison_profile
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import file_sha256
 from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
@@ -193,8 +193,7 @@ def load_analysis(sources) -> AnalysisModel:
         if path in seen_paths:
             raise ValueError(f"duplicate CSV input: {path}")
         seen_paths.add(path)
-        content = path.read_bytes()
-        digest = hashlib.sha256(content).hexdigest()
+        digest = file_sha256(path)
         meta = _json(layout.path("static_meta.json"))
         state = _json(layout.path("run_state.json"))
         run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
@@ -206,48 +205,51 @@ def load_analysis(sources) -> AnalysisModel:
         snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
                           "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
         device_quality = {}
-        reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")), strict=True)
-        fields = [name.strip() for name in (reader.fieldnames or [])]
-        if not fields or any(not name for name in fields) or len(fields) != len(set(fields)):
-            raise ValueError(f"missing or duplicate CSV columns: {path}")
-        reader.fieldnames = fields
         first_entry = len(entries)
-        for line, raw in enumerate(reader, 2):
-            if None in raw or any(value is None for value in raw.values()):
-                raise ValueError(f"malformed CSV row: {path}:{line}")
-            row = {key: value.strip() for key, value in raw.items()}
-            if (_text(state.get("run_id")) != "unknown" and _text(row.get("run_id")) != "unknown"
-                    and row["run_id"] != state["run_id"]):
-                raise ValueError(f"inconsistent run_id between CSV and run state: {path}:{line}")
-            identity = _identity(row, meta, run_id, "unknown")
-            # A batch label and artifact location are presentation, not recorded
-            # experimental conditions. Moving a result must not create a run.
-            stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
-            config_id = identity["run_id"] + ":" + _digest(stable_identity)
-            repeat = number(row.get("repeat_idx"))
-            warmup = number(row.get("warmup"))
-            if repeat is not None:
-                recorded_run = _text(state.get("run_id")) != "unknown" or _text(row.get("run_id")) != "unknown"
-                key = ((identity["run_id"], measurement_key(row)) if recorded_run
-                       else (config_id, warmup, repeat))
-                signature = _digest({"row": row, "identity": stable_identity})
-                if key in seen_keys:
-                    previous_signature, previous = seen_keys[key]
-                    kind = "duplicate" if signature == previous_signature else "conflicting"
-                    raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
-                seen_keys[key] = (signature, f"{path}:{line}")
-            eligible = (row.get("status", "").lower() == "ok" and warmup == 0
-                        and row.get("result_origin") != "inferred_not_measured")
-            mode = row.get("gpu_mode")
-            if mode not in device_quality:
-                device_quality[mode] = read_quality(path, device=mode)
-            entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
-                     "row": dict(raw), "eligible": eligible, "values": _values(row, identity["device"]),
-                     **evidence, **device_quality[mode]}
-            groups[config_id].append(entry)
-            entries.append(entry)
+        with path.open("r", encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream, strict=True)
+            fields = [name.strip() for name in (reader.fieldnames or [])]
+            if not fields or any(not name for name in fields) or len(fields) != len(set(fields)):
+                raise ValueError(f"missing or duplicate CSV columns: {path}")
+            reader.fieldnames = fields
+            for line, raw in enumerate(reader, 2):
+                if None in raw or any(value is None for value in raw.values()):
+                    raise ValueError(f"malformed CSV row: {path}:{line}")
+                row = {key: value.strip() for key, value in raw.items()}
+                if (_text(state.get("run_id")) != "unknown" and _text(row.get("run_id")) != "unknown"
+                        and row["run_id"] != state["run_id"]):
+                    raise ValueError(f"inconsistent run_id between CSV and run state: {path}:{line}")
+                identity = _identity(row, meta, run_id, "unknown")
+                # A batch label and artifact location are presentation, not recorded
+                # experimental conditions. Moving a result must not create a run.
+                stable_identity = {key: value for key, value in identity.items() if key != "experiment_batch"}
+                config_id = identity["run_id"] + ":" + _digest(stable_identity)
+                repeat = number(row.get("repeat_idx"))
+                warmup = number(row.get("warmup"))
+                if repeat is not None:
+                    recorded_run = _text(state.get("run_id")) != "unknown" or _text(row.get("run_id")) != "unknown"
+                    key = ((identity["run_id"], measurement_key(row)) if recorded_run
+                           else (config_id, warmup, repeat))
+                    signature = _digest({"row": row, "identity": stable_identity})
+                    if key in seen_keys:
+                        previous_signature, previous = seen_keys[key]
+                        kind = "duplicate" if signature == previous_signature else "conflicting"
+                        raise ValueError(f"{kind} measurement for run {identity['run_id']}: {path}:{line}; first seen {previous}")
+                    seen_keys[key] = (signature, f"{path}:{line}")
+                eligible = (row.get("status", "").lower() == "ok" and warmup == 0
+                            and row.get("result_origin") != "inferred_not_measured")
+                mode = row.get("gpu_mode")
+                if mode not in device_quality:
+                    device_quality[mode] = read_quality(path, device=mode)
+                entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
+                         "row": dict(raw), "eligible": eligible, "values": _values(row, identity["device"]),
+                         **evidence, **device_quality[mode]}
+                groups[config_id].append(entry)
+                entries.append(entry)
         if len(entries) == first_entry:
             raise ValueError(f"CSV has no measurement rows: {path}")
+        if file_sha256(path) != digest:
+            raise ValueError(f"CSV changed during analysis: {path}")
     if not snapshots:
         raise ValueError("at least one result CSV is required")
     configs = []

@@ -15,7 +15,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json, sync_directory
+from acprof.artifacts import atomic_write_json, file_sha256, sync_directory
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
@@ -85,14 +85,6 @@ def _finite_json_number(raw: str) -> float:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def file_sha256(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def host_identity(project_dir: str | Path) -> dict:
