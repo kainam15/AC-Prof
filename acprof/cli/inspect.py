@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 import uuid
@@ -48,12 +47,13 @@ def main(argv=None) -> int:
         # An exported declaration can carry its separately saved provenance.
         # Preserve that explanation only for the same pinned model and exact spec;
         # a prior runtime observation never becomes evidence for this new probe.
+        from acprof.artifacts import read_json_object
         from acprof.model_evidence import RESOLVER_VERSION
         from acprof.model_spec import task_model_spec
         previous = output / "model_resolution.json"
-        if previous.is_file() and previous.stat().st_size <= 4 * 1024 * 1024:
+        if previous.is_file():
             try:
-                contract = json.loads(previous.read_text()).get("contract", {})
+                contract = read_json_object(previous, label="model resolution").get("contract", {})
                 if (contract.get("model_id") == task.model_id and contract.get("revision") == task.model_revision
                         and contract.get("resolver_version") == RESOLVER_VERSION and contract.get("status") == "resolved"
                         and contract.get("draft_spec") == task_model_spec(task)):

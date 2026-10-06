@@ -91,6 +91,34 @@ def test_review_provenance_survives_export_and_subprocess_inspection():
         assert (saved["cache_key"]) == (original["cache_key"])
         assert (saved["fields"]["multimodal.inputs.prompt"]["sources"]) == (original["fields"]["multimodal.inputs.prompt"]["sources"])
 
+
+def test_corrupt_previous_review_provenance_is_not_reused():
+    from acprof.model_contract import write_model_resolution
+    from acprof.model_spec import task_model_spec
+
+    task = fixture.TestModelContract().discover()
+    declaration = task_model_spec(task)
+    author_task = fixture.TestModelContract().discover(spec=declaration)
+    with tempfile.TemporaryDirectory() as directory, patch(
+        "acprof.host.detect.detect_task", return_value=author_task
+    ), patch("acprof.host.env_utils.bootstrap_project_env"), contextlib.redirect_stdout(io.StringIO()):
+        write_model_resolution(task, directory)
+        previous = Path(directory, "model_resolution.json")
+        payload = json.loads(previous.read_text())
+        payload["contract"]["legacy_marker"] = "must-not-survive"
+        payload["corrupt_metric"] = float("nan")
+        previous.write_text(json.dumps(payload), encoding="utf-8")
+        declaration_path = Path(directory, "acprof_model.json")
+        declaration_path.write_text(json.dumps(declaration), encoding="utf-8")
+
+        assert main([
+            "inspect", task.model_id, "--model-spec", str(declaration_path),
+            "--expected-revision", task.model_revision, "--output-dir", directory,
+        ]) == 0
+
+        saved = json.loads(previous.read_text())["contract"]
+        assert "legacy_marker" not in saved
+
 def test_changed_revision_refuses_probe_and_preserves_previous_report():
     task = fixture.TestModelContract().discover()
     with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
