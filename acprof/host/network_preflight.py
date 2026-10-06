@@ -9,6 +9,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
 from acprof.host import command as host_command
 from acprof.host.dependency_images import (
@@ -69,6 +70,25 @@ def registry_manifest(reference: str) -> dict | None:
         return None
 
 
+def _recorded_artifact_sizes(path: Path) -> dict[tuple[str, str], int | None]:
+    metadata = read_json_object(path, label="dependency artifact metadata")
+    if metadata.get("schema_version") != 1 or not isinstance(metadata.get("artifacts"), list):
+        raise ValueError(f"{path}: invalid dependency artifact metadata schema")
+    sizes: dict[tuple[str, str], int | None] = {}
+    for entry in metadata["artifacts"]:
+        if not isinstance(entry, dict):
+            raise ValueError(f"{path}: dependency artifact metadata entries must be objects")
+        url, digest, size = entry.get("url"), entry.get("sha256"), entry.get("size")
+        if (not isinstance(url, str) or not url or not isinstance(digest, str) or not digest
+                or (size is not None and (type(size) is not int or size < 0))):
+            raise ValueError(f"{path}: invalid dependency artifact metadata entry")
+        key = (url, digest)
+        if key in sizes:
+            raise ValueError(f"{path}: duplicate dependency artifact metadata entry")
+        sizes[key] = size
+    return sizes
+
+
 def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=artifact_size,
                     manifest_probe=registry_manifest) -> tuple[list[DownloadSource], dict]:
     from acprof.host.runtime_images import inspect_identity
@@ -127,8 +147,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     for lock in (profile.environment.requirements_lock, profile.environment.platform.requirements_lock):
         metadata = (project_dir / lock).with_suffix(".artifacts.json")
         if metadata.is_file():
-            recorded_sizes.update({(entry["url"], entry["sha256"]): entry.get("size")
-                                   for entry in json.loads(metadata.read_text())["artifacts"]})
+            recorded_sizes.update(_recorded_artifact_sizes(metadata))
     with ThreadPoolExecutor(max_workers=8) as executor:
         sizes = list(executor.map(lambda pair: pair[1].get("size") or
             recorded_sizes.get((pair[1]["url"], pair[1]["sha256"])) or size_probe(pair[1]["url"]), artifacts))

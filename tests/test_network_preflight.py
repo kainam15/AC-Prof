@@ -4,7 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from runtime_fixture import copy_dependency_tree
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+from acprof.dependency_locks import read_python_lock
 from acprof.host.network_preflight import preflight, runtime_sources
 from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
@@ -78,6 +81,48 @@ def test_local_runtime_hit_does_not_probe_registry_or_packages():
     assert (state["platform_local"])
     assert (state["environment_local"])
     assert not (state["will_attempt_ghcr_pull"])
+
+
+def test_runtime_sources_uses_valid_recorded_artifact_sizes_without_network(tmp_path):
+    copy_dependency_tree(tmp_path)
+    profile = PROFILES["nlp-cpu"]
+    lock = tmp_path / profile.environment.requirements_lock
+    records = read_python_lock(lock)
+    metadata = lock.with_suffix(".artifacts.json")
+    metadata.write_text(json.dumps({"schema_version": 1, "artifacts": [
+        {"url": entry["url"], "sha256": entry["sha256"], "size": 123} for entry in records
+    ]}))
+    inspections = iter(({"image_id": "sha256:" + "a" * 64}, None))
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True):
+        sources, _ = runtime_sources(
+            profile, tmp_path, inspect=lambda _: next(inspections),
+            size_probe=lambda _: pytest.fail("recorded Python artifact size used network"),
+            manifest_probe=lambda _: pytest.fail("local platform/build-only path queried registry"),
+        )
+    assert sources
+    assert all(source.estimated_bytes == 123 for source in sources)
+
+
+def test_runtime_sources_rejects_nonfinite_artifact_metadata(tmp_path):
+    copy_dependency_tree(tmp_path)
+    profile = PROFILES["nlp-cpu"]
+    metadata = (tmp_path / profile.environment.requirements_lock).with_suffix(".artifacts.json")
+    metadata.write_text('{"schema_version": 1, "artifacts": [], "corrupt_metric": NaN}')
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True):
+        with pytest.raises(ValueError, match="invalid dependency artifact metadata JSON|non-finite"):
+            runtime_sources(profile, tmp_path, inspect=lambda _: None, manifest_probe=lambda _: None)
+
+
+def test_runtime_sources_bounds_artifact_metadata_read(tmp_path):
+    copy_dependency_tree(tmp_path)
+    profile = PROFILES["nlp-cpu"]
+    metadata = (tmp_path / profile.environment.requirements_lock).with_suffix(".artifacts.json")
+    metadata.write_text(json.dumps({"schema_version": 1, "artifacts": [],
+                                    "padding": "x" * MAX_JSON_ARTIFACT_BYTES}))
+    assert metadata.stat().st_size > MAX_JSON_ARTIFACT_BYTES
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True):
+        with pytest.raises(ValueError, match="4 MiB read limit"):
+            runtime_sources(profile, tmp_path, inspect=lambda _: None, manifest_probe=lambda _: None)
 
 def test_local_miss_reports_ghcr_and_compressed_upper_bound():
     with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "auto"}, clear=True):
