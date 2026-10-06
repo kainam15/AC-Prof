@@ -11,6 +11,13 @@ STAGES = frozenset({"resolution", "interface", "dependencies", "preflight", "ima
 STATUSES = frozenset({"not_started", "running", "passed", "failed", "waiting"})
 
 
+def _finite_json_number(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("non-finite number")
+    return number
+
+
 def emit_progress(stage: str) -> None:
     """Called at actual preparation boundaries, never from measurement."""
     if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1":
@@ -29,7 +36,11 @@ def parse_event(line: str) -> dict | None:
         return None
     if len(line) > MAX_MESSAGE:
         raise ValueError("preparation message exceeds size limit")
-    value = json.loads(line[len(PREFIX):])
+    value = json.loads(
+        line[len(PREFIX):],
+        parse_float=_finite_json_number,
+        parse_constant=_finite_json_number,
+    )
     if (not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] != 1
             or value.get("stage") not in STAGES or value.get("status") not in STATUSES):
         raise ValueError("unsupported preparation message")

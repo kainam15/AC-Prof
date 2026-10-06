@@ -15,6 +15,14 @@ def test_preparation_plan_event_rejects_invalid_or_unbounded_scales(scales_case)
     with pytest.raises(ValueError):
         encode_event("input", "passed", input_plan={"scales": scales, "scale_type": "duration_s"})
 
+@pytest.mark.parametrize('number', ['NaN', '1e999'])
+def test_preparation_event_rejects_nonfinite_json(number):
+    from acprof.preparation_events import PREFIX, parse_event
+    line = PREFIX + '{"version":1,"stage":"input","status":"passed","corrupt_metric":' + number + '}'
+
+    with pytest.raises(ValueError, match='non-finite'):
+        parse_event(line)
+
 def test_smoke_estimate_is_one_configuration_and_one_formal_window():
     from acprof.tui.run_planning import estimate_run
     estimate = estimate_run(RunConfig.smoke())
