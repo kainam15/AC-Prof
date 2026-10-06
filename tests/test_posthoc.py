@@ -754,6 +754,26 @@ class TestPosthocProfile:
             assert path.read_bytes() == original
             assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
+    def test_three_file_commit_cleans_earlier_temporaries_if_later_writer_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            backup = host_posthoc_storage.create_backup(context)
+            invalid_history = {**context.collection_history, "invalid_metric": float("nan")}
+
+            with pytest.raises(ValueError, match="Out of range float values"):
+                host_posthoc_storage.commit_result_files(
+                    context,
+                    fieldnames=context.fieldnames,
+                    rows=context.rows,
+                    static_meta=context.static_meta,
+                    collection_history=invalid_history,
+                    backup_dir=backup,
+                )
+
+            assert list(root.glob(".*.tmp")) == []
+
     @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
     def test_three_file_commit_syncs_result_directory(self):
         with tempfile.TemporaryDirectory() as tmp:

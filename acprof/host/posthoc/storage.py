@@ -199,21 +199,25 @@ def commit_result_files(
     collection_history: Mapping[str, Any],
     backup_dir: Path,
 ) -> None:
-    csv_temporary = _write_csv_temporary(
-        context.result_csv,
-        fieldnames=fieldnames,
-        rows=rows,
-        encoding=context.csv_encoding,
-    )
-    meta_temporary = _write_json_temporary(context.static_meta_path, static_meta)
-    history_temporary = _write_json_temporary(
-        context.collection_history_path,
-        collection_history,
-    )
+    temporaries: list[Path] = []
     csv_replaced = False
     meta_replaced = False
     history_replaced = False
     try:
+        csv_temporary = _write_csv_temporary(
+            context.result_csv,
+            fieldnames=fieldnames,
+            rows=rows,
+            encoding=context.csv_encoding,
+        )
+        temporaries.append(csv_temporary)
+        meta_temporary = _write_json_temporary(context.static_meta_path, static_meta)
+        temporaries.append(meta_temporary)
+        history_temporary = _write_json_temporary(
+            context.collection_history_path,
+            collection_history,
+        )
+        temporaries.append(history_temporary)
         # Validate all complete temporary documents before publishing any of them.
         with csv_temporary.open(
             "r", encoding=context.csv_encoding, newline=""
@@ -263,7 +267,7 @@ def commit_result_files(
                     _fsync_directory(context.collection_history_path.parent)
         raise
     finally:
-        for temporary in (csv_temporary, meta_temporary, history_temporary):
+        for temporary in temporaries:
             try:
                 temporary.unlink()
             except FileNotFoundError:
