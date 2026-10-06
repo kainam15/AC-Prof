@@ -229,6 +229,36 @@ class TestCollectionWorkflow:
             workflow.resolve(self.args())
         ask.assert_called_once()
 
+    @pytest.mark.parametrize("corruption", ("nonfinite", "top_level"))
+    def test_invalid_decision_cache_is_ignored_before_review(self, corruption):
+        task = contracts.TestModelContract().discover(
+            contracts.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]')
+        )
+        answer = {"multimodal.inputs.turns": {"template": [
+            {"role": "user", "content": {"from": "text"}}
+        ]}}
+        cache_dir = self.run.root / "decisions"
+        workflow = PreparationWorkflow(interactive=True, cache_dir=cache_dir)
+        with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
+            workflow, "ask", side_effect=[
+                {"action": "answer", "answers": answer}, {"action": "confirm"}
+            ],
+        ), patch("sys.stdout", io.StringIO()):
+            workflow.resolve(self.args())
+
+        cache = next(cache_dir.glob("*.json"))
+        if corruption == "nonfinite":
+            content = cache.read_text().rstrip()
+            cache.write_text(content[:-1] + ', "ignored": NaN}\n')
+        else:
+            cache.write_text("[]\n")
+
+        with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
+            workflow, "ask", side_effect=KeyboardInterrupt,
+        ) as ask, patch("sys.stdout", io.StringIO()), pytest.raises(KeyboardInterrupt):
+            workflow.resolve(self.args())
+        ask.assert_called_once()
+
     def test_metadata_and_known_dependency_access_errors_are_not_choices(self):
         task = contracts.TestModelContract().discover()
         task.metadata_errors = ["repository permission denied"]

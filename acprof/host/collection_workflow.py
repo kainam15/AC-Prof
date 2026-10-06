@@ -233,9 +233,7 @@ class PreparationWorkflow:
             decisions = []
             if cache and cache.is_file():
                 try:
-                    if cache.stat().st_size > MAX_MESSAGE:
-                        raise ValueError("decision cache exceeds size limit")
-                    saved = json.loads(cache.read_text())
+                    saved = read_json_object(cache, label="decision cache")
                     if saved.get("schema_version") != 1 or saved.get("identity") != identity:
                         raise ValueError("decision cache identity changed")
                     restored = task
