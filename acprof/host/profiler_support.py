@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -70,7 +71,16 @@ def load_input_scale_plan_entries(
                 f"input scale plan entry missing input_scale/payload "
                 f"at index {idx}"
             )
+        if isinstance(raw_scale, bool) or not isinstance(raw_scale, (int, float)):
+            raise ValueError(
+                f"input scale plan entry has invalid input_scale at index {idx}: {raw_scale!r}"
+            )
         scale = float(raw_scale)
+        if not math.isfinite(scale) or scale <= 0.0:
+            raise ValueError(
+                f"input scale plan entry has non-positive/non-finite input_scale "
+                f"at index {idx}: {raw_scale!r}"
+            )
         entries.append({
             "input_scale": scale,
             "scale_label": str(

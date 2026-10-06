@@ -98,6 +98,18 @@ def test_old_input_plan_is_rejected_and_current_payload_is_preserved(version):
         path.write_text(json.dumps({"schema_version": 2, "entries": [entry]}))
         assert (load_input_scale_plan_entries(str(path))[0]["payload"]) == (entry["payload"])
 
+
+@pytest.mark.parametrize("input_scale", (True, "1", "nan", 0, -1))
+def test_profiler_input_plan_rejects_non_numeric_or_non_positive_scales(input_scale):
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [{"input_scale": input_scale, "payload": {"text": "exact input"}}],
+        }))
+        with pytest.raises(ValueError, match="input_scale"):
+            load_input_scale_plan_entries(str(path))
+
 def test_profiler_input_plan_read_is_bounded_without_rewriting_source():
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary) / "input_scale_plan.json"
