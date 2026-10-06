@@ -1,12 +1,11 @@
 """Durable coverage attempts; the overview is rebuilt from preserved attempt records."""
 from __future__ import annotations
 
-import json
 import os
 import re
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host.run_state import utc_now
 from acprof.model_evidence import content_digest
 
@@ -97,10 +96,10 @@ class CoverageState:
         self.rows: dict[int, dict] = {}
         retry = retry_failed or bool(retry_stages or retry_reasons)
         if resume:
-            self.report = json.loads((root / "coverage.json").read_text())
+            self.report = read_json_object(root / "coverage.json", label="coverage report")
             if not isinstance(self.report, dict) or self.report.get("schema_version") != 2:
                 raise ValueError("coverage history lacks resumable configuration evidence; choose a new directory (schema v2 required)")
-            frozen = json.loads((root / "sample.json").read_text())
+            frozen = read_json_object(root / "sample.json", label="coverage sample")
             if self.report.get("sample_sha256") != self.sample_hash or content_digest(frozen) != self.sample_hash:
                 raise ValueError("coverage frozen sample/revisions differ from the supplied sample")
             self.attempts = self._read_attempts()
@@ -181,7 +180,7 @@ class CoverageState:
     def _read_attempts(self) -> list[dict]:
         attempts = []
         for path in sorted((self.root / "attempts").glob("attempt-??????/attempt.json")):
-            payload = json.loads(path.read_text())
+            payload = read_json_object(path, label="coverage attempt evidence")
             if (not isinstance(payload, dict) or payload.get("schema_version") != 1
                     or type(payload.get("attempt_id")) is not int
                     or path.parent.name != f"attempt-{payload['attempt_id']:06d}"

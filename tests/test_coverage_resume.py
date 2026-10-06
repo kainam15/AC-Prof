@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 from test_resolution_decisions import candidate
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.cli.coverage import main
 from acprof.failures import Failure, RuntimeFailure
 from acprof.host.model_coverage import run_sample
@@ -122,6 +123,29 @@ class TestCoverageResume:
         with pytest.raises(ValueError, match="schema|history|历史"):
             self.run_batch(resume=True)
         assert (json.loads((self.root / "coverage.json").read_text())) == (legacy)
+
+    def test_resume_rejects_nonfinite_overview_before_resolution(self):
+        self.run_batch()
+        path = self.root / "coverage.json"
+        report = json.loads(path.read_text())
+        report["corrupt_metric"] = float("nan")
+        path.write_text(json.dumps(report))
+        with patch("acprof.host.detect.detect_task") as detect:
+            with pytest.raises(ValueError, match="invalid coverage report JSON|non-finite"):
+                self.run_batch(resume=True)
+        detect.assert_not_called()
+
+    def test_resume_bounds_overview_read_before_resolution(self):
+        self.run_batch()
+        path = self.root / "coverage.json"
+        report = json.loads(path.read_text())
+        report["padding"] = "x" * MAX_JSON_ARTIFACT_BYTES
+        path.write_text(json.dumps(report))
+        assert path.stat().st_size > MAX_JSON_ARTIFACT_BYTES
+        with patch("acprof.host.detect.detect_task") as detect:
+            with pytest.raises(ValueError, match="4 MiB read limit"):
+                self.run_batch(resume=True)
+        detect.assert_not_called()
 
     def test_retry_requires_resume_and_unknown_selectors_do_not_create_attempts(self):
         with pytest.raises(ValueError, match="resume"):
