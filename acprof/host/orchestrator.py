@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write, replace_file_durably
+from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -1012,7 +1012,9 @@ def run_matrix(
     if plan_path.exists():
         plan = load_matrix_plan(plan_path, identity)
         if prune_startup_oom:
-            evidence = json.loads(layout.path(PROBE_NAME).read_text())
+            evidence = read_json_object(
+                layout.path(PROBE_NAME), label="startup probe report"
+            )
             if (evidence.get("schema_version") != 2 or evidence.get("status") != "complete"
                     or evidence.get("identity") != identity
                     or startup_oom_prefixes(evidence) != plan["startup_oom_prefixes"]):

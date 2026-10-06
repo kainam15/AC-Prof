@@ -14,7 +14,7 @@ from acprof.host import (
     startup_probe,
 )
 from acprof.host.detect import TaskInfo
-from acprof.host.matrix_plan import matrix_identity
+from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
 
 
 class TestStartupProbe:
@@ -97,6 +97,48 @@ class TestStartupProbe:
                 orchestrator.run_matrix(self.task, self.image, [2, 1], [4, 2], ['off'],
                     directory, directory, warmup=0, repeat=1, input_scales='64',
                     prune_startup_oom=True, matrix_order='declared')
+
+    def test_frozen_plan_rejects_nonfinite_probe_evidence_before_formal_collection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            freeze_matrix_plan(root / "matrix_plan.json", self.identity, {"off": [2]})
+            (root / startup_probe.PROBE_NAME).write_text(json.dumps({
+                "schema_version": 2,
+                "identity": self.identity,
+                "status": "complete",
+                "attempts": [{
+                    "cpu_cores": 1,
+                    "mem_cap_gb": 2,
+                    "gpu_mode": "off",
+                    "ready": False,
+                    "outcome": "startup_oom",
+                    "docker_state": {
+                        "OOMKilled": True,
+                        "Running": False,
+                        "Restarting": False,
+                    },
+                }],
+                "corrupt_metric": float("nan"),
+            }))
+            with patch.object(
+                orchestrator,
+                "run_single_case",
+                side_effect=AssertionError("formal collection must not start"),
+            ), pytest.raises(ValueError, match="invalid startup probe report JSON"):
+                orchestrator.run_matrix(
+                    self.task,
+                    self.image,
+                    [2, 1],
+                    [8, 2, 4],
+                    ["off"],
+                    tmp,
+                    tmp,
+                    warmup=0,
+                    repeat=1,
+                    input_scales="64",
+                    prune_startup_oom=True,
+                    matrix_order="declared",
+                )
 
     def test_interrupted_probe_resumes_completed_attempts(self):
         oom = container_state.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})
