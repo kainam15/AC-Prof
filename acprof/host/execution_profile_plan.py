@@ -7,10 +7,11 @@ Nsight Systems data.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 from typing import Any, Dict, Iterable, Mapping, Optional, Set, Tuple
+
+from acprof.artifacts import read_json_object
 
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 MASSIF_TOOL_KEY = "massif"
@@ -120,17 +121,11 @@ def load_execution_profile_plan(path: str) -> Dict[str, Any]:
             "_load_error": f"execution_profile_plan_not_found:{path}",
         }
     try:
-        with open(path, "r", encoding="utf-8") as plan_file:
-            plan = json.load(plan_file)
-    except Exception as exc:
+        plan = read_json_object(path, label="execution profile plan")
+    except (OSError, ValueError) as exc:
         return {
             "profiles": [],
             "_load_error": f"execution_profile_plan_invalid:{exc!r}",
-        }
-    if not isinstance(plan, dict):
-        return {
-            "profiles": [],
-            "_load_error": "execution_profile_plan_invalid:not_dict",
         }
     if not isinstance(plan.get("profiles"), list):
         return {

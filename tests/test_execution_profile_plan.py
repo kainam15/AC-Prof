@@ -5,6 +5,7 @@ import tempfile
 
 import pytest
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.host.execution_profile_plan import (
     EXECUTION_PROFILE_FIELDS,
     MASSIF_ERROR_FIELD,
@@ -92,6 +93,22 @@ class TestExecutionProfilePlan:
             actual = load_execution_profile_plan(path)
 
         assert (actual) == (expected)
+
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_loader_rejects_untrusted_json(self, case):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "execution_profile_plan.json")
+            if case == "nonfinite":
+                raw = b'{"profiles":[],"ignored":NaN}'
+            else:
+                raw = b'{"profiles":[],"padding":"' + b"x" * MAX_JSON_ARTIFACT_BYTES + b'"}'
+            with open(path, "wb") as plan_file:
+                plan_file.write(raw)
+
+            plan = load_execution_profile_plan(path)
+
+        assert (plan["profiles"]) == ([])
+        assert ("execution_profile_plan_invalid") in (plan["_load_error"])
 
     @pytest.mark.parametrize('name_case', range(3))
     def test_load_invalid_shapes_return_soft_diagnostics(self, name_case):

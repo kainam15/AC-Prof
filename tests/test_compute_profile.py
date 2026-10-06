@@ -12,8 +12,10 @@ import pytest
 
 import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
 import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.container.handlers import transformers_pipeline_load_kwargs
 from acprof.host import compute_profile, profiler_support
+from acprof.host.compute_profile_plan import load_compute_profile_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.profilers import advisor, compute_parsers, ncu, tool_discovery, torch
 
@@ -81,6 +83,22 @@ class TestComputeProfile:
             missing = os.path.join(tmp, "input_scale_plan.json")
             with pytest.raises(FileNotFoundError, match="input scale plan not found"):
                 compute_profile.load_input_scale_plan_entries(missing)
+
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_compute_plan_loader_rejects_untrusted_json(self, case) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "compute_profile_plan.json")
+            if case == "nonfinite":
+                raw = b'{"profiles":{},"ignored":NaN}'
+            else:
+                raw = b'{"profiles":{},"padding":"' + b"x" * MAX_JSON_ARTIFACT_BYTES + b'"}'
+            with open(path, "wb") as plan_file:
+                plan_file.write(raw)
+
+            plan = load_compute_profile_plan(path)
+
+        assert (plan["profiles"]) == ({})
+        assert ("compute_profile_plan_invalid") in (plan["_load_error"])
 
     @pytest.mark.parametrize('schema_version', (2,))
     def test_current_input_plan_reuses_the_exact_payload(self, schema_version) -> None:

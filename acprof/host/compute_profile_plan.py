@@ -5,10 +5,11 @@ tool never hides results from another one.
 """
 from __future__ import annotations
 
-import json
 import math
 import os
 from typing import Any, Dict, Tuple
+
+from acprof.artifacts import read_json_object
 
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 TORCH_PROFILE_KEY = "torch_profiler_eager"
@@ -44,12 +45,9 @@ def load_compute_profile_plan(path: str) -> Dict[str, Any]:
     if not os.path.exists(path):
         return {"profiles": {}, "_load_error": f"compute_profile_plan_not_found:{path}"}
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            plan = json.load(f)
-    except Exception as exc:
+        plan = read_json_object(path, label="compute profile plan")
+    except (OSError, ValueError) as exc:
         return {"profiles": {}, "_load_error": f"compute_profile_plan_invalid:{exc!r}"}
-    if not isinstance(plan, dict):
-        return {"profiles": {}, "_load_error": "compute_profile_plan_invalid:not_dict"}
     profiles = plan.get("profiles")
     if not isinstance(profiles, dict):
         return {"profiles": {}, "_load_error": "compute_profile_plan_invalid:missing_profiles"}
