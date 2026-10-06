@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.host.profilers import ncu, torch
 from acprof.platform import Environment
 from acprof.run_args import build_parser
@@ -98,6 +99,33 @@ class TestCapability:
             assert (report.measurement[name].status.value) == ("not_requested")
         assert (report.to_dict()["profiling_mode"]) == ("basic")
         assert not (report.to_dict()["full_profile_complete"])
+
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_run_profiler_plan_reader_rejects_invalid_json_artifacts(self, case):
+        from acprof.cli import run
+
+        caps = self.capabilities()
+        report = caps.measurement_report("full", gpu_modes=["on"], compute_tool="ncu")
+        plan = {"profiles": {"gpu": {"ncu": {"entries": [{
+            "gpu_executed_mflop_per_request_ncu": 1.0,
+            "error": "",
+        }]}}}}
+        if case == "nonfinite":
+            plan["corrupt_metric"] = float("nan")
+        else:
+            plan["padding"] = "x" * MAX_JSON_ARTIFACT_BYTES
+
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "compute_profile_plan.json"
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            if case == "oversized":
+                assert path.stat().st_size > MAX_JSON_ARTIFACT_BYTES
+            with pytest.raises(ValueError, match="non-finite|4 MiB read limit"):
+                run._apply_profiler_plan_file(
+                    report,
+                    str(path),
+                    source="compute_profile_plan",
+                )
 
     def test_preflight_availability_is_not_completed_measurement_evidence(self):
         caps = self.capabilities()

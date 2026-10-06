@@ -9,7 +9,6 @@ Usage:
 from __future__ import annotations
 
 import csv
-import json
 import math
 import os
 import signal
@@ -481,6 +480,21 @@ def _resource_matrix(args, parser):
     return cpu_list, mem_list, gpu_list
 
 
+def _apply_profiler_plan_file(
+    capability_report: CapabilityReport,
+    plan_path: str,
+    *,
+    source: str,
+) -> None:
+    if not plan_path or not Path(plan_path).is_file():
+        return
+    apply_profiler_plan(
+        capability_report,
+        read_json_object(plan_path, label=source.replace("_", " ")),
+        source=source,
+    )
+
+
 def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_list,
                      gpu_list, run_command, cgroup_version, cgroup_collection_mode,
                      rapl_topology, preflight_measurements, latency_slo,
@@ -731,8 +745,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
 
         for plan_path, source in ((compute_profile_plan_file, "compute_profile_plan"),
                                   (execution_profile_plan_file, "execution_profile_plan")):
-            if plan_path and Path(plan_path).is_file():
-                apply_profiler_plan(capability_report, json.loads(Path(plan_path).read_text()), source=source)
+            _apply_profiler_plan_file(capability_report, plan_path, source=source)
         static_meta = enrich_static_meta(static_meta, {"capability_report": capability_report.to_dict()})
         write_static_meta_json(static_meta, static_meta_json)
         from acprof.artifacts import atomic_write_json
