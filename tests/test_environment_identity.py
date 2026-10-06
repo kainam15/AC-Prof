@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.dependency_locks import read_python_lock, require_exact_packages
+from acprof.dependency_locks import read_python_lock, read_system_lock, require_exact_packages
 from acprof.host.dependency_images import runtime_fingerprint
 from acprof.runtime_profiles import ENVIRONMENTS, PROFILES, environment_id
 
@@ -71,6 +71,23 @@ class TestEnvironmentIdentity:
         lock['packages'][inherited] += '.changed'
         path.write_text(json.dumps(lock))
         assert (original) != (environment_id(self.env, self.root))
+
+    def test_system_lock_rejects_nonfinite_json(self):
+        path = self.root / self.env.platform.system_lock
+        content = path.read_text()
+        path.write_text(content.replace('{', '{"corrupt_metric": NaN,', 1))
+
+        with pytest.raises(ValueError, match='non-finite'):
+            read_system_lock(path)
+
+    def test_system_lock_rejects_oversized_json(self):
+        path = self.root / self.env.platform.system_lock
+        payload = json.loads(path.read_text())
+        payload['padding'] = 'x' * (4 * 1024 * 1024)
+        path.write_text(json.dumps(payload))
+
+        with pytest.raises(ValueError, match='4 MiB'):
+            read_system_lock(path)
 
     def test_build_recipe_changes_cache_but_not_environment_identity(self):
         original = environment_id(self.env, self.root)

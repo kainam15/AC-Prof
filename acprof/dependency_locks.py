@@ -4,9 +4,36 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+MAX_SYSTEM_LOCK_BYTES = 4 * 1024 * 1024
+
+
+def _finite_json_number(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("non-finite number")
+    return number
+
+
+def _read_system_lock_json(path: str | Path) -> object:
+    """Read the standalone build lock with the same bounded strictness as host artifacts."""
+    source = Path(path)
+    with source.open("rb") as stream:
+        content = stream.read(MAX_SYSTEM_LOCK_BYTES + 1)
+    if len(content) > MAX_SYSTEM_LOCK_BYTES:
+        raise ValueError(f"{source}: system lock exceeds the 4 MiB read limit")
+    try:
+        return json.loads(
+            content.decode("utf-8"),
+            parse_float=_finite_json_number,
+            parse_constant=_finite_json_number,
+        )
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ValueError(f"{source}: invalid system lock JSON: {exc}") from exc
 
 
 def normalized_name(name: str) -> str:
@@ -74,7 +101,7 @@ def require_exact_packages(expected: dict[str, str], actual: dict[str, str], *, 
 
 
 def read_system_lock(path: str | Path) -> dict:
-    data = json.loads(Path(path).read_text())
+    data = _read_system_lock_json(path)
     if not isinstance(data, dict) or type(data.get("schema_version")) is not int or data["schema_version"] != 1:
         raise ValueError("无效 system lock schema_version")
     if not re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", data.get("base_image", "")):
