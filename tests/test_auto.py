@@ -52,6 +52,35 @@ class TestAuto:
             assert (run.finish()) == (2)
             assert (json.loads(run.path.read_text())["status"]) == ("failed")
 
+    def test_nonfinite_summary_artifact_cannot_be_reported_as_success(self):
+        from argparse import Namespace
+
+        from acprof.host.automation import AutomaticRun
+        with tempfile.TemporaryDirectory() as directory:
+            run = AutomaticRun(
+                Namespace(
+                    model="example/model",
+                    output_dir=directory,
+                    profiling_mode="basic",
+                    resume=False,
+                )
+            )
+            run.started = True
+            run.layout.initialize()
+            (run.root / ".acprof").mkdir(exist_ok=True)
+            (run.root / ".acprof/run_state.json").write_text(
+                json.dumps({"status": "complete", "outcome": "ok"})
+            )
+            (run.root / "capability_report.json").write_text(
+                '{"requested_measurements_complete":true,'
+                '"collection_succeeded":true,"corrupt_metric":NaN}'
+            )
+
+            assert run.finish() == 2
+            report = json.loads(run.path.read_text())
+            assert report["status"] == "failed"
+            assert report["error"] == "unreadable capability_report.json"
+
     def invoke(self, directory, *, mode="auto", task=None, checks=None, access_error=None):
         task = task or candidate(tag="text-generation")
         checks = checks or [DoctorCheck("docker", "available", "ok"),
@@ -136,6 +165,51 @@ class TestAuto:
             assert (args.revision) == ("a" * 40)
             detect.assert_not_called()
             access.assert_not_called()
+
+    def test_resume_rejects_oversized_auto_report(self):
+        from argparse import Namespace
+        from dataclasses import asdict
+
+        from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+        from acprof.host.automation import AutomaticRun
+        task = candidate(tag="text-generation")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory, "example--model")
+            root.mkdir()
+            (root / "auto_report.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "requested_profiling_mode": "basic",
+                        "status": "failed",
+                        "padding": "x" * MAX_JSON_ARTIFACT_BYTES,
+                    }
+                )
+            )
+            (root / "run_state.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runtime": {"task": asdict(task)},
+                        "options": {"profiling_mode": "basic"},
+                    }
+                )
+            )
+            args = Namespace(
+                model=task.model_id,
+                output_dir=directory,
+                resume=True,
+                revision=None,
+                profiling_mode="basic",
+                batch_size=1,
+                gpus="off",
+                sniff_iface="docker0",
+            )
+            with patch(
+                "acprof.host.doctor.collect_checks",
+                return_value=[DoctorCheck("docker", "available", "ok")],
+            ), pytest.raises(ValueError, match="auto_report.json exceeds the 4 MiB read limit"):
+                AutomaticRun(args).prepare()
 
     def test_existing_report_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,11 +1,10 @@
 """Preparation and final reports for the conservative automatic collection path."""
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.model_evidence import pinned_revision
 
 
@@ -86,7 +85,7 @@ class AutomaticRun:
             self.layout.initialize()
         saved = load_run_state(self.root) if args.resume else {}
         if args.resume:
-            previous = json.loads(self.path.read_text())
+            previous = read_json_object(self.path, label="auto_report.json")
             if previous.get("schema_version") != 1:
                 raise ValueError("unsupported auto_report schema")
             if previous.get("requested_profiling_mode") != args.profiling_mode:
@@ -145,7 +144,7 @@ class AutomaticRun:
             path = self.layout.path(f"{name}.json")
             if path.is_file():
                 try:
-                    value = json.loads(path.read_text())
+                    value = read_json_object(path, label=f"{name}.json")
                     self.data[name] = {key: value.get(key) for key in (
                         "status", "outcome", "requested_measurements_complete", "collection_succeeded") if key in value}
                 except (OSError, ValueError):
