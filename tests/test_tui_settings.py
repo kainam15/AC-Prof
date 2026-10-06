@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.experiment import RunConfig
 from acprof.tui.settings import (
     SETTINGS_VERSION,
@@ -111,6 +112,28 @@ class TestTuiSettings:
         assert (settings) == (TuiSettings())
         assert ("已使用默认值") in (warning)
         assert (self.path.read_bytes()) == (raw)
+
+    def test_oversized_file_falls_back_without_reading_unbounded_json(self):
+        self.path.parent.mkdir()
+        prefix = f'{{"version":{SETTINGS_VERSION},"padding":"'.encode()
+        self.path.write_bytes(prefix + b"x" * MAX_JSON_ARTIFACT_BYTES + b'"}')
+
+        settings, warning = load_settings(self.path, self.project)
+
+        assert (settings) == (TuiSettings())
+        assert ("4 MiB") in (warning)
+
+    def test_nonfinite_unknown_field_is_rejected_before_decode(self):
+        self.path.parent.mkdir()
+        self.path.write_text(
+            f'{{"version":{SETTINGS_VERSION},"ui":{{}},"ignored":NaN}}',
+            encoding="utf-8",
+        )
+
+        settings, warning = load_settings(self.path, self.project)
+
+        assert (settings) == (TuiSettings())
+        assert (warning)
 
     @pytest.mark.parametrize("payload", [
         pytest.param([], id="not-object"),

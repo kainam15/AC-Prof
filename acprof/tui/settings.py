@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, TextIO, get_type_hints
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, read_json_object
 from acprof.experiment import RunConfig
 from acprof.messages import message
 from acprof.tui.i18n import UI_LANGUAGES, error_message
@@ -158,7 +158,7 @@ def load_settings(path: Path, project_dir: Path) -> tuple[TuiSettings, str]:
     without modifying the file; malformed current values retain a warning.
     """
     try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        payload = read_json_object(path, label="TUI settings")
         settings = _decode_settings(payload, Path(project_dir))
     except UnsupportedSettingsError:
         raise
