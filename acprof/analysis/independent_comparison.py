@@ -20,6 +20,17 @@ from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.result_csv import measurement_key, read_result_csv
 
+_HASH_CHUNK_BYTES = 1024 * 1024
+
+
+def _file_sha256(path: Path) -> str:
+    """Hash an artifact with bounded memory so large result CSVs are not materialized."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(_HASH_CHUNK_BYTES), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
 
 def _interval(values: list[float], confidence: float):
     ordered = sorted(values)
@@ -82,7 +93,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                          "static_meta.json", "hardware_conditions.json", "quality_checks.json", "runtime_validation.json"):
                 artifact = (layout.result_csv if name == "result_all.csv" else
                             conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name))
-                fingerprints[artifact] = hashlib.sha256(artifact.read_bytes()).hexdigest() if artifact.exists() else None
+                fingerprints[artifact] = _file_sha256(artifact) if artifact.exists() else None
             _, rows = read_result_csv(layout.result_csv)
             summarize_windows(rows, metrics, confidence=confidence, resamples=1)
             complete = state.get("status") == "complete"
@@ -168,7 +179,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                     result["reason"] = "nonpositive_baseline_for_ratio"
         output.append(result)
     for artifact, digest in fingerprints.items():
-        current = hashlib.sha256(artifact.read_bytes()).hexdigest() if artifact.exists() else None
+        current = _file_sha256(artifact) if artifact.exists() else None
         if current != digest:
             raise ValueError(f"experiment changed during comparison: {artifact}")
     return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,

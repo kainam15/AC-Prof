@@ -1,7 +1,9 @@
 """Only distinct runs count as independent replicates; failed samples remain visible."""
 import csv
+import hashlib
 import json
 import shutil
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -78,6 +80,22 @@ class TestIndependentComparison(IndependentComparisonFixture):
         assert (side["runs"][0]["quality_status"]) == ("blocked")
         assert (report["quality"]["right"]["quality_checks"][0]["code"]) == ("weights_reinitialized")
         assert (str(right / "quality_checks.json")) in (report["source_sha256"])
+
+    def test_result_fingerprint_streams_without_whole_file_allocation(self):
+        left = self.replicate("left", 0, [2])
+        right = self.replicate("right", 0, [3])
+        expected = hashlib.sha256((left / "result_all.csv").read_bytes()).hexdigest()
+        original_read_bytes = Path.read_bytes
+
+        def guarded_read_bytes(path):
+            if path.name == "result_all.csv":
+                raise AssertionError("result fingerprint must stream")
+            return original_read_bytes(path)
+
+        with patch.object(Path, "read_bytes", guarded_read_bytes):
+            report = self.compare([left], [right])
+
+        assert report["source_sha256"][str(left / "result_all.csv")] == expected
 
     def test_quality_change_during_comparison_invalidates_snapshot(self):
         from acprof.analysis.comparison import compare_results
