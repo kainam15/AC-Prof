@@ -77,6 +77,41 @@ class TestHardwareConditions:
             payload = json.loads(Path(directory, "hardware_conditions.json").read_text())
             assert (payload["cases"]["1c_4g_off"]["errors"])
 
+    def test_persisted_conditions_reject_nonfinite_json_before_observation(self):
+        from unittest.mock import patch
+
+        from acprof.host.hardware_conditions import record_case_conditions
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "hardware_conditions.json")
+            path.write_text('{"schema_version":1,"cases":{},"corrupt_metric":NaN}')
+            original = path.read_bytes()
+            with patch(
+                "acprof.host.hardware_conditions.observe_conditions",
+                side_effect=AssertionError("observation started before persisted evidence validation"),
+            ) as observe:
+                with pytest.raises(ValueError, match="invalid hardware conditions JSON"):
+                    record_case_conditions(directory, "1c_4g_off", object())
+            observe.assert_not_called()
+            assert path.read_bytes() == original
+
+    def test_persisted_conditions_read_is_bounded(self):
+        from unittest.mock import patch
+
+        from acprof.host.hardware_conditions import record_case_conditions
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "hardware_conditions.json")
+            path.write_text(
+                '{"schema_version":1,"cases":{},"padding":"'
+                + ("x" * (4 * 1024 * 1024))
+                + '"}'
+            )
+            with patch("acprof.host.hardware_conditions.observe_conditions") as observe:
+                with pytest.raises(ValueError, match="4 MiB read limit"):
+                    record_case_conditions(directory, "1c_4g_off", object())
+            observe.assert_not_called()
+
     def test_cross_hardware_does_not_hide_unknown_policy_under_a_known_difference(self):
         from copy import deepcopy
         from unittest.mock import patch

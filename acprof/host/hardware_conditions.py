@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.host.command import run_command
 
@@ -102,7 +101,11 @@ def observe_conditions(session) -> dict:
 def record_case_conditions(output_dir, case_id, session, *, cpuset_cpus="") -> None:
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     path = conditions_path(ArtifactLayout.discover(output_dir))
-    payload: dict = json.loads(path.read_text()) if path.exists() else {"schema_version": 1, "cases": {}}
+    payload = (
+        read_json_object(path, label="hardware conditions")
+        if path.exists()
+        else {"schema_version": 1, "cases": {}}
+    )
     if not isinstance(payload, dict) or payload.get("schema_version") != 1 or not isinstance(payload.get("cases"), dict):
         raise ValueError("unsupported hardware conditions schema")
     observed = observe_conditions(session)
