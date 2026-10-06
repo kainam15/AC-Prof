@@ -255,56 +255,57 @@ def start_container_session(
                     timeout=2,
                     headers={"Connection": "close"},
                 )
-                if response.status_code == 200:
-                    ready_received_at = time.time()
-                    try:
-                        body = response.json()
-                    except Exception:
-                        body = None
+            except (requests.exceptions.RequestException, ConnectionError):
+                response = None
 
-                    if isinstance(body, dict) and body.get("status") == "ok":
-                        cold_start_s = time.perf_counter() - t0
-                        breakdown = _cold_start_breakdown(
-                            body,
-                            t0_wall,
-                            ready_received_at,
-                        )
-                        print(
-                            f"{log_prefix} Model: {body.get('model_id')}, "
-                            f"device: {body.get('device')}, load: {body.get('load_time_s')}s"
-                        )
-                        print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
-                        return RunningContainer(
-                            name=container_name,
-                            container_id=container_id,
-                            base_url=base_url,
-                            host_port=host_port,
-                            cold_start_s=cold_start_s,
-                            gpu_device=gpu_device,
-                            _model_store_mount=model_store_mount,
-                            **breakdown,
-                        )
+            if response is not None and response.status_code == 200:
+                ready_received_at = time.time()
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = None
 
-                    if response.text.strip() == "ok":
-                        cold_start_s = time.perf_counter() - t0
-                        breakdown = _cold_start_breakdown(
-                            None,
-                            t0_wall,
-                            ready_received_at,
-                        )
-                        print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
-                        return RunningContainer(
-                            name=container_name,
-                            container_id=container_id,
-                            base_url=base_url,
-                            host_port=host_port,
-                            cold_start_s=cold_start_s,
-                            gpu_device=gpu_device,
-                            _model_store_mount=model_store_mount,
-                            **breakdown,
-                        )
-            except Exception:
-                pass
+                if isinstance(body, dict) and body.get("status") == "ok":
+                    cold_start_s = time.perf_counter() - t0
+                    breakdown = _cold_start_breakdown(
+                        body,
+                        t0_wall,
+                        ready_received_at,
+                    )
+                    print(
+                        f"{log_prefix} Model: {body.get('model_id')}, "
+                        f"device: {body.get('device')}, load: {body.get('load_time_s')}s"
+                    )
+                    print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
+                    return RunningContainer(
+                        name=container_name,
+                        container_id=container_id,
+                        base_url=base_url,
+                        host_port=host_port,
+                        cold_start_s=cold_start_s,
+                        gpu_device=gpu_device,
+                        _model_store_mount=model_store_mount,
+                        **breakdown,
+                    )
+
+                if response.text.strip() == "ok":
+                    cold_start_s = time.perf_counter() - t0
+                    breakdown = _cold_start_breakdown(
+                        None,
+                        t0_wall,
+                        ready_received_at,
+                    )
+                    print(f"{log_prefix} Server ready. cold_start={cold_start_s:.3f}s")
+                    return RunningContainer(
+                        name=container_name,
+                        container_id=container_id,
+                        base_url=base_url,
+                        host_port=host_port,
+                        cold_start_s=cold_start_s,
+                        gpu_device=gpu_device,
+                        _model_store_mount=model_store_mount,
+                        **breakdown,
+                    )
 
             startup_exit_error = container_state.container_startup_exit_error(container_name, mem)
             if startup_exit_error:

@@ -298,6 +298,55 @@ class TestDetectEnvironment:
         assert (metrics["cold_start_started_at"]) != ("nan")
         assert (metrics["cold_start_ready_at"]) != ("nan")
 
+    def test_start_container_session_surfaces_ready_processing_errors(self) -> None:
+        task_info = TaskInfo(
+            model_id="google-bert/bert-base-uncased",
+            pipeline_tag="fill-mask",
+            task_family="nlp",
+            runtime_backend="transformers_pipeline",
+            library_name="transformers",
+            model_revision="0123456789abcdef",
+            detection_method="hub_api",
+        )
+        ready_response = SimpleNamespace(
+            status_code=200,
+            text="",
+            json=lambda: {"status": "ok"},
+        )
+
+        def fake_run(cmd, **_kwargs):
+            return SimpleNamespace(
+                returncode=0,
+                stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "",
+                stderr="",
+            )
+
+        with patch(
+            "acprof.host.command.run_command",
+            side_effect=fake_run,
+        ), patch(
+            "acprof.host.container_state.inspect_container_state",
+            return_value={},
+        ), patch(
+            "acprof.host.container_state.container_startup_exit_error",
+            return_value="container exited after ready handling",
+        ), patch(
+            "acprof.host.docker_runtime._cold_start_breakdown",
+            side_effect=RuntimeError("timing parser bug"),
+        ), patch(
+            "requests.get",
+            return_value=ready_response,
+        ), pytest.raises(RuntimeError, match="timing parser bug"):
+            docker_runtime.start_container_session(
+                task_info=task_info,
+                cpu=1,
+                mem=2,
+                gpu="off",
+                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
+                container_name="ready-processing-test",
+                log_prefix="[test]",
+            )
+
     def test_start_container_session_reports_oom_before_ready_timeout(self) -> None:
         task_info = TaskInfo(
             model_id="openai/whisper-large-v3",
