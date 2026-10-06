@@ -59,6 +59,12 @@ class TestModelStore:
             assert (model_store.prune_store(root=self.root, apply=True)["entries"]) == ([])
             assert (blob.exists())
 
+    def test_prepared_entry_metadata_is_fsynced_before_publication(self):
+        with patch("os.fsync") as fsync:
+            self.prepare()
+
+        assert fsync.call_count >= 4
+
     def test_existing_entry_is_reused_offline_and_cache_savings_are_exact(self):
         first = self.prepare()
         assert (model_store.model_sources(self.plan, self.root)[0].estimated_bytes) == (0)

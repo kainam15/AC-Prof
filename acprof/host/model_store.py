@@ -21,6 +21,7 @@ from pathlib import Path
 from threading import Event
 from urllib.parse import urlsplit
 
+from acprof.artifacts import atomic_write
 from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
 from acprof.dependency_locks import content_digest
 from acprof.hf_download import try_hf_endpoints
@@ -123,10 +124,8 @@ def entry_key(task) -> str:
 
 
 def _json(path: Path, value: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
-    temporary.replace(path)
+    payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    atomic_write(path, lambda stream: stream.write(payload))
 
 
 @contextmanager
@@ -509,7 +508,8 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                             raise ValueError("Model Store snapshot escaped its store root")
                         link.symlink_to(os.path.relpath(blob, link.parent))
                     (cache / "refs").mkdir(exist_ok=True)
-                    (cache / "refs/main").write_text(repo["model_revision"])
+                    revision = repo["model_revision"]
+                    atomic_write(cache / "refs/main", lambda stream: stream.write(revision))
                 _json(temporary / PLAN_FILENAME, plan)
                 # Rename preserves relative symlink depth.
                 temporary.rename(destination)
