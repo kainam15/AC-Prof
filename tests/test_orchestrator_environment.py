@@ -671,6 +671,48 @@ class TestDetectEnvironment:
         assert (leftovers) == ([])
         assert fsync.call_count >= 2
 
+    def test_write_static_meta_json_rejects_nonfinite_values_atomically(self) -> None:
+        meta = static_metadata.StaticMeta(
+            model_name="model",
+            model_revision="main",
+            task_family="nlp",
+            pipeline_tag="fill-mask",
+            runtime_backend="transformers_pipeline",
+            image_tag="image",
+            batch_size=1,
+            input_scale_type="seq_length",
+            run_command="acprof run --model model",
+            model_download_url="https://example.invalid/model",
+            gpu="GPU",
+            gpu_mem_total_bytes=None,
+            model_cache_bytes=0,
+            docker_image_bytes=0,
+            environment="ubuntu24.04",
+            cpu_power_source="unavailable",
+            vcpu_power_method="unavailable",
+            cpu_governor="unknown",
+            cpu_boost="unknown",
+            ncu_fma_flop_weight=float("nan"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "static_meta.json")
+            previous = '{"previous":true}\n'
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(previous)
+
+            with pytest.raises(
+                ValueError,
+                match="Out of range float values are not JSON compliant",
+            ):
+                static_metadata.write_static_meta_json(meta, path)
+
+            with open(path, "r", encoding="utf-8") as stream:
+                persisted = stream.read()
+
+        assert persisted == previous
+
+
     def test_compute_plan_adds_static_flops_by_input_scale(self) -> None:
         meta = static_metadata.StaticMeta(
             model_name="model",

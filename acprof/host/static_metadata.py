@@ -10,7 +10,7 @@ import shutil
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write_json
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
@@ -932,9 +932,5 @@ def write_static_meta_json(static_meta: StaticMeta, output_path: str) -> None:
         for field in STATIC_META_FIELDS
     }
 
-    def write(stream) -> None:
-        json.dump(payload, stream, ensure_ascii=False, indent=2)
-        stream.write("\n")
-
-    atomic_write(output_path, write)
+    atomic_write_json(output_path, payload)
     print(f"[meta] Static meta JSON: {output_path}")
