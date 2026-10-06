@@ -112,6 +112,21 @@ class TestRuntimeValidation:
         assert (all('ACPROF_REQUEST_TIMEOUT_S=30' in command for command in runs))
         assert all(mount.close.call_count == 1 for mount in mounts)
 
+    def test_mount_is_released_when_command_setup_fails_before_docker_run(self, tmp_path):
+        mount = SimpleNamespace(args=[], close=Mock())
+        with patch(
+            "acprof.host.model_store.acquire_mount", return_value=mount,
+        ), patch(
+            "acprof.host.runtime_validation.runtime_docker_env_args",
+            side_effect=RuntimeError("runtime env setup failed"),
+        ), patch(
+            "acprof.host.runtime_validation.run_command",
+            side_effect=AssertionError("docker must not start"),
+        ), pytest.raises(RuntimeError, match="runtime env setup failed"):
+            validate_runtime(**{**self.fixture(tmp_path), "gpu_list": ["off"]})
+
+        mount.close.assert_called_once_with()
+
     def test_same_process_residue_blocks_validation_and_records_preflight_failure(self):
         from acprof.host.container_lifecycle import (
             ContainerCleanupError,

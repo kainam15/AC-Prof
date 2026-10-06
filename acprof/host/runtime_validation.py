@@ -116,29 +116,33 @@ def validate_runtime(
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
             cidfile = Path(temporary) / f"{device_mode}.cid"
             model_store_mount = acquire_mount(image_info.runtime_environment)
-            command = [
-                "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
-                "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",
-                "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
-                f"--cpus={max(cpu_list)}", f"--memory={max(mem_list)}g",
-                "-v", f"{payload}:/validation-input.json:ro",
-                "-e", f"MODEL_ID={task_info.model_id}",
-                "-e", f"MODEL_REVISION={task_info.model_revision}",
-                "-e", f"TASK_FAMILY={task_info.task_family}",
-                "-e", f"TASK_TYPE={task_info.pipeline_tag}",
-                "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
-                "-e", f"USE_GPU={int(device_mode == 'on')}",
-                "-e", f"TORCH_NUM_THREADS={max(cpu_list)}",
-                "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds:g}",
-                *runtime_docker_env_args(),
-                *hf_offline_docker_env_args(),
-                *model_store_mount.args,
-                "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
-                "-e", "PYTHONDONTWRITEBYTECODE=1",
-            ]
-            if device_mode == "on":
-                command += gpu_docker_args()
-            command += ["--entrypoint", "python", image_info.tag, "-m", "acprof.container.runtime_validate", "/validation-input.json"]
+            try:
+                command = [
+                    "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
+                    "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit=256",
+                    "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
+                    f"--cpus={max(cpu_list)}", f"--memory={max(mem_list)}g",
+                    "-v", f"{payload}:/validation-input.json:ro",
+                    "-e", f"MODEL_ID={task_info.model_id}",
+                    "-e", f"MODEL_REVISION={task_info.model_revision}",
+                    "-e", f"TASK_FAMILY={task_info.task_family}",
+                    "-e", f"TASK_TYPE={task_info.pipeline_tag}",
+                    "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
+                    "-e", f"USE_GPU={int(device_mode == 'on')}",
+                    "-e", f"TORCH_NUM_THREADS={max(cpu_list)}",
+                    "-e", f"ACPROF_REQUEST_TIMEOUT_S={timeout_seconds:g}",
+                    *runtime_docker_env_args(),
+                    *hf_offline_docker_env_args(),
+                    *model_store_mount.args,
+                    "-e", "HF_MODULES_CACHE=/tmp/hf-modules", "-e", "XDG_CACHE_HOME=/tmp/cache",
+                    "-e", "PYTHONDONTWRITEBYTECODE=1",
+                ]
+                if device_mode == "on":
+                    command += gpu_docker_args()
+                command += ["--entrypoint", "python", image_info.tag, "-m", "acprof.container.runtime_validate", "/validation-input.json"]
+            except BaseException:
+                model_store_mount.close()
+                raise
             print(f"[runtime-check] {device_mode}: 正在验证模型运行（独立容器）", flush=True)
             log = ""
             run_error: BaseException | None = None
