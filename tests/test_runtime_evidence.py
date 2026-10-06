@@ -215,6 +215,21 @@ def test_server_failure_survives_client_and_is_written_after_request():
         saved = json.loads(Path(directory, "case.csv.runtime_failures.json").read_text())
     assert (saved["failures"]) == ([failure.to_dict()])
 
+def test_collect_failures_rejects_nonfinite_case_evidence(tmp_path):
+    from acprof.artifact_layout import case_sidecar
+    from acprof.failures import collect_failures
+
+    case_csv = tmp_path / "case.csv"
+    case_sidecar(case_csv, "runtime_failures").write_text(
+        '{"failures": [], "corrupt_metric": NaN}'
+    )
+
+    with pytest.raises(ValueError, match="invalid runtime failure evidence JSON"):
+        collect_failures(tmp_path, [case_csv])
+
+    assert not (tmp_path / "runtime_failures.json").exists()
+
+
 def test_tui_keeps_typed_failure_instead_of_classifying_detail():
     failure = Failure("preflight", "runtime_dependency_missing", "任意本地化文本", evidence={"module": "skimage"})
     tracker = RunProgressTracker()

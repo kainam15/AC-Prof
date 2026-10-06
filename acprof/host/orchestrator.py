@@ -518,10 +518,10 @@ def run_single_case(
                 )
             else:
                 from acprof.artifact_layout import case_sidecar
-                from acprof.failures import Failure, RuntimeFailure
+                from acprof.failures import Failure, RuntimeFailure, read_runtime_failures
                 failure_path = case_sidecar(out_csv, "runtime_failures")
                 if failure_path.is_file():
-                    failures = json.loads(failure_path.read_text()).get("failures", [])
+                    failures = read_runtime_failures(failure_path)
                     if failures:
                         raise RuntimeFailure(Failure(**failures[-1]))
                 if client_result.returncode == MIPS_EXIT_CODE:

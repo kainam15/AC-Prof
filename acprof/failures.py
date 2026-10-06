@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from acprof.artifacts import read_json_object
+
 REASON_CODES = frozenset({
     "runtime_task_unsupported", "runtime_dependency_missing", "runtime_dependency_incompatible",
     "runtime_dependency_unknown", "precision_mismatch", "request_timeout", "resource_limit",
@@ -89,6 +91,14 @@ def compatibility_status(failure: Failure | dict) -> str:
     return "failed"
 
 
+def read_runtime_failures(path: str | Path) -> list[dict[str, Any]]:
+    payload = read_json_object(path, label="runtime failure evidence")
+    failures = payload.get("failures")
+    if not isinstance(failures, list) or not all(isinstance(item, dict) for item in failures):
+        raise ValueError(f"{path}: runtime failure evidence must contain a failures list of objects")
+    return failures
+
+
 def collect_failures(root: Path, case_csvs=()):
     from acprof.artifact_layout import ArtifactLayout, case_sidecar
     from acprof.artifacts import atomic_write_json
@@ -96,7 +106,7 @@ def collect_failures(root: Path, case_csvs=()):
     for csv in case_csvs:
         path = case_sidecar(csv, "runtime_failures")
         if path.exists():
-            failures.extend(json.loads(path.read_text())["failures"])
+            failures.extend(read_runtime_failures(path))
     path = ArtifactLayout.discover(root).path("runtime_failures.json")
     if failures or path.exists():
         # Resume archives previous case attempts. Refresh the current evidence
