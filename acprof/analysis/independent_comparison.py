@@ -1,7 +1,6 @@
 """Compare run means, resampling independent runs instead of individual requests."""
 from __future__ import annotations
 
-import json
 import math
 import random
 import statistics
@@ -14,7 +13,7 @@ from acprof.analysis.comparison import compare_results
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import file_sha256
+from acprof.artifacts import file_sha256, read_json_object
 from acprof.host.hardware_conditions import conditions_path
 from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
@@ -70,7 +69,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         for path in paths:
             source = Path(path)
             layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
-            state = json.loads(layout.path("run_state.json").read_text())
+            state = read_json_object(layout.path("run_state.json"), label="run state")
             run_id = state.get("run_id")
             if not isinstance(run_id, str) or not run_id:
                 raise ValueError("independent comparison requires recorded run IDs")

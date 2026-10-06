@@ -4,6 +4,8 @@ import copy
 import csv
 import io
 import json
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from comparison_fixtures import ComparisonFixture
@@ -88,6 +90,23 @@ class TestResultComparison(ComparisonFixture):
         report = self.compare()
         assert not (report["valid"])
         assert (report["experiments"]["right"]["issues"])
+
+    def test_comparison_metadata_uses_bounded_artifact_reader(self):
+        original_read_text = Path.read_text
+        metadata_names = {
+            "run_state.json", "static_meta.json", "input_scale_plan.json",
+            "hardware_conditions.json",
+        }
+
+        def guarded_read_text(path, *args, **kwargs):
+            if path.name in metadata_names:
+                raise AssertionError(f"unbounded metadata read: {path.name}")
+            return original_read_text(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", guarded_read_text):
+            report = self.compare()
+
+        assert report["status"] == "compatible"
 
     def test_input_order_change_is_detected_without_requiring_whole_plan_hash(self):
         self.change_json(self.right, "input_scale_plan.json", lambda plan: plan["entries"][0]["payload"]["features"].reverse())

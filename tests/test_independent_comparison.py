@@ -97,6 +97,21 @@ class TestIndependentComparison(IndependentComparisonFixture):
 
         assert report["source_sha256"][str(left / "result_all.csv")] == expected
 
+    def test_independent_run_state_uses_bounded_artifact_reader(self):
+        left = self.replicate("left", 0, [2])
+        right = self.replicate("right", 0, [3])
+        original_read_text = Path.read_text
+
+        def guarded_read_text(path, *args, **kwargs):
+            if path.name == "run_state.json":
+                raise AssertionError("run state must use the bounded artifact reader")
+            return original_read_text(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", guarded_read_text):
+            report = self.compare([left], [right])
+
+        assert report["status"] == "compatible"
+
     def test_quality_change_during_comparison_invalidates_snapshot(self):
         from acprof.analysis.comparison import compare_results
         left = self.replicate("left", 0, [2])

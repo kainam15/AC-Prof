@@ -16,6 +16,7 @@ from acprof.analysis.conditions import (
     comparison_profile,
     workload_case_profile,
 )
+from acprof.artifacts import read_json_object
 from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
@@ -167,10 +168,7 @@ def load_comparison_snapshot(source: str | Path) -> dict:
             path = layout.path(name)
             if not path.exists():
                 return {}
-            value = json.loads(path.read_text())
-            if not isinstance(value, dict):
-                raise ValueError("JSON 顶层应为对象")
-            return value
+            return read_json_object(path, label=name)
         except (OSError, ValueError) as error:
             issues.append(f"{name}: {error}")
             return {}
