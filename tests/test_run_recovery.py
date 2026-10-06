@@ -166,6 +166,76 @@ class TestRunRecovery(RunRecoveryFixture):
         assert (self.calls) == ([])
         assert ((result.read_bytes(), result.stat().st_mtime_ns)) == (before)
 
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_preparation_backup_syncs_directory_entries(self):
+        import stat
+
+        from acprof.host.run_state import RunState
+
+        state = RunState(
+            self.directory,
+            {},
+            resume=False,
+            project_dir=str(Path(__file__).resolve().parents[1]),
+        )
+        self._request.addfinalizer(state.close)
+        evidence = state.layout.path("static_meta.json")
+        evidence.write_text('{"fixture":true}\n', encoding="utf-8")
+        synced_types = []
+        synced_directories = []
+        real_fsync = os.fsync
+
+        def track_fsync(fd):
+            file_type = stat.S_IFMT(os.fstat(fd).st_mode)
+            synced_types.append(file_type)
+            if file_type == stat.S_IFDIR:
+                synced_directories.append(Path(os.readlink(f"/proc/self/fd/{fd}")).resolve())
+            real_fsync(fd)
+
+        with patch("os.fsync", side_effect=track_fsync):
+            backup = state._archive_preparation()
+
+        backup_path = (self.directory / backup).resolve()
+        assert (backup_path / "static_meta.json").is_file()
+        assert stat.S_IFREG in synced_types
+        assert any(path == backup_path or path.is_relative_to(backup_path) for path in synced_directories)
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_interrupted_case_backup_syncs_directory_entries(self):
+        import stat
+
+        from acprof.host.run_state import RunState
+
+        state = RunState(
+            self.directory,
+            {},
+            resume=False,
+            project_dir=str(Path(__file__).resolve().parents[1]),
+        )
+        self._request.addfinalizer(state.close)
+        case = state.layout.case("", 1, 4, "off")
+        case.csv.parent.mkdir(parents=True, exist_ok=True)
+        case.csv.write_text("partial\n", encoding="utf-8")
+        synced_types = []
+        synced_directories = []
+        real_fsync = os.fsync
+
+        def track_fsync(fd):
+            file_type = stat.S_IFMT(os.fstat(fd).st_mode)
+            synced_types.append(file_type)
+            if file_type == stat.S_IFDIR:
+                synced_directories.append(Path(os.readlink(f"/proc/self/fd/{fd}")).resolve())
+            real_fsync(fd)
+
+        with patch("os.fsync", side_effect=track_fsync):
+            assert state.prepare_case("unused.csv", 1, 4, "off") is None
+
+        backups = list(state.layout.path("interrupted_cases").rglob("result.csv"))
+        backup_root = state.layout.path("interrupted_cases").resolve()
+        assert len(backups) == 1
+        assert stat.S_IFREG in synced_types
+        assert any(path == backup_root or path.is_relative_to(backup_root) for path in synced_directories)
+
     def test_changed_completed_case_is_rejected(self):
         self.interrupt_after_first()
         source = self.directory / ".acprof/work/cases/1c_4g_off/result.csv"

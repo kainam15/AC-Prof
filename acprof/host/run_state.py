@@ -15,7 +15,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, sync_directory
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
@@ -29,6 +29,19 @@ MAX_RUN_STATE_BYTES = 4 * 1024 * 1024
 # Native Linux only. Never derive this machine-wide per-user namespace from TMPDIR.
 # Test runners inject an isolated directory in-process, not via a production env option.
 MEASUREMENT_LOCK_ROOT = Path("/tmp")
+
+
+def _sync_directory_chain(directory: Path, root: Path) -> None:
+    """Persist recovery-directory entries from a copied file up to the experiment root."""
+    directory = directory.absolute()
+    root = root.absolute()
+    if not directory.is_relative_to(root):
+        raise ValueError(f"Recovery directory escapes experiment root: {directory}")
+    while True:
+        sync_directory(directory)
+        if directory == root:
+            return
+        directory = directory.parent
 
 
 class RunStateError(RuntimeError):
@@ -365,6 +378,7 @@ class RunState:
         for name in ("logs", "compute_profiles", "execution_profiles"):
             sources.extend(self.layout.path(name).rglob("*"))
         backup = self.layout.path("interrupted_cases").parent / "preparation_attempts" / uuid4().hex
+        backup_directories: set[Path] = set()
         for source in sources:
             source = self.artifact_path(str(source.relative_to(self.directory)))
             if not source.exists():
@@ -378,6 +392,9 @@ class RunState:
             shutil.copy2(source, target)
             with target.open("rb") as stream:
                 os.fsync(stream.fileno())
+            backup_directories.add(target.parent)
+        for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
+            _sync_directory_chain(directory, self.directory)
         return str(backup.relative_to(self.directory))
 
     def bind_matrix_plan(self, plan: dict) -> None:
@@ -456,6 +473,7 @@ class RunState:
         if existing:
             backup = self.layout.path("interrupted_cases") / case.case_id / uuid4().hex
             backup.mkdir(parents=True)
+            backup_directories: set[Path] = set()
             # Preserve every source before removing any file, including partial PCAPs.
             for source in existing:
                 self.artifact_path(str(source.relative_to(self.directory)))
@@ -467,6 +485,9 @@ class RunState:
                 shutil.copy2(source, target)
                 with target.open("rb") as stream:
                     os.fsync(stream.fileno())
+                backup_directories.add(target.parent)
+            for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
+                _sync_directory_chain(directory, self.directory)
             self.data["cases"][filename] = {"status": "archived", "backup": str(backup.relative_to(self.directory))}
             self.save()
             for source in existing:

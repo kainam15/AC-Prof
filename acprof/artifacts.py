@@ -77,7 +77,7 @@ def read_static_metadata(result_dir: str | Path, *, required: bool = False) -> d
     return {**payload, **recorded_identity(payload)}
 
 
-def _sync_directory(directory: Path) -> None:
+def sync_directory(directory: Path) -> None:
     if os.name != "posix":
         return
     directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
@@ -94,9 +94,9 @@ def replace_file_durably(source: str | Path, destination: str | Path) -> None:
     with source_path.open("rb") as stream:
         os.fsync(stream.fileno())
     os.replace(source_path, destination_path)
-    _sync_directory(destination_path.parent)
+    sync_directory(destination_path.parent)
     if source_path.parent != destination_path.parent:
-        _sync_directory(source_path.parent)
+        sync_directory(source_path.parent)
 
 
 def atomic_write(
@@ -121,7 +121,7 @@ def atomic_write(
             os.fsync(stream.fileno())
         os.replace(temporary, destination)
         temporary = None
-        _sync_directory(destination.parent)
+        sync_directory(destination.parent)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
