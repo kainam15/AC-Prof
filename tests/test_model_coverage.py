@@ -32,6 +32,36 @@ def test_runtime_failures_keep_semantic_review_and_frozen_denominator():
         assert (summary["semantic_wrong_selections"]) == (0)
         assert (summary["failure_stages"]) == ({"resource": 1, "environment": 1})
 
+
+def test_runtime_failure_with_corrupt_validation_artifact_preserves_primary_failure(tmp_path):
+    from acprof.host.model_coverage import run_sample
+    from acprof.host.model_inspection import ProbePreparationError
+
+    task = candidate(tag="text-generation")
+    manifest = {
+        "schema_version": 1,
+        "sampling": "fixed",
+        "weight_basis": "uniform",
+        "models": [{"model_id": "example/model", "revision": "a" * 40, "weight": 1}],
+    }
+
+    def fail_runtime(_task, output, **_kwargs):
+        Path(output, "runtime_validation.json").write_text('{"status":', encoding="utf-8")
+        raise ProbePreparationError("build failed")
+
+    with patch("acprof.host.detect.detect_task", return_value=task), patch(
+        "acprof.host.automation.check_repository_access"
+    ), patch(
+        "acprof.host.model_inspection.validate_model_runtime",
+        side_effect=fail_runtime,
+    ):
+        report = run_sample(manifest, tmp_path / "report", probe="full")
+
+    row = report["rows"][0]
+    assert row["error_type"] == "ProbePreparationError"
+    assert row["runtime_status"] == "error"
+
+
 def test_runtime_coverage_serializes_with_formal_measurement_but_static_does_not(tmp_path):
     from acprof.host.model_coverage import run_sample
 

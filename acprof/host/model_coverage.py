@@ -1,13 +1,13 @@
 """Frozen model samples and coverage reports, independent of formal measurements."""
 from __future__ import annotations
 
-import json
+import logging
 import math
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.model_evidence import pinned_revision
 
 
@@ -102,6 +102,21 @@ class CoverageCleanupError(RuntimeError):
     """The failed model is durable, but an owned container prevents further work."""
 
 
+_LOG = logging.getLogger(__name__)
+
+
+def _read_runtime_validation_recovery(path: Path) -> dict:
+    """Read only well-formed runtime evidence when preserving a primary failure."""
+    validation = read_json_object(path, label="runtime validation")
+    status = validation.get("status")
+    devices = validation.get("devices", {})
+    if not isinstance(status, str) or not status:
+        raise ValueError(f"{path}: runtime validation status must be a nonempty string")
+    if not isinstance(devices, dict) or any(not isinstance(value, dict) for value in devices.values()):
+        raise ValueError(f"{path}: runtime validation devices must be an object of objects")
+    return validation
+
+
 def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                     timeout_seconds, max_parameters, max_download_bytes) -> dict:
     from acprof.host.detect import detect_task
@@ -157,7 +172,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             if failures:
                 row["failure"] = failures[0]
     except (Exception, SystemExit) as exc:
-        from acprof.failures import compatibility_status, failure_from_exception
+        from acprof.failures import Failure, compatibility_status, failure_from_exception
         failure = failure_from_exception(exc, stage=getattr(exc, "stage", stage), device="gpu" if gpu else "cpu",
                                          runtime_profile=row.get("runtime_profile", ""))
         row["failure"] = failure.to_dict()
@@ -171,16 +186,41 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             path = output / "runtime_validation.json"
             row["runtime_status"] = "error"
             if path.is_file():
-                validation = json.loads(path.read_text())
-                row["quality_checks"] = [check for value in validation.get("devices", {}).values() for check in value.get("quality_checks", [])]
-                row["runtime_status"] = validation["status"]
-                structured = [device["failure"] for device in validation.get("devices", {}).values() if device.get("failure")]
-                if structured:
-                    row["failure"] = structured[0]
-                    row["reason_code"] = structured[0]["reason_code"]
-                    row["runtime_status"] = compatibility_status(structured[0])
-                failures = [device.get("failed_stage") for device in validation.get("devices", {}).values() if device.get("failed_stage")]
-                row["failed_stage"] = ",".join(failures) or stage
+                try:
+                    recovered_validation = _read_runtime_validation_recovery(path)
+                    devices = recovered_validation.get("devices", {})
+                    quality_checks = []
+                    structured = []
+                    failed_stages = []
+                    for device in devices.values():
+                        checks = device.get("quality_checks", [])
+                        if not isinstance(checks, list) or any(not isinstance(check, dict) for check in checks):
+                            raise ValueError(f"{path}: runtime validation quality_checks must be lists of objects")
+                        quality_checks.extend(checks)
+                        recorded_failure = device.get("failure")
+                        if recorded_failure is not None:
+                            if not isinstance(recorded_failure, dict):
+                                raise ValueError(f"{path}: runtime validation failure must be an object")
+                            structured.append(Failure(**recorded_failure).to_dict())
+                        failed_stage = device.get("failed_stage")
+                        if failed_stage is not None:
+                            if not isinstance(failed_stage, str) or not failed_stage:
+                                raise ValueError(f"{path}: runtime validation failed_stage must be a nonempty string")
+                            failed_stages.append(failed_stage)
+                except (OSError, TypeError, ValueError) as evidence_error:
+                    _LOG.warning(
+                        "runtime validation recovery evidence is unusable; preserving primary failure: %s",
+                        evidence_error,
+                    )
+                else:
+                    validation = recovered_validation
+                    row["quality_checks"] = quality_checks
+                    row["runtime_status"] = validation["status"]
+                    if structured:
+                        row["failure"] = structured[0]
+                        row["reason_code"] = structured[0]["reason_code"]
+                        row["runtime_status"] = compatibility_status(structured[0])
+                    row["failed_stage"] = ",".join(failed_stages) or stage
     if validation is not None and validation.get("cleanup_status") == "incomplete":
         row["cleanup_status"] = "incomplete"
         row["cleanup_errors"] = [value for value in [validation.get("cleanup_error"), *(
