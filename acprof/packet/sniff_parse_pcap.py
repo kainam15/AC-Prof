@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import math
 import sys
 from collections import Counter
 from typing import Sequence
@@ -53,6 +54,14 @@ def _parse_int_field(raw: str) -> int | None:
     return parsed if parsed >= 0 else None
 
 
+def _parse_finite_float_field(raw: str) -> float | None:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
@@ -98,16 +107,18 @@ def main(argv: Sequence[str] | None = None) -> None:
 
         if not fn.isdigit():
             continue
-        try:
-            req_fn = int(fn)
-            req_time[req_fn] = float(t)
-            req_gid[req_fn] = extract_group_id_from_request_lines(req_lines)
-            req_ids[req_fn] = extract_request_id(req_lines)
-            stream_id = _parse_int_field(stream)
-            if stream_id is not None:
-                req_stream[req_fn] = stream_id
-        except Exception:
-            pass
+        req_fn = int(fn)
+        request_time = _parse_finite_float_field(t)
+        if request_time is None:
+            continue
+        group_id = extract_group_id_from_request_lines(req_lines)
+        request_id = extract_request_id(req_lines)
+        stream_id = _parse_int_field(stream)
+        req_time[req_fn] = request_time
+        req_gid[req_fn] = group_id
+        req_ids[req_fn] = request_id
+        if stream_id is not None:
+            req_stream[req_fn] = stream_id
 
     # 2) response: http.request_in 指回对应 request frame -> response time
     resp_cmd = [
@@ -135,12 +146,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             continue
 
         req_fn = int(req_in)
-        if req_fn in req_time:
-            try:
-                dt = float(t) - float(req_time[req_fn])
-            except Exception:
-                continue
-            if dt >= 0:
+        response_time = _parse_finite_float_field(t)
+        if req_fn in req_time and response_time is not None:
+            dt = response_time - req_time[req_fn]
+            if math.isfinite(dt) and dt >= 0:
                 gid = req_gid.get(req_fn, "group")
                 latency_by_request[f"{gid}:{req_fn}"] = dt
 
@@ -214,7 +223,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             })
         requests[request_id] = record
 
-    print(json.dumps({"schema_version": 2, "requests": requests, "streams": stream_stats}, indent=2, sort_keys=True))
+    print(json.dumps(
+        {"schema_version": 2, "requests": requests, "streams": stream_stats},
+        allow_nan=False,
+        indent=2,
+        sort_keys=True,
+    ))
 
 
 if __name__ == "__main__":

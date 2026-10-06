@@ -61,3 +61,38 @@ def test_emits_schema_v2_latency_and_wire_metrics() -> None:
     assert (record["tcp_payload_bytes"]) == (550)
     assert (record["protocol_overhead_bytes"]) == (350)
     assert (record["protocol_overhead_ratio"]) == (350 / 900) or round(abs((record["protocol_overhead_ratio"]) - (350 / 900)), 7) == 0
+
+
+def test_nonfinite_response_timestamp_is_not_emitted() -> None:
+    def fake_run(command):
+        if "http.request.line" in command:
+            return "10\t100.0\tX-Req-Id: case:0\t7\n"
+        if "http.request_in" in command:
+            return "10\t1e309\t200\n"
+        if "frame.len" in command:
+            return "7\t50000\t8002\t100\t50\n"
+        pytest.fail(f"unexpected tshark command: {command}")
+
+    stdout = io.StringIO()
+    with patch.object(sniff_parse_pcap, "run", side_effect=fake_run), contextlib.redirect_stdout(
+        stdout
+    ):
+        sniff_parse_pcap.main(["capture.pcap", "8002"])
+
+    assert "Infinity" not in stdout.getvalue()
+    assert json.loads(stdout.getvalue())["requests"] == {}
+
+
+def test_request_parser_surfaces_unexpected_header_errors() -> None:
+    def fake_run(command):
+        if "http.request.line" in command:
+            return "10\t100.0\tX-Req-Id: case:0\t7\n"
+        return ""
+
+    with patch.object(sniff_parse_pcap, "run", side_effect=fake_run), patch.object(
+        sniff_parse_pcap,
+        "extract_request_id",
+        side_effect=RuntimeError("parser bug"),
+    ):
+        with pytest.raises(RuntimeError, match="parser bug"):
+            sniff_parse_pcap.main(["capture.pcap", "8002"])
