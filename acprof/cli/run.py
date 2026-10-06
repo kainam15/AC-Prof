@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from acprof.host.runtime_images import ImageInfo
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import read_json_object
 from acprof.capabilities import (
     Capability,
     CapabilityReport,
@@ -510,7 +511,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
         _update_run_notification_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
         print(f"[resume] 恢复实验 {run_state.data['run_id']}，复用原镜像和输入计划")
-        saved_meta = json.loads(Path(static_meta_json).read_text())
+        saved_meta = read_json_object(static_meta_json, label="static metadata")
         capability_report = CapabilityReport.from_dict(saved_meta.get("capability_report", {
             "profiling_mode": args.profiling_mode,
         }))

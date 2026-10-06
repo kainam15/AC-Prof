@@ -169,6 +169,33 @@ class TestCollectionWorkflow:
         assert ([item["status"] for item in runtime]) == (["passed"])
         assert (self.run.calls) == ([2])
 
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_resume_rejects_untrusted_static_metadata_before_measurement(self, case):
+        self.run.interrupt_after_first()
+        meta_path = self.run.directory / "static_meta.json"
+        meta = json.loads(meta_path.read_text())
+        if case == "nonfinite":
+            meta["corrupt_metric"] = float("nan")
+        else:
+            meta["padding"] = "x" * MAX_JSON_ARTIFACT_BYTES
+        meta_path.write_text(json.dumps(meta))
+        from acprof.host.run_state import file_sha256
+        state_path = self.run.directory / ".acprof/run_state.json"
+        state = json.loads(state_path.read_text())
+        state["artifacts"]["static_meta.json"] = file_sha256(meta_path)
+        state_path.write_text(json.dumps(state))
+        calls_before = list(self.run.calls)
+        expected = (
+            "invalid static metadata JSON"
+            if case == "nonfinite"
+            else "static metadata exceeds the 4 MiB read limit"
+        )
+
+        with pytest.raises(ValueError, match=expected):
+            self.run.invoke("--resume")
+
+        assert self.run.calls == calls_before
+
     def test_resume_does_not_treat_resource_limit_as_successful_validation(self):
         def interrupted(**_kwargs):
             raise KeyboardInterrupt()
