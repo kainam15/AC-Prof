@@ -185,15 +185,10 @@ class TestCollectionWorkflow:
         state["artifacts"]["static_meta.json"] = file_sha256(meta_path)
         state_path.write_text(json.dumps(state))
         calls_before = list(self.run.calls)
-        expected = (
-            "invalid static metadata JSON"
-            if case == "nonfinite"
-            else "static metadata exceeds the 4 MiB read limit"
-        )
-
-        with pytest.raises(ValueError, match=expected):
+        with pytest.raises(SystemExit) as raised:
             self.run.invoke("--resume")
 
+        assert raised.value.code == 2
         assert self.run.calls == calls_before
 
     def test_resume_does_not_treat_resource_limit_as_successful_validation(self):

@@ -112,15 +112,19 @@ class TestEnvironmentPolicy:
                 json.dumps(WSL.metadata())[:-1] + ', "corrupt_metric": NaN}',
                 encoding="utf-8",
             )
-            with pytest.raises(ValueError, match="Refusing to mix"):
+            with pytest.raises(ValueError) as malformed:
                 require_result_environment(directory)
+            assert "Refusing to mix" in str(malformed.value)
+            assert "invalid static metadata JSON" in str(malformed.value)
 
             path.write_text(
                 json.dumps({**WSL.metadata(), "padding": "x" * (4 * 1024 * 1024)}),
                 encoding="utf-8",
             )
-            with pytest.raises(ValueError, match="Refusing to mix"):
+            with pytest.raises(ValueError) as oversized:
                 require_result_environment(directory)
+            assert "Refusing to mix" in str(oversized.value)
+            assert "static metadata exceeds the 4 MiB read limit" in str(oversized.value)
 
     def test_csv_merge_refuses_cross_environment_even_with_disjoint_keys(self):
         from acprof.result_csv import ResultValidationError, merge_result_csvs

@@ -70,15 +70,22 @@ def require_result_environment(output_dir: str) -> None:
         root.glob(".acprof/work/cases/*/result.csv"))
     if not meta_path.exists() and not has_rows:
         return
+    metadata_error = ""
     try:
         payload = read_json_object(meta_path, label="static metadata")
         old = recorded_identity(payload)["comparability_class"]
-    except (OSError, ValueError, TypeError, AttributeError):
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
         old = "unknown"
+        metadata_error = str(exc)
     current = detect_environment().environment
     if old == "unknown" or old != current:
-        raise ValueError(f"Refusing to mix result environments: existing={old}, current={current}; "
-                         "choose a new output directory. Native Linux baselines cannot contain WSL results.")
+        detail = (
+            f"Refusing to mix result environments: existing={old}, current={current}; "
+            "choose a new output directory. Native Linux baselines cannot contain WSL results."
+        )
+        if metadata_error:
+            detail += f" Existing static metadata is invalid: {metadata_error}"
+        raise ValueError(detail)
 
 
 def detect_cgroup_version(
