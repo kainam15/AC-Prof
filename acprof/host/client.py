@@ -981,6 +981,12 @@ class ClientRunner:
                 fieldnames = next(csv.reader(existing))
             if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
                 raise RuntimeError(f"existing CSV columns do not match current fields: {self.config.out_csv}; use a new output file")
+        sniff_groups_path = self._sniff_groups_path(self.config.out_csv)
+        if not need_header:
+            client_publication.reconcile_sniff_group_sidecar(
+                self.config.out_csv,
+                sniff_groups_path,
+            )
         sidecar_mode = "w" if need_header else "a"
         if self.config.idle_debug:
             diag_path = self._idle_diag_path(self.config.out_csv)
@@ -989,7 +995,7 @@ class ClientRunner:
         else:
             diag_context = nullcontext(None)
         with open(self.config.out_csv, "a", newline="", encoding="utf-8") as f, open(
-            self._sniff_groups_path(self.config.out_csv),
+            sniff_groups_path,
             sidecar_mode,
             encoding="utf-8",
         ) as sidecar_f, open(

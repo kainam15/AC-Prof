@@ -5,11 +5,64 @@ import csv
 import json
 import math
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional
 
+from acprof.artifacts import atomic_write
 from acprof.config import (
     CSV_FIELDS,
 )
+
+
+def reconcile_sniff_group_sidecar(csv_path: str | Path, sidecar_path: str | Path) -> None:
+    """Repair only crash-created sidecar tail rows before appending new results."""
+    csv_file = Path(csv_path)
+    sidecar_file = Path(sidecar_path)
+    if not csv_file.exists() or not sidecar_file.exists():
+        return
+
+    with csv_file.open("r", encoding="utf-8-sig", newline="") as stream:
+        reader = csv.reader(stream)
+        if next(reader, None) is None:
+            committed_rows = 0
+        else:
+            committed_rows = sum(1 for _ in reader)
+
+    with sidecar_file.open("r", encoding="utf-8", newline="") as stream:
+        lines = stream.readlines()
+
+    if len(lines) < committed_rows:
+        raise RuntimeError(
+            "sniff-group sidecar is missing committed rows: "
+            f"{len(lines)} sniff-group rows for {committed_rows} committed CSV rows"
+        )
+
+    for line_number, line in enumerate(lines[:committed_rows], start=1):
+        if not line.endswith("\n"):
+            raise RuntimeError(
+                f"sniff-group sidecar committed row {line_number} is truncated"
+            )
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"sniff-group sidecar committed row {line_number} is malformed"
+            ) from exc
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("sniff_group_id"), str)
+        ):
+            raise RuntimeError(
+                f"sniff-group sidecar committed row {line_number} is invalid"
+            )
+
+    if len(lines) == committed_rows:
+        return
+
+    atomic_write(
+        sidecar_file,
+        lambda stream: stream.writelines(lines[:committed_rows]),
+    )
 
 
 def _append_sniff_group(sidecar_f, sniff_group_id: str) -> None:
@@ -70,9 +123,9 @@ def _append_row(
         out.get("error") or ""
     ).strip():
         raise RuntimeError("refusing to write status=error without an error diagnostic")
+    _append_sniff_group(sidecar_f, sniff_group_id)
     writer.writerow(out)
     f.flush()
     os.fsync(f.fileno())
-    _append_sniff_group(sidecar_f, sniff_group_id)
     if diag_f is not None and idle_diag_record is not None:
         _append_idle_diag(diag_f, idle_diag_record)
