@@ -18,6 +18,7 @@ from acprof.host.collection_workflow import PreparationWorkflow, retain_validati
 from acprof.host.detect import detect_task
 from acprof.host.model_inspection import explain_resolution
 from acprof.model_spec import task_model_spec
+from acprof.preparation_events import MAX_MESSAGE
 
 
 def events(output):
@@ -229,7 +230,7 @@ class TestCollectionWorkflow:
             workflow.resolve(self.args())
         ask.assert_called_once()
 
-    @pytest.mark.parametrize("corruption", ("nonfinite", "top_level"))
+    @pytest.mark.parametrize("corruption", ("nonfinite", "top_level", "oversized"))
     def test_invalid_decision_cache_is_ignored_before_review(self, corruption):
         task = contracts.TestModelContract().discover(
             contracts.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]')
@@ -250,8 +251,13 @@ class TestCollectionWorkflow:
         if corruption == "nonfinite":
             content = cache.read_text().rstrip()
             cache.write_text(content[:-1] + ', "ignored": NaN}\n')
-        else:
+        elif corruption == "top_level":
             cache.write_text("[]\n")
+        else:
+            saved = json.loads(cache.read_text())
+            saved["padding"] = "x" * MAX_MESSAGE
+            cache.write_text(json.dumps(saved))
+            assert cache.stat().st_size > MAX_MESSAGE
 
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
             workflow, "ask", side_effect=KeyboardInterrupt,
