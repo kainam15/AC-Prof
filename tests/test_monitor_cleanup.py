@@ -77,6 +77,49 @@ class TestMonitorCleanup:
                              (["result"] if error is None else []))
             assert (window_logs) == ([]), "even enabled DEBUG handlers must stay outside sampling"
 
+    def test_ready_check_does_not_mask_unexpected_client_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = ClientRunner(ClientConfig(
+                out_csv=str(Path(directory) / "case.csv"),
+                warmup=0,
+                repeat=0,
+                use_mips=False,
+                gpu_mode="off",
+            ))
+            runner.input_scale_entries = [
+                {"input_scale": 1.0, "scale_label": "one", "payload": {}},
+            ]
+            with patch.object(
+                client.requests,
+                "get",
+                side_effect=RuntimeError("requests bug"),
+            ), patch.object(client_publication, "_append_row") as append_row:
+                with pytest.raises(RuntimeError, match="requests bug"):
+                    runner.main()
+            append_row.assert_not_called()
+
+    def test_ready_check_records_requests_transport_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = ClientRunner(ClientConfig(
+                out_csv=str(Path(directory) / "case.csv"),
+                warmup=0,
+                repeat=0,
+                use_mips=False,
+                gpu_mode="off",
+            ))
+            runner.input_scale_entries = [
+                {"input_scale": 1.0, "scale_label": "one", "payload": {}},
+            ]
+            with patch.object(
+                client.requests,
+                "get",
+                side_effect=client.requests.exceptions.ConnectionError("refused"),
+            ), patch.object(client_publication, "_append_row") as append_row:
+                runner.main()
+            append_row.assert_called_once()
+            assert append_row.call_args.args[1]["status"] == "error"
+            assert "ready_failed" in append_row.call_args.args[1]["error"]
+
     def test_all_preparation_finishes_before_any_sampling(self):
         events = []
         group = MonitorGroup()

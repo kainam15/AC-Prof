@@ -72,7 +72,7 @@ class TestEffectiveEnergyWarning:
                 }.items():
                     stack.enter_context(patch_client(self.runner, name, value))
                 ready = stack.enter_context(patch.object(
-                    client.requests, "get", side_effect=RuntimeError("offline fixture")))
+                    client.requests, "get", side_effect=client.requests.exceptions.ConnectionError("offline fixture")))
                 if valid:
                     self.runner.main()
                 else:

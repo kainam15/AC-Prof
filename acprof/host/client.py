@@ -1012,12 +1012,18 @@ class ClientRunner:
                 os.fsync(f.fileno())
 
             # /ready check
+            ready_error = None
             try:
                 rr = requests.get(self.config.base_url + "/ready", timeout=60, headers={"Connection": "close"},
                                   **self._proxy_options)
+            except requests.exceptions.RequestException as exc:
+                ready_error = exc
+            else:
                 if rr.status_code >= 400:
-                    raise RuntimeError(f"/ready HTTP {rr.status_code}: {rr.text[:200]}")
-            except Exception as e:
+                    ready_error = RuntimeError(
+                        f"/ready HTTP {rr.status_code}: {rr.text[:200]}"
+                    )
+            if ready_error is not None:
                 row = {k: "nan" for k in CSV_FIELDS}
                 row.update({
                     "cpu_cores": self.config.cpu_cores,
@@ -1025,7 +1031,7 @@ class ClientRunner:
                     "gpu_mode": self.config.gpu_mode,
                     **self._cold_start_row_metrics(),
                     "status": "error",
-                    "error": f"ready_failed: {e!r}",
+                    "error": f"ready_failed: {ready_error!r}",
                 })
                 client_publication._append_row(writer, row, f, sidecar_f, "")
                 return
