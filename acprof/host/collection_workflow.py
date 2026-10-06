@@ -12,7 +12,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json
+from acprof.artifacts import atomic_write_json, read_json_object, sync_directory
 from acprof.host.model_errors import ModelLookupError
 from acprof.model_evidence import content_digest, pinned_revision
 from acprof.preparation_events import MAX_MESSAGE, encode_event
@@ -32,7 +32,7 @@ def retain_validation_failure(output_dir: str) -> None:
     report = layout.path("runtime_validation.json")
     if not report.is_file():
         return
-    current = json.loads(report.read_text())
+    current = read_json_object(report, label="runtime validation")
     if current.get("status") == "ok":
         return
     logs = layout.path("logs")
@@ -43,7 +43,12 @@ def retain_validation_failure(output_dir: str) -> None:
                  if device in current.get("devices", {}))
     for path in files:
         if path.is_file():
-            shutil.copy2(path, archive / path.name)
+            destination = archive / path.name
+            shutil.copy2(path, destination)
+            with destination.open("rb") as stream:
+                os.fsync(stream.fileno())
+    for directory in (archive, archive.parent, logs, layout.root):
+        sync_directory(directory)
 
 
 class PreparationWorkflow:

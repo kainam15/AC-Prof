@@ -13,7 +13,8 @@ import test_model_contract as contracts
 from huggingface_hub.errors import RepositoryNotFoundError
 from test_model_lookup import hub_error
 
-from acprof.host.collection_workflow import PreparationWorkflow
+from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
+from acprof.host.collection_workflow import PreparationWorkflow, retain_validation_failure
 from acprof.host.detect import detect_task
 from acprof.host.model_inspection import explain_resolution
 from acprof.model_spec import task_model_spec
@@ -98,6 +99,58 @@ class TestCollectionWorkflow:
         assert (len(failures)) == (1)
         assert (json.loads(failures[0].read_text())["status"]) == ("error")
         assert (json.loads((self.run.directory / "metadata/runtime_validation.json").read_text())["status"]) == ("ok")
+
+    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    def test_validation_failure_archive_rejects_untrusted_report(self, case):
+        from acprof.artifact_layout import ArtifactLayout
+
+        root = self.fixture_root / f"archive-{case}"
+        layout = ArtifactLayout.for_new_run(root)
+        layout.initialize()
+        report = layout.path("runtime_validation.json")
+        if case == "nonfinite":
+            raw = b'{"status":"error","ignored":NaN}'
+        else:
+            raw = b'{"status":"error","padding":"' + b"x" * MAX_JSON_ARTIFACT_BYTES + b'"}'
+        report.write_bytes(raw)
+
+        with pytest.raises(ValueError):
+            retain_validation_failure(str(root))
+
+        assert not list((root / "logs/runtime-attempts").glob("*"))
+
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_validation_failure_archive_syncs_files_and_directory_chain(self):
+        import stat
+
+        from acprof.artifact_layout import ArtifactLayout
+
+        root = self.fixture_root / "archive-durability"
+        layout = ArtifactLayout.for_new_run(root)
+        layout.initialize()
+        layout.path("runtime_validation.json").write_text(
+            '{"status":"error","devices":{}}\n', encoding="utf-8"
+        )
+        synced_types = []
+        synced_directories = []
+        real_fsync = os.fsync
+
+        def track_fsync(fd):
+            file_type = stat.S_IFMT(os.fstat(fd).st_mode)
+            synced_types.append(file_type)
+            if file_type == stat.S_IFDIR:
+                synced_directories.append(Path(os.readlink(f"/proc/self/fd/{fd}")).resolve())
+            real_fsync(fd)
+
+        with patch("os.fsync", side_effect=track_fsync):
+            retain_validation_failure(str(root))
+
+        archives = list((root / "logs/runtime-attempts").glob("*"))
+        assert len(archives) == 1
+        assert (archives[0] / "runtime_validation.json").is_file()
+        assert stat.S_IFREG in synced_types
+        assert any(path == archives[0].resolve() for path in synced_directories)
+        assert root.resolve() in synced_directories
 
     def test_cancel_failed_validation_never_starts_measurement(self):
         with patch.dict(os.environ, {"ACPROF_INTERACTIVE_PREPARATION": "1"}), patch(
