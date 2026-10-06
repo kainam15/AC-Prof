@@ -73,13 +73,30 @@ def create_backup(context: ResultContext) -> Path:
         backup = root / f"{base}-{suffix}"
         suffix += 1
     backup.mkdir()
-    shutil.copy2(context.result_csv, backup / RESULT_CSV_NAME)
-    shutil.copy2(context.static_meta_path, backup / STATIC_META_NAME)
-    if context.collection_history_existed:
-        shutil.copy2(
-            context.collection_history_path,
-            backup / COLLECTION_HISTORY_NAME,
-        )
+    try:
+        sources = [
+            (context.result_csv, RESULT_CSV_NAME),
+            (context.static_meta_path, STATIC_META_NAME),
+        ]
+        if context.collection_history_existed:
+            sources.append(
+                (context.collection_history_path, COLLECTION_HISTORY_NAME)
+            )
+        for source, name in sources:
+            destination = backup / name
+            shutil.copy2(source, destination)
+            with destination.open("rb") as stream:
+                os.fsync(stream.fileno())
+        _fsync_directory(backup)
+        _fsync_directory(root)
+    except Exception:
+        try:
+            shutil.rmtree(backup)
+        except FileNotFoundError:
+            pass
+        else:
+            _fsync_directory(root)
+        raise
     return backup
 
 

@@ -798,6 +798,65 @@ class TestPosthocProfile:
             assert stat.S_IFREG in synced_file_types
             assert stat.S_IFDIR in synced_file_types
 
+    @pytest.mark.skipif(os.name != "posix", reason="directory fsync is a POSIX durability contract")
+    def test_create_backup_syncs_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
+            history_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "posthoc_profile_history": [],
+                        "timeout_retry_history": [],
+                        "quality_retry_history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = host_posthoc_context.load_result_context(root)
+            synced_file_types = []
+            real_fsync = os.fsync
+
+            def track_fsync(fd):
+                synced_file_types.append(stat.S_IFMT(os.fstat(fd).st_mode))
+                real_fsync(fd)
+
+            with patch("acprof.host.posthoc.storage.os.fsync", side_effect=track_fsync):
+                backup = host_posthoc_storage.create_backup(context)
+
+            assert (backup / host_posthoc_context.RESULT_CSV_NAME).read_bytes() == context.result_csv.read_bytes()
+            assert (backup / host_posthoc_context.STATIC_META_NAME).read_bytes() == context.static_meta_path.read_bytes()
+            assert (backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes() == history_path.read_bytes()
+            assert synced_file_types.count(stat.S_IFREG) >= 3
+            assert stat.S_IFDIR in synced_file_types
+
+    def test_create_backup_removes_incomplete_directory_on_copy_failure(self):
+        from acprof.artifact_layout import ArtifactLayout
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "example--model"
+            self._write_fixture(root)
+            context = host_posthoc_context.load_result_context(root)
+            backup_root = ArtifactLayout.discover(root).path(host_posthoc_context.BACKUP_DIRNAME)
+            real_copy2 = host_posthoc_storage.shutil.copy2
+            copy_count = 0
+
+            def fail_second_copy(source, destination):
+                nonlocal copy_count
+                copy_count += 1
+                if copy_count == 2:
+                    raise OSError("simulated backup copy failure")
+                return real_copy2(source, destination)
+
+            with patch("acprof.host.posthoc.storage.shutil.copy2", side_effect=fail_second_copy), pytest.raises(
+                OSError, match="simulated backup copy failure"
+            ):
+                host_posthoc_storage.create_backup(context)
+
+            assert list(backup_root.iterdir()) == []
+
     def test_three_file_commit_restores_csv_and_meta_if_history_publish_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"
