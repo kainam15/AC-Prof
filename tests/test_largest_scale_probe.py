@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 import requests
 
 from acprof.cli.probe import main as probe_main
@@ -74,6 +75,44 @@ def test_largest_materialized_scale_is_selected() -> None:
 
     assert (entry["input_scale"]) == (512.0)
     assert (entry["payload"]) == ({"text": "largest"})
+
+
+@pytest.mark.parametrize("input_scale", (True, "512"))
+def test_largest_scale_plan_rejects_non_numeric_scales(input_scale) -> None:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        path = Path(temporary_dir) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [{"input_scale": input_scale, "payload": {"text": "bad"}}],
+        }), encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="input_scale"):
+            load_largest_scale_entry(path)
+
+
+def test_largest_scale_plan_rejects_unknown_schema_before_probe() -> None:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        path = Path(temporary_dir) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 1,
+            "entries": [{"input_scale": 512, "payload": {"text": "old"}}],
+        }), encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="schema_version"):
+            load_largest_scale_entry(path)
+
+
+def test_largest_scale_plan_read_is_bounded() -> None:
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        path = Path(temporary_dir) / "input_scale_plan.json"
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "entries": [{"input_scale": 512, "payload": {"text": "ok"}}],
+            "padding": "x" * (4 * 1024 * 1024),
+        }), encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="4 MiB"):
+            load_largest_scale_entry(path)
 
 
 def test_probe_summary_write_syncs_file_and_directory() -> None:

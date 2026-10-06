@@ -12,7 +12,7 @@ from typing import Any, Dict, Sequence
 
 import requests
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, read_input_scale_plan
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -54,10 +54,10 @@ def select_minimum_resources(
 def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> Dict[str, Any]:
     """Load the materialized payload with the largest effective input scale."""
     path = Path(plan_file)
-    with path.open("r", encoding="utf-8") as handle:
-        plan = json.load(handle)
-    if not isinstance(plan, dict):
-        raise RuntimeError("input scale plan 必须是 JSON object")
+    try:
+        plan = read_input_scale_plan(path)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"input scale plan 无法读取: {exc}") from exc
     entries = plan.get("entries")
     if not isinstance(entries, list) or not entries:
         raise RuntimeError("input scale plan 没有可探测的 entries")
@@ -66,12 +66,12 @@ def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> Dict[str, Any
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise RuntimeError(f"input scale plan entry {index} 不是 object")
-        try:
-            scale = float(entry.get("input_scale"))
-        except (TypeError, ValueError) as exc:
+        raw_scale = entry.get("input_scale")
+        if isinstance(raw_scale, bool) or not isinstance(raw_scale, (int, float)):
             raise RuntimeError(
-                f"input scale plan entry {index} 的 input_scale 无效"
-            ) from exc
+                f"input scale plan entry {index} 的 input_scale 必须是 JSON number"
+            )
+        scale = float(raw_scale)
         if not math.isfinite(scale) or scale <= 0.0:
             raise RuntimeError(
                 f"input scale plan entry {index} 的 input_scale 必须大于 0"
