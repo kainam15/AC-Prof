@@ -48,7 +48,10 @@ def capture_packets(path, *, interface):
                     capture.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     capture.kill()
-                    capture.wait()
+                    try:
+                        capture.wait(timeout=5)
+                    except subprocess.TimeoutExpired as kill_exc:
+                        raise RuntimeError("tcpdump could not be reaped after kill") from kill_exc
         if capture.returncode != 0 or path.stat().st_size <= 24:
             raise RuntimeError("load did not produce a valid PCAP")
 

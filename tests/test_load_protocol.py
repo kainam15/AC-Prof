@@ -94,6 +94,47 @@ def test_source_input_plan_is_bounded_after_identity_verification():
         assert (path.read_bytes()) == (original)
 
 
+def test_packet_capture_keeps_reap_after_kill_bounded(tmp_path, monkeypatch):
+    from acprof.cli import load as load_cli
+
+    class HungCapture:
+        returncode = None
+
+        def __init__(self):
+            self.wait_timeouts = []
+            self.terminated = False
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+
+        def wait(self, timeout=None):
+            self.wait_timeouts.append(timeout)
+            raise load_cli.subprocess.TimeoutExpired("tcpdump", timeout)
+
+        def kill(self):
+            self.killed = True
+
+    capture = HungCapture()
+    monkeypatch.setattr(
+        "acprof.host.packet_capture.require_packet_latency_prerequisites",
+        lambda _interface: None,
+    )
+    monkeypatch.setattr(load_cli.subprocess, "Popen", lambda *_args, **_kwargs: capture)
+    monkeypatch.setattr(load_cli.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="tcpdump could not be reaped after kill"):
+        with load_cli.capture_packets(tmp_path / "load.pcap", interface="lo"):
+            pass
+
+    assert capture.terminated
+    assert capture.killed
+    assert capture.wait_timeouts == [5, 5]
+
+
 class TestLoadProtocol:
     def run_load(self, url, **options):
         from acprof.host.load_protocol import LoadConfig, run_load
