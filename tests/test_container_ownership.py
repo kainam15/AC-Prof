@@ -59,6 +59,23 @@ class TestContainerOwnership:
         mount.close.assert_called_once_with()
         assert session._model_store_mount is None
 
+    def test_runtime_mount_lease_is_released_when_command_setup_fails_before_docker_run(self):
+        mount = SimpleNamespace(args=[], close=Mock())
+        def fake_run(command, **_kwargs):
+            if command[:2] == ["docker", "run"]:
+                raise AssertionError("unexpected container launch")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
+            "acprof.host.docker_runtime.runtime_docker_env_args",
+            side_effect=RuntimeError("runtime env setup failed"),
+        ), patch(
+            "acprof.host.command.run_command", side_effect=fake_run,
+        ), pytest.raises(RuntimeError, match="runtime env setup failed"):
+            self.start()
+
+        mount.close.assert_called_once_with()
+
     def test_launched_container_records_process_ownership_for_crash_recovery(self):
         response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})
         with patch("acprof.host.command.run_command", side_effect=self.command), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):

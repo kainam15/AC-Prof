@@ -197,27 +197,31 @@ def start_container_session(
     from acprof.host.model_store import acquire_mount, retain_mount_for_cleanup_debt
 
     model_store_mount = acquire_mount(image_info.runtime_environment)
-    docker_cmd = [
-        "docker", "run", "-d",
-        "--name", container_name,
-        *labels,
-        f"--cpus={cpu}",
-        *([f"--cpuset-cpus={cpuset_cpus}"] if cpuset_cpus else []),
-        f"--memory={mem}g",
-        *gpu_flag,
-        "-e", f"MODEL_ID={task_info.model_id}",
-        "-e", f"MODEL_REVISION={task_info.model_revision or 'main'}",
-        "-e", f"TASK_FAMILY={task_info.task_family}",
-        "-e", f"TASK_TYPE={task_info.pipeline_tag}",
-        "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
-        "-e", f"USE_GPU={use_gpu}",
-        *hf_offline_docker_env_args(),
-        *model_store_mount.args,
-        "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
-        *runtime_docker_env_args(),
-        "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",
-        image_info.tag,
-    ]
+    try:
+        docker_cmd = [
+            "docker", "run", "-d",
+            "--name", container_name,
+            *labels,
+            f"--cpus={cpu}",
+            *([f"--cpuset-cpus={cpuset_cpus}"] if cpuset_cpus else []),
+            f"--memory={mem}g",
+            *gpu_flag,
+            "-e", f"MODEL_ID={task_info.model_id}",
+            "-e", f"MODEL_REVISION={task_info.model_revision or 'main'}",
+            "-e", f"TASK_FAMILY={task_info.task_family}",
+            "-e", f"TASK_TYPE={task_info.pipeline_tag}",
+            "-e", f"RUNTIME_BACKEND={task_info.runtime_backend}",
+            "-e", f"USE_GPU={use_gpu}",
+            *hf_offline_docker_env_args(),
+            *model_store_mount.args,
+            "-e", f"ACPROF_REQUEST_TIMEOUT_S={completion_timeout}",
+            *runtime_docker_env_args(),
+            "-p", f"127.0.0.1:{host_port}:{SERVER_PORT}",
+            image_info.tag,
+        ]
+    except BaseException:
+        model_store_mount.close()
+        raise
 
     t0_wall = time.time()
     t0 = time.perf_counter()
