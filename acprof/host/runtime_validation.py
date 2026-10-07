@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
 from acprof.host.command import run_command
@@ -160,7 +160,7 @@ def validate_runtime(
                         device_mode, task_info.runtime_profile_id, "higher_budget",
                         {"docker_state": state, "mem_cap_gb": max(mem_list), "measured_oom": True}).to_dict()
                 elif records:
-                    device_result = json.loads(records[-1])
+                    device_result = loads_finite_json(records[-1])
                     if not isinstance(device_result, dict) or device_result.get("status") not in {"ok", "error"}:
                         raise ValueError("invalid runtime validation response")
                     if result.returncode and device_result.get("status") == "ok":
@@ -205,7 +205,7 @@ def validate_runtime(
                 for line in log.splitlines():
                     if line.startswith(STAGE_PREFIX):
                         try:
-                            record = json.loads(line[len(STAGE_PREFIX):])
+                            record = loads_finite_json(line[len(STAGE_PREFIX):])
                             if isinstance(record, dict):
                                 stages.append(record)
                         except ValueError:

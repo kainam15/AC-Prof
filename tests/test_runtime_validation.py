@@ -243,6 +243,28 @@ class TestRuntimeValidation:
         assert (evidence['request_id'].startswith('acprof-validate-'))
         assert (evidence['request_phase']) == ('completion')
 
+    def test_timeout_discards_nonfinite_stage_record(self, tmp_path):
+        timeout = subprocess.TimeoutExpired(
+            ['docker', 'run'], 30,
+            output=b'ACPROF_RUNTIME_STAGE={"stage":"load","status":"verified","elapsed_s":NaN}\n',
+        )
+        def run(command, **kwargs):
+            if command[:2] == ['docker', 'run']:
+                raise timeout
+            return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
+
+        with patch(
+            'acprof.host.runtime_validation.run_command', side_effect=run,
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={'Running': True}):
+            with pytest.raises(RuntimeError, match='timeout'):
+                validate_runtime(**{**self.fixture(tmp_path), 'gpu_list': ['off']})
+
+        saved = json.loads((tmp_path / 'runtime_validation.json').read_text())
+        evidence = saved['devices']['off']['failure']['evidence']
+        assert saved['status'] == 'inconclusive'
+        assert evidence['request_phase'] == 'unknown'
+        assert evidence['stages'] == []
+
     def test_invalid_validation_response_keeps_report_and_cleans_container(self):
         result = subprocess.CompletedProcess([], 0, stdout='ACPROF_RUNTIME_VALIDATION=[]\n', stderr='')
         with tempfile.TemporaryDirectory() as temporary, patch(
@@ -253,6 +275,26 @@ class TestRuntimeValidation:
                 validate_runtime(**self.fixture(root))
             assert (json.loads((root / 'runtime_validation.json').read_text())['status']) == ('error')
         assert (run.call_args.args[0][:3]) == (['docker', 'rm', '-f'])
+
+    def test_nonfinite_validation_response_is_rejected(self, tmp_path):
+        payload = {
+            'status': 'ok',
+            'stages': [{'stage': name, 'status': 'verified'} for name in
+                       ('load', 'preprocess', 'predict', 'postprocess', 'validate_output')],
+            'validation': {'protocol': {'status': 'verified'}, 'task': {'status': 'verified'}},
+            'effective_input_scale': float('nan'),
+        }
+        result = subprocess.CompletedProcess(
+            [], 0, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(payload) + '\n', stderr='',
+        )
+        with patch(
+            'acprof.host.runtime_validation.run_command', return_value=result,
+        ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
+            with pytest.raises(RuntimeError, match='non-finite'):
+                validate_runtime(**{**self.fixture(tmp_path), 'gpu_list': ['off']})
+
+        saved = json.loads((tmp_path / 'runtime_validation.json').read_text())
+        assert saved['status'] == 'error'
 
     def test_cgroup_oom_is_resource_limit_not_dependency_failure(self):
         result = subprocess.CompletedProcess([], 137, stdout='', stderr='Killed')
