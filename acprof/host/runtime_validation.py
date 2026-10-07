@@ -8,6 +8,7 @@ import logging
 import math
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -116,6 +117,7 @@ def validate_runtime(
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
             cidfile = Path(temporary) / f"{device_mode}.cid"
             model_store_mount = acquire_mount(image_info.runtime_environment)
+            run_attempted = False
             try:
                 command = [
                     "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
@@ -147,6 +149,8 @@ def validate_runtime(
             log = ""
             run_error: BaseException | None = None
             try:
+                # Dispatch may create a container even if the caller is interrupted.
+                run_attempted = True
                 result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
                 log = (result.stdout or "") + "\n" + (result.stderr or "")
                 records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines() if line.startswith(RESULT_PREFIX)]
@@ -234,13 +238,24 @@ def validate_runtime(
                 _LOG.debug("runtime validation failed: mode=%s error_type=%s", device_mode, type(exc).__name__)
                 device_result = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
             finally:
+                active_error = sys.exc_info()[1]
                 try:
                     identifier = owned_container_id(cidfile)
                     if identifier:
                         remove_owned_container(identifier, run_command)
+                        # Positive cleanup supersedes an earlier unavailable cidfile.
+                        cleanup_failure = None
+                    elif run_attempted and cleanup_failure is None:
+                        cleanup_failure = ContainerCleanupError("", [{"operation": "read_cidfile",
+                            "detail": "no immutable ID after Docker dispatch; container absence is unconfirmed"}],
+                            run_error=run_error or active_error)
                 except ContainerCleanupError as exc:
-                    exc.run_error = exc.run_error or run_error
+                    exc.run_error = exc.run_error or run_error or active_error
                     cleanup_failure = exc
+                except BaseException:
+                    # Interrupted cleanup is not proof that the consumer has gone away.
+                    retain_mount_for_cleanup_debt(model_store_mount)
+                    raise
                 if cleanup_failure is None:
                     model_store_mount.close()
                 else:

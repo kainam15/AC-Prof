@@ -1510,7 +1510,12 @@ Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 
 
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.6.0 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
 
-模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。`plan_model` 在读取缓存计划及下载、读取主模型和依赖仓库的规划元数据期间持有 Model Store 锁，防止并发 prune 删除尚无 entry 引用的文件；规划成功、失败或中断后释放锁，未引用文件仍可回收。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。
+模型校验、下载、磁盘检查和 LRU 更新在准备阶段完成。`plan_model` 命中缓存时保留只读快速路径；缓存未命中时，在重新检查缓存及下载、读取主模型和依赖仓库的规划元数据期间持有 Model Store 锁，防止并发 prune 删除尚无 entry 引用的文件；规划成功、失败或中断后释放锁，未引用文件仍可回收。容器只读挂载 Model Store；server、独立验证、profiler 和补采都传递固定 snapshot/cache 路径与离线环境变量，custom-code cache 放在可写 `/tmp`。缺失 store、计划不匹配或准备／补采前文件 SHA256 不匹配直接失败，不在线修复。主机结果另记 `model_store.host_path` 以便补采找到自定义目录，该路径不写入 Docker 镜像；迁移目录后可用 `ACPROF_MODEL_STORE` 显式覆盖。保持挂载期间的共享 lease，prune 不删除活动实验引用的 entries。测量样本、连接策略与窗口不变。
+
+独立运行验证只有在 Docker 尚未发起，或按不可变容器 ID 确认删除/不存在后，才释放本次
+Model Store 租约。已发起 Docker 但拿不到 ID、清理失败或清理被取消时保留保护，不能把异常
+当作容器已消失。同一次验证中，较晚取得的合法 ID 若已完成清理，可解除先前的清理阻塞；
+原始验证超时仍记录为 `inconclusive`，不会改成运行成功。
 
 ```bash
 acprof run --model google-bert/bert-base-uncased --max-download 5GB
