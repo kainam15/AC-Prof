@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from acprof.artifacts import loads_finite_json
 from acprof.container import runtime_validate
 
 
@@ -44,6 +45,37 @@ class TestValidationStage:
         assert (result["status"]) == ("ok")
         assert ([item["stage"] for item in result["stages"]]) == (["execution", "load", "preprocess", "predict", "completion", "postprocess", "validate_output", "metadata"])
         assert (all(item["status"] == "verified" for item in result["stages"]))
+
+    def test_main_rejects_nonfinite_input_before_validation(self, tmp_path):
+        payload = tmp_path / "input.json"
+        payload.write_text('{"text":NaN}', encoding="utf-8")
+        output = io.StringIO()
+        with patch("sys.argv", ["runtime_validate", str(payload)]), patch.object(
+            runtime_validate, "validate", return_value={"status": "ok"},
+        ) as validate, patch.object(runtime_validate.traceback, "print_exc"), redirect_stdout(output):
+            assert runtime_validate.main() == 1
+
+        validate.assert_not_called()
+        raw = output.getvalue().split(runtime_validate.RESULT_PREFIX, 1)[1]
+        record = loads_finite_json(raw)
+        assert record["status"] == "error"
+        assert record["failure"]["reason_code"] == "recorded_evidence_invalid"
+
+    def test_main_converts_nonfinite_success_result_to_structured_error(self, tmp_path):
+        payload = tmp_path / "input.json"
+        payload.write_text('{"text":"hello"}', encoding="utf-8")
+        output = io.StringIO()
+        result = {"status": "ok", "response": {"score": float("nan")}}
+        with patch("sys.argv", ["runtime_validate", str(payload)]), patch.object(
+            runtime_validate, "validate", return_value=result,
+        ), patch.object(runtime_validate.traceback, "print_exc"), redirect_stdout(output):
+            assert runtime_validate.main() == 1
+
+        raw = output.getvalue().split(runtime_validate.RESULT_PREFIX, 1)[1]
+        record = loads_finite_json(raw)
+        assert record["status"] == "error"
+        assert record["failed_stage"] == "result_serialization"
+        assert record["failure"]["reason_code"] == "recorded_evidence_invalid"
 
     def test_preprocess_failure_is_reported_without_running_prediction(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:

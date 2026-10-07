@@ -8,6 +8,8 @@ import sys
 import traceback
 from typing import Any
 
+from acprof.artifacts import loads_finite_json
+
 RESULT_PREFIX = "ACPROF_RUNTIME_VALIDATION="
 STAGE_PREFIX = "ACPROF_RUNTIME_STAGE="
 
@@ -86,31 +88,66 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
 
 def main() -> int:
     stages = []
+    invalid_input = False
     try:
         with open(sys.argv[1], encoding="utf-8") as stream:
-            payload = json.load(stream)
+            content = stream.read()
+        try:
+            payload = loads_finite_json(content)
+            if not isinstance(payload, dict):
+                raise ValueError("runtime validation input must be a JSON object")
+        except (TypeError, ValueError, RecursionError):
+            invalid_input = True
+            raise
         result = validate(payload, stages=stages)
     except Exception as exc:
         traceback.print_exc()
-        result: dict[str, Any] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
-        result.update(failed_stage=stages[-1]["stage"] if stages and stages[-1]["status"] == "error" else "input_or_execution_context",
-                      stages=stages)
-        from acprof.failures import failure_from_exception
-        failure = failure_from_exception(exc, stage=result["failed_stage"],
-            device="cuda" if os.getenv("USE_GPU") == "1" else "cpu",
-            runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""))
+        failed_stage = (stages[-1]["stage"] if stages and stages[-1]["status"] == "error"
+                        else "input_or_execution_context")
+        result: dict[str, Any] = {
+            "status": "error", "error": f"{type(exc).__name__}: {exc}",
+            "failed_stage": failed_stage, "stages": stages,
+        }
+        from acprof.failures import Failure, failure_from_exception
+        if invalid_input:
+            failure = Failure(
+                failed_stage, "recorded_evidence_invalid", result["error"],
+                device="cuda" if os.getenv("USE_GPU") == "1" else "cpu",
+                runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""),
+                exception_type=type(exc).__name__,
+            )
+        else:
+            failure = failure_from_exception(exc, stage=failed_stage,
+                device="cuda" if os.getenv("USE_GPU") == "1" else "cpu",
+                runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""))
         if failure.reason_code == "request_timeout":
             from dataclasses import replace
 
             from acprof.runtime_settings import request_timeout_s
-            completion = result["failed_stage"] == "completion"
+            completion = failed_stage == "completion"
             failure = replace(failure, evidence={**failure.evidence,
                 "timeout_seconds": request_timeout_s() if completion else None,
                 "timeout_scope": "completion_wait" if completion else "unknown",
-                "request_phase": result["failed_stage"],
+                "request_phase": failed_stage,
                 "model_loaded": True if any(s["stage"] == "load" and s["status"] == "verified" for s in stages) else None})
         result["failure"] = failure.to_dict()
-    print(RESULT_PREFIX + json.dumps(result, ensure_ascii=False), flush=True)
+    try:
+        encoded = json.dumps(result, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, RecursionError) as exc:
+        traceback.print_exc()
+        from acprof.failures import Failure
+        failure = Failure(
+            "result_serialization", "recorded_evidence_invalid", f"{type(exc).__name__}: {exc}",
+            device="cuda" if os.getenv("USE_GPU") == "1" else "cpu",
+            runtime_profile=os.getenv("ACPROF_RUNTIME_PROFILE", ""),
+            exception_type=type(exc).__name__,
+        )
+        result = {
+            "status": "error", "error": failure.detail, "failed_stage": "result_serialization",
+            "stages": stages, "failure": failure.to_dict(),
+        }
+        encoded = json.dumps(result, ensure_ascii=False, allow_nan=False)
+    print(RESULT_PREFIX + encoded, flush=True)
     return 0 if result["status"] == "ok" else 1
 
 
