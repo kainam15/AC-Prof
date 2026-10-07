@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import codecs
 import csv
-import hashlib
 import math
 import os
 import re
@@ -181,11 +180,13 @@ def _csv_encoding(path: Path) -> str:
         )
 
 
-def _load_json_object(path: Path, label: str) -> Dict[str, Any]:
+def _load_json_object(
+    path: Path, label: str, *, expected_sha256: str | None = None,
+) -> Dict[str, Any]:
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
-        return read_json_object(path, label=label)
+        return read_json_object(path, label=label, expected_sha256=expected_sha256)
     except (OSError, ValueError) as exc:
         raise PosthocError(f"cannot read {label} {path}: {exc}") from exc
 
@@ -302,7 +303,11 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         collection_history = normalize_collection_history(collection_history_payload)
     except ValueError as exc:
         raise PosthocError(f"invalid collection history: {exc}") from exc
-    input_plan = _load_json_object(input_scale_plan_path, INPUT_SCALE_PLAN_NAME)
+    expected_plan_hash = str(static_meta.get("input_scale_plan_sha256") or "").strip()
+    input_plan = _load_json_object(
+        input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
+        expected_sha256=expected_plan_hash or None,
+    )
     try:
         require_schema_version(input_plan, 2, INPUT_SCALE_PLAN_NAME)
     except ValueError as exc:
@@ -318,15 +323,6 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         raise PosthocError(
             f"model mismatch: static_meta={model_id}, input_plan={plan_model_id}"
         )
-
-    expected_plan_hash = str(static_meta.get("input_scale_plan_sha256") or "").strip()
-    if expected_plan_hash:
-        actual_hash = hashlib.sha256(input_scale_plan_path.read_bytes()).hexdigest()
-        if actual_hash != expected_plan_hash:
-            raise PosthocError(
-                "input_scale_plan.json hash does not match static_meta.json; "
-                "refusing to profile a different payload"
-            )
 
     resource_cases = sorted(
         {

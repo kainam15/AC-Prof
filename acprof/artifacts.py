@@ -39,13 +39,17 @@ def loads_finite_json(content: str) -> Any:
     )
 
 
-def read_json_object(path: str | Path, *, label: str = "artifact") -> dict:
-    """Read one bounded, finite JSON object without altering the source artifact."""
+def read_json_object(
+    path: str | Path, *, label: str = "artifact", expected_sha256: str | None = None,
+) -> dict:
+    """Read bounded finite JSON and optionally verify the exact bytes being decoded."""
     source = Path(path)
     with source.open("rb") as stream:
         content = stream.read(MAX_JSON_ARTIFACT_BYTES + 1)
     if len(content) > MAX_JSON_ARTIFACT_BYTES:
         raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
+    if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise ValueError(f"{source}: {label} hash does not match expected SHA256")
     try:
         # Historical metadata may carry one UTF-8 BOM; the byte limit includes it.
         payload = loads_finite_json(content.decode("utf-8-sig"))
