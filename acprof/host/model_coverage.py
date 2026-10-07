@@ -9,6 +9,7 @@ from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.model_evidence import pinned_revision
+from acprof.model_repository import MODEL_SOURCES, model_source_scope
 
 
 def validate_sample(sample: dict) -> None:
@@ -26,9 +27,12 @@ def validate_sample(sample: dict) -> None:
         validate_repo_id(item["model_id"])
         if not pinned_revision(item.get("revision")):
             raise ValueError("coverage requires full commit SHAs")
-        identity = (item["model_id"], item["revision"])
+        source = item.get("source", "huggingface")
+        if source not in MODEL_SOURCES:
+            raise ValueError("coverage source must be huggingface/modelscope")
+        identity = (source, item["model_id"], item["revision"])
         if identity in seen:
-            raise ValueError("duplicate model/revision in sample")
+            raise ValueError("duplicate source/model/revision in sample")
         seen.add(identity)
         weight = item.get("weight")
         if type(weight) not in {float, int} or not math.isfinite(weight) or weight < 0:
@@ -59,7 +63,7 @@ def snapshot_sample(strata: list[str], limit: int) -> dict:
             revision = info.sha
             if not pinned_revision(revision):
                 revision = api.model_info(info.id).sha
-            models[(info.id, revision)] = {"model_id": info.id, "revision": revision,
+            models[(info.id, revision)] = {"source": "huggingface", "model_id": info.id, "revision": revision,
                                           "weight": info.downloads or 0, "stratum": stratum}
             selected += 1
             if selected == limit:
@@ -124,7 +128,8 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
     from acprof.host.task_support import require_task_support
     from acprof.model_contract import write_model_resolution
 
-    row = {"model_id": item["model_id"], "revision": item["revision"], "weight": item["weight"],
+    row = {"source": item.get("source", "huggingface"),
+           "model_id": item["model_id"], "revision": item["revision"], "weight": item["weight"],
            "resolved": False, "supported": False, "resolution_status": "error",
            "runtime_status": "not_requested" if probe == "none" else "not_run", "semantic_correct": None}
     stage = "resolution"
@@ -132,8 +137,8 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
     validation = None
     try:
         task = detect_task(item["model_id"], revision=item["revision"])
-        if task.model_revision != item["revision"]:
-            raise ValueError("resolver returned a different snapshot")
+        if task.model_revision != item["revision"] or task.model_source != row["source"]:
+            raise ValueError("resolver returned a different source or snapshot")
         write_model_resolution(task, output)
         row["selected_task"] = task.pipeline_tag
         row["resolved"] = task.model_resolution.get("status") not in {"ambiguous", "needs_configuration"}
@@ -161,8 +166,10 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
             from acprof.host.automation import check_repository_access
             from acprof.model_spec import task_model_spec
             stage = "access"
-            for repo_id in [task.model_id, *(dep["repo_id"] for dep in task_model_spec(task).get("dependencies", []))]:
-                check_repository_access(repo_id)
+            check_repository_access(task.model_id, source=task.model_source, revision=task.model_revision)
+            # Dependencies declared by the model spec retain their own HF snapshots.
+            for dependency in task_model_spec(task).get("dependencies", []):
+                check_repository_access(dependency["repo_id"], source="huggingface", revision=dependency["revision"])
             stage = "runtime"
             validation = validate_model_runtime(task, output, cpus=cpus, memory_gb=memory_gb,
                                                 gpu=gpu, timeout_seconds=timeout_seconds, reuse_existing=True)
@@ -306,9 +313,11 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                                "cleanup_recovery": {"status": "incomplete", "error": detail},
                                "cleanup_errors": [*previous.get("cleanup_errors", []), detail]}
                 if row is None:
-                    row = _evaluate_model(sample["models"][index], output, probe=probe, cpus=cpus,
-                                          memory_gb=memory_gb, gpu=gpu, timeout_seconds=timeout_seconds,
-                                          max_parameters=max_parameters, max_download_bytes=max_download_bytes)
+                    item = sample["models"][index]
+                    with model_source_scope(item.get("source", "huggingface")):
+                        row = _evaluate_model(item, output, probe=probe, cpus=cpus,
+                                              memory_gb=memory_gb, gpu=gpu, timeout_seconds=timeout_seconds,
+                                              max_parameters=max_parameters, max_download_bytes=max_download_bytes)
                     if recovery is not None:
                         row["cleanup_recovery"] = recovery
                 state.record(index, row)

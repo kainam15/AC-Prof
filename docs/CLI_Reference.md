@@ -268,6 +268,14 @@ run 默认只做静态检查；`--validate-runtime` 的验证时间限制不包�
 snapshot 不把 Hub 标签自动当成正确答案。零总权重和没有审阅样本的比率为 null。
 报告生成成功退出 0 不表示所有模型成功；逐模型失败保留在 rows 中，不生成正式性能 CSV。
 
+样本条目的 `source` 可为 `huggingface` 或 `modelscope`；缺失时沿用历史 Hugging Face 语义，
+不会被 `ACPROF_MODEL_SOURCE` 覆盖。模型身份为 `source + model_id + revision`，不同来源的同名
+仓库不合并。解析结果必须匹配样本来源与固定 revision；访问预检显式传入这两个条件，
+模型规范中声明的 Hugging Face 依赖仍使用自己的来源与 revision。新 snapshot 明确记录来源。
+恢复时逐行核对来源；历史缺来源的 HF attempt 保持原字节，只在新概览中展开默认值。
+导出 CSV/Markdown 同时展示来源和版本，CSV 保留已有列顺序并追加来源列；来源证据损坏或冲突时记录 `unknown` 与
+`recorded_evidence_invalid`，不猜测或重写原始实验。
+
 run/report 同时输出 `coverage.json`、`models.csv` 和 `REPORT.md`。失败列保留稳定的
 `reason_code` 及 evidence，质量警告单独保留在 `quality_checks`；TUI 的 `/report <coverage.json>`
 可读取两种报告。report 不执行模型，不修改源结果，也不从旧日志猜测缺少的原因。
@@ -283,7 +291,7 @@ timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义�
 [质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
 
 新的 `coverage.json` 使用 schema v2；manifest 仍为 schema v1。`--resume` 核对原始
-`sample.json` 与传入 manifest 的完整摘要、各模型 revision、probe 模式、设备（GPU 使用物理 UUID）、
+`sample.json` 与传入 manifest 的完整摘要、各模型 source/revision、probe 模式、设备（GPU 使用物理 UUID）、
 资源、预算、有效下载策略与 Hub endpoints、运行环境及主机/源码身份。
 有效下载条件同时记录到 attempt 配置。普通续跑只能沿用原参数，继续没有完成记录的模型，
 不会自动重试已记录的失败；中断的重试则沿用该次 attempt 的条件和剩余选择。

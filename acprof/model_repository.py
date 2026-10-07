@@ -8,6 +8,9 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +18,7 @@ from acprof.container.model_files import ModelFilesError, safe_path
 
 MODEL_SOURCES = ("huggingface", "modelscope")
 MODELSCOPE_ENDPOINT = "https://modelscope.cn"
+_MODEL_SOURCE: ContextVar[str | None] = ContextVar("acprof_model_source", default=None)
 
 
 class ModelScopeRevisionError(ValueError):
@@ -22,11 +26,23 @@ class ModelScopeRevisionError(ValueError):
 
 
 def model_source(value: str | None = None) -> str:
-    source = value or os.environ.get("ACPROF_MODEL_SOURCE", "huggingface")
+    source = value if value is not None else _MODEL_SOURCE.get() or os.environ.get("ACPROF_MODEL_SOURCE", "huggingface")
     if source not in MODEL_SOURCES:
         raise ValueError("model source must be huggingface/modelscope")
     return source
 
+
+
+@contextmanager
+def model_source_scope(source: str) -> Iterator[None]:
+    """Pin one operation's source without changing process-wide environment."""
+    if source not in MODEL_SOURCES:
+        raise ValueError("model source must be huggingface/modelscope")
+    token = _MODEL_SOURCE.set(source)
+    try:
+        yield
+    finally:
+        _MODEL_SOURCE.reset(token)
 
 
 def repository_context(info) -> dict:

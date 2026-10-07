@@ -10,6 +10,7 @@ from pathlib import Path
 
 from acprof.artifacts import atomic_write
 from acprof.failures import Failure, compatibility_status
+from acprof.model_repository import MODEL_SOURCES
 from acprof.quality import combine_quality, read_quality, summarize_quality
 
 MAX_COMPATIBILITY_ARTIFACT_BYTES = 4 * 1024 * 1024
@@ -42,6 +43,31 @@ def _recorded_evidence_failure(path: Path, error: Exception) -> dict:
     ).to_dict()
 
 
+class _RecordedSourceError(ValueError):
+    def __init__(self, artifact: str, detail: str):
+        super().__init__(detail)
+        self.artifact = artifact
+
+
+def _recorded_model_source(metadata: dict, resolution: dict) -> str:
+    provenance = resolution.get("provenance", {})
+    if not isinstance(provenance, dict):
+        raise _RecordedSourceError("model_resolution.json", "model provenance must be an object")
+    sources = provenance.get("sources", {})
+    if not isinstance(sources, dict):
+        raise _RecordedSourceError("model_resolution.json", "model provenance sources must be an object")
+    snapshot = sources.get("repository_snapshot", {})
+    if not isinstance(snapshot, dict):
+        raise _RecordedSourceError("model_resolution.json", "repository snapshot provenance must be an object")
+    source = metadata.get("model_source", snapshot.get("source", "huggingface"))
+    if source not in MODEL_SOURCES:
+        raise _RecordedSourceError("static_meta.json" if "model_source" in metadata else "model_resolution.json",
+                                   "recorded model source must be huggingface/modelscope")
+    if "source" in snapshot and snapshot["source"] != source:
+        raise _RecordedSourceError("model_resolution.json", "recorded source conflicts with static_meta.json")
+    return source
+
+
 def result_status(row):
     if row.get("failure"):
         return compatibility_status(row["failure"])
@@ -55,12 +81,12 @@ def result_status(row):
 def write_compatibility_report(root: Path, rows: list[dict]):
     fields = ("model_id", "revision", "status", "stage", "reason_code", "detail", "device",
               "runtime_profile", "retryability", "evidence", "full_profile_complete", "quality_status", "quality_checks",
-              "quality_reasons", "auto_selection_eligible", "attempt_id", "attempt_path", "configuration_sha256")
+              "quality_reasons", "auto_selection_eligible", "attempt_id", "attempt_path", "configuration_sha256", "source")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=fields)
     writer.writeheader()
-    lines = ["# Compatibility report", "", "状态仅适用于所记录的 revision、设备、环境和验证范围。", "",
-             "| Model | Status | reason_code | Detail |", "| --- | --- | --- | --- |"]
+    lines = ["# Compatibility report", "", "状态仅适用于所记录的 source、revision、设备、环境和验证范围。", "",
+             "| Source | Model | Revision | Status | reason_code | Detail |", "| --- | --- | --- | --- | --- | --- |"]
     for row in rows:
         failure = row.get("failure") or {}
         quality = summarize_quality(row.get("quality_checks"))
@@ -68,7 +94,7 @@ def write_compatibility_report(root: Path, rows: list[dict]):
             quality = combine_quality([quality, summarize_quality(None)])
         if "quality_reasons" in row:
             quality.update({key: row[key] for key in quality if key in row})
-        row = {**row, **quality}
+        row = {"source": "huggingface", **row, **quality}
         checks = row["quality_checks"]
         values = {key: failure.get(key, row.get(key, "")) for key in fields}
         values.update(status=result_status(row), evidence=json.dumps(failure.get("evidence", row.get("evidence", {})), ensure_ascii=False),
@@ -78,7 +104,8 @@ def write_compatibility_report(root: Path, rows: list[dict]):
         def cell(value):
             return str(value).replace("|", "\\|").replace("\n", " ")
         detail = failure.get("detail", "") or ", ".join(check["code"] for check in checks)
-        lines.append("| " + " | ".join(cell(value) for value in (row["model_id"], values["status"], values["reason_code"], detail)) + " |")
+        lines.append("| " + " | ".join(cell(value) for value in (
+            row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail)) + " |")
     csv_text = stream.getvalue()
     report_text = "\n".join(lines) + "\n"
     atomic_write(root / "models.csv", lambda output: output.write(csv_text))
@@ -128,6 +155,15 @@ def report_results(sources: list[Path], output: Path) -> dict:
         if not any((metadata, resolution, capability, validation, failure_report, invalid)):
             raise ValueError(f"No recorded compatibility evidence: {source}")
 
+        invalid_identity = any(problem["evidence"]["artifact_name"] in {
+            "static_meta.json", "model_resolution.json"} for problem in invalid)
+        try:
+            # Corrupt identity evidence is not a historical document with missing fields.
+            model_source = "unknown" if invalid_identity else _recorded_model_source(metadata, resolution)
+        except _RecordedSourceError as error:
+            invalid_shape(error.artifact, str(error))
+            model_source = "unknown"
+
         recorded_failures = failure_report.get("failures", [])
         if not isinstance(recorded_failures, list):
             invalid_shape("runtime_failures.json", "failures must be a list")
@@ -169,7 +205,7 @@ def report_results(sources: list[Path], output: Path) -> dict:
         failures.extend(invalid)
 
         quality = read_quality(source)
-        rows.append({"model_id": metadata.get("model_id", resolution.get("model_id", source.name)),
+        rows.append({"source": model_source, "model_id": metadata.get("model_id", resolution.get("model_id", source.name)),
                      "revision": metadata.get("model_revision", resolution.get("model_revision", "unknown")),
                      "runtime_profile": metadata.get("runtime_profile_id", resolution.get("runtime_profile", "")),
                      "full_profile_complete": capability.get("full_profile_complete") is True,

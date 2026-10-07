@@ -202,6 +202,7 @@ class CoverageState:
                     raise ValueError(f"invalid coverage attempt row: {path}")
                 model = self.sample["models"][index]
                 if (any(row.get(key) != model[key] for key in ("model_id", "revision", "weight"))
+                        or row.get("source", "huggingface") != model.get("source", "huggingface")
                         or row.get("attempt_id") != payload["attempt_id"]
                         or row.get("configuration_sha256") != payload["configuration_sha256"]
                         or row.get("attempt_path") != str(path.parent.relative_to(self.root))):
@@ -242,7 +243,8 @@ class CoverageState:
             self.persist_attempt()
 
     def overview(self) -> dict:
-        self.report.update(rows=[self.rows[index] for index in sorted(self.rows)], attempts=self.attempts,
+        # Expand the historical HF default only in the overview, never in old attempts.
+        self.report.update(rows=[{"source": "huggingface", **self.rows[index]} for index in sorted(self.rows)], attempts=self.attempts,
                            mixed_configurations=len({attempt["configuration_sha256"] for attempt in self.attempts}) > 1)
         self.report["status"] = "complete" if len(self.rows) == len(self.sample["models"]) else "incomplete"
         if self.attempt and self.attempt["status"] != "complete":
