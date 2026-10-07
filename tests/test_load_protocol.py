@@ -12,7 +12,7 @@ import pytest
 
 
 @contextmanager
-def server(*, fail=False, close=False):
+def server(*, fail=False, close=False, nonfinite=False):
     ports, active, peak = [], 0, 0
     lock = threading.Lock()
 
@@ -30,7 +30,11 @@ def server(*, fail=False, close=False):
                 active += 1
                 peak = max(peak, active)
             time.sleep(0.015)
-            body = json.dumps({"error": "fixture failure"} if fail else {"workload_contract": {"input": {"count": 1}}}).encode()
+            body = (
+                b'{"workload_contract":{"score":NaN}}'
+                if nonfinite
+                else json.dumps({"error": "fixture failure"} if fail else {"workload_contract": {"input": {"count": 1}}}).encode()
+            )
             self.send_response(500 if fail else 200)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Content-Type", "application/json")
@@ -172,6 +176,13 @@ class TestLoadProtocol:
         assert (report["counts"]["succeeded"]) == (0)
         assert (report["counts"]["failed"]) == (8)
         assert (report["latency_s"]["p95"]) is None
+
+    def test_nonfinite_json_response_is_not_a_successful_sample(self):
+        with server(nonfinite=True) as (url, _, _):
+            report = self.run_load(url)
+        assert (report["counts"]["succeeded"]) == (0)
+        assert (report["counts"]["failed"]) == (8)
+        assert all("non-finite" in row["error"] for row in report["requests"])
 
     def test_reuse_is_not_silently_reported_when_server_closes_connections(self):
         with server(close=True) as (url, _, _):

@@ -16,6 +16,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from acprof.artifacts import loads_finite_json
+
 
 @dataclass(frozen=True)
 class LoadConfig:
@@ -136,7 +138,7 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
             raw = response.read()
             record["completed_s"] = time.perf_counter() - epoch
             record["http_status"] = response.status
-            result = json.loads(raw)
+            result = loads_finite_json(raw.decode("utf-8"))
             if response.status != 200 or not isinstance(result, dict) or result.get("error"):
                 raise RuntimeError("/predict did not return a completed successful JSON response")
             if config.connections == "reuse" and response.will_close:
