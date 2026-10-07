@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 from rich.cells import cell_len
 from test_image_management import DockerFixture
 from test_tui_table_resize import drag, header_offset
@@ -24,7 +25,7 @@ class TestAllTables:
         temporary = tmp_path
         self.directory = Path(str(temporary))
         self.docker = DockerFixture()
-        for context in (patch.dict(os.environ, {}, clear=True),
+        for context in (patch.dict(os.environ, isolated_environment(), clear=True),
                         patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             context.start()

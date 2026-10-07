@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 
 from acprof.experiment import RunConfig
 from acprof.monitors.perf_mips import PERF_PROBE_TIMEOUT_S
@@ -21,7 +22,7 @@ class TestTuiPreflight:
         native_policy(self._request)
         temporary = tmp_path
         self.project_dir = Path(str(temporary))
-        environment = patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=True)
+        environment = patch.dict(os.environ, isolated_environment({"PATH": "/usr/bin:/bin"}), clear=True)
         environment.start()
         self._request.addfinalizer(partial(environment.stop))
         which = patch(

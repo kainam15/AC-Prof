@@ -7,6 +7,7 @@ from functools import partial
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 
 from acprof.host.image_graph import reclaimable_image_bytes
 from acprof.host.image_management import ImageManagementError, delete_images, list_images
@@ -155,7 +156,7 @@ class TestImageManagement:
         patcher = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
         patcher.start()
         self._request.addfinalizer(partial(patcher.stop))
-        environment = patch.dict(os.environ, {}, clear=True)
+        environment = patch.dict(os.environ, isolated_environment(), clear=True)
         environment.start()
         self._request.addfinalizer(partial(environment.stop))
 

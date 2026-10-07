@@ -830,6 +830,12 @@ Linux 原生终端、SSH 会话及浏览器 Web Terminal。SSH 只传输终端�
 使用 pytest 原生 async 测试和 `pytest-asyncio`、Textual `run_test()` / `Pilot` 和临时 `settings_path`。
 普通界面测试使用 `tests/tui_fixtures.py` 的就绪环境替身，保留启动状态机但不触发真实硬件探测；
 启动 preflight 专项使用真实 `AcprofTui` 和 thread worker，只模拟 host diagnostics 边界。
+覆盖整个 fixture 生命周期的环境隔离使用 `tests/environment_fixtures.py` 的
+`isolated_environment()`，保留 `PYTEST_` 与 `TEXTUAL_SNAPSHOT_` 测试运行状态，
+不继承应用设置、凭据或代理。`KeyboardInterrupt` 后，session 退出钩子可能先于 fixture
+清理运行；不能依赖稍后的环境恢复来保护快照临时目录。`test_environment_fixtures.py`
+通过真实子进程核对六组 fixture 的正常退出和中断退出码、失败证据及快照插件收尾，
+不关闭插件、不把中断或存储失败改报成功。
 快照与验证 runner 的测试同样隔离 host 探测；runner 实际启动子进程前等待启动检查，检查失败则保存失败画面并退出。
 尺寸覆盖用户报告的场景，并按布局变更检查 `80×24`、`120×30`、`150×45` 及运行中 resize。
 七个页面的标题或状态摘要和底部操作栏应保持可见；次要／导航动作在左下角，主要操作在右下角，

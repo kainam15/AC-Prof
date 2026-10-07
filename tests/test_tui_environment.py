@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 from textual.widgets import Button, Checkbox, Input, Static, TabbedContent
 from tui_fixtures import AcprofTui
 
@@ -22,7 +23,7 @@ class TestTuiEnvironment:
         directory = tmp_path
         self.root = Path(str(directory))
         for context in (patch('acprof.tui.app.PROJECT_DIR', self.root),
-                        patch.dict(os.environ, {'PATH': os.environ.get('PATH', '')}, clear=True)):
+                        patch.dict(os.environ, isolated_environment({'PATH': os.environ.get('PATH', '')}), clear=True)):
             context.start()
             self._request.addfinalizer(partial(context.stop))
 

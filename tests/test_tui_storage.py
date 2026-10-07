@@ -9,6 +9,7 @@ from threading import Event
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 from rich.cells import cell_len
 from rich.console import Console
 from test_image_management import FINAL, DockerFixture
@@ -33,7 +34,7 @@ class TestTuiStorage:
         self.directory = Path(str(temporary))
         self.docker = DockerFixture()
         for patcher in (patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
-                        patch.dict(os.environ, {}, clear=True),
+                        patch.dict(os.environ, isolated_environment(), clear=True),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             patcher.start()
             self._request.addfinalizer(partial(patcher.stop))

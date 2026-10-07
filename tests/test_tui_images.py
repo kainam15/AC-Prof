@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from environment_fixtures import isolated_environment
 from rich.cells import cell_len
 from test_image_management import FINAL, RUNTIME, WEIGHTS, DockerFixture, dependency_images, image
 from test_tui_table_resize import drag, header_offset
@@ -68,7 +69,7 @@ class TestTuiImages:
         docker_patch = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
         docker_patch.start()
         self._request.addfinalizer(partial(docker_patch.stop))
-        environment = patch.dict(os.environ, {}, clear=True)
+        environment = patch.dict(os.environ, isolated_environment(), clear=True)
         environment.start()
         self._request.addfinalizer(partial(environment.stop))
         # 定时刷新单独验证；其它交互测试不依赖机器运行速度。
