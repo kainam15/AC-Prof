@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -58,14 +59,28 @@ def registry_manifest(reference: str) -> dict | None:
             return None
         data = json.loads(result.stdout)
         if isinstance(data, list):
-            matches = [entry for entry in data if entry.get("Descriptor", {}).get("platform", {}).get("architecture") == "amd64"
+            matches = [entry for entry in data if isinstance(entry, dict)
+                       and entry.get("Descriptor", {}).get("platform", {}).get("architecture") == "amd64"
                        and entry.get("Descriptor", {}).get("platform", {}).get("os") == "linux"]
             if len(matches) != 1:
                 return None
             data = matches[0]
+        if not isinstance(data, dict):
+            return None
         manifest = data.get("SchemaV2Manifest") or data.get("OCIManifest") or data
-        layers, config = manifest["layers"], manifest["config"]
-        return {"bytes": sum(item["size"] for item in [*layers, config]), "image_id": config["digest"]}
+        if not isinstance(manifest, dict):
+            return None
+        layers, config = manifest.get("layers"), manifest.get("config")
+        if not isinstance(layers, list) or not isinstance(config, dict):
+            return None
+        entries = [*layers, config]
+        if any(not isinstance(item, dict) or type(item.get("size")) is not int or item["size"] < 0
+               for item in entries):
+            return None
+        image_id = config.get("digest")
+        if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
+            return None
+        return {"bytes": sum(item["size"] for item in entries), "image_id": image_id}
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
         return None
 
@@ -148,9 +163,16 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         metadata = (project_dir / lock).with_suffix(".artifacts.json")
         if metadata.is_file():
             recorded_sizes.update(_recorded_artifact_sizes(metadata))
+    def resolve_size(pair):
+        item = pair[1]
+        size = item.get("size")
+        if size is not None:
+            return size
+        size = recorded_sizes.get((item["url"], item["sha256"]))
+        return size if size is not None else size_probe(item["url"])
+
     with ThreadPoolExecutor(max_workers=8) as executor:
-        sizes = list(executor.map(lambda pair: pair[1].get("size") or
-            recorded_sizes.get((pair[1]["url"], pair[1]["sha256"])) or size_probe(pair[1]["url"]), artifacts))
+        sizes = list(executor.map(resolve_size, artifacts))
     result += [DownloadSource(kind, item["url"], size, cache_status="unknown",
                   detail=f"{item['name']}; conservative full artifact; BuildKit cache verified during build")
                for (kind, item), size in zip(artifacts, sizes)]

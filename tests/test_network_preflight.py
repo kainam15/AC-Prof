@@ -8,7 +8,7 @@ from runtime_fixture import copy_dependency_tree
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.dependency_locks import read_python_lock
-from acprof.host.network_preflight import preflight, runtime_sources
+from acprof.host.network_preflight import preflight, registry_manifest, runtime_sources
 from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -103,6 +103,26 @@ def test_runtime_sources_uses_valid_recorded_artifact_sizes_without_network(tmp_
     assert all(source.estimated_bytes == 123 for source in sources)
 
 
+def test_runtime_sources_preserves_recorded_zero_size_without_network(tmp_path):
+    copy_dependency_tree(tmp_path)
+    profile = PROFILES["nlp-cpu"]
+    lock = tmp_path / profile.environment.requirements_lock
+    records = read_python_lock(lock)
+    metadata = lock.with_suffix(".artifacts.json")
+    metadata.write_text(json.dumps({"schema_version": 1, "artifacts": [
+        {"url": entry["url"], "sha256": entry["sha256"], "size": 0} for entry in records
+    ]}))
+    inspections = iter(({"image_id": "sha256:" + "a" * 64}, None))
+    with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True):
+        sources, _ = runtime_sources(
+            profile, tmp_path, inspect=lambda _: next(inspections),
+            size_probe=lambda _: pytest.fail("recorded zero-byte artifact size used network"),
+            manifest_probe=lambda _: pytest.fail("local platform/build-only path queried registry"),
+        )
+    assert sources
+    assert all(source.estimated_bytes == 0 for source in sources)
+
+
 def test_runtime_sources_rejects_nonfinite_artifact_metadata(tmp_path):
     copy_dependency_tree(tmp_path)
     profile = PROFILES["nlp-cpu"]
@@ -123,6 +143,26 @@ def test_runtime_sources_bounds_artifact_metadata_read(tmp_path):
     with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True):
         with pytest.raises(ValueError, match="4 MiB read limit"):
             runtime_sources(profile, tmp_path, inspect=lambda _: None, manifest_probe=lambda _: None)
+
+@pytest.mark.parametrize(
+    ("layer_size", "config_digest"),
+    [
+        (True, "sha256:" + "a" * 64),
+        (-1, "sha256:" + "a" * 64),
+        (1, "not-a-digest"),
+    ],
+)
+def test_registry_manifest_rejects_invalid_budget_metadata(layer_size, config_digest):
+    payload = {
+        "SchemaV2Manifest": {
+            "layers": [{"size": layer_size}],
+            "config": {"size": 10, "digest": config_digest},
+        },
+    }
+    result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+    with patch("acprof.host.network_preflight.host_command.run_command", return_value=result):
+        assert registry_manifest("ghcr.io/example/runtime:tag") is None
+
 
 def test_local_miss_reports_ghcr_and_compressed_upper_bound():
     with patch.dict("os.environ", {"ACPROF_RUNTIME_IMAGE_SOURCE": "auto"}, clear=True):
