@@ -296,6 +296,22 @@ def _option_value(args: Sequence[str], name: str) -> Optional[str]:
     return None
 
 
+def _argument_references_directory(argument: str, directory: Path) -> bool:
+    """Match an argv path token, not a textual prefix of a sibling directory."""
+    expected = str(directory)
+    offset = 0
+    while True:
+        index = argument.find(expected, offset)
+        if index < 0:
+            return False
+        end = index + len(expected)
+        before_ok = index == 0 or argument[index - 1] in "=:,"
+        after_ok = end == len(argument) or argument[end] == os.sep
+        if before_ok and after_ok:
+            return True
+        offset = index + 1
+
+
 def find_active_processes(
     result_dir: Path,
     *,
@@ -329,7 +345,9 @@ def find_active_processes(
                 "acprof.cli.posthoc",
             )
         ))
-        direct_match = str(expected) in command and profiler_process
+        direct_match = profiler_process and any(
+            _argument_references_directory(argument, expected) for argument in args
+        )
         run_match = False
         if model_id and _option_value(args, "--model") == model_id:
             is_run_command = cli_subcommand == "run" or (

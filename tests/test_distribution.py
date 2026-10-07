@@ -103,3 +103,43 @@ class TestDistribution:
                        root / "proc" if value == "/proc" else Path(value)):
                 matches = find_active_processes(result_dir)
             assert ([pid for pid, _ in matches]) == ([999999999])
+
+    def test_posthoc_recognizes_profiler_output_below_result_directory(self):
+        from acprof.host.posthoc.storage import find_active_processes
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result_dir = root / "results" / "org--model"
+            process = root / "proc" / "999999999"
+            process.mkdir(parents=True)
+            output = result_dir / "raw" / "posthoc_profiles" / "trace"
+            (process / "cmdline").write_bytes(
+                b"\0".join(value.encode() for value in ["/usr/bin/nsys", "profile", f"--output={output}"])
+            )
+            with patch(
+                "acprof.host.posthoc.storage.Path",
+                side_effect=lambda value: root / "proc" if value == "/proc" else Path(value),
+            ):
+                matches = find_active_processes(result_dir)
+
+        assert [pid for pid, _ in matches] == [999999999]
+
+    def test_posthoc_does_not_treat_sibling_result_prefix_as_active(self):
+        from acprof.host.posthoc.storage import find_active_processes
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            expected = root / "results" / "org--model"
+            sibling = root / "results" / "org--model-old"
+            process = root / "proc" / "999999999"
+            process.mkdir(parents=True)
+            (process / "cmdline").write_bytes(
+                b"\0".join(value.encode() for value in ["/opt/bin/acprof", "profile", str(sibling)])
+            )
+            with patch(
+                "acprof.host.posthoc.storage.Path",
+                side_effect=lambda value: root / "proc" if value == "/proc" else Path(value),
+            ):
+                matches = find_active_processes(expected)
+
+        assert matches == []
