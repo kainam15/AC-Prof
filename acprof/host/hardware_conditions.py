@@ -53,10 +53,23 @@ def observe_conditions(session) -> dict:
         masks = set()
         allowed = set()
         for pid in pids:
-            for task in Path(f"/proc/{pid}/task").iterdir():
-                affinity = os.sched_getaffinity(int(task.name))
-                allowed.update(affinity)
-                masks.add(normalize_cpu_set(",".join(str(cpu) for cpu in sorted(affinity))))
+            try:
+                tasks = Path(f"/proc/{pid}/task").iterdir()
+                for task in tasks:
+                    try:
+                        affinity = os.sched_getaffinity(int(task.name))
+                    except ProcessLookupError:
+                        # Threads may exit between /proc enumeration and the
+                        # affinity read. A vanished thread cannot participate in
+                        # the later measurement window, so keep evidence from
+                        # the live siblings instead of discarding the snapshot.
+                        continue
+                    allowed.update(affinity)
+                    masks.add(normalize_cpu_set(",".join(str(cpu) for cpu in sorted(affinity))))
+            except FileNotFoundError:
+                # docker top is a snapshot; a process can legitimately exit
+                # before its task directory is opened.
+                continue
         record["cpu_affinity"] = sorted(masks) or None
         governors = {str(cpu): _read(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_governor")
                      for cpu in sorted(allowed)}

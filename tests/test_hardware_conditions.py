@@ -136,3 +136,81 @@ class TestHardwareConditions:
         ):
             record_case_conditions(directory, "1c_4g_off", object(), cpuset_cpus="2,0-1")
         assert not (record["errors"])
+
+    def test_affinity_observation_tolerates_threads_that_exit_during_sampling(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        from acprof.host.hardware_conditions import observe_conditions
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"runtime_parameters": {"effective": {"threads": 2}}}
+
+        def fake_read(path):
+            path = str(path)
+            if path == "/etc/machine-id":
+                return "fixture-machine"
+            if path == "/proc/cpuinfo":
+                return "model name : Fixture CPU\n"
+            return None
+
+        def affinity(tid):
+            if tid == 102:
+                raise ProcessLookupError("thread exited")
+            return {0, 1}
+
+        with (
+            patch("acprof.host.hardware_conditions._read", side_effect=fake_read),
+            patch("acprof.host.hardware_conditions._run", return_value="PID\n101"),
+            patch(
+                "pathlib.Path.iterdir",
+                return_value=iter([Path("/proc/101/task/101"), Path("/proc/101/task/102")]),
+            ),
+            patch("os.sched_getaffinity", side_effect=affinity),
+            patch("requests.get", return_value=response),
+        ):
+            observed = observe_conditions(
+                SimpleNamespace(container_id="a" * 64, gpu_device={}, base_url="http://127.0.0.1")
+            )
+
+        assert observed["cpu_affinity"] == ["0-1"]
+        assert not [error for error in observed["errors"] if error.startswith("CPU affinity")]
+
+    def test_affinity_observation_tolerates_process_that_exits_after_docker_top(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        from acprof.host.hardware_conditions import observe_conditions
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"runtime_parameters": {"effective": {"threads": 1}}}
+
+        def fake_read(path):
+            path = str(path)
+            if path == "/etc/machine-id":
+                return "fixture-machine"
+            if path == "/proc/cpuinfo":
+                return "model name : Fixture CPU\n"
+            return None
+
+        with (
+            patch("acprof.host.hardware_conditions._read", side_effect=fake_read),
+            patch("acprof.host.hardware_conditions._run", return_value="PID\n100\n101"),
+            patch(
+                "pathlib.Path.iterdir",
+                side_effect=[
+                    FileNotFoundError("process exited"),
+                    iter([Path("/proc/101/task/101")]),
+                ],
+            ),
+            patch("os.sched_getaffinity", return_value={2, 3}),
+            patch("requests.get", return_value=response),
+        ):
+            observed = observe_conditions(
+                SimpleNamespace(container_id="a" * 64, gpu_device={}, base_url="http://127.0.0.1")
+            )
+
+        assert observed["cpu_affinity"] == ["2-3"]
+        assert not [error for error in observed["errors"] if error.startswith("CPU affinity")]
