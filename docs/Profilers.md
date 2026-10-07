@@ -97,7 +97,9 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
 
 写入前把旧文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证临时文件后原子替换
-`result_all.csv`、`static_meta.json` 和 `metadata/collection_history.json`，失败时从备份恢复。
+`result_all.csv`、`static_meta.json` 和 `metadata/collection_history.json`，失败时逐个尝试从备份恢复。
+某个文件恢复或目录同步失败不会跳过其他文件；错误同时保留原始失败、恢复失败项及备份位置，
+不将恢复不完整报告为成功。已有历史记录的备份缺失属于恢复失败，不能据此删除历史文件。
 操作记录追加到 `posthoc_profile_history`，原始实验命令和非 profiler 字段保持原样。
 仅接受当前产物协议，不迁移旧静态元数据中的历史记录；报告与补采 plan 位于 `raw/posthoc_profiles/`；没有结果清单的 flat 目录沿用原位置。
 同一结果目录若仍被采集或分析进程使用，补采会拒绝启动。

@@ -242,29 +242,32 @@ def commit_result_files(
             context.static_meta_path,
             context.collection_history_path,
         )
-    except Exception:
-        if csv_replaced:
-            _restore_from_backup(
-                context.result_csv, backup_dir / RESULT_CSV_NAME
-            )
-        if meta_replaced:
-            _restore_from_backup(
-                context.static_meta_path, backup_dir / STATIC_META_NAME
-            )
-        if history_replaced:
-            history_backup = backup_dir / COLLECTION_HISTORY_NAME
-            if history_backup.is_file():
-                _restore_from_backup(
-                    context.collection_history_path,
-                    history_backup,
-                )
-            else:
-                try:
-                    context.collection_history_path.unlink()
-                except FileNotFoundError:
-                    pass
+    except Exception as primary_error:
+        recovery_errors: list[str] = []
+        # One failed restore or durability barrier must not skip the other files.
+        for replaced, destination, backup_name in (
+            (csv_replaced, context.result_csv, RESULT_CSV_NAME),
+            (meta_replaced, context.static_meta_path, STATIC_META_NAME),
+            (history_replaced, context.collection_history_path, COLLECTION_HISTORY_NAME),
+        ):
+            if not replaced:
+                continue
+            try:
+                if backup_name == COLLECTION_HISTORY_NAME and not context.collection_history_existed:
+                    destination.unlink(missing_ok=True)
+                    _fsync_directory(destination.parent)
                 else:
-                    _fsync_directory(context.collection_history_path.parent)
+                    _restore_from_backup(destination, backup_dir / backup_name)
+            except Exception as recovery_error:
+                recovery_errors.append(
+                    f"{destination}: {type(recovery_error).__name__}: {recovery_error}"
+                )
+        if recovery_errors:
+            raise PosthocError(
+                f"post-hoc publication failed ({type(primary_error).__name__}: {primary_error}); "
+                f"recovery incomplete: {'; '.join(recovery_errors)}; "
+                f"backups retained at {backup_dir}"
+            ) from primary_error
         raise
     finally:
         for temporary in temporaries:
