@@ -63,3 +63,17 @@ def test_reconcile_sniff_group_sidecar_rejects_missing_committed_rows(tmp_path) 
 
     with pytest.raises(RuntimeError, match="1 sniff-group rows for 2 committed CSV rows"):
         client_publication.reconcile_sniff_group_sidecar(result_csv, sidecar)
+
+
+def test_reconcile_sniff_group_sidecar_rejects_nonfinite_committed_row(tmp_path) -> None:
+    result_csv = tmp_path / "result.csv"
+    with result_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["status", "error"])
+        writer.writerow(["ok", ""])
+
+    sidecar = tmp_path / "result.csv.sniff_groups.jsonl"
+    sidecar.write_text('{"sniff_group_id":"case_r0","corrupt_metric":NaN}\n', encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="committed row 1 is malformed"):
+        client_publication.reconcile_sniff_group_sidecar(result_csv, sidecar)

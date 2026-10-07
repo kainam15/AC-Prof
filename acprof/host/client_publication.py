@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.config import (
     CSV_FIELDS,
 )
@@ -43,8 +43,8 @@ def reconcile_sniff_group_sidecar(csv_path: str | Path, sidecar_path: str | Path
                 f"sniff-group sidecar committed row {line_number} is truncated"
             )
         try:
-            payload = json.loads(line)
-        except json.JSONDecodeError as exc:
+            payload = loads_finite_json(line)
+        except (ValueError, RecursionError) as exc:
             raise RuntimeError(
                 f"sniff-group sidecar committed row {line_number} is malformed"
             ) from exc
