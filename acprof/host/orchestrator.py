@@ -833,23 +833,15 @@ def _timeout_context_float(value: Any, fallback: float) -> float:
 
 def _load_client_error_context(path: str) -> Dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        return read_json_object(path, label="client error context")
     except FileNotFoundError:
         return {}
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         print(
             f"[case][WARN] could not read structured client error context {path}: {exc}",
             file=sys.stderr,
         )
         return {}
-    if not isinstance(payload, dict):
-        print(
-            f"[case][WARN] ignored non-object client error context: {path}",
-            file=sys.stderr,
-        )
-        return {}
-    return payload
 
 
 def _annotate_timeout_placeholder_rows(

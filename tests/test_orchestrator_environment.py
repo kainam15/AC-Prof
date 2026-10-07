@@ -1767,6 +1767,20 @@ class TestDetectEnvironment:
                     require_packet_latency=False,
                 )
 
+    def test_client_error_context_rejects_nonfinite_json(self, tmp_path, capsys) -> None:
+        path = tmp_path / "client-error.json"
+        path.write_text('{"input_scale": NaN}', encoding="utf-8")
+
+        assert orchestrator._load_client_error_context(str(path)) == {}
+        assert "could not read structured client error context" in capsys.readouterr().err
+
+    def test_client_error_context_rejects_oversized_json(self, tmp_path, capsys) -> None:
+        path = tmp_path / "client-error.json"
+        path.write_text(json.dumps({"padding": "x" * (4 * 1024 * 1024)}), encoding="utf-8")
+
+        assert orchestrator._load_client_error_context(str(path)) == {}
+        assert "4 MiB read limit" in capsys.readouterr().err
+
     def test_run_single_case_records_request_timeout_and_returns(self) -> None:
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",
