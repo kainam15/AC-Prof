@@ -316,6 +316,13 @@ class TestCollectionWorkflow:
             with pytest.raises(error):
                 workflow.ask("runtime", "error", detail="missing file")
 
+    def test_controller_reply_rejects_nonfinite_json(self):
+        reply = '{"id":1,"action":"retry","ignored":NaN}\n'
+        with patch("sys.stdin", io.StringIO(reply)), patch("sys.stdout", io.StringIO()):
+            workflow = PreparationWorkflow(interactive=True)
+            with pytest.raises(ValueError, match="non-finite number"):
+                workflow.ask("runtime", "error", detail="missing file")
+
     def test_explicit_rebuild_invalidates_image_and_plan_but_keeps_resolution(self):
         output = io.StringIO()
         attempts = []

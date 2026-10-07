@@ -6,13 +6,12 @@ returns answers over stdin; there is no polling or control I/O in measurement.
 from __future__ import annotations
 
 import copy
-import json
 import os
 import sys
 import traceback
 from pathlib import Path
 
-from acprof.artifacts import atomic_write_json, read_json_object, sync_directory
+from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
 from acprof.host.model_errors import ModelLookupError
 from acprof.model_evidence import content_digest, pinned_revision
 from acprof.preparation_events import MAX_MESSAGE, encode_event
@@ -76,7 +75,7 @@ class PreparationWorkflow:
             raise KeyboardInterrupt("preparation controller disconnected")
         if len(line) > MAX_MESSAGE:
             raise ValueError("preparation reply exceeds size limit")
-        reply = json.loads(line)
+        reply = loads_finite_json(line)
         if not isinstance(reply, dict) or type(reply.get("id")) is not int or reply["id"] != self.request_id:
             raise ValueError("stale or invalid preparation reply")
         if reply.get("action") == "cancel":
