@@ -89,7 +89,7 @@ def create_backup(context: ResultContext) -> Path:
                 os.fsync(stream.fileno())
         _fsync_directory(backup)
         _fsync_directory(root)
-    except Exception:
+    except BaseException:
         try:
             shutil.rmtree(backup)
         except FileNotFoundError:
@@ -132,7 +132,7 @@ def _write_csv_temporary(
         )
         temporary_path.chmod(mode)
         return temporary_path
-    except Exception:
+    except BaseException:
         try:
             temporary_path.unlink()
         except FileNotFoundError:
@@ -161,7 +161,7 @@ def _write_json_temporary(destination: Path, payload: Mapping[str, Any]) -> Path
         )
         temporary_path.chmod(mode)
         return temporary_path
-    except Exception:
+    except BaseException:
         try:
             temporary_path.unlink()
         except FileNotFoundError:
@@ -200,9 +200,7 @@ def commit_result_files(
     backup_dir: Path,
 ) -> None:
     temporaries: list[Path] = []
-    csv_replaced = False
-    meta_replaced = False
-    history_replaced = False
+    attempted_publications: list[tuple[Path, str]] = []
     try:
         csv_temporary = _write_csv_temporary(
             context.result_csv,
@@ -231,43 +229,45 @@ def commit_result_files(
         )
         normalize_collection_history(temporary_history)
 
-        os.replace(csv_temporary, context.result_csv)
-        csv_replaced = True
-        os.replace(meta_temporary, context.static_meta_path)
-        meta_replaced = True
-        os.replace(history_temporary, context.collection_history_path)
-        history_replaced = True
+        for temporary, destination, backup_name in (
+            (csv_temporary, context.result_csv, RESULT_CSV_NAME),
+            (meta_temporary, context.static_meta_path, STATIC_META_NAME),
+            (history_temporary, context.collection_history_path, COLLECTION_HISTORY_NAME),
+        ):
+            # A signal can arrive after rename succeeds but before the next statement.
+            attempted_publications.append((destination, backup_name))
+            os.replace(temporary, destination)
         _fsync_parent_directories(
             context.result_csv,
             context.static_meta_path,
             context.collection_history_path,
         )
-    except Exception as primary_error:
+    except BaseException as primary_error:
         recovery_errors: list[str] = []
-        # One failed restore or durability barrier must not skip the other files.
-        for replaced, destination, backup_name in (
-            (csv_replaced, context.result_csv, RESULT_CSV_NAME),
-            (meta_replaced, context.static_meta_path, STATIC_META_NAME),
-            (history_replaced, context.collection_history_path, COLLECTION_HISTORY_NAME),
-        ):
-            if not replaced:
-                continue
+        cancellation = primary_error if not isinstance(primary_error, Exception) else None
+        # Attempt every potentially published file, including when cleanup is cancelled.
+        for destination, backup_name in attempted_publications:
             try:
                 if backup_name == COLLECTION_HISTORY_NAME and not context.collection_history_existed:
                     destination.unlink(missing_ok=True)
                     _fsync_directory(destination.parent)
                 else:
                     _restore_from_backup(destination, backup_dir / backup_name)
-            except Exception as recovery_error:
+            except BaseException as recovery_error:
                 recovery_errors.append(
                     f"{destination}: {type(recovery_error).__name__}: {recovery_error}"
                 )
+                if cancellation is None and not isinstance(recovery_error, Exception):
+                    cancellation = recovery_error
         if recovery_errors:
-            raise PosthocError(
+            failure = PosthocError(
                 f"post-hoc publication failed ({type(primary_error).__name__}: {primary_error}); "
                 f"recovery incomplete: {'; '.join(recovery_errors)}; "
                 f"backups retained at {backup_dir}"
-            ) from primary_error
+            )
+            if cancellation is not None:
+                raise cancellation from failure
+            raise failure from primary_error
         raise
     finally:
         for temporary in temporaries:
