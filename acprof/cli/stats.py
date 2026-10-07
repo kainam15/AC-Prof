@@ -29,7 +29,8 @@ def _save_unique_report(directory: Path, report: dict) -> tuple[Path, bool]:
             try:
                 existing = read_json_object(candidate, label="statistics report")
                 identical = json.dumps(existing, sort_keys=True, ensure_ascii=False, allow_nan=False) == content
-            except (OSError, ValueError):
+            except (FileNotFoundError, IsADirectoryError, ValueError):
+                # Skip unusable candidates, not permission or storage failures.
                 continue
             if identical:
                 return candidate, True
