@@ -1517,6 +1517,11 @@ Model Store 租约。已发起 Docker 但拿不到 ID、清理失败或清理被
 当作容器已消失。同一次验证中，较晚取得的合法 ID 若已完成清理，可解除先前的清理阻塞；
 原始验证超时仍记录为 `inconclusive`，不会改成运行成功。
 
+停止正式运行容器失败或被取消时，其租约由当前进程继续强引用，即使上层丢弃会话对象也不会
+提前解除 GC 保护。重复失败只保留一次；按不可变 ID 确认清理成功后关闭对应租约并移除保留记录，
+其他消费者的独立租约不受影响。描述符关闭失败保留重试句柄，不把未完成关闭标为已完成。
+该保留表仅在当前进程内有效，不能替代进程崩溃／退出后的持久化消费者身份和清理恢复。
+
 ```bash
 acprof run --model google-bert/bert-base-uncased --max-download 5GB
 acprof run --model-source modelscope --model Qwen/Qwen3-0.6B --max-download 5GB

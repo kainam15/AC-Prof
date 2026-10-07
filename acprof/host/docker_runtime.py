@@ -336,11 +336,18 @@ def start_container_session(
 
 
 def stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
-    if not re.fullmatch(r"[0-9a-f]{64}", session.container_id):
-        raise ValueError("refusing to remove a container without its owned immutable ID")
-    if log_prefix:
-        print(f"{log_prefix} Stopping container...")
-    remove_owned_container(session.container_id, host_command.run_command, stop=True)
-    mount, session._model_store_mount = session._model_store_mount, None
+    mount = session._model_store_mount
+    try:
+        if not re.fullmatch(r"[0-9a-f]{64}", session.container_id):
+            raise ValueError("refusing to remove a container without its owned immutable ID")
+        if log_prefix:
+            print(f"{log_prefix} Stopping container...")
+        remove_owned_container(session.container_id, host_command.run_command, stop=True)
+    except BaseException:
+        if mount is not None:
+            from acprof.host.model_store import retain_mount_for_cleanup_debt
+            retain_mount_for_cleanup_debt(mount)
+        raise
     if mount is not None:
         mount.close()
+        session._model_store_mount = None

@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from threading import Event
+from threading import Event, RLock
 from urllib.parse import urlsplit
 
 import acprof.artifacts as artifact_io
@@ -53,9 +53,12 @@ class ModelStoreMount:
         self._lock = lock
 
     def close(self) -> None:
-        lock, self._lock = self._lock, None
-        if lock is not None:
-            lock.close()
+        with _RETAINED_MOUNTS_LOCK:
+            if self._lock is not None:
+                # Preserve the retry handle and retention if close itself fails.
+                self._lock.close()
+                self._lock = None
+            _RETAINED_MOUNTS[:] = [mount for mount in _RETAINED_MOUNTS if mount is not self]
 
     def __enter__(self):
         return self
@@ -65,11 +68,16 @@ class ModelStoreMount:
 
 
 _RETAINED_MOUNTS: list[ModelStoreMount] = []
+_RETAINED_MOUNTS_LOCK = RLock()
 
 
 def retain_mount_for_cleanup_debt(mount: ModelStoreMount) -> None:
-    """Keep a lease alive when container absence could not be proven."""
-    _RETAINED_MOUNTS.append(mount)
+    """Keep each uncertain consumer's lease alive once, until explicit close."""
+    with _RETAINED_MOUNTS_LOCK:
+        if isinstance(mount, ModelStoreMount) and mount._lock is None:
+            return
+        if not any(retained is mount for retained in _RETAINED_MOUNTS):
+            _RETAINED_MOUNTS.append(mount)
 
 
 class ModelStoreCancelled(RuntimeError):
