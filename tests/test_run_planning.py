@@ -23,6 +23,14 @@ def test_preparation_event_rejects_nonfinite_json(number):
     with pytest.raises(ValueError, match='non-finite'):
         parse_event(line)
 
+@pytest.mark.parametrize('number', ['NaN', '1e999'])
+def test_progress_event_rejects_nonfinite_json(number):
+    from acprof.progress_events import PREFIX, parse_event
+    line = PREFIX + '{"version":1,"event":"case_started","case_id":"case-1","corrupt_metric":' + number + '}'
+
+    with pytest.raises(ValueError, match='non-finite'):
+        parse_event(line)
+
 def test_smoke_estimate_is_one_configuration_and_one_formal_window():
     from acprof.tui.run_planning import estimate_run
     estimate = estimate_run(RunConfig.smoke())

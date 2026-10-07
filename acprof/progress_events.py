@@ -5,6 +5,8 @@ import json
 import os
 from contextlib import contextmanager
 
+from acprof.artifacts import loads_finite_json
+
 PREFIX = "ACPROF_EVENT "
 VERSION = 1
 EVENTS = frozenset({"case_started", "measurement_started", "measurement_stopped", "case_finished"})
@@ -13,7 +15,7 @@ EVENTS = frozenset({"case_started", "measurement_started", "measurement_stopped"
 def parse_event(line: str) -> dict | None:
     if not line.startswith(PREFIX):
         return None
-    payload = json.loads(line[len(PREFIX):])
+    payload = loads_finite_json(line[len(PREFIX):])
     if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != VERSION:
         raise ValueError("unsupported AC-Prof progress event version")
     if payload.get("event") not in EVENTS or not isinstance(payload.get("case_id"), str) or not payload["case_id"]:
