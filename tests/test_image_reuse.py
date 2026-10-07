@@ -117,13 +117,14 @@ class TestPrepareImage:
         ), patch(
             "acprof.host.model_store.require_entry"
         ) as require_entry, patch(
-            "acprof.host.model_store.mount_args",
+            "acprof.host.model_store.acquire_mount",
+            autospec=True,
             side_effect=AssertionError("image preparation must not acquire a runtime mount lease"),
-        ) as mount_args:
+        ) as acquire_mount:
             prepared = runtime_images.prepare_image(self.task, self.project_dir)
 
         require_entry.assert_called_once_with(prepared.runtime_environment)
-        mount_args.assert_not_called()
+        acquire_mount.assert_not_called()
 
     def test_missing_image_is_announced_before_building(self):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr='Error: No such image: expected')
