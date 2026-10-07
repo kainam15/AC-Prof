@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
+from acprof.artifacts import read_input_scale_plan
 from acprof.container.execution import complete_prediction, configured_execution
 from acprof.container.handlers import HandlerRegistry, load_handler, resolve_model_source
 from acprof.runtime_settings import runtime_threads
@@ -24,8 +25,7 @@ torch = None
 
 
 def _find_payload(payload_file: str, input_scale: float) -> Dict[str, Any]:
-    with open(payload_file, "r", encoding="utf-8") as f:
-        plan = json.load(f)
+    plan = read_input_scale_plan(payload_file)
 
     entries = plan.get("entries")
     if not isinstance(entries, list):

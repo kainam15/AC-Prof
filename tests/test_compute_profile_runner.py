@@ -45,6 +45,24 @@ class TestComputeProfileRunnerITT:
         runner.torch = fake_torch
         return runner
 
+    @pytest.mark.parametrize("invalid", ("nonfinite", "schema"))
+    def test_find_payload_rejects_invalid_input_plan(self, tmp_path, invalid):
+        runner = self._import_runner()
+        plan = tmp_path / "input_scale_plan.json"
+        if invalid == "nonfinite":
+            plan.write_text(
+                '{"schema_version":2,"entries":[{"input_scale":64,"payload":{"text":"x"}}],"corrupt":NaN}',
+                encoding="utf-8",
+            )
+        else:
+            plan.write_text(
+                '{"schema_version":1,"entries":[{"input_scale":64,"payload":{"text":"x"}}]}',
+                encoding="utf-8",
+            )
+
+        with pytest.raises(ValueError):
+            runner._find_payload(str(plan), 64)
+
     def test_itt_control_prefers_advisor_injected_collector_environment(self):
         runner = self._import_runner()
         loaded = []
