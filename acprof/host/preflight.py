@@ -1,7 +1,6 @@
 """Linux、Docker、cgroup 和 CPU 能耗采集的主机预检。"""
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -143,8 +142,7 @@ def require_result_cgroup_compatibility(
 
     static_meta_path = layout.path("static_meta.json")
     try:
-        with static_meta_path.open("r", encoding="utf-8") as f:
-            existing_meta = json.load(f)
+        existing_meta = read_json_object(static_meta_path, label="static metadata")
         existing_version = str(existing_meta.get("cgroup_version") or "unknown")
     except (OSError, ValueError, TypeError, AttributeError):
         existing_version = "unknown"

@@ -263,6 +263,36 @@ class TestNativeDockerGuard:
                 cgroup_version="v1",
             )
 
+    @pytest.mark.parametrize(
+        "static_metadata",
+        [
+            '{"cgroup_version":"v2","corrupt":NaN}',
+            '{"cgroup_version":"v2","padding":"' + ("x" * (4 * 1024 * 1024)) + '"}',
+        ],
+    )
+    def test_partial_results_reject_invalid_cgroup_metadata(
+        self, static_metadata: str,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(
+                os.path.join(tmp, "result_case_model_1c_2g_off.csv"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write("status\nok\n")
+            with open(
+                os.path.join(tmp, "static_meta.json"),
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(static_metadata)
+
+            with pytest.raises(SystemExit), redirect_stderr(io.StringIO()):
+                run.require_result_cgroup_compatibility(
+                    tmp,
+                    cgroup_version="v2",
+                )
+
     def test_partial_results_without_cgroup_provenance_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with open(
