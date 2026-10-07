@@ -46,6 +46,40 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
     assert not list(tmp_path.rglob("*.csv"))
 
 
+def test_interface_probe_rejects_nonfinite_container_record_before_persistence(tmp_path):
+    from acprof.host.interface_probe import probe_interface
+
+    task = contracts.TestModelContract().discover()
+
+    def run(command, **kwargs):
+        if command[:2] == ["docker", "run"]:
+            Path(command[command.index("--cidfile") + 1]).write_text("c" * 64)
+            payload = (
+                '{"status":"ok","stages":['
+                '{"stage":"import","status":"verified"},'
+                '{"stage":"signature","status":"verified"}],"ignored":NaN}'
+            )
+            return SimpleNamespace(
+                returncode=0,
+                stdout="ACPROF_INTERFACE_VALIDATION=" + payload,
+                stderr="",
+            )
+        assert command == ["docker", "rm", "-f", "c" * 64]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch(
+        "acprof.host.interface_probe.prepare_environment_image",
+        return_value=SimpleNamespace(image_id="sha256:" + "b" * 64),
+    ), patch("acprof.host.interface_probe.recover_abandoned_containers"), patch(
+        "acprof.host.interface_probe.run_command", side_effect=run
+    ), pytest.raises(ValueError, match="non-finite number"):
+        probe_interface(task, tmp_path)
+
+    report = json.loads((tmp_path / "interface_validation.json").read_text())
+    assert report["status"] == "error"
+    assert "validation" not in report
+
+
 def test_dependency_image_failure_is_an_environment_failure(tmp_path):
     from acprof.host.interface_probe import InterfaceProbeError, probe_interface
     task = contracts.TestModelContract().discover()

@@ -1,7 +1,6 @@
 """Import/signature validation using only a dependency image and source bundle."""
 from __future__ import annotations
 
-import json
 import math
 import os
 import re
@@ -13,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write, atomic_write_json
+from acprof.artifacts import atomic_write, atomic_write_json, loads_finite_json
 from acprof.container.model_probe import RESULT_PREFIX
 from acprof.host.command import run_command
 from acprof.host.container_lifecycle import (
@@ -102,7 +101,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                 log = (result.stdout or "") + "\n" + (result.stderr or "")
                 records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines()
                            if line.startswith(RESULT_PREFIX)]
-                observed = json.loads(records[-1]) if records else {}
+                observed = loads_finite_json(records[-1]) if records else {}
                 if (result.returncode or observed.get("status") != "ok"
                         or {item.get("stage") for item in observed.get("stages", [])
                             if item.get("status") == "verified"} != {"import", "signature"}):
