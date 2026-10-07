@@ -60,3 +60,14 @@ def test_units_follow_resolved_input_axis_without_guessing_model_names():
     assert ("待解析") in (str(input_unit(config)))
     for axis, expected in (("duration_s", "s"), ("seq_length", "tokens"), ("resolution_scale", "×224px")):
         assert (input_unit(config, {"scale_type": axis})) == (expected)
+
+
+def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
+    from acprof.tui.run_planning import input_identity
+
+    base = RunConfig.smoke("demo/model")
+    revision = replace(base, revision="0123456789abcdef0123456789abcdef01234567")
+    repeated = replace(base, repeat=7)
+
+    assert input_identity(revision) != input_identity(base)
+    assert input_identity(repeated) == input_identity(base)

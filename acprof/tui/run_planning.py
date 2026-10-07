@@ -22,7 +22,7 @@ class RunEstimate:
 
 def input_identity(config: RunConfig) -> tuple:
     return tuple(getattr(config, name) for name in (
-        "model", "model_source", "task", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
+        "model", "model_source", "revision", "task", "task_family", "backend", "model_spec", "workload_spec", "batch_size",
         "input_scales", "input_scale_policy",
     ))
 
