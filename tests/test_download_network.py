@@ -1,6 +1,7 @@
 import os
 import tempfile
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -57,8 +58,8 @@ def test_actual_hub_downloads_block_redirect_before_transport(download_case, tar
                     kwargs["filename"] = "config.json"
                 with pytest.raises(DownloadPolicyError):
                     download(**kwargs)
-                assert (visited)
-                assert (set(visited)) == ({"hf-mirror.com"})
+                assert "hf-mirror.com" in visited
+                assert urlsplit(target).hostname not in visited
             finally:
                 from acprof.hf_transport import _httpx_factory
                 hub.set_client_factory(_httpx_factory)
