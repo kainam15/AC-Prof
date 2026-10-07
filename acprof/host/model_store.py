@@ -292,33 +292,40 @@ def plan_model(task, root: Path | None = None) -> dict:
     catalog = json.loads(catalog_path.read_text())["versions"]
     native_types = set(catalog.get(versions.get("transformers"), {}).get("model_types", []))
     root = root or store_root()
-    cached = read_entry(entry_key(task), root)
+    key = entry_key(task)
+    cached = read_entry(key, root)
     if cached:
         return cached
-    from acprof.model_repository import MODELSCOPE_ENDPOINT
-    source = getattr(task, "model_source", "huggingface")
-    endpoints = [MODELSCOPE_ENDPOINT] if source == "modelscope" else hf_endpoints()
-    def prepare(endpoint):
-        plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
-                                            cache_dir=str(root / "hf"), task=task,
-                                            native_types=native_types, library_versions=versions, source=source)
-        dependencies = task_model_spec(task).get("dependencies", [])
-        if dependencies:
-            plan["dependencies"] = []
-            for item in dependencies:
-                if source != "huggingface" and item["repo_id"] == task.model_id:
-                    raise ValueError("Main model and HF dependency share an offline loader ID but differ in source")
-                def prepare_dependency(hub):
-                    return _prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
-                        cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
-                dependency = (try_hf_endpoints(item["repo_id"], prepare_dependency)
-                              if source == "modelscope" else prepare_dependency(endpoint))
-                plan["dependencies"].append({**item, "download": dependency})
-            sizes = [p["selected_bytes"] for p in repository_plans(plan)]
-            plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
-        plan["requested_revision"] = getattr(task, "requested_revision", None)
-        return seal_plan(plan)
-    return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
+    # Planning metadata has no entry reference yet, so serialize cache misses with GC.
+    with store_lock(root):
+        # Another planner may have published the same entry while this caller waited.
+        cached = read_entry(key, root)
+        if cached:
+            return cached
+        from acprof.model_repository import MODELSCOPE_ENDPOINT
+        source = getattr(task, "model_source", "huggingface")
+        endpoints = [MODELSCOPE_ENDPOINT] if source == "modelscope" else hf_endpoints()
+        def prepare(endpoint):
+            plan = _prepare_repository_plan(endpoint, task.model_id, task.model_revision,
+                                                cache_dir=str(root / "hf"), task=task,
+                                                native_types=native_types, library_versions=versions, source=source)
+            dependencies = task_model_spec(task).get("dependencies", [])
+            if dependencies:
+                plan["dependencies"] = []
+                for item in dependencies:
+                    if source != "huggingface" and item["repo_id"] == task.model_id:
+                        raise ValueError("Main model and HF dependency share an offline loader ID but differ in source")
+                    def prepare_dependency(hub):
+                        return _prepare_repository_plan(hub, item["repo_id"], item["revision"], dependency=item,
+                            cache_dir=str(root / "hf"), task=task, native_types=native_types, library_versions=versions)
+                    dependency = (try_hf_endpoints(item["repo_id"], prepare_dependency)
+                                  if source == "modelscope" else prepare_dependency(endpoint))
+                    plan["dependencies"].append({**item, "download": dependency})
+                sizes = [p["selected_bytes"] for p in repository_plans(plan)]
+                plan["total_selected_bytes"] = sum(sizes) if all(type(n) is int for n in sizes) else None
+            plan["requested_revision"] = getattr(task, "requested_revision", None)
+            return seal_plan(plan)
+        return prepare(MODELSCOPE_ENDPOINT) if source == "modelscope" else try_hf_endpoints(task.model_id, prepare, endpoints=endpoints)
 
 
 def cached_file(root: Path, plan: dict, record: dict) -> Path | None:

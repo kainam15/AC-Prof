@@ -84,6 +84,21 @@ class TestModelStore:
         assert (first) == (second)
         assert (download.call_args.kwargs["local_files_only"])
 
+    def test_cached_plan_reuse_does_not_require_a_writable_store_lock(self):
+        self.task.pipeline_tag = "feature-extraction"
+        self.task.model_config = {}
+        self.task.library_name = "transformers"
+        record = self.prepare()
+        expected = model_store.read_entry(record["entry_id"], self.root)
+        with patch(
+            "acprof.host.model_store.store_lock",
+            side_effect=PermissionError("read-only store lock"),
+        ), patch(
+            "acprof.container.download_model._prepare_repository_plan",
+            side_effect=AssertionError("cached planning attempted a download"),
+        ):
+            assert model_store.plan_model(self.task, self.root) == expected
+
     def test_storage_failure_retries_official_with_same_commit(self):
         import httpx
         visited = []
