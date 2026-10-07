@@ -30,6 +30,15 @@ def _finite_json_number(raw: str) -> float:
     return value
 
 
+def loads_finite_json(content: str) -> Any:
+    """Decode JSON while rejecting non-standard or overflowed finite numbers."""
+    return json.loads(
+        content,
+        parse_float=_finite_json_number,
+        parse_constant=_finite_json_number,
+    )
+
+
 def read_json_object(path: str | Path, *, label: str = "artifact") -> dict:
     """Read one bounded, finite JSON object without altering the source artifact."""
     source = Path(path)
@@ -38,11 +47,7 @@ def read_json_object(path: str | Path, *, label: str = "artifact") -> dict:
     if len(content) > MAX_JSON_ARTIFACT_BYTES:
         raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
     try:
-        payload = json.loads(
-            content.decode("utf-8"),
-            parse_float=_finite_json_number,
-            parse_constant=_finite_json_number,
-        )
+        payload = loads_finite_json(content.decode("utf-8"))
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
     if not isinstance(payload, dict):

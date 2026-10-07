@@ -190,7 +190,7 @@ def read_entry(key: str, root: Path | None = None) -> dict | None:
         raise
     if len(data) > ENTRY_METADATA_MAX_BYTES:
         raise ValueError("Model Store entry metadata exceeds the 4 MiB limit")
-    plan = json.loads(data.decode("utf-8"))
+    plan = artifact_io.loads_finite_json(data.decode("utf-8"))
     validate_plan(plan)
     if plan.get("verification") != "sha256":
         raise ValueError("Model Store entry is not verified")

@@ -50,6 +50,15 @@ class TestModelStoreMetadata:
                 model_store.read_entry(self.key, self.root)
             parse.assert_not_called()
 
+    def test_nonfinite_metadata_is_rejected_even_with_matching_plan_hash(self):
+        self.plan['corrupt_metric'] = float('nan')
+        seal_plan(self.plan)
+        self.payload = json.dumps(self.plan).encode()
+        self.publish()
+
+        with pytest.raises(ValueError, match='non-finite'):
+            model_store.read_entry(self.key, self.root)
+
     def test_metadata_growth_after_size_check_is_still_rejected(self):
         self.publish()
         small_stat = self.path.stat()
