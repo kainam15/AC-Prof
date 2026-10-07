@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TextIO, TypedDict
 
 from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
@@ -252,7 +252,10 @@ def validate_runtime(
                     runtime_profile=task_info.runtime_profile_id).to_dict()
             log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write(log_path, lambda stream: stream.write(log))
+            def write_log(stream: TextIO) -> None:
+                stream.write(log)
+
+            atomic_write(log_path, write_log)
             report["devices"][device_mode] = device_result
             if cleanup_failure is not None:
                 if cleanup_failure.run_error is None and device_result.get("error"):
