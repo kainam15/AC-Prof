@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.capabilities import measurement_requested
 from acprof.config import (
     CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
@@ -354,7 +354,7 @@ class ClientRunner:
         t1 = time.perf_counter()
         if r.status_code >= 400:
             try:
-                response = r.json()
+                response = loads_finite_json(r.text)
                 detail = response.get("error", "")
             except Exception:
                 response = {}
@@ -367,7 +367,7 @@ class ClientRunner:
                 raise RuntimeFailure(replace(failure, evidence={**failure.evidence, "input_scale": float(scale_value),
                     "request_id": req_id, "request_phase": _request_phase_context(req_id)["request_phase"]}))
             raise RuntimeError(f"HTTP {r.status_code}: {detail or r.reason}")
-        resp = r.json()
+        resp = loads_finite_json(r.text)
         request_latency_s = t1 - t0
         if not math.isfinite(self.first_predict_app_s):
             self.first_predict_app_s = request_latency_s

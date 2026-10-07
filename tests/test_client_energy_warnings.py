@@ -348,7 +348,11 @@ class TestEffectiveEnergyWarning:
     def test_one_request_reports_prepared_body_and_response_counts(self) -> None:
         class FakeResponse:
             status_code = 200
-            text = ""
+            text = json.dumps({
+                "effective_input_scale": 3,
+                "output_length": 12,
+                "output_token_count": 5,
+            })
             reason = "OK"
             request = SimpleNamespace(body='{"text":"\u2713"}')
 
@@ -374,6 +378,24 @@ class TestEffectiveEnergyWarning:
         assert (result["output_token_count"]) == (5.0)
         assert (result["task_param"]) == ('{"a":2,"z":1}')
         assert (first_predict_app_s) == (0.25)
+
+    def test_one_request_rejects_nonfinite_success_json(self) -> None:
+        class FakeResponse:
+            status_code = 200
+            text = '{"effective_input_scale":3,"workload_contract":{"score":NaN}}'
+            reason = "OK"
+            request = SimpleNamespace(body="{}")
+
+            @staticmethod
+            def json():
+                return json.loads(FakeResponse.text)
+
+        with patch.object(client.requests, "post", return_value=FakeResponse()), patch.object(
+            client.time,
+            "perf_counter",
+            side_effect=[10.0, 10.25],
+        ), pytest.raises(ValueError, match="non-finite"):
+            self.runner._one_request(3.0, "req", payload_override={"text": "hello"})
 
     def test_task_param_includes_top_level_timeseries_prediction_length(self) -> None:
         payload = {

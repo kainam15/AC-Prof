@@ -199,7 +199,8 @@ def test_server_failure_survives_client_and_is_written_after_request():
     runner.runtime_failures = []
     runner.config = ClientConfig()
     runner._proxy_options = {}
-    response = SimpleNamespace(status_code=500, json=lambda: {"error": "different text", "failure": failure.to_dict()})
+    response_body = {"error": "different text", "failure": failure.to_dict()}
+    response = SimpleNamespace(status_code=500, text=json.dumps(response_body))
     with patch("acprof.host.client.requests.post", return_value=response):
         with pytest.raises(RuntimeFailure) as caught:
             runner._one_request(1, "case_w0:0", {"input_scale": 1})
