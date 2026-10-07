@@ -383,6 +383,57 @@ def test_sidecar_row_count_mismatch_fails_closed(tmp_path) -> None:
         merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
 
 
+@pytest.mark.parametrize(
+    "packet_payload",
+    [
+        '{"schema_version":2,"requests":{},"corrupt":NaN}',
+        '{"schema_version":2,"requests":{},"padding":"' + ("x" * (4 * 1024 * 1024)) + '"}',
+    ],
+)
+def test_packet_metrics_json_boundary_fails_closed(
+    tmp_path, packet_payload: str,
+) -> None:
+    in_csv = tmp_path / "result.csv"
+    lat_json = tmp_path / "lat.json"
+    out_csv = tmp_path / "result.merged.csv"
+    row = dict.fromkeys(CSV_FIELDS, "nan")
+    row.update(status="ok", error="")
+
+    with in_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerow(row)
+    lat_json.write_text(packet_payload, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="packet metrics"):
+        merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+
+
+def test_nonfinite_sniff_group_sidecar_fails_closed(tmp_path) -> None:
+    in_csv = tmp_path / "result.csv"
+    lat_json = tmp_path / "lat.json"
+    out_csv = tmp_path / "result.merged.csv"
+    sidecar = in_csv.with_name(f"{in_csv.name}.sniff_groups.jsonl")
+    row = dict.fromkeys(CSV_FIELDS, "nan")
+    row.update(status="ok", error="")
+
+    with in_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerow(row)
+    lat_json.write_text(
+        json.dumps({"schema_version": 2, "requests": {}}),
+        encoding="utf-8",
+    )
+    sidecar.write_text(
+        '{"sniff_group_id":"case_seq1_r0","corrupt":NaN}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="invalid sniff group sidecar record"):
+        merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+
+
 def test_malformed_sniff_group_sidecar_fails_closed(tmp_path) -> None:
     in_csv = tmp_path / "result.csv"
     lat_json = tmp_path / "lat.json"

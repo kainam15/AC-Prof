@@ -6,7 +6,12 @@ import sys
 from collections import defaultdict
 from typing import Sequence
 
-from acprof.artifacts import atomic_write, read_static_metadata
+from acprof.artifacts import (
+    atomic_write,
+    loads_finite_json,
+    read_json_object,
+    read_static_metadata,
+)
 from acprof.latency_slo import latency_slo_threshold
 from acprof.metric_registry import order_csv_fields
 from acprof.pixel_metrics import per_megapixel
@@ -207,8 +212,8 @@ def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
                     f"invalid sniff group sidecar record at line {line_number}: blank line"
                 )
             try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError as exc:
+                payload = loads_finite_json(raw)
+            except (ValueError, RecursionError) as exc:
                 raise ValueError(
                     f"invalid sniff group sidecar record at line {line_number}: malformed JSON"
                 ) from exc
@@ -267,8 +272,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     in_csv, lat_json, out_csv = args
-    with open(lat_json, "r", encoding="utf-8") as f:
-        packet_payload = json.load(f)
+    packet_payload = read_json_object(lat_json, label="packet metrics")
     request_records = _request_records(packet_payload)
     from acprof.artifact_layout import ArtifactLayout
     metadata = read_static_metadata(ArtifactLayout.from_csv(in_csv).root)
