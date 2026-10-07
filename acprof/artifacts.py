@@ -47,7 +47,8 @@ def read_json_object(path: str | Path, *, label: str = "artifact") -> dict:
     if len(content) > MAX_JSON_ARTIFACT_BYTES:
         raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
     try:
-        payload = loads_finite_json(content.decode("utf-8"))
+        # Historical metadata may carry one UTF-8 BOM; the byte limit includes it.
+        payload = loads_finite_json(content.decode("utf-8-sig"))
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise ValueError(f"{source}: invalid {label} JSON: {exc}") from exc
     if not isinstance(payload, dict):
