@@ -447,3 +447,46 @@ def test_real_hub_sdk_partial_cache_cannot_change_content_identity(tmp_path, mon
         assert gets[0].headers.get("range") in {None, "bytes=2-"}
     finally:
         hub.set_client_factory(_httpx_factory)
+
+
+def test_real_hub_sdk_resumes_interrupted_stream_and_keeps_content_identity(tmp_path, monkeypatch):
+    import hashlib
+    from pathlib import Path
+
+    import huggingface_hub as hub
+    from huggingface_hub import constants
+
+    from acprof.hf_transport import _httpx_factory
+    monkeypatch.setenv("HF_DOWNLOAD_MODE", "official")
+    # Exercise the real streaming retry without relying on private cache filenames.
+    monkeypatch.setattr(constants, "DOWNLOAD_CHUNK_SIZE", 2)
+    content, commit = b"abcdef", "c" * 40
+    etag = hashlib.sha256(content).hexdigest()
+    requests = []
+
+    class InterruptedStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield content[:2]
+            raise httpx.ReadTimeout("fixture interrupted response")
+
+    def respond(request):
+        requests.append(request)
+        if request.method == "HEAD":
+            return httpx.Response(302, headers={"location": "https://us.aws.cdn.hf.co/file",
+                "x-repo-commit": commit, "x-linked-etag": etag, "x-linked-size": "6"})
+        assert request.method == "GET" and request.url.host == "us.aws.cdn.hf.co"
+        if request.headers.get("range") is None:
+            assert sum(item.method == "GET" for item in requests) == 1
+            return httpx.Response(200, stream=InterruptedStream(), headers={"content-length": "6"})
+        assert request.headers["range"] == "bytes=2-"
+        return httpx.Response(206, content=content[2:], headers={"content-length": "4", "content-range": "bytes 2-5/6"})
+    hub.set_client_factory(lambda: _httpx_factory(transport=httpx.MockTransport(respond)))
+    try:
+        path = hub.hf_hub_download("demo/model", "model.safetensors", revision=commit, cache_dir=tmp_path,
+                                   endpoint="https://huggingface.co", token=False)
+        assert Path(path).read_bytes() == content
+        assert [(request.method, request.headers.get("range")) for request in requests] == [
+            ("HEAD", None), ("GET", None), ("GET", "bytes=2-")]
+        assert not list(tmp_path.rglob("*.incomplete"))
+    finally:
+        hub.set_client_factory(_httpx_factory)
