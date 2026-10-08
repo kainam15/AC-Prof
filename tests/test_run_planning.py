@@ -71,3 +71,33 @@ def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
 
     assert input_identity(revision) != input_identity(base)
     assert input_identity(repeated) == input_identity(base)
+
+
+@pytest.mark.parametrize("repeat,formal_windows,flow_check", ((1, 4, True), (2, 8, True), (3, 12, False)))
+@pytest.mark.parametrize("language", ("zh", "en"))
+def test_summary_distinguishes_planned_windows_per_condition_from_total(repeat, formal_windows, flow_check, language):
+    from acprof.tui.i18n import translate
+    from acprof.tui.run_planning import plan_summary
+
+    config = replace(RunConfig.smoke("demo/model"), cpus="1,2",
+                     input_scales="64,128", repeat=repeat)
+    summary = translate(plan_summary(config), language)
+    if language == "zh":
+        assert f"正式 {formal_windows} 窗口" in summary
+        assert f"每条件计划 {repeat} 个正式窗口" in summary
+        assert ("不足 3 个：仅验证流程，无置信区间" in summary) is flow_check
+        assert ("有效数以结果为准" in summary) is not flow_check
+    else:
+        assert f"{formal_windows} measured windows" in summary
+        assert f"Plan: {repeat} windows/condition" in summary
+        assert ("Under 3: flow check only, no CI" in summary) is flow_check
+        assert ("Valid counts come from results" in summary) is not flow_check
+
+
+def test_summary_shows_per_condition_plan_even_before_scales_are_resolved():
+    from acprof.tui.run_planning import plan_summary
+
+    summary = str(plan_summary(RunConfig()))
+    assert "输入 待解析 档" in summary
+    assert "每条件计划 5 个正式窗口" in summary
+    assert "有效数以结果为准" in summary

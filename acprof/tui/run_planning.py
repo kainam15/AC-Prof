@@ -66,6 +66,8 @@ def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
         estimate.cases, estimate.scales if estimate.scales is not None else unknown, input_unit(config, planned),
         estimate.warmup_windows if estimate.warmup_windows is not None else unknown,
         estimate.formal_windows if estimate.formal_windows is not None else unknown)
+    evidence = message("不足 3 个：仅验证流程，无置信区间" if config.repeat < 3 else "有效数以结果为准")
+    per_condition = message("每条件计划 {0} 个正式窗口 · {1}", config.repeat, evidence)
     if estimate.estimated_seconds is None:
         duration = unknown
     elif estimate.estimated_seconds >= 3600:
@@ -76,7 +78,8 @@ def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
         duration = f"{estimate.estimated_seconds:g} s"
     assumption = message("假设每请求 1s") if config.repeat_in_window else message("按自动窗口 {0:g}s 估算", config.repeat_window_seconds)
     budget = config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", "") or message("不设上限")
-    return join_messages("\n", (counts, message("时间约 {0} · {1}，不含准备、校准和 profiler", duration, assumption),
+    return join_messages("\n", (counts, per_condition,
+                               message("时间约 {0} · {1}，不含准备、校准和 profiler", duration, assumption),
                                message("下载预算：{0}", budget)))
 
 
