@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from acprof.dependency_locks import (
@@ -138,10 +139,11 @@ DEFAULT_PROFILES = {
 
 
 @lru_cache(maxsize=None)
-def locked_transformers_version(environment: DependencyEnvironment) -> str | None:
-    """Read the Transformers pin shared by host preflight and container loading."""
+def locked_transformers_version(environment: DependencyEnvironment, *, lock_path: Path | None = None) -> str | None:
+    """Read the Transformers pin from the host resource or explicitly staged image lock."""
     from acprof.installation import resource_root
-    return package_versions(read_python_lock(resource_root() / environment.requirements_lock)).get("transformers")
+    source = lock_path if lock_path is not None else resource_root() / environment.requirements_lock
+    return package_versions(read_python_lock(source)).get("transformers")
 
 
 def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:

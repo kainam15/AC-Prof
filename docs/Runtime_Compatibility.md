@@ -259,7 +259,10 @@ pipeline registry。硬件选择 CPU/CUDA 平台后，会对最终 lock 再检�
 替另一个版本提供支持证据。GLM-OCR 的 `image-to-text` 在所选 5.6.0 registry 中不存在，
 因此在下载权重、构建镜像、启动容器前返回 `runtime_task_unsupported`。
 容器加载时还核对实际安装的 Transformers 版本与 profile lock，版本不一致返回
-`runtime_dependency_incompatible`。自定义 pipeline 走明确注册的策略，不借用标准 task 注册资格。
+`runtime_dependency_incompatible`。宿主机预检从项目资源目录读取 profile lock；推理镜像则读取
+`/opt/acprof/requirements.lock`（环境镜像构建时拷贝并在最终镜像构建时校验 SHA256）。
+推理镜像不包含 `dockerfiles/locks/`，镜像锁缺失时必须报错，不回退读取项目源文件。
+自定义 pipeline 走明确注册的策略，不借用标准 task 注册资格。
 
 `precision_policy` 由 profile 与 extension 合并，包含 `supported_dtypes`、`preferred_dtype`、
 `device_overrides`、`task_overrides` 和 `model_type_overrides`。应用顺序为基础策略、设备覆盖、

@@ -11,6 +11,9 @@ from acprof.failures import Failure, RuntimeFailure
 from acprof.precision import remote_code_allowed, resolve_precision
 from acprof.runtime_profiles import DEFAULT_PROFILES, PROFILES, locked_transformers_version
 
+# The environment image installs this exact lock; it does not ship project dockerfiles/.
+CONTAINER_REQUIREMENTS_LOCK = Path("/opt/acprof/requirements.lock")
+
 
 def registered_policy(task, backend, device, load_options=None):
     family = CATALOG.task_families[task]
@@ -40,7 +43,8 @@ def load_policy(model_source, task, backend, device, load_options=None):
     if backend in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder"}:
         import transformers
         version = transformers.__version__
-        expected = locked_transformers_version(profile.environment)
+        image_lock = CONTAINER_REQUIREMENTS_LOCK if os.getenv("ACPROF_DEPENDENCY_LOCK_SHA256") else None
+        expected = locked_transformers_version(profile.environment, lock_path=image_lock)
         if version != expected:
             raise RuntimeFailure(Failure("load", "runtime_dependency_incompatible",
                 f"Runtime profile requires transformers=={expected}; installed version is {version}",
