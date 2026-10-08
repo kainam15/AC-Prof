@@ -17,7 +17,7 @@ from acprof.analysis.conditions import (
     workload_case_profile,
 )
 from acprof.artifacts import read_json_object
-from acprof.host.hardware_conditions import HARDWARE_FIELDS, conditions_path
+from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS

@@ -128,6 +128,10 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `load_protocol` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
 | `client` | 环境与 workload 初始化、请求、对照窗口和正式窗口控制、结果写入 |
 | `client_metrics` | 已完成采样结果到指标字段的纯计算与格式化 |
+
+`client_metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
+`gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
+不为降低 private API 计数机械公开所有助手函数。
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
@@ -202,7 +206,10 @@ machine events 继续由 `RunProgressTracker` 解析。
 只有实际依赖循环导致初始化顺序或职责问题时才调整模块边界。
 
 `metric_registry` 统一 CSV 字段、单位、来源、窗口和 profiler 完成条件；`config.CSV_FIELDS`
-保留同一列表对象。`analysis/audit` 和 `analysis/uncertainty` 负责只读审计与窗口统计，
+保留同一列表对象。
+`acprof.hardware_conditions` 仅定义历史硬件条件字段与产物路径；
+`host.hardware_conditions` 负责在采集窗口外观察硬件并写入记录，
+`analysis.comparison` 和 `analysis.independent_comparison` 只依赖共享只读协议，避免导入主机采集层。`analysis/audit` 和 `analysis/uncertainty` 负责只读审计与窗口统计，
 `acprof.cli.audit` / `acprof.cli.stats` 仅处理参数和报告输出。生成的 `docs/Metric_Reference.md` 可在 CI 检查漂移。
 
 指标模块不读取环境、不创建 workload 或 monitor。慢请求阈值由 client 在调用时显式传入；

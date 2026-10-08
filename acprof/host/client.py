@@ -38,14 +38,12 @@ from acprof.host.client_metrics import (
     MIPS_METRIC_FIELDS,
     RESOURCE_USAGE_METRIC_FIELDS,
     _compute_profile_row_metrics,
-    _cpu_metrics_from_result,
     _derived_efficiency_metrics,
     _eff_negative_warnings,
     _estimate_cpu_cycles,
     _execution_profile_row_metrics,
     _finite_positive,
     _fmt_float,
-    _gpu_metrics_from_result,
     _gpu_runtime_metrics_from_result,
     _idle_debug_stats,
     _idle_power_debug_stats,
@@ -58,8 +56,10 @@ from acprof.host.client_metrics import (
     _nan_metrics,
     _per_positive_denominator,
     _prepared_body_size_bytes,
-    _resource_usage_metrics_from_result,
     _to_float_or_nan,
+    cpu_metrics_from_result,
+    gpu_metrics_from_result,
+    resource_usage_metrics_from_result,
 )
 from acprof.host.compute_profile_plan import (
     find_compute_profile_entry as _find_compute_profile_entry,
@@ -727,12 +727,12 @@ class ClientRunner:
             )
 
             if gpu_result is not None:
-                gpu_metrics = _gpu_metrics_from_result(
+                gpu_metrics = gpu_metrics_from_result(
                     gpu_result,
                     actual_repeat_in_window,
                 )
             if cpu_result is not None:
-                cpu_metrics = _cpu_metrics_from_result(
+                cpu_metrics = cpu_metrics_from_result(
                     cpu_result,
                     actual_repeat_in_window,
                 )
@@ -749,7 +749,7 @@ class ClientRunner:
                         resource_usage_result.container_mem_usage_avg_bytes,
                     )):
                         raise RuntimeError("required CPU/memory measurement unavailable")
-                resource_usage_metrics = _resource_usage_metrics_from_result(
+                resource_usage_metrics = resource_usage_metrics_from_result(
                     resource_usage_result,
                     actual_repeat_in_window,
                 )

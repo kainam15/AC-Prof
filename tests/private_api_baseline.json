@@ -129,11 +129,6 @@
     {
       "source": "acprof.host.client",
       "target": "acprof.host.client_metrics",
-      "symbol": "_cpu_metrics_from_result"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
       "symbol": "_derived_efficiency_metrics"
     },
     {
@@ -160,11 +155,6 @@
       "source": "acprof.host.client",
       "target": "acprof.host.client_metrics",
       "symbol": "_fmt_float"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_gpu_metrics_from_result"
     },
     {
       "source": "acprof.host.client",
@@ -230,11 +220,6 @@
       "source": "acprof.host.client",
       "target": "acprof.host.client_metrics",
       "symbol": "_prepared_body_size_bytes"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_resource_usage_metrics_from_result"
     },
     {
       "source": "acprof.host.client",

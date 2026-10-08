@@ -11,16 +11,8 @@ from pathlib import Path
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
+from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.host.command import run_command
-
-HARDWARE_FIELDS = ("host_id", "cpu_model", "cpu_affinity", "cpu_policy", "gpu", "runtime_threads")
-
-
-def conditions_path(layout: ArtifactLayout) -> Path:
-    # This optional extension uses the existing metadata directory contract and
-    # does not rewrite the routing manifest of older v2 experiments.
-    name = "metadata/hardware_conditions.json" if layout.layout_version == 2 else "hardware_conditions.json"
-    return layout.contained(name)
 
 
 def _read(path) -> str | None:

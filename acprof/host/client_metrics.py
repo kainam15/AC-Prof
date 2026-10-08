@@ -438,7 +438,7 @@ def _divide_if_number(value: float, divisor: float) -> float:
     return value
 
 
-def _gpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
+def gpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
     return {
         "gpu_idle_power_w": _to_float_or_nan(result.idle_power_w),
         "gpu_energy_iters": float(result.energy_iters),
@@ -451,7 +451,7 @@ def _gpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, fl
     }
 
 
-def _cpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
+def cpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
     return {
         "cpu_idle_power_w": _to_float_or_nan(result.cpu_idle_power_w),
         "cpu_energy_iters": float(result.cpu_energy_iters),
@@ -551,7 +551,7 @@ def _derived_efficiency_metrics(
     }
 
 
-def _resource_usage_metrics_from_result(
+def resource_usage_metrics_from_result(
     result: Any,
     repeat_in_window: int,
 ) -> Dict[str, float]:
