@@ -143,6 +143,21 @@ def _sync_directory_tree(root: Path) -> None:
         artifact_io.sync_directory(directory)
 
 
+def _make_entry_traversable(path: Path) -> None:
+    """Grant directory search only, for read-only containers without DAC capabilities.
+
+    TemporaryDirectory stages start private (0700). A published entry must be
+    traversable by the container, without exposing directory listings.
+    """
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+        if mode & 0o111 != 0o111:
+            os.fchmod(descriptor, mode | 0o111)
+    finally:
+        os.close(descriptor)
+
+
 @contextmanager
 def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[], None] | None = None):
     _check_cancelled(cancel)
@@ -533,6 +548,8 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                     revision = repo["model_revision"]
                     artifact_io.atomic_write(cache / "refs/main", lambda stream: stream.write(revision))
                 _json(temporary / PLAN_FILENAME, plan)
+                # Keep staging private until complete; publish a traversable view.
+                _make_entry_traversable(temporary)
                 # Persist every staged directory edge before publishing the tree root.
                 _sync_directory_tree(temporary)
                 # Rename preserves relative symlink depth; syncing entries makes publication durable.
@@ -583,6 +600,9 @@ def acquire_mount(manifest: dict, root: Path | None = None) -> ModelStoreMount:
     root = _recorded_root(record, root)
     with store_lock(root):
         key, plan = _require_entry_plan(record, root)
+        # Existing entries were published with TemporaryDirectory's 0700 mode.
+        # Repair after validating the entry, while holding the store lock.
+        _make_entry_traversable(root / "entries" / key)
         lock = _open_lock_file(root / (key + ".lease"), label="Model Store lease")
         try:
             fcntl.flock(lock, fcntl.LOCK_SH)

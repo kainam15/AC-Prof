@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -58,6 +59,23 @@ class TestModelStore:
             # Prune cannot remove an active run's snapshot.
             assert (model_store.prune_store(root=self.root, apply=True)["entries"]) == ([])
             assert (blob.exists())
+
+    def test_prepared_entry_can_be_traversed_without_dac_override(self):
+        record = self.prepare()
+        entry = self.root / "entries" / record["entry_id"]
+        assert stat.S_IMODE(entry.stat().st_mode) & 0o111 == 0o111
+        assert (entry / "hf/models--example--test/snapshots" / self.task.model_revision).is_dir()
+
+    def test_mount_repairs_private_legacy_entry_without_relaxing_file_modes(self):
+        record = self.prepare()
+        entry = self.root / "entries" / record["entry_id"]
+        metadata = entry / "model_download_plan.json"
+        original_file_mode = stat.S_IMODE(metadata.stat().st_mode)
+        entry.chmod(0o700)  # Published by older TemporaryDirectory-based code.
+        with model_store.acquire_mount({"model_store": record}, self.root) as mount:
+            assert stat.S_IMODE(entry.stat().st_mode) == 0o711
+            assert stat.S_IMODE(metadata.stat().st_mode) == original_file_mode
+            assert "--mount" in mount.args
 
     def test_prepared_entry_metadata_is_fsynced_before_publication(self):
         with patch("os.fsync") as fsync:
