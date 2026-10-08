@@ -444,10 +444,30 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 至少需要 3 倍块长的窗口，缺失或不连续的 repeat 不组成块。它不能排除温度、主机负载等系统性偏差，
 也不是跨机器或跨实验的一般置信保证。冷启动、cgroup 生命周期峰值及独立 profiler 的复用值会被拒绝。
 
+可选 `--precision-target 0.05` 评估预先选择的相对区间宽度目标。参数为有限正比例，
+`0.05` 表示 `(ci_high - ci_low) / (2 * mean) ≤ 5%`；非对称区间的半宽并不等于
+端点到均值的最大距离。它沿用当前 confidence、resamples、seed 和 block-size，按资源、
+输入尺度、环境和指标分别评估；窗口内增加请求数不会增加独立统计单位。
+
+启用后 schema v1 报告顶层新增 `precision`，保存目标、公式、比例单位和
+`scope=within_run_observed_windows`；每组新增 `precision_status`（`met`、
+`not_met`、`not_assessable`）、`relative_ci_half_width`、`precision_reason` 和
+`precision_excluded_windows`。窗口不足、指标缺失、已有正式 warn/error 行、窗口序号间断、
+负观测、非正均值或区间无效时不可评估，比率为 `null`。重采样少于两次，或非恒定观测
+得到零宽区间时也不可评估；保留原始均值和区间。排除的正式行单独计数，不改变既有
+`n_windows`、`missing_windows` 的含义。不传参数时不新增精度字段。
+
+`met` 只表示已观察窗口在既有 bootstrap 假设下满足用户的区间宽度目标，不证明实验完整、
+独立 run 数量足够或论文证据充分。CSV 无法推断所有尚未写入的计划首尾缺口，完整性仍由
+`audit` 验收；此诊断不提供自动补采、自动停止或按结果反复加样直至通过的流程。
+
 采集开销验证使用两个独立入口：
 
 - `scripts/measure_overhead.py <完成的实验目录> --gpu off --output-dir <新目录>`：复用原 image ID、
   输入计划和资源，随机化每轮未启用 monitors 与 5/20/100 Hz 监测线程的顺序，按同轮请求均值计算相对变化。
+  默认取源实验最大的 CPU/内存配额与输入计划第一项；`--cpu`、`--mem`（GiB）和
+  `--input-scale` 可选择源实验已记录的其他坐标，输入尺度必须唯一匹配。使用原始 payload，
+  不重新生成输入；不存在的坐标在启动容器前拒绝，所选坐标和 payload SHA256 写入报告。
   它记录 RAPL/NVML/cgroup monitor 的采样成功状态；不运行 PCAP、perf 或 TUI，也不生成正式能耗 CSV。
   添加 `--modes none,basic,full --sample-hz 20` 可比较完整采集器组合：none 无采集器，basic 仅容器
   CPU/memory，full 使用现有 PCAP、perf、RAPL、NVML 和容器资源采集器，并复用主 client 的无请求对照。
@@ -468,6 +488,18 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
 只形成一个窗口均值，不能把请求数当成独立重复次数。
 负值表示该次对照中更快，不能直接解释成监测器提升了推理性能；区间跨零时没有检测到稳定方向。
 所有报告均在窗口结束后写出，新目录保护失败和中断证据。正式采集的 monitor 生命周期保持原协议。
+
+开销入口可显式添加 `--window-boundaries`。每个比较请求窗口单独保存
+`overhead-<round>-<scenario>.boundaries.json`，不包含预热或无请求对照。
+该 schema v1 诊断记录相对于首个诊断事件的秒数、请求起止和完成数、各采集器
+start/stop/close 调用耗时，以及它们已有的逻辑采样边界；`window_id` 与报告轮次对应。
+全部 stop 尝试后、close 前复制内存时间戳，全部 close 尝试后才写文件；失败和取消窗口也保留证据。
+诊断文件写出失败会使本来成功的诊断失败；已有请求或收尾异常时保留该异常并另报写出错误。
+
+缺少已有边界时记录 `unknown`，不推算精确 counter read 时刻。CPU 的结束时间戳先于 join
+和最后一次 counter read，单凭边界偏移不能断言能量偏差显著。诊断自身有额外计时和记录开销，
+其 `successful` 只反映请求、生命周期和快照状态，不代表硬件准确度通过。
+默认关闭时不增加计时、快照或文件，正式 CSV、采集器启停顺序与能耗公式保持原义。
 
 TUI 的“统计报告”页调用同一个 `acprof stats`，默认分析应用延迟、抓包延迟和容器归因有效能耗，
 使用 95% 区间、5000 次重采样、seed=0、block-size=1。点击计算后显示表格：完整报告内容相同则复用已有 JSON 并提示，否则按日期时间保存新文件；

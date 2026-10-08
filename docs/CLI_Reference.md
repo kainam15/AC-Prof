@@ -560,7 +560,9 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 `acprof plot` 接收结果 CSV 路径，`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
 `acprof audit <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
 用于验收新实验。`acprof stats <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
-`--confidence`、`--resamples`、`--seed`、`--block-size`；定义见[结果分析](Metrics.md)。
+`--confidence`、`--resamples`、`--seed`、`--block-size`。可选 `--precision-target 0.05`
+按既有区间评估 5% 的相对半宽目标，输出 met/not_met/not_assessable；默认不评估，
+不改变原有统计字段或采集行为。定义与不可评估条件见[结果分析](Metrics.md#窗口置信区间与开销对照)。
 省略输出选项时向 stdout 输出报告 JSON。`--output FILE` 保存到指定新文件，禁止覆盖；
 `--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
 `window-statistics-YYYYMMDD-HHMMSS-ffffff.json` 保存。两个输出选项互斥。

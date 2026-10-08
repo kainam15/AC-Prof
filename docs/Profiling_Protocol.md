@@ -17,6 +17,10 @@
 独立接口验证与 startup probe 可能预热宿主机文件缓存。冷启动描述全新容器的进程和模型初始化，
 不承诺磁盘冷缓存；`cold_start_first_predict_app_s` 不计入 `/ready` 前的分段和，也不新增推理请求。
 
+请求与采集器边界可通过开销诊断入口的 `--window-boundaries` 单独观察，字段与限制见
+[窗口置信区间与开销对照](Metrics.md#窗口置信区间与开销对照)。该诊断记录已有逻辑时间戳，
+在采集器全部收尾后保存独立文件；正式窗口默认不启用，不改写既有 CSV、能耗公式或历史产物。
+
 ### 容器清理与失败证据
 
 正式 case、startup probe、Interface Probe 和独立 runtime validation 使用同一组 owner 标签（主机、用户、

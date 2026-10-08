@@ -250,7 +250,7 @@ Headless Chromium 证据不等于实际 Windows 浏览器验收，也不证明 D
 `requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
 extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner，
 以及 matrix plan、run state、compute/execution plan、profiler support/纯解析器和
-comparison/independent comparison/uncertainty、latency report、runtime validation 与测试身份/分片。
+comparison/independent comparison/uncertainty/precision、窗口边界诊断、latency report、runtime validation 与测试身份/分片。
 runtime validation 的任务、镜像和输入计划采用具体类型，报告顶层采用 TypedDict；
 容器返回的任务专有 JSON 仍在实际运行时验证。当前清单以 `pyproject.toml` 为准，仍只维护 mypy。
 初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
@@ -272,6 +272,14 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 `test_monitor_cleanup.py` 和 `test_perf_mips.py` 验证 preparation-before-start、窗口中无 Docker discovery，
 以及成功、取消、超时后才发布请求/结果；`test_resource_usage.py` 验证采样不重复扫描 CPU 拓扑。
 这些回归不代替真实 Docker/GPU/perf/NCU 采集或用户终端显示证据。
+
+`test_window_boundary_diagnostics.py` 使用受控时钟和延迟 stop 验证请求后的采样尾部、默认无诊断开销、
+无请求对照隔离、失败/取消与幂等收尾；四个真实 monitor 的边界 getter 只读取已有字段。
+`test_overhead.py` 和 `test_overhead_entrypoint.py` 覆盖源 CPU/内存/输入尺度选择、
+收尾后写出 sidecar、失败保留原始异常及默认不输出。Native sidecar 仍需另用已有固定镜像与输入验证。
+
+`test_precision.py` 与 stats CLI 回归用独立手算数据验证区间半宽、失败窗口筛选、
+退化重采样和默认 JSON 兼容，不运行正式采集。
 
 `test_output_boundaries.py` 用独立进程验证 library import 不输出、不配置 root logger，
 验证 DEBUG 与用户 stderr 的边界，并用真实短子进程检查 TUI 的 stdout/stderr 合并。
@@ -348,9 +356,14 @@ Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
 新增依赖这些工具的常规测试时，先补齐相应开发依赖与 CI 环境，不能仅依赖本机安装。
 
 快照用例使用 `snap_compare` fixture，显式指定 `terminal_size`，固定语言、主题和输入，
-仓库的 `tests/visual/test_snapshots.py` 固定九个场景：中文窄终端、英文常规尺寸、宽终端、
-弹窗覆盖、实际拖动表格之后、测量中、清理未完成和中英文 WSL2 模型检测等待；覆盖 `80×24`、`120×30`、`150×45`。
+仓库的 `tests/visual/test_snapshots.py` 固定十一个场景：中文窄终端、英文常规尺寸、宽终端、
+弹窗覆盖、实际拖动表格之后、测量中、清理未完成、中英文 WSL2 模型检测等待，以及中英文模型确认对话框；
+覆盖 `80×24`、`120×30`、`150×45`。
 通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
+WSL2 检测等待场景通过 F5 启动模拟受控任务，在 Monitor 内显示接口阶段和原始日志，
+不打开被动 Preparation Modal；截图前验证测量未开始、日志可见且停止按钮可用。
+模型确认场景从上述等待状态接收明确的 review 请求后打开 Preparation Modal，核对模型字段、
+中英文确认标签、按钮无遮挡与 Tab 可达；确认请求绑定当前模拟进程和 request ID。
 基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
 普通功能测试与 SVG 回归共用开发环境和 pytest 配置：
 
