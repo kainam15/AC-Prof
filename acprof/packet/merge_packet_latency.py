@@ -272,7 +272,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     in_csv, lat_json, out_csv = args
-    packet_payload = read_json_object(lat_json, label="packet metrics")
+    # A capture grows with request count; the small-metadata cap does not apply.
+    packet_payload = read_json_object(lat_json, label="packet metrics", bounded=False)
     request_records = _request_records(packet_payload)
     from acprof.artifact_layout import ArtifactLayout
     metadata = read_static_metadata(ArtifactLayout.from_csv(in_csv).root)

@@ -384,14 +384,22 @@ def test_sidecar_row_count_mismatch_fails_closed(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    "packet_payload",
+    "packet_payload,error_match",
     [
-        '{"schema_version":2,"requests":{},"corrupt":NaN}',
-        '{"schema_version":2,"requests":{},"padding":"' + ("x" * (4 * 1024 * 1024)) + '"}',
+        ('{"schema_version":2,"requests":{},"corrupt":NaN}', "non-finite"),
+        ('{"schema_version":2,"requests":{},"corrupt":Infinity}', "non-finite"),
+        ('{"schema_version":2,"requests":{},"corrupt":1e999}', "non-finite"),
+        ('{"schema_version":2,"requests":{},"padding":"' + ("x" * (4 * 1024 * 1024)) + '","corrupt":NaN}', "non-finite"),
+        ('{"schema_version":2,"requests":', "invalid packet metrics JSON"),
+        ('[]', "top-level JSON value must be an object"),
+        ('{"schema_version":1,"requests":{}}', "unsupported schema_version"),
+        ('{"schema_version":2,"requests":[]}', "requires a requests object"),
     ],
+    ids=["nan", "infinity", "overflow", "large-nan", "malformed", "non-object",
+         "unsupported-schema", "invalid-requests"],
 )
 def test_packet_metrics_json_boundary_fails_closed(
-    tmp_path, packet_payload: str,
+    tmp_path, packet_payload: str, error_match: str,
 ) -> None:
     in_csv = tmp_path / "result.csv"
     lat_json = tmp_path / "lat.json"
@@ -404,9 +412,47 @@ def test_packet_metrics_json_boundary_fails_closed(
         writer.writeheader()
         writer.writerow(row)
     lat_json.write_text(packet_payload, encoding="utf-8")
+    out_csv.write_text("previous result\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="packet metrics"):
+    with pytest.raises(ValueError, match=error_match):
         merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+    assert out_csv.read_text(encoding="utf-8") == "previous result\n"
+
+
+def test_merges_packet_capture_larger_than_metadata_limit(tmp_path) -> None:
+    in_csv = tmp_path / "result.csv"
+    lat_json = tmp_path / "lat.json"
+    out_csv = tmp_path / "result.merged.csv"
+    with in_csv.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=[
+            "sniff_group_id", "status", "error", "latency_s", "latency_request_count",
+            "packet_total_wire_bytes_per_request", "packet_protocol_overhead_ratio",
+        ])
+        writer.writeheader()
+        writer.writerow({"sniff_group_id": "case_seq8_r0", "status": "ok", "error": ""})
+    requests = {
+        f"case_seq8_r0:{i}": {
+            "latency_s": 0.025, "request_id": f"case_seq8_r0:{i}", "tcp_stream": i,
+            "wire_bytes_status": "available", "request_wire_bytes": 1000,
+            "response_wire_bytes": 1000, "total_wire_bytes": 2000,
+            "tcp_payload_bytes": 1800, "protocol_overhead_bytes": 200,
+            "protocol_overhead_ratio": 0.1,
+        } for i in range(9000)
+    }
+    streams = {str(i): {"request_wire_bytes": 1000, "response_wire_bytes": 1000,
+                        "tcp_payload_bytes": 1800} for i in range(9000)}
+    lat_json.write_text(json.dumps({"schema_version": 2, "requests": requests,
+                                    "streams": streams}, indent=2), encoding="utf-8")
+    assert lat_json.stat().st_size > 4 * 1024 * 1024
+
+    merge_packet_latency.main([str(in_csv), str(lat_json), str(out_csv)])
+
+    with out_csv.open(encoding="utf-8", newline="") as stream:
+        row = next(csv.DictReader(stream))
+    assert row["latency_s"] == "0.025000"
+    assert row["latency_request_count"] == "9000.000000"
+    assert row["packet_total_wire_bytes_per_request"] == "2000.000000"
+    assert row["packet_protocol_overhead_ratio"] == "0.100000"
 
 
 def test_nonfinite_sniff_group_sidecar_fails_closed(tmp_path) -> None:

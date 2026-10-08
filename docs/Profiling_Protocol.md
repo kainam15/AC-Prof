@@ -392,6 +392,11 @@ host 为尚未完成的窗口补写错误占位行时，同步写入空字符串
 已提交 CSV 对应的 sidecar 行缺失或损坏仍明确报错，不猜测 group，也不改写历史实验文件。
 旧 flat layout 与 v2 使用同一约定；历史 CSV 没有 sidecar 时不伪造请求对应关系。
 
+`packet_latency.json`（旧布局为 `lat_case_*.json`）按请求和 TCP stream 保存 schema v2 抓包数据，
+大小随请求数增长，不适用小型元数据的 4 MiB 限制。读取仍校验 UTF-8、顶层 object、schema、
+request record 结构及有限数值；损坏或非有限数据报错，不截断请求，也不覆盖已有合并结果。
+当前沿用整份 JSON 解码，内存占用随抓包数据量增长；解析与合并均在测量窗口结束后执行。
+
 `raw/requests/*.jsonl`（旧布局为 `*.requests.jsonl`）保留 schema v1、`sniff_group_id`、`input_scale`、`warmup`、`repeat_idx`、
 `source=client_http`、`latency_app_s` 数组及请求阶段 `status`。数组下标 `i` 对应请求 ID
 `<sniff_group_id>:<i>`，数值单位为秒，保留原始浮点精度；只包含成功返回的请求，失败尝试另记
