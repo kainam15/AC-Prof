@@ -324,10 +324,15 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
+`app` 保留顶层 UI 状态、子进程启动/回收、测量窗口状态和退出清理；`process.ProcessLifecycle` 统一拥有子进程及停止策略。`views` 使用页面构建函数输出 TabPane 子树。
 `localization_actions.LocalizationActions` 只处理 UI 文案登记、翻译和语言切换，
 通过现有 Textual MRO 提供 `tr/notify` 等操作；`app` 仍拥有首屏、业务状态和页面生命周期，
 不把日志原文、命令参数或实验事件交给翻译模块。
+`configuration_actions` 管理表单、字段校验、保存偏好与预览，`experiment_actions` 负责预设、采集/探测确认与最近路径记忆，实际 `_launch` 仍在 App。
+`preflight_actions` 管理启动检测与模型准备弹窗，`result_actions` 管理异步摘要/报告读取、取消 token 和只读展示，`profile_actions` 管理补采操作，`slash_actions` 分发快捷命令。
+各 mixin 继承 Textual `MessagePump`，由 `AcprofTui` 的 MRO 集成事件处理，用户可见消息和工作线程的身份检查沿用原契约。
+对原先依赖 `acprof.tui.app` 的测试/可替换依赖（环境检测、预检、设置保存、摘要与报告读取）由 App 的窄方法转交；工作目录/解释器由 App 属性读取，不在 mixin 中缓存路径。
+职责拆分不会更改原始进度、CSV、resume、进程树所有权或测量窗口行为；可参考 [Textual MessagePump 分发实现](https://github.com/Textualize/textual/blob/main/src/textual/message_pump.py)（MIT），只借鉴框架契约，不复制实现。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
@@ -338,7 +343,7 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
 `run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
-`app` 继续持有控件、busy/measurement 状态、确认框、报告加载与显示，不把 `self.query_*()` 搬到新 controller。
+`app` 继续持有控件、busy/measurement 状态和进程生命周期；各 action mixin 操作 App 持有的控件与请求 token，不另起 controller 或私有状态副本。
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
 `run_results` 在子进程退出后关联现有 `run_state.run_id/attempts/pid` 与启动前快照，并调用 `audit_result`；
 manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当前运行成功证据，不另写结果协议。

@@ -341,6 +341,12 @@ CI 与 `tests/test_import_boundaries.py` 同时验证真实仓库与反例；动
 
 本阶段 mypy 增加共享硬件证据协议和纯 `client_metrics`，逐步扩大范围而非一次改成全局严格模式。
 
+### TUI 控制器拆分回归
+
+`tests/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。
+交互与线程语义以 `tests/test_tui*.py`、`tests/test_environment_tui.py` 和既有 visual snapshots
+作为行为证据；只通过源码级 ownership 检查不能替代真实的 event-loop/worker 回归。
+
 ### 辅助开发工具
 
 `requirements/test.in` / `test.lock` 统一固定 pytest、pytest-asyncio、pytest-cov 和
