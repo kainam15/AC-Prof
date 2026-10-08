@@ -326,6 +326,21 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 3.10 标准库 AST 实现，
 不复制这些项目的源码，也不引入额外 linter 或第二套类型工具。它仅在开发与 CI 中运行。
 
+### 关键模块导入方向检查
+
+`scripts/check_import_boundaries.py` 使用标准库 AST 检查源码层的依赖方向，
+禁止 `analysis → host`、`host → cli/tui`、`container → host/tui` 等反向运行时导入。
+明确跳过 `if TYPE_CHECKING` 内的类型引用，并且只允许两条已有的
+`monitors.* → host.command` 例外，避免扩大隐式耦合。
+CI 与 `tests/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
+
+```bash
+.venv/bin/python scripts/check_import_boundaries.py
+.venv/bin/python -m pytest -q tests/test_import_boundaries.py
+```
+
+本阶段 mypy 增加共享硬件证据协议和纯 `client_metrics`，逐步扩大范围而非一次改成全局严格模式。
+
 ### 辅助开发工具
 
 `requirements/test.in` / `test.lock` 统一固定 pytest、pytest-asyncio、pytest-cov 和

@@ -71,6 +71,9 @@ flowchart TD
 
 实现层不导入 `acprof.cli`。数值分析层不依赖绘图库；命令和配置模块不通过包初始化
 提前加载 Textual。容器内推理与主机通过现有 HTTP、输入计划和产物协议交互。
+`scripts/check_import_boundaries.py` 在 CI 中用 AST 检查各关键包的运行时导入方向，
+不允许分析、容器与负载层倒向采集或 UI 层。`TYPE_CHECKING` 导入不形成运行时耦合；
+monitor 使用共享 `host.command` 的两条现有边精确豁免，待命令归属迁移时再删除。
 
 跨模块调用应引用职责所属模块的公共能力。`scripts/check_private_api.py` 用标准库 AST
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
@@ -122,6 +125,7 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `static_metadata` | 主机、镜像、模型和 profiler 计划的静态元数据 |
 | `packet_capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
+
 | `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
 | `measurement_window` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
@@ -129,9 +133,6 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `client` | 环境与 workload 初始化、请求、对照窗口和正式窗口控制、结果写入 |
 | `client_metrics` | 已完成采样结果到指标字段的纯计算与格式化 |
 
-`client_metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
-`gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
-不为降低 private API 计数机械公开所有助手函数。
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
@@ -145,6 +146,15 @@ AC-Prof 的内部目录含恢复依据，不沿用 pytest 的可丢弃缓存语�
 | `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
 | `profiler_support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `cli/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，CLI 持有活动会话并负责 finally 清理 |
+
+`host.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
+继续保留原来的错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
+`host.result_cleanup` 只有在合并结果存在且非空时才回收逐 case 临时文件，
+`cli.run` 不再直接拥有文件清理实现，保留既有 v2/flat 路由与请求证据保留策略。
+
+`client_metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
+`gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
+不为降低 private API 计数机械公开所有助手函数。
 
 `docker_runtime` 是输入规划的下层；`static_metadata` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
@@ -315,6 +325,9 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 ## TUI 与兼容维护
 
 `app` 保留界面事件和状态，`process.ProcessLifecycle` 持有子进程及统一停止策略；`views` 使用页面构建函数输出 TabPane 子树。
+`localization_actions.LocalizationActions` 只处理 UI 文案登记、翻译和语言切换，
+通过现有 Textual MRO 提供 `tr/notify` 等操作；`app` 仍拥有首屏、业务状态和页面生命周期，
+不把日志原文、命令参数或实验事件交给翻译模块。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
