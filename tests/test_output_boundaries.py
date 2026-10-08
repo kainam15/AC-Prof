@@ -7,7 +7,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from acprof.host import client, orchestrator
+from acprof.host import client
+from acprof.host.energy_validation import check_idle_power_values_stable
 from acprof.tui.process import ProcessLifecycle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def test_client_startup_configuration_is_debug_only(caplog):
 
 def test_idle_warning_goes_to_stderr():
     with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as stdout, redirect_stderr(io.StringIO()) as stderr:
-        orchestrator._check_idle_power_values_stable(
+        check_idle_power_values_stable(
             csv_path=str(Path(directory) / "case.csv"), metric_name="cpu_idle_power_w", idle_values=[1., 3.],
             invalid_rows=0, row_count=2, threshold=.05, remediation="retry")
     assert (stdout.getvalue()) == ("")
