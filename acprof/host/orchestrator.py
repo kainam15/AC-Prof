@@ -806,6 +806,24 @@ def _write_case_error_csv(
         writer.writeheader()
         writer.writerows(rows)
 
+    if preserve_existing:
+        from acprof.artifact_layout import case_sidecar
+        from acprof.host.client_publication import reconcile_sniff_group_sidecar
+
+        sidecar = case_sidecar(out_csv, "sniff_groups")
+        if sidecar.exists():
+            reconcile_sniff_group_sidecar(out_csv, sidecar)
+            if missing_rows:
+                def write_error_groups(stream) -> None:
+                    with sidecar.open("r", encoding="utf-8", newline="") as source:
+                        stream.writelines(source)
+                    for _ in missing_rows:
+                        stream.write('{"sniff_group_id": ""}\n')
+
+                # As in the client, publish groups before their CSV rows. A failed
+                # CSV replacement leaves a recoverable, uncommitted sidecar tail.
+                atomic_write(sidecar, write_error_groups)
+
     atomic_write(out_csv, write_error_rows)
 
     preserved_success_rows = sum(

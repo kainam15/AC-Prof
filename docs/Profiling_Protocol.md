@@ -386,6 +386,12 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
 若运行被中断，中间文件保留用于恢复。
 
+`sniff_groups.jsonl` 按 CSV 行序保存 `sniff_group_id`。运行中 OOM 或请求超时后，
+host 为尚未完成的窗口补写错误占位行时，同步写入空字符串 group，保留已完成窗口的原始对应关系。
+写入顺序沿用客户端的 sidecar 先落盘、CSV 后发布；CSV 发布失败后的多余尾行在重试时清理，
+已提交 CSV 对应的 sidecar 行缺失或损坏仍明确报错，不猜测 group，也不改写历史实验文件。
+旧 flat layout 与 v2 使用同一约定；历史 CSV 没有 sidecar 时不伪造请求对应关系。
+
 `raw/requests/*.jsonl`（旧布局为 `*.requests.jsonl`）保留 schema v1、`sniff_group_id`、`input_scale`、`warmup`、`repeat_idx`、
 `source=client_http`、`latency_app_s` 数组及请求阶段 `status`。数组下标 `i` 对应请求 ID
 `<sniff_group_id>:<i>`，数值单位为秒，保留原始浮点精度；只包含成功返回的请求，失败尝试另记
