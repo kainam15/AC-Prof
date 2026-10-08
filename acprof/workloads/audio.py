@@ -12,12 +12,12 @@ import binascii
 import copy
 import hashlib
 import io
-import json
 import math
 import wave
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from acprof.artifacts import read_json_object
 from acprof.installation import resource_root
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -258,10 +258,10 @@ def _validate_provenance(spec: Mapping[str, Any], asset: Mapping[str, Any]) -> N
 
 def _load_workload_spec(path: Path) -> Dict[str, Any]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_json_object(path, label="audio workload spec")
     except FileNotFoundError as exc:
         raise ValueError(f"audio workload spec does not exist: {path}") from exc
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(f"cannot read audio workload spec {path}: {exc}") from exc
 
     spec = _require_object(raw, "workload spec")
