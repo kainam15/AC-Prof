@@ -6,7 +6,6 @@ from dataclasses import replace
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Collapsible, Select, Static, TabbedContent, TabPane
 
-from acprof.platform import detect_environment
 from acprof.tui.i18n import translate
 from acprof.tui.input import BarCursorInput as Input
 
@@ -69,7 +68,7 @@ class LocalizationActions:
         # Keep mounted widgets, drafts, selected values, log text/selection,
         # scroll positions and progress state. This runs only on a UI change.
         with self.prevent(Select.Changed), self.batch_update():
-            self.sub_title = f"{detect_environment().label} · {self.tr(self.SUB_TITLE)}"
+            self.sub_title = f"{self._current_environment().label} · {self.tr(self.SUB_TITLE)}"
             for (widget, attribute), source in self._localized_text.items():
                 self._render_text(widget, attribute, source)
             for widget, sources in self._localized_selects.items():

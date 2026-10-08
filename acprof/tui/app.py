@@ -11,27 +11,20 @@ import time
 from dataclasses import replace
 from pathlib import Path
 from threading import Event
-from typing import Literal, Sequence
+from typing import Literal
 
 try:
     from rich.console import Console
-    from rich.text import Text
     from textual import events, on, work
     from textual.app import ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal, Vertical
     from textual.geometry import Size
-    from textual.screen import ModalScreen
     from textual.theme import Theme
     from textual.widget import Widget
     from textual.widgets import (
         Button,
-        Checkbox,
-        Collapsible,
-        ContentSwitcher,
-        DataTable,
         Header,
-        Label,
         Select,
         Static,
         TabbedContent,
@@ -46,60 +39,53 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
         ) from None
     raise
 
-from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.experiment import RunConfig
 from acprof.host.image_management import (
     ImageInventory,
     ImageLayer,
     ManagedImage,
 )
-from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
-from acprof.platform import collection_policy_error, detect_environment
-from acprof.tui import run_form, run_planning
+from acprof.platform import detect_environment
+from acprof.tui import run_form
 from acprof.tui.catalog_actions import CatalogActions
 from acprof.tui.commands import (
     OperationState,
     PendingLaunch,
-    build_probe_command,
     format_command,
-    parse_slash_command,
-    prepare_comparison,
-    prepare_plot,
-    prepare_profile,
-    prepare_stats,
-    resolve_result_path,
 )
+from acprof.tui.configuration_actions import ConfigurationActions
 from acprof.tui.diagnostics import (
     PreflightCheck,
     quick_preflight,
     summarize_result_csv,
 )
-from acprof.tui.i18n import error_message
+from acprof.tui.experiment_actions import ExperimentActions
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
 from acprof.tui.localization_actions import LocalizationActions
 from acprof.tui.log import SelectableLog
 from acprof.tui.model_actions import ModelActions
-from acprof.tui.presentation import CALCULATING, NOT_APPLICABLE, UNKNOWN
+from acprof.tui.preflight_actions import PreflightActions
+from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
+from acprof.tui.profile_actions import ProfileActions
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.recovery_actions import RecoveryActions
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.reports import ReportView, read_report
+from acprof.tui.result_actions import ResultActions
 from acprof.tui.run_results import RunArtifacts, RunResult, inspect_run_result
-from acprof.tui.scrollbar import SolidScrollBarRender
 from acprof.tui.settings import (
-    UiPreferences,
     default_settings_path,
     load_settings,
     save_settings,
 )
+from acprof.tui.slash_actions import SlashCommandActions
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_CATALOG
 from acprof.tui.views import (
     ConfirmActionScreen,
-    EnvironmentPreflightScreen,
-    LogPanel,
     compose_images_tab,
     compose_monitor_tab,
     compose_plot_tab,
@@ -115,7 +101,20 @@ PROJECT_DIR = Path.cwd()
 PYTHON_EXECUTABLE = Path(sys.executable).absolute()
 
 
-class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, LocalizationActions, BarCursorApp):
+class AcprofTui(
+    ModelActions,
+    CatalogActions,
+    RecoveryActions,
+    ImageActions,
+    LocalizationActions,
+    ConfigurationActions,
+    ResultActions,
+    PreflightActions,
+    ProfileActions,
+    SlashCommandActions,
+    ExperimentActions,
+    BarCursorApp,
+):
     """Full-screen controller for AC-Prof collection and diagnostics."""
 
     TITLE = "AC-Prof"
@@ -135,6 +134,34 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Loc
 
     CSS_PATH = Path(__file__).with_name("tui.tcss")
     IMAGE_REFRESH_INTERVAL = 5.0
+
+    @property
+    def _project_dir(self) -> Path:
+        return PROJECT_DIR
+
+    @property
+    def _python_executable(self) -> Path:
+        return PYTHON_EXECUTABLE
+
+    @staticmethod
+    def _summarize_result_csv(*args, **kwargs):
+        return summarize_result_csv(*args, **kwargs)
+
+    @staticmethod
+    def _quick_preflight(*args, **kwargs):
+        return quick_preflight(*args, **kwargs)
+
+    @staticmethod
+    def _read_report(*args, **kwargs):
+        return read_report(*args, **kwargs)
+
+    @staticmethod
+    def _save_local_settings(*args, **kwargs):
+        return save_settings(*args, **kwargs)
+
+    @staticmethod
+    def _current_environment():
+        return detect_environment()
 
     def __init__(
         self, initial_config: RunConfig | None = None, *, settings_path: Path | None = None,
@@ -290,365 +317,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Loc
         self.set_class(size.height < 35, "short")
 
 
-    def _apply_ui_preferences(self) -> None:
-        self._apply_language()
-        self.theme = self.ui_preferences.theme
-        log = self.query_one("#run-log", SelectableLog)
-        log.wrap = self.ui_preferences.log_wrap
-        log.max_lines = self.ui_preferences.log_max_lines
-        self.query_one("#bottom-panel").set_class(
-            not self.ui_preferences.show_command_bar, "command-hidden",
-        )
-
-    @on(Select.Changed, ".ui-preference")
-    @on(Checkbox.Changed, ".ui-preference")
-    def _ui_preference_changed(self) -> None:
-        if not self._form_ready or self._is_busy():
-            return
-        preferences = UiPreferences(
-            language=self._select("ui-language"),
-            theme=self._select("ui-theme"),
-            log_max_lines=int(self.query_one("#ui-log-lines", Select).value),
-            log_wrap=self._checked("ui-log-wrap"),
-            show_command_bar=self._checked("ui-command-bar"),
-        )
-        if preferences == self.ui_preferences:
-            return
-        self.ui_preferences = preferences
-        self._apply_ui_preferences()
-        self._set_text(self.query_one('#settings-status', Static), '已应用 · 点击保存设置可在下次启动时沿用')
-        self.query_one('#settings-status').set_classes('page-summary stage-running')
-
-    @on(Button.Pressed, "#restore-ui-defaults")
-    def restore_ui_defaults(self) -> None:
-        if self._is_busy():
-            return
-        defaults = UiPreferences()
-        with self.prevent(Select.Changed, Checkbox.Changed):
-            self.query_one("#ui-language", Select).value = defaults.language
-            self.query_one("#ui-theme", Select).value = defaults.theme
-            self.query_one("#ui-log-lines", Select).value = defaults.log_max_lines
-            self.query_one("#ui-log-wrap", Checkbox).value = defaults.log_wrap
-            self.query_one("#ui-command-bar", Checkbox).value = defaults.show_command_bar
-        self.ui_preferences = defaults
-        self._apply_ui_preferences()
-        self._set_text(self.query_one('#settings-status', Static), '界面已恢复默认 · 点击保存设置可保留')
-        self.query_one('#settings-status').set_classes('page-summary stage-running')
-
-    def _save_settings(self, *, remember_run: bool) -> None:
-        if self._is_busy():
-            self.notify("任务完成后可保存设置", severity="warning")
-            return
-        try:
-            config = (
-                self._collect_config(allow_empty_model=True)
-                if remember_run else self._saved_settings.run_defaults
-            )
-            settings = replace(
-                self._saved_settings,
-                ui=self._saved_settings.ui if remember_run else self.ui_preferences,
-                run_defaults=config,
-            )
-            save_settings(self.settings_path, settings, PROJECT_DIR)
-        except (OSError, ValueError, RunConfigError) as exc:
-            self.notify(error_message(exc), title="设置未保存", severity="error")
-            self._set_text(self.query_one('#settings-status', Static), '保存失败 · 请检查配置或文件权限')
-            self.query_one('#settings-status').set_classes('page-summary stage-error')
-            return
-        self._saved_settings = settings
-        self._settings_warning = ""
-        message = "已记住当前实验配置" if remember_run else "界面设置已保存"
-        if not remember_run:
-            self._set_text(self.query_one('#settings-status', Static), message)
-            self.query_one('#settings-status').set_classes('page-summary stage-success')
-        self.notify(message, timeout=3)
-
-    @on(Button.Pressed, "#save-ui-settings")
-    def save_ui_settings(self) -> None:
-        self._save_settings(remember_run=False)
-
-    @on(Button.Pressed, "#save-run-default")
-    def save_run_default(self) -> None:
-        self._save_settings(remember_run=True)
-
-    def action_show_settings(self) -> None:
-        self._activate_tab("settings-tab")
-
-    @on(Button.Pressed, "#open-environment-settings")
-    def open_environment_settings(self) -> None:
-        if self._is_busy() or self._check_running:
-            return
-        from acprof.tui.environment import EnvironmentSettingsScreen
-        try:
-            screen = EnvironmentSettingsScreen(
-                PROJECT_DIR, self.settings_path.parent, sniff_iface=self._input("sniff-iface"),
-            )
-        except (OSError, ValueError) as read_error:
-            self.notify(message('无法读取连接配置：{0}', type(read_error).__name__), severity="error")
-            return
-        self._environment_open = True
-        self._set_busy(True)
-        self.push_screen(screen, self._environment_closed)
-
-    def _environment_closed(self, _saved: bool | None) -> None:
-        self._environment_open = False
-        self._set_busy(False)
-
-    @on(Button.Pressed, "#open-run-settings")
-    def open_run_settings(self) -> None:
-        self._activate_tab("run-tab")
-        pages = self.query_one("#experiment-pages", ContentSwitcher)
-        show_advanced = pages.current != "advanced-form"
-        self._show_run_form("advanced-form" if show_advanced else "run-form")
-
-    def _show_run_form(self, page: str) -> None:
-        self.query_one("#experiment-pages", ContentSwitcher).current = page
-        show_advanced = page == "advanced-form"
-        self._set_text(
-            self.query_one("#open-run-settings", Button),
-            "返回基本配置" if show_advanced else "高级参数", "label",
-        )
-
-
-    def _gpu_options(self) -> list[tuple[str, str]]:
-        options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
-        if self.initial_config.gpus not in {value for _, value in options}:
-            options.append((message('自定义：{0}', self.initial_config.gpus), self.initial_config.gpus))
-        return options
-
-
-    def _input(self, widget_id: str) -> str:
-        return self.query_one(f"#{widget_id}", Input).value.strip()
-
-    def _select(self, widget_id: str) -> str:
-        value = self.query_one(f"#{widget_id}", Select).value
-        return "" if value is Select.NULL else str(value)
-
-    def _checked(self, widget_id: str) -> bool:
-        return bool(self.query_one(f"#{widget_id}", Checkbox).value)
-
-    def _configure_interaction(self) -> None:
-        # Textual ignores another click while a button's active effect lasts
-        # (200 ms by default). Use focus/hover styling for immediate feedback.
-        for button in self.query(Button):
-            button.active_effect_duration = 0
-        for field in self.query(Input):
-            # The app toggles the native caret without Input's repaint timer.
-            field.cursor_blink = False
-
-    def _configure_scrollbars(self) -> None:
-        # Instance-level renderers keep this behavior local to this TUI.
-        for widget in self.query(Widget):
-            if widget.is_scrollable:
-                widget.vertical_scrollbar.renderer = SolidScrollBarRender
-                widget.horizontal_scrollbar.renderer = SolidScrollBarRender
-
-    @on(Button.Pressed, "#copy-log")
-    def copy_log_selection(self) -> None:
-        log = self.query_one("#run-log", SelectableLog)
-        if log.copy_selection():
-            self.notify("已复制日志选区", timeout=2)
-        else:
-            self.notify("先在日志中拖动选择文字，Ctrl+A 可全选", timeout=3)
-
-    @on(Button.Pressed, "#follow-log")
-    def follow_latest_log(self) -> None:
-        self.query_one("#run-log", SelectableLog).follow_tail()
-
-    @on(Button.Pressed, "#expand-log")
-    @on(Button.Pressed, "#restore-log")
-    def toggle_log_view_button(self) -> None:
-        self.action_toggle_log_view()
-
-    def action_toggle_log_view(self) -> None:
-        if isinstance(self.screen, ModalScreen):
-            return
-        panel = self.query_one("#log-panel", LogPanel)
-        if self.screen.maximized is panel:
-            self.screen.minimize()
-        else:
-            self._activate_tab("monitor-tab")
-            self.screen.maximize(panel, container=False)
-        self.query_one("#run-log", SelectableLog).focus()
-
-    def _cancel_preview_timer(self) -> None:
-        if self._preview_timer is not None:
-            self._preview_timer.stop()
-            self._preview_timer = None
-
-    @on(Input.Changed, ".config-control")
-    @on(Select.Changed, ".config-control")
-    @on(Checkbox.Changed, ".config-control")
-    def _configuration_changed(self) -> None:
-        if not self.is_running or not self._form_ready or self._applying_config or self._is_busy():
-            return
-        self._cancel_preview_timer()
-        # Coalesce typing and preset field updates into one validation/render.
-        self._preview_timer = self.set_timer(0.05, self._sync_form_state)
-
-    def _sync_form_state(self) -> None:
-        self._preview_timer = None
-        # Timer callbacks already queued before shutdown can run after the
-        # form has been removed; do not query widgets during that phase.
-        if not self.is_running or not self._form_ready or self._is_busy() or self._applying_config:
-            return
-        self._refresh_command_preview(notify=False, sync_preset=True)
-
-    @on(Select.Changed, "#run-preset")
-    def _run_preset_changed(self, event: Select.Changed) -> None:
-        if not self._form_ready or self._applying_config or self._is_busy():
-            return
-        preset = str(event.value)
-        if self._selected_preset == preset:
-            return
-        self._selected_preset = preset
-        if preset == "smoke":
-            self.preset_smoke()
-        elif preset == "main":
-            self.preset_main()
-
-    def _collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
-        return run_form.collect_config(
-            {key: self._input(key) for key in run_form.INPUT_FIELDS},
-            {key: self._select(key) for key in run_form.SELECT_FIELDS},
-            {key: self._checked(key) for key in run_form.CHECKED_FIELDS},
-            project_dir=PROJECT_DIR, allow_empty_model=allow_empty_model, extra_options=self._extra_run_options,
-        )
-
-    def _apply_config(self, config: RunConfig, *, preset: str = "custom") -> None:
-        self._cancel_preview_timer()
-        self._applying_config = True
-        self._extra_run_options = dict(config.extra_options)
-        values, selects, checks = run_form.config_values(config)
-        # Value watchers post Changed messages asynchronously. Suppressing
-        # them here avoids dozens of queued debounce timers after a preset.
-        try:
-            with self.prevent(Input.Changed, Select.Changed, Checkbox.Changed):
-                with self.batch_update():
-                    for widget_id, value in values.items():
-                        self.query_one(f"#{widget_id}", Input).value = value
-                    for widget_id, value in selects.items():
-                        self.query_one(f"#{widget_id}", Select).value = value
-                    for widget_id, value in checks.items():
-                        self.query_one(f"#{widget_id}", Checkbox).value = value
-                    self.query_one("#run-preset", Select).value = preset
-                    self._selected_preset = preset
-        finally:
-            self._applying_config = False
-        if self._form_ready:
-            self._refresh_command_preview(notify=False, sync_preset=True)
-
-    def _show_config_error(self, exc: RunConfigError) -> None:
-        text = join_messages("\n", (message("• {0}", issue.reason) for issue in exc.issues))
-        self.notify(text, title="配置有误", severity="error", timeout=8)
-        if not any(issue.field for issue in exc.issues):
-            return
-        self._field_errors_visible = True
-        control = self._update_field_errors(exc.issues)
-        if control is None:
-            return
-        ancestors = list(control.ancestors)
-        page = next((item.id for item in ancestors if item.id in {"run-form", "advanced-form"}), None)
-        if page is not None:
-            self._activate_tab("run-tab")
-            self._show_run_form(page)
-        for ancestor in ancestors:
-            if isinstance(ancestor, Collapsible):
-                ancestor.collapsed = False
-        self.call_after_refresh(self._focus_config_field, control)
-
-    def _update_field_errors(self, issues):
-        from acprof.tui.field_validation import render_field_issues
-        self._config_issues = tuple(issues)
-        return render_field_issues(self, self._config_issues, self.tr)
-
-    def _focus_config_field(self, control: Widget) -> None:
-        if (control.is_mounted and not control.is_disabled and not self._is_busy()
-                and not self._latest_snapshot.measurement_active):
-            control.focus(scroll_visible=False)
-            control.scroll_visible(animate=False, immediate=True)
-
-    def _refresh_command_preview(
-        self, *, notify: bool = True, sync_preset: bool = False
-    ) -> bool:
-        self._refresh_preflight_state()
-        config = None
-        try:
-            config = self._collect_config(allow_empty_model=True)
-            self._update_plan_summary(config)
-            command = build_run_command(
-                config,
-                project_dir=PROJECT_DIR,
-                python_executable=PYTHON_EXECUTABLE,
-            )
-        except RunConfigError as exc:
-            if self._field_errors_visible:
-                self._update_field_errors(exc.issues)
-            self._set_text(
-                self.query_one("#config-summary", Static),
-                message("配置待完善 · {0}", join_messages("; ", (item.reason for item in exc.issues[:2]))),
-            )
-            self._set_text(
-                self.query_one("#command-preview", Static),
-                message("配置尚未完成：{0}", join_messages("; ", (item.reason for item in exc.issues))),
-            )
-            if notify:
-                self._show_config_error(exc)
-            return False
-        finally:
-            if sync_preset and config is not None:
-                selected_preset = self._select("run-preset")
-                if selected_preset != "custom":
-                    adjusted = not run_form.matches_preset(config, selected_preset)
-                    options = tuple((message("{0} · 已调整", message(label)) if key == selected_preset and adjusted else label, key)
-                        for label, key in run_form.PRESET_OPTIONS)
-                    widget = self.query_one("#run-preset", Select)
-                    self._localized_selects[widget] = options
-                    with self.prevent(Select.Changed):
-                        widget.set_options((self.tr(label), key) for label, key in options)
-                        widget.value = selected_preset
-        if self._field_errors_visible:
-            self._update_field_errors(())
-        case_count = (
-            len(config.cpus.split(","))
-            * len(config.mems.split(","))
-            * len(config.gpus.split(","))
-        )
-        scale_summary = (
-            message('{0} 档', len(config.input_scales.split(',')))
-            if config.input_scales
-            else message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动规划")
-        )
-        profiler_summary = (
-            message("分析器关闭")
-            if config.compute_profile_tool == "none"
-            and config.execution_profile_tool == "none"
-            else (
-                message('计算={0} · 执行={1}', config.compute_profile_tool, config.execution_profile_tool)
-            )
-        )
-        self._set_text(self.query_one("#config-summary", Static), message(
-            "{0} 个资源 case · 输入规模 {1} · 单请求超时 {2:g}s · {3} · 输出 {4}",
-            case_count, scale_summary, config.request_timeout_seconds,
-            profiler_summary, config.output_dir,
-        ))
-        self._set_text(self.query_one('#command-preview', Static), format_command(command))
-        if notify:
-            self.notify("命令预览已更新", timeout=2)
-        return True
-
-    def _update_plan_summary(self, config: RunConfig) -> None:
-        planned = self._planned_input if self._planned_input_identity == run_planning.input_identity(config) else None
-        summary = self.query_one("#run-plan-summary", Static)
-        self._set_text(summary, run_planning.plan_summary(config, planned))
-        self._set_text(summary, run_planning.preparation_details(config, planned), "tooltip")
-        unit = run_planning.input_unit(config, planned)
-        self._set_text(self.query_one("#input-scales-label", Label), message("输入规模 ({0})", unit))
-        if planned and planned.get("scales"):
-            placeholder = ",".join(f"{value:g}" for value in planned["scales"]) + f" {unit}"
-        else:
-            placeholder = message("留空：{0} · {1}", message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
-        self._set_text(self.query_one("#input-scales", Input), placeholder, "placeholder")
 
     def _is_busy(self) -> bool:
         return self._operation_state().busy
@@ -729,145 +397,6 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Loc
         self.screen.set_focus(tabs.query_one(Tabs), scroll_visible=False)
         tabs.active = tab_id
 
-    def preset_smoke(self) -> None:
-        self._apply_preset("smoke")
-
-    def preset_main(self) -> None:
-        self._apply_preset("main")
-
-    def _apply_preset(self, preset: str) -> None:
-        if not self._allow_operation("configure"):
-            return
-        try:
-            current = self._collect_config(allow_empty_model=True)
-            config = current.with_preset(preset)
-        except RunConfigError as exc:
-            self._show_config_error(exc)
-            with self.prevent(Select.Changed):
-                self.query_one("#run-preset", Select).value = "custom"
-            return
-        self._apply_config(config, preset=preset)
-        self.notify("已应用基础 CPU Smoke 预设" if preset == "smoke" else "已应用主矩阵预设（分析器关闭）", timeout=3)
-
-    @on(Button.Pressed, "#start-run")
-    def start_run_button(self) -> None:
-        self.action_request_run()
-
-    @on(Button.Pressed, "#probe-largest")
-    def probe_largest_button(self) -> None:
-        self.action_request_probe()
-
-    def action_request_probe(self) -> None:
-        if not self._allow_operation("probe"):
-            return
-        try:
-            config = self._collect_config()
-            command = build_probe_command(
-                config,
-                project_dir=PROJECT_DIR,
-                python_executable=PYTHON_EXECUTABLE,
-            )
-        except RunConfigError as exc:
-            self._show_config_error(exc)
-            return
-
-        cpu = min(int(value) for value in config.cpus.split(","))
-        memory_candidates = sorted(
-            set(int(value) for value in config.mems.split(","))
-        )
-        gpu_modes = config.gpus.split(",")
-        gpu = "off" if "off" in gpu_modes else "on"
-        largest_scale = (
-            max(float(value) for value in config.input_scales.split(","))
-            if config.input_scales
-            else None
-        )
-        scale_text = f"{largest_scale:g}" if largest_scale is not None else message("自动规划后的最大值")
-        memory_text = ",".join(
-            f"{value}GB" for value in memory_candidates
-        )
-        preview = format_command(command)
-        self._pending_launch = PendingLaunch(tuple(command), "probe", config)
-        self.push_screen(
-            ConfirmActionScreen(
-                "探测最低配置的最大输入？",
-                join_messages("", (
-                    message(
-                        "资源：CPU={0}、GPU={1}\n内存候选：{2}（从小到大）\n输入规模：{3}\n\n"
-                        "每档使用全新容器并最多执行一次最大输入请求；OOM 时自动尝试下一档，"
-                        "第一个成功值就是最低可用内存。结果单独写入 "
-                        "probes/，不会写入或修改正式实验 CSV。最大输入请求不设超时，"
-                        "可用 /stop 手动终止。\n\n",
-                        cpu, gpu, memory_text, scale_text,
-                    ),
-                    preview,
-                )),
-                "开始探测",
-            ),
-            self._confirmed_launch,
-        )
-
-    def action_request_run(self) -> None:
-        if not self._allow_collection() or not self._allow_operation("run"):
-            return
-        try:
-            config = self._collect_config()
-            environment = detect_environment()
-            error = collection_policy_error(environment, profiling_mode=config.profiling_mode,
-                                            compute_tool=config.compute_profile_tool,
-                                            execution_tool=config.execution_profile_tool)
-            if environment.environment == "wsl2" and error:
-                self.notify(error, severity="error", timeout=10)
-                return
-            command = build_run_command(
-                config,
-                project_dir=PROJECT_DIR,
-                python_executable=PYTHON_EXECUTABLE,
-            )
-        except RunConfigError as exc:
-            self._show_config_error(exc)
-            return
-        preview = format_command(command)
-        self._set_text(self.query_one('#command-preview', Static), preview)
-        self._review_run_destination(PendingLaunch(tuple(command), "run", config))
-
-    def _confirmed_launch(self, confirmed: bool | None) -> None:
-        pending = self._pending_launch
-        self._pending_launch = None
-        self._sync_image_refresh_timer()
-        if not confirmed or pending is None:
-            return
-        self._launch(pending)
-
-    def _remember_last_used(
-        self, *, model: str = "", result_dir: str = "", result_csv: str = "",
-    ) -> None:
-        """Remember confirmed inputs, preserving explicitly saved preferences."""
-        updates = {}
-        report_source = self.query_one("#report-source", Input)
-        if result_csv and report_source.value in {"", self._saved_settings.last_result_csv}:
-            report_source.value = result_csv
-        if model.strip():
-            updates["last_model"] = model.strip()
-        for widget_id, value in (("result-dir", result_dir), ("result-csv", result_csv)):
-            if value:
-                self.query_one(f"#{widget_id}", Input).value = value
-                updates[f"last_{widget_id.replace('-', '_')}"] = value
-        settings = replace(self._saved_settings, **updates)
-        if settings == self._saved_settings:
-            return
-        if self._settings_warning:
-            self.notify(
-                "本地设置无法读取，已保留原文件。可在设置页主动保存后恢复自动记忆。",
-                title="自动记忆未保存", severity="warning",
-            )
-            return
-        try:
-            save_settings(self.settings_path, settings, PROJECT_DIR)
-        except (OSError, ValueError, RunConfigError) as exc:
-            self.notify(error_message(exc), title="自动记忆未保存", severity="warning")
-            return
-        self._saved_settings = settings
 
     def _launch(self, pending: PendingLaunch) -> None:
         if pending.kind == "run" and not self._allow_collection():
@@ -1426,622 +955,8 @@ class AcprofTui(ModelActions, CatalogActions, RecoveryActions, ImageActions, Loc
         if not result.complete:
             self._safe_process_callback(self._deliver_process_callback, token, self._process_cleanup_incomplete, result)
 
-    @on(Button.Pressed, "#environment-status")
-    def show_environment_status(self) -> None:
-        lines = []
-        reason = self._preflight_run_reason()
-        if reason:
-            lines.append(reason)
-        lines.extend(message("[{0}] {1}: {2}",
-                             message("失败" if check.status == "fail" else "警告"),
-                             check.label, check.detail)
-                     for check in self._preflight_checks if check.status in {"warn", "fail"})
-        if not lines:
-            return
-        self.push_screen(EnvironmentPreflightScreen(
-            join_messages("\n\n", lines),
-            retry_disabled=not self._operation_state().allows("check"),
-        ), self._preflight_dialog_closed)
 
-    def _preflight_dialog_closed(self, retry: bool | None) -> None:
-        if retry:
-            self.action_quick_check()
 
-    def _network_preflight_report(self, line: str) -> None:
-        import json
-        report = json.loads(line.split(" ", 1)[1])
-        from acprof.tui.downloads import download_summary
-        self.query_one("#network-download-summary", Static).update(download_summary(report, self.tr))
-        from acprof.tui.presentation import format_bytes
-        self.query_one("#download-estimate", Static).update(format_bytes(report.get("expected_download_bytes")))
-
-    def _network_download_report(self, line: str) -> None:
-        import json
-
-        from acprof.tui.downloads import download_result_summary
-        report = json.loads(line.split(" ", 1)[1])
-        summary = self.query_one("#network-download-summary", Static)
-        summary.update(f"{summary.content}\n{self.tr(download_result_summary(report))}")
-
-    @on(Button.Pressed, "#open-model-store")
-    def open_model_store(self):
-        if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
-            return
-        from acprof.host.model_store import store_root
-        from acprof.tui.model_store import ModelStoreScreen
-        root = Path(self._input("model-store")).expanduser().resolve() if self._input("model-store") else store_root()
-        self._environment_open = True
-        self._set_busy(True)
-        self.push_screen(ModelStoreScreen(root, self._input("model-store-max")), self._environment_closed)
-
-    def _show_preparation(self, event: dict) -> None:
-        from acprof.tui.preparation import PreparationScreen
-        if self._preparation_screen is None:
-            self._preparation_screen = PreparationScreen(event, respond=self._preparation_answered)
-            self.push_screen(self._preparation_screen)
-        else:
-            self._preparation_screen.update_event(event)
-
-    def _close_preparation(self) -> None:
-        screen = self._preparation_screen
-        self._preparation_screen = None
-        self._preparation_request = None
-        if screen is not None:
-            screen.close()
-
-    def _preparation_event(self, event: dict) -> None:
-        if event.get("input_plan") is not None and self._active_run_config is not None:
-            if self._latest_snapshot.measurement_active:
-                raise RuntimeError("input plan update inside measurement window")
-            plan = event["input_plan"]
-            from acprof.preparation_events import validate_input_plan
-            validate_input_plan(plan)
-            self._planned_input = plan
-            self._planned_input_identity = run_planning.input_identity(self._active_run_config)
-            self._update_plan_summary(self._active_run_config)
-        if self._stop_requested:
-            return
-        if event["stage"] == "runtime" and event.get("status") == "passed":
-            self._write_log(self.tr("✓ 模型检测完成"))
-            self._close_preparation()
-            return
-        request = event.get("request")
-        if request:
-            if self._latest_snapshot.measurement_active or self._preparation_request is not None:
-                raise RuntimeError("unexpected preparation request")
-            process = self._lifecycle.process
-            if process is None or process.poll() is not None:
-                return
-            if request["kind"] == "error":
-                self._write_log(f"[preparation][ERROR] {event['stage']}: {request.get('detail', '')}")
-            self._preparation_request = (process, request["id"])
-        if request:
-            self._show_preparation(event)
-
-    def _preparation_answered(self, result) -> None:
-        from acprof.preparation_events import encode_reply
-        if result["action"] == "request-stop":
-            self.action_request_stop()
-            return
-        pending = self._preparation_request
-        if result["action"] == "switch-source":
-            self._pending_source_change = result
-            result = {"action": "cancel"}
-        self._preparation_request = None
-        if result["action"] == "cancel":
-            self._preparation_cancelled = True
-            self._stop_requested = True
-            if pending is None:
-                self._stop_process_gracefully(self._process_token, self._lifecycle.process)
-            self._close_preparation()
-        if pending is None:
-            return
-        process, request_id = pending
-        try:
-            self._lifecycle.reply(process, encode_reply(request_id, **result))
-        except (OSError, ValueError, RuntimeError) as exc:
-            self.notify(str(exc), severity="error")
-            self._stop_requested = True
-            self._stop_process_gracefully(self._process_token, process)
-        else:
-            if result["action"] != "cancel":
-                self._close_preparation()
-
-    def _preflight_config(self) -> RunConfig:
-        # Diagnostics remain usable without a model or valid resource matrix.
-        return RunConfig(
-            model="preflight-only",
-            profiling_mode=self._select("profiling-mode"),
-            gpus=self._select("gpus"),
-            sniff_iface=self._input("sniff-iface"),
-            compute_profile_tool=self._select("compute-profile-tool"),
-            execution_profile_tool=self._select("execution-profile-tool"),
-        )
-
-    def _preflight_run_reason(self) -> str:
-        if not self.is_running or not self._form_ready or self._ui_closing:
-            return message("正在检查环境；完成后可开始采集。")
-        if self._check_running or not self._check_completed:
-            return message("正在检查环境；完成后可开始采集。")
-        if self._preflight_error:
-            return message("环境检查失败：{0}", self._preflight_error)
-        if self._preflight_config() != self._checked_config:
-            return message("环境相关配置已更改，请重新检查。")
-        failures = [message("{0}: {1}", check.label, check.detail)
-                    for check in self._preflight_checks if check.status == "fail"]
-        return message("采集已阻止：{0}", join_messages("；", failures)) if failures else ""
-
-    def _allow_collection(self) -> bool:
-        reason = self._preflight_run_reason()
-        if reason:
-            self._refresh_preflight_state()
-            self.notify(reason, title="环境状态", severity="warning", timeout=8)
-            return False
-        return True
-
-    def _refresh_preflight_state(self) -> None:
-        if not self.is_running or not self._form_ready or self._ui_closing:
-            return
-        reason = self._preflight_run_reason()
-        issues = [check for check in self._preflight_checks if check.status in {"warn", "fail"}]
-        stale = self._check_completed and self._preflight_config() != self._checked_config
-        entry = self.query_one("#environment-status", Button)
-        entry.display = bool(issues or self._preflight_error or stale)
-        failed = bool(self._preflight_error or any(check.status == "fail" for check in issues))
-        self._set_text(entry, "环境异常" if failed else "环境警告", "label")
-        entry.variant = "error" if failed else "warning"
-        self._set_text(entry, "查看环境问题与重新检查", "tooltip")
-        detail = self.query_one("#preflight-run-reason", Static)
-        detail.display = bool(reason)
-        self._set_text(detail, reason)
-        start = self.query_one("#start-run", Button)
-        start.disabled = bool(reason) or not self._operation_state().allows("run")
-        self._set_text(start, reason or "开始采集", "tooltip")
-        self.refresh_bindings()
-
-    def action_quick_check(self) -> None:
-        if not self.is_running or not self._form_ready or self._ui_closing:
-            return
-        if self._check_running:
-            return
-        if not self._allow_operation("check"):
-            return
-        self._check_config = self._preflight_config()
-        self._check_running = True
-        self._check_request = object()
-        # Keep the current page and editable form. Only conflicting work waits.
-        self._set_busy(False)
-        self._execute_quick_check(self._check_config, self._check_request)
-
-    @work(thread=True, group="preflight", exclusive=True, exit_on_error=False)
-    def _execute_quick_check(self, config: RunConfig, token: object) -> None:
-        try:
-            # Perf probes and other diagnostics must never overlap a formal
-            # measurement, including one owned by another AC-Prof process.
-            with MeasurementLock():
-                checks = quick_preflight(config, project_dir=PROJECT_DIR)
-            error = ""
-        except Exception as exc:
-            checks = []
-            error = f"{type(exc).__name__}: {exc}"
-        self._safe_process_callback(self._show_quick_check, checks, error, token)
-
-    def _show_quick_check(
-        self,
-        checks: Sequence[PreflightCheck],
-        error: str,
-        token: object,
-    ) -> None:
-        if not self.is_running or not self._form_ready or self._ui_closing or token is not self._check_request:
-            return
-        self._check_running = False
-        self._check_request = None
-        self._check_completed = True
-        self._checked_config = self._check_config
-        self._preflight_checks = tuple(checks)
-        self._preflight_error = error
-        self._set_busy(False)
-        self._finish_recovery_check()
-
-    @on(Button.Pressed, "#clear-log")
-    def clear_log_button(self) -> None:
-        self.action_clear_log()
-
-    def action_clear_log(self) -> None:
-        self.query_one("#run-log", SelectableLog).clear()
-
-    @on(Input.Changed, "#result-csv")
-    def result_source_changed(self) -> None:
-        if self._form_ready:
-            if (self._summary_request is not None and
-                    resolve_result_path(self._input("result-csv"), PROJECT_DIR) == self._summary_path):
-                return
-            if self._summary_request is not None:
-                self._summary_request.set()
-            self._summary_request = None
-            self._set_text(self.query_one("#result-summary", Static), "结果选择已更改，请读取摘要。")
-
-    @on(Button.Pressed, "#summarize-results")
-    def summarize_results_button(self) -> None:
-        self._update_result_summary(self._input("result-csv"))
-
-    def _update_result_summary(self, result_csv: str, *, notify: bool = True) -> None:
-        if not self._allow_operation("summary"):
-            return
-        if not result_csv:
-            if notify:
-                self.notify("请填写结果 CSV 路径", severity="warning")
-            return
-        path = resolve_result_path(result_csv, PROJECT_DIR)
-        with self.prevent(Input.Changed):
-            self.query_one("#result-csv", Input).value = str(path)
-        if self._summary_request is not None:
-            self._summary_request.set()
-        token = self._summary_request = Event()
-        self._summary_path = path
-        self._read_jobs.add(token)
-        self._set_text(self.query_one("#result-summary", Static), message("{0} 正在读取结果摘要", CALCULATING))
-        self._set_busy(True)
-        self._execute_summary_read(path, token, notify)
-
-    @work(thread=True, group="summary", exit_on_error=False)
-    def _execute_summary_read(self, path: Path, token: Event, notify: bool) -> None:
-        try:
-            summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
-        except Exception as exc:
-            summary, error = None, error_message(exc)
-        self._safe_process_callback(self._show_result_summary, path, token, summary, error, notify)
-
-    def _show_result_summary(self, path, token, summary, error: str, notify: bool) -> None:
-        self._read_jobs.discard(token)
-        if not self.is_running or self._ui_closing:
-            return
-        self._set_busy(self._is_busy())
-        if (token is not self._summary_request or
-                resolve_result_path(self._input("result-csv"), PROJECT_DIR) != path):
-            return
-        if summary is None:
-            self._set_text(self.query_one("#result-summary", Static), message("无法读取结果：{0}", error))
-            if notify:
-                self.notify(error, severity="error")
-            return
-        from acprof.tui.diagnostics import result_summary_text
-        self._remember_last_used(result_csv=str(path))
-        self._set_text(self.query_one("#result-summary", Static), result_summary_text(summary, path))
-        if notify:
-            self.notify("结果摘要已更新", timeout=3)
-
-    def _cancel_result_reads(self) -> None:
-        if self._recovery_request is not None:
-            self._recovery_request.set()
-        self._recovery_after_check = None
-        if self._summary_request is not None:
-            self._summary_request.set()
-        if self._report_request is not None:
-            self._report_request.set()
-        self._summary_request = self._report_request = None
-        self._set_text(self.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
-        self._clear_report("读取已取消；等待后台任务释放资源。")
-        self._set_busy(self._is_busy())
-
-    @on(Button.Pressed, "#plot-results")
-    def plot_results_button(self) -> None:
-        self._launch_plot()
-
-    def _launch_plot(self, path: str | None = None) -> None:
-        if not self._allow_operation("plot"):
-            return
-        result_csv = path or self._input("result-csv")
-        if not result_csv:
-            self.notify("请填写结果 CSV 路径", severity="warning")
-            return
-        try:
-            pending = prepare_plot(result_csv, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
-        except RunConfigError as exc:
-            self.notify(str(exc), severity="error")
-            return
-        self._launch(pending)
-
-    def _clear_report(self, status: str) -> None:
-        self._report_view = None
-        self.query_one("#report-table", DataTable).clear(columns=True)
-        self._set_text(self.query_one("#report-status", Static), status)
-        self._set_text(self.query_one("#report-detail", Static), "表格可滚动；选择一行查看口径与数据来源。")
-
-    @on(Input.Changed, "#report-source")
-    def report_source_changed(self) -> None:
-        if self._form_ready:
-            if (self._report_request is not None and
-                    resolve_result_path(self._input("report-source"), PROJECT_DIR) == self._report_path):
-                return
-            if self._report_request is not None:
-                self._report_request.set()
-            self._report_request = None
-            self._clear_report("CSV / 目录：计算统计；JSON：查看报告。采集结束后操作。")
-
-    @on(Button.Pressed, "#report-open")
-    def open_report_button(self) -> None:
-        self._open_report()
-
-    def _open_report(self, path: str | None = None) -> None:
-        if not self._allow_operation("report"):
-            return
-        self._activate_tab("reports-tab")
-        source = path if path is not None else self._input("report-source")
-        if not source.strip():
-            self._clear_report("请填写报告 JSON 路径，或使用当前结果计算统计。")
-            return
-        report_path = resolve_result_path(source, PROJECT_DIR)
-        if report_path.suffix.lower() != ".json":
-            self._clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。")
-            return
-        with self.prevent(Input.Changed):
-            self.query_one("#report-source", Input).value = str(report_path)
-        self._clear_report(message("{0} 正在读取报告", CALCULATING))
-        self.screen.set_focus(self.query_one("#report-table"), scroll_visible=False)
-        if self._report_request is not None:
-            self._report_request.set()
-        token = self._report_request = Event()
-        self._report_path = report_path
-        self._read_jobs.add(token)
-        self._set_busy(True)
-        self._execute_report_read(report_path, token)
-
-    @work(thread=True, group="report", exit_on_error=False)
-    def _execute_report_read(self, path: Path, token: Event) -> None:
-        try:
-            view, error = read_report(path, cancelled=token.is_set), ""
-        except Exception as exc:
-            view, error = None, error_message(exc)
-        self._safe_process_callback(self._show_report, view, error, token)
-
-    def _show_report(self, view: ReportView | None, error: str, token: object) -> None:
-        self._read_jobs.discard(token)
-        if not self.is_running or self._ui_closing:
-            return
-        if (token is not self._report_request or
-                resolve_result_path(self._input("report-source"), PROJECT_DIR) != self._report_path):
-            self._set_busy(self._is_busy())
-            return
-        self._set_busy(self._is_busy())
-        if view is None:
-            self._clear_report(message("报告读取失败：{0}", error))
-            return
-        self._report_view = view
-        self._render_report_view()
-
-    def _render_report_view(self) -> None:
-        view = self._report_view
-        if view is None:
-            return
-        table = self.query_one("#report-table", DataTable)
-        cursor, scroll = table.cursor_coordinate, table.scroll_offset
-        table.clear(columns=True)
-        for column in view.columns:
-            table.add_column(Text(self.tr(column)), key=str(column))
-        for index, row in enumerate(view.rows):
-            table.add_row(*(Text(self.tr(cell)) for cell in row.cells), key=str(index))
-        table.move_cursor(row=min(cursor.row, max(0, len(view.rows) - 1)), column=cursor.column, scroll=False)
-        table.scroll_to(scroll.x, scroll.y, animate=False, force=True)
-        self._set_text(self.query_one("#report-status", Static), view.title)
-        self._show_report_row(table.cursor_row)
-
-    @on(DataTable.RowHighlighted, "#report-table")
-    def report_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        self._show_report_row(event.cursor_row)
-
-    def _show_report_row(self, index: int) -> None:
-        view = self._report_view
-        if view is None:
-            return
-        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message("没有可统计的正式成功窗口。")
-        self._set_text(self.query_one("#report-detail", Static), join_messages("\n", (detail, view.note)))
-
-    @on(Button.Pressed, "#report-calculate")
-    def calculate_report_button(self) -> None:
-        self._launch_stats()
-
-    @on(Button.Pressed, "#report-compare")
-    def compare_experiments_button(self) -> None:
-        if not self._allow_operation("compare"):
-            return
-        try:
-            pending = prepare_comparison(self._input("comparison-left"), self._input("comparison-right"),
-                baseline=self._select("comparison-baseline"), purpose=self._select("comparison-purpose"),
-                project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
-        except (RunConfigError, ValueError, OSError) as exc:
-            self.notify(error_message(exc), severity="error")
-            return
-        self._launch(pending)
-
-    def _launch_stats(self, path: str | None = None) -> None:
-        if not self._allow_operation("stats"):
-            return
-        self._activate_tab("reports-tab")
-        source = path if path is not None else self._input("report-source")
-        if not source.strip():
-            self._clear_report("请填写实验目录或结果 CSV 路径。")
-            return
-        try:
-            pending = prepare_stats(source, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
-        except (OSError, ValueError) as exc:
-            self._clear_report(str(exc))
-            return
-        self._stats_report_path = None
-        self._stats_report_reused = False
-        self._clear_report(message("{0} 正在计算窗口统计，完成后自动显示报告。", CALCULATING))
-        self._launch(pending)
-
-    @on(Button.Pressed, "#profile-dry-run")
-    def profile_dry_run_button(self) -> None:
-        self._launch_profile(dry_run=True)
-
-    @on(Button.Pressed, "#profile-run")
-    def profile_run_button(self) -> None:
-        self._request_profile_run()
-
-    def _profile_command(
-        self,
-        *,
-        dry_run: bool,
-        result_dir: str | None = None,
-        tools: str | None = None,
-    ) -> tuple[list[str], Path] | None:
-        directory = result_dir or self._input("result-dir")
-        selected_tools = tools if tools is not None else ",".join(
-            checkbox.name
-            for checkbox in self.query("#profile-tools Checkbox")
-            if checkbox.value and checkbox.name is not None
-        )
-        if not directory:
-            self.notify("请填写结果目录", severity="warning")
-            return None
-        if not selected_tools:
-            self.notify("请至少勾选一个补采工具", severity="warning")
-            return None
-        try:
-            pending = prepare_profile(directory, tools=selected_tools, dry_run=dry_run,
-                                      project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
-            return list(pending.command), Path(pending.result_dir)
-        except FileNotFoundError as exc:
-            self.notify(str(exc), severity="error")
-            return None
-        except RunConfigError as exc:
-            self._show_config_error(exc)
-            return None
-
-    def _launch_profile(
-        self,
-        *,
-        dry_run: bool,
-        result_dir: str | None = None,
-        tools: str | None = None,
-    ) -> None:
-        if not self._allow_operation("profile"):
-            return
-        prepared = self._profile_command(
-            dry_run=dry_run,
-            result_dir=result_dir,
-            tools=tools,
-        )
-        if prepared is not None:
-            command, result_path = prepared
-            self._launch(PendingLaunch(
-                tuple(command), "profile-dry-run" if dry_run else "profile", result_dir=str(result_path),
-            ))
-
-    def _request_profile_run(
-        self,
-        result_dir: str | None = None,
-        tools: str | None = None,
-    ) -> None:
-        if not self._allow_operation("profile"):
-            return
-        prepared = self._profile_command(
-            dry_run=False,
-            result_dir=result_dir,
-            tools=tools,
-        )
-        if prepared is None:
-            return
-        command, result_path = prepared
-        self._pending_launch = PendingLaunch(tuple(command), "profile", result_dir=str(result_path))
-        self.push_screen(
-            ConfirmActionScreen(
-                "执行 profiler 补采？",
-                join_messages("", (
-                    message(
-                        "该操作会启动隔离 profiler，并在成功后原子回填现有结果。"
-                        "原文件会按项目规则备份。\n\n"
-                    ),
-                    format_command(command),
-                )),
-                "执行补采",
-                variant="warning",
-            ),
-            self._confirmed_launch,
-        )
-
-    @on(Input.Submitted, "#slash-command")
-    def slash_command_submitted(self, event: Input.Submitted) -> None:
-        value = event.value
-        event.input.value = ""
-        try:
-            command, args = parse_slash_command(value)
-        except RunConfigError as exc:
-            self._show_config_error(exc)
-            return
-
-        if command == "run":
-            self.action_request_run()
-        elif command == "probe":
-            self.action_request_probe()
-        elif command == "check":
-            self.action_quick_check()
-        elif command == "cancel" and self._read_jobs:
-            self._cancel_result_reads()
-        elif command in {"stop", "cancel"}:
-            self.action_request_stop()
-        elif command == "status":
-            snapshot = self._latest_snapshot
-            self.query_one("#run-log", SelectableLog).write(
-                f"[TUI] status={self.tr(snapshot.stage)}; "
-                f"case={snapshot.completed_cases}/{snapshot.total_cases}; "
-                f"resource=CPU {snapshot.cpu}, MEM {snapshot.mem}GB, GPU {snapshot.gpu}; "
-                f"warnings={snapshot.warnings}; errors={snapshot.errors}"
-            )
-            self._activate_tab("monitor-tab")
-        elif command == "smoke":
-            self.preset_smoke()
-        elif command == "main":
-            self.preset_main()
-        elif command == "preview":
-            self._refresh_command_preview()
-            self._activate_tab("run-tab")
-        elif command == "plot":
-            self._launch_plot(args[0] if args else None)
-        elif command == "stats":
-            self._launch_stats(args[0] if args else None)
-        elif command == "report":
-            self._open_report(args[0] if args else None)
-        elif command == "images":
-            self.action_show_images()
-        elif command == "profile":
-            self._launch_profile(
-                dry_run=True,
-                result_dir=args[0] if args else None,
-                tools=args[1] if len(args) > 1 else None,
-            )
-        elif command in {"profile-run", "profile!"}:
-            self._request_profile_run(
-                result_dir=args[0] if args else None,
-                tools=args[1] if len(args) > 1 else None,
-            )
-        elif command in {"results", "summary"}:
-            path = args[0] if args else self._input("result-csv")
-            self._update_result_summary(path)
-            self._activate_tab("plot-tab")
-        elif command in {"log", "logs"}:
-            self.action_toggle_log_view()
-        elif command == "clear":
-            self.action_clear_log()
-        elif command == "settings":
-            self.action_show_settings()
-        elif command == "help":
-            self.query_one("#run-log", SelectableLog).write(
-                self.tr("[TUI] /run 采集 · /probe 最大输入探测 · /check 环境检查 · "
-                "/status 状态 · /stop 终止 · "
-                "/smoke 最小预设 · /main 主矩阵 · /preview 命令预览 · "
-                "/plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · "
-                "/profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · "
-                "/stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · "
-                "/settings 应用设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
-            )
-            self._activate_tab("monitor-tab")
-        elif command in {"quit", "exit"}:
-            self.action_request_quit()
-        else:
-            self.notify(message('未知快捷命令：/{0}', command), severity="error")
 
     @on(Button.Pressed, "#quit-app")
     def action_request_quit(self) -> None:
