@@ -1,6 +1,7 @@
 import importlib
 import io
 import json
+import os
 import sys
 import types
 import weakref
@@ -37,13 +38,28 @@ class TestComputeProfileRunnerITT:
         )
         fake_handlers.load_handler = lambda handler, *args, **kwargs: handler.load(*args, **kwargs)
         sys.modules.pop("acprof.container.compute_profile_runner", None)
-        with patch.dict(
+        # Container entrypoints set offline flags; keep that process setup local
+        # to the fixture so later host SDK imports see the original environment.
+        with patch.dict(os.environ), patch.dict(
             sys.modules,
             {"torch": fake_torch, "acprof.container.handlers": fake_handlers},
         ):
             runner = importlib.import_module("acprof.container.compute_profile_runner")
         runner.torch = fake_torch
         return runner
+
+    @pytest.mark.parametrize("offline_values", ((None, None), ("0", "0"), ("1", "1")))
+    def test_runner_fixture_restores_host_offline_settings(self, monkeypatch, offline_values):
+        names = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+        for name, value in zip(names, offline_values):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+
+        self._import_runner()
+
+        assert tuple(os.environ.get(name) for name in names) == offline_values
 
     @pytest.mark.parametrize("invalid", ("nonfinite", "schema"))
     def test_find_payload_rejects_invalid_input_plan(self, tmp_path, invalid):

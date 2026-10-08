@@ -274,6 +274,9 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 以及成功、取消、超时后才发布请求/结果；`test_resource_usage.py` 验证采样不重复扫描 CPU 拓扑。
 这些回归不代替真实 Docker/GPU/perf/NCU 采集或用户终端显示证据。
 
+`test_compute_profile_runner.py` 的导入 fixture 恢复容器入口设置的离线环境变量，
+并覆盖主机原有变量缺失、关闭和启用三种状态，避免污染后续 Hub SDK 的首次导入。
+
 `test_window_boundary_diagnostics.py` 使用受控时钟和延迟 stop 验证请求后的采样尾部、默认无诊断开销、
 无请求对照隔离、失败/取消与幂等收尾；四个真实 monitor 的边界 getter 只读取已有字段。
 `test_overhead.py` 和 `test_overhead_entrypoint.py` 覆盖源 CPU/内存/输入尺度选择、
