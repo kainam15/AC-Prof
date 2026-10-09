@@ -5,4 +5,4 @@
 - 输入有效尺度、模态和输出摘要必须与计划及 schema 一致；不静默截断、丢弃模态或额外发送隐藏的推理请求。显式保留不支持的设备或 profiler 错误。
 - `acprof.container.server` 及 runner 的模块启动路径保持兼容；注册入口在 `handlers/__init__.py`。
 
-接口和设备边界见[运行兼容](../../docs/Runtime_Compatibility.md)，窗口差异见[Profiler](../../docs/Profilers.md)。
+接口和设备边界见[运行兼容](../../docs/models/runtime.md)，窗口差异见[Profiler](../../docs/profiling/profilers.md)。

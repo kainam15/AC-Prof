@@ -1,8 +1,8 @@
 # 能耗测量与归因
 
-解释 GPU、CPU package、DRAM、估算 vCPU 能耗或 idle baseline 时查阅。请求窗口与对照生命周期见 [采集协议](Profiling_Protocol.md#每行测量窗口)。
+解释 GPU、CPU package、DRAM、估算 vCPU 能耗或 idle baseline 时查阅。请求窗口与对照生命周期见 [采集协议](protocol.md#每行测量窗口)。
 
-[文档导航](README.md)
+[文档导航](../README.md)
 
 ## 采样与归因边界
 
@@ -12,7 +12,7 @@ GPU 来自容器实际绑定的物理 UUID，能量优先使用 NVML 累计计�
 绑定 UUID 不会让它成为逐容器独立能量计。
 CPU package 能量来自 RAPL 根域计数器差值，避免重复累加 core 子域。估算 vCPU 使用同一 RAPL 轨迹，
 按每个有效采样区间的容器/主机 CPU 时间比例归因。实现见
-[`energy_nvml.py`](../acprof/monitors/energy_nvml.py)和 [`energy_cpu.py`](../acprof/monitors/energy_cpu.py) 的 `_result_from_samples()`。
+[`energy_nvml.py`](../../acprof/monitors/energy_nvml.py)和 [`energy_cpu.py`](../../acprof/monitors/energy_cpu.py) 的 `_result_from_samples()`。
 
 ```text
 share_i = clamp(container_cpu_delta_i / host_active_cpu_delta_i, 0, 1)

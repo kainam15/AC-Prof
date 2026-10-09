@@ -2,7 +2,7 @@
 
 唯一测试入口是 `python -m pytest`；CI 的 `scripts/run_tests.py` 仅转发 pytest 参数并启用同一插件。
 
-本次迁移的基线、集合映射与验证限制见 [2026-10-03 pytest 迁移验收记录](reviews/2026-10-03-pytest-migration.md)。
+本次迁移的基线、集合映射与验证限制见 [2026-10-03 pytest 迁移验收记录](../reviews/2026-10-03-pytest-migration.md)。
 
 选择本次改动能改变的行为和失败路径。下列命令均从仓库根目录执行，使用已有 `.venv`。
 测试数量、设备余量和镜像可用性由本次执行确认，不把历史通过记录作为当前验证结果。
@@ -14,7 +14,7 @@ markers；未标集成边界的测试归入 unit。WSL 默认执行 `.venv/bin/p
 Native Linux 无需此平台筛选，具体测试范围按下表选择。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
 模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
 环境检测、能力矩阵、历史 unknown、CSV 合并与比较隔离回归在 `test_environment_policy.py`、
-`test_result_comparison.py`，详见 [WSL2 支持范围](platforms/wsl2.md)。
+`test_result_comparison.py`，详见 [WSL2 支持范围](../platforms/wsl2.md)。
 修改 RAPL、PMU/perf、cgroup、NVML、CPU topology、affinity、cold start 或 energy 时必须报告
 `Native validation: verified / required / not applicable` 中的一项；WSL/mock 通过不能替代 Native 证据。
 
@@ -77,7 +77,7 @@ MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限
 `--top 0` 列出全部待审查文件，`--json` 提供结构化结果。文件大小本身不作为 CI 拒绝条件；
 脚本只能在扫描失败、编码错误或源码语法错误时失败。
 CI 的 lint job 会运行该报告，pytest 覆盖阈值边界、数据目录识别、长函数和错误处理。
-指标和拆分顺序的解释见[Python 文件规模与拆分原则](Architecture.md#python-文件规模与拆分原则)。
+指标和拆分顺序的解释见[Python 文件规模与拆分原则](architecture.md#python-文件规模与拆分原则)。
 
 ## 开发质量检查
 
@@ -113,8 +113,8 @@ RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-
 新字段插入对应用途组，整体 `status`、`error` 保持在最后两列。列顺序调整还需验证
 旧表头的追加、case 合并、packet 回填和 profiler 补采，确保按列名保留数值及未知扩展列。
 
-Ruff、pre-commit 和锁生成工具 uv 由 [`requirements/dev.in`](../requirements/dev.in) 声明，
-完整版本与制品哈希保存在 [`requirements/dev.lock`](../requirements/dev.lock)。开发锁以主机锁
+Ruff、pre-commit 和锁生成工具 uv 由 [`requirements/dev.in`](../../requirements/dev.in) 声明，
+完整版本与制品哈希保存在 [`requirements/dev.lock`](../../requirements/dev.lock)。开发锁以主机锁
 为约束，避免在同一个 `.venv` 安装时引入冲突；不加入主机运行依赖或容器环境身份。
 
 ```bash
@@ -126,7 +126,7 @@ Ruff、pre-commit 和锁生成工具 uv 由 [`requirements/dev.in`](../requireme
 
 `install` 给当前 clone 安装 `pre-commit` 和 `commit-msg` 两个 Git hooks；新 clone 需执行一次。
 手动运行和 CI 读取同一份
-[`.pre-commit-config.yaml`](../.pre-commit-config.yaml)，检查尾随空白、文件末尾换行、YAML、JSON、
+[`.pre-commit-config.yaml`](../../.pre-commit-config.yaml)，检查尾随空白、文件末尾换行、YAML、JSON、
 TOML、冲突标记、文件大小和 Python 代码。大文件检查对所有文件执行，限额为 1 MiB，覆盖现有
 约 938 KiB 的固定音频输入；Markdown 的两个行尾空格保留为换行。临时证据目录和禁止修改的
 `docs/Original_Project_Definition.md` 不参与 hooks。
@@ -145,7 +145,7 @@ VS Code 的 Source Control 面板中，点击 ✨ **Generate Commit Message** �
 }
 ```
 
-生成模板只在 [commit-message.instructions.md](../.github/commit-message.instructions.md)
+生成模板只在 [commit-message.instructions.md](../../.github/commit-message.instructions.md)
 维护：`type(scope): concise summary` 标题、空行，以及核心改动、测试或兼容性说明的列表。
 scope 可选，标题保持简洁但不设字符数上限。工作区设置只引用该文件。
 先暂存本次提交的改动再生成，并在提交前核对内容。
@@ -161,7 +161,7 @@ Copilot 0.67.0 的提交生成提示包含 `ResponseTranslationRules`；默认 `
 自动重写，必要时执行 **Developer: Reload Window**。
 
 [`commitlint`](https://github.com/conventional-changelog/commitlint) 在 `commit-msg` 阶段读取
-[.commitlintrc.json](../.commitlintrc.json)，强制检查 Conventional Commits 结构、允许的类型、
+[.commitlintrc.json](../../.commitlintrc.json)，强制检查 Conventional Commits 结构、允许的类型、
 scope 大小写及正文/页脚前的空行；标题、正文和页脚均不限制行长度。
 不合规的消息会阻止提交；修改消息后重试。提交内容由生成模板指导并由提交者复核，
 格式校验不能证明内容属实。
@@ -191,7 +191,7 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 
 ### Ruff 与代码检查
 
-Ruff 版本由 [`pyproject.toml`](../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
+Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
 3.10，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
 `B904`（异常链）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
 `RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）。不启用全量 RUF/SIM、`E501` 或 formatter；
@@ -221,7 +221,7 @@ git diff --check
 
 `scripts/compile_locks.py --check` 仍只验证既有容器锁与 profile 映射，不代替开发锁的重新解析。
 主机依赖变更还需用 Python 3.11+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
-已验证 pin 与主机 lock；重新生成方式见[运行兼容](Runtime_Compatibility.md#当前配置)。CI 的 Python 3.12 job
+已验证 pin 与主机 lock；重新生成方式见[运行兼容](../models/runtime.md#当前配置)。CI 的 Python 3.12 job
 运行该检查；Python 3.10 job 保留容器锁检查。
 wheel CI 同时验证两层依赖契约：锁定环境先按 `requirements/host.lock` 安装并以 `--no-deps` 核对制品；另起空环境直接安装构建出的 wheel，让解析器按 `pyproject.toml` 的公开版本范围选择当前可用依赖，再执行 `pip check`、隔离 import 与 CLI help。这个解析环境只额外固定 pytest/pytest-asyncio 测试工具版本，并从源码树外执行 `test_hf_auto_download.py`，因此 Hugging Face SDK 等运行依赖保持按公开范围解析，可在发布前暴露 API 漂移；锁定版本仍提供可复现基线。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
@@ -431,7 +431,7 @@ TZ=UTC PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/visual -q \
 `--snapshot-update`；普通验证不更新基线。快照与功能测试使用同一 pytest runner，
 不能代替行为断言、evidence JSON 或[真实终端证据](#tui-与终端证据)。
 上述调试、样例生成和截图均在正式测量窗口之外运行；按任务选择流程见
-[TUI 回归 Skill](../.agents/skills/acprof-textual-regression/SKILL.md#按需选择辅助工具)。
+[TUI 回归 Skill](../../.agents/skills/acprof-textual-regression/SKILL.md#按需选择辅助工具)。
 
 用法参考上游维护的 [textual-dev](https://github.com/Textualize/textual-dev)
 与 [pytest-textual-snapshot](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
@@ -449,7 +449,7 @@ TZ=UTC PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/visual -q \
 核对是否同时找到源码和 `.venv/.../acprof/_bundle` 中的安装副本。`.venv` 的项目排除规则
 不排除 Python SDK 库索引。editable 安装不应复制这份 bundle；修复 build hook 后，执行
 `uv pip install --python .venv/bin/python --no-deps --reinstall-package acprof -e .` 更新安装，
-再验证入向和出向调用。资源打包约定见[安装包说明](Distribution.md#工作目录与资源)。
+再验证入向和出向调用。资源打包约定见[安装包说明](distribution.md#工作目录与资源)。
 
 PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：
 `analyze_calls` 的 `isCallableSymbol` 依赖显示文本中的 `name(...)`，
@@ -481,7 +481,7 @@ CLI、IDE、host CI 与 SVG job 使用同一配置。需要 CI evidence 时追�
 `acprof.__file__` 位于安装环境内，拒绝意外使用源码或 editable 安装。公共入口从安装包 dispatcher
 读取，包含 `compare`、`load`、`model-store`；实际生成离线 HTML 并运行 packet worker，验证
 静态资源和子进程随包完整分发。报告和日志作为 `wheel` artifact 保存。
-standalone 和真实 `uv tool install` 保留在发布或按需流程；构建步骤见[发行包说明](Distribution.md#linux-standalone)。
+standalone 和真实 `uv tool install` 保留在发布或按需流程；构建步骤见[发行包说明](distribution.md#linux-standalone)。
 这些检查不代替 Docker/GPU 推理和完整 profiling。
 
 初始化入口修改运行 `test_setup.py` 和 `test_tui_onboarding.py`，覆盖缺失 uv、安装/诊断失败、
@@ -565,7 +565,7 @@ TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shel
 自动解析与编排回归使用 `test_resolution_decisions.py`、`test_auto.py`、`test_model_coverage.py`
 和 `test_model_inspection.py`，覆盖同源证据、显式冲突处理、验证不提升静态裁决、固定 SHA、
 主机失败与旧 CLI 选项拒绝、原生模型验证、冻结覆盖率分母及人工语义参考。已有模型／契约／镜像／
-恢复测试继续保护协议。滚动模型检查使用 [coverage 命令](CLI_Reference.md#acprof-coverage)，
+恢复测试继续保护协议。滚动模型检查使用 [coverage 命令](../usage/cli.md#acprof-coverage)，
 其静态、接口检查、容器运行验证与正式测量证据分别验收；4 GiB 或超时限制不等同于模型语义错误。
 
 采集准备与重试使用 `test_collection_workflow.py`、`test_run_native_docker.py`、
@@ -736,7 +736,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 更新锁前后比较原完整包版本，验证目标 wheel 的 ABI/平台和全部制品 SHA256。默认锁生成保留原
 版本，显式 `--upgrade` 才更新环境包；uv 固定 0.12.13，生成 wheel 锁的脚本使用 Python 3.11+，
 只读检查兼容 Python 3.10+。系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
-指定输出锁。具体命令见[当前配置](Runtime_Compatibility.md#当前配置)。
+指定输出锁。具体命令见[当前配置](../models/runtime.md#当前配置)。
 
 源代码、模型权重和依赖层保持分离，CPU 容器测试不下载 Hub 模型，不代替真实 GPU/PMU/抓包实验。
 
@@ -810,7 +810,7 @@ TUI 的一键开始、只读字段、resolver 重新确认、同窗错误／重�
 真实 Ultravox 的静态 draft 验证不下载权重、不证明所有动态依赖完备或大模型推理成功；GPU／profiler
 需各自取得运行证据，不能从这项 CPU fixture 验证外推。
 
-生产模型声明与服务镜像的完整链路可使用 [Iris 示例](Runtime_Compatibility.md#本地模型声明与自定义-pipeline)，
+生产模型声明与服务镜像的完整链路可使用 [Iris 示例](../models/runtime.md#本地模型声明与自定义-pipeline)，
 按 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement` 分层验收；
 接口检查、Smoke、预热、正式行和 profiler 结果分别计数，Smoke 不写正式 CSV。
 
@@ -928,7 +928,7 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 单看 SVG 无法发现终端输出被降级为 256 色的问题。终端颜色变更覆盖输入选中、下拉菜单、
 确认按钮与深浅主题；PTY 输出仍不能代替用户客户端实际显示的验收。
 原生光标、剪贴板、闪烁和宿主快捷键路由只能在相应终端确认。交付注明实际验证环境；
-流程见 [TUI 回归 Skill](../.agents/skills/acprof-textual-regression/SKILL.md)，模块分工见[架构](Architecture.md#tui-与兼容维护)。
+流程见 [TUI 回归 Skill](../../.agents/skills/acprof-textual-regression/SKILL.md)，模块分工见[架构](architecture.md#tui-与兼容维护)。
 
 ## 真实采集与实验隔离
 
@@ -968,12 +968,12 @@ workflow 先将取消、恢复、监测器清理和采样失败的离线回归�
 未通过不自动更改原参数或覆盖产物。`--compute-profile-tool` / `--execution-profile-tool`
 可另测指定工具，工具字段仍需根据其计划和错误列验收，不能用主采集成功代替工具成功。
 
-采样线程及 CLI/TUI 开销的独立对照入口和统计假设见[指标分析](Metrics.md#窗口置信区间与开销对照)。
+采样线程及 CLI/TUI 开销的独立对照入口和统计假设见[指标分析](../results/metrics.md#窗口置信区间与开销对照)。
 `compare_ui.py --ui terminal` 继承当前终端，要求 stdout 为 TTY；自动化可用 `script` 分配 PTY
 并保存会话。PTY、headless 和用户的 VS Code/SSH 终端须分别标明，不能互相替代。
 
-镜像依赖变化后，主机 `.venv` 测试不能证明容器已更新；构建与复用契约见[运行兼容](Runtime_Compatibility.md#构建复用和验证)。
-最小采集示例见[运行指南](Getting_Started.md#3-跑一个最小-smoke-test)。用独立输出目录运行验证，保留模型 revision、输入计划与日志。
+镜像依赖变化后，主机 `.venv` 测试不能证明容器已更新；构建与复用契约见[运行兼容](../models/runtime.md#构建复用和验证)。
+最小采集示例见[运行指南](../usage/experiments.md#3-跑一个最小-smoke-test)。用独立输出目录运行验证，保留模型 revision、输入计划与日志。
 `examples/` 下脚本是手动接口示例，不会自动运行，也不产生与正式 `acprof run` 等价的测量证据。
 
 `internal-testing/` 用于本地临时验证和截图；原始实验结果留在对应结果目录。

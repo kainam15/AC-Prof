@@ -55,20 +55,20 @@ WSL、mock 和离线测试不能替代需要真实硬件证据的 Native validat
 
 | 任务 | 资料 |
 | --- | --- |
-| Python 修改、测试范围、开发检查 | `docs/Testing.md` |
-| 架构或模块边界 | `docs/Architecture.md` |
-| CLI、参数、安装和运行 | `docs/CLI_Reference.md`、`docs/Getting_Started.md` |
-| 测量协议、结果字段、schema、resume | `docs/Profiling_Protocol.md`、`docs/Metrics.md`、`.agents/skills/acprof-schema-change/SKILL.md` |
-| 模型、backend、adapter、运行依赖 | `docs/Runtime_Compatibility.md`、`.agents/skills/acprof-model-adaptation/SKILL.md` |
-| 能耗、OOM、cgroup、结果异常 | `docs/Energy_Measurement.md`、`docs/Troubleshooting.md`、`.agents/skills/acprof-result-audit/SKILL.md` |
+| Python 修改、测试范围、开发检查 | `docs/development/testing.md` |
+| 架构或模块边界 | `docs/development/architecture.md` |
+| CLI、参数、安装和运行 | `docs/usage/cli.md`、`docs/getting_started/installation.md` |
+| 测量协议、结果字段、schema、resume | `docs/profiling/protocol.md`、`docs/results/metrics.md`、`.agents/skills/acprof-schema-change/SKILL.md` |
+| 模型、backend、adapter、运行依赖 | `docs/models/runtime.md`、`.agents/skills/acprof-model-adaptation/SKILL.md` |
+| 能耗、OOM、cgroup、结果异常 | `docs/profiling/energy.md`、`docs/usage/troubleshooting.md`、`.agents/skills/acprof-result-audit/SKILL.md` |
 | 模型集或 Hub 兼容性审计 | `.agents/skills/acprof-compatibility-audit/SKILL.md` |
 | Docker 镜像、重建和空间问题 | `.agents/skills/acprof-docker-audit/SKILL.md` |
 | GitHub Actions 失败 | `.agents/skills/acprof-ci-triage/SKILL.md` |
-| profiling、benchmark、GPU profiler | `.agents/skills/acprof-profiling-workflow/SKILL.md`、`docs/Profilers.md` |
+| profiling、benchmark、GPU profiler | `.agents/skills/acprof-profiling-workflow/SKILL.md`、`docs/profiling/profilers.md` |
 | TUI、焦点、日志和交互 | `docs/i18n/README_zh-CN.md`、`.agents/skills/acprof-textual-regression/SKILL.md` |
 | 文档组织或 Agent / Skill 规则 | `docs/README.md` |
 
-历史架构、旧默认值或项目来源不明确时，再读取 `docs/Project_Origin.md`。
+历史架构、旧默认值或项目来源不明确时，再读取 `docs/development/history.md`。
 
 ## 验证与执行边界
 

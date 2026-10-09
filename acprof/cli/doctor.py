@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
         load_project_env(Path.cwd())
     except ValueError as exc:
         checks.append(DoctorCheck("environment", "unavailable", str(exc),
-                                  "删除旧密码配置，按 docs/Getting_Started.md#最小权限安装配置权限。"))
+                                  "删除旧密码配置，按 docs/getting_started/installation.md#最小权限安装配置权限。"))
     checks.extend(collect_checks(profiling_mode=args.profiling_mode, gpus=args.gpus,
                                 sniff_iface=args.sniff_iface, output_dir=args.output_dir))
     report = report_dict(checks, profiling_mode=args.profiling_mode, gpus=args.gpus)

@@ -17,10 +17,10 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 
 | 变更类型 | 文档入口 |
 | --- | --- |
-| CSV 字段、公式或聚合 | [CSV 字段分组](../../../docs/Metrics.md#result_allcsv-字段解释)，按指标组读取 |
-| 静态元数据、输入计划或来源 | [输出文件](../../../docs/Profiling_Protocol.md#输出文件)、[静态元数据](../../../docs/Profiling_Protocol.md#static_metajson-字段)、[采集历史](../../../docs/Profiling_Protocol.md#collection_historyjson-字段) |
-| Profiler 计划或回填协议 | [Torch 与 NCU](../../../docs/Profilers.md#torch-与-ncu-计算指标)或[执行指标](../../../docs/Profilers.md#massif-与-nsight-systems-执行指标)，再定位对应 plan 字段 |
-| 镜像或运行环境元数据 | [运行兼容说明](../../../docs/Runtime_Compatibility.md#构建复用和验证)及相关静态字段 |
+| CSV 字段、公式或聚合 | [CSV 字段分组](../../../docs/results/metrics.md#分层指标字段解释完整宽表导出)，按指标组读取 |
+| 静态元数据、输入计划或来源 | [输出文件](../../../docs/profiling/protocol.md#输出文件)、[静态元数据](../../../docs/profiling/protocol.md#static_metajson-字段)、[采集历史](../../../docs/profiling/protocol.md#collection_historyjson-字段) |
+| Profiler 计划或回填协议 | [Torch 与 NCU](../../../docs/profiling/profilers.md#torch-与-ncu-计算指标)或[执行指标](../../../docs/profiling/profilers.md#massif-与-nsight-systems-执行指标)，再定位对应 plan 字段 |
+| 镜像或运行环境元数据 | [运行兼容说明](../../../docs/models/runtime.md#构建复用和验证)及相关静态字段 |
 
 ## 先确定指标约定
 
@@ -39,7 +39,7 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 | [packet/](../../../acprof/packet) | PCAP 解析、请求匹配和结果合并 |
 | [static_metadata.py](../../../acprof/host/static_metadata.py)、[input_plan.py](../../../acprof/host/input_plan.py)、[orchestrator.py](../../../acprof/host/orchestrator.py) | 静态元数据、输入计划、执行编排和结果输出 |
 | [compute_profile_plan.py](../../../acprof/host/compute_profile_plan.py)、[execution_profile_plan.py](../../../acprof/host/execution_profile_plan.py) | profiler 计划、状态、复用和来源 |
-| [host/posthoc/](../../../acprof/host/posthoc)、[cli/backfill_compute.py](../../../acprof/cli/backfill_compute.py) | 补采、回填、历史兼容和备份；职责见[结果分析与补采](../../../docs/Architecture.md#结果分析与补采) |
+| [host/posthoc/](../../../acprof/host/posthoc)、[cli/backfill_compute.py](../../../acprof/cli/backfill_compute.py) | 补采、回填、历史兼容和备份；职责见[结果分析与补采](../../../docs/development/architecture.md#结果分析与补采) |
 | [plotting/](../../../acprof/plotting)、[analysis/](../../../acprof/analysis) | CSV 读取、派生值、过滤条件、绘图和数值分析 |
 | [collection_history.py](../../../acprof/host/collection_history.py) | 补采、重试及修复过程的来源记录 |
 
@@ -47,7 +47,7 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 
 ## 核对协议边界
 
-逐项对照[协议不变量](../../../docs/Profiling_Protocol.md#协议不变量)，明确本次字段的窗口、归因和历史兼容策略。
+逐项对照[协议不变量](../../../docs/profiling/protocol.md#协议不变量)，明确本次字段的窗口、归因和历史兼容策略。
 涉及新来源时核验输入计划 hash、模型 revision 与工具采样来源；涉及补采时检查备份和采集历史。
 具体数值定义留在对应专题，不在本技能另存一份。
 

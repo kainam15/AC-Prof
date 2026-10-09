@@ -3,7 +3,7 @@
 Transformers 4.57.6 copies only direct relative imports for local snapshots.
 Reuse its resolver and cache layout while preparing the recursive closure, as
 newer upstream loaders do (Transformers dynamic_module_utils, Apache-2.0).
-Retirement criteria: docs/Runtime_Compatibility.md, dynamic-module lifecycle.
+Retirement criteria: docs/models/runtime.md, dynamic-module lifecycle.
 """
 from __future__ import annotations
 

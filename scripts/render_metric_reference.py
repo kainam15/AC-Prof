@@ -10,8 +10,8 @@ from acprof.metric_registry import METRICS  # noqa: E402 -- 脚本先设置仓�
 
 def render():
     lines = ["# 指标登记表速查", "",
-             "由 `scripts/render_metric_reference.py` 生成，来源为 [metric_registry.py](../acprof/metric_registry.py)。",
-             "字段解释和计算公式见 [指标](Metrics.md)、[能耗](Energy_Measurement.md) 和 [Profiler](Profilers.md)。", "",
+             "由 `scripts/render_metric_reference.py` 生成，来源为 [metric_registry.py](../../acprof/metric_registry.py)。",
+             "字段解释和计算公式见 [指标](metrics.md)、[能耗](../profiling/energy.md) 和 [Profiler](../profiling/profilers.md)。", "",
              "`request_window` 表示本行请求窗口；单位中的 `/request` 表示已按实际请求数归一化。",
              "`cgroup_lifetime`、`container_startup`、`profiler_process_lifetime` 和 `independent_profiler`",
              "具有独立的生命周期，不能把复制到多行的值当作重复测量。`input_scale_type` 与",
@@ -28,7 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    path = ROOT / "docs/Metric_Reference.md"
+    path = ROOT / "docs/results/metric_reference.md"
     content = render()
     if args.check:
         try:

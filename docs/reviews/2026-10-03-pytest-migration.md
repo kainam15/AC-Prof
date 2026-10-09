@@ -2,7 +2,7 @@
 
 本记录针对 `refactor/pytest-migration`，基准提交为
 `6a9aa029dfeedea8478010ec741a8aef49867680`。在独立 worktree 中实施，未修改原工作区的并行改动。
-现行执行方式和 evidence 契约见[测试指南](../Testing.md)，本文只保存本次审计的输入、结果和限制。
+现行执行方式和 evidence 契约见[测试指南](../development/testing.md)，本文只保存本次审计的输入、结果和限制。
 
 ## 基线与测试集合
 

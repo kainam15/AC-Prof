@@ -20,9 +20,9 @@
 
 ## 当前实现入口
 
-- 模块职责与模型扩展：[代码架构](Architecture.md)、[运行兼容](Runtime_Compatibility.md)。
-- 采集窗口、结果字段与指标口径：[采集协议](Profiling_Protocol.md)、[指标与结果分析](Metrics.md)、[能耗测量](Energy_Measurement.md)。
-- 参数与界面操作：[CLI 与设置](CLI_Reference.md)、[TUI 用户指南](TUI.md)。
-- 验证要求与其他专题：[测试指南](Testing.md)、[文档导航](README.md)。
+- 模块职责与模型扩展：[代码架构](architecture.md)、[运行兼容](../models/runtime.md)。
+- 采集窗口、结果字段与指标口径：[采集协议](../profiling/protocol.md)、[指标与结果分析](../results/metrics.md)、[能耗测量](../profiling/energy.md)。
+- 参数与界面操作：[CLI 与设置](../usage/cli.md)、[TUI 用户指南](../usage/tui.md)。
+- 验证要求与其他专题：[测试指南](testing.md)、[文档导航](../README.md)。
 
-项目许可与贡献者署名见 [LICENSE](../LICENSE) 和 [NOTICE](../NOTICE)。
+项目许可与贡献者署名见 [LICENSE](../../LICENSE) 和 [NOTICE](../../NOTICE)。

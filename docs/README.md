@@ -1,35 +1,34 @@
-# 项目文档导航
+# AC-Prof 文档导航
 
-AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，再搜索相关标题或符号；链接是按需阅读入口，不表示需要加载整份文档。
+文档按主题目录维护。每个概念、命令或协议只在一个权威位置完整定义；其他页面只放导航和链接。
 
-## 按任务查阅
+## 主题目录
 
-| 当前任务 | 权威文档与范围 |
+| 分类 | 权威文档 |
 | --- | --- |
-| 安装、准备主机、跑通 CPU/GPU/ONNX 示例或资源矩阵 | [安装与运行](Getting_Started.md)：环境、认证、smoke test、最大输入探测与正式实验 |
-| WSL2 开发、部分采集与环境比较边界 | [WSL2 平台](platforms/wsl2.md)：环境身份、能力矩阵、数据隔离与 Native validation |
-| 使用终端界面、快捷键、日志、镜像页或设置 | [TUI 用户指南](TUI.md)：页面操作与自动记忆；设置文件协议见 CLI 参考 |
-| 理解项目来源、历史架构、默认参数来源或遗留行为 | [项目来源与演进](Project_Origin.md)：原始仓库、扩展范围与历史参考边界 |
-| 定位代码、重构模块、维护兼容入口 | [代码架构](Architecture.md)：职责、依赖方向与兼容设计 |
-| 修改采集窗口、产物或冷启动 | [采集协议](Profiling_Protocol.md)：生命周期、文件与 schema、请求数、时间预算、冷启动边界 |
-| 查字段、历史数据、绘图或延迟拟合 | [指标与结果分析](Metrics.md)：分析范围、单位、公式、归一化、图表与模型 |
-| 查完整列协议、审计和置信区间 | [指标登记表](Metric_Reference.md)：由代码生成的单位、来源与窗口；[分析入口](Metrics.md#窗口置信区间与开销对照) |
-| 解释功率、能耗、idle 或归因误差 | [能耗测量](Energy_Measurement.md)：RAPL、NVML、估算 vCPU 与适用限制 |
-| 选择或排查 GPU/CPU profiler | [分析器](Profilers.md)：Torch、NCU、Massif、Nsys 的窗口、采样、成本与失败 |
-| 排查 OOM、cgroup、抓包、空值或部分结果 | [运行排障](Troubleshooting.md)：证据分类、恢复入口与实时状态检查 |
-| 新增模型/backend、改依赖或镜像 | [运行兼容](Runtime_Compatibility.md)：任务目录、加载接口、环境与构建契约 |
-| 识别镜像类型、查看复用与空间释放规则 | [镜像管理与清理](Runtime_Compatibility.md#镜像管理与清理)：类型、共享层、构建缓存与删除范围 |
-| 查参数、workload 清单、通知或 TUI 设置协议 | [CLI 与设置](CLI_Reference.md)：选项、输入规模、企业微信通知、持久化和历史兼容 |
-| 修改 Python、配置开发检查、选择测试、做 TUI 回归 | [测试指南](Testing.md)：[PyCharm MCP 工具约定](Testing.md#python-修改工作流)、Ruff/pre-commit、硬件冒烟与验证边界 |
-| 新建或修改 Skill、`AGENTS.md` | [编写规则](#skill-与-agent-文档编写)：触发条件、按需读取、完成与确认边界 |
+| **getting_started/** · 入门 | [安装与主机准备](getting_started/installation.md) |
+| **usage/** · 使用 | [实验指南](usage/experiments.md) · [TUI](usage/tui.md) · [CLI 参考](usage/cli.md) · [运行排障](usage/troubleshooting.md) |
+| **models/** · 模型 | [运行兼容与适配](models/runtime.md) |
+| **profiling/** · 采集 | [采集协议](profiling/protocol.md) · [能耗测量](profiling/energy.md) · [Profiler](profiling/profilers.md) |
+| **results/** · 结果 | [指标与分析](results/metrics.md) · [自动生成字段登记表](results/metric_reference.md) |
+| **development/** · 开发 | [架构](development/architecture.md) · [测试](development/testing.md) · [发行包](development/distribution.md) · [历史来源](development/history.md) |
+| **platforms/** · 平台 | [WSL2](platforms/wsl2.md) |
+| **reviews/** · 历史记录 | 审计快照，不代表当前实现 |
+| **i18n/** · 翻译 | [简体中文 README](i18n/README_zh-CN.md) |
 
-根 [README.md](../README.md) 是英文项目入口，提供能力概览、安装与 TUI 启动命令、文档导航；简体中文版位于 [docs/i18n/README_zh-CN.md](i18n/README_zh-CN.md)。
-修改任一语言的 README 时，必须在同一次改动中同步另一版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径；详细专题目前以简体中文维护。完整安装与实验示例在[运行指南](Getting_Started.md)，界面操作在 [TUI 用户指南](TUI.md)。
-实现与默认值用当前代码和 `--help` 核对；历史实验解释以当次产物的版本、计划、日志和来源为准。
+[项目首页](../README.md) 负责介绍和安装入口，不复制使用手册。
+
+## 单一事实来源
+
+- 教程写操作，CLI 参考定义参数，采集协议定义窗口，指标登记表定义字段。
+- README、导航、Skills、AGENTS 和其他专题只做简短链接，不重复维护完整命令和字段表。
+- 移动文档须同步修复源码、脚本、测试及 Markdown 的相对链接和章节锚点。
+- 自动生成的字段登记表以项目指标注册表为权威来源，按原有生成脚本更新。
+- reviews/ 是历史证据，不能被当成现行配置。
 
 ## 文档、规则与流程的分工
 
-[安装包、standalone 与发布](Distribution.md)维护 wheel 资源、工作目录、PyPI Trusted Publishing、GitHub Release 和 GHCR 发布约定。
+[安装包、standalone 与发布](development/distribution.md)维护 wheel 资源、工作目录、PyPI Trusted Publishing、GitHub Release 和 GHCR 发布约定。
 
 | 层级 | 内容 | 读取时机 |
 | --- | --- | --- |
@@ -53,7 +52,7 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 - 规则聚焦任务或项目特有约束，避免重复指令、全量必读清单和不必要的固定流程。
 - 目录独有规则放在局部 `AGENTS.md`；跨目录规则按任务从根入口链接到权威章节，覆盖开发脚本、构建 hook 与测试。
 - 明确完成标准和需要确认的边界；在已授权范围内完成实现、相关验证和修复，验证范围与改动相称。
-- 移动内容时修复链接和章节锚点，并按[文档与 Skill 检查](Testing.md#文档与-skill-检查)验证。
+- 移动内容时修复链接和章节锚点，并按[文档与 Skill 检查](development/testing.md#文档与-skill-检查)验证。
 
 Codex 的 [AGENTS.md 发现实现](https://github.com/openai/codex/blob/1cc7e2361237ce7244430ee1d581c77f95c57ac8/codex-rs/core/src/agents_md.rs)
 会沿项目根目录到工作目录收集指令；普通 Markdown 链接不是自动全文导入。

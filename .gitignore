@@ -20,6 +20,8 @@ snapshot_report.html
 .env.local.*.tmp
 
 results/
+# Keep authored documentation separate from experiment output directories.
+!docs/results/
 /result-past/
 /internal-testing/
 

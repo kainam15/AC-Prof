@@ -1,12 +1,12 @@
 # 计算与执行分析器
 
-选择 Torch、NCU、Massif、Nsys，解释工具指标或采样来源时查阅。操作见[补采已有结果](#补采已有结果)，参数见 [CLI 参考](CLI_Reference.md#计算分析器)。
+选择 Torch、NCU、Massif、Nsys，解释工具指标或采样来源时查阅。操作见[补采已有结果](#补采已有结果)，参数见 [CLI 参考](../usage/cli.md#计算分析器)。
 
-[文档导航](README.md)
+[文档导航](../README.md)
 
 ## 选择性能分析器
 
-[计算分析器](#计算分析器--compute-profile-tool) · [执行分析器](#执行分析器--execution-profile-tool) · [补采已有结果](#补采已有结果) · [从计划生成派生 CSV](#从已有计划生成派生-csv)
+[计算分析器](#计算分析器--compute-profile-tool) · [执行分析器](#执行分析器--execution-profile-tool) · [补采已有结果](#补采已有结果) · [从计划生成派生 CSV](#分层结果与完整导出)
 
 ### 计算分析器：`--compute-profile-tool`
 

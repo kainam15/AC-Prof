@@ -1,18 +1,18 @@
 # 指标与结果分析
 
-查字段、分析过滤、CSV 格式要求或图表时查阅。能耗详见 [能耗测量](Energy_Measurement.md)，独立工具详见 [Profiler](Profilers.md)，产物结构见 [采集协议](Profiling_Protocol.md)。
+查字段、分析过滤、CSV 格式要求或图表时查阅。能耗详见 [能耗测量](../profiling/energy.md)，独立工具详见 [Profiler](../profiling/profilers.md)，产物结构见 [采集协议](../profiling/protocol.md)。
 
-[文档导航](README.md)
+[文档导航](../README.md)
 
 新 CSV 包含 `environment_class`；旧数据缺环境证据时为 `unknown`。分析按环境分组，图表写入
 `plots/<environment_class>/...`，混合身份 CSV 明确拒绝。`audit --compare` 同时检查
 `comparability_class`，Native/WSL 或未知身份不能生成跨环境性能结论；缺失能耗显示
-`not comparable`，不补零、不加入 Native baseline。范围与字段见 [WSL2](platforms/wsl2.md)
-和[环境协议](Profiling_Protocol.md#环境身份与能力支持)。
+`not comparable`，不补零、不加入 Native baseline。范围与字段见 [WSL2](../platforms/wsl2.md)
+和[环境协议](../profiling/protocol.md#环境身份与能力支持)。
 
 ## 采集能力概览
 
-以下为项目可采集的指标范围；实际列值取决于 [profiling mode](Profiling_Protocol.md#profiling-mode-与能力证据)、设备和显式启用的工具。
+以下为项目可采集的指标范围；实际列值取决于 [profiling mode](../profiling/protocol.md#profiling-mode-与能力证据)、设备和显式启用的工具。
 
 - 性能：application / packet-level latency、P50/P90/P95、标准差/CV/IQR/最大值、吞吐量、每任务尺度单位及每百万像素延迟、每 CPU core 吞吐，以及容器启动、server setup、CUDA 初始化、模型加载、ready wait 和首次推理的冷启动分解。
 - 能耗：CPU package、估算 vCPU 和 GPU 的 idle、平均/峰值功率与能量，以及不增加采集轮次的 container-attributed 能效派生值（包括 J/input unit，以及图像任务的 J/Mpixel）。
@@ -37,7 +37,7 @@
 
 `latency_app_s` 是客户端应用层计时，`latency_s` 是抓包解析得到的 packet-level 计时。
 关闭 GPU 或未启用某个 profiler 时，对应字段为 `nan` 属于预期结果。
-新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后汇总为独立分层 CSV；不自动创建完整宽表。详见[产物结构](Profiling_Protocol.md#artifact-layout-v2)。
+新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后汇总为独立分层 CSV；不自动创建完整宽表。详见[产物结构](../profiling/protocol.md#artifact-layout-v2)。
 
 ### 分层结果 CSV（唯一正式结果）
 
@@ -57,10 +57,10 @@ acprof stats results/<model-dir>/ --metric latency_app_s
 ```
 
 实验尚未完成时可省略 `--require-complete` 查看审计说明。区间的样本单位、
-连续窗口相关性与开销对照方法见[统计说明](Metrics.md#窗口置信区间与开销对照)。
+连续窗口相关性与开销对照方法见[统计说明](metrics.md#窗口置信区间与开销对照)。
 
-完整说明集中在[输出文件](Profiling_Protocol.md#输出文件)、[CSV 字段字典](Metrics.md#result_allcsv-字段解释)
-和[常见判断](Troubleshooting.md#常见判断)。
+完整说明集中在[输出文件](../profiling/protocol.md#输出文件)、[CSV 字段字典](metrics.md#分层指标字段解释完整宽表导出)
+和[常见判断](../usage/troubleshooting.md#常见判断)。
 
 ## 分层指标字段解释（完整宽表导出）
 
@@ -68,8 +68,8 @@ acprof stats results/<model-dir>/ --metric latency_app_s
 常规性能分析只取 `status=ok` 且 `warmup=0`；错误行中的部分数值不作为正式测量。
 不可用或不适用的数值为 `nan`，历史 CSV 缺少新字段时不能补成 `0`。
 
-字段按用途分组，列顺序、类型、单位、来源和窗口由 [metric_registry.py](../acprof/metric_registry.py) 统一登记；
-`config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](Metric_Reference.md)，绘图数值转换和补采完成条件复用登记表。
+字段按用途分组，列顺序、类型、单位、来源和窗口由 [metric_registry.py](../../acprof/metric_registry.py) 统一登记；
+`config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](metric_reference.md)，绘图数值转换和补采完成条件复用登记表。
 
 显式导出宽表时，列依次为：资源配置与输入输出／网络、
 延迟与吞吐、独立 Profiler、GPU／CPU package／DRAM／估算 vCPU 能耗与能效、
@@ -94,10 +94,10 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | 查阅方向 | 字段组 |
 | --- | --- |
 | 配置、输入与请求 | [资源配置、输入与网络](#资源配置输入与网络)、[延迟与吞吐](#延迟与吞吐)、[两种延迟的区别](#latency_s-和-latency_app_s-的区别) |
-| Profiler | [Torch 与 NCU](Profilers.md#torch-与-ncu-计算指标)、[Massif 与 Nsight Systems](Profilers.md#massif-与-nsight-systems-执行指标) |
-| 能耗与归一化 | [GPU](Energy_Measurement.md#gpu-功率与能耗)、[CPU package](Energy_Measurement.md#cpu-package-功率与能耗)、[DRAM](Energy_Measurement.md#rapl-topology-与-dram)、[估算 vCPU](Energy_Measurement.md#估算-vcpu-能耗与派生能效)、[像素口径](#像素归一化口径) |
+| Profiler | [Torch 与 NCU](../profiling/profilers.md#torch-与-ncu-计算指标)、[Massif 与 Nsight Systems](../profiling/profilers.md#massif-与-nsight-systems-执行指标) |
+| 能耗与归一化 | [GPU](../profiling/energy.md#gpu-功率与能耗)、[CPU package](../profiling/energy.md#cpu-package-功率与能耗)、[DRAM](../profiling/energy.md#rapl-topology-与-dram)、[估算 vCPU](../profiling/energy.md#估算-vcpu-能耗与派生能效)、[像素口径](#像素归一化口径) |
 | 资源与 PMU | [CPU](#cpu-资源频率与-pmu)、[容器内存、swap、I/O 与 PID](#容器内存swapio-与-pid)、[GPU 资源](#gpu-资源与运行状态) |
-| 生命周期与失败 | [冷启动](Profiling_Protocol.md#冷启动)、[运行状态与错误](#运行状态与错误) |
+| 生命周期与失败 | [冷启动](../profiling/protocol.md#冷启动)、[运行状态与错误](#运行状态与错误) |
 
 ### 资源配置、输入与网络
 
@@ -270,9 +270,9 @@ cycles / ref-cycles 为可选 PMU 事件，不改变 instructions 的必需性�
 
 `workload_contract` 是新增的 JSON 文本列，不参与数值聚合。每行保存已完成请求的实际工作量摘要，
 以 `request_count` 和 `variants[{count, contract}]` 保留请求数量与不同工作量的分布；不保存请求顺序。
-其 generation 上限与实际 token 数、图像和音频模态的区别见[Workload Contract](Profiling_Protocol.md#workload-contract)。
+其 generation 上限与实际 token 数、图像和音频模态的区别见[Workload Contract](../profiling/protocol.md#workload-contract)。
 `basic` 使用 `latency_app_s` 和相应 application 分布指标；`latency_s` 仍专指 packet latency，不能互相替填。
-分析能耗／PMU 时先核对模式和[能力证据](Profiling_Protocol.md#profiling-mode-与能力证据)，缺失数值继续为 `nan`。
+分析能耗／PMU 时先核对模式和[能力证据](../profiling/protocol.md#profiling-mode-与能力证据)，缺失数值继续为 `nan`。
 
 ## 图表与延迟拟合产物
 
@@ -431,7 +431,7 @@ acprof audit results/left --compare results/right \
 一个完整矩阵内不同资源 case 的 workload 不一致时，整体资格保留 unknown，HTML 每配置检查仍能定位差异。
 
 硬件证据来自每个正式 case 开始前的 `hardware_conditions.json`，字段、范围与未知值见
-[硬件条件证据](Profiling_Protocol.md#硬件条件证据)。缺失值始终为 `unknown`；
+[硬件条件证据](../profiling/protocol.md#硬件条件证据)。缺失值始终为 `unknown`；
 跨硬件模式不会把未记录条件视为预期差异。实际正式服务的线程数优先于独立 probe 近似值；
 只有旧 probe 证据时仍需显式正整数线程请求，并保留硬件证据未知的限制。
 `quality_constraints` 必须由输入计划显式记录；条件一致不证明模型质量达标，也不保证
@@ -519,7 +519,7 @@ TUI 的“统计报告”页调用同一个 `acprof stats`，默认分析应用�
 该页还可直接读取上述两种开销工具的成功报告，显示配对轮数、延迟变化和区间；headless 与 terminal
 的测量范围分别注明。未完成、失败、损坏或未知版本的报告显示错误，不保留上一份结果冒充新报告。
 读取只展示报告记录的实验，不重新测量或核验源 CSV 的当前版本；比较时须使用同一实验口径。
-操作步骤见 [TUI 使用说明](TUI.md#统计报告)。
+操作步骤见 [TUI 使用说明](../usage/tui.md#统计报告)。
 
 ### 跨独立实验比较
 
@@ -575,7 +575,7 @@ blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保�
 ### 非流式负载报告
 
 `acprof load` 输出 `load.json`（`nonstream_load_experiment`，schema v1），内嵌
-`nonstream_load_result`。协议与命令见[独立负载协议](Profiling_Protocol.md#独立非流式负载)。
+`nonstream_load_result`。协议与命令见[独立负载协议](../profiling/protocol.md#独立非流式负载)。
 请求时间戳均为客户端 `perf_counter` 相对实验起点的秒数：`planned_s` 是计划提交时间，
 `sent_s` 是调用 HTTP 发送前的时间，`completed_s` 是完整读取响应后的时间，均不是网卡时间戳。
 `latency_s=completed_s-sent_s`；`scheduled_latency_s=completed_s-planned_s` 包含调度与排队等待；

@@ -6,14 +6,14 @@ AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运
 `acprof/platform.py` 是环境识别和平台能力策略的唯一入口，保持标准库依赖；
 `capabilities.py` 分开维护平台 support 与采集 evidence。`host/platform_metadata.py` 只在准备阶段
 采集版本信息，analysis/plotting 只读取保存的环境身份，不探测当前主机来解释历史结果。
-WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
+WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](../platforms/wsl2.md)。
 
 源码开发、editable、wheel 和 standalone 均通过 `acprof.cli.main` 惰性分发 `acprof <command>`。
 `installation.py` 区分只读构建资源和用户工作目录，并生成 Python/standalone 子进程命令。
-资源、安装与发布边界见[发行包说明](Distribution.md)。
+资源、安装与发布边界见[发行包说明](distribution.md)。
 
-修改模块边界、依赖方向或兼容入口时查阅本文。开发安装与操作说明见 [开发安装](Getting_Started.md#开发安装)和[测试指南](Testing.md#开发质量检查)，
-字段与测量口径见 [指标与结果分析](Metrics.md#分层指标字段解释完整宽表导出)，运行环境扩展见[模型运行环境与适配器](Runtime_Compatibility.md)。
+修改模块边界、依赖方向或兼容入口时查阅本文。开发安装与操作说明见 [开发安装](distribution.md#本地开发环境)和[测试指南](testing.md#开发质量检查)，
+字段与测量口径见 [指标与结果分析](../results/metrics.md#分层指标字段解释完整宽表导出)，运行环境扩展见[模型运行环境与适配器](../models/runtime.md)。
 
 - [Python 文件规模与拆分原则](#python-文件规模与拆分原则)：查看人工审查阈值与风险判断。
 - [目录与职责](#目录与职责)：先定位实现模块。
@@ -44,7 +44,7 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 
 按单一职责分批重构，而不是一次性把所有文件降至 500 行以下。新增审查提示不代表已有模块不合格；
 优先处理职责混杂且修改频繁、测试困难的模块，低耦合的数据目录可保持原结构。
-详细使用和 CI 范围见[开发质量检查](Testing.md#开发质量检查)。
+详细使用和 CI 范围见[开发质量检查](testing.md#开发质量检查)。
 
 该审查方式参考 [Pylint 的 `too-many-lines` 检查](https://github.com/pylint-dev/pylint/blob/main/pylint/checkers/format.py)
 和 [Radon 的复杂度指标](https://github.com/rubik/radon)；AC-Prof 不额外引入依赖，
@@ -70,7 +70,7 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
 | `acprof/model_resolution.py`、`acprof/model_spec.py` | 静态接口候选、schema 校验与执行契约；本地／作者声明优先于自动生成 |
-| `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](Runtime_Compatibility.md#自动生成模型契约m1m6) |
+| `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/runtime.md#自动生成模型契约m1m6) |
 | `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
 | `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
@@ -79,7 +79,7 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 | `acprof/capabilities.py` | execution / measurement 状态、验证证据和画像完整性报告 |
 | `acprof/container/validation.py`、`acprof/workloads/contract.py` | 窗口外输出验证与实际请求工作量摘要 |
 
-下载准备由 `network_policy.py`、`hf_transport.py`、`host/network_preflight.py` 与 `host/model_store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。
+下载准备由 `network_policy.py`、`hf_transport.py`、`host/network_preflight.py` 与 `host/model_store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/runtime.md#下载网络与-model-store)。
 
 ## 入口与依赖方向
 
@@ -107,7 +107,7 @@ monitor 使用共享 `host.command` 的两条现有边精确豁免，待命令�
 跨模块调用应引用职责所属模块的公共能力。`scripts/check_private_api.py` 用标准库 AST
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
 也拒绝已经失效但仍留在 baseline 中的条目；具体范围与维护命令见
-[private API 检查](Testing.md#跨模块-private-api-检查)。
+[private API 检查](testing.md#跨模块-private-api-检查)。
 `client_metrics` 与 client/diagnostics、`resource_metrics` 与资源采样器属于现有内部协作边界，
 继续逐条登记，不给予整个子系统无限制豁免。`latency_model` 的 analysis/plotting 边界同样保留
 现有条目，后续按职责处理，不以消除下划线数量为目标。
@@ -124,7 +124,7 @@ TUI 预览、terminal log 和新 metadata 的命令统一展示为可复制的 `
 无清单目录按 flat layout 只读发现；未知清单和越界路径报错。`CaseArtifacts` 统一管理 case
 CSV、请求样本、PCAP 和诊断路径，client 与 packet merge 的 sidecar 路由仅做路径计算。
 manifest 不维护实时文件清单，避免在测量窗口扫描或计算 hash；恢复校验仍由 `run_state` 负责。
-格式与旧目录边界见[Artifact Layout v2](Profiling_Protocol.md#artifact-layout-v2)。
+格式与旧目录边界见[Artifact Layout v2](../profiling/protocol.md#artifact-layout-v2)。
 
 此设计参考 [Hydra 的输出分层](https://github.com/hydra-ecosystem/hydra/blob/main/hydra/core/utils.py)
 和 [pytest 的内部目录](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/cacheprovider.py)。
@@ -249,7 +249,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 `acprof.hardware_conditions` 仅定义历史硬件条件字段与产物路径；
 `host.hardware_conditions` 负责在采集窗口外观察硬件并写入记录，
 `analysis.comparison` 和 `analysis.independent_comparison` 只依赖共享只读协议，避免导入主机采集层。`analysis/audit` 和 `analysis/uncertainty` 负责只读审计与窗口统计，
-`acprof.cli.audit` / `acprof.cli.stats` 仅处理参数和报告输出。生成的 `docs/Metric_Reference.md` 可在 CI 检查漂移。
+`acprof.cli.audit` / `acprof.cli.stats` 仅处理参数和报告输出。生成的 `docs/results/metric_reference.md` 可在 CI 检查漂移。
 
 指标模块不读取环境、不创建 workload 或 monitor。慢请求阈值由 client 在调用时显式传入；
 冷启动状态仍由 client 管理。对照窗口、monitor 启停、正式请求和停止后的统计顺序保持一致。
@@ -264,7 +264,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 
 `source_identity` 统一续跑身份与服务构建的文件选择。续跑包括执行声明和输入资源；服务构建
 只打包共享模块与 `container/workloads/extensions`，同一文件集合同时用于上下文复制和指纹。
-范围细节见[镜像分类与复用](Runtime_Compatibility.md#镜像分类与复用)。
+范围细节见[镜像分类与复用](../models/runtime.md#镜像分类与复用)。
 
 清理机制参考 [CPython ExitStack](https://github.com/python/cpython/blob/3.12/Lib/contextlib.py)
 的回调栈，使用现有 Python 标准库（PSF License），不增加依赖；清理错误另行聚合以保留请求证据。
@@ -274,7 +274,7 @@ machine events 继续由 `RunProgressTracker` 解析。
 `runtime_profiles` 使用标准库将 manifest 实例化为 `RuntimeProfile`、`PlatformSpec`、`DependencyEnvironment`；
 公共查询 `locked_transformers_version(environment)` 从所选环境锁读取 Transformers 版本，
 供主机预检、模型契约与容器加载策略共用；保留缓存且不导入推理框架。
-7 个任务族通过逻辑 profile 共享依赖环境，当前数量见[运行配置](Runtime_Compatibility.md#当前配置)。`dependency_locks` 规范化和验证
+7 个任务族通过逻辑 profile 共享依赖环境，当前数量见[运行配置](../models/runtime.md#当前配置)。`dependency_locks` 规范化和验证
 制品锁，环境内容身份独立于 profile、adapter、模型及业务代码。主机检测只读元数据；handler 注册表
 供 server、输入规划和 profiler 共用。`extensions/*/manifest.json` 同时提供 config 映射、任务支持、
 profile 和延迟入口，读取声明不导入推理框架；声明文件参与服务镜像指纹。
@@ -282,7 +282,7 @@ profile 和延迟入口，读取声明不导入推理框架；声明文件参与
 `detect` 与 `model_resolution` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
 `model_schema`、`input_plan` 和 handler 消费选中声明。`config` 的尺度/任务参数与 TUI 的任务族列表由 catalog 派生。
 旧 `DEFAULT_BACKEND`、三个路由镜像字典、`default_backend()`、MOSS 常量及旧 architecture/profile 镜像导出均已移除，
-旧 extension schema v1 直接拒绝；完整字段与优先级见[扩展声明](Runtime_Compatibility.md#扩展声明与按需加载)。
+旧 extension schema v1 直接拒绝；完整字段与优先级见[扩展声明](../models/runtime.md#扩展声明与按需加载)。
 `model_resolution` 按固定 commit 的仓库布局和原生接口解析候选，`extensions/transformers` 保存
 固定版本的 Auto 注册数据；profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
 标准库模块 `model_spec` 共用本地／仓库模型声明及代码引用检查；候选记录保留证据和歧义，
@@ -302,13 +302,13 @@ hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_s
 中解析 Debian Snapshot。普通构建仅消费锁，`--check` 只读校验锁及映射。
 `container.model_files` 是标准库文件规划器，
 `download_model` 负责下载与构建期完整性检查，`runtime_manifest` 与 `runtime_validate` 分别负责环境清单和独立接口验证。
-分层设计将权重下载与业务代码变更解耦；加载、镜像复用与验证契约见[运行兼容](Runtime_Compatibility.md#构建复用和验证)，
-字段与历史兼容见[采集协议](Profiling_Protocol.md#static_metajson-字段)。
+分层设计将权重下载与业务代码变更解耦；加载、镜像复用与验证契约见[运行兼容](../models/runtime.md#构建复用和验证)，
+字段与历史兼容见[采集协议](../profiling/protocol.md#static_metajson-字段)。
 
 容器归属标签借鉴 Apache-2.0 许可的
 [Testcontainers 会话标签](https://github.com/testcontainers/testcontainers-python/blob/main/src/testcontainers/core/labels.py)，
 结合本机 Linux 的 boot ID 与进程启动时间判断废弃状态。继续使用现有 Docker CLI，不增加 Docker SDK
-或 Ryuk 常驻容器；具体退出、恢复与旧容器处理见[排障](Troubleshooting.md#中断后残留容器或端口占用)。
+或 Ryuk 常驻容器；具体退出、恢复与旧容器处理见[排障](../usage/troubleshooting.md#中断后残留容器或端口占用)。
 CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采样时机；各自的 `_nan_result`、
 `_result_from_samples` 保留能量积分、窗口计数和缺失值语义，不按同名强行合并。
 
@@ -326,7 +326,7 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 分析专用派生量独立于 `CSV_FIELDS`。`cli/report.py` 负责参数与测量锁，
 `plotting/report.py` 按需加载 Plotly 并内嵌 HTML/CSS/JavaScript；`view_model.js` 集中处理
 baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该入口复用现有 CSV 和布局协议，
-不引入 Web 服务或 TUI 依赖，详见[分析模型](Metrics.md#统一分析模型与精简汇总)。
+不引入 Web 服务或 TUI 依赖，详见[分析模型](../results/metrics.md#统一分析模型与精简汇总)。
 
 绘图函数从 `acprof.plotting.data`、`metrics`、`latency` 等模块导入，数值报告从
 `acprof.analysis.latency_report` 导入。`acprof.cli.plot` 只解析参数和调度；已移除
@@ -349,7 +349,7 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 采集准备按 `resolve → interface validation → prepare runtime → runtime validation → matrix measurement` 执行。
 接口检查不接触权重；完整运行验证使用每个选中设备的最小输入，全部成功才允许正式矩阵。
-两者分别保存证据，不产生测量行，详见[运行兼容](Runtime_Compatibility.md#自动生成模型契约m1m6)。
+两者分别保存证据，不产生测量行，详见[运行兼容](../models/runtime.md#自动生成模型契约m1m6)。
 
 ## TUI 与兼容维护
 
@@ -477,7 +477,7 @@ TUI 应用从 `acprof.tui.app` 导入；共享配置与运行命令从 `acprof.e
 界面专用命令从 `acprof.tui.commands` 导入；旧 `acprof.cli.tui_*` 模块已删除。
 
 测试覆盖当前实现与旧入口拒绝行为；不为历史调用增加转导出或参数别名。
-测试选择、终端证据与验证范围统一见[测试指南](Testing.md)。
+测试选择、终端证据与验证范围统一见[测试指南](testing.md)。
 
 ## 只保留当前协议
 
@@ -497,6 +497,6 @@ Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要�
 硬件观测借鉴 [pyperf 元数据采集](https://github.com/psf/pyperf/blob/main/pyperf/_collect_metadata.py)（MIT），
 不引入 benchmark 调度依赖。Requests（Apache-2.0）的超时边界依据 [overall timeout Issue](https://github.com/psf/requests/issues/3099)，
 保留既有 Requests 和串行短连接协议。视觉回归复用 [Textual 官方插件](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
-依赖与运行入口统一见[辅助开发工具](Testing.md#辅助开发工具)；不将其依赖或事件轮询带入测量窗口。
+依赖与运行入口统一见[辅助开发工具](testing.md#辅助开发工具)；不将其依赖或事件轮询带入测量窗口。
 依赖升级通过锁文件和独立回归验收；硬件查询仅在 case 开始边界执行，不增加窗口内采样器。
 这些改动复用当前架构中的 `MonitorGroup`、artifact layout 与 evidence runner，不复制第三方框架。

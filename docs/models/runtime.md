@@ -6,7 +6,7 @@ AC-Prof 按模型选择逻辑 profile 和 adapter，profile 引用完整依赖�
 本文命令均从仓库根目录执行；示例资源配置不表示当前机器可用容量。
 
 新增模型适配或调整镜像依赖时查阅本文。任务支持范围由[本文的任务目录](#任务支持范围)维护，
-环境元数据的字段定义见 [采集协议](Profiling_Protocol.md#static_metajson-字段)，模块依赖见[代码架构](Architecture.md#主机编排与测量)。
+环境元数据的字段定义见 [采集协议](../profiling/protocol.md#static_metajson-字段)，模块依赖见[代码架构](../development/architecture.md#主机编排与测量)。
 
 - [任务支持范围](#任务支持范围)：按 NLP、视觉、多模态选择接口与清单。
 - [当前配置](#当前配置)：选择运行环境，核对支持边界。
@@ -46,7 +46,7 @@ flowchart LR
 | `onnxruntime-cpu` | structured 的 ONNX dense tabular 接口 | ORT 1.23.2、NumPy；CPU float32 |
 | `onnxruntime-cv-cpu` / `onnxruntime-nlp-cpu` | ONNX 图像分类／文本分类 | 共用同一个无 Torch、无 Transformers 环境；Pillow 图像处理、Tokenizers 本地分词 |
 
-[`runtime_profiles.py`](../acprof/runtime_profiles.py) 使用标准库声明三个独立对象：
+[`runtime_profiles.py`](../../acprof/runtime_profiles.py) 使用标准库声明三个独立对象：
 
 | 对象 | 声明内容 |
 | --- | --- |
@@ -60,22 +60,22 @@ profile 共享 `audio-cu124` 环境。cu128 的 audio 使用 `tqdm==4.70.1`，�
 `transformers560-cpu/cu124/cu128` 是三个共享原生环境；复用 5.6.0 约束并加入 timm，不选择 MOSS adapter。
 同族可有多个环境，不同族可共享环境；环境和 profile 数量均不要求长期保留同等数量的镜像。
 
-完整锁位于 [`dockerfiles/locks`](../dockerfiles/locks)，源约束位于
-[`dockerfiles/requirements`](../dockerfiles/requirements)。旧平台的 `platform-*.txt` 包含 Torch
+完整锁位于 [`dockerfiles/locks`](../../dockerfiles/locks)，源约束位于
+[`dockerfiles/requirements`](../../dockerfiles/requirements)。旧平台的 `platform-*.txt` 包含 Torch
 必需依赖闭包和基础安装工具；`platform-python-cpu.txt` 只有基础安装工具。Flask、torchvision、torchaudio、NumPy、Pillow 等由环境完整锁声明。
 每个包固定一个适用于目标 Python/ABI/架构的 wheel URL 和 SHA256，包括 pip、setuptools、wheel
 及其依赖。各环境直接继承所声明的平台，不通过升级另一个环境来构建。CV 三个平台的锁新增
 `timm==1.0.27`，因此环境身份改变；其余已有环境的包集保留。新运行时角色声明不改变相同完整
 包集的身份；缺少包或锁版本不一致会失败。
 
-系统锁 [`system-trixie-amd64.json`](../dockerfiles/locks/system-trixie-amd64.json) 固定基础镜像、
+系统锁 [`system-trixie-amd64.json`](../../dockerfiles/locks/system-trixie-amd64.json) 固定基础镜像、
 Debian `20260912T203535Z` 和安全仓库 `20260912T113611Z` 的实际 snapshot URL、签名索引摘要、
 全部直接/传递系统包版本和新增/升级 `.deb` 的 URL、大小、SHA256。基础镜像已有包由 OCI digest
 固定，并计入最终完整包集合。普通构建只下载锁中的制品，校验哈希后通过 `--no-download` 安装，
 不查询浮动 apt 仓库、不动态选择包名。
 
-主机使用 [`requirements/host.lock`](../requirements/host.lock)，支持 Python 3.10+。依赖集合与兼容区间只在
-[`pyproject.toml`](../pyproject.toml) 声明；[`requirements/host.in`](../requirements/host.in) 是已验证版本约束，
+主机使用 [`requirements/host.lock`](../../requirements/host.lock)，支持 Python 3.10+。依赖集合与兼容区间只在
+[`pyproject.toml`](../../pyproject.toml) 声明；[`requirements/host.in`](../../requirements/host.in) 是已验证版本约束，
 安装直接指定 `requirements/host.lock`。主机、开发工具和测试依赖采用以下布局：
 
 ```text
@@ -159,7 +159,7 @@ revision 不存在、离线模式、网络连接/超时、服务限流/故障分
 镜像站 HEAD 缺少 Hub 元数据头时，客户端对同一 revision 回退到官方 Hub；认证、文件不存在和
 离线缓存错误不会触发这项回退。
 
-Transformers 版本选择使用 [`extensions/transformers`](../acprof/extensions/transformers) 中从官方
+Transformers 版本选择使用 [`extensions/transformers`](../../acprof/extensions/transformers) 中从官方
 固定版本导出的 Auto 注册表，按任务所需模型类与 `model_type` 匹配，不维护 checkpoint ID 白名单。
 旧版本已经登记的架构继续使用旧环境；仅 `config.transformers_version` 较新不会强制升级。
 CPU/CUDA 平台切换保留所选版本线。该候选选择目前面向 Transformers 原生 backend，
@@ -233,7 +233,7 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 通过 5.6.0 的 Auto 接口加载，不实例化 Talker。没有匹配或子模型选择有歧义时拒绝，
 不轮流尝试加载模型类。原生架构的候选资格不再由音频模型名称名单决定。
 
-更新版本时，用 [`export_transformers_support.py`](../scripts/export_transformers_support.py) 对固定 tag 的
+更新版本时，用 [`export_transformers_support.py`](../../scripts/export_transformers_support.py) 对固定 tag 的
 `src/transformers/models/auto/modeling_auto.py` 和 `src/transformers/pipelines/__init__.py`
 执行受限 AST 解析，分别记录源码 URL/SHA256；后者导出 task registry 和 aliases。
 新导出的 dynamic-module capabilities 初始为 `null`（unknown），不能从 Auto 注册表推断。
@@ -305,7 +305,7 @@ TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver �
 `acprof_model.json` 时返回 `needs_configuration` 和 `model_contract_required`，不猜输入语义。
 已有 ONNX/skops 的安全格式推断规则保持独立，不推广到任意 TorchScript。
 
-失败由 [`Failure`](../acprof/failures.py) 统一描述，CLI、audit、`models.csv`、TUI 和 `REPORT.md`
+失败由 [`Failure`](../../acprof/failures.py) 统一描述，CLI、audit、`models.csv`、TUI 和 `REPORT.md`
 直接传递 `reason_code`；异常链与原始日志保留用于诊断。`request_timeout` 表示请求期限耗尽，
 `compatibility_budget_exhausted` 表示独立验证整体预算耗尽，均为 `inconclusive`。
 已有结果中的兼容性 JSON 按单文件 4 MiB 上限读取，并要求对象结构及有限数值；损坏证据记录为
@@ -313,7 +313,7 @@ TorchScript/graph/structured extension 的 `requires_model_spec` 在 resolver �
 不会因另一份产物损坏而被覆盖，也不会把损坏产物解释成模型本身不兼容。
 真实推理异常使用 `inference_failed`，不能仅因为 60 秒未完成就认定不兼容。
 默认 timeout 仍为 300 秒；显式重试使用更高 `--timeout-seconds` 和新的输出目录，不自动循环。
-质量警告独立于 Capability，字段及历史结果边界见[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
+质量警告独立于 Capability，字段及历史结果边界见[质量与失败产物](../profiling/protocol.md#质量与失败产物)。
 HTTP 响应为 401/403 的失败在原阶段记录 `access_denied` 和 `http_status`，包括文件计划阶段的
 gated 配置读取；不会因已有缓存配置可通过静态检查而宣称获得权重权限，也不将 429 当作权限失败。
 
@@ -396,7 +396,7 @@ TUI 另有**用户确认选择缓存**，不是上述解析结果缓存：输出
 采集准备阶段由 `host.collection_workflow` 连接静态解析、主机预检、镜像、输入和 runtime validation。
 失败阶段保留其上游成功结果；普通“重新验证”复用原不可变镜像和输入，“重新准备环境”则使镜像及
 下游输入／验证失效后重建。正式测量期间不询问用户、不轮询控制通道、不做阶段重试。
-具体按钮和恢复边界见 [TUI 工作流](TUI.md#模型契约解析与验证)。
+具体按钮和恢复边界见 [TUI 工作流](../usage/tui.md#模型契约解析与验证)。
 
 外部 `from_pretrained` 调用按 tokenizer、processor、metadata、weights 等角色记录候选；
 config 中的模型引用和动态表达式也会保留。明确的 repo／loader 通过 Hub 自动固定 SHA，按角色生成
@@ -469,7 +469,7 @@ preprocess 或 inference；默认 CPU 2 核、4 GiB，容器上限 300 秒，依
 容器断网、read-only、挂载只读、移除 capabilities、禁止提升权限；临时缓存写入 `/tmp`，
 不挂载主机凭据、Docker socket 或模型目录。结束或取消后按不可变 ID 清理容器和临时目录。
 
-自定义 Pipeline 共用 [`load_local_pipeline_class`](../acprof/container/local_pipeline.py) 和既有
+自定义 Pipeline 共用 [`load_local_pipeline_class`](../../acprof/container/local_pipeline.py) 和既有
 remote-code 策略；`auto_map` 同样检查策略，导入均为 `local_files_only=True`。
 Transformers 精确版本的 loader 选择与能力声明继续遵循
 [dynamic-module 兼容生命周期](#transformers-dynamic-module-兼容生命周期)。
@@ -484,7 +484,7 @@ CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻�
 表示端到端验证，新执行入口不再提供 basic/full 选择。它不产生正式 CSV row，不开启 profiler 测量窗口。
 
 两类验证都不能代替所选 profiler 或正式矩阵实测。`profiling-mode basic/full` 只表示采集指标范围，
-不表示模型检查深度。TUI 自动执行整个准备流程，交互见[模型确认](TUI.md#模型契约解析与验证)。
+不表示模型检查深度。TUI 自动执行整个准备流程，交互见[模型确认](../usage/tui.md#模型契约解析与验证)。
 
 实现参考 [Hugging Face 单文件缓存下载](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/file_download.py)
 与 [Transformers dynamic modules](https://github.com/huggingface/transformers/blob/main/src/transformers/dynamic_module_utils.py)
@@ -529,7 +529,7 @@ CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻�
 
 ### Transformers dynamic-module 兼容生命周期
 
-[`extensions/transformers`](../acprof/extensions/transformers) 的每个精确版本维护两个 capability：
+[`extensions/transformers`](../../acprof/extensions/transformers) 的每个精确版本维护两个 capability：
 
 | 字段 | 原生 loader 必须满足的能力 |
 | --- | --- |
@@ -537,7 +537,7 @@ CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻�
 | `local_dynamic_symlink_safe` | snapshot 文件指向 Hub blobs 时，仍按 snapshot 名称发现和加载相对依赖 |
 
 4.57.6 和 5.6.0 的两项声明目前均为 `false`，继续使用
-[`compat/transformers_dynamic.py`](../acprof/container/compat/transformers_dynamic.py)。该 shim 保留已有行为：
+[`compat/transformers_dynamic.py`](../../acprof/container/compat/transformers_dynamic.py)。该 shim 保留已有行为：
 复用 Transformers 的依赖发现、缓存路径和类导入，只补齐递归缓存文件，不修改 snapshot 或 blobs；
 缺失源文件在执行入口前报告原 snapshot 路径，实际导入异常继续上传。
 `false` 表示当前不能依靠完整的原生加载路径通过该项验收，不表示每个 symlink 场景均会失败。
@@ -554,8 +554,8 @@ snapshot→blobs symlink test → offline + clean-cache test → 代表性模型
 同时保留 circular import 终止、missing dependency 原路径诊断与 import exception 传播检查。
 验收须保存精确包版本、源码 commit/SHA256、运行环境及测试/Probe 产物；不能仅凭新版号或某个 PR 已合并改表。
 
-[`test_local_pipeline.py`](../tests/test_local_pipeline.py) 验证两条路由和未知声明；
-[`test_local_pipeline_native_runtime.py`](../tests/test_local_pipeline_native_runtime.py) 复用已有五项依赖回归，
+[`test_local_pipeline.py`](../../tests/test_local_pipeline.py) 验证两条路由和未知声明；
+[`test_local_pipeline_native_runtime.py`](../../tests/test_local_pipeline_native_runtime.py) 复用已有五项依赖回归，
 执行实际安装的上游 loader，同时禁止导入 shim。已登记 native runtime 自动执行该组；评审候选版本时，
 在隔离的候选容器中设置仅供测试使用的 `ACPROF_TEST_NATIVE_TRANSFORMERS=<精确版本>`，并运行：
 
@@ -603,7 +603,7 @@ acprof run --model Ritual-Net/iris-classification \
   --notify none --output-dir results/iris
 ```
 
-[`iris.model.json`](../examples/onnxruntime/iris.model.json) 选择 `iris.onnx`、
+[`iris.model.json`](../../examples/onnxruntime/iris.model.json) 选择 `iris.onnx`、
 `tabular-classification`、4 列输入；无需修改上游仓库或添加 Iris 专用 handler。
 这是运行链路示例，合成输入不用于 Iris 准确率评估。
 
@@ -683,7 +683,7 @@ token 证据时，相关生成速率／逐 token 工作量保持不可用，不�
 在 Model Store 的固定计划视图中将各依赖的 `refs/main` 绑定到声明 commit，容器只读挂载该视图，
 使上游无 revision 的 `from_pretrained(repo_id)` 也能离线解析。主模型和全部依赖进入下载计划与镜像身份，正式服务保持断网。
 
-[Ultravox 完整声明](../examples/multimodal/ultravox.model.json) 包含固定版本的 Llama 基础权重与
+[Ultravox 完整声明](../../examples/multimodal/ultravox.model.json) 包含固定版本的 Llama 基础权重与
 Whisper processor。Llama 仓库要求账号已获访问许可，并在主机准备阶段配置有效 `HF_TOKEN`；
 缺少权限不能靠修改任务覆盖项解决。在 TUI 的“高级参数 → 识别覆盖 → 模型接口声明”填入
 `examples/multimodal/ultravox.model.json`，或在 CLI 使用：
@@ -719,7 +719,7 @@ Handler 和 validator 的 `module:callable` 入口。可选 `execution_entrypoin
 分别报告未注册、依赖缺失、模块导入失败、Handler 初始化失败与不支持。
 
 内部 extension manifest 使用 `schema_version: 2`，v1 和未知字段直接报错；不加载外部插件目录。
-类型化字段与校验位于 [`extensions/schema.py`](../acprof/extensions/schema.py)。
+类型化字段与校验位于 [`extensions/schema.py`](../../acprof/extensions/schema.py)。
 `acprof_model.json`、workload 清单和结果文件各自的 schema 版本保持独立。
 
 `ExtensionCatalog.resolve(task, family, library, config)` 是 backend/family 的共同解析入口，
@@ -756,7 +756,7 @@ library/config 规则 → family 规则，随后才可使用已声明的 `librar
 
 平台与共享依赖分别在 `platforms`、`dependency_environments` 声明，逻辑配置在 `runtime_profiles`
 或 extension 的 `profile` / `environment` / `dependency_environment` 声明。
-[`runtime_profiles.py`](../acprof/runtime_profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
+[`runtime_profiles.py`](../../acprof/runtime_profiles.py) 使用既有 `PlatformSpec`、`DependencyEnvironment`、
 `RuntimeSpec` 和 `RuntimeProfile` 实例化这些引用并继续检查完整锁。
 新 runtime 可引用 `torch_version: null` 的平台以及独立的精确 lock，无需增加 runtime 名称分支。
 这条声明路径的主机测试使用虚构 runtime；它不代表已实现或验证 OpenVINO 等额外推理后端。
@@ -799,16 +799,16 @@ ORT 固定为 1.23.2 以匹配 Python 3.10，运行环境不安装 Torch。完�
 `truncated_by_limit` 仍为 false，因为没有截断输入；正式 `/predict` 继续拒绝超限请求。
 其它配置和预处理错误仍传播为失败，旧 probe 缺少新字段时按 false 读取。
 
-本地可复现的预训练示例位于 [`real_models.py`](../examples/onnxruntime/real_models.py)：
+本地可复现的预训练示例位于 [`real_models.py`](../../examples/onnxruntime/real_models.py)：
 MNIST-12 为 26 KB、固定单灰度图输入；BERT-tiny-RAID 为 17.6 MB、三个具名整数输入及单分数输出。
 准备阶段固定上游 revision、逐文件 SHA256 和来源，未在本机导出或量化，上游未提供的转换工具／
 参数记为 unknown。MNIST 模型卡元数据标 Apache-2.0、正文标 MIT，示例原样记录两项；BERT 模型卡为 MIT。
 运行检查使用同一任务的既有生成器；单样例与 ONNX ReferenceEvaluator 的数值比较不等于分类准确率评测。
-执行步骤见[测试指南](Testing.md#无-torch-运行时验收)。
+执行步骤见[测试指南](../development/testing.md#无-torch-运行时验收)。
 
 构建期与测量前的运行时验证继续独立于正式窗口。`validate_output` 可由 manifest 声明或 Handler override
 提供，覆盖协议与少量任务 sanity；它不证明准确率或全部 profiler 兼容。实际工作量见
-[Workload Contract](Profiling_Protocol.md#workload-contract)。
+[Workload Contract](../profiling/protocol.md#workload-contract)。
 
 ### 运行参数与请求完成
 
@@ -897,7 +897,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 分别保存阶段结果，失败保留原异常类型及 `failed_stage`。已声明的自定义分类 pipeline 还需返回
 非空 label/score，不能仅凭一个可序列化的 object 判定兼容；其余任务继续使用相应 validator。
 
-验证可能预热宿主机文件缓存；正式容器初始化、首次请求和测量窗口的区别见[采集生命周期](Profiling_Protocol.md#采集生命周期)。
+验证可能预热宿主机文件缓存；正式容器初始化、首次请求和测量窗口的区别见[采集生命周期](../profiling/protocol.md#采集生命周期)。
 
 `static_meta.json` v7 保存 `image_id`、`image_name`、`runtime_environment` 和成功返回的
 `runtime_validation`；单独的 `runtime_validation.json` 与设备日志也保留失败信息。
@@ -929,7 +929,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 
 发布 workflow 先发布平台，再由环境 job 拉取相同父层；避免各 job 重建平台后产生互不匹配的环境键。
 发布脚本复用现有构建和清单验证，不将“已发布依赖”视为 GPU/模型推理通过。
-发布权限、资产和验证方式见[发行包说明](Distribution.md#发布入口与范围)。
+发布权限、资产和验证方式见[发行包说明](../development/distribution.md#发布入口与范围)。
 
 ### 镜像分类与复用
 
@@ -955,7 +955,7 @@ TUI 根据镜像标签和 AC-Prof 元数据判定类型。下表列出常见名�
 历史标签和名称识别。常规模型的继承关系是 **平台 → 运行依赖 → 模型清单 → 推理服务**，权重从主机 Model Store 只读挂载。
 `acprof-build-source:<image ID>` 是构建时给已有镜像添加的别名，
 不另存一份镜像内容；TUI 按 image ID 合并这些标签。分类与构建实现分别见
-[`image_management.py`](../acprof/host/image_management.py) 和 [`runtime_images.py`](../acprof/host/runtime_images.py)。
+[`image_management.py`](../../acprof/host/image_management.py) 和 [`runtime_images.py`](../../acprof/host/runtime_images.py)。
 
 | 构建情况 | 镜像复用与新增 |
 | --- | --- |
@@ -1145,11 +1145,11 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 
 ## 新增一个模型适配
 
-本节维护扩展契约；执行步骤见[模型适配 Skill](../.agents/skills/acprof-model-adaptation/SKILL.md)。
+本节维护扩展契约；执行步骤见[模型适配 Skill](../../.agents/skills/acprof-model-adaptation/SKILL.md)。
 
 | 边界 | 契约与实现入口 |
 | --- | --- |
-| 环境路由 | `acprof/extensions/*/manifest.json` v2 声明 adapter、平台、依赖环境/profile、task、model_type 和 backend；[`runtime_profiles.py`](../acprof/runtime_profiles.py) 从声明生成 `ENVIRONMENTS` / `PLATFORMS`，精确锁描述实际依赖。 |
+| 环境路由 | `acprof/extensions/*/manifest.json` v2 声明 adapter、平台、依赖环境/profile、task、model_type 和 backend；[`runtime_profiles.py`](../../acprof/runtime_profiles.py) 从声明生成 `ENVIRONMENTS` / `PLATFORMS`，精确锁描述实际依赖。 |
 | 任务支持 | `host/detect.py`、`host/task_support.py` 与 `config.py` 共用 manifest；新任务协议还须补充对应 workload 的物化与尺度处理，不能仅移除预检限制。 |
 | 推理接口 | 已满足协议时使用 `family-default`；自定义实现由 manifest 的 `handler_entrypoint` 按需导入；程序注册 `register_adapter` 仍可用，重复 key 默认拒绝，覆盖必须显式 `override=True`。 |
 | 输入输出 | `BaseHandler` 保留四阶段接口，增加仅在窗口外调用的 `validate_output`；模型提示词、参数和尺度经 workload/输入计划传递，输出与 `host/model_schema.py` 一致。 |
@@ -1159,7 +1159,7 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 开发扩展在 manifest 维护。运行时选择同时匹配 architecture、family、backend 与 task，
 同一 architecture 的多个 backend 不再依靠全局单键覆盖决定。
 
-当前 loader 的设备、模态和 profiler 边界在下方任务章节维护；新的行为须同时满足[采集协议](Profiling_Protocol.md#协议不变量)。
+当前 loader 的设备、模态和 profiler 边界在下方任务章节维护；新的行为须同时满足[采集协议](../profiling/protocol.md#协议不变量)。
 
 ## 参考实现与取舍
 
@@ -1303,7 +1303,7 @@ acprof run --model Salesforce/blip-image-captioning-base \
 NLP 的输入计划保存真实 payload，句子相似度／排序每次重新编码 query 和文档，零样本分类完整运行候选标签对应的 NLI 推理。表格问答固定列结构并改变行数，超出模型容量时失败，不通过删行伪装成原尺度。音频任务要求 `--batch-size 1`；读取音频的任务默认复用有来源与 SHA256 的内置 LibriSpeech 前缀，文本到音频使用确定性文本。生成音频仅返回形状、采样率、样本数和时长摘要。需要额外声码器／说话人资产的 SpeechT5、FastSpeech2Conformer 暂未适配，会在加载时明确拒绝。
 
 SentenceTransformer 保留仓库的 Pooling、Normalize 和默认 prompt；特征提取输出为 `[batch, embedding_dim]`
-摘要，不再把 token 隐状态当作句向量。可通过 [NLP workload 参数](CLI_Reference.md#nlp-workload-参数)
+摘要，不再把 token 隐状态当作句向量。可通过 [NLP workload 参数](../usage/cli.md#nlp-workload-参数)
 选择 `prompt`／`prompt_name` 和 `normalize_embeddings`，输入预算包含 prompt。句子相似度仍为对称
 `encode`，没有增加独立 `encode_query`／`encode_document` 协议。Chronos 三代共用单变量列表输入；
 原生 list 输出核对 batch、变量数和 horizon 后合并为 `[batch, samples_or_quantiles, horizon]`，不把不同代的
@@ -1334,11 +1334,11 @@ acprof run --model google/tapas-base-finetuned-wtq \
 
 默认表格宽度 8、强化学习 4、机器人 7、图节点特征 16；应按模型更改。非图默认尺度 1、8、32、128，图为 8、32、128、512；固定特征宽度，图结构为双向环。skops 使用 `--backend skops --gpus off`，仓库内唯一 `.skops` 可自动发现，也可由模型清单指定；仅加载 sklearn 已知类型，模型版本须与镜像的 sklearn 版本兼容。
 
-策略任务测量独立向量观测的前向推理，不包含环境交互、训练、回报评估、传感器采集和机器人执行；图像／多模态策略需要另行适配输入，不能通过展平图像宣称等价兼容。结构化合成输入用于性能流程，不能据此报告模型准确率或策略效果。TorchScript 是已被上游标记 deprecated 的导出兼容接口，兼容性取决于导出版本及算子；不能在加载时更换注意力实现，`torch_profiler_eager` 因此会明确拒绝。其它 profiler 仍按各自适用条件隔离执行。可运行的五类导出示例见 [export_models.py](../examples/structured/export_models.py)，对应真实四阶段检查见 [smoke.py](../examples/structured/smoke.py)。
+策略任务测量独立向量观测的前向推理，不包含环境交互、训练、回报评估、传感器采集和机器人执行；图像／多模态策略需要另行适配输入，不能通过展平图像宣称等价兼容。结构化合成输入用于性能流程，不能据此报告模型准确率或策略效果。TorchScript 是已被上游标记 deprecated 的导出兼容接口，兼容性取决于导出版本及算子；不能在加载时更换注意力实现，`torch_profiler_eager` 因此会明确拒绝。其它 profiler 仍按各自适用条件隔离执行。可运行的五类导出示例见 [export_models.py](../../examples/structured/export_models.py)，对应真实四阶段检查见 [smoke.py](../../examples/structured/smoke.py)。
 
 实现复用 [Transformers 4.57.6 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)、[Sentence Transformers 5.1.2](https://github.com/huggingface/sentence-transformers/tree/v5.1.2)、[PyTorch 模型加载](https://github.com/pytorch/pytorch/blob/v2.5.1/torch/jit/_serialization.py) 和 [skops](https://github.com/skops-dev/skops)。Transformers／Sentence Transformers 为 Apache-2.0，PyTorch 为 BSD 风格许可，skops 为 MIT；模型权重另按其许可。NLP 镜像补齐 pandas 与编码器依赖，结构化镜像隔离安装 sklearn／skops，主机不安装推理框架。LeRobot 的运行时依赖与本项目 Python 3.10 镜像不同，旧 Graphormer 位于 Transformers 的 deprecated 目录，因此策略／图任务采用显式导出接口；没有引入模拟器或旧框架。素材生成、哈希与输入规划在正式测量窗口之外执行。
 
-运行接口验证可使用 [NLP 十二任务示例](../examples/nlp/smoke.py)、[音频原生模型测试](../tests/test_audio_runtime_optional.py) 和 [Chronos 小模型示例](../examples/structured/chronos_smoke.py)。这些脚本需要对应容器的依赖，使用随机小模型／确定性导出样例验证输入和推理接口，不提供真实模型准确率或性能结论。文本到音频目前使用内置文本，不能传 WAV 清单作为 `--workload-spec`。
+运行接口验证可使用 [NLP 十二任务示例](../../examples/nlp/smoke.py)、[音频原生模型测试](../../tests/test_audio_runtime_optional.py) 和 [Chronos 小模型示例](../../examples/structured/chronos_smoke.py)。这些脚本需要对应容器的依赖，使用随机小模型／确定性导出样例验证输入和推理接口，不提供真实模型准确率或性能结论。文本到音频目前使用内置文本，不能传 WAV 清单作为 `--workload-spec`。
 
 ### 视觉任务
 
@@ -1466,7 +1466,7 @@ Diffusers 清单示例（还可设置 `strength`、`image_guidance_scale`、`neg
 }
 ```
 
-清单及素材摘要、实际 payload、参数和尺度单位保存在 `input_scale_plan.json` / `static_meta.json`。检索请求包含 query 编码、文档编码和评分，不缓存文档向量。生成图像、视频、音频只返回尺寸／数量摘要，不编码为响应媒体；文字输出按既有 CSV 字段统计，检索分数不会冒充输出 token。详细单位见[输入规模与音频清单](CLI_Reference.md#输入规模与音频清单)。
+清单及素材摘要、实际 payload、参数和尺度单位保存在 `input_scale_plan.json` / `static_meta.json`。检索请求包含 query 编码、文档编码和评分，不缓存文档向量。生成图像、视频、音频只返回尺寸／数量摘要，不编码为响应媒体；文字输出按既有 CSV 字段统计，检索分数不会冒充输出 token。详细单位见[输入规模与音频清单](../usage/cli.md#输入规模与音频清单)。
 
 普通采集与 NCU／Nsys 复用完整 `predict()`。profiler 在推理计算捕获前的预热阶段验证一次输出协议，计算捕获只重复推理；Massif 按整个进程生命周期统计，包含加载、预热和这次验证。Omni 的 Token2Wav 不支持 eager 注意力，因此 `any-to-any` 的 `torch_profiler_eager` 会明确失败；Diffusers 的 Transformer 视频模型也会拒绝尚未验证的 eager 替换。这些失败按工具隔离，不能把未采集的 FLOP 当成 0。已有 UNet 文生图 eager 路径保留。
 
@@ -1499,7 +1499,7 @@ acprof run --model OpenMOSS-Team/MOSS-Transcribe-Diarize \
 
 Hub endpoint 和 storage endpoint 分别处理。镜像可以重定向到官方 Hub、HF CDN 或 HTTP Xet bridge；可信存储按 Hugging Face 控制的 `hf.co`、`huggingface.co` 域名边界识别，允许新的区域子域，不枚举少数 CDN 机器名。不允许任意第三方、HTTP 降级、URL 内嵌凭据或异常端口，也不把通用 S3／CloudFront 域名整体加入信任范围。存储请求移除 Hub 的 Authorization／Cookie。原生 Xet 和 hf_transfer 通道禁用，以便通过公开 HTTP client factory 统一观察和检查；HTTP Xet bridge 仍可下载。未知域名明确报错，不永久标记模型不可用。
 
-旧 CLI 的 `mirror-only`、`mirror-preferred`、`official` 仅保留为高级兼容参数：`mirror-only` 限制初始 Hub 入口，仍允许可信 CDN 重定向。TUI 的历史模式统一迁移为 `auto`。AC-Prof 不配置 VPN，不修改系统标准代理变量；历史项目配置中的代理字段读取后忽略。系统代理示例见 [CLI](CLI_Reference.md#主机环境与-hugging-face-认证)。
+旧 CLI 的 `mirror-only`、`mirror-preferred`、`official` 仅保留为高级兼容参数：`mirror-only` 限制初始 Hub 入口，仍允许可信 CDN 重定向。TUI 的历史模式统一迁移为 `auto`。AC-Prof 不配置 VPN，不修改系统标准代理变量；历史项目配置中的代理字段读取后忽略。系统代理示例见 [CLI](../usage/cli.md#主机环境与-hugging-face-认证)。
 
 `network_policy.py` 的新报告使用 schema v2，记录 URL、host、category、cache 状态、估算和实际 bytes。应用层连接只区分 `direct-socket` 与 `explicit-proxy`；实际公网出口为 `unknown`／`externally-managed`，上游透明代理、VPN、NAT 由系统网络负责。OCI 的网络由 Docker 管理，不依据主机应用代理推断出口。不再产生 DIRECT／PROXY 流量分摊或预计 VPN 流量；历史报告保持原样。安装 AC-Prof 之前的 uv bootstrap 不属于 runtime 下载预算。
 
@@ -1513,7 +1513,7 @@ Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 
 
 entry 先在私有临时目录完整构建，再原子发布；发布前仅为 entry 顶层补足目录搜索（execute）权限，确保禁用 DAC override 的只读 Docker 验证容器也能访问快照，不开放目录列表。历史由临时目录以 `0700` 权限发布的 entry，在取得 Model Store 锁、验证固定清单后，于运行时挂载前修正顶层目录权限；不重下权重、不改模型文件权限，也不增加容器 Linux capabilities。
 
-下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](Profiling_Protocol.md#static_metajson-字段)。
+下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/protocol.md#static_metajson-字段)。
 
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.6.0 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。
 

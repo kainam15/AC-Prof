@@ -28,7 +28,7 @@ PACKET_LATENCY_RECOVERY_STEPS = (
     "Recovery steps:\n"
     "  1. Install packet tools: sudo apt-get install -y tcpdump tshark\n"
     "  2. Ask an administrator for group-restricted capture access:\n"
-    "     docs/Getting_Started.md#最小权限安装 (sudo setcap cap_net_raw=ep on the real executable)\n"
+    "     docs/getting_started/installation.md#最小权限安装 (sudo setcap cap_net_raw=ep on the real executable)\n"
     "  3. Verify capability: getcap $(command -v tcpdump)\n"
     "  4. Verify Docker bridge: ip link show docker0\n"
     "  5. If your bridge differs, pass --sniff-iface <iface>."

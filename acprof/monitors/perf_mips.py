@@ -316,13 +316,13 @@ def resolve_perf_command_prefix(
             raise MIPSProfilingError(
                 "perf cannot attach to host PID 1; container-process access is not available. "
                 "Configure CAP_PERFMON in TUI Settings > Connections and permissions "
-                f"or see docs/Getting_Started.md#最小权限安装.\n{detail}"
+                f"or see docs/getting_started/installation.md#最小权限安装.\n{detail}"
             )
         return ["perf"]
     detail = "\n".join(
         part.strip() for part in (result.stderr, result.stdout) if part and part.strip()
     ) or f"perf did not report valid instructions (exit={result.returncode})"
-    raise MIPSProfilingError(f"perf: {detail}; see docs/Getting_Started.md#最小权限安装")
+    raise MIPSProfilingError(f"perf: {detail}; see docs/getting_started/installation.md#最小权限安装")
 
 
 def resolve_perf_command_prefix_for_pid(pid: int) -> List[str]:
@@ -338,7 +338,7 @@ def resolve_perf_command_prefix_for_pid(pid: int) -> List[str]:
         return ["perf"]
 
     last_error = (direct.stderr or direct.stdout or "perf attach probe failed").strip()
-    raise MIPSProfilingError(f"{last_error}; see docs/Getting_Started.md#最小权限安装")
+    raise MIPSProfilingError(f"{last_error}; see docs/getting_started/installation.md#最小权限安装")
 
 
 def _friendly_mips_error(detail: str, *, perf_path: str | None = None,
@@ -355,7 +355,7 @@ def _friendly_mips_error(detail: str, *, perf_path: str | None = None,
         "Recovery steps:\n"
         "  1. Install perf if missing, for example: sudo apt-get install -y linux-tools-common linux-tools-generic\n"
         "  2. Have an administrator grant cap_perfmon=ep to the real perf executable, "
-        "restricted to the profiling group. See docs/Getting_Started.md#最小权限安装.\n"
+        "restricted to the profiling group. See docs/getting_started/installation.md#最小权限安装.\n"
         "  3. Log in again after group membership changes, then rerun acprof doctor.\n\n"
         "After fixing permissions, rerun AC-Prof as your normal user. Avoid "
         "`sudo acprof run ...` because it can leave result files owned by root."

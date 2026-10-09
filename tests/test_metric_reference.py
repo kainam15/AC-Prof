@@ -17,8 +17,8 @@ class TestMetricReference:
         self._request = request
         directory = tmp_path
         self.root = Path(str(directory))
-        (self.root / "docs").mkdir()
-        self.path = self.root / "docs/Metric_Reference.md"
+        (self.root / "docs/results").mkdir(parents=True)
+        self.path = self.root / "docs/results/metric_reference.md"
 
     def run_reference(self, *args):
         # Disable UTF-8 mode and reject implicit locale-dependent file encoding

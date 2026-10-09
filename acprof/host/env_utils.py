@@ -161,7 +161,7 @@ def load_project_env(
     """Load local KEY=VALUE pairs into the process or an isolated environment."""
     target_environ = os.environ if environ is None else environ
     retired_setting = "ACPROF_SUDO_PASSWORD"
-    migration = f"{retired_setting} is no longer supported; remove it and follow docs/Getting_Started.md#最小权限安装"
+    migration = f"{retired_setting} is no longer supported; remove it and follow docs/getting_started/installation.md#最小权限安装"
     if retired_setting in target_environ:
         raise ValueError(migration)
     values = project_env_values(project_dir)

@@ -1,8 +1,8 @@
 # 采集协议与实验产物
 
-修改请求窗口、输入计划、冷启动或产物来源时查阅。字段计算见 [指标](Metrics.md)，运行步骤见 [profiling 流程](../.agents/skills/acprof-profiling-workflow/SKILL.md)。
+修改请求窗口、输入计划、冷启动或产物来源时查阅。字段计算见 [指标](../results/metrics.md)，运行步骤见 [profiling 流程](../../.agents/skills/acprof-profiling-workflow/SKILL.md)。
 
-[文档导航](README.md)
+[文档导航](../README.md)
 
 ## 采集生命周期
 
@@ -12,13 +12,13 @@
 启用启动剪枝时，先执行独立 startup-OOM probe，再冻结正式矩阵计划并开始采集。
 每个正式 case 创建新容器；client 控制已有预热、冷却、无请求对照与 workload 窗口，
 监控停止后才计算派生值和写行。case 产物经抓包解析与校验后合并；图表及通知属于测量之外的操作。
-模块顺序见[主机编排](Architecture.md#主机编排与测量)，镜像与独立验证见[运行兼容](Runtime_Compatibility.md#构建复用和验证)。
+模块顺序见[主机编排](../development/architecture.md#主机编排与测量)，镜像与独立验证见[运行兼容](../models/runtime.md#构建复用和验证)。
 
 独立接口验证与 startup probe 可能预热宿主机文件缓存。冷启动描述全新容器的进程和模型初始化，
 不承诺磁盘冷缓存；`cold_start_first_predict_app_s` 不计入 `/ready` 前的分段和，也不新增推理请求。
 
 请求与采集器边界可通过开销诊断入口的 `--window-boundaries` 单独观察，字段与限制见
-[窗口置信区间与开销对照](Metrics.md#窗口置信区间与开销对照)。该诊断记录已有逻辑时间戳，
+[窗口置信区间与开销对照](../results/metrics.md#窗口置信区间与开销对照)。该诊断记录已有逻辑时间戳，
 在采集器全部收尾后保存独立文件；正式窗口默认不启用，不改写既有 CSV、能耗公式或历史产物。
 
 ### 容器清理与失败证据
@@ -134,7 +134,7 @@ PCAP 以 HTTP `request_in` 校验逐请求响应与完整 `X-Req-Id`，并检查
 `load.json` 保存独立 `run_id`、完整协议、源身份与新的 `identity_sha256`；连接、调度或并发不同
 即属于不同实验。失败和取消也保留报告；输出目录必须为空。该产物不生成正式能耗 CSV，
 不参与 `--resume`，也不接受作为正式窗口统计／跨实验比较的输入。字段定义见
-[负载报告](Metrics.md#非流式负载报告)。流式 token 指标需另行实现真实服务端事件。
+[负载报告](../results/metrics.md#非流式负载报告)。流式 token 指标需另行实现真实服务端事件。
 
 ### 硬件条件证据
 
@@ -214,7 +214,7 @@ Capability Report v3 增加相同的环境身份及 `metric_support`，measureme
 支持状态为 supported、partial、unsupported、requires_native_validation；它们不替代原来的实测状态。
 CSV 新增文本列 `environment_class`（experiment 范围、无数值单位），包括失败占位行。
 旧结果缺失、冲突身份读为 unknown，不由当前运行主机反推；CSV 合并、续跑和 Native baseline 拒绝混用。
-FULL/PARTIAL 是平台上限，不等于采集成功或 full/basic 模式。完整边界见 [WSL2](platforms/wsl2.md)。
+FULL/PARTIAL 是平台上限，不等于采集成功或 full/basic 模式。完整边界见 [WSL2](../platforms/wsl2.md)。
 
 ## Startup probe 与冻结矩阵
 
@@ -256,7 +256,7 @@ startup pruning schema v1、损坏或被改写的计划均明确拒绝恢复，�
 相同事实在窗口结束后合并，避免快速模型的重复 JSON 超过 CSV 单字段限制；不同输出数量保留分布，
 不把它们简单改写成计划上限。这是工作量计数，不保存请求时间顺序。
 比较时保留 variant 计数并比较归一化的联合分布，不能降为不含频率的集合；
-分布不同与窗口请求总数不同分别记录，详见[跨独立实验比较](Metrics.md#跨独立实验比较)。
+分布不同与窗口请求总数不同分别记录，详见[跨独立实验比较](../results/metrics.md#跨独立实验比较)。
 未知事实为 JSON `null` 并保留可用性说明，旧 CSV 缺此扩展列继续可读，不补造历史 workload。
 
 输入计划是 planned，原请求上限是 requested，Handler 观测的张量尺寸、token 数与输出数量是
@@ -500,7 +500,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `quantization_config` | Hub model config 中的完整量化配置；没有时为空 object。 |
 | `model_license` | Hugging Face model card 许可证，例如 `apache-2.0`、`mit`；无法确认时为 `null`。 |
 | `model_metadata_source` | 参数量、参数 payload、精度、量化和许可证的元数据来源，当前在线 Hub 检测成功时为 `huggingface_hub`。 |
-| `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](Runtime_Compatibility.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`ambiguous/needs_configuration` 在镜像准备前拒绝。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
+| `model_resolution` | 可选的接口解析 object（内部 schema v1）：任务、backend、library、制品格式、loader、operation、model type、固定 revision、元数据文件和 runtime profile。包含 `candidates/evidence`、`conflicts/missing`、`selection`、`interface_kind`、`pipeline_task`、`code_files/code_revision`、有效 `model_spec`；自动解析追加独立 `contract` provenance 和仅在无缺口时生成的 `generated_spec`。依赖固定、用户审阅、接口检查和真实运行的观察分别记录；`contract.runtime_validation` 从 `not_run` 变为包含 mode、image ID、payload／报告 hash 与设备结果的 object，详见[契约生成](../models/runtime.md#自动生成模型契约m1m6)。`candidate` 不是执行成功；`ambiguous/needs_configuration` 在镜像准备前拒绝。历史 v7 缺失字段按未知处理，不推算。无数值单位或测量窗口，不增加 CSV 列。 |
 | `task_family` | 任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `pipeline_tag` | Hugging Face pipeline tag，例如 `fill-mask`、`image-classification`。 |
 | `runtime_backend` | 容器内使用的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`。 |
@@ -652,7 +652,7 @@ quality 数据不进入 capability evidence；普通 warning 不改变 `full_pro
 typed `failure` 包含 `stage`、`reason_code`、`detail`、`device`、`runtime_profile`、
 `retryability`、`evidence`、`exception_type`。`reason_code` 包括 task、dependency、precision、
 contract、artifact、processor、access、initialization、inference 与 timeout/resource 原因；
-稳定代码定义在 [`failures.py`](../acprof/failures.py)。原始异常链和日志用于诊断，不作为报告分类输入。
+稳定代码定义在 [`failures.py`](../../acprof/failures.py)。原始异常链和日志用于诊断，不作为报告分类输入。
 CLI 使用 `ACPROF_FAILURE=` JSON 记录，TUI 按该结构展示；HTTP 错误响应携带同一 failure，
 client 在请求及 monitor 结束后写入 case sidecar，资源矩阵退出时汇总为根目录 `runtime_failures.json`。
 非零 client 退出优先保留结构化原因；恢复运行时，旧 case 失败随该次尝试归档，根侧车只反映当前 case 证据。
@@ -704,7 +704,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 | `timing.request_timeout_s` | 默认无限等待时为 `null`；显式设置 `--timeout-seconds` 时为对应秒数。旧 schema v2 始终记录有限值。 |
 
 探测不会写入或修改 case 中间 CSV、`result_layers.json`、`static_meta.json` 或
-`collection_history.json`，结果不包含 idle、能耗或网络测量。用法见[最大输入探测](Getting_Started.md#先探测最大输入)。
+`collection_history.json`，结果不包含 idle、能耗或网络测量。用法见[最大输入探测](../usage/experiments.md#先探测最大输入)。
 
 ## 冷启动
 

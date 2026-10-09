@@ -3,7 +3,7 @@
 普通用户推荐 `uv tool install acprof`，也支持虚拟环境内的 `uv pip install acprof` / `pip install acprof`，
 以及 Linux x86_64 standalone；源码安装用于开发。所有方式通过 `acprof <command>` 执行相同的主机代码；
 Docker Engine、cgroup v2、GPU driver 和采集工具仍由主机提供。
-安装与首次运行见[安装指南](Getting_Started.md)，环境检查参数见 [doctor](CLI_Reference.md#acprof-doctor)。
+安装与首次运行见[安装指南](../getting_started/installation.md)，环境检查参数见 [doctor](../usage/cli.md#acprof-doctor)。
 
 分发包的 `License-Expression` 为 `Apache-2.0 AND CC-BY-4.0`：项目代码采用 Apache-2.0，
 内置 LibriSpeech 音频采用 CC-BY-4.0。`LICENSE`、`NOTICE` 和 `licenses/CC-BY-4.0.txt`
@@ -32,9 +32,9 @@ runtime profile 的严格版本锁独立维护。
 
 ## Python 工具安装
 
-安装、升级与固定版本命令集中在[安装指南](Getting_Started.md#安装)。distribution name 为 `acprof`，
-console script 为 `acprof = "acprof.cli.main:main"`。`acprof` 默认打开 TUI，也可明确运行
-`acprof doctor`、`acprof tui` 或 `acprof run ...`；全部子命令见 [CLI 参数](CLI_Reference.md#cli-参数)。
+安装、升级与固定版本命令集中在[安装指南](../getting_started/installation.md#安装)。distribution name 为 `acprof`，
+console script 为 `acprof = "acprof.cli.main:main"`。`acprof` 不带子命令只显示帮助；启动 TUI 使用 acprof tui。也可运行
+`acprof doctor`、`acprof tui` 或 `acprof run ...`；全部子命令见 [CLI 参数](../usage/cli.md#cli-参数)。
 安装后的运行不依赖 Git、源码 checkout、`tests/` 或 `docs/`。
 
 开发者可以安装本地 wheel：`uv tool install ./dist/acprof-<version>-py3-none-any.whl`，
@@ -44,7 +44,30 @@ Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境�
 
 ## 从源码安装（开发者）
 
-日常开发按[开发安装](Getting_Started.md#开发安装)创建 `.venv` 并 editable 安装。
+日常开发按下方说明创建 `.venv` 并 editable 安装。
+### 本地开发环境
+
+开发或构建未发布版本才需要 Git clone。使用已有 `.venv` 时跳过创建环境：
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+source .venv/bin/activate
+acprof --version
+```
+
+主机兼容区间由 `pyproject.toml` 声明，已验证版本由 `requirements/host.in` 及带哈希的
+`requirements/host.lock` 管理；开发锁包含统一测试依赖，TUI 快照复用同一项目环境，见[辅助开发工具](testing.md#辅助开发工具)。
+这里沿用 `uv pip` 安装现有锁，
+不引入与 requirements 重复维护的 `uv.lock` / `uv sync` 路径。
+开发检查和 Git hooks 见[测试指南](testing.md#开发质量检查)。
+需要隔离工具安装当前 checkout 时可运行 `uv tool install .`，或使用
+[`setup.sh`](distribution.md#clone-后初始化) 完成安装和主机诊断。
+容器锁的只读检查为 `python scripts/compile_locks.py --check`；构建发行包运行 `uv build`。
+
 下方脚本是把当前 checkout 安装成隔离工具的可选辅助入口。
 
 ### Clone 后初始化
@@ -105,7 +128,7 @@ wheel 内置 Dockerfile、平台/环境锁、扩展声明、音频素材及构�
 `.dockerignore`、`LICENSE`、`NOTICE`、`licenses/CC-BY-4.0.txt` 一并复制，通过
 `build_data["force_include"]` 写入 wheel 的 `acprof/_bundle`；构建结束清理临时目录。
 模型权重由主机按固定 revision 下载到 Model Store，Docker 模型层只保存清单，运行时只读挂载权重。
-令牌仅用于主机认证与下载，具体边界见[下载网络与 Model Store](Runtime_Compatibility.md#下载网络与-model-store)。
+令牌仅用于主机认证与下载，具体边界见[下载网络与 Model Store](../models/runtime.md#下载网络与-model-store)。
 
 离线 report 的 HTML/CSS/JavaScript 和 Plotly.js MIT 许可随 `acprof.plotting` 打包；
 standalone 同时收集 Plotly 的 bundle 数据。报告生成时内嵌资源，不从 CDN 下载。
@@ -139,7 +162,7 @@ service context 指纹。editable 的安装路径应回到 checkout，且不生�
 
 ## Linux standalone
 
-[`release.yml`](../.github/workflows/release.yml) 在 Ubuntu 22.04、Python 3.10 上构建
+[`release.yml`](../../.github/workflows/release.yml) 在 Ubuntu 22.04、Python 3.10 上构建
 `acprof-linux-x86_64`，目标为 glibc 2.35+ 的原生 Linux x86_64。
 它包含 Python 解释器、主机依赖和构建资源；目标机无需先安装 Python 或 uv。
 Docker、RAPL、perf、抓包及 NVIDIA 的要求仍按所选模式检查。
@@ -235,7 +258,7 @@ PyPI 版本发布后不可用另一份代码覆盖。上传失败时先检查 Py
 `v0.4.0` Tag、GitHub Release `v0.4.0` 和 PyPI `acprof 0.4.0` 一一对应。
 PyPI 项目描述来自同一制品的 README，metadata 的 Changelog 链接指向 GitHub Releases，发布说明在该版本 Release 维护。
 实验 `static_meta.json` 中的 `platform_runtime.acprof_version` 保存执行包版本，源码开发态另外保留
-`git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](Profiling_Protocol.md#环境身份与能力支持)。
+`git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](../profiling/protocol.md#环境身份与能力支持)。
 
 Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据范围。硬件报告仅关联同一 SHA
 上成功的 `hardware.yml` run，且 `hardware` artifact 尚未过期；否则明确标为 `not_verified`。
@@ -245,14 +268,14 @@ Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据�
 
 工作流文件存在不代表远端资产已发布。GitHub Release 需要 `contents: write`，PyPI 需要上述
 Trusted Publisher 配置。GHCR 使用独立的 `runtime-images.yml` 和 `packages: write`：版本 Tag 自动发布，
-手动运行该 GHCR workflow 也会发布镜像。[发布工作流](../.github/workflows/runtime-images.yml)
+手动运行该 GHCR workflow 也会发布镜像。[发布工作流](../../.github/workflows/runtime-images.yml)
 通过 `scripts/publish_runtime_images.py --matrix` 从当前 runtime 声明生成平台与环境矩阵，
 先构建/核验平台，再发布依赖环境；平台与环境清单以该命令的实际输出为准。
 GHCR package 首次发布后，维护者需在 package 设置中
 确认 public 可见性，匿名用户才能直接拉取；私有 package 需要先 `docker login ghcr.io`。
 
 GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或包含令牌的层。
-拉取策略、内容身份和失败回退见[预构建依赖镜像](Runtime_Compatibility.md#ghcr-预构建依赖镜像)。
+拉取策略、内容身份和失败回退见[预构建依赖镜像](../models/runtime.md#ghcr-预构建依赖镜像)。
 发布脚本的 `--report` 保存 image ID、内容 tag 和清单核验范围；依赖核验不代表 GPU 推理已经通过。
 
 ## 参考实现与取舍

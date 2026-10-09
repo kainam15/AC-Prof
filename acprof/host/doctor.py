@@ -86,7 +86,7 @@ def _packet(sniff_iface: str) -> str:
     if not (Path("/sys/class/net") / sniff_iface).exists():
         raise RuntimeError(f"网卡不存在：{sniff_iface}")
     if not _tcpdump_can_capture_without_sudo(str(shutil.which("tcpdump"))):
-        raise RuntimeError(f"tcpdump 缺少 {TCPDUMP_CAPTURE_CAPABILITY}；见 docs/Getting_Started.md#最小权限安装")
+        raise RuntimeError(f"tcpdump 缺少 {TCPDUMP_CAPTURE_CAPABILITY}；见 docs/getting_started/installation.md#最小权限安装")
     _command(["tshark", "--version"])
     return f"tcpdump/tshark、capture capabilities 和 {sniff_iface} 可用；未实际抓包"
 

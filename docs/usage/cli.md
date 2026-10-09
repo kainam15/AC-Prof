@@ -1,14 +1,14 @@
 # 命令行、输入清单与界面设置
 
-查 CLI 参数、workload 清单或 TUI 持久化契约时查阅。交互操作见 [TUI 用户指南](TUI.md)，运行示例见[安装与运行](Getting_Started.md)，实现依据为当前入口的 `--help`。文中的命令从仓库根目录执行。
+查 CLI 参数、workload 清单或 TUI 持久化契约时查阅。交互操作见 [TUI 用户指南](tui.md)，运行示例见[安装与运行](../getting_started/installation.md)，实现依据为当前入口的 `--help`。文中的命令从仓库根目录执行。
 
-[文档导航](README.md)
+[文档导航](../README.md)
 
 ## 主机环境与 Hugging Face 认证
 
 CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的优先级为
 **进程环境 > `.env.local` > `.env`**。文件中的值不执行 shell 命令或变量展开。
-凭据保存方式见[认证配置](Getting_Started.md#hugging-face-认证)。
+凭据保存方式见[认证配置](../getting_started/installation.md#hugging-face-认证)。
 
 读取完成后，Hugging Face 初始化按去除首尾空白后的非空值选择配置：
 
@@ -51,7 +51,7 @@ ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需�
 显式保存同步更新当前 TUI 进程及后续子进程的受支持配置，并同步认证别名；已有代理环境不修改。
 重启后仍按上述进程环境优先级加载。清空 Webhook 会写入空值，屏蔽旧文件中的同名值。
 关闭窗口不保存；凭据不写入 `tui.json`、命令预览或日志。保存和权限检查不发送通知。
-采集权限的系统授权单独操作，见[最小权限安装](Getting_Started.md#最小权限安装)。
+采集权限的系统授权单独操作，见[最小权限安装](../getting_started/installation.md#最小权限安装)。
 
 `acprof tui --model <ID> --preset smoke --output-dir <目录>` 可覆盖本次初始表单。
 显式 preset 优先于已保存的实验默认参数，显式输出目录再覆盖 preset 的目录；未传入的 model
@@ -59,7 +59,7 @@ ModelScope branch/tag 通过轻量 `git ls-remote` 固定为仓库 commit（需�
 smoke 为 basic CPU 单次请求配置；`main` 和 `default` 保持 full。
 
 `acprof/tui/settings.py` 管理项目隔离的 `tui.json`，当前版本为 v4；
-路径与操作方式见 [TUI 设置文件](TUI.md#设置文件)。
+路径与操作方式见 [TUI 设置文件](tui.md#设置文件)。
 `ui.language` 是字符串，仅接受 `zh`（简体中文，默认）和 `en`（English），不使用系统 locale 自动推断。
 只读取 version 4 设置；缺少版本、v1/v2/v3 文件或仍包含已删除的 `allow_cgroup_v1` 字段时直接报错，原文件保持不变。归档旧设置后可重新配置。
 未知语言值或错误类型遵循现有校验规则：提示、使用默认设置，并保留原文件，直到用户主动保存。
@@ -91,7 +91,7 @@ TUI 默认使用 `--color-system truecolor`，直接输出主题中的 RGB 颜�
 全部主题均使用明确颜色，控件不依赖终端可重定义的 ANSI 基础色；原有主题选择及保存格式不变。
 主题控制背景与层次，操作颜色保持固定语义：青色为选择和主要操作、白色为普通操作、黄色为可恢复的风险操作、
 红色为删除或终止、灰色为禁用、绿色为成功或 Ready。浅色主题使用深色普通文字和较深的同色系颜色；
-悬停、聚焦及确认弹窗沿用操作原有的颜色。页面布局与操作位置见 [TUI 说明](TUI.md#启动和页面)。
+悬停、聚焦及确认弹窗沿用操作原有的颜色。页面布局与操作位置见 [TUI 说明](tui.md#启动和页面)。
 
 Windows Terminal、VS Code 集成终端等支持真彩色的客户端，通过 SSH 运行时即使缺少
 `COLORTERM`，默认模式也保留 RGB 输出。颜色模式仅作用于 TUI 渲染器，不修改 shell 配置、
@@ -166,8 +166,8 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 `available` 不等于真实 workload 的 `verified`。低磁盘余量为提示，不自动删除镜像。
 `doctor` 不检测所有模型的联网和容量需求，`run` 仍在正式采集前执行权威 preflight。
 
-以下参数表对应 `acprof run`。示例命令见[运行指南](Getting_Started.md#运行正式实验)，
-默认值与实际选项以当前入口的 `--help` 和 [acprof/config.py](../acprof/config.py) 为准。
+以下参数表对应 `acprof run`。示例命令见[运行指南](experiments.md#运行正式实验)，
+默认值与实际选项以当前入口的 `--help` 和 [acprof/config.py](../../acprof/config.py) 为准。
 
 [acprof run](#acprof-run) · [acprof probe](#acprof-probe) · [acprof profile](#acprof-profile) · [其他入口](#其他入口) · [输入规模与音频清单](#输入规模与音频清单)
 
@@ -175,7 +175,7 @@ vendor 模式的 CPU Advisor 同样适用。阶段状态区分成功、部分失
 
 `acprof inspect MODEL` 只进行静态解析；`--explain` 显示固定 revision、字段来源和未决项。
 `--output-dir DIR` 导出 `model_resolution.json`。静态缺口退出 2，保留 draft；模型访问或网络错误退出 1，
-分类见[共享接口解析](Runtime_Compatibility.md#共享接口解析)。
+分类见[共享接口解析](../models/runtime.md#共享接口解析)。
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
@@ -196,7 +196,7 @@ acprof inspect MODEL --probe-interface --output-dir results/inspection/model-int
 目录不能复用；写入 `interface_validation.json` 和 `logs/interface_validation.log`，不生成正式 CSV。
 源码图缺失直接失败，禁止整仓下载回退。容器使用断网、只读文件系统和只读源码挂载。
 旧 `--probe basic/full`、`--gpus`、`--skip-build` 不再用于 inspect；完整运行验证由采集流程自动执行，
-批量独立验证可用 `coverage run --validate-runtime`。接口与运行证据边界见[运行兼容](Runtime_Compatibility.md#自动生成模型契约m1m6)。
+批量独立验证可用 `coverage run --validate-runtime`。接口与运行证据边界见[运行兼容](../models/runtime.md#自动生成模型契约m1m6)。
 
 ### `acprof auto`
 
@@ -288,7 +288,7 @@ selected artifact size 包括显式模型依赖；参数量不是峰值 RAM/VRAM
 `--timeout-seconds 600 --resume --retry-reason request_timeout`。每个选中模型在本次调用中只执行
 一次 probe，不自动无限重试。
 timeout 展示为 `inconclusive`，与 `inference_failed` 分开；详细定义见
-[质量与失败产物](Profiling_Protocol.md#质量与失败产物)。
+[质量与失败产物](../profiling/protocol.md#质量与失败产物)。
 
 新的 `coverage.json` 使用 schema v2；manifest 仍为 schema v1。`--resume` 核对原始
 `sample.json` 与传入 manifest 的完整摘要、各模型 source/revision、probe 模式、设备（GPU 使用物理 UUID）、
@@ -334,8 +334,8 @@ attempt 恢复已完成模型，进行中的模型使用新目录重新验证。
 | `--task` | auto | 覆盖 `pipeline_tag`，例如 `fill-mask`、`text-generation`。 |
 | `--task-family` | auto | 覆盖任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `--backend` | auto | 覆盖声明清单中的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`、`onnxruntime`。 |
-| `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](Runtime_Compatibility.md#本地模型声明与自定义-pipeline)。 |
-| `--profiling-mode` | `full` | `full` 保留 Native Linux 的 RAPL、perf 和 packet latency 必需条件；`basic` 要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包，允许 WSL2 PARTIAL。两者均要求本机 Docker 和 cgroup v2；不自动降级，见 [WSL2](platforms/wsl2.md)。 |
+| `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](../models/runtime.md#本地模型声明与自定义-pipeline)。 |
+| `--profiling-mode` | `full` | `full` 保留 Native Linux 的 RAPL、perf 和 packet latency 必需条件；`basic` 要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包，允许 WSL2 PARTIAL。两者均要求本机 Docker 和 cgroup v2；不自动降级，见 [WSL2](../platforms/wsl2.md)。 |
 | `--cpus` | `1,2,4,8` | CPU core 限制列表。 |
 | `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
 | `--mems` | `2,4,8,16` | Memory cap GB 列表。 |
@@ -497,7 +497,7 @@ acprof run --model openai/whisper-large-v3 \
 
 当前音频 request 只实现 `batch_size=1` 和 `short_form`。清单会拒绝非空的 `chunk_length_s` / `stride_length_s`；长音频 sequential/chunked 应使用独立 workload，不能通过把本清单尺度直接扩展到 30 秒以上来混测。
 
-视觉、多模态与图像条件生成也接受 `--workload-spec`，清单和支持边界见 [README 视觉任务](Runtime_Compatibility.md#视觉任务) 与 [多模态任务](Runtime_Compatibility.md#多模态任务)。输入计划沿用 schema v2，新增信息写在扩展的 `workload`、`input_metadata` 和 `payload` object 内；CSV 未增加列，当前 schema 的可选字段允许缺失。`workload` 保存素材路径／SHA256、清单 SHA256、提示词、参数、尺度单位和固定条件；实际序列化 payload 及计划 SHA256 是重放依据。
+视觉、多模态与图像条件生成也接受 `--workload-spec`，清单和支持边界见 [README 视觉任务](../models/runtime.md#视觉任务) 与 [多模态任务](../models/runtime.md#多模态任务)。输入计划沿用 schema v2，新增信息写在扩展的 `workload`、`input_metadata` 和 `payload` object 内；CSV 未增加列，当前 schema 的可选字段允许缺失。`workload` 保存素材路径／SHA256、清单 SHA256、提示词、参数、尺度单位和固定条件；实际序列化 payload 及计划 SHA256 是重放依据。
 
 CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数及每帧 SHA256 单独记录在 `input_metadata`。零样本标签、VitPose 的人物框和参数也随 payload 重放，不增加隐藏的人物检测请求。CV 响应按任务区分 classification、detection、caption、depth、segmentation、masks、features、keypoints；大张量／掩码／深度图只返回摘要。未产生文本的任务不填写输出 token 数，相关 CSV 指标保持 `NaN`。
 
@@ -526,12 +526,12 @@ CV 每请求一个图片／视频样本，`input_num_samples=1`；视频帧数�
 | `--timeout-seconds` | 不设超时 | 单次探测请求的等待上限；显式值必须有限且大于 0。 |
 
 `acprof probe` 不接收 `acprof run` 的 `--request-timeout-seconds`、warmup/repeat、能耗采样或 profiler 参数。
-详细用法见[先探测最大输入](Getting_Started.md#先探测最大输入)。
+详细用法见[先探测最大输入](experiments.md#先探测最大输入)。
 
 ### `acprof profile`
 
 位置参数 `result_dir` 是已完成的模型结果目录。操作和恢复规则见
-[补采说明](Profilers.md#补采已有结果)。
+[补采说明](../profiling/profilers.md#补采已有结果)。
 
 TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），将勾选结果传给
 `--tools`；未勾选任何工具时不启动补采。工具适用范围、采样策略和指标口径与 CLI 相同。
@@ -555,26 +555,26 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 `acprof results verify <分层目录>` 校验正式结果的 SHA256、指标字段归属、行数和测量身份；
 `acprof results export <分层目录> <新文件.csv>` 按需重建完整宽表，不允许覆盖已有文件。
 新实验不会默认写出 `result_all.csv`；Posthoc 成功后仅更新发生变化的模块。旧宽表实验
-不再提供默认兼容或续跑。详见[分层结果 CSV](Metrics.md#分层结果-csv唯一正式结果)。
+不再提供默认兼容或续跑。详见[分层结果 CSV](../results/metrics.md#分层结果-csv唯一正式结果)。
 
 `acprof report <实验目录或 CSV> [更多输入 ...]` 生成 Comparison Matrix、Pareto 与 Scaling 的离线 HTML。
 `--output <新文件.html>` 指定输出，默认首个实验目录下 `report.html`，拒绝覆盖已有文件；
 `--baseline <config_id>` 预选配置，单配置 run 也可直接使用 run ID。无需 GUI 或 Web 服务，
-不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](Metrics.md#交互式配置比较报告)。
+不递归扫描输入目录中的备份，源 CSV 保持不变。详细语义见[交互式配置比较报告](../results/metrics.md#交互式配置比较报告)。
 
 `acprof plot` 接收结果 CSV 路径，`acprof tui` 可用 `--model` 预填模型、用 `--preset` 选择预设。
 `acprof audit <目录或 CSV>` 只读校验结果；`--json` 输出报告，`--require-complete --require-ok`
 用于验收新实验。`acprof stats <目录或 CSV>` 按测量窗口计算置信区间，支持重复 `--metric`、
 `--confidence`、`--resamples`、`--seed`、`--block-size`。可选 `--precision-target 0.05`
 按既有区间评估 5% 的相对半宽目标，输出 met/not_met/not_assessable；默认不评估，
-不改变原有统计字段或采集行为。定义与不可评估条件见[结果分析](Metrics.md#窗口置信区间与开销对照)。
+不改变原有统计字段或采集行为。定义与不可评估条件见[结果分析](../results/metrics.md#窗口置信区间与开销对照)。
 省略输出选项时向 stdout 输出报告 JSON。`--output FILE` 保存到指定新文件，禁止覆盖；
 `--output-dir DIR` 在指定目录中比较完整 JSON 内容，相同则复用已有文件，否则以本地日期时间
 `window-statistics-YYYYMMDD-HHMMSS-ffffff.json` 保存。两个输出选项互斥。
 目录模式向 stdout 输出一行 `ACPROF_STATS {"report_path": "绝对路径", "reused": false}`；复用时 `reused` 为 `true`。
 TUI“统计报告”页的“计算统计”使用目录模式和默认统计参数，报告位于 v2 结果目录的 `plots/analysis/`（旧目录为 `analysis/`），复用时提示已有报告并显示其内容。
 `/stats [csv/dir]` 与按钮等价；`/report [json]` 或“查看报告”读取已有窗口统计、监测开销或 CLI/TUI 对照报告。
-这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](TUI.md#统计报告)。
+这些操作需要 TUI 空闲；开销实验仍通过独立脚本显式运行。报告展示与路径带入方式见 [TUI 说明](tui.md#统计报告)。
 `/images` 打开“镜像管理”页并自动读取数据，空闲时每轮读取完成后 5 秒更新；离开页面或运行任务时暂停。
 默认视图为镜像树，可切换到镜像列表或层共享。
 树中 `←/→` 折叠/展开、空格勾选；列表表头点击排序，再次点击反向。筛选支持模型、逻辑环境名、标签、ID 和平台。
@@ -583,7 +583,7 @@ TUI“统计报告”页的“计算统计”使用目录模式和默认统计�
 视图、筛选、排序、折叠、勾选与手动调整的详情高度只在本次会话保留，不写入设置文件；自动刷新保留仍有效的勾选和浏览位置。
 详情高度通过列表下方的分隔条调整；窗口缩小时限制显示高度，放大后恢复手动值，`Home` 恢复默认高度。
 镜像消失、标签变化或新增容器引用时取消对应勾选，Docker 环境变化时清空勾选。
-关系证据和空间口径见[镜像管理与清理](Runtime_Compatibility.md#镜像管理与清理)。
+关系证据和空间口径见[镜像管理与清理](../models/runtime.md#镜像管理与清理)。
 各入口的完整帮助可直接运行：
 
 ```bash
@@ -599,11 +599,11 @@ acprof tui --help
 ### 独立比较与负载
 
 `acprof compare --left <实验> --right <实验>` 支持重复指定两侧独立实验，输出差值、比值和跨实验区间；
-参数与统计假设见[跨独立实验比较](Metrics.md#跨独立实验比较)。
+参数与统计假设见[跨独立实验比较](../results/metrics.md#跨独立实验比较)。
 `--purpose` 支持 `same-hardware`、`cross-hardware`、`resource-scaling`；组内重复始终按相同硬件核验。
 `audit --compare` 和 `report` 使用同名取值的 `--comparison-purpose`；HTML 可在生成后切换用途。
-资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](Metrics.md#跨独立实验比较)。
+资源扩容只放开 CPU/内存配额，双方资源坐标和仍需匹配的条件见[比较规则](../results/metrics.md#跨独立实验比较)。
 TUI“统计报告 → 独立实验比较”复用同一入口，可选择左右组、基线和比较用途，或直接读取 CLI 输出的 JSON。
 `acprof load <源实验> --gpu off --scenario concurrent --concurrency 4 --output-dir <新目录>`
 执行独立 HTTP 负载；到达率使用 `--scenario arrival-rate --rate 10 --arrival poisson`。
-协议、连接复用前提和失败口径见[独立非流式负载](Profiling_Protocol.md#独立非流式负载)。
+协议、连接复用前提和失败口径见[独立非流式负载](../profiling/protocol.md#独立非流式负载)。

@@ -43,7 +43,7 @@ acprof = "acprof.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/kainam15/AC-Prof"
-Documentation = "https://github.com/kainam15/AC-Prof/blob/main/docs/Getting_Started.md"
+Documentation = "https://github.com/kainam15/AC-Prof/blob/main/docs/README.md"
 Repository = "https://github.com/kainam15/AC-Prof"
 Issues = "https://github.com/kainam15/AC-Prof/issues"
 Changelog = "https://github.com/kainam15/AC-Prof/releases"

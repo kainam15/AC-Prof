@@ -33,7 +33,7 @@ GPU utilization 不支持时，GPU memory 可以独立成功；真实数值 `0` 
 ## 开发、运行与测试
 
 在 WSL 的 Linux 文件系统中维护独立 `.venv`，不要复用 Windows 的 `.venv/Scripts/python.exe`。
-使用项目已有 Python 3.10+ 安装与依赖流程，参见[安装说明](../Getting_Started.md)。
+使用项目已有 Python 3.10+ 安装与依赖流程，参见[安装说明](../getting_started/installation.md)。
 第一阶段使用如下明确选择，不自动将用户请求的 full 改为 basic：
 
 ```bash
@@ -46,13 +46,13 @@ GPU 配置另需 Windows NVIDIA driver、WSL CUDA 支持及发行版内 NVIDIA C
 使用 `--gpus on` 后仍需完成真实容器推理验证。doctor 只检查前置条件，不会下载模型或运行采集。
 TUI 顶栏显示 `WSL2 / PARTIAL`；确认页列出计划采集、语义受限与缺失指标。
 
-测试统一使用 pytest，按[测试指南](../Testing.md)安装开发依赖；WSL 默认命令为：
+测试统一使用 pytest，按[测试指南](../development/testing.md)安装开发依赖；WSL 默认命令为：
 
 ```bash
 .venv/bin/python -m pytest -m "not native_linux"
 ```
 
-Native Linux 无需上述 WSL 平台筛选；具体测试范围按[验证范围](../Testing.md#验证范围)选择。
+Native Linux 无需上述 WSL 平台筛选；具体测试范围按[验证范围](../development/testing.md#验证范围)选择。
 平台与硬件相关 markers 包括 `unit`、`wsl`、`native_linux`、`hardware`。
 只对显式 `native_linux` / `wsl` 集成测试按环境 skip；普通单元测试和代码错误不因平台跳过。
 模拟 RAPL、cgroup、NVML 的测试仍应在 WSL 运行。`hardware` 本身不会触发笼统 skip；
