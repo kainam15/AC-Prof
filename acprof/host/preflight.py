@@ -352,7 +352,7 @@ def require_cpu_energy_prerequisites() -> Capability:
         "[cpu-energy][ERROR] CPU/vCPU energy profiling is required, but AC-Prof "
         "cannot read the Linux RAPL powercap counters needed for CPU package "
         "energy and estimated vCPU energy.\n\n"
-        f"Detected: status={result.status.value}, {result.detail}\n\n"
+        f"Detected: status={CapabilityStatus(result.status).value}, {result.detail}\n\n"
         "Common cause on Linux: /sys/class/powercap/intel-rapl:*/energy_uj "
         "exists but is only readable by root.\n\n"
         "Check current permissions:\n"

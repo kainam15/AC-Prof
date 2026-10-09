@@ -72,12 +72,12 @@ def describe_inventory(inventory: ImageInventory) -> ImageInventory:
             parent = parents[parent][0]
     ancestors = {}
     for key in indexed:
-        path = []
+        lineage: list[str] = []
         parent = parents[key][0]
         while parent in indexed:
-            path.append(parent)
+            lineage.append(parent)
             parent = parents[parent][0]
-        ancestors[key] = tuple(reversed(path))
+        ancestors[key] = tuple(reversed(lineage))
 
     refs: dict[str, set[str]] = {}
     sizes: dict[str, set[int]] = {}
@@ -100,13 +100,14 @@ def describe_inventory(inventory: ImageInventory) -> ImageInventory:
     images = []
     for item in inventory.images:
         parent_id, source = parents[item.image_id]
-        parent = indexed.get(parent_id)
-        inherited = parent.size_bytes if parent and parent.size_bytes <= item.size_bytes else None
+        parent_image = indexed.get(parent_id)
+        inherited = (parent_image.size_bytes if parent_image and parent_image.size_bytes <= item.size_bytes
+                     else None)
         shared, unique, space_source = item.shared_bytes, item.unique_bytes, item.space_source
         own_layers = [layer_index[chain] for chain in chains[item.image_id]]
         if item.layers and all(layer.size_bytes is not None for layer in own_layers):
-            shared = sum(layer.size_bytes for layer in own_layers if len(layer.image_ids) > 1)
-            unique = sum(layer.size_bytes for layer in own_layers if len(layer.image_ids) == 1)
+            shared = sum(layer.size_bytes for layer in own_layers if layer.size_bytes is not None and len(layer.image_ids) > 1)
+            unique = sum(layer.size_bytes for layer in own_layers if layer.size_bytes is not None and len(layer.image_ids) == 1)
             space_source = "layers"
         elif item.layers and all(len(layer.image_ids) > 1 for layer in own_layers):
             shared, unique, space_source = item.size_bytes, 0, "layers"
@@ -136,7 +137,7 @@ def reclaimable_image_bytes(inventory: ImageInventory, image_ids: tuple[str, ...
         return 0
     layers = [layer for layer in inventory.layers if set(layer.image_ids) <= selected]
     if all(item.layers for item in items) and all(layer.size_bytes is not None for layer in layers):
-        return sum(layer.size_bytes for layer in layers)
+        return sum(layer.size_bytes for layer in layers if layer.size_bytes is not None)
     if len(items) == 1:
         return items[0].unique_bytes
     return None

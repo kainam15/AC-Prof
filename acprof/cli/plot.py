@@ -37,7 +37,7 @@ def main(argv=None):
 
     scale_type = "input_scale"
     if static_meta.get("input_scale_type"):
-        scale_type = static_meta["input_scale_type"]
+        scale_type = str(static_meta["input_scale_type"])
     else:
         metadata_df = df if not df.empty else all_status_df
         types = (

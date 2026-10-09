@@ -76,7 +76,8 @@ def container_startup_exit_error(
         return None
 
     try:
-        exit_code = int(state.get("ExitCode"))
+        raw_exit_code = state.get("ExitCode")
+        exit_code = int(raw_exit_code) if raw_exit_code is not None else -1
     except (TypeError, ValueError):
         exit_code = -1
     docker_error = str(state.get("Error") or "").strip()
@@ -109,7 +110,8 @@ def container_runtime_oom_error(
 
     status = str(state.get("Status") or "").strip().lower()
     try:
-        container_exit_code = int(state.get("ExitCode"))
+        raw_exit_code = state.get("ExitCode")
+        container_exit_code = int(raw_exit_code) if raw_exit_code is not None else -1
     except (TypeError, ValueError):
         container_exit_code = -1
     docker_error = str(state.get("Error") or "").strip()

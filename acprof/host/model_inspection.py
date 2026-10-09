@@ -4,10 +4,13 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 from acprof.artifacts import atomic_write_json
 from acprof.model_contract import write_model_resolution
+
+if TYPE_CHECKING:
+    from acprof.host.runtime_validation import RuntimeValidationReport
 
 
 class ProbePreparationError(RuntimeError):
@@ -59,8 +62,8 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
 
 def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
                            memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
-                           reuse_existing: bool = False) -> dict:
-    from acprof.host.input_plan import _get_task_generator, resolve_input_scales
+                           reuse_existing: bool = False) -> RuntimeValidationReport:
+    from acprof.host.input_plan import PlannedInputScales, _get_task_generator, resolve_input_scales
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     from acprof.host.runtime_images import prepare_image
@@ -97,6 +100,8 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
         plan = root / "runtime_validation_input.json"
         atomic_write_json(plan, {"schema_version": 2, "scope": "runtime_validation_only",
                                 "entries": [{"input_scale": scale, "payload": payload}]})
-        return validate_runtime(task_info=task_info, image_info=image, planned=SimpleNamespace(plan_file=str(plan)),
+        return validate_runtime(task_info=task_info, image_info=image,
+                                 planned=PlannedInputScales(scales=[float(scale)], source="runtime_validation",
+                                                            plan_file=str(plan)),
                                 cpu_list=[cpus], mem_list=[memory_gb], gpu_list=["on" if gpu else "off"],
                                 output_dir=str(root), timeout_seconds=timeout_seconds)

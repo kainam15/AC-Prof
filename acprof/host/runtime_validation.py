@@ -296,5 +296,7 @@ def validate_runtime(
     if cleanup_failure is not None:
         raise cleanup_failure
     if failure:
+        if structured_failure is None:
+            raise RuntimeError("runtime validation reported a failure without structured evidence")
         raise RuntimeValidationError(structured_failure)
     return report

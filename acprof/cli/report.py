@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 
 from acprof.analysis.conditions import PURPOSES
@@ -22,7 +22,7 @@ def main(argv=None):
     try:
         from acprof.analysis.model import load_analysis
         from acprof.plotting.report import write_report
-        guard = nullcontext()
+        guard: AbstractContextManager = nullcontext()
         if os.name == "posix":
             from acprof.host.run_state import MeasurementLock
             guard = MeasurementLock()

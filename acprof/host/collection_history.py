@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import os
+from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from acprof.artifacts import atomic_write_json
@@ -72,4 +73,4 @@ def write_collection_history_json(
 ) -> None:
     """Validate and atomically write ``collection_history.json``."""
     normalized = normalize_collection_history(payload)
-    atomic_write_json(output_path, normalized)
+    atomic_write_json(Path(output_path), normalized)

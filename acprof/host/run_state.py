@@ -12,6 +12,7 @@ import stat
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
@@ -248,7 +249,7 @@ class ResultDirectoryLock:
     def __init__(self, directory: str | Path, *, new: bool = False):
         layout = ArtifactLayout.for_new_run(directory) if new else ArtifactLayout.discover(directory)
         self.path = layout.path(RESULT_LOCK_NAME)
-        self.stream = None
+        self.stream: TextIO | None = None
 
     def __enter__(self):
         import fcntl

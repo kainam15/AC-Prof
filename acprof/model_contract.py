@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from acprof.artifacts import atomic_write_json
 from acprof.model_evidence import ModelEvidence, pinned_revision
@@ -209,7 +209,7 @@ def write_model_resolution(task_info, output_dir: str | Path) -> Path:
     return path
 
 
-def record_runtime_validation(task_info, report: dict) -> None:
+def record_runtime_validation(task_info, report: Mapping[str, Any]) -> None:
     """Keep runtime facts scoped to the actual image, mode, payload and devices."""
     from acprof.model_evidence import content_digest
     mode = report["mode"]
