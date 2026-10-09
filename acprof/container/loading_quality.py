@@ -11,7 +11,7 @@ _LOCK = RLock()
 
 @contextmanager
 def capture_loading_quality(backend):
-    checks = []
+    checks: list[dict[str, object]] = []
     if backend not in {"transformers_model", "transformers_pipeline", "sentence_transformers", "cross_encoder", "chronos"}:
         yield checks
         return

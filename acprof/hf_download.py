@@ -17,10 +17,11 @@ from acprof.network_policy import require_source_transition
 
 def exception_chain(exc: BaseException):
     seen = set()
-    while exc is not None and id(exc) not in seen:
-        seen.add(id(exc))
-        yield exc
-        exc = exc.__cause__ or exc.__context__
+    cause: BaseException | None = exc
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        yield cause
+        cause = cause.__cause__ or cause.__context__
 
 
 def _model_failure(exc: BaseException) -> bool:
@@ -117,7 +118,7 @@ class HfDownloadError(OSError):
 def try_hf_endpoints(model_id: str, operation, *, endpoints: list[str] | None = None):
     """Try alternate Hub entries while preserving terminal model error types."""
     choices = endpoints or hf_endpoints()
-    attempts = []
+    attempts: list[dict[str, object]] = []
     for index, endpoint in enumerate(choices):
         if index:
             require_source_transition(choices[index - 1], endpoint)

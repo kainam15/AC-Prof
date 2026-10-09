@@ -169,7 +169,7 @@ def plan_download(
             else:
                 candidates = [transformer(prefix) for prefix in prefixes]
                 if candidates and all(item[0] for item in candidates):
-                    weights = [item[0] for item in candidates]
+                    weights = [checkpoint for checkpoint, _ in candidates if checkpoint is not None]
                     reason = "sentence_transformers_modules"
                 else:
                     reason = "unsupported_sentence_transformers_layout"
@@ -252,9 +252,9 @@ def plan_download(
             if artifact not in names:
                 raise ModelFilesError(f"missing structured model file: {artifact}")
         elif backend == "skops":
-            candidates = [name for name in names if "/" not in name and name.endswith(".skops")]
-            if len(candidates) == 1:
-                artifact = candidates[0]
+            skops_candidates = [name for name in names if "/" not in name and name.endswith(".skops")]
+            if len(skops_candidates) == 1:
+                artifact = skops_candidates[0]
         if artifact:
             selected = {artifact} | ({"acprof_model.json"} & names) | {
                 name for name in names if PurePosixPath(name).name.upper().startswith(("LICENSE", "NOTICE", "README"))

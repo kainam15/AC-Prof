@@ -105,7 +105,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
                                                     or not isinstance(item.get("role"), str)) for item in value
             ):
                 raise ValueError("dependency decisions require a bounded list of repo_id/role/required objects")
-            candidates = []
+            candidates: list[dict[str, object]] = []
             for item in value:
                 if not item.get("required", True):
                     continue

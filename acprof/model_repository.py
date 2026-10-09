@@ -99,6 +99,8 @@ def modelscope_revision(model_id: str, revision: str | None) -> str:
         raise ModelScopeRevisionError("ModelScope branch or tag does not exist")
     if result.returncode:
         raise ConnectionError("Cannot pin ModelScope revision; check network/Git authentication or supply a full commit SHA")
+    if commit is None:
+        raise ModelScopeRevisionError("ModelScope branch or tag does not exist")
     return commit
 
 

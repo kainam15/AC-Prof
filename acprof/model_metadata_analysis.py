@@ -47,7 +47,10 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
     for name, metadata in task_info.repository_metadata.items():
         if name != "config.json" and isinstance(metadata, dict):
             queue.extend(custom_code_files(metadata))
-    sources, trees, processed, total = {}, {}, set(), 0
+    sources: dict[str, str] = {}
+    trees: dict[str, ast.Module] = {}
+    processed: set[str] = set()
+    total = 0
 
     def load_source(filename: str) -> ast.Module:
         nonlocal total

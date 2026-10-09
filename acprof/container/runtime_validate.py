@@ -87,7 +87,8 @@ def validate(payload: dict, *, stages: list[dict] | None = None) -> dict:
 
 
 def main() -> int:
-    stages = []
+    stages: list[dict[str, Any]] = []
+    result: dict[str, Any]
     invalid_input = False
     try:
         with open(sys.argv[1], encoding="utf-8") as stream:
@@ -104,7 +105,7 @@ def main() -> int:
         traceback.print_exc()
         failed_stage = (stages[-1]["stage"] if stages and stages[-1]["status"] == "error"
                         else "input_or_execution_context")
-        result: dict[str, Any] = {
+        result = {
             "status": "error", "error": f"{type(exc).__name__}: {exc}",
             "failed_stage": failed_stage, "stages": stages,
         }

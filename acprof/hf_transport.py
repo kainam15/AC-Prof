@@ -112,7 +112,9 @@ def _response_hook(response):
         _EVENTS.append(event)
         _EVENT_COUNT += 1
         if response.status_code in {200, 206} and response.request.method == "GET" and "/api/" not in urlsplit(url).path:
-            _SOURCES.add(urlsplit(url).hostname)
+            hostname = urlsplit(url).hostname
+            if hostname is not None:
+                _SOURCES.add(hostname)
     # Validate even when the SDK consumes Location without following it yet.
     if location and response.status_code in {301, 302, 303, 307, 308}:
         target = urljoin(url, location)
@@ -213,7 +215,7 @@ def configure_hf_transport() -> None:
     from huggingface_hub import constants
     # Constants may have been imported before CLI/.env configuration.
     constants.HF_HUB_DISABLE_XET = True
-    constants.HF_HUB_ENABLE_HF_TRANSFER = False
+    setattr(constants, "HF_HUB_ENABLE_HF_TRANSFER", False)
     constants.HF_HUB_DISABLE_TELEMETRY = True
     with _LOCK:
         if _INSTALLED:

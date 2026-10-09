@@ -138,12 +138,13 @@ class MultimodalHandler(BaseHandler):
             class_name, config_key = selection
             model_kwargs["config"] = getattr(config, config_key) if config_key else config
         elif task_type == "visual-document-retrieval":
-            class_name = {"colpali": "ColPaliForRetrieval", "colqwen2": "ColQwen2ForRetrieval"}.get(model_type)
-            if class_name is None:
+            retrieval_class_name = {"colpali": "ColPaliForRetrieval", "colqwen2": "ColQwen2ForRetrieval"}.get(model_type)
+            if retrieval_class_name is None:
                 raise ValueError(
                     f"unsupported visual-document-retrieval architecture {model_type!r}; "
                     "expected colpali or colqwen2"
                 )
+            class_name = retrieval_class_name
             mode = "retrieval"
         else:
             class_name = "AutoModelForImageTextToText"
@@ -275,7 +276,7 @@ class MultimodalHandler(BaseHandler):
                     raise ValueError(f"{task} does not accept {key}")
         image = self._image(sample["image_base64"]) if "image_base64" in sample else None
         media_scales = {}
-        modality_facts = {"text": {"characters": len(text)}}
+        modality_facts: dict[str, dict[str, object]] = {"text": {"characters": len(text)}}
         if image is not None:
             if image.width != image.height:
                 raise ValueError("resolution_px requires a square image")
@@ -299,7 +300,8 @@ class MultimodalHandler(BaseHandler):
                 "_workload": {"input": modality_facts},
                 **self._scale_metadata(raw_input, media_scales),
             }
-        content, media_kwargs = [], {}
+        content: list[dict[str, str]] = []
+        media_kwargs: dict[str, object] = {}
         if image is not None:
             content.append({"type": "image"})
             media_kwargs["images"] = [image]
@@ -349,17 +351,17 @@ class MultimodalHandler(BaseHandler):
                                ("audio", ("input_features", "audio_values", "audio_features"))):
             if modality in modality_facts:
                 tensor = next((inputs[key] for key in keys if key in inputs), None)
-                modality_facts[modality]["processed_shape"] = list(tensor.shape) if hasattr(tensor, "shape") else None
+                modality_facts[modality]["processed_shape"] = list(tensor.shape) if tensor is not None and hasattr(tensor, "shape") else None
                 modality_facts[modality]["processed_shape_status"] = "available" if hasattr(tensor, "shape") else "unavailable"
         inputs = _to_device(inputs, model)
         if "input_ids" not in inputs:
             raise ValueError("multimodal processor did not return input_ids")
-        for modality, present, keys in (
+        for modality, present, expected_keys in (
             ("image", image is not None, {"pixel_values", "image_pixel_values", "images"}),
             ("audio", "audio_base64" in sample, {"input_features", "audio_values", "audio_features"}),
             ("video", "video_frames_base64" in sample, {"pixel_values_videos", "video_pixel_values", "video_values", "pixel_values"}),
         ):
-            if present and not keys.intersection(inputs):
+            if present and not expected_keys.intersection(inputs):
                 raise ValueError(f"processor discarded the requested {modality} modality")
         if "audio_base64" in sample and not any(
             hasattr(inputs.get(key), "shape") and math.prod(inputs[key].shape) > 0
