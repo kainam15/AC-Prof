@@ -56,6 +56,8 @@ class ManagedImage:
     system_dependencies: tuple[tuple[str, str], ...] = ()
     dependency_source: str = "unknown"
     dependency_stage: str = ""
+    dependency_scope: str = "delta"
+    dependency_note: str = ""
     repo_digests: tuple[str, ...] = ()
 
     @property
