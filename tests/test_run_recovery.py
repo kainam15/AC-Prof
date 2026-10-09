@@ -1,4 +1,3 @@
-import csv
 import json
 import os
 from functools import partial
@@ -55,7 +54,7 @@ class TestRunRecovery(RunRecoveryFixture):
             return str(path)
         self.invoke(case=with_samples)
         assert ({p.name for p in self.directory.iterdir() if p.is_file()}) == (
-            {"result_all.csv", "static_meta.json", "capability_report.json",
+            {"static_meta.json", "capability_report.json",
              "result_manifest.json", "quality_checks.json", "result_layers.json",
              "summary.csv", "performance.csv", "resources.csv", "energy.csv", "network.csv"})
         from acprof.result_layers import read_result_layers
@@ -133,8 +132,9 @@ class TestRunRecovery(RunRecoveryFixture):
         self.invoke("--resume")
         assert (self.calls) == ([2])
         assert ((self.directory / "static_meta.json").read_bytes()) == (original_meta)
-        with (self.directory / "result_all.csv").open() as stream:
-            assert ([row["cpu_cores"] for row in csv.DictReader(stream)]) == (["1", "2"])
+        from acprof.result_csv import read_result_csv
+        _, rows = read_result_csv(self.directory / "result_layers.json")
+        assert [row["cpu_cores"] for row in rows] == ["1", "2"]
         assert (list((self.directory / ".acprof/recovery/interrupted_cases").rglob("*.csv")))
         archived_samples = list((self.directory / ".acprof/recovery/interrupted_cases").rglob("requests.jsonl"))
         assert (len(archived_samples)) == (1)
@@ -166,7 +166,7 @@ class TestRunRecovery(RunRecoveryFixture):
 
     def test_completed_resume_does_not_repeat_measurements_or_rewrite_result(self):
         self.invoke()
-        result = self.directory / "result_all.csv"
+        result = self.directory / "result_layers.json"
         before = result.read_bytes(), result.stat().st_mtime_ns
         self.calls.clear()
         self.invoke("--resume")

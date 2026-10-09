@@ -984,18 +984,13 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     if csv_paths:
         final_csv = str(layout.result_csv)
         merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
-        with open(final_csv, newline="", encoding="utf-8") as stream:
-            collected_rows = list(csv.DictReader(stream))
+        from acprof.result_csv import read_result_csv
+        _, collected_rows = read_result_csv(final_csv)
         apply_collection_result(capability_report, collected_rows)
         from acprof.artifacts import atomic_write_json
         # static_meta is the immutable pre-matrix snapshot used by resume.
         # Publish final measurement evidence in its dedicated sidecar.
         atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
-        # Publish independently joinable metric modules outside the measurement window,
-        # even if required measurements are missing and the profile must fail.
-        # Keep the canonical CSV until legacy consumers migrate to the layered reader.
-        from acprof.result_layers import publish_result_layers
-        publish_result_layers(final_csv)
         missing = missing_required_measurements(capability_report, collected_rows)
         if missing:
             print(f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"

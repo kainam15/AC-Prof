@@ -27,7 +27,7 @@ _CASE_ID = re.compile(r"[1-9][0-9]*c_[1-9][0-9]*g_(?:on|off)\Z")
 def _manifest() -> dict:
     return {
         "schema_version": 1, "layout_version": 2,
-        "primary": {"results": "result_all.csv", "static_meta": "static_meta.json",
+        "primary": {"results": "result_layers.json", "static_meta": "static_meta.json",
                     "capabilities": "capability_report.json"},
         "metadata": "metadata/", "raw": "raw/", "plots": "plots/",
         "logs": "logs/", "debug": "debug/", "internal": ".acprof/",
@@ -117,7 +117,8 @@ class ArtifactLayout:
 
     @property
     def result_csv(self) -> Path:
-        return self.path("result_all.csv")
+        """Logical result reference (layer manifest, not a wide CSV)."""
+        return self.path("result_layers.json")
 
     @property
     def plots_dir(self) -> Path:

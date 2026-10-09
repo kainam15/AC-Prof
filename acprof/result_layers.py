@@ -1,8 +1,4 @@
-"""Layered, joinable CSV projections of the canonical experiment result.
-
-The existing wide result remains authoritative for legacy consumers until they
-migrate. Layer files are never collected during a measurement window.
-"""
+"""Authoritative, joinable experiment CSV layers. Wide CSV is an explicit export."""
 from __future__ import annotations
 
 import csv
@@ -71,7 +67,7 @@ def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
 
 
 def _has_evidence(value: object) -> bool:
-    return str(value).strip().lower() not in {"nan", "none", "null"}
+    return str(value).strip().lower() not in {"", "nan", "none", "null", "compute_profile_disabled"}
 
 
 def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> bytes:
@@ -84,25 +80,36 @@ def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> byte
 
 
 def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | None = None) -> dict:
-    """Validate then publish projections; manifest is committed last.
+    """Import an explicitly supplied CSV into authoritative result layers.
 
-    Consumers must validate the manifest and individual hashes. A failed partial
-    publication cannot make the authoritative wide CSV invalid.
+    Normal collection publishes layers directly from validated rows; it never
+    persists a canonical wide result.
     """
     wide = Path(wide_path)
     root = Path(output_dir) if output_dir is not None else wide.parent
     snapshot = read_result_csv_snapshot(wide)
-    if not snapshot.rows:
-        raise ResultValidationError("cannot partition empty result")
     if not result_csv_snapshot_unchanged(snapshot):
         raise ResultValidationError("source CSV changed while partitioning")
-    assigned = layer_fields(snapshot.fields)
+    return publish_result_rows(snapshot.fields, snapshot.rows, root, source=snapshot)
+
+
+def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]], root: str | Path,
+                        *, source=None) -> dict:
+    """Publish authoritative layers, committing the integrity manifest last."""
+    root = Path(root)
+    if not rows:
+        raise ResultValidationError("cannot partition empty result")
+    assigned = layer_fields(fields)
+    # The semantic key is unique even when a profiler has no evidence for a row.
+    keys = [measurement_key(row) for row in rows]
+    if len(set(keys)) != len(keys):
+        raise ResultValidationError("duplicate measurement keys in result layers")
     rows_by_layer: dict[str, list[dict[str, str]]] = {}
     payloads: dict[str, bytes] = {}
     for layer, names in assigned.items():
         selected = [
             {name: row.get(name, "nan") for name in names}
-            for row in snapshot.rows
+            for row in rows
             if layer not in PROFILER_LAYERS
             or any(_has_evidence(row.get(name, "")) for name in names if name not in KEY_FIELDS)
         ]
@@ -110,9 +117,6 @@ def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | Non
             continue
         rows_by_layer[layer] = selected
         payloads[layer] = _csv_bytes(names, selected)
-    # The root may differ for an explicit, non-destructive historical migration.
-    if root.resolve() == wide.parent.resolve() and not result_csv_snapshot_unchanged(snapshot):
-        raise ResultValidationError("source CSV changed before layer publication")
     records: dict[str, dict] = {}
     for layer, raw in payloads.items():
         relative = LAYER_FILES[layer]
@@ -129,12 +133,13 @@ def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | Non
     # Remove an obsolete profiler output only once the new manifest is live.
     # Orphans are ignored by readers; never delete another run's data here.
     manifest = {
-        "schema_version": SCHEMA_VERSION, "source_name": wide.name,
-        "source_sha256": snapshot.sha256, "row_count": len(snapshot.rows),
-        "wide_fields": snapshot.fields, "layers": records,
+        "schema_version": SCHEMA_VERSION, "row_count": len(rows),
+        "wide_fields": list(fields), "layers": records,
     }
-    if not result_csv_snapshot_unchanged(snapshot):
-        raise ResultValidationError("source CSV changed before layer manifest publication")
+    if source is not None:
+        if not result_csv_snapshot_unchanged(source):
+            raise ResultValidationError("source CSV changed before layer manifest publication")
+        manifest.update(source_name=source.path.name, source_sha256=source.sha256)
     atomic_write_json(root / MANIFEST_NAME, manifest)
     return manifest
 
@@ -150,14 +155,15 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
         raise ResultValidationError("unsupported result layers manifest")
     wide_fields = manifest["wide_fields"]
     source_name = manifest.get("source_name")
-    source_digest = manifest.get("source_sha256")
-    if (not isinstance(source_name, str) or Path(source_name).name != source_name
-            or not isinstance(source_digest, str) or len(source_digest) != 64):
-        raise ResultValidationError("invalid layered source identity")
-    source_path = root / source_name
-    if (source_path.exists() and
-            hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
-        raise ResultValidationError("source CSV has changed since layers were published")
+    if source_name is not None:
+        source_digest = manifest.get("source_sha256")
+        if (not isinstance(source_name, str) or Path(source_name).name != source_name
+                or not isinstance(source_digest, str) or len(source_digest) != 64):
+            raise ResultValidationError("invalid layered source identity")
+        source_path = root / source_name
+        if (source_path.exists() and
+                hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
+            raise ResultValidationError("source CSV has changed since layers were published")
     assigned = layer_fields(wide_fields)
     expected_layers = set(BASE_LAYERS)
     layers = manifest["layers"]

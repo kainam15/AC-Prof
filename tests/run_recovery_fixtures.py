@@ -111,7 +111,7 @@ class RunRecoveryFixture:
         report = json.loads((self.directory / "capability_report.json").read_text())
         assert (report["measurement"]["container_memory"]["status"]) == ("unavailable")
         assert not (report["full_profile_complete"])
-        assert ((self.directory / "result_all.csv").is_file())
+        assert ((self.directory / "result_layers.json").is_file())
         assert (len(list(self.directory.glob(".acprof/work/cases/*/result.csv")))) == (2)
         state = json.loads((self.directory / ".acprof/run_state.json").read_text())
         assert (state["status"]) == ("failed")

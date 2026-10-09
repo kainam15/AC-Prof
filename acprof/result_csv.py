@@ -156,14 +156,45 @@ def _file_sha256(path: Path) -> str:
 def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
                     ) -> tuple[list[str], list[dict[str, str]]]:
     path = Path(path)
+    if path.name == "result_layers.json":
+        from acprof.result_layers import read_result_layers
+        fields, rows = read_result_layers(path.parent)
+        if expected is not None and {measurement_key(row) for row in rows} != set(expected):
+            raise ResultValidationError("layered measurement plan mismatch")
+        return fields, rows
     with path.open(encoding="utf-8-sig", newline="") as stream:
         return _parse_result_csv(stream, path, expected)
+
+
+def open_result_text(path: str | Path):
+    """Open a CSV or an in-memory logical view of a layered experiment.
+
+    No complete wide CSV is written to the file system by readers.
+    """
+    path = Path(path)
+    if path.is_dir():
+        path /= "result_layers.json"
+    if path.name != "result_layers.json":
+        return path.open(encoding="utf-8-sig", newline="")
+    fields, rows = read_result_csv(path)
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(stream, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(rows)
+    stream.seek(0)
+    return stream
 
 
 def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
                              ) -> ResultCsvSnapshot:
     """Parse the CSV once while hashing its exact source bytes."""
     path = Path(path).resolve()
+    if path.name == "result_layers.json":
+        fields, rows = read_result_csv(path, expected=expected)
+        digest = _file_sha256(path)
+        if not result_csv_snapshot_unchanged(ResultCsvSnapshot(path, fields, rows, digest)):
+            raise ResultValidationError("layered results changed during read")
+        return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest)
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
@@ -174,7 +205,16 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
 
 def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
     """Verify the current file bytes still match a previously parsed snapshot."""
-    return _file_sha256(snapshot.path) == snapshot.sha256
+    if _file_sha256(snapshot.path) != snapshot.sha256:
+        return False
+    if snapshot.path.name == "result_layers.json":
+        from acprof.result_layers import read_result_layers
+        try:
+            fields, rows = read_result_layers(snapshot.path.parent)
+        except (ValueError, OSError, csv.Error):
+            return False
+        return fields == snapshot.fields and rows == snapshot.rows
+    return True
 
 
 def merge_result_csvs(paths: Sequence[str], destination: str, *,
@@ -210,9 +250,13 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
             raise ResultValidationError(
                 f"measurement plan mismatch: missing={len(planned - keys)}, unexpected={len(keys - planned)}"
             )
-    def write(stream):
-        writer = csv.DictWriter(stream, fieldnames=fields, restval="nan")
-        writer.writeheader()
-        writer.writerows(rows)
-    atomic_write(destination, write)
+    if Path(destination).name == "result_layers.json":
+        from acprof.result_layers import publish_result_rows
+        publish_result_rows(fields, rows, Path(destination).parent)
+    else:
+        def write(stream):
+            writer = csv.DictWriter(stream, fieldnames=fields, restval="nan")
+            writer.writeheader()
+            writer.writerows(rows)
+        atomic_write(destination, write)
     return len(rows)

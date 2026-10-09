@@ -55,7 +55,7 @@ def test_missing_runtime_cannot_reclassify_measurement_as_preparation(failed_pre
         data["cases"] = {"case.csv": {"status": "running"}}
         path.write_text(json.dumps(data))
     else:
-        artifact = failed_preparation / ("result_all.csv" if evidence == "result-csv" else ".acprof/work/cases/1c_4g_off/result.csv")
+        artifact = failed_preparation / ("result_layers.json" if evidence == "result-csv" else ".acprof/work/cases/1c_4g_off/result.csv")
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text("partial measurement\n")
     original = path.read_bytes()

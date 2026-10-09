@@ -188,22 +188,20 @@ def test_posthoc_layer_publish_failure_restores_wide_and_layers(wide_csv, tmp_pa
     assert read_result_layers(tmp_path) == original_layers
 
 
-def test_cli_migration_requires_separate_directory(wide_csv, tmp_path, capsys):
+def test_cli_verifies_layers_and_exports_only_explicitly(wide_csv, tmp_path):
     from acprof.cli.main import main
+    from acprof.result_layers import publish_result_rows
 
-    source = wide_csv[0]
-    original = source.read_bytes()
-    with pytest.raises(SystemExit) as failure:
-        main(["results", "split", str(source)])
-    assert failure.value.code == 2
-    migrated = tmp_path / "converted"
-    assert main(["results", "split", str(source), "--output-dir", str(migrated)]) == 0
-    assert main(["results", "verify", str(migrated)]) == 0
+    source, fields, rows = wide_csv
+    source.unlink()  # No authoritative wide CSV is retained.
+    publish_result_rows(fields, rows, tmp_path)
+    assert main(["results", "verify", str(tmp_path)]) == 0
     exported = tmp_path / "reconstructed.csv"
-    assert main(["results", "export", str(migrated), str(exported)]) == 0
-    assert main(["results", "export", str(migrated), str(exported)]) == 1
-    assert source.read_bytes() == original
+    assert not exported.exists()
+    assert main(["results", "export", str(tmp_path), str(exported)]) == 0
+    assert main(["results", "export", str(tmp_path), str(exported)]) == 1
     assert exported.is_file()
+    assert not (tmp_path / "result_all.csv").exists()
 
 
 def test_verify_rejects_stale_source_hash(wide_csv, tmp_path):
@@ -222,5 +220,5 @@ def test_audit_reports_corrupt_layer(wide_csv, tmp_path):
     assert "invalid_layers" not in {item["code"] for item in report["issues"]}
     (tmp_path / LAYER_FILES["network"]).write_text("broken\n")
     report = audit_result(tmp_path)
-    assert "invalid_layers" in {item["code"] for item in report["issues"]}
+    assert "invalid_csv" in {item["code"] for item in report["issues"]}
     assert not report["valid"]
