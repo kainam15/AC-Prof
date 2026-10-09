@@ -555,7 +555,9 @@ def image_path(item: ManagedImage, inventory: ImageInventory) -> str:
 def image_created_text(created: str) -> str:
     """Render Docker image inspect's timezone-aware creation instant in local time."""
     try:
-        timestamp = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        # Docker uses nanosecond fractions; Python 3.10 only parses up to microseconds.
+        normalized = re.sub(r"(\.\d{6})\d+(?=Z$|[+-]\d{2}:\d{2}$)", r"\1", created)
+        timestamp = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
         if timestamp.tzinfo is not None:
             return timestamp.astimezone().strftime("%Y-%m-%d %H:%M")
     except (ValueError, OverflowError):

@@ -86,6 +86,10 @@ def test_dotted_versions_and_model_names_are_preserved_without_guessing():
     ("2026-09-13T00:00:00", "未知"),
     ("2026-09-13T08:12:42.123456789+08:00",
      datetime.fromisoformat("2026-09-13T08:12:42+08:00").astimezone().strftime("%Y-%m-%d %H:%M")),
+    ("2026-09-13T08:12:42.1234567+08:00",
+     datetime.fromisoformat("2026-09-13T08:12:42+08:00").astimezone().strftime("%Y-%m-%d %H:%M")),
+    ("2026-09-13T00:00:00.987654321Z",
+     datetime.fromisoformat("2026-09-13T00:00:00+00:00").astimezone().strftime("%Y-%m-%d %H:%M")),
     ("2026-09-13T00:00:00Z",
      datetime.fromisoformat("2026-09-13T00:00:00+00:00").astimezone().strftime("%Y-%m-%d %H:%M")),
 ))
