@@ -991,6 +991,11 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
         # static_meta is the immutable pre-matrix snapshot used by resume.
         # Publish final measurement evidence in its dedicated sidecar.
         atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
+        # Publish independently joinable metric modules outside the measurement window,
+        # even if required measurements are missing and the profile must fail.
+        # Keep the canonical CSV until legacy consumers migrate to the layered reader.
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(final_csv)
         missing = missing_required_measurements(capability_report, collected_rows)
         if missing:
             print(f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"

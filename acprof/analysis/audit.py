@@ -199,6 +199,19 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         issue("invalid_csv", error)
         return report
     report["counts"]["rows"] = len(rows)
+    # Existing experiments without layers remain valid; when a layered
+    # projection exists, treat a stale or changed module as an audit failure.
+    if (layout.root / "result_layers.json").is_file():
+        try:
+            from acprof.result_layers import read_result_layers
+            layered_fields, layered_rows = read_result_layers(layout.root)
+            if (set(layered_fields) != set(fields) or len(layered_rows) != len(rows)
+                    or any(any(original.get(field, "nan") != layered.get(field, "nan")
+                               for field in fields)
+                           for original, layered in zip(rows, layered_rows))):
+                issue("layer_mismatch", "分层结果与原始 CSV 的字段或数值不一致")
+        except (ValueError, OSError, csv.Error) as error:
+            issue("invalid_layers", error)
     environments = {row["environment_class"] for row in rows}
     report["row_environment_classes"] = sorted(environments)
     if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}

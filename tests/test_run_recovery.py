@@ -54,7 +54,14 @@ class TestRunRecovery(RunRecoveryFixture):
             path.with_name("sniff_groups.jsonl").write_text('{"sniff_group_id":"fixture"}\n')
             return str(path)
         self.invoke(case=with_samples)
-        assert ({p.name for p in self.directory.iterdir() if p.is_file()}) == ({"result_all.csv", "static_meta.json", "capability_report.json", "result_manifest.json", "quality_checks.json"})
+        assert ({p.name for p in self.directory.iterdir() if p.is_file()}) == (
+            {"result_all.csv", "static_meta.json", "capability_report.json",
+             "result_manifest.json", "quality_checks.json", "result_layers.json",
+             "summary.csv", "performance.csv", "resources.csv", "energy.csv", "network.csv"})
+        from acprof.result_layers import read_result_layers
+        fields, rows = read_result_layers(self.directory)
+        assert len(rows) == 2
+        assert {"latency_s", "gpu_energy_total_j", "cpu_cores"} <= set(fields)
         for cpu in (1, 2):
             sample = self.directory / f"raw/requests/{cpu}c_4g_off.jsonl"
             assert (json.loads(sample.read_text())["latency_app_s"]) == ([0.1])

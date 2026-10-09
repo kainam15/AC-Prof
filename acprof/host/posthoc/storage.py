@@ -242,6 +242,11 @@ def commit_result_files(
             context.static_meta_path,
             context.collection_history_path,
         )
+        # Keep the published layer view consistent with a successful post-hoc
+        # transaction. Unchanged tool CSVs are not rewritten.
+        if (context.result_dir / "result_layers.json").is_file():
+            from acprof.result_layers import publish_result_layers
+            publish_result_layers(context.result_csv)
     except BaseException as primary_error:
         recovery_errors: list[str] = []
         cancellation = primary_error if not isinstance(primary_error, Exception) else None
@@ -259,6 +264,18 @@ def commit_result_files(
                 )
                 if cancellation is None and not isinstance(recovery_error, Exception):
                     cancellation = recovery_error
+        # Rebuild the prior view from the restored wide result when possible.
+        # Report an incomplete recovery if storage failures also prevent repair.
+        if attempted_publications and (context.result_dir / "result_layers.json").is_file():
+            try:
+                from acprof.result_layers import publish_result_layers
+                publish_result_layers(context.result_csv)
+            except BaseException as layer_error:
+                recovery_errors.append(
+                    f"result layers: {type(layer_error).__name__}: {layer_error}"
+                )
+                if cancellation is None and not isinstance(layer_error, Exception):
+                    cancellation = layer_error
         if recovery_errors:
             failure = PosthocError(
                 f"post-hoc publication failed ({type(primary_error).__name__}: {primary_error}); "
