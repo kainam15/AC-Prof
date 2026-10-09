@@ -2,6 +2,37 @@
 
 [← 返回专题目录](testing.md)
 
+## 按变更范围执行 CI
+
+`.github/workflows/ci.yml` 在 Push、Pull Request 上保持完整的工作流检查入口，
+由 `changes` 作业确定本次改动需要的测试范围，而不是通过 `paths-ignore` 跳过整个工作流。
+这样无需依赖 `[skip ci]` 或 commit message，也不会让被路径过滤跳过的必需检查一直 Pending。
+
+| 改动范围 | 执行作业 |
+| --- | --- |
+| 仅 `docs/**` 普通文档、`AGENTS.md` 或 `.agents/skills/**` 的 Markdown/YAML | `docs-check` |
+| 只修改 `docs/results/metric_reference.md` | `docs-check` 和 `metric-docs`，额外核对注册表生成内容 |
+| 只修改根目录 `README.md` | `docs-check` 和 `wheel`，验证发布元数据与 sdist |
+| 修改 Python、测试、依赖、工作流、其他代码或未知文件 | `docs-check` 和原有完整 CI |
+| 手动 `workflow_dispatch` 或 Release 使用 `workflow_call` | 原有完整 CI（不按文件过滤） |
+
+分类由固定 SHA 的 [dorny/paths-filter](https://github.com/dorny/paths-filter) 完成；
+PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码和文档修改执行完整 CI；
+未知文件或无法归入文档集合的修改也执行完整 CI。新增 Skill 执行脚本属于代码改动，
+不因为位于 `.agents/skills/` 而被豁免。路径识别失败时不得静默跳过重型测试。
+
+`docs-check` 使用[文档检查入口](documentation-checks.md#文档与-skill-检查)验证本地链接、
+章节锚点、Markdown 格式、Skill frontmatter 与 YAML。主机测试不执行时，
+`host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
+完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
+`hardware.yml` 仍只手动运行；Release Tag、GHCR 运行环境发布规则保持原样。
+
+GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
+与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
+是保留工作流入口与单独保护汇总作业的依据。设计也参考
+[vLLM-Omni 的 docs-only CI 分流](https://github.com/vllm-project/vllm-omni/blob/main/docs/contributing/README.md)，
+只借鉴按差异缩减验证的思路，不复制其 Buildkite/GPU 管线。
+
 ## CI 与环境测试
 
 独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；

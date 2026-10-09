@@ -87,6 +87,12 @@ TUI 回归核对重复计算时打开已有文件、显示中英文提示及控�
 
 ## 文档与 Skill 检查
 
+修改文档后，可在仓库根目录执行 `.venv/bin/python scripts/check_docs.py`。
+该检查扫描 Git 跟踪的 `docs/`、根 README、`AGENTS.md` 和 Skill 文档/YAML，
+核对本地相对链接、Markdown 标题锚点、图片路径、UTF-8、行尾和 YAML/frontmatter；
+不访问外部链接，也不声称远程链接依然可用。GitHub CI 的 `docs-check` 始终运行此检查。
+
+
 检查新增文件也包括被 Git 忽略的文件；`git diff --check` 只覆盖已跟踪差异，不能替代完整文件清单。
 迁移章节时核对原有锚点、相对链接、代码中的文档引用及字段表是否有遗漏；代码示例中的路径以注明的执行目录为准。
 技能格式可用已安装 `skill-creator` 的 `scripts/quick_validate.py <skill-dir>` 检查；该工具是开发辅助，不是项目运行依赖。
