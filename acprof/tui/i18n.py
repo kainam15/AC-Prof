@@ -385,6 +385,7 @@ ENGLISH: dict[str, str] = {
     "环境 / 模型": "Environment / Model",
     "新增大小": "Added",
     "镜像摘要 · {0} · {1}": "Image summary · {0} · {1}",
+    "创建日期：{0}": "Created: {0}",
     "层摘要": "Layer summary",
     "预计可释放：{0} · 容器引用：{1}": "Estimated reclaim: {0} · Containers: {1}",
     "依赖清单": "Dependencies",

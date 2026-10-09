@@ -320,7 +320,9 @@ Rule.content-divider { height: 1; margin: 0; color: $panel; }
 }
 #image-detail-scroll { height: 9; min-height: 3; }
 #image-detail-scroll Static { height: auto; }
-#image-detail-title { color: $accent; text-style: bold; }
+#image-detail-heading { height: 1; width: 1fr; layout: horizontal; }
+#image-detail-title { color: $accent; text-style: bold; width: 1fr; min-width: 0; height: 1; text-overflow: ellipsis; }
+#image-detail-created { color: $text-muted; width: auto; max-width: 65%; height: 1; text-overflow: ellipsis; content-align: right middle; }
 #image-detail { color: $text; margin-bottom: 1; }
 #image-detail-scroll Collapsible { border: none; padding: 0; background: $surface; }
 #image-detail-scroll CollapsibleTitle { padding: 0; }

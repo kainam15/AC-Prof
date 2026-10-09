@@ -2,6 +2,7 @@
 import asyncio
 import os
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
@@ -32,6 +33,7 @@ from acprof.tui.commands import PendingLaunch
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.images import (
     filtered_images,
+    image_created_text,
     image_display_name,
     image_metadata,
     layer_image_detail,
@@ -76,6 +78,19 @@ def test_dotted_versions_and_model_names_are_preserved_without_guessing():
                         profiles=("audio-cpu", "multimodal-transformers4576-cpu", "custom-v1.12.3-cpu", "custom123-cpu"))
     assert (image_display_name(item)) == ("audio / multimodal-transformers4.57.6 / custom-v1.12.3 / custom123 · PyTorch CPU")
     assert (image_display_name(replace(item, kind="model", model_id="Qwen/Qwen2.5-0.5B"))) == ("Qwen/Qwen2.5-0.5B")
+
+
+@pytest.mark.parametrize(("raw", "expected"), (
+    ("", "未知"),
+    ("not-a-timestamp", "未知"),
+    ("2026-09-13T00:00:00", "未知"),
+    ("2026-09-13T08:12:42.123456789+08:00",
+     datetime.fromisoformat("2026-09-13T08:12:42+08:00").astimezone().strftime("%Y-%m-%d %H:%M")),
+    ("2026-09-13T00:00:00Z",
+     datetime.fromisoformat("2026-09-13T00:00:00+00:00").astimezone().strftime("%Y-%m-%d %H:%M")),
+))
+def test_image_created_text_uses_docker_instant(raw, expected):
+    assert image_created_text(raw) == expected
 
 
 class TestTuiImages:
@@ -334,6 +349,42 @@ class TestTuiImages:
             assert (len(app.screen_stack)) == (1)
             assert (app._selected_image_ids) == (selected)
             assert not (self.docker.removals)
+
+    @pytest.mark.parametrize("language", ("zh", "en"))
+    @pytest.mark.parametrize("size", ((80, 24), (120, 30), (150, 45)))
+    async def test_image_creation_date_is_right_aligned_and_hidden_for_layers(self, language, size):
+        app = self.make_app()
+        async with app.run_test(size=size) as pilot:
+            await self.load_images(app, pilot, view="list")
+            app.ui_preferences = replace(app.ui_preferences, language=language)
+            app._apply_ui_preferences()
+            await pilot.pause()
+            created = app.query_one("#image-detail-created", Static)
+            title = app.query_one("#image-detail-title", Static)
+            heading = app.query_one("#image-detail-heading")
+            value = image_created_text(self.docker.images[FINAL]["Created"])
+            expected = f"创建日期：{value}" if language == "zh" else f"Created: {value}"
+            assert created.display
+            assert str(created.content) == expected
+            assert created.region.y == title.region.y
+            assert created.region.right == heading.region.right
+            assert created.region.x >= title.region.right
+            before = len(self.docker.commands)
+            await pilot.click("#image-view-layers")
+            await pilot.pause()
+            assert not created.display
+            assert len(self.docker.commands) == before, "Changing the detail view must not query Docker"
+            app.query_one("#image-search", Input).value = "no-such-image"
+            await pilot.pause()
+            assert not heading.display, "Empty details must not reserve a blank header row"
+            assert not created.display
+
+    async def test_image_creation_date_shows_unknown_instead_of_invalid_raw_value(self):
+        self.docker.images[FINAL]["Created"] = "bad-date"
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.load_images(app, pilot, view="list")
+            assert str(app.query_one("#image-detail-created", Static).content) == "创建日期：未知"
 
     async def test_detail_summary_separates_packages_and_diagnostics_with_interactive_folds(self):
         dependency_images(self.docker, profile="nlp-cu128")

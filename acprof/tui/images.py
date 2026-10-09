@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from rich.rule import Rule
 from rich.segment import Segment
@@ -325,7 +326,9 @@ class ImageDetailPanel(VerticalScroll):
     _detail_key: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
-        yield self.app._localized_widget(Static("", id="image-detail-title", markup=False))
+        with Horizontal(id="image-detail-heading"):
+            yield self.app._localized_widget(Static("", id="image-detail-title", markup=False))
+            yield self.app._localized_widget(Static("", id="image-detail-created", markup=False))
         yield self.app._localized_widget(Static(
             "选择一行查看镜像摘要；展开分组查看详情。", id="image-detail", markup=False,
         ))
@@ -342,12 +345,17 @@ class ImageDetailPanel(VerticalScroll):
         self.show_empty("选择一行查看镜像摘要；展开分组查看详情。")
 
     def _show(self, key: tuple[str, str] | None, title: str, summary: str,
-              sections: dict[str, tuple[str, str]]) -> None:
+              sections: dict[str, tuple[str, str]], *, created: str | None = None) -> None:
         changed = key != self._detail_key
         self._detail_key = key
+        self.query_one("#image-detail-heading", Horizontal).display = bool(title)
         heading = self.query_one("#image-detail-title", Static)
         heading.display = bool(title)
         self.app._set_text(heading, title)
+        created_label = self.query_one("#image-detail-created", Static)
+        created_label.display = created is not None
+        if created is not None:
+            self.app._set_text(created_label, message("创建日期：{0}", image_created_text(created)))
         self.app._set_text(self.query_one("#image-detail", Static), summary)
         for group in self.query(Collapsible):
             section_title, content = sections.get(group.id, ("", ""))
@@ -371,7 +379,7 @@ class ImageDetailPanel(VerticalScroll):
                                           image_metadata(item, inventory)),
                        "image-diagnostics": (message("诊断信息 · 有警告" if inventory.warnings else "诊断信息"),
                                              image_diagnostics(item, inventory)),
-                   })
+                   }, created=item.created)
 
     def show_layer(self, layer: ImageLayer, inventory: ImageInventory) -> None:
         self._show(("layer", layer.chain_id), message("层摘要"),
@@ -523,6 +531,17 @@ def image_path(item: ManagedImage, inventory: ImageInventory) -> str:
         path.append(message("父镜像不在本地"))
     path.append(path_name(item))
     return message("继承路径：{0}", join_messages(" › ", path))
+
+
+def image_created_text(created: str) -> str:
+    """Render Docker image inspect's timezone-aware creation instant in local time."""
+    try:
+        timestamp = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if timestamp.tzinfo is not None:
+            return timestamp.astimezone().strftime("%Y-%m-%d %H:%M")
+    except (ValueError, OverflowError):
+        pass
+    return UNKNOWN
 
 
 def image_summary(item: ManagedImage, inventory: ImageInventory) -> str:
