@@ -230,7 +230,13 @@ acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
 
 ```text
 results/smoke/google-bert--bert-base-uncased/
-├── result_all.csv
+├── result_layers.json
+├── summary.csv
+├── performance.csv
+├── resources.csv
+├── energy.csv
+├── network.csv
+├── profiling/             # 各 Profiler 独立 CSV，按需生成
 ├── static_meta.json
 ├── capability_report.json
 ├── result_manifest.json
@@ -270,7 +276,7 @@ acprof run --model Ritual-Net/iris-classification \
 
 ## 查看结果
 
-用 `acprof plot <result_all.csv 路径>` 生成图表；[结果阅读指南](Metrics.md#从结果目录开始)说明输出目录、分析过滤、只读审计与统计入口。
+用 `acprof plot <结果目录>` 生成图表；如需完整宽表，显式执行 `acprof results export <结果目录> <新文件.csv>`。[结果阅读指南](Metrics.md#从结果目录开始)说明输出目录、分析过滤、只读审计与统计入口。
 
 ## 运行正式实验
 

@@ -86,7 +86,6 @@ TUI 的 **恢复 / 重试** 会先检查原实验，再提供重试准备或续�
 
 ```text
 results/first-run/google-bert--bert-base-uncased/
-├── result_all.csv           # 兼容宽表（现阶段仍保留）
 ├── result_layers.json       # 分层文件校验和重建清单
 ├── summary.csv              # 测量身份、输入与状态
 ├── performance.csv          # 延迟、吞吐和冷启动
@@ -109,7 +108,7 @@ results/first-run/google-bert--bert-base-uncased/
 
 ```bash
 acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
-acprof plot results/first-run/google-bert--bert-base-uncased/result_all.csv
+acprof plot results/first-run/google-bert--bert-base-uncased/result_layers.json
 acprof report results/first-run/google-bert--bert-base-uncased/
 acprof results verify results/first-run/google-bert--bert-base-uncased/
 ```
@@ -120,9 +119,7 @@ Pareto 取舍及 Scaling 视图。该文件可离线打开，也支持 Windows �
 聚合口径与历史数据边界见[交互式配置比较](../Metrics.md#交互式配置比较报告)。
 
 新实验的图表写入 `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 和 `plots/latency_model/`，没有适用数据的部分会跳过。
-采集过程中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵结束后才合并出 `result_all.csv`。
-校验后还会写入可按测量键关联的分层 CSV，四个 Profiler 各自独立。现阶段部分旧消费者仍使用兼容宽表；可用 `acprof results export <结果目录> <新文件.csv>` 校验并按需重建完整宽表，或使用 `acprof results split <历史result_all.csv> --output-dir <新空目录>` 无损迁移旧实验，而不修改原文件。
-没有清单的旧目录保持原路径，可继续读取、绘图及补采；不自动搬迁数据。
+采集期间先写 `.acprof/work/cases/<case-id>/result.csv` 以支持恢复；矩阵校验后才发布 `result_layers.json` 和各模块 CSV，作为唯一正式结果。**默认不生成 `result_all.csv`**；需要完整宽表时显式运行 `acprof results export <结果目录> <新文件.csv>`。四个 Profiler 独立存储和补采；旧版结果目录不再提供兼容分析或续跑。
 目录协议与恢复边界见[Artifact Layout v2](../Profiling_Protocol.md#artifact-layout-v2)。
 正式分析筛选 `status=ok` 且 `warmup=0`；字段、统计与缺失值说明见[结果阅读指南](../Metrics.md#从结果目录开始)。
 

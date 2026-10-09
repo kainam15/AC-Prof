@@ -74,8 +74,8 @@ Nsys 的 `per-cpu-scale` 只使用代表内存，`per-scale` 同时使用代表 
 
 ## 补采已有结果
 
-完成主矩阵后，结果目录需同时具有 `result_all.csv`、`static_meta.json` 和
-`metadata/input_scale_plan.json`（flat 目录仍在根部）。先检查计划，再执行补采：
+完成主矩阵后，结果目录需具有 `result_layers.json`、模块 CSV、`static_meta.json` 和
+`metadata/input_scale_plan.json`。先检查计划，再执行补采：
 
 ```bash
 acprof profile results/google-bert--bert-base-uncased --dry-run
@@ -96,8 +96,8 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。完整成功的已有 plan 也可复用。
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
 
-写入前把旧文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证临时文件后原子替换
-`result_all.csv`、`static_meta.json` 和 `metadata/collection_history.json`，失败时逐个尝试从备份恢复。
+写入前把受影响文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证暂存结果后，
+仅替换变化的模块 CSV，最后发布 `result_layers.json` 与元数据；失败逐项从备份恢复。
 某个文件恢复或目录同步失败不会跳过其他文件；错误同时保留原始失败、恢复失败项及备份位置，
 不将恢复不完整报告为成功。已有历史记录的备份缺失属于恢复失败，不能据此删除历史文件。
 取消或 `Ctrl+C` 同样进入恢复流程；每次替换前登记恢复责任，覆盖文件已替换但执行状态尚未更新的中断。
@@ -105,23 +105,19 @@ NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使
 恢复过程再次取消也会继续尝试其他文件；取消异常保持原类型，恢复失败和备份位置通过异常链报告。
 此保证限于进程仍能执行清理的异常路径，不代表断电、`SIGKILL` 或持续存储故障下的多文件原子事务。
 操作记录追加到 `posthoc_profile_history`，原始实验命令和非 profiler 字段保持原样。
-仅接受当前产物协议，不迁移旧静态元数据中的历史记录；报告与补采 plan 位于 `raw/posthoc_profiles/`；没有结果清单的 flat 目录沿用原位置。
+仅接受当前分层产物协议；报告与补采 plan 位于 `raw/posthoc_profiles/`，不支持未迁移的 flat 目录。
 同一结果目录若仍被采集或分析进程使用，补采会拒绝启动。
 
-## 从已有计划生成派生 CSV
+## 分层结果与完整导出
 
-如果 latency 已采集完成、之后才生成 `compute_profile_plan.json`，可以写出一份带 FLOP/MFLOPS 的新 CSV：
+Torch、NCU、Massif、Nsys 补采直接更新各自的 `profiling/*.csv`，不生成或覆盖完整宽表。
+需要外部数据分析时，显式执行：
 
 ```bash
-python -m acprof.cli.backfill_compute \
-  results/google-bert--bert-base-uncased/result_all.csv \
-  results/google-bert--bert-base-uncased/metadata/compute_profile_plan.json \
-  --output results/google-bert--bert-base-uncased/result_all.with_compute.csv
+acprof results export results/google-bert--bert-base-uncased/ results/model-export.csv
 ```
 
-工具按 GPU mode 和 input scale 匹配已有计划，生成带 Torch/NCU 字段的派生 CSV。
-输出采用原子写入，默认拒绝覆盖已有文件；确需替换显式输出路径时追加 `--overwrite`。
-FLOP/MFLOPS 的单位、延迟分母和缺失值规则见[计算指标字典](Profilers.md#torch-与-ncu-计算指标)。
+输出校验测量关联关系，拒绝覆盖现有文件；FLOP/MFLOPS 定义见下节。
 
 ## Torch 与 NCU 计算指标
 
@@ -131,9 +127,7 @@ NCU 仅选择当前 SASS 和浮点 Tensor counters，不使用旧 `flop_count_*`
 Torch eager 记录模型逻辑计算量，NCU 记录 GPU 实际执行量；两者分别使用
 `*_torch_profiler_eager` 和 `*_ncu` 列。历史 plan / CSV 中的五个通用 compute 字段
 仍可由绘图和迁移入口读取，新结果不再重复写入。
-从已有计划生成派生 CSV 时，匹配键为 GPU mode 与 input scale（绝对容差 `1e-6`）；
-未匹配或失败的工具字段保持 `nan`，对应错误列记录原因。操作见
-[从已有计划生成派生 CSV](#从已有计划生成派生-csv)。
+独立 Profiler 通过测量身份与主实验关联；未匹配或失败时指标保持 `nan`，错误列记录原因。
 
 | 字段 | 含义 |
 | --- | --- |

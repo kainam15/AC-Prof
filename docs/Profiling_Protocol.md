@@ -293,7 +293,6 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 
 ```text
 <model-dir>/
-├── result_all.csv
 ├── result_layers.json         # 分层结果的 SHA256 与字段/行数清单
 ├── summary.csv                # 行身份、输入与状态
 ├── performance.csv            # 延迟、吞吐、启动
@@ -345,8 +344,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 清单在准备阶段原子发布，读取与路径路由不在请求窗口内递归扫描目录。
 未知版本、损坏清单、被改写的路径映射和越界/符号链接路径明确拒绝，不回退猜测。
 
-没有清单的历史目录按 flat layout 读取，绘图和补采继续写入该目录原有位置，不自动迁移。
-旧目录的独立 probe 产物可保留，首次主实验仍可创建 v2；已有正式产物则拒绝重新初始化。
+当前正式结果只使用带 `result_manifest.json` 与 `result_layers.json` 的 v2 布局，旧实验目录不提供兼容续跑、分析或 Posthoc。已有正式产物的目录不能直接初始化为新实验。
 目录布局兼容不放宽现有产物 schema、源码身份或恢复校验；升级前中断的实验仍受源码指纹约束。
 运行期间不要移动文件或删除清单。以下路径表使用 v2；旧目录沿用原文件名和位置。
 
@@ -363,7 +361,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
 | `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
 | `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
-| `result_all.csv` | 动态测量结果。每一行对应一个 resource config、一个 input scale、一次 warmup/repeat iteration，并记录归一化指标、PCAP 网络字节、cold-start phases，以及该窗口的 cgroup memory/stat/PID、swap、块 I/O 与压力/事件。 |
+| 分层结果（`result_layers.json` 与各模块 CSV） | 动态测量结果。每一行对应一个 resource config、一个 input scale、一次 warmup/repeat iteration，并记录归一化指标、PCAP 网络字节、cold-start phases，以及该窗口的 cgroup memory/stat/PID、swap、块 I/O 与压力/事件。 |
 | `.acprof/run_state.json` | 主实验状态 schema v1，记录实验 ID、参数、主机与源码/依赖指纹、绑定的镜像和输入计划、case 完成状态与 CSV SHA256、启动/恢复记录、最终完成状态。 |
 | `.acprof/recovery/interrupted_cases/` | 恢复时保存中断 case 的原始 CSV、PCAP 与关联 sidecar；备份完成后才开始该 case 的新测量。 |
 | `static_meta.json` | 单个 JSON object 的静态元数据。记录模型版本、参数/精度/量化/许可证、输入输出格式、per-scale 静态逻辑 FLOPs、推理后端、镜像、GPU/主机 RAM、主机 swap、Docker 存储和环境信息。 |
@@ -396,7 +394,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 生成、序列化、文件 `fsync` 或原子替换在发布前失败时，保留已有完整计划并向上报错，
 不能将旧文件视为本次规划成功。目录 `fsync` 位于替换之后；此时失败仍报错，但完整的新计划可能已经发布。
 
-`.acprof/work/cases/` 下本次已完成 case 的中间文件会在 `result_all.csv` 成功 merge、完成状态持久化后清理。
+`.acprof/work/cases/` 下本次已完成 case 的中间文件会在分层 CSV 成功发布、完成状态持久化后清理。
 旧布局对应 `result_case_*.csv`、`*.sniff_groups.jsonl`、`lat_case_*.json` 和 `sniff_case_*.pcap`。
 若运行被中断，中间文件保留用于恢复。
 
@@ -461,9 +459,7 @@ case；中断 case 先备份，再创建新容器，重新执行该 case 的原 
 格式化为六位有效数字。唯一键继续精确比较，不通过容差合并相邻尺度；显示用四舍五入不进入恢复身份。
 OOM pruning 继续按原有参考 CPU/内存顺序重建证据，复用与推断不会增加正式请求。
 
-合并拒绝缺失/空 case、重复文件、重复测量、截断行和与计划不符的行；保留历史扩展列，
-历史缺失的可选指标保持 `nan`。全部校验通过后，在同一目录写临时文件并 flush/fsync，
-再用原子替换发布 `result_all.csv`。发布前发生写入错误时保留已有最终文件和 case 产物。
+合并拒绝缺失/空 case、重复文件、重复测量、截断行和与计划不符的行；不适用的可选指标为 `nan`。校验通过后分别原子写入各模块 CSV，最后发布 `result_layers.json` 完整性清单；不会默认创建 `result_all.csv`。失败保留可恢复的 case 产物，不将未完成结果标记为完整。
 完成状态先持久化，再清理中间文件。`status=complete` 表示计划已执行并完成合并，
 `outcome=partial` 表示其中包含错误行，两者不能等同于全部测量成功。
 
@@ -514,7 +510,7 @@ monitor 由 `MonitorGroup` 统一持有，按既有顺序启动和停止，随�
 | `runtime_environment` | 镜像内生成的环境清单：profile、adapter、构建指纹、模型及实际 snapshot revision、Python 和已安装包版本、依赖锁与包清单 SHA256、自定义 Python 源码 SHA256，以及 `model_download` 文件清单。新构建追加平台/环境身份、各父镜像 ID、系统锁摘要与实际系统包集合，字段详见下文；历史缺失字段不推算。 |
 | `runtime_validation` | 独立容器验证报告。保存实际 image ID、输入尺度／payload SHA256、每个设备的状态、dtype、attention 实现、输出摘要、有效 `model_spec` 和分阶段 `stages`。验证推理接口，不替代 profiler 兼容性检查，也不计入请求或性能测量。失败的完整报告另见 `runtime_validation.json`。 |
 | `batch_size` | 本次 profiling 的 batch size。 |
-| `input_scale_type` | `result_all.csv/input_scale` 的语义名，例如 `seq_length`。 |
+| `input_scale_type` | `summary.csv/input_scale` 的语义名，例如 `seq_length`。 |
 | `workload` | workload 清单的可复现元数据，包括素材 SHA256、来源、变换、推理模式以及模型侧输入约束。 |
 | `input_scale_plan_sha256` | 本次实际执行的 `input_scale_plan.json` SHA256。 |
 | `run_command` | 启动本次 profiling 的 `acprof run ...` 命令，便于复现实验参数。 |
@@ -631,7 +627,7 @@ ModelScope SDK 未暴露的存储链、未观察到的本地缓存原始地址�
 进程可能没有阶段回报，以外层状态和日志为准；未执行阶段和历史缺失字段不补为成功。
 这些诊断没有时间单位，不用于比较阶段耗时，也不增加正式测量请求。
 
-这些字段在 profiling 后原子补写，原始 `run_command` 保持不变。`static_flops` 只保存不依赖硬件计数器的 Torch 逻辑 shape FLOPs，并按 input scale 展开；NCU 实际执行 FLOPs、吞吐率以及 execution 数值仍保存在 `result_all.csv`，execution 字段是否来自代表资源由上述 sampling metadata 和 plan entry provenance 说明。
+这些字段在 profiling 后原子补写，原始 `run_command` 保持不变。`static_flops` 只保存不依赖硬件计数器的 Torch 逻辑 shape FLOPs，并按 input scale 展开；NCU 实际执行 FLOPs、吞吐率以及 execution 数值分别保存在各自的 `profiling/*.csv`，execution 字段是否来自代表资源由上述 sampling metadata 和 plan entry provenance 说明。
 
 ### 质量与失败产物
 
@@ -707,7 +703,7 @@ timeout evidence 包含 `timeout_seconds`（秒）、`request_phase`、`request_
 | `timing.command_s` | 包含预检、检测、可选构建、输入规划、失败候选和清理的整条命令耗时。 |
 | `timing.request_timeout_s` | 默认无限等待时为 `null`；显式设置 `--timeout-seconds` 时为对应秒数。旧 schema v2 始终记录有限值。 |
 
-探测不会写入或修改 `result_case_*.csv`、`result_all.csv`、`static_meta.json` 或
+探测不会写入或修改 case 中间 CSV、`result_layers.json`、`static_meta.json` 或
 `collection_history.json`，结果不包含 idle、能耗或网络测量。用法见[最大输入探测](Getting_Started.md#先探测最大输入)。
 
 ## 冷启动

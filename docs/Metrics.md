@@ -29,26 +29,25 @@
 
 | 阅读目的 | 入口 |
 | --- | --- |
-| 查看测量值 | `result_all.csv`；正式性能分析筛选 `status=ok` 且 `warmup=0`。 |
-| 查找产物 | `result_manifest.json` 的布局版本和相对路径；缺少清单的旧目录沿用 flat layout。 |
+| 查看测量值 | `summary.csv` 和各指标模块 CSV，由 `result_layers.json` 统一关联；正式分析筛选 `status=ok` 且 `warmup=0`。 |
+| 查找产物 | `result_manifest.json` 的布局路径与 `result_layers.json` 的校验记录。 |
 | 复现实验对象和输入 | `static_meta.json` 与 `metadata/input_scale_plan.json`。 |
 | 追踪补采或修复 | `metadata/collection_history.json` 与对应 profiler plan。 |
 | 查看图表和拟合 | `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 与 `plots/latency_model/`。 |
 
 `latency_app_s` 是客户端应用层计时，`latency_s` 是抓包解析得到的 packet-level 计时。
 关闭 GPU 或未启用某个 profiler 时，对应字段为 `nan` 属于预期结果。
-新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后才合并为 `result_all.csv`。
-旧目录继续使用根部 case CSV 与原有元数据、绘图位置；详见[布局兼容约定](Profiling_Protocol.md#artifact-layout-v2)。
+新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后汇总为独立分层 CSV；不自动创建完整宽表。详见[产物结构](Profiling_Protocol.md#artifact-layout-v2)。
 
-### 分层结果 CSV（兼容期）
+### 分层结果 CSV（唯一正式结果）
 
-新实验完成后，除了现有兼容宽表 `result_all.csv`，还会生成 `result_layers.json`、`summary.csv`、`performance.csv`、`resources.csv`、`energy.csv`、`network.csv`。如果 profiler 有记录，则生成 `profiling/torch_profiler.csv`、`profiling/ncu.csv`、`profiling/nsys.csv`、`profiling/massif.csv` 中对应文件；未运行且没有有效数据的分析器不写空表。
+新实验完成后生成 `result_layers.json`、`summary.csv`、`performance.csv`、`resources.csv`、`energy.csv`、`network.csv`。如果 profiler 有记录，则生成 `profiling/torch_profiler.csv`、`profiling/ncu.csv`、`profiling/nsys.csv`、`profiling/massif.csv` 中对应文件；未运行且没有有效数据的分析器不写空表。
 
 - 每个分层文件保留 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx` 六个测量身份字段；基础层与 summary 一一对应，profiler 可按实际采集记录稀疏输出。
 - 除身份字段外，每个指标只有一个所属层，分类从 `metric_registry.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
-- `result_layers.json` 的 schema v1 记录来源 CSV 哈希、模块路径、字段、行数和文件哈希；`acprof results verify <目录>` 检查文件损坏、归属和关联键。缺失字段或无效关联不以 `0` 填补。
-- `acprof results export <分层目录> <新文件.csv>` 校验后按需生成宽表，拒绝覆盖既有文件。`acprof results split <历史result_all.csv> --output-dir <全新空目录>` 不修改历史结果。
-- 当前采集和部分分析/补采消费者仍把 `result_all.csv` 作为兼容数据源；分层 CSV 是可校验的独立投影，尚未替代宽表的核心存储角色。Posthoc 成功后更新分层数据，未变化的模块文件无需重写。
+- `result_layers.json` 的 schema v1 记录模块路径、字段、行数和文件哈希；`acprof results verify <目录>` 检查文件损坏、归属和关联键。缺失字段或无效关联不以 `0` 填补。
+- `acprof results export <分层目录> <新文件.csv>` 在显式请求时重建完整宽表，拒绝覆盖既有文件；日常采集和分析不生成它。
+- 分层 CSV 是唯一正式存储。Posthoc 补采按事务刷新模块，未变化的模块文件无需重写；不再兼容旧实验的宽表目录。
 
 可只读检查结果完整性，并按独立测量窗口估计均值区间：
 
@@ -57,13 +56,13 @@ acprof audit results/<model-dir>/ --require-complete --require-ok
 acprof stats results/<model-dir>/ --metric latency_app_s
 ```
 
-历史实验可能缺少完成状态，先省略 `--require-complete` 查看审计说明。区间的样本单位、
+实验尚未完成时可省略 `--require-complete` 查看审计说明。区间的样本单位、
 连续窗口相关性与开销对照方法见[统计说明](Metrics.md#窗口置信区间与开销对照)。
 
 完整说明集中在[输出文件](Profiling_Protocol.md#输出文件)、[CSV 字段字典](Metrics.md#result_allcsv-字段解释)
 和[常见判断](Troubleshooting.md#常见判断)。
 
-## result_all.csv 字段解释
+## 分层指标字段解释（完整宽表导出）
 
 每行对应一个资源配置、一个 input scale 和一次 warmup/repeat 请求窗口。
 常规性能分析只取 `status=ok` 且 `warmup=0`；错误行中的部分数值不作为正式测量。
@@ -72,7 +71,7 @@ acprof stats results/<model-dir>/ --metric latency_app_s
 字段按用途分组，列顺序、类型、单位、来源和窗口由 [metric_registry.py](../acprof/metric_registry.py) 统一登记；
 `config.CSV_FIELDS` 引用同一字段列表。完整元数据见[字段速查](Metric_Reference.md)，绘图数值转换和补采完成条件复用登记表。
 
-`result.csv`、`result_case_*.csv` 和 `result_all.csv` 的列依次为：资源配置与输入输出／网络、
+显式导出宽表时，列依次为：资源配置与输入输出／网络、
 延迟与吞吐、独立 Profiler、GPU／CPU package／DRAM／估算 vCPU 能耗与能效、
 CPU 资源与 PMU、容器内存／swap／I/O／PID、GPU 资源、冷启动、请求契约与结果来源。
 GPU UUID 紧随 `gpu_mode`，能耗来源紧邻对应 GPU 能耗组，硬件 cycles／IPC 属于 PMU 组。
@@ -80,7 +79,7 @@ GPU UUID 紧随 `gpu_mode`，能耗来源紧邻对应 GPU 能耗组，硬件 cyc
 Profiler 和 DRAM 自身的诊断保留在各自指标组末尾。
 
 合并、packet 回填和 profiler 补采写出时统一此顺序，已有未知扩展列保留在 `status`、`error`
-之前。列重排不改变字段名、数值、单位、测量窗口或缺失值含义；读取历史 CSV 按列名匹配。
+之前。列重排不改变字段名、数值、单位、测量窗口或缺失值含义；分层 CSV 依据字段名和测量键组合。
 client 追加到字段集合相同的已有文件时沿用原表头，避免数值错位；字段缺失或重复时在写入前报错，
 要求使用新输出文件。已有实验文件不会因升级而自动重写。
 

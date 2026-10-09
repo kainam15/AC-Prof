@@ -102,7 +102,6 @@ For a TUI run, replace `results/first-run` in the following commands with the ou
 
 ```text
 results/first-run/google-bert--bert-base-uncased/
-├── result_all.csv           # Compatibility-wide measurements (currently retained)
 ├── result_layers.json       # Per-file integrity and reconstruction manifest
 ├── summary.csv              # Measurement identity, inputs and status
 ├── performance.csv          # Latency, throughput, startup
@@ -125,7 +124,7 @@ Check result completeness, then generate plots for the available data:
 
 ```bash
 acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
-acprof plot results/first-run/google-bert--bert-base-uncased/result_all.csv
+acprof plot results/first-run/google-bert--bert-base-uncased/result_layers.json
 acprof report results/first-run/google-bert--bert-base-uncased/
 acprof results verify results/first-run/google-bert--bert-base-uncased/
 ```
@@ -137,9 +136,7 @@ use `--output another-report.html` for a new snapshot. See [interactive comparis
 for aggregation rules and historical-data limits.
 
 New experiments write plots to `plots/cpu/`, `plots/gpu/`, `plots/gpu+cpu/`, and `plots/latency_model/`, skipping plots without applicable data.
-During collection, results are first written to `.acprof/work/cases/<case-id>/result.csv`; `result_all.csv` is merged after the matrix finishes.
-After validation, AC-Prof also publishes joinable CSV layers with separate profiler files. Existing consumers still use the wide result until the reader migration is complete. Use `acprof results export <result-dir> <new-file.csv>` to recreate a checked wide view, or `acprof results split <legacy-result-all.csv> --output-dir <new-empty-dir>` for a non-destructive historical conversion.
-Older directories without a manifest retain their existing paths and remain usable for reading, plotting, and post-hoc profiling. Data is not moved automatically.
+During collection, AC-Prof writes recoverable case results to `.acprof/work/cases/<case-id>/result.csv`. After validating the matrix, it publishes `result_layers.json` and the independent module CSVs as the **only official result**. A combined `result_all.csv` is **never created automatically**; request a new wide export with `acprof results export <result-dir> <new-file.csv>`. Older result layouts are not supported for experiment analysis or resume.
 See [Artifact Layout v2](docs/Profiling_Protocol.md#artifact-layout-v2) for the directory contract and recovery boundaries.
 For performance analysis, select rows with `status=ok` and `warmup=0`.
 The [results guide](docs/Metrics.md#从结果目录开始) explains fields, statistics, and missing values.
