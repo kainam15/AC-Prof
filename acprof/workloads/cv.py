@@ -204,7 +204,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
         return list(self._scales) if self._scales is not None else None
 
     def plan_metadata(self) -> Dict[str, Any]:
-        metadata = {
+        metadata: Dict[str, Any] = {
             "workload_id": self._workload_id,
             "workload_spec_sha256": self._spec_sha256,
             "input_scale_type": "resolution_scale",
@@ -226,7 +226,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
     def input_metadata(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload = self.generate(scale_value) if payload is None else payload
         resolution = self._resolution(scale_value)
-        metadata = {"image_width": resolution, "image_height": resolution, "input_num_samples": 1}
+        metadata: Dict[str, Any] = {"image_width": resolution, "image_height": resolution, "input_num_samples": 1}
         frames = payload.get("frames_base64")
         if frames is not None:
             metadata.update(num_frames=len(frames), frame_sha256=[

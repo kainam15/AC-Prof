@@ -5,6 +5,7 @@ import csv
 import hashlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TextIO
 
 from acprof.artifacts import atomic_write, atomic_write_json, read_json_object
 from acprof.metric_registry import METRICS, order_csv_fields
@@ -16,6 +17,11 @@ from acprof.result_csv import (
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
 )
+
+
+def _write_csv_text(stream: TextIO, raw: bytes) -> None:
+    stream.write(raw.decode("utf-8"))
+
 
 SCHEMA_VERSION = 1
 MANIFEST_NAME = "result_layers.json"
@@ -125,7 +131,7 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
         if destination.is_symlink():
             raise ResultValidationError(f"result layer must not be a symlink: {destination}")
         if not destination.exists() or destination.read_bytes() != raw:
-            atomic_write(destination, lambda stream, raw=raw: stream.write(raw.decode("utf-8")))
+            atomic_write(destination, lambda stream: _write_csv_text(stream, raw))
         records[layer] = {
             "path": relative, "sha256": hashlib.sha256(raw).hexdigest(),
             "row_count": len(rows_by_layer[layer]), "fields": assigned[layer],
@@ -220,5 +226,5 @@ def export_result_layers(root: str | Path, destination: str | Path) -> int:
         raise ResultValidationError(f"refusing to overwrite existing CSV: {destination}")
     fields, rows = read_result_layers(root)
     raw = _csv_bytes(fields, rows)
-    atomic_write(destination, lambda stream: stream.write(raw.decode("utf-8")))
+    atomic_write(destination, lambda stream: _write_csv_text(stream, raw))
     return len(rows)

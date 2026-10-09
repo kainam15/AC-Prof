@@ -96,7 +96,8 @@ def _check_workload_counts(row: dict) -> None:
     if type(total) is not int or total < 0 or not isinstance(variants, list):
         raise ValueError("workload_contract 缺少合法 request_count/variants")
     counts = [item.get("count") if isinstance(item, dict) else None for item in variants]
-    if any(type(count) is not int or count <= 0 for count in counts) or sum(counts) != total:
+    valid_counts = [count for count in counts if type(count) is int and count > 0]
+    if len(valid_counts) != len(counts) or sum(valid_counts) != total:
         raise ValueError("workload_contract 的 variants 计数与 request_count 不一致")
     completed = number(row.get("repeat_in_window"))
     if completed is not None and completed != total:
@@ -234,7 +235,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
                 issue("plan_coverage", "结果行与原实验计划不完全一致")
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             issue("invalid_run_state", error)
-    missing = {}
+    missing: dict[str, Counter[str]] = {}
     for index, row in enumerate(rows, 2):
         status = row.get("status", "").strip().lower()
         warmup = number(row["warmup"]) == 1

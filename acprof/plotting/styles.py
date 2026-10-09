@@ -98,7 +98,7 @@ def _configurations_with_colors(
     )
     has_cpu_series = any(not gpu_on for _, _, gpu_on in configs)
     gpu_mixed_colors = build_gpu_mixed_colors(configs) if has_cpu_series else {}
-    colors = {}
+    colors: dict[tuple[int, int, bool], tuple[float, float, float]] = {}
     for cpu, mem, gpu_on in configs:
         if gpu_on and has_cpu_series:
             colors[(cpu, mem, gpu_on)] = gpu_mixed_colors[(cpu, mem, gpu_on)]

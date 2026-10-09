@@ -166,7 +166,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "-e", "frame.len",
         "-e", "tcp.len",
     ]
-    stream_stats = {}
+    stream_stats: dict[int, dict[str, int]] = {}
     for line in run(stream_cmd).splitlines():
         if not line.strip():
             continue
@@ -201,14 +201,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     for request_id, latency_s in latency_by_request.items():
         req_fn = int(request_id.rsplit(":", 1)[1])
         stream_id = req_stream.get(req_fn)
-        stats = stream_stats.get(stream_id) if stream_id is not None else None
+        selected_stats = stream_stats.get(stream_id) if stream_id is not None else None
         record = {"latency_s": latency_s, "request_id": req_ids[req_fn], "tcp_stream": stream_id,
-                  "wire_bytes_status": "unavailable_shared_stream" if stream_requests[stream_id] > 1 else
-                                       "available" if stats is not None else "unavailable"}
-        if stats is not None and stream_requests[stream_id] == 1:
-            request_wire = int(stats.get("request_wire_bytes", 0))
-            response_wire = int(stats.get("response_wire_bytes", 0))
-            tcp_payload = int(stats.get("tcp_payload_bytes", 0))
+                  "wire_bytes_status": "unavailable_shared_stream" if stream_id is not None and stream_requests[stream_id] > 1 else
+                                       "available" if selected_stats is not None else "unavailable"}
+        if selected_stats is not None and stream_id is not None and stream_requests[stream_id] == 1:
+            request_wire = int(selected_stats.get("request_wire_bytes", 0))
+            response_wire = int(selected_stats.get("response_wire_bytes", 0))
+            tcp_payload = int(selected_stats.get("tcp_payload_bytes", 0))
             total_wire = request_wire + response_wire
             protocol_overhead = max(0, total_wire - tcp_payload)
             record.update({

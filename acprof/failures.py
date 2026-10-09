@@ -52,7 +52,8 @@ class RuntimeFailure(ValueError):
 def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unknown",
                            runtime_profile: str = "", evidence: dict | None = None) -> Failure:
     """Keep the original typed cause; never classify natural-language messages."""
-    cause, seen = exc, set()
+    cause: BaseException | None = exc
+    seen: set[int] = set()
     while cause is not None and id(cause) not in seen:
         seen.add(id(cause))
         if isinstance(cause, RuntimeFailure):

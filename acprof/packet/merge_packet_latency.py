@@ -4,7 +4,7 @@ import math
 import os
 import sys
 from collections import defaultdict
-from typing import Sequence
+from typing import Sequence, SupportsFloat, SupportsIndex, cast
 
 from acprof.artifacts import (
     atomic_write,
@@ -28,7 +28,7 @@ NETWORK_RECORD_TO_CSV_FIELD = {
 
 def _to_float(value: object) -> float:
     try:
-        return float(value)
+        return float(cast(str | SupportsFloat | SupportsIndex, value))
     except Exception:
         return float("nan")
 
@@ -36,6 +36,8 @@ def _to_float(value: object) -> float:
 def _request_records(payload: object) -> dict[str, dict[str, float]]:
     from acprof.artifacts import require_schema_version
     require_schema_version(payload, 2, "packet metrics")
+    if not isinstance(payload, dict):
+        raise ValueError("packet schema v2 must be an object")
     requests = payload.get("requests")
     if not isinstance(requests, dict) or any(not isinstance(row, dict) for row in requests.values()):
         raise ValueError("packet schema v2 requires a requests object containing record objects")

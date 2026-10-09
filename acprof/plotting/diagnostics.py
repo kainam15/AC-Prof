@@ -28,7 +28,8 @@ from acprof.plotting.styles import (
 
 def _format_axis_value(value: object) -> str:
     try:
-        number = float(value)
+        from typing import SupportsFloat, SupportsIndex, cast
+        number = float(cast(str | SupportsFloat | SupportsIndex, value))
     except (TypeError, ValueError):
         return str(value)
     if not math.isfinite(number):

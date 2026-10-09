@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
 
@@ -37,7 +37,7 @@ class Capability:
         raise TypeError("Capability requires an explicit status comparison, not bool()")
 
     def to_dict(self) -> dict:
-        return {"status": self.status.value, "detail": self.detail,
+        return {"status": CapabilityStatus(self.status).value, "detail": self.detail,
                 "source": self.source, "evidence": dict(self.evidence)}
 
 
@@ -308,7 +308,7 @@ REQUIRED_MEASUREMENT_FIELDS = {
 }
 
 
-def missing_required_measurements(report: CapabilityReport, rows: list[Mapping]) -> list[str]:
+def missing_required_measurements(report: CapabilityReport, rows: Sequence[Mapping]) -> list[str]:
     """Require actual evidence for success rows; explicit failed/OOM cases stay failed."""
     return sorted(name for name in REQUIRED_MEASUREMENT_FIELDS if name in report.requested
                   and any(row.get("status") in {"ok", "warn"}
@@ -316,7 +316,7 @@ def missing_required_measurements(report: CapabilityReport, rows: list[Mapping])
                   and report.measurement[name].status != CapabilityStatus.VERIFIED)
 
 
-def collection_outcomes(rows: list[Mapping]) -> dict:
+def collection_outcomes(rows: Sequence[Mapping]) -> dict:
     """Terminal outcomes of recorded rows; plan coverage is checked separately.
 
     A diagnostic placeholder closes a planned row without claiming it ran.
@@ -339,7 +339,7 @@ def collection_outcomes(rows: list[Mapping]) -> dict:
             "succeeded": bool(rows) and counts["succeeded"] == len(rows), "row_counts": counts}
 
 
-def apply_collection_result(report: CapabilityReport, rows: list[Mapping]) -> None:
+def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -> None:
     """Attach evidence after collection; this never changes a measured field."""
     outcomes = collection_outcomes(rows)
     report.collection_finished = outcomes["finished"]

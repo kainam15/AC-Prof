@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
 from acprof.analysis.latency_model import (
     LATENCY_MODEL_FEATURES,
@@ -515,14 +516,14 @@ def plot_latency_model_fit_curves(
     mem_rank_map = {mem: index for index, mem in enumerate(mem_values)}
     line_styles = ("-", "--", "-.", ":")
 
-    fig, axes = plt.subplots(
+    fig, axes_grid = plt.subplots(
         1,
         len(hardware_order),
         figsize=(7.5 * len(hardware_order), 8.5),
         squeeze=False,
     )
-    axes = list(axes.flat)
-    legend_entries = {}
+    axes = list(axes_grid.flat)
+    legend_entries: dict[tuple[int, int], Line2D] = {}
     hardware_titles = {
         "cpu": "CPU-off model",
         "gpu": "GPU-on model",
