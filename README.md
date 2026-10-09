@@ -30,11 +30,11 @@ The [metrics guide](docs/Metrics.md#采集能力概览) explains what each metri
 
 ## Quick start
 
-Install the latest published release with [uv](https://docs.astral.sh/uv/getting-started/installation/), then launch AC-Prof:
+Install the latest published release with [uv](https://docs.astral.sh/uv/getting-started/installation/), then launch the AC-Prof TUI:
 
 ```bash
 uv tool install acprof
-acprof
+acprof tui
 ```
 
 <a id="1-准备主机"></a>
