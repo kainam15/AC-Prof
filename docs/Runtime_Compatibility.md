@@ -1000,7 +1000,7 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 
 | 分组（默认折叠） | 内容 |
 | --- | --- |
-| 依赖清单 | 标题显示 Python/系统包数量，或“无新增包”“未知”；展开后逐行显示完整包名与精确版本。 |
+| 依赖清单 | 当前锁匹配时显示已锁定包；历史镜像按需读取原始构建清单，缺失时尝试隔离扫描；标注来源、完整包集合或相对父镜像的新增包。 |
 | 镜像信息 | 继承路径、共享/独有空间、模型、创建时间、全部标签和容器引用。 |
 | 诊断信息 | 完整 image/parent ID、依赖来源、父镜像关系证据、后代数、history/df 空间来源、原始字节数与空间计算说明；有库存警告时标题提示“有警告”。 |
 
@@ -1023,14 +1023,16 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 - 公共基础：显示平台 Python 锁中的完整包集合（包含上游 Python 基础镜像已有包），以及系统锁中本层安装的 `.deb` 制品；不将完整系统包表中的上游包算成本层安装。
 - 运行依赖：用完整环境锁减去其平台锁，显示本层新增 Python 包；系统包继承平台。例如 MOSS 层显示 `transformers==5.6.0`，平台已有的 `torch` 不重复列入。
 - 模型文件与推理服务：最近构建步骤、父镜像关系和环境身份均可核对时显示“无新增包”，分别说明本层添加模型文件或服务代码与运行清单。
-- 身份不匹配、锁缺失、构建历史不可用、关系冲突或继承已知标签后另装包的镜像显示“依赖未知”，不根据当前同名 profile 猜测历史版本。
+- 当前依赖锁无法匹配历史镜像时，不据当前 profile 猜测旧版本；只在展开某镜像的依赖分组后后台读取该镜像内的 `platform-manifest.json` 或 `environment-manifest.json`。原始清单保存的是构建时核验过的完整 Python / Debian 安装集合；同时校验清单中的构建身份与不可变镜像标签。
+- 若镜像不存在有效构建清单，仅对 AC-Prof 管理且可识别构建步骤的基础/运行依赖镜像，在禁网、只读、去 capability、禁提权、CPU/内存/PID 限制的临时容器内查询实际 Python 发行包及 dpkg 系统包；结束即删除容器，不加载模型。构建记录不可核验或 Python/dpkg 不可用时保留“未知”及具体原因，不对任意第三方镜像执行代码。
+- 历史快照记录的是**整张镜像**的安装包，不等于当前层新增包。运行环境只有取得匹配的父平台快照才计算新增差异；父镜像缺失或不匹配则仅展示完整安装集合，不能推断新增。模型文件、服务镜像只有构建步骤、身份与父级均可核对才标为“继承，无新增”。“层共享”中的物理 Diff ID 不被当作独立 Python 环境。
+- 读出的快照按 Docker daemon ID、不可变 image ID 和扫描协议版本持久缓存于 `$XDG_CACHE_HOME/acprof/image-dependencies/`（未设置时 `~/.cache/acprof/image-dependencies/`）。再次展开或 TUI 定时刷新只读本地缓存；未命中才按需启动临时容器，正式测量期间禁止开始扫描。缓存读取失败可重新取得证据，不把陈旧缓存应用于另一个 Docker daemon 或新镜像 ID。
 
-依赖来源为与镜像身份精确匹配的本地锁和已识别的构建步骤，界面明确说明未执行实时包扫描。
-查询复用刷新时已有的 Docker inspect/history，只读取本地锁；切换、搜索和展开不会启动容器、扫描文件系统或增加 Docker 查询。
-参考了 [Syft](https://github.com/anchore/syft) 的镜像包清单能力（Apache-2.0，有持续发布维护，支持 Python 与 Debian），
-但它的 Go CLI/库需要额外安装和镜像扫描；当前受控构建已有完整锁及构建身份，故复用项目锁解析与
-[Textual Tree](https://github.com/Textualize/textual/blob/main/docs/widgets/tree.md)（MIT，项目已使用），不引入扫描依赖。
-所有解析均在后台刷新任务内完成，与正式采集互斥。
+当前构建匹配仍采用本地依赖锁和已识别构建步骤；历史来源分别注明“镜像原始构建清单”或“实际扫描”。
+设计参考 [Trivy 的 image/layer ID 扫描缓存](https://github.com/aquasecurity/trivy/blob/main/docs/guide/target/container_image.md#scan-cache)
+和 [Syft 的已安装包目录识别](https://oss.anchore.com/docs/guides/sbom/catalogers/)，但这里仅需 Python / dpkg，无需引入重量级 SBOM 扫描依赖。
+镜像枚举与空间分析仍在线程中执行；历史依赖解析只在用户展开详情时执行，不进入正式测量窗口。
+界面树继续使用 [Textual Tree](https://github.com/Textualize/textual/blob/main/docs/widgets/tree.md)（MIT，已为项目依赖）。
 
 路径高亮复用 [Textual 8.2.8 Tree](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_tree.py)
 的行布局与 Rich 分段渲染，只覆盖连接线样式。Textual 采用 MIT 许可、上游持续维护，当前 `.venv` 版本已验证；

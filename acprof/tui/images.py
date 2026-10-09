@@ -462,15 +462,20 @@ def dependency_packages(item: ManagedImage) -> list[str]:
 def dependency_title(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
         return message("依赖清单 · 未知")
-    if item.dependency_source == "inherited":
+    if item.dependency_source in {"inherited", "inherited-historical"}:
         return message("依赖清单 · 无新增包")
+    if item.dependency_source in {"historical-manifest", "actual-scan"}:
+        title = "历史构建" if item.dependency_source == "historical-manifest" else "实际扫描"
+        return message("依赖清单 · {0} · Python {1} · 系统 {2}",
+                       message(title), len(item.python_dependencies), len(item.system_dependencies))
     return message("依赖清单 · Python {0} · 系统 {1}", len(item.python_dependencies), len(item.system_dependencies))
 
 
 def dependency_detail(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
-        return message("本层依赖：未知（镜像身份、依赖锁或构建记录无法核验）。")
-    if item.dependency_source == "inherited":
+        return join_messages("\n", (message("本层依赖：未知（镜像身份、依赖锁或构建记录无法核验）。"),
+                                   item.dependency_note))
+    if item.dependency_source in {"inherited", "inherited-historical"}:
         return join_messages("\n", (
             message("本层依赖：无新增包，继承父镜像。"),
             message("本层添加模型文件；包依赖由运行环境提供。" if item.kind == "weights" else
@@ -478,21 +483,35 @@ def dependency_detail(item: ManagedImage) -> str:
                     "本层添加推理服务代码与运行清单；包依赖由运行环境提供。"),
         ))
     packages = dependency_packages(item)
-    parts = [message("平台 Python 依赖（{0}，含基础镜像已有包）：\n{1}" if item.dependency_source == "platform-lock" else
-                     "本层新增 Python 依赖（{0}）：\n{1}", len(packages), "\n".join(packages) or message("无新增包"))]
+    historical = item.dependency_source in {"historical-manifest", "actual-scan"}
+    full = historical and item.dependency_scope == "full"
+    python_label = ("镜像已安装 Python 包（{0}，含继承）：\n{1}" if full else
+                    "平台 Python 依赖（{0}，含基础镜像已有包）：\n{1}" if item.dependency_source == "platform-lock" else
+                    "本层新增 Python 依赖（{0}）：\n{1}")
+    parts = [message(python_label, len(packages), "\n".join(packages) or message("无新增包"))]
     if item.system_dependencies:
-        parts.append(message("本层系统安装制品（{0}）：\n{1}", len(item.system_dependencies),
+        system_label = "镜像已安装系统包（{0}，含继承）：\n{1}" if full else "本层系统安装制品（{0}）：\n{1}"
+        parts.append(message(system_label, len(item.system_dependencies),
                              "\n".join(f"{name}={version}" for name, version in item.system_dependencies)))
     else:
         parts.append(message("系统包继承平台，本层无新增。"))
+    if historical:
+        parts.append(dependency_source_detail(item))
+    if item.dependency_note:
+        parts.append(message(item.dependency_note))
     return join_messages("\n\n", parts)
 
 
 def dependency_source_detail(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
         return message("本层依赖：未知（镜像身份、依赖锁或构建记录无法核验）。")
-    return message("依赖来源：已核对的构建步骤与父镜像身份。" if item.dependency_source == "inherited" else
-                   "依赖来源：与镜像身份匹配的锁文件；未执行实时包扫描。")
+    if item.dependency_source == "historical-manifest":
+        return message("依赖来源：镜像原始构建清单；构建时已核验，未重新实测。")
+    if item.dependency_source == "actual-scan":
+        return message("依赖来源：隔离容器实际扫描；结果已按镜像 ID 缓存。")
+    if item.dependency_source in {"inherited", "inherited-historical"}:
+        return message("依赖来源：已核对的构建步骤与父镜像身份。")
+    return message("依赖来源：与镜像身份匹配的锁文件；未执行实时包扫描。")
 
 
 def filtered_images(inventory: ImageInventory, query: str, scope: str) -> tuple[ManagedImage, ...]:

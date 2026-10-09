@@ -549,6 +549,41 @@ class TestTuiImages:
             assert (tree.root.children[0].children[0].data.image_id) == (WEIGHTS)
             assert (len(self.docker.commands)) == (before), "切换与搜索不能重新扫描 Docker"
 
+    async def test_historical_dependencies_load_only_when_expanded_and_preserve_detail(self):
+        dependency_images(self.docker, profile="nlp-cu128")
+        self.docker.images[RUNTIME]["Config"]["Labels"]["org.acprof.platform-build-fingerprint"] = "historical-key"
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view="list")
+            table = app.query_one("#image-table", DataTable)
+            table.move_cursor(row=table.get_row_index(RUNTIME), animate=False)
+            await pilot.pause()
+            details = app.query_one("#image-dependencies", Collapsible)
+            assert details.collapsed
+
+            def resolved(inventory, image_id):
+                images = tuple(replace(item, python_dependencies=(("torch", "old-version"),),
+                                       dependency_source="historical-manifest", dependency_scope="full")
+                               if item.image_id == image_id else item for item in inventory.images)
+                return replace(inventory, images=images)
+
+            with patch("acprof.host.image_dependencies.resolve_image_dependencies",
+                       side_effect=resolved) as resolver:
+                assert resolver.call_count == 0
+                assert "未知" in str(details.query_one("CollapsibleTitle").render())
+                details.collapsed = False
+                await app.workers.wait_for_complete()
+                await pilot.pause()
+                assert resolver.call_count == 1
+                assert not details.collapsed, "后台加载不应收起用户打开的清单"
+                text = str(app.query_one("#image-dependency-detail", Static).content)
+                assert "torch==old-version" in text
+                assert "原始构建清单" in text
+                assert "历史构建" in str(details.query_one("CollapsibleTitle").render())
+                app._show_image_detail()
+                await pilot.pause()
+                assert resolver.call_count == 1
+
     async def load_images(self, app, pilot, *, view="list", expand_tree=False):
         await pilot.pause()
         app.action_show_images()

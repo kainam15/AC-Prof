@@ -7,7 +7,16 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual import on, work
 from textual.message_pump import MessagePump
-from textual.widgets import Button, ContentSwitcher, DataTable, Select, Static, TabbedContent, Tree
+from textual.widgets import (
+    Button,
+    Collapsible,
+    ContentSwitcher,
+    DataTable,
+    Select,
+    Static,
+    TabbedContent,
+    Tree,
+)
 
 from acprof.host.image_graph import reclaimable_image_bytes, retain_complete_image_selection
 from acprof.host.image_management import (
@@ -55,6 +64,7 @@ class ImageActions(MessagePump):
     _image_refresh_error: str
     _storage_screen: StorageSpaceScreen | None
     _storage_loading: bool
+    _image_dependency_pending: set[str]
 
     def action_show_images(self: AcprofTui) -> None:
         self._activate_tab("images-tab")
@@ -134,12 +144,12 @@ class ImageActions(MessagePump):
             self._image_inventory, self._input("image-search"), self._select("image-scope"),
         ))
         sort_key, reverse = self._image_sort
-        key = {"name": lambda item: (image_display_name(item).casefold(), item.name),
+        sorter = {"name": lambda item: (image_display_name(item).casefold(), item.name),
                "size": lambda item: item.size_bytes, "added": lambda item: item.added_bytes if item.added_bytes is not None else -1,
                "containers": lambda item: len(item.containers), "repository": lambda item: item.name,
                "tag": lambda item: item.name.rsplit(":", 1)[-1], "kind": lambda item: item.kind,
                "parent": lambda item: item.parent_id}[sort_key]
-        self._visible_images = tuple(sorted(self._visible_images, key=key, reverse=reverse))
+        self._visible_images = tuple(sorted(self._visible_images, key=sorter, reverse=reverse))
         table.clear(columns=True)
         reference_width = max(30, (self.size.width if width is None else width) - 44)
         tag_width = max(12, min(28, reference_width * 2 // 5))
@@ -247,6 +257,49 @@ class ImageActions(MessagePump):
         else:
             detail.show_empty("没有匹配的镜像；可调整筛选，清单会自动刷新。")
         self._update_image_controls()
+
+    @on(Collapsible.Expanded, "#image-dependencies")
+    def _expand_image_dependencies(self: AcprofTui) -> None:
+        inventory, item = self._image_inventory, self._current_image()
+        if inventory is None or item is None or item.dependency_source != "unknown":
+            return
+        if self._latest_snapshot.measurement_active:
+            self._set_text(self.query_one("#image-dependency-detail", Static),
+                           message("正式测量期间不读取镜像依赖。"))
+            return
+        pending = getattr(self, "_image_dependency_pending", None)
+        if pending is None:
+            pending = self._image_dependency_pending = set()
+        if item.image_id in pending:
+            return
+        pending.add(item.image_id)
+        panel = self.query_one("#image-dependencies", Collapsible)
+        self._set_text(panel, message("依赖清单 · 正在读取"), "title")
+        self._set_text(self.query_one("#image-dependency-detail", Static),
+                       message("正在读取镜像原始清单；缺失时将尝试安全扫描。"))
+        self._execute_image_dependency_resolution(inventory, item.image_id)
+
+    @work(thread=True, group="image-dependency-resolution", exit_on_error=False)
+    def _execute_image_dependency_resolution(self: AcprofTui, inventory: ImageInventory, image_id: str) -> None:
+        from acprof.host.image_dependencies import resolve_image_dependencies
+
+        try:
+            resolved = resolve_image_dependencies(inventory, image_id)
+        except Exception as error:
+            from dataclasses import replace as dataclass_replace
+            images = tuple(dataclass_replace(item, dependency_note=f"依赖查询失败（{type(error).__name__}）。")
+                           if item.image_id == image_id else item for item in inventory.images)
+            resolved = dataclass_replace(inventory, images=images)
+        self.call_from_thread(self._complete_image_dependency_resolution, inventory, image_id, resolved)
+
+    def _complete_image_dependency_resolution(self: AcprofTui, original: ImageInventory,
+                                              image_id: str, resolved: ImageInventory) -> None:
+        getattr(self, "_image_dependency_pending", set()).discard(image_id)
+        if not self.is_running or not self._form_ready or self._image_inventory is not original:
+            return
+        self._image_inventory = resolved
+        # Preserve the existing selection, expanded group and scroll positions.
+        self._render_images(current_id=self._focused_image_id, preserve_scroll=True)
 
     @on(DataTable.RowSelected, "#image-table")
     @on(Tree.NodeSelected, "#image-tree")
