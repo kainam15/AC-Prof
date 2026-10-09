@@ -30,11 +30,6 @@ uv tool install acprof
 acprof
 ```
 
-如果 shell 找不到 `acprof`，执行 `uv tool update-shell` 后重新打开终端。
-已激活的虚拟环境中也可使用 `uv pip install acprof` 或 `pip install acprof`。
-工具安装通过 `uv tool upgrade acprof` 升级；环境安装使用 `uv pip install -U acprof`。
-源码 checkout 使用下方的[开发安装](#项目结构与开发)。
-
 ### 1. 准备主机
 
 FULL 采集需要 Native Linux x86_64、本机 Docker Engine 和统一 cgroup v2，推荐 Ubuntu 24.04。

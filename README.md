@@ -37,11 +37,6 @@ uv tool install acprof
 acprof
 ```
 
-If your shell cannot find `acprof`, run `uv tool update-shell` and reopen the terminal.
-For an activated virtual environment, use `uv pip install acprof` or `pip install acprof`.
-Upgrade with `uv tool upgrade acprof`, or `uv pip install -U acprof` for an environment installation.
-Source checkouts use the [development installation](#project-structure-and-development) below.
-
 <a id="1-准备主机"></a>
 
 ### 1. Prepare the host
