@@ -59,39 +59,11 @@ The CPU example below does not need a GPU. GPU experiments additionally require 
 See [host checks and configuration](docs/Getting_Started.md#1-检查主机环境) if you are unsure whether your machine meets the requirements.
 The `full` mode also requires readable RAPL counters, working `perf instructions`, `tcpdump`, `tshark`, and a Docker bridge.
 
-<a id="2-安装-ac-prof-并检查环境"></a>
+<a id="2-跑通第一个-cpu-实验"></a>
 
-### 2. Install AC-Prof and check the environment
+### 2. Run your first CPU experiment
 
-Check the installed version and the host prerequisites:
-
-```bash
-acprof --version
-acprof --help
-acprof doctor --profiling-mode basic --gpus off
-```
-
-Run `acprof` or `acprof tui` to open the TUI.
-The interface defaults to Simplified Chinese. Press `F2` and select `English` under **界面语言 / Language** to switch languages.
-Choose a model and profiling mode, then click **Start run** and review the confirmation screen.
-If Docker or another prerequisite is missing, `doctor` reports the missing requirement and a suggested fix.
-
-The public interface is `acprof <command>` in both source and installed environments.
-Use `acprof --help` or `acprof <command> --help` to discover commands and options.
-
-Use `acprof tui --preset smoke` to load the small preset; select `basic` for the CPU example below.
-You can launch AC-Prof from any working directory; output paths are relative to that directory.
-Model runtime dependencies reuse verified GHCR images when available; any local-build fallback is visible and must satisfy the source policy. Budgeted runs stop on pull failure and require a new preflight. Model weights are downloaded as needed into the shared Model Store.
-For private or gated models, press `F2` in the TUI and enter `HF_TOKEN` under **Connections and permissions**. The same section configures notifications and profiling permissions.
-Connection settings are stored in `.env.local` in the working directory, readable and writable only by the current user. Exclude this file and its backups from Git.
-Downloads use `auto`: reuse the Model Store offline, then try the domestic Hub entry and official Hugging Face, following trusted CDN/Xet bridge redirects. A domestic entry does not guarantee domestic storage traffic. AC-Prof uses the system network environment and does not configure VPNs or proxies. If HF remains unavailable, retry after fixing system networking or explicitly choose a ModelScope model; the two sources retain separate artifact identities. Use `--max-download 5GB` to check the budget before bulk downloads; unknown sizes stop budgeted runs. See [download and Model Store policy](docs/Runtime_Compatibility.md#下载网络与-model-store) and [advanced network configuration](docs/CLI_Reference.md#主机环境与-hugging-face-认证).
-See [authentication](docs/Getting_Started.md#hugging-face-认证), [installation options](docs/Getting_Started.md#安装), and [distribution details](docs/Distribution.md).
-
-<a id="3-跑通第一个-cpu-实验"></a>
-
-### 3. Run your first CPU experiment
-
-You can run the same introductory experiment from the command line: one CPU, 4 GB of container memory, one input scale, and one request in the main measurement window.
+Run an introductory experiment from the command line: one CPU, 4 GB of container memory, one input scale, and one request in the main measurement window.
 This checks that the workflow runs successfully. A single measurement is not enough to draw performance conclusions.
 
 ```bash
