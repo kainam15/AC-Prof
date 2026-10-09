@@ -50,35 +50,9 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集�
 不确定环境是否满足要求时，先看[主机检查与配置](../Getting_Started.md#1-检查主机环境)。
 `full` 模式还需要可读的 RAPL、可用的 `perf instructions`、`tcpdump`、`tshark` 和 Docker bridge。
 
-### 2. 安装 AC-Prof 并检查环境
+### 2. 跑通第一个 CPU 实验
 
-检查安装版本和主机前置条件：
-
-```bash
-acprof --version
-acprof --help
-acprof doctor --profiling-mode basic --gpus off
-```
-
-运行 `acprof` 或 `acprof tui` 打开 TUI。
-界面默认使用简体中文，可按 `F2` 在 **界面语言 / Language** 中选择 `English`。
-选择模型和采集模式，点击“开始采集”并核对确认页。
-Docker 或其他前置条件缺失时，`doctor` 会报告缺项及处理建议。
-
-源码开发与安装环境的公开入口均为 `acprof <command>`。
-使用 `acprof --help` 或 `acprof <command> --help` 查看命令与参数。
-
-需要小规模预设时运行 `acprof tui --preset smoke`；下方 CPU 示例需选择 `basic`。
-可从任意工作目录启动，输出路径相对于该目录。
-模型推理依赖优先复用经过核验的 GHCR 预构建镜像；回退本机构建会明确显示，并须符合来源策略。预算模式下 pull 失败会停止，需重新预检；模型权重按需下载到共享 Model Store。
-私有或 gated 模型可在 TUI 按 `F2` → **连接与权限**填写 `HF_TOKEN`；同处可配置通知和采集权限。
-连接配置保存到当前工作目录的 `.env.local`（仅当前用户可读写），该文件及其备份应加入 Git 忽略。
-下载统一使用 `auto`：先离线复用 Model Store，再依次尝试国内 Hub 入口和官方 Hugging Face，跟随可信 CDN/Xet bridge 重定向。国内入口不保证权重字节来自国内服务器。AC-Prof 使用系统网络环境，不负责配置 VPN 或代理。HF 仍不可用时，可修复系统网络后重试，或显式选择 ModelScope 模型；两个 source 保持独立的 artifact 身份。使用 `--max-download 5GB` 在大下载前检查预算；大小未知时预算模式也会停止。详见[下载与 Model Store 策略](../Runtime_Compatibility.md#下载网络与-model-store)和[高级网络配置](../CLI_Reference.md#主机环境与-hugging-face-认证)。
-详见[认证配置](../Getting_Started.md#hugging-face-认证)、[安装方式](../Getting_Started.md#安装)和[发行包说明](../Distribution.md)。
-
-### 3. 跑通第一个 CPU 实验
-
-也可以在命令行运行同样的入门实验：只使用 1 个 CPU、4 GB 容器内存和一个输入规模，主测量发送一次请求。
+在命令行运行以下入门实验：只使用 1 个 CPU、4 GB 容器内存和一个输入规模，主测量发送一次请求。
 它用于检查流程能否跑通，单次测量不足以得出性能结论。
 
 ```bash
