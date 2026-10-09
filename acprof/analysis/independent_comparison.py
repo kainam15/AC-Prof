@@ -61,8 +61,12 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
     if not left or not right:
         raise ValueError("both comparison groups require at least one experiment")
     sources = {"left": list(left), "right": list(right)}
-    experiments, run_ids, fingerprints = {}, set(), {}
-    groups = defaultdict(lambda: {"left": [], "right": []})
+    experiments: dict[str, list[dict[str, Any]]] = {}
+    run_ids: set[str] = set()
+    fingerprints: dict[Path, str | None] = {}
+    groups: defaultdict[tuple[str, ...], dict[str, list[dict[str, Any]]]] = defaultdict(
+        lambda: {"left": [], "right": []}
+    )
     checks = []
     for side, paths in sources.items():
         experiments[side] = []
@@ -131,6 +135,8 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         coordinates = {side: records[0]["resource_coordinates"] if records else None for side, records in sides.items()}
         baseline_coordinates = coordinates["left"] or coordinates["right"]
         if purpose == "resource-scaling":
+            if baseline_coordinates is None:
+                raise ValueError("resource-scaling case has no recorded resource coordinates")
             cpu, mem = baseline_coordinates["cpu_cores"], baseline_coordinates["mem_cap_gb"]
         result: dict[str, Any] = {"cpu_cores": float(cpu), "mem_cap_gb": float(mem), "gpu_mode": gpu,
                   "resource_coordinates": coordinates,

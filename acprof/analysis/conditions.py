@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter
+from collections import defaultdict
 from fractions import Fraction
 
 PURPOSES = ("same-hardware", "cross-hardware", "resource-scaling")
@@ -49,7 +49,7 @@ def dimensions(contract, prefix=""):
 
 def workload_case_profile(case):
     variants = []
-    distribution = Counter()
+    distribution: defaultdict[str, Fraction] = defaultdict(Fraction)
     complete = True
     for variant in case["variants"]:
         contract = variant["contract"]
@@ -79,7 +79,7 @@ def compare_workload_profiles(left, right):
         known = set.intersection(*(set(item["fields"]) for item in variants))
 
         def controlled_distribution(case):
-            values = Counter()
+            values: defaultdict[str, Fraction] = defaultdict(Fraction)
             for item in case["variants"]:
                 fields = {name: item["fields"][name] for name in item["controlled"] if name in known}
                 values[canonical(fields)] += Fraction(item["proportion"])
@@ -112,7 +112,7 @@ def comparison_profile(snapshot, *, purpose="same-hardware", case=None):
                     for name, values in hardware.items()}
     if not unknown(hardware.get("runtime_threads")):
         conditions["runtime_threads"] = hardware["runtime_threads"]
-    workload_profiles = None
+    workload_profiles: dict[str, dict[str, object]] | None = None
     if workload is not None:
         workload_profiles = {}
         for key, item in workload.items():
@@ -128,7 +128,7 @@ def comparison_profile(snapshot, *, purpose="same-hardware", case=None):
         def remove_resource_keys(values):
             if not isinstance(values, dict):
                 return values
-            by_device = {}
+            by_device: dict[str, dict[str, object]] = {}
             for key, value in values.items():
                 by_device.setdefault(key.rsplit("_", 1)[-1], {})[canonical(value)] = value
             return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}

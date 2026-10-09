@@ -7,6 +7,7 @@ import io
 import json
 import math
 from pathlib import Path
+from typing import TextIO
 
 from acprof.artifacts import atomic_write
 from acprof.failures import Failure, compatibility_status
@@ -60,7 +61,7 @@ def _recorded_model_source(metadata: dict, resolution: dict) -> str:
     if not isinstance(snapshot, dict):
         raise _RecordedSourceError("model_resolution.json", "repository snapshot provenance must be an object")
     source = metadata.get("model_source", snapshot.get("source", "huggingface"))
-    if source not in MODEL_SOURCES:
+    if not isinstance(source, str) or source not in MODEL_SOURCES:
         raise _RecordedSourceError("static_meta.json" if "model_source" in metadata else "model_resolution.json",
                                    "recorded model source must be huggingface/modelscope")
     if "source" in snapshot and snapshot["source"] != source:
@@ -108,8 +109,11 @@ def write_compatibility_report(root: Path, rows: list[dict]):
             row["source"], row["model_id"], values["revision"], values["status"], values["reason_code"], detail)) + " |")
     csv_text = stream.getvalue()
     report_text = "\n".join(lines) + "\n"
-    atomic_write(root / "models.csv", lambda output: output.write(csv_text))
-    atomic_write(root / "REPORT.md", lambda output: output.write(report_text))
+    def write_text(stream: TextIO, content: str) -> None:
+        stream.write(content)
+
+    atomic_write(root / "models.csv", lambda output: write_text(output, csv_text))
+    atomic_write(root / "REPORT.md", lambda output: write_text(output, report_text))
 
 
 def report_results(sources: list[Path], output: Path) -> dict:

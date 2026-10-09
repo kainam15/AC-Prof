@@ -27,7 +27,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         if metric is None or metric.kind != "number" or metric.window not in {"request_window", "matched_control"}:
             raise ValueError(f"{name} 不属于独立测量窗口；不对复用的 profiler/生命周期值计算区间")
     cases, keys = defaultdict(list), set()
-    excluded = defaultdict(int)
+    excluded: defaultdict[tuple[str, ...], int] = defaultdict(int)
     for row in rows:
         if cancelled():
             raise CancelledError()
@@ -127,7 +127,7 @@ def bootstrap_mean_interval(values, *, confidence=0.95, resamples=5000, seed=0, 
     estimates = []
     for _ in range(resamples):
         # 循环移动块；block_size=1 即普通 percentile bootstrap。
-        sampled = []
+        sampled: list[float] = []
         while len(sampled) < count:
             start = rng.randrange(count)
             sampled.extend(values[(start + offset) % count] for offset in range(block_size))

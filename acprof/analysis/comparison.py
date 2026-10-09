@@ -103,7 +103,7 @@ def _actual_workload(rows: list[dict]) -> dict | None:
 
 
 def _distribution(case, projection=lambda contract: contract):
-    counts = Counter()
+    counts: Counter[str] = Counter()
     for variant in case["variants"]:
         counts[_canonical(projection(variant["contract"]))] += variant["count"]
     total = case["request_count"]
@@ -131,7 +131,7 @@ def _workload_condition(left, right):
         return {**result, "status": "incompatible", "reason": "workload_cases_changed"}
     result["request_counts_changed"] = any(left[key]["request_count"] != right[key]["request_count"] for key in left)
     incomplete = any(_unknown(v["contract"]) for cases in (left, right) for case in cases.values() for v in case["variants"])
-    changed = {}
+    changed: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
     differing_cases = [key for key in left if _distribution(left[key]) != _distribution(right[key])]
     if not differing_cases:
         return {**result, "status": "unknown" if incomplete else "compatible",
@@ -231,7 +231,7 @@ def load_comparison_snapshot(source: str | Path) -> dict:
         threads[device] = (observed if explicit_threads and result.get("status") == "ok"
                            and type(observed) is int and observed > 0 else None)
     case_ids = set()
-    rows = []
+    rows: list[dict[str, str]] = []
     try:
         _, rows = read_result_csv(directory / "result_layers.json" if source.is_dir() else source)
         actual = _actual_workload(rows)
@@ -300,7 +300,7 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
         def resource_workload(cases):
             if cases is None:
                 return None
-            normalized = {}
+            normalized: dict[str, dict] = {}
             for key, value in cases.items():
                 projected = _canonical(json.loads(key)[2:])
                 if projected in normalized and workload_case_profile(normalized[projected]) != workload_case_profile(value):
