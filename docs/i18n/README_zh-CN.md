@@ -28,6 +28,21 @@ acprof tui
 
 实验采集需要满足要求的 Linux 主机、本机 Docker Engine 和 cgroup v2。Native Linux x86_64 支持符合前置条件的 FULL 测量；WSL2 仅有受限的 basic/PARTIAL 支持。详见[主机要求](../getting_started/installation.md#1-检查主机环境)。
 
+### 开发者快速开始
+
+参与开发或使用最新源码时，克隆仓库并以 editable 模式安装：
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+.venv/bin/acprof tui
+```
+
+完整流程见[开发环境](../development/distribution.md#本地开发环境)和[测试指南](../development/testing.md)。
+
 ## 文档导航
 
 | 想做什么 | 阅读入口 |

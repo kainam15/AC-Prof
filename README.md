@@ -28,6 +28,21 @@ acprof tui
 
 Collection requires a suitable Linux host with a local Docker Engine and cgroup v2. Native Linux x86_64 is the FULL measurement platform; WSL2 has limited basic/PARTIAL support. See [host requirements](docs/getting_started/installation.md#1-检查主机环境).
 
+### Develop from source
+
+To contribute or work on the latest source code, clone the repository and install it in editable mode:
+
+```bash
+git clone https://github.com/kainam15/AC-Prof.git
+cd AC-Prof
+uv venv --python 3.10
+uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+uv pip install --no-deps -e .
+.venv/bin/acprof tui
+```
+
+See [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md) for the full workflow.
+
 ## Documentation
 
 | Goal | Guide |
