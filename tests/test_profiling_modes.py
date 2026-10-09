@@ -45,7 +45,7 @@ class TestProfilingMode:
             stack.enter_context(patch.object(orchestrator, "stop_container_session"))
             stack.enter_context(patch("acprof.host.command.run_command", side_effect=fake_run))
             stack.enter_context(patch.object(orchestrator, "_resolve_packet_latency_runtime", side_effect=AssertionError("basic must not resolve packet capture")))
-            stack.enter_context(patch.object(orchestrator, "_check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
+            stack.enter_context(patch.object(orchestrator, "check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
             stack.enter_context(redirect_stdout(output))
             paths = orchestrator.run_matrix(task, ImageInfo(tag="test"), [1, 2], [1], ["off"], root, ".", profiling_mode="basic", input_scales="1")
         assert (len(paths)) == (2)
