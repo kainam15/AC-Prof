@@ -87,7 +87,7 @@ def create_backup(context: ResultContext) -> Path:
                            for layer in manifest["layers"])
         if context.collection_history_existed:
             sources.append(
-                (context.collection_history_path, COLLECTION_HISTORY_NAME)
+                (context.collection_history_path, context.collection_history_path.relative_to(context.result_dir).as_posix())
             )
         for source, name in sources:
             destination = backup / name

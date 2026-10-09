@@ -29,5 +29,13 @@ class CatalogFixture:
                 'runtime_profile_id': 'transformers-cpu'}, 'image': {'runtime_environment': {'environment_id': 'env-a'}}}}
         (path / 'run_state.json').write_text(json.dumps(state))
         (path / 'static_meta.json').write_text(json.dumps({'model_name': model, 'model_revision': revision, 'cpu_model': 'Fixture CPU'}))
-        (path / 'result_all.csv').write_text('fixture\n')
+        # A recorded experiment publishes independently hashed result layers.
+        from acprof.result_layers import publish_result_rows
+        publish_result_rows(
+            ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
+             "repeat_idx", "status"],
+            [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="2",
+                  warmup="0", repeat_idx="0", status="ok")],
+            path,
+        )
         return path

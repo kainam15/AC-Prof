@@ -61,7 +61,10 @@ class TestExperimentCatalog(CatalogFixture):
         report = scan_experiments([self.root])
         assert (len(report.records)) == (1)
         assert (set(report.records[0].aliases)) == ({original, copy})
-        (copy / 'result_all.csv').write_text('changed\n')
+        from acprof.result_layers import publish_result_rows, read_result_layers
+        fields, rows = read_result_layers(copy)
+        rows[0]["status"] = "error"
+        publish_result_rows(fields, rows, copy)
         report = scan_experiments([self.root])
         assert ('run_id_content_conflict') in (report.records[0].issues)
         assert not (report.records[0].has_recovery_state)
@@ -138,3 +141,17 @@ class TestExperimentCatalog(CatalogFixture):
             return len(calls) > 4
         with pytest.raises(InterruptedError):
             scan_experiments([self.root], cancelled=cancelled)
+
+
+
+def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_path):
+    from acprof.tui.experiment_catalog import scan_experiments
+    fixture = CatalogFixture()
+    fixture.root = tmp_path
+    original = fixture.record("original")
+    clone = tmp_path / "clone" / original.name
+    shutil.copytree(original, clone)
+    (clone / "summary.csv").write_text("corrupted\n")
+    report = scan_experiments([tmp_path])
+    assert len(report.records) == 1
+    assert "duplicate_evidence_unverified" in report.records[0].issues

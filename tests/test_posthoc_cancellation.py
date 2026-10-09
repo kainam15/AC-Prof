@@ -29,6 +29,9 @@ def test_v2_cancellation_restores_files_across_directories(tmp_path, monkeypatch
     backup = storage.create_backup(context)
     paths = (context.result_csv, context.static_meta_path, context.collection_history_path)
     before = {path: path.read_bytes() if path.exists() else None for path in paths}
+    if history_existed:
+        relative = context.collection_history_path.relative_to(context.result_dir)
+        assert (backup / relative).read_bytes() == before[context.collection_history_path]
     rows = [dict(row) for row in context.rows]
     rows[0]["marker"] = "changed"
     original_replace = storage.os.replace
@@ -120,7 +123,8 @@ def test_cancelled_backup_copy_removes_only_the_incomplete_backup(tmp_path, monk
     _PosthocFixture()._write_fixture(tmp_path)
     context = posthoc_context.load_result_context(tmp_path)
     previous = storage.create_backup(context)
-    saved = {path.name: path.read_bytes() for path in previous.iterdir()}
+    saved = {path.relative_to(previous): path.read_bytes()
+             for path in previous.rglob("*") if path.is_file()}
     cancellation = cancellation_type("intentional backup cancellation")
 
     def interrupt_copy(_source, destination):
@@ -132,7 +136,8 @@ def test_cancelled_backup_copy_removes_only_the_incomplete_backup(tmp_path, monk
         storage.create_backup(context)
     assert caught.value is cancellation
     assert list(previous.parent.iterdir()) == [previous]
-    assert {path.name: path.read_bytes() for path in previous.iterdir()} == saved
+    assert {path.relative_to(previous): path.read_bytes()
+            for path in previous.rglob("*") if path.is_file()} == saved
 
 
 @pytest.mark.parametrize("cancellation_type", CANCELLATIONS)

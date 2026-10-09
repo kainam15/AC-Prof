@@ -106,16 +106,45 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
 def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], budget: list[int]) -> str:
     # Only duplicate run IDs need data hashing; ordinary browsing never scans CSV contents.
     digest = hashlib.sha256(json.dumps({'state': record.state, 'metadata': record.metadata, 'validation': record.validation, 'failures': record.failures}, sort_keys=True).encode())
-    csv = record.directory / 'result_layers.json'
-    if csv.is_file() and csv.resolve().is_relative_to(record.directory):
-        with csv.open('rb') as stream:
-            while chunk := stream.read(min(1024 * 1024, budget[0] + 1)):
-                budget[0] -= len(chunk)
-                if budget[0] < 0:
-                    raise ValueError('duplicate_evidence_unverified: CSV byte budget exceeded')
-                if cancelled():
-                    raise InterruptedError('experiment scan cancelled')
-                digest.update(chunk)
+    manifest_path = record.directory / 'result_layers.json'
+    if manifest_path.is_file():
+        # Hash the full immutable snapshot, not just the manifest: equal
+        # metadata must never mask a changed or missing result layer.
+        from acprof.artifacts import loads_finite_json
+        from acprof.result_layers import BASE_LAYERS, LAYER_FILES, SCHEMA_VERSION
+
+        def consume(path: Path, *, retain: bool = False) -> tuple[str, bytes | None]:
+            if path.is_symlink() or not path.resolve().is_relative_to(record.directory):
+                raise ValueError('duplicate_evidence_unverified: unsafe result layer')
+            data = bytearray() if retain else None
+            file_digest = hashlib.sha256()
+            with path.open('rb') as stream:
+                while chunk := stream.read(min(1024 * 1024, budget[0] + 1)):
+                    budget[0] -= len(chunk)
+                    if budget[0] < 0:
+                        raise ValueError('duplicate_evidence_unverified: CSV byte budget exceeded')
+                    if cancelled():
+                        raise InterruptedError('experiment scan cancelled')
+                    digest.update(chunk)
+                    file_digest.update(chunk)
+                    if data is not None:
+                        data.extend(chunk)
+            return file_digest.hexdigest(), bytes(data) if data is not None else None
+
+        _, manifest_bytes = consume(manifest_path, retain=True)
+        assert manifest_bytes is not None
+        manifest = loads_finite_json(manifest_bytes.decode('utf-8'))
+        layers = manifest.get('layers') if isinstance(manifest, dict) else None
+        if (not isinstance(layers, dict) or manifest.get('schema_version') != SCHEMA_VERSION
+                or not set(BASE_LAYERS) <= set(layers) <= set(LAYER_FILES)):
+            raise ValueError('duplicate_evidence_unverified: invalid result layers manifest')
+        for layer, record_data in sorted(layers.items()):
+            if not isinstance(record_data, dict) or record_data.get('path') != LAYER_FILES[layer]:
+                raise ValueError('duplicate_evidence_unverified: invalid result layer path')
+            digest.update(layer.encode())
+            layer_digest, _ = consume(record.directory / LAYER_FILES[layer])
+            if layer_digest != record_data.get('sha256'):
+                raise ValueError('duplicate_evidence_unverified: modified result layer')
     return digest.hexdigest()
 
 
