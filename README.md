@@ -1,4 +1,9 @@
-<h1 align="center">AC-Prof</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/acprof-logo-dark.svg">
+    <img alt="AC-Prof" src="docs/assets/logos/acprof-logo-light.svg" width="55%">
+  </picture>
+</p>
 
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
 
