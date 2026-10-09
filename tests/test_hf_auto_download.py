@@ -337,8 +337,10 @@ def test_failure_stage_and_final_storage_host_are_preserved(reason, monkeypatch)
 def test_light_probe_follows_storage_with_head_only_and_cache_skips_all_io(tmp_path, monkeypatch):
     import huggingface_hub as hub
 
-    from acprof.hf_transport import _httpx_factory
+    from acprof.hf_transport import _httpx_factory, configure_hf_transport
     from acprof.host.model_store import probe_model_download
+    configure_hf_transport()
+    assert hub.constants.HF_HUB_DISABLE_TELEMETRY
     monkeypatch.setenv("HF_DOWNLOAD_MODE", "auto")
     monkeypatch.setenv("HF_ENDPOINT", "https://hf-mirror.com")
     visited = []

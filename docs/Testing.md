@@ -38,6 +38,8 @@ CI 的完整回归与分片验收要求保持不变，见 [CI 与环境测试](#
 覆盖镜像 → Xet／区域 CDN、镜像 → 官方 Hub → CDN、未知第三方拒绝、鉴权隔离、HEAD probe、
 部分缓存恢复或安全重下后的内容身份、流中断后的 Range 续传与完整内容校验、离线模式零请求、
 模型错误分类，以及系统代理和透明上游不推断；不下载真实权重。
+Host HF transport 初始化会禁用 SDK user-agent 遥测，避免 SDK 为识别 agent harness 而额外发出 GET，
+保证轻量模型文件探测只发 HEAD 请求。
 `test_modelscope_source.py` 覆盖仓库 commit 固定、文件 SHA256、source 隔离及旧设置迁移；
 `test_tui_auto_download.py` 验证失败正文／折叠诊断和显式切换来源（含取消、子进程退出及独立结果目录）。
 Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revision 隔离、原始完整仓库上下文、缓存配置大小与 SHA256、空间、预算、独立 dependency refs 和活动 lease。TUI 候选与入门回归还验证切换来源时清除旧自动 revision、保留手动值，以及预设迁移到 `auto` 后保留模型来源、预算和路径。

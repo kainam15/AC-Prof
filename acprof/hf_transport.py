@@ -207,11 +207,14 @@ def configure_hf_transport() -> None:
     global _INSTALLED
     os.environ["HF_HUB_DISABLE_XET"] = "1"
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+    # The SDK may fetch /api/agent-harnesses when generating request headers.
+    os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     import huggingface_hub as hub
     from huggingface_hub import constants
     # Constants may have been imported before CLI/.env configuration.
     constants.HF_HUB_DISABLE_XET = True
     constants.HF_HUB_ENABLE_HF_TRANSFER = False
+    constants.HF_HUB_DISABLE_TELEMETRY = True
     with _LOCK:
         if _INSTALLED:
             return
