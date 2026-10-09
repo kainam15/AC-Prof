@@ -69,7 +69,7 @@ class TestCatalogWorkflow:
     async def test_search_failed_run_reuse_full_config_and_confirm_frozen_resume(self):
         root = self.fixture.root
         path = self.fixture.record('batch-18', status='failed')
-        (path / 'result_all.csv').unlink()
+        (path / 'result_layers.json').unlink()
         (path / 'runtime_failures.json').write_text(json.dumps({'failures': [{'reason_code': 'resource_limit', 'detail': '4 GiB'}]}))
         for i in range(24):
             self.fixture.record(f'batch-{i}', model=f'demo/other-{i}', run_id=f'run-{i}', status='complete')

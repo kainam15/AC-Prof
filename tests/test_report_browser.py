@@ -229,10 +229,8 @@ class TestReportBrowser:
         with (self.root / "result_all.csv").open(newline="") as stream:
             reader = csv.DictReader(stream)
             fields, row = reader.fieldnames, next(reader)
-        with (root / "result_all.csv").open("w", newline="") as stream:
-            writer = csv.DictWriter(stream, fields)
-            writer.writeheader()
-            writer.writerow(row)
+        from acprof.result_layers import publish_result_rows
+        publish_result_rows(fields, [row], root)
         checks = loading_quality({"missing_keys": ["head.weight"]}, source="fixture-loader")
         (root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
         output = write_report(load_analysis([self.root / "result_all.csv", root]), root / "report.html")
