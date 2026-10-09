@@ -170,7 +170,7 @@ class ImageActions(MessagePump):
         table.move_cursor(row=row, column=0, animate=False, scroll=not preserve_scroll)
         render_image_tree(self.query_one("#image-tree", ImageTree), self._image_inventory, self._visible_images,
                           self._selected_image_ids, current_id, self.tr, (width or self.size.width) - 6,
-                          preserve_scroll=preserve_scroll)
+                          preserve_scroll=preserve_scroll, show_external_ancestors=self._select("image-scope") == "all")
         self._render_image_layers(preserve_scroll=preserve_scroll)
         self._image_selection_status()
         self._update_image_controls()

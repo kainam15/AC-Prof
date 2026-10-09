@@ -587,7 +587,8 @@ def image_selection_marker(item: ManagedImage, selected: set[str]) -> str:
 
 
 def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible: tuple[ManagedImage, ...],
-                      selected: set[str], current_id: str, tr, width: int, *, preserve_scroll: bool = False) -> None:
+                      selected: set[str], current_id: str, tr, width: int, *, preserve_scroll: bool = False,
+                      show_external_ancestors: bool = False) -> None:
     offset = tree.scroll_offset
     previous = {}
     def collect(node):
@@ -598,14 +599,18 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
     tree.clear()
     tree.name_labels.clear()
     tree.show_root = False
+    indexed = {item.image_id: item for item in inventory.images} if inventory is not None else {}
+    matches = {item.image_id for item in visible}
+    # The default AC-Prof view retains managed ancestors, but not third-party
+    # parent images. The complete "all" view still shows the real Docker graph.
+    shown = matches | {key for item in visible for key in item.ancestor_ids
+                       if show_external_ancestors or indexed[key].acprof}
     header = tree.screen.query_one("#image-tree-header", ImageTreeHeader)
-    header.minimum_name_width = max((len(item.ancestor_ids) * tree.guide_depth + 4 for item in visible), default=6)
+    header.minimum_name_width = max((sum(key in shown for key in item.ancestor_ids) * tree.guide_depth + 4
+                                     for item in visible), default=6)
     header.set_columns(width)
     if inventory is None:
         return
-    indexed = {item.image_id: item for item in inventory.images}
-    matches = {item.image_id for item in visible}
-    shown = matches | {key for item in visible for key in item.ancestor_ids}
     nodes = {}
     for item in sorted((indexed[key] for key in shown), key=lambda item: (len(item.ancestor_ids), image_display_name(item), item.image_id)):
         parent = nodes.get(item.parent_id, tree.root)
@@ -614,7 +619,9 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         logical = image_display_name(item, parent.data)
         if item.model_id:
             logical = f"{tr(IMAGE_KINDS[item.kind])} · {logical}"
-        evidence = " ≈" if item.parent_source == "layer-prefix" else f" · {tr(UNKNOWN)}" if item.parent_source in {"ambiguous", "missing", "conflict"} else ""
+        evidence = (" ≈" if item.parent_source == "layer-prefix" and item.parent_id in nodes
+                    else f" · {tr(UNKNOWN)}" if item.parent_source in {"ambiguous", "missing", "conflict"}
+                    else "")
         name = f" {marker}  {logical}{evidence}"
         label = Text(name, style="dim" if item.image_id not in matches else "")
         # 复选框及左右各一格留白可点击，不覆盖箭头、名称或数值。

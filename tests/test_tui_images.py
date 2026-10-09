@@ -852,6 +852,41 @@ class TestTuiImages:
             assert (tree.cursor_node.data.image_id) == (WEIGHTS)
             assert (len(self.docker.commands)) == (before)
 
+    async def test_default_image_tree_hides_external_parent_but_all_scope_shows_full_lineage(self):
+        upstream = "sha256:" + "e" * 64
+        self.docker.images[upstream] = image(
+            upstream, ["docker.m.daocloud.io/library/python:3.10-slim"], 20, ["os"])
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
+            tree = app.query_one("#image-tree", Tree)
+            assert [node.data.image_id for node in tree.root.children] == [RUNTIME]
+            assert [node.data.image_id for node in tree.root.children[0].children] == [WEIGHTS]
+            assert "≈" not in tree.root.children[0].label.plain
+            assert upstream not in {item.image_id for item in app._visible_images}
+            inventory = app._image_inventory
+            platform = next(item for item in inventory.images if item.image_id == RUNTIME)
+            assert platform.parent_id == upstream
+            assert platform.parent_source == "layer-prefix"
+            assert "docker.m.daocloud.io/library/python" in str(image_metadata(platform, inventory))
+
+            before = len(self.docker.commands)
+            app.query_one("#image-scope").value = "all"
+            await pilot.pause()
+            assert [node.data.image_id for node in tree.root.children] == [upstream]
+            assert tree.root.children[0].children[0].data.image_id == RUNTIME
+            assert "≈" in tree.root.children[0].children[0].label.plain
+
+            app.query_one("#image-scope").value = "acprof"
+            await pilot.pause()
+            assert [node.data.image_id for node in tree.root.children] == [RUNTIME]
+            tree.focus()
+            await pilot.press("space")
+            await pilot.pause()
+            assert app._selected_image_ids == {RUNTIME, WEIGHTS, FINAL}
+            assert upstream not in app._selected_image_ids
+            assert len(self.docker.commands) == before, "切换筛选和勾选不应重新扫描 Docker"
+
     async def test_tree_search_keeps_ancestors_and_language_resize_keeps_collapse(self):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
