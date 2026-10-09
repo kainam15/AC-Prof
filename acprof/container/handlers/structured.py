@@ -147,7 +147,9 @@ class StructuredHandler(BaseHandler):
                 edge_parts.append(np.asarray(edge_index, dtype=np.int64) + offset)
                 batch_parts.extend([index] * len(x))
                 offset += len(x)
-            arrays = (np.concatenate(features), np.concatenate(edge_parts, axis=1), np.asarray(batch_parts, dtype=np.int64))
+            arrays: tuple[np.ndarray, ...] = (
+                np.concatenate(features), np.concatenate(edge_parts, axis=1), np.asarray(batch_parts, dtype=np.int64)
+            )
         else:
             key = "features" if task.startswith("tabular-") else "observations"
             values = _dense_matrix(raw_input.get(key), feature_dim, key)

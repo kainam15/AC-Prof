@@ -70,7 +70,8 @@ def build_permission_plan(names=('perf', 'tcpdump')) -> PermissionPlan:
         raise ValueError('Select perf and/or tcpdump')
     helpers = {name: str(system_executable(name)) for name in
                ('sudo', 'groupadd', 'chown', 'chmod', 'setfacl', 'setcap', 'getfacl', 'getcap')}
-    targets, commands = [], []
+    targets: list[PermissionTarget] = []
+    commands: list[tuple[str, ...]] = []
     for name in names:
         path = system_executable(name)
         info = path.stat()

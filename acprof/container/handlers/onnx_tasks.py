@@ -137,7 +137,7 @@ class ONNXImageClassificationHandler(_ClassificationHandler):
             resize = config['resize']
             resample = Image.Resampling.NEAREST if resize['resample'] == 'nearest' else Image.Resampling.BILINEAR
             image = image.resize((resize['width'], resize['height']), resample)
-        pixels = np.asarray(image, dtype=np.float32)
+        pixels: np.ndarray = np.asarray(image, dtype=np.float32)
         if pixels.ndim == 2:
             pixels = pixels[:, :, None]
         pixels = ((pixels * np.float32(config['rescale_factor']) - np.asarray(config['mean'], dtype=np.float32))

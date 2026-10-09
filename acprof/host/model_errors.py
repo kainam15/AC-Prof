@@ -101,7 +101,9 @@ def model_lookup_error(model_id: str, exc: BaseException, *, revision: str | Non
     """Classify actual exception types and causes, never natural-language text."""
     if isinstance(exc, ModelLookupError):
         return exc
-    reason, cause, seen = "lookup_failed", exc, set()
+    reason = "lookup_failed"
+    cause: BaseException | None = exc
+    seen: set[int] = set()
     while cause is not None and id(cause) not in seen:
         seen.add(id(cause))
         reason = _reason(cause)
