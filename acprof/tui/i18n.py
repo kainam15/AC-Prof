@@ -620,7 +620,7 @@ ENGLISH: dict[str, str] = {
     "报告读取失败：{0}": "Could not read report: {0}",
     "没有可统计的正式成功窗口。": "No successful non-warmup windows to summarize.",
     "请填写实验目录或结果 CSV 路径。": "Enter a result directory or CSV path.",
-    "请选择已有结果 CSV 或包含 result_all.csv 的实验目录。": "Choose an existing CSV or a result directory containing result_all.csv.",
+    "请选择包含 result_layers.json 的实验目录或其结果清单。": "Choose an experiment directory containing result_layers.json, or its manifest.",
     "{0} 正在计算窗口统计，完成后自动显示报告。": "{0} Calculating window statistics; the report will open when ready.",
     "恢复未完成实验": "Resume unfinished experiment",
     "使用相同参数与输出目录，保留已完成 case，重新测量中断的 case。": "Use the same parameters and output directory; keep completed cases and rerun interrupted cases.",

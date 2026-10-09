@@ -359,7 +359,7 @@ def apply_collection_result(report: CapabilityReport, rows: list[Mapping]) -> No
             verified = False
         report.measurement[name] = Capability("verified" if verified else "unavailable",
                                               "" if verified else "NVML query has no complete finite evidence",
-                                              "result_all.csv", {"fields": list(metrics)})
+                                              "result_layers.json", {"fields": list(metrics)})
     for name, metrics in REQUIRED_MEASUREMENT_FIELDS.items():
         if report.metric_support.get(name) == "unsupported":
             continue
@@ -376,7 +376,7 @@ def apply_collection_result(report: CapabilityReport, rows: list[Mapping]) -> No
             except (ValueError, TypeError):
                 return False
         if relevant and all(finite(row) for row in relevant):
-            report.measurement[name] = Capability("verified", source="result_all.csv", evidence={"fields": list(metrics), "rows": len(relevant)})
+            report.measurement[name] = Capability("verified", source="result_layers.json", evidence={"fields": list(metrics), "rows": len(relevant)})
         else:
             if name == "dram_energy":
                 statuses = {row.get("dram_energy_status") for row in relevant}
@@ -384,10 +384,10 @@ def apply_collection_result(report: CapabilityReport, rows: list[Mapping]) -> No
                                if candidate in statuses), "unavailable")
                 detail = "; ".join(sorted({str(row.get("dram_energy_error") or "") for row in relevant}))
                 report.measurement[name] = Capability(status, detail or "no complete DRAM window evidence",
-                                                      "result_all.csv", {"fields": list(metrics)})
+                                                      "result_layers.json", {"fields": list(metrics)})
                 continue
             errors = "; ".join(str(row.get("error") or "") for row in rows if row.get("status") == "error")
             report.measurement[name] = (
-                capability_from_error(errors, source="result_all.csv") if errors.strip("; ")
-                else Capability("unavailable", "no complete finite measurement evidence", "result_all.csv", {"fields": list(metrics)})
+                capability_from_error(errors, source="result_layers.json") if errors.strip("; ")
+                else Capability("unavailable", "no complete finite measurement evidence", "result_layers.json", {"fields": list(metrics)})
             )

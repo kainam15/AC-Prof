@@ -264,7 +264,8 @@ SUMMARY_METRICS = (
 def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool] = lambda: False) -> ResultSummary:
     """Use the stats window grouping/filter, without bootstrap work in a preview."""
     path = Path(result_csv).expanduser()
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    from acprof.result_csv import open_result_text
+    with open_result_text(path) as handle:
         reader = csv.DictReader(handle, strict=True)
         fields = reader.fieldnames or []
         if not fields or len(fields) != len(set(fields)) or "status" not in fields:

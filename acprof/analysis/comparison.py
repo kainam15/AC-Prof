@@ -233,7 +233,7 @@ def load_comparison_snapshot(source: str | Path) -> dict:
     case_ids = set()
     rows = []
     try:
-        _, rows = read_result_csv(directory / "result_all.csv" if source.is_dir() else source)
+        _, rows = read_result_csv(directory / "result_layers.json" if source.is_dir() else source)
         actual = _actual_workload(rows)
         case_ids = {f"{int(float(row['cpu_cores']))}c_{int(float(row['mem_cap_gb']))}g_{row['gpu_mode']}"
                     for row in rows if row.get("status") in {"ok", "warn"}}

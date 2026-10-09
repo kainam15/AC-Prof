@@ -84,18 +84,18 @@ class TestIndependentComparison(IndependentComparisonFixture):
     def test_result_fingerprint_streams_without_whole_file_allocation(self):
         left = self.replicate("left", 0, [2])
         right = self.replicate("right", 0, [3])
-        expected = hashlib.sha256((left / "result_all.csv").read_bytes()).hexdigest()
+        expected = hashlib.sha256((left / "result_layers.json").read_bytes()).hexdigest()
         original_read_bytes = Path.read_bytes
 
         def guarded_read_bytes(path):
-            if path.name == "result_all.csv":
+            if path.name == "result_layers.json":
                 raise AssertionError("result fingerprint must stream")
             return original_read_bytes(path)
 
         with patch.object(Path, "read_bytes", guarded_read_bytes):
             report = self.compare([left], [right])
 
-        assert report["source_sha256"][str(left / "result_all.csv")] == expected
+        assert report["source_sha256"][str(left / "result_layers.json")] == expected
 
     def test_independent_run_state_uses_bounded_artifact_reader(self):
         left = self.replicate("left", 0, [2])

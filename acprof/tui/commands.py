@@ -66,8 +66,10 @@ def resolve_result_path(source: str, project_dir: Path) -> Path:
 
 def prepare_plot(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
     path = resolve_result_path(source, project_dir)
-    if not path.is_file():
-        raise RunConfigError([ConfigIssue(None, message("结果 CSV 不存在：{0}", path))])
+    if path.is_dir():
+        path /= "result_layers.json"
+    if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
+        raise RunConfigError([ConfigIssue(None, message("结果文件不存在：{0}", path))])
     command = build_plot_command(path, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "plot", result_csv=str(path))
 
@@ -76,9 +78,9 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     from acprof.artifact_layout import ArtifactLayout
     path = resolve_result_path(source, project_dir)
     if path.is_dir():
-        path /= "result_all.csv"
-    if path.suffix.lower() != ".csv" or not path.is_file():
-        raise RunConfigError([ConfigIssue(None, message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。"))])
+        path /= "result_layers.json"
+    if not path.is_file() or (path.name != "result_layers.json" and path.suffix.lower() != ".csv"):
+        raise RunConfigError([ConfigIssue(None, message("请选择有效的分层结果目录、清单或独立 CSV。"))])
     output_dir = ArtifactLayout.discover(path.parent).path("analysis")
     command = build_stats_command(path, output_dir, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "stats", result_csv=str(path))
@@ -97,9 +99,9 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
         if not paths:
             raise RunConfigError([ConfigIssue(None, message("请选择左右两组实验目录。"))])
         for path in paths:
-            source = path / "result_all.csv" if path.is_dir() else path
-            if not source.is_file() or source.suffix.lower() != ".csv":
-                raise RunConfigError([ConfigIssue(None, message("请选择已有结果 CSV 或包含 result_all.csv 的实验目录。"))])
+            source = path / "result_layers.json" if path.is_dir() else path
+            if not source.is_file() or (source.name != "result_layers.json" and source.suffix.lower() != ".csv"):
+                raise RunConfigError([ConfigIssue(None, message("请选择有效的分层结果目录、清单或独立 CSV。"))])
         groups.append(paths)
     if baseline == "right":
         groups.reverse()

@@ -77,9 +77,9 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                 raise ValueError(f"duplicate independent run: {run_id}")
             run_ids.add(run_id)
             # Detect concurrent changes to the rows and their condition evidence.
-            for name in ("result_all.csv", "run_state.json", "input_scale_plan.json",
+            for name in ("result_layers.json", "run_state.json", "input_scale_plan.json",
                          "static_meta.json", "hardware_conditions.json", "quality_checks.json", "runtime_validation.json"):
-                artifact = (layout.result_csv if name == "result_all.csv" else
+                artifact = (layout.result_csv if name == "result_layers.json" else
                             conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name))
                 fingerprints[artifact] = file_sha256(artifact) if artifact.exists() else None
             _, rows = read_result_csv(layout.result_csv)

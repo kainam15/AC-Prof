@@ -154,7 +154,7 @@ def main(argv=None):
     report: dict[str, Any] = {"schema_version": 1, "kind": "nonstream_load_experiment", "run_id": uuid4().hex,
               "successful": False, "status": "running", "identity": identity,
               "identity_sha256": hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest(),
-              "host": host_identity(resource_root()), "scope": "HTTP load; no energy or profiler metrics; not formal result_all.csv"}
+              "host": host_identity(resource_root()), "scope": "HTTP load; no energy or profiler metrics; not formal experiment result layers"}
     atomic_write_json(output / "load.json", report)
     try:
         with MeasurementLock(), conditions.activate():

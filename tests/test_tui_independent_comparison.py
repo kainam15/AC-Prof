@@ -104,7 +104,7 @@ class TestIndependentComparisonUi:
             left, right = root / "left experiment", root / "right experiment"
             for directory in (left, right):
                 directory.mkdir()
-                (directory / "result_all.csv").write_text("fixture")
+                (directory / "result_layers.json").write_text("fixture")
             app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=root / "settings.json")
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()

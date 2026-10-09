@@ -22,7 +22,7 @@ class TestResultAudit:
         self.write(self.row())
         (self.root / "static_meta.json").write_text(json.dumps({"input_scale_plan_sha256": "untrusted"}))
         (self.root / "metadata/input_scale_plan.json").symlink_to(self.path)
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert ("input_plan_hash") in ({issue["code"] for issue in report["issues"]})
 
@@ -40,7 +40,7 @@ class TestResultAudit:
     def test_valid_zero_is_not_missing_and_gpu_off_is_inapplicable(self):
         self.write(self.row(container_io_read_bytes_per_request="0"))
         before = self.path.read_bytes()
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert (report["valid"])
         assert ("container_io_read_bytes_per_request") not in (report["missing_metrics"])
         assert (report["missing_metrics"]["gpu_energy_eff_j"]) == ({"not_applicable": 1})
@@ -65,7 +65,7 @@ class TestResultAudit:
 
         monkeypatch.setattr(Path, "open", tracked_open)
         monkeypatch.setattr(Path, "read_bytes", reject_materialized_read)
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert (report["valid"])
         assert (modes) == (["rb", "rb"])
 
@@ -85,7 +85,7 @@ class TestResultAudit:
             return original_open(target, *args, **kwargs)
 
         monkeypatch.setattr(Path, "open", mutate_before_second_pass)
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert ("changing_snapshot") in ({issue["code"] for issue in report["issues"]})
         assert (binary_opens) == (2)
@@ -93,7 +93,7 @@ class TestResultAudit:
     def test_formal_filter_excludes_warmup_warn_and_error(self):
         self.write(self.row(), self.row(warmup="1"), self.row(repeat_idx="1", status="warn", error="idle drift"),
                    self.row(repeat_idx="2", status="error", error="timeout"))
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert (report["counts"]) == ({"rows": 4, "formal_ok": 1, "warmup": 1, "warn": 1, "error": 1})
         assert (report["completion"]) == ("unknown")
 
@@ -101,13 +101,13 @@ class TestResultAudit:
         for rows, code in (([self.row(), self.row()], "invalid_csv"),
                            ([self.row(status="finished")], "invalid_status")):
             self.write(*rows)
-            report = audit_result(self.root)
+            report = audit_result(self.path)
             assert not (report["valid"])
             assert (code) in ([issue["code"] for issue in report["issues"]])
 
     def test_invalid_number_is_not_explained_as_hardware_unavailable(self):
         self.write(self.row(latency_app_s="inf"))
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert ("invalid_number") in ([issue["code"] for issue in report["issues"]])
 
@@ -128,7 +128,7 @@ class TestResultAudit:
         self.write(self.row())
         path = self.root / name
         path.write_bytes(payload)
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert ("invalid_metadata") in ({issue["code"] for issue in report["issues"]})
         assert (path.read_bytes()) == (payload)
@@ -138,7 +138,7 @@ class TestResultAudit:
         path = self.root / "static_meta.json"
         content = b" " * (4 * 1024 * 1024 + 1)
         path.write_bytes(content)
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert any(issue["code"] == "invalid_metadata" and "4 MiB" in issue["message"]
                    for issue in report["issues"])
@@ -153,7 +153,7 @@ class TestResultAudit:
             "options": {"cpus": "1", "mems": "4", "gpus": "off", "warmup": 0, "repeat": 2},
             "runtime": {"planned": {"scales": [64]}},
         }))
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         codes = {issue["code"] for issue in report["issues"]}
         assert ({"input_plan_hash", "plan_coverage"} <= codes)
@@ -161,15 +161,15 @@ class TestResultAudit:
 
     def test_historical_missing_columns_are_unknown_and_preserved(self):
         self.write(self.row(), fields=[field for field in CSV_FIELDS if field != "input_pixels_per_request"])
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert (report["valid"])
         assert (report["missing_metrics"]["input_pixels_per_request"]) == ({"not_recorded": 1})
 
     def test_negative_effective_energy_is_valid_but_invalid_derived_value_is_not(self):
         self.write(self.row(vcpu_energy_eff_j="-0.1"))
-        assert (audit_result(self.root)["valid"])
+        assert (audit_result(self.path)["valid"])
         self.write(self.row(vcpu_energy_eff_j="2", container_attributed_energy_eff_j="20"))
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert not (report["valid"])
         assert ("formula_mismatch") in ([issue["code"] for issue in report["issues"]])
 
@@ -180,7 +180,7 @@ class TestResultAudit:
             self.row(repeat_idx="2", status="error", error="not_measured_after_timeout: planned_request_attempted=false"),
         )
         (self.root / "run_state.json").write_text(json.dumps({"status": "complete", "outcome": "partial"}))
-        report = audit_result(self.root)
+        report = audit_result(self.path)
         assert (report["valid"])
         assert (report["completion"]) == ("complete")
         assert (report["execution"]["finished"])
@@ -194,11 +194,11 @@ class TestResultAudit:
             summary = {"schema_version": 1, "request_count": request_count,
                        "variants": [{"count": variant_count, "contract": None}]}
             self.write(self.row(workload_contract=json.dumps(summary), repeat_in_window=repeat_count))
-            report = audit_result(self.root)
+            report = audit_result(self.path)
             assert not (report["valid"])
             assert ("workload_contract") in ({issue["code"] for issue in report["issues"]})
 
     def test_unknown_per_request_workload_is_not_invented_or_rejected(self):
         summary = {"schema_version": 1, "request_count": 2, "variants": [{"count": 2, "contract": None}]}
         self.write(self.row(workload_contract=json.dumps(summary), repeat_in_window="2"))
-        assert (audit_result(self.root)["valid"])
+        assert (audit_result(self.path)["valid"])

@@ -180,7 +180,7 @@ class AnalysisModel:
 
 
 def load_analysis(sources) -> AnalysisModel:
-    """Accept current/legacy CSV without rewriting, renaming or guessing retired metrics."""
+    """Load authoritative experiment layers without writing a wide CSV."""
     snapshots, entries, groups, seen_paths, seen_keys = [], [], defaultdict(list), set(), {}
     condition_snapshots = {}
     for source in sources:
@@ -203,7 +203,8 @@ def load_analysis(sources) -> AnalysisModel:
                           "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
         device_quality = {}
         first_entry = len(entries)
-        with path.open("r", encoding="utf-8-sig", newline="") as stream:
+        from acprof.result_csv import open_result_text
+        with open_result_text(path) as stream:
             reader = csv.DictReader(stream, strict=True)
             fields = [name.strip() for name in (reader.fieldnames or [])]
             if not fields or any(not name for name in fields) or len(fields) != len(set(fields)):

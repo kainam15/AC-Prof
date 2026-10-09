@@ -118,7 +118,9 @@ def prepare_df(
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Cannot find {csv_path}")
 
-    df = pd.read_csv(csv_path, skipinitialspace=True)
+    from acprof.result_csv import open_result_text
+    with open_result_text(csv_path) as stream:
+        df = pd.read_csv(stream, skipinitialspace=True)
     df.columns = [str(col).strip() for col in df.columns]
     from acprof.result_csv import require_current_fields
     require_current_fields(df.columns)

@@ -30,8 +30,11 @@ class IndependentComparisonFixture:
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerows(rows)
+        fixture.refresh(path)
         return path
 
     def compare(self, left, right):
         from acprof.analysis.independent_comparison import compare_experiments
+        for directory in [*left, *right]:
+            self.fixture.refresh(directory)
         return compare_experiments(left, right, metrics=["latency_app_s"], resamples=200, seed=3)

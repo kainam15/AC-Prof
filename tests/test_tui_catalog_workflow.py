@@ -130,7 +130,7 @@ class TestCatalogWorkflow:
             record = scan_experiments([path]).records[0]
             for target in ('result-csv', 'result-dir', 'report-source', 'comparison-left', 'comparison-right'):
                 app._experiment_selected(target, ('select', record))
-                expected = path / 'result_all.csv' if target == 'result-csv' else path
+                expected = path / 'result_layers.json' if target == 'result-csv' else path
                 assert (app.query_one('#' + target, Input).value) == (str(expected))
             app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
             with patch('acprof.tui.catalog_actions.scan_experiments') as scan:

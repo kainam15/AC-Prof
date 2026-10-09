@@ -54,6 +54,7 @@ class TestResultComparison(ComparisonFixture):
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerow(row)
+        self.refresh(self.right)
         report = audit_result(self.right)
         assert not (report["valid"])
         assert (any(issue["code"] == "unsupported_wsl_metric" for issue in report["issues"]))

@@ -60,7 +60,7 @@ def main(argv=None):
     output.add_argument("--output", type=Path, help="保存 JSON；省略输出选项时输出到 stdout")
     output.add_argument("--output-dir", type=Path, help="按本地日期时间保存 JSON；内容相同时复用已有报告")
     args = parser.parse_args(argv)
-    path = args.source / "result_all.csv" if args.source.is_dir() else args.source
+    path = args.source / "result_layers.json" if args.source.is_dir() else args.source
     if args.output and (args.output.resolve() == path.resolve() or args.output.exists()):
         parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
     try:

@@ -11,7 +11,7 @@ import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 from acprof.artifact_layout import ArtifactLayout
 
-CSV_PATH = "results/result_all.csv"
+CSV_PATH = "results/result_layers.json"
 ONLY_OK = True
 SAVE_PNG = True
 
@@ -24,7 +24,7 @@ def main(argv=None):
         print("Plot AC-Prof result CSV files.")
         print()
         print("positional arguments:")
-        print("  result_csv  CSV path (default: result_all.csv)")
+        print("  result  Experiment directory or result_layers.json")
         return
 
     csv_path = args[0] if args else CSV_PATH

@@ -106,7 +106,7 @@ def _record(layout: ArtifactLayout, warnings: list[str]) -> ExperimentRecord:
 def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], budget: list[int]) -> str:
     # Only duplicate run IDs need data hashing; ordinary browsing never scans CSV contents.
     digest = hashlib.sha256(json.dumps({'state': record.state, 'metadata': record.metadata, 'validation': record.validation, 'failures': record.failures}, sort_keys=True).encode())
-    csv = record.directory / 'result_all.csv'
+    csv = record.directory / 'result_layers.json'
     if csv.is_file() and csv.resolve().is_relative_to(record.directory):
         with csv.open('rb') as stream:
             while chunk := stream.read(min(1024 * 1024, budget[0] + 1)):
@@ -148,7 +148,7 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
         try:
             layout = ArtifactLayout.discover(directory)
             is_experiment = any(layout.path(name).is_file() for name in (
-                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_all.csv'))
+                'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json'))
             record = _record(layout, warnings) if is_experiment else None
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             warnings.append(f'{directory}: invalid_experiment: {exc}')

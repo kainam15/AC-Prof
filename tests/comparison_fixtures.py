@@ -80,9 +80,20 @@ class ComparisonFixture:
             writer = csv.DictWriter(stream, CSV_FIELDS)
             writer.writeheader()
             writer.writerow(row)
+        self.refresh(directory)
+
+    def refresh(self, directory):
+        """Convert test-only row fixtures into current authoritative layers."""
+        from acprof.result_layers import publish_result_rows
+        with (directory / "result_all.csv").open(newline="") as stream:
+            reader = csv.DictReader(stream)
+            fields, rows = reader.fieldnames, list(reader)
+        publish_result_rows(fields, rows, directory)
 
     def compare(self):
         module = importlib.import_module("acprof.analysis.comparison")
+        self.refresh(self.left)
+        self.refresh(self.right)
         return module.compare_results(self.left, self.right)
 
     def write_distribution(self, directory, counts, *, output_only=False, task=None):
@@ -102,3 +113,4 @@ class ComparisonFixture:
             writer = csv.DictWriter(stream, CSV_FIELDS)
             writer.writeheader()
             writer.writerows(rows)
+        self.refresh(directory)

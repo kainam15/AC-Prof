@@ -78,7 +78,7 @@ class CatalogActions(MessagePump):
         if action == 'view':
             self._view_experiment(record)
         elif action == 'select':
-            path = record.directory / 'result_all.csv' if target == 'result-csv' else record.directory
+            path = record.directory / 'result_layers.json' if target == 'result-csv' else record.directory
             value = str(path)
             if target in {'comparison-left', 'comparison-right'}:
                 # Keep CLI's quoted-semicolon grammar for directories containing separators.
@@ -100,7 +100,7 @@ class CatalogActions(MessagePump):
     def _view_experiment(self: AcprofTui, record: ExperimentRecord) -> None:
         self._remember_last_used(result_dir=str(record.directory))
         self._activate_tab('plot-tab')
-        csv_path = record.directory / 'result_all.csv'
+        csv_path = record.directory / 'result_layers.json'
         if csv_path.is_file():
             self.query_one('#result-csv', Input).value = str(csv_path)
             self._update_result_summary(str(csv_path), notify=False)
