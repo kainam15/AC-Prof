@@ -40,6 +40,16 @@
 新实验运行中先写 `.acprof/work/cases/<case-id>/result.csv`，矩阵完成后才合并为 `result_all.csv`。
 旧目录继续使用根部 case CSV 与原有元数据、绘图位置；详见[布局兼容约定](Profiling_Protocol.md#artifact-layout-v2)。
 
+### 分层结果 CSV（兼容期）
+
+新实验完成后，除了现有兼容宽表 `result_all.csv`，还会生成 `result_layers.json`、`summary.csv`、`performance.csv`、`resources.csv`、`energy.csv`、`network.csv`。如果 profiler 有记录，则生成 `profiling/torch_profiler.csv`、`profiling/ncu.csv`、`profiling/nsys.csv`、`profiling/massif.csv` 中对应文件；未运行且没有有效数据的分析器不写空表。
+
+- 每个分层文件保留 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx` 六个测量身份字段；基础层与 summary 一一对应，profiler 可按实际采集记录稀疏输出。
+- 除身份字段外，每个指标只有一个所属层，分类从 `metric_registry.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
+- `result_layers.json` 的 schema v1 记录来源 CSV 哈希、模块路径、字段、行数和文件哈希；`acprof results verify <目录>` 检查文件损坏、归属和关联键。缺失字段或无效关联不以 `0` 填补。
+- `acprof results export <分层目录> <新文件.csv>` 校验后按需生成宽表，拒绝覆盖既有文件。`acprof results split <历史result_all.csv> --output-dir <全新空目录>` 不修改历史结果。
+- 当前采集和部分分析/补采消费者仍把 `result_all.csv` 作为兼容数据源；分层 CSV 是可校验的独立投影，尚未替代宽表的核心存储角色。Posthoc 成功后更新分层数据，未变化的模块文件无需重写。
+
 可只读检查结果完整性，并按独立测量窗口估计均值区间：
 
 ```bash

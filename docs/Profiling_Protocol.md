@@ -294,6 +294,17 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 ```text
 <model-dir>/
 ├── result_all.csv
+├── result_layers.json         # 分层结果的 SHA256 与字段/行数清单
+├── summary.csv                # 行身份、输入与状态
+├── performance.csv            # 延迟、吞吐、启动
+├── resources.csv              # CPU、GPU、内存与 PMU
+├── energy.csv                 # 功率、能耗与来源
+├── network.csv                # 抓包网络统计
+├── profiling/                 # 各分析器独立的可选 CSV
+│   ├── torch_profiler.csv
+│   ├── ncu.csv
+│   ├── nsys.csv
+│   └── massif.csv
 ├── static_meta.json
 ├── capability_report.json
 ├── result_manifest.json
@@ -342,6 +353,9 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | 文件 | 说明 |
 | --- | --- |
 | `result_manifest.json` | Artifact Layout v2 的路径契约，不代表文件已生成或测量成功。 |
+| `result_layers.json` | 分层 CSV schema v1 清单，记录来源宽表 SHA256、层路径、字段、行数和内容哈希。它是完成时发布的独立产物，不更改固定的 Layout v2 路由清单。 |
+| `summary.csv` / `performance.csv` / `resources.csv` / `energy.csv` / `network.csv` | 同一组测量窗口按来源和职责拆分，保留全部六个测量身份字段，避免每个文件包含全部 200 多列。 |
+| `profiling/{torch_profiler,ncu,nsys,massif}.csv` | 四种 Profiler 分别输出；没有实际字段证据的工具省略，存在的工具允许仅记录部分测量键。 |
 | `capability_report.json` | 本次采集的能力状态及实际完整性，和静态元数据中的准备阶段快照分开。 |
 | `quality_checks.json` | 独立 schema v1 的质量观察；普通 warning 不撤销已验证 Capability 或 `full_profile_complete`。 |
 | `runtime_failures.json` | 存在正式请求失败时汇总的 typed failure 列表，保留请求 ID、阶段与环境；不改变测量 CSV 数值协议。 |

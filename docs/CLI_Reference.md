@@ -552,6 +552,13 @@ TUI 使用四项复选框选择补采工具（初始勾选 `torch`、`ncu`），
 
 ### 其他入口
 
+`acprof results split <result_all.csv|目录>` 为已完成的 v2 结果创建按模块拆分的 CSV 和
+`result_layers.json`，保留原始宽表。历史 flat 目录必须显式使用
+`--output-dir <全新空目录>`，避免修改已有实验。`acprof results verify <分层目录>` 校验
+SHA256、字段归属、行数与测量身份；`acprof results export <分层目录> <新文件.csv>`
+重建完整宽表，禁止覆盖既有文件或分层文件。Posthoc 成功提交后会刷新对应分层结果，
+未变化的模块文件不重写；布局与缺失值规则详见[分层结果 CSV](Metrics.md#分层结果-csv兼容期)。
+
 `acprof report <实验目录或 CSV> [更多输入 ...]` 生成 Comparison Matrix、Pareto 与 Scaling 的离线 HTML。
 `--output <新文件.html>` 指定输出，默认首个实验目录下 `report.html`，拒绝覆盖已有文件；
 `--baseline <config_id>` 预选配置，单配置 run 也可直接使用 run ID。无需 GUI 或 Web 服务，
