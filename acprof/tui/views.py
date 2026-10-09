@@ -298,33 +298,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         value=app.initial_config.profiling_mode,
                         allow_blank=False, id="profiling-mode", classes="config-control",
                     ), field_id="profiling-mode")
-                    yield app._localized_widget(Label("计算分析器"))
-                    yield ConfigField(app._localized_select(
-                        (
-                            ("关闭（先跑主矩阵）", "none"),
-                            ("Torch + NCU", "both"),
-                            ("仅 Torch", "torch"),
-                            ("仅 NCU", "ncu"),
-                        ),
-                        value=app.initial_config.compute_profile_tool,
-                        allow_blank=False,
-                        id="compute-profile-tool",
-                        classes="config-control",
-                    ), field_id="compute-profile-tool")
-                    yield app._localized_widget(Label("执行分析器"))
-                    yield ConfigField(app._localized_select(
-                        (
-                            ("关闭", "none"),
-                            ("Massif + Nsys", "both"),
-                            ("仅 Massif", "massif"),
-                            ("仅 Nsys", "nsys"),
-                        ),
-                        value=app.initial_config.execution_profile_tool,
-                        allow_blank=False,
-                        id="execution-profile-tool",
-                        classes="config-control",
-                    ), field_id="execution-profile-tool")
-
                     yield app._localized_widget(Label("固定 CPU 集合"))
                     yield ConfigField(app._localized_widget(Input(
                         value=app.initial_config.cpuset_cpus, id="cpuset-cpus",
@@ -348,6 +321,27 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="notify",
                         classes="config-control",
                     ), field_id="notify")
+
+                yield app._localized_widget(Static("深度性能分析", classes="section-title"))
+                yield app._localized_widget(Static(
+                    "按需选择；分析器分别运行，可能增加准备时间。首次采集建议关闭。",
+                    classes="page-hint", markup=False,
+                ))
+                with Grid(classes="profiler-grid"):
+                    for widget_id, label, enabled in (
+                        ("torch-profiler", "PyTorch Profiler — 算子与框架计算分析",
+                         app.initial_config.compute_profile_tool in {"torch", "both"}),
+                        ("ncu-profiler", "NVIDIA NCU — GPU 内核性能分析",
+                         app.initial_config.compute_profile_tool in {"ncu", "both"}),
+                        ("massif-profiler", "Valgrind Massif — CPU 内存分析",
+                         app.initial_config.execution_profile_tool in {"massif", "both"}),
+                        ("nsys-profiler", "NVIDIA Nsys — CPU/GPU 执行时序分析",
+                         app.initial_config.execution_profile_tool in {"nsys", "both"}),
+                    ):
+                        yield app._localized_widget(StatusCheckbox(
+                            label, value=enabled, id=widget_id,
+                            classes="config-control option-checkbox profiler-checkbox",
+                        ))
 
                 yield app._localized_widget(Static("识别覆盖（通常留空）", classes="section-title"))
                 with Grid(classes="form-grid"):

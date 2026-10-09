@@ -27,6 +27,11 @@ acprof tui --model google-bert/bert-base-uncased --preset smoke
 
 首次打开且没有保存实验配置时使用 Smoke：`basic`、CPU、1 核、4 GB、无 warmup、单次请求，
 Idle 与 cooldown 为 0，关闭独立 profiler，初始通知为 `none`。保存过的配置和主动选择的主矩阵继续生效。
+高级参数中的“深度性能分析”提供 PyTorch Profiler、NVIDIA NCU、Valgrind Massif、
+NVIDIA Nsys 四个独立勾选项；可单选或任意组合，默认均关闭。配置保存和命令预览继续使用
+`compute_profile_tool`（Torch / NCU）与 `execution_profile_tool`（Massif / Nsys）
+的原有 `none` / 单工具 / `both` 取值，不改变采集窗口、已有配置或实验结果格式。
+这些分析器分别运行且可能增加准备时间；能否执行仍由当前资源模式和环境检查决定。
 Smoke 的 `--input-scale-policy minimal` 在任务解析后从现有 workload 选择最小单一尺度：例如普通文本
 64 tokens、语音 1 s、图像边长倍率 0.1。随后仍执行原有模型约束检查，不保证任意模型都能在 4 GB 内运行。
 用户主动填写 `--input-scales` 时严格验证该值，不用 Smoke 默认值覆盖或截短。输入框在解析前标明单位待解析，

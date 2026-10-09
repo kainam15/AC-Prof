@@ -247,7 +247,7 @@ class ConfigurationActions(MessagePump):
         return run_form.collect_config(
             {key: self._input(key) for key in run_form.INPUT_FIELDS},
             {key: self._select(key) for key in run_form.SELECT_FIELDS},
-            {key: self._checked(key) for key in run_form.CHECKED_FIELDS},
+            {key: self._checked(key) for key in (*run_form.CHECKED_FIELDS, *run_form.PROFILER_CHECKBOXES)},
             project_dir=self._project_dir, allow_empty_model=allow_empty_model, extra_options=self._extra_run_options,
         )
 

@@ -89,6 +89,11 @@ Underline { color: $accent; }
     color: $text-muted;
 }
 .form-grid.tool-form-grid { grid-size: 2; grid-columns: 18 1fr; }
+.profiler-grid { grid-size: 2; grid-columns: 1fr 1fr; grid-gutter: 0 1; height: auto; }
+.profiler-checkbox { width: 1fr; height: 3; margin-right: 0; }
+.profiler-grid .option-checkbox > .toggle--button { color: $panel; }
+.profiler-grid .option-checkbox.-on > .toggle--button { color: $background; }
+.profiler-grid .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
 Input, Select { width: 1fr; }
 .number-field { height: 3; }
 .number-field Input { width: 16; }
@@ -339,6 +344,7 @@ AcprofTui.narrow #image-filters Button { min-width: 9; padding: 0; }
 
 /* Terminal cells, not pixels: stack fields when labels would squeeze inputs. */
 AcprofTui.narrow .form-grid { grid-size: 2; grid-columns: 18 1fr; }
+AcprofTui.narrow .profiler-grid { grid-size: 1; grid-columns: 1fr; }
 AcprofTui.narrow .checkbox-row { layout: vertical; }
 AcprofTui.narrow .button-row { layout: grid; grid-size: 2; grid-gutter: 0 1; }
 AcprofTui.narrow #status-grid { grid-columns: 11 1fr 9 1fr; }

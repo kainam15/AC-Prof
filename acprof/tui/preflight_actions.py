@@ -16,7 +16,7 @@ from textual.widgets import Button, Static
 from acprof.experiment import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
-from acprof.tui import run_planning
+from acprof.tui import run_form, run_planning
 from acprof.tui.diagnostics import PreflightCheck
 from acprof.tui.views import EnvironmentPreflightScreen
 
@@ -143,13 +143,16 @@ class PreflightActions(MessagePump):
 
     def _preflight_config(self) -> RunConfig:
         # Diagnostics remain usable without a model or valid resource matrix.
+        compute_tool, execution_tool = run_form.profiler_tools_from_checks(
+            {key: self._checked(key) for key in run_form.PROFILER_CHECKBOXES}
+        )
         return RunConfig(
             model="preflight-only",
             profiling_mode=self._select("profiling-mode"),
             gpus=self._select("gpus"),
             sniff_iface=self._input("sniff-iface"),
-            compute_profile_tool=self._select("compute-profile-tool"),
-            execution_profile_tool=self._select("execution-profile-tool"),
+            compute_profile_tool=compute_tool,
+            execution_profile_tool=execution_tool,
         )
 
     def _preflight_run_reason(self) -> str:
