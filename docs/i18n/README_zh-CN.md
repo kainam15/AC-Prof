@@ -23,11 +23,11 @@ AC-Prof 用来比较 Hugging Face 模型在不同 CPU、内存、GPU 配置和�
 
 ## 快速开始
 
-用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，然后启动 AC-Prof：
+用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，然后启动 AC-Prof TUI：
 
 ```bash
 uv tool install acprof
-acprof
+acprof tui
 ```
 
 ### 1. 准备主机
