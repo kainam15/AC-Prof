@@ -25,11 +25,11 @@ def normalize_cpu_set(value: str) -> str:
     if not values:
         return ""
     start = end = values[0]
-    for value in values[1:]:
-        if value == end + 1:
-            end = value
+    for cpu_id in values[1:]:
+        if cpu_id == end + 1:
+            end = cpu_id
         else:
             groups.append(str(start) if start == end else f"{start}-{end}")
-            start = end = value
+            start = end = cpu_id
     groups.append(str(start) if start == end else f"{start}-{end}")
     return ",".join(groups)

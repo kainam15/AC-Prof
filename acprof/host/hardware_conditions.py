@@ -83,9 +83,9 @@ def observe_conditions(session) -> dict:
     if gpu:
         raw = _run(["nvidia-smi", f"--id={gpu.get('uuid', '')}",
                     "--query-gpu=driver_version,power.limit,persistence_mode", "--format=csv,noheader,nounits"])
-        values = next(csv.reader([raw], skipinitialspace=True), []) if raw else []
-        values = [None if value.strip().lower() in {"", "n/a", "[n/a]", "not supported", "[not supported]"}
-                  else value.strip() for value in values]
+        raw_values = next(csv.reader([raw], skipinitialspace=True), []) if raw else []
+        values: list[str | None] = [None if value.strip().lower() in {"", "n/a", "[n/a]", "not supported", "[not supported]"}
+                                    else value.strip() for value in raw_values]
         record["gpu"] = {"model": gpu.get("name"), "uuid": gpu.get("uuid"),
                          "driver": values[0] if len(values) == 3 else None,
                          "power_limit_w": values[1] if len(values) == 3 else None,

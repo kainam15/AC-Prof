@@ -15,6 +15,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    TextIO,
     Tuple,
 )
 
@@ -28,6 +29,10 @@ from acprof.host.posthoc.context import (
     ResultContext,
     _load_json_object,
 )
+
+
+def _write_csv_text(stream: TextIO, text: str) -> None:
+    stream.write(text)
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -233,7 +238,8 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
                 if destination.exists() and destination.read_bytes() == candidate.read_bytes():
                     continue
                 replaced.append(destination)
-                atomic_write(destination, lambda stream, data=candidate.read_bytes().decode("utf-8"): stream.write(data))
+                data = candidate.read_bytes().decode("utf-8")
+                atomic_write(destination, lambda stream: _write_csv_text(stream, data))
             # Publish metadata before the result manifest; rollback restores both.
             for candidate, destination in (
                 (meta_stage, context.static_meta_path),
@@ -241,7 +247,8 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
                 (stage / RESULT_CSV_NAME, context.result_csv),
             ):
                 replaced.append(destination)
-                atomic_write(destination, lambda stream, data=candidate.read_bytes().decode("utf-8"): stream.write(data))
+                data = candidate.read_bytes().decode("utf-8")
+                atomic_write(destination, lambda stream: _write_csv_text(stream, data))
             _fsync_parent_directories(*replaced)
             read_result_layers(context.result_dir)
         except BaseException as primary_error:

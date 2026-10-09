@@ -84,13 +84,13 @@ def run_posthoc(
     ):
         if int(value) <= 0:
             raise PosthocError(f"{name} must be > 0")
-    for name, value in (
+    for name, reference_value in (
         ("massif_reference_cpu", massif_reference_cpu),
         ("massif_reference_mem", massif_reference_mem),
         ("nsys_reference_cpu", nsys_reference_cpu),
         ("nsys_reference_mem", nsys_reference_mem),
     ):
-        if value is not None and int(value) <= 0:
+        if reference_value is not None and int(reference_value) <= 0:
             raise PosthocError(f"{name} must be > 0")
 
     selected = parse_tools(tools)

@@ -185,8 +185,9 @@ def _inspect(connection: DockerConnection, resource: str, references: list[str])
 
 def _kind(tags: tuple[str, ...], labels: dict) -> str:
     repositories = [tag.rsplit(":", 1)[0] for tag in tags]
+    label_kind = labels.get("org.acprof.image-kind")
     explicit_kind = {"platform": "base", "environment": "runtime", "weights": "weights", "model-plan": "model-plan", "model": "model"}.get(
-        labels.get("org.acprof.image-kind"))
+        label_kind if isinstance(label_kind, str) else "")
     if explicit_kind:
         return explicit_kind
     if any(name.startswith("acprof-platform-") for name in repositories):
@@ -386,7 +387,7 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
                 # history 不提供 empty_layer。剔除已知元数据指令后，仅在层数/总量均吻合时
                 # 映射；WORKDIR/RUN 等真实零字节层保留，模糊历史仍显示未知。
                 if len(nonempty) == len(item.layers) and sum(nonempty) == item.size_bytes:
-                    sizes = nonempty
+                    sizes = tuple(nonempty)
             except (ImageManagementError, ValueError, KeyError, TypeError, AttributeError):
                 pass
         row = usage.get(item.image_id, {})

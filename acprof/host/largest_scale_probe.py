@@ -124,7 +124,7 @@ def write_probe_summary(
         )
         handle.write("\n")
 
-    atomic_write(path, write)
+    atomic_write(Path(path), write)
 
 
 def _cold_start_payload(session: RunningContainer | None) -> Dict[str, Any]:

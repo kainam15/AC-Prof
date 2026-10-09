@@ -10,6 +10,7 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+from typing import TextIO
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write, atomic_write_json, loads_finite_json
@@ -64,6 +65,8 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                           runner_sha256=source_fingerprint(code, service_sources(code), scope="interface-runner-v1"))
             from acprof.preparation_events import emit_progress
             emit_progress("environment")
+            if profile.environment is None:
+                raise InterfaceProbeError("runtime profile has no dependency environment", stage="environment")
             try:
                 dependency = prepare_environment_image(profile.environment, project)
             except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
@@ -128,7 +131,10 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
     finally:
         path = layout.path("logs") / "interface_validation.log"
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(path, lambda stream: stream.write(log))
+        def write_log(stream: TextIO) -> None:
+            stream.write(log)
+
+        atomic_write(path, write_log)
         atomic_write_json(layout.path("interface_validation.json"), report)
         task_info.model_resolution["interface_validation"] = report
         write_model_resolution(task_info, output_dir)

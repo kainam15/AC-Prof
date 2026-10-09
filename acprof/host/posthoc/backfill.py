@@ -349,7 +349,7 @@ def update_static_meta(
         updated["execution_profile_tools"] = [
             tool for tool in ("massif", "nsys") if tool in known_tools
         ]
-        metadata_keys: List[str] = ["execution_profile_schema_version"]
+        metadata_keys = ["execution_profile_schema_version"]
         if "massif" in execution_tools:
             metadata_keys.extend(
                 [

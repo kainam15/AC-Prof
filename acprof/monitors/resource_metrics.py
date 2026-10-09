@@ -135,8 +135,9 @@ def _normalize_pstate(value: object) -> Optional[str]:
             numeric = int(normalized[1:])
             return normalized if 0 <= numeric <= 15 else None
         return None
+    from typing import SupportsIndex, SupportsInt, cast
     try:
-        numeric = int(value)
+        numeric = int(cast(SupportsInt | SupportsIndex, value))
     except (TypeError, ValueError):
         return None
     return f"P{numeric}" if 0 <= numeric <= 15 else None
