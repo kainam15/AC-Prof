@@ -5,7 +5,8 @@
 ## 渐进类型检查与边界回归
 `requirements/dev.lock` 固定 mypy 2.3.1；类型检查唯一配置在 `pyproject.toml`。
 显式白名单覆盖实验与结果协议、资源/能耗与窗口边界、比较统计、容器运行清单、
-模型契约、主机 Orchestrator、适配的容器 Handler、TUI 只读工具和部分控制器，以及 CLI 入口。
+模型契约、主机 Orchestrator、模型来源/元数据辅助模块、多模态容器 Handler、
+TUI App 与页面布局、实验恢复及部分交互控制器，以及 CLI 入口。
 完整检查范围以 `files` 为准，不在文档中重复维护文件清单。
 
 `check_untyped_defs = true` 让已纳入模块中**尚未完整注解的函数体**也受检查；
@@ -16,8 +17,9 @@
 `disallow_any_generics`、`disallow_untyped_defs` 和 `warn_return_any`。
 这些规则只约束对应模块，不能代表整个项目没有隐式 `Any`；保留外部 JSON / 动态框架更新等必要的动态边界。
 
-尚未纳入的 TUI App 大控制器、部分异步状态操作、复杂多模态 Handler 和运行环境组合模块
-需要先修复真实类型冲突，再分批纳入，不通过跳过函数体来提高覆盖率。
+大型 TUI App 与内置多模态 Handler 已加入检查；其余较复杂的模型下载与依赖流、
+部分 TUI 报表、diffusion Handler、运行环境组合模块仍需先修复真实类型冲突，再分批纳入。
+不通过跳过函数体来提高覆盖率。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
 GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：

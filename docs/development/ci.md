@@ -38,7 +38,8 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
 独立 `types` job 同样使用 Python 3.10 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
 中的渐进式白名单强制开启未注解函数体检查和导入类型追踪，并对已验证的协议与 TUI 模块
-应用模块级严格规则；新纳入的 Orchestrator、Handler 和控制器由同一 job 自动检查。
+应用模块级严格规则；新纳入的 Orchestrator、多模态 Handler、TUI App、
+运行结果与主机辅助模块由同一 job 自动检查。
 这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
