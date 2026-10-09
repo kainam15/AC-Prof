@@ -177,7 +177,7 @@ def test_cached_history_cannot_override_changed_build_history():
     assert result.images[0].dependency_source == "unknown"
 
 def test_docker_scan_enforces_restricted_runtime():
-    with patch("acprof.host.image_dependency_scan._run", return_value="{}") as run:
+    with patch("acprof.host.image_dependency_scan.run_docker_command", return_value="{}") as run:
         _docker_read(CONNECTION, BASE, "python", ["-I", "-S", "-B", "-c", "print(1)"])
     argv = run.call_args.args[0]
     for arg in ("--network", "none", "--read-only", "--cap-drop", "ALL", "no-new-privileges",

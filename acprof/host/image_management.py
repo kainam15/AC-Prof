@@ -142,7 +142,7 @@ class DockerStorage:
         return sum(values) if len(values) == len(STORAGE_KINDS) else None
 
 
-def _run(arguments: tuple[str, ...] | list[str], *, timeout: int = 30) -> str:
+def run_docker_command(arguments: tuple[str, ...] | list[str], *, timeout: int = 30) -> str:
     # 不使用输出命令的 host._run，避免破坏 TUI；Docker CLI 沿用其凭据和连接配置。
     try:
         result = run_command(
@@ -164,7 +164,7 @@ def _connection() -> DockerConnection:
     host = os.environ.get("DOCKER_HOST", "").strip()
     if not context and host:
         return DockerConnection(("--host", host), host)
-    context = context or _run(("context", "show"))
+    context = context or run_docker_command(("context", "show"))
     if not context:
         raise ImageManagementError("无法确定 Docker 环境")
     return DockerConnection(("--context", context), context)
@@ -174,7 +174,7 @@ def _inspect(connection: DockerConnection, resource: str, references: list[str])
     records: list[dict] = []
     for start in range(0, len(references), 100):
         try:
-            batch = json.loads(_run((*connection.arguments, resource, "inspect", *references[start:start + 100])))
+            batch = json.loads(run_docker_command((*connection.arguments, resource, "inspect", *references[start:start + 100])))
         except json.JSONDecodeError as exc:
             raise ImageManagementError("Docker 返回了无效的镜像信息") from exc
         if not isinstance(batch, list) or any(not isinstance(item, dict) for item in batch):
@@ -211,7 +211,7 @@ def _kind(tags: tuple[str, ...], labels: dict) -> str:
 
 
 def _image_ids(connection: DockerConnection) -> list[str]:
-    ids = list(dict.fromkeys(_run((*connection.arguments, "image", "ls", "--all", "--quiet", "--no-trunc")).splitlines()))
+    ids = list(dict.fromkeys(run_docker_command((*connection.arguments, "image", "ls", "--all", "--quiet", "--no-trunc")).splitlines()))
     if any(not re.fullmatch(r"sha256:[0-9a-f]{64}", key) for key in ids):
         raise ImageManagementError("Docker 返回了无效的镜像信息")
     return ids
@@ -220,12 +220,12 @@ def _image_ids(connection: DockerConnection) -> list[str]:
 def list_images(connection: DockerConnection | None = None, *, include_space: bool = True) -> ImageInventory:
     """按 ID 去重；大小沿用 Docker 的完整 Size，不累计共享层为独占空间。"""
     connection = connection or _connection()
-    daemon_id = _run((*connection.arguments, "info", "--format", "{{.ID}}"))
+    daemon_id = run_docker_command((*connection.arguments, "info", "--format", "{{.ID}}"))
     if not daemon_id:
         raise ImageManagementError("无法确定 Docker 环境")
     ids = _image_ids(connection)
     records = _inspect(connection, "image", ids)
-    container_ids = _run((*connection.arguments, "container", "ls", "--all", "--quiet", "--no-trunc")).splitlines()
+    container_ids = run_docker_command((*connection.arguments, "container", "ls", "--all", "--quiet", "--no-trunc")).splitlines()
     containers: dict[str, list[str]] = {}
     for row in _inspect(connection, "container", container_ids):
         try:
@@ -302,7 +302,7 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
     template = ('{"ID":{{json .ID}},"DockerRootDir":{{json .DockerRootDir}},'
                 '"Name":{{json .Name}},"OperatingSystem":{{json .OperatingSystem}}}')
     try:
-        info = json.loads(_run((*connection.arguments, "info", "--format", template)))
+        info = json.loads(run_docker_command((*connection.arguments, "info", "--format", template)))
         if not isinstance(info, dict) or not info.get("ID") or not isinstance(info.get("DockerRootDir"), str):
             raise ValueError("invalid Docker info")
     except (ValueError, TypeError) as exc:
@@ -316,7 +316,7 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
         if connection.arguments[:1] == ("--host",):
             endpoint = connection.arguments[1]
         else:
-            endpoint = _run((*connection.arguments, "context", "inspect", connection.name,
+            endpoint = run_docker_command((*connection.arguments, "context", "inspect", connection.name,
                              "--format", "{{.Endpoints.docker.Host}}"))
         local = (endpoint.startswith("unix://") and info.get("Name") == os.uname().nodename
                  and "docker desktop" not in str(info.get("OperatingSystem", "")).lower())
@@ -334,7 +334,7 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
     usage = tuple(StorageUsage(kind) for kind in STORAGE_KINDS)
     try:
         # Docker CLI 的汇总已经处理镜像共享层；不能累加每个镜像的虚拟大小。
-        output = _run((*connection.arguments, "system", "df", "--format", "{{json .}}"), timeout=60)
+        output = run_docker_command((*connection.arguments, "system", "df", "--format", "{{json .}}"), timeout=60)
         rows = [json.loads(line) for line in output.splitlines() if line.strip()]
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError("invalid disk usage")
@@ -358,7 +358,7 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
     usage = {}
     warnings = []
     try:
-        rows = json.loads(_run((*inventory.connection.arguments, "system", "df", "-v", "--format", "{{json .Images}}")))
+        rows = json.loads(run_docker_command((*inventory.connection.arguments, "system", "df", "-v", "--format", "{{json .Images}}")))
         if not isinstance(rows, list):
             raise ValueError("invalid disk usage")
         usage = {row["ID"]: row for row in rows}
@@ -370,7 +370,7 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
         stage = ""
         if item.layers:
             try:
-                history = _run((*inventory.connection.arguments, "image", "history", "--no-trunc",
+                history = run_docker_command((*inventory.connection.arguments, "image", "history", "--no-trunc",
                                 "--human=false", "--format", '{"size":{{.Size}},"command":{{json .CreatedBy}}}', item.image_id))
                 rows = [json.loads(value) for value in history.splitlines()]
                 stage = dependency_stage(rows)
@@ -426,14 +426,14 @@ def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tupl
             if remaining:
                 detail = ", ".join(f"{indexed[key].name} ({key})" for key in sorted(remaining))
                 raise ImageManagementError("下层镜像未删除，已保留上层镜像", detail)
-            if _run((*inventory.connection.arguments, "info", "--format", "{{.ID}}")) != inventory.daemon_id:
+            if run_docker_command((*inventory.connection.arguments, "info", "--format", "{{.ID}}")) != inventory.daemon_id:
                 raise ImageManagementError("Docker 环境已改变，请刷新后重新选择")
             # 批次执行期间也复核引用，防止另一个进程移动标签后删到其它镜像。
             references = list(item.tags or (item.image_id,))
             checked = _inspect(inventory.connection, "image", references)
             if len(checked) != len(references) or any(row.get("Id") != item.image_id for row in checked):
                 raise ImageManagementError("镜像或标签已改变，请刷新后重新选择", item.name)
-            detail = _run((*inventory.connection.arguments, "image", "rm", "--no-prune", *references), timeout=60)
+            detail = run_docker_command((*inventory.connection.arguments, "image", "rm", "--no-prune", *references), timeout=60)
             remaining_ids = _image_ids(inventory.connection)
             if item.image_id in remaining_ids:
                 raise ImageManagementError("镜像标签已处理，但镜像仍保留；已停止删除其上层", detail)

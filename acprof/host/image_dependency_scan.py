@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.host.image_management import DockerConnection, ManagedImage, _run
+from acprof.host.image_management import DockerConnection, ManagedImage, run_docker_command
 
 SCAN_VERSION = 1
 MAX_RECORD_BYTES = 2 * 1024 * 1024
@@ -89,7 +89,7 @@ def _docker_read(connection: DockerConnection, image_id: str, entrypoint: str,
                "--security-opt", "no-new-privileges", "--pids-limit", "64",
                "--memory", "512m", "--cpus", "1", "--user", "65534:65534",
                "--entrypoint", entrypoint, image_id, *args]
-    value = _run(command, timeout=timeout)
+    value = run_docker_command(command, timeout=timeout)
     if len(value.encode()) > MAX_RECORD_BYTES:
         raise ValueError("image dependency output oversized")
     return value
