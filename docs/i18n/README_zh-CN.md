@@ -5,200 +5,42 @@
 
 [English](../../README.md) · **简体中文**
 
-AC-Prof 用来比较 Hugging Face 模型在不同 CPU、内存、GPU 配置和输入规模下的推理表现。
-你提供一个模型 ID，它会准备 Docker runtime，通过只读挂载共享主机 Model Store 中的权重，运行实验，并保存延迟、能耗、资源占用等数据。
-支持的模型无需修改代码；结果包含 CSV、复现所需的元数据和可生成的图表。
+AC-Prof 用于分析容器化 AI 模型在不同 CPU、内存、GPU 配置和输入规模下的推理表现。它自动准备 Docker 运行环境、只读挂载共享模型权重，并生成可复现的测量和分析产物。兼容的模型无需修改模型代码即可采集。
 
-[快速开始](#快速开始) · [终端界面](#交互式终端界面) · [查看结果](#查看结果) · [完整文档](../README.md)
+## AC-Prof 能做什么
 
-## AC-Prof 会采集什么
-
-| 使用方式 | 可以看到什么 |
+| 能力 | 说明 |
 | --- | --- |
-| `basic`，下面的入门示例 | 应用层延迟、吞吐量、容器 CPU 和内存占用 |
-| `full`，命令行默认模式 | 在基础指标上增加能耗、抓包延迟和 CPU 硬件计数器等指标 |
-| 显式启用或事后补采 profiler | Torch / NCU FLOP、Massif 内存峰值、Nsight Systems 执行时间线 |
+| 性能与资源 | 应用层延迟、吞吐量、CPU 和内存占用，以及可用时的 GPU 指标 |
+| 完整画像 | 能耗、抓包计时、CPU 硬件计数器，以及按需启用的独立 Profiler |
+| 可复现实验 | 输入与环境元数据、分层 CSV 结果、图表和报告 |
 
-支持范围包括文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务。
-具体模型需满足对应的[任务接口与运行环境](../Runtime_Compatibility.md#任务支持范围)，任务标签本身不保证任意 checkpoint 都能运行。
-符合受限接口的自定义多模态 pipeline 可[自动生成模型契约](../Runtime_Compatibility.md#自动生成模型契约m1m6)；其余接口或未解决依赖可使用[本地模型声明](../Runtime_Compatibility.md#本地模型声明与自定义-pipeline)，通过独立推理验证后再采集。
-[指标说明](../Metrics.md#采集能力概览)解释各项数据的含义和测量范围。
+支持文本、视觉、音频、时间序列、Diffusion、多模态与结构化数据任务，但模型仍需满足[任务接口要求](../Runtime_Compatibility.md#任务支持范围)，并非所有同类 checkpoint 都保证可运行。
 
 ## 快速开始
 
-用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，然后启动 AC-Prof TUI：
+使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，启动交互式终端界面：
 
 ```bash
 uv tool install acprof
 acprof tui
 ```
 
-### 1. 准备主机
-
-FULL 采集需要 Native Linux x86_64、本机 Docker Engine 和统一 cgroup v2，推荐 Ubuntu 24.04。
-AC-Prof 要求 Python 3.10+，uv 可按需准备 Python；[standalone](../Distribution.md#linux-standalone) 已内置解释器。
-当前用户应能直接运行 `docker info`，并能访问 Hugging Face 及依赖下载源。
-WSL2 支持开发及 `--profiling-mode basic` 的 PARTIAL 采集，详见 [WSL2 支持范围](../platforms/wsl2.md)。
-Docker Desktop、远程 Docker daemon、Windows 和 macOS 不支持实验采集。
-
-| 平台 | 开发 | 采集 | Native baseline |
-| --- | --- | --- | --- |
-| Native Linux | 支持 | FULL（仍需满足各 collector 前置条件） | 验证后可纳入 |
-| WSL2 | 支持 | PARTIAL / basic，需发行版内本机 Docker 和 cgroup v2 | 不可纳入 |
-| Windows / macOS | 离线开发与分析 | 不支持 | 不可纳入 |
-
-每个 dataset 保存环境身份；历史缺字段为 `unknown`，Native 与 WSL 结果不能合并进入同一 baseline。
-下面的 CPU 示例不需要 GPU；GPU 实验另需 NVIDIA driver 和 NVIDIA Container Toolkit。
-
-不确定环境是否满足要求时，先看[主机检查与配置](../Getting_Started.md#1-检查主机环境)。
-`full` 模式还需要可读的 RAPL、可用的 `perf instructions`、`tcpdump`、`tshark` 和 Docker bridge。
-
-### 2. 跑通第一个 CPU 实验
-
-在命令行运行以下入门实验：只使用 1 个 CPU、4 GB 容器内存和一个输入规模，主测量发送一次请求。
-它用于检查流程能否跑通，单次测量不足以得出性能结论。
-
-```bash
-acprof run --model google-bert/bert-base-uncased \
-  --profiling-mode basic \
-  --cpus 1 --mems 4 --gpus off --input-scales 64 \
-  --warmup 0 --repeat 1 --repeat-in-window 1 \
-  --compute-profile-tool none --execution-profile-tool none \
-  --notify none --output-dir results/first-run
-```
-
-首次运行会下载模型和依赖、构建镜像，准备阶段可能较久。程序会先检查环境，再开始下载和实验。
-这个 `basic` 示例只采集基础指标；能耗、抓包和独立 profiler 的字段为 `nan` 属于预期结果。
-完成后按下一节查看结果。重新做一个实验请换新的 `--output-dir`；中断后在同一条 `acprof run` 命令中保留原参数并添加 `--resume` [恢复实验](../Profiling_Protocol.md#结果完整性与断点续跑)。
-
-TUI 的 **恢复 / 重试** 会先检查原实验，再提供重试准备或续跑；源码或环境变化时，可用 **新建实验** 自动分配输出路径，原目录保留。
-
-也可使用 [`acprof auto MODEL`](../CLI_Reference.md#acprof-auto) 完成权限和主机预检后采集；
-资源参数与 `run` 相同。只有显式指定 `--profiling-mode auto` 才按能力选择 full/basic，
-语义冲突仍会停止并保存解释。模型覆盖率可通过 [`acprof coverage`](../CLI_Reference.md#acprof-coverage)
-冻结样本后单独检查。
-
-正式矩阵默认在独立 startup probe 后按 seed `0` 排序并冻结计划；用 `--matrix-seed` 改变顺序，
-或用 `--matrix-order declared` 保持声明顺序。resume 复用冻结计划。full 默认尝试可选 DRAM，
-缺失不导致失败；参数与能量单位见 [CLI](../CLI_Reference.md) 和[能耗说明](../Energy_Measurement.md#rapl-topology-与-dram)。
-
-## 查看结果
-
-上面命令行示例的主要文件位于下方目录。
-通过 TUI 运行时，以界面显示的输出路径替换以下命令中的 `results/first-run`。
-
-```text
-results/first-run/google-bert--bert-base-uncased/
-├── result_layers.json       # 分层文件校验和重建清单
-├── summary.csv              # 测量身份、输入与状态
-├── performance.csv          # 延迟、吞吐和冷启动
-├── resources.csv            # CPU、内存、GPU 和 PMU
-├── energy.csv               # 功率与能耗
-├── network.csv              # 抓包及网络流量
-├── profiling/               # 独立 Torch / NCU / Nsys / Massif CSV，按需生成
-├── static_meta.json         # 模型、镜像和运行环境
-├── capability_report.json   # 本次采集的能力与完成证据
-├── result_manifest.json     # 布局版本与产物路径索引
-├── metadata/                # 输入计划、矩阵计划、解析及补采记录
-├── raw/                     # 请求样本与 profiler 原始报告
-├── plots/                   # 图表、拟合与窗口统计
-├── logs/                    # 终端及独立验证日志
-├── debug/                   # 可选 idle 诊断
-└── .acprof/                 # 状态、锁、case 工作文件及恢复备份
-```
-
-先检查结果是否完整，再生成有适用数据的图表：
-
-```bash
-acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
-acprof plot results/first-run/google-bert--bert-base-uncased/result_layers.json
-acprof report results/first-run/google-bert--bert-base-uncased/
-acprof results verify results/first-run/google-bert--bert-base-uncased/
-```
-
-用浏览器打开生成的 `report.html`，通过共用筛选和可选 baseline 查看 Comparison Matrix、
-Pareto 取舍及 Scaling 视图。该文件可离线打开，也支持 Windows 浏览器，原始 CSV 保持不变。
-已有报告不会被覆盖；使用 `--output another-report.html` 保存新的快照。
-聚合口径与历史数据边界见[交互式配置比较](../Metrics.md#交互式配置比较报告)。
-
-新实验的图表写入 `plots/cpu/`、`plots/gpu/`、`plots/gpu+cpu/` 和 `plots/latency_model/`，没有适用数据的部分会跳过。
-采集期间先写 `.acprof/work/cases/<case-id>/result.csv` 以支持恢复；矩阵校验后才发布 `result_layers.json` 和各模块 CSV，作为唯一正式结果。**默认不生成 `result_all.csv`**；需要完整宽表时显式运行 `acprof results export <结果目录> <新文件.csv>`。四个 Profiler 独立存储和补采；旧版结果目录不再提供兼容分析或续跑。
-目录协议与恢复边界见[Artifact Layout v2](../Profiling_Protocol.md#artifact-layout-v2)。
-正式分析筛选 `status=ok` 且 `warmup=0`；字段、统计与缺失值说明见[结果阅读指南](../Metrics.md#从结果目录开始)。
-
-## 交互式终端界面
-
-填写实验参数后点击“开始采集”：系统自动解析模型、检查接口，并在每个选中设备上验证最小请求，
-仅在存在未决选择时询问。准备弹窗显示当前阶段，失败可重试，验证成功后自动开始正式采集。
-详见[模型确认与采集准备](../TUI.md#模型契约解析与验证)。
-
-也可以通过全屏 TUI 填写参数、查看日志、绘图和管理镜像。完成安装后运行：
-
-```bash
-acprof tui --model google-bert/bert-base-uncased --preset smoke
-```
-
-没有保存配置的首次启动使用 `smoke`：`basic`、CPU、单次请求和任务对应的最小输入尺度，关闭独立 profiler，初始通知关闭。
-切换预设保留模型来源（Hugging Face 或 ModelScope）、下载预算、缓存与输出路径以及通知选择。TUI 统一使用自动下载策略，读取旧下载模式时也按自动策略执行。开始按钮附近显示实验规模和注明假设的时间估计；切换预设不会改写已保存配置。
-下载确认提供“确认下载”和“取消”。下载、镜像与存储大小自动使用十进制 B/KB/MB/GB 单位，保存的数据和计算仍保留原始 bytes。详见[下载与磁盘预检](../TUI.md#下载与磁盘预检)。
-需要完整指标时，在“高级参数”中改为 `full`，并完成相应的主机检查；开始前可在命令预览中核对参数。
-
-镜像管理中，勾选上层会选中其完整下层分支，包括隐藏镜像。
-`◩` 表示保留本镜像、仅下层有选择。确认后从下层向上删除；
-容器引用或删除失败时保留受影响的上层。详见[镜像管理](../TUI.md#镜像管理)。
-
-唯一的自定义多模态 pipeline 会尝试自动解析；配套 `AutoModel` 的 `feature-extraction` 提示不会覆盖已声明的任务。固定配置可判定的依赖分支、本地参数转发和主模型自引用会自动处理，动态条件仍保留 review。Ultravox 的固定快照已覆盖 Llama weights 与 Whisper processor 的静态规划，详见[自动模型契约](../Runtime_Compatibility.md#自动生成模型契约m1m6)。输入或依赖仍有缺口时，可在“识别覆盖 → 模型接口声明”填写 JSON；格式与示例见[模型接口声明](../Runtime_Compatibility.md#本地模型声明与自定义-pipeline)。
-页面、快捷键、日志复制、设置与 VS Code 按键问题见 [TUI 用户指南](../TUI.md)。
-
-## 运行正式实验
-
-先用最小实验确认环境，再逐步增加输入规模、CPU、内存或 GPU 配置；高开销 profiler 可以在主实验后补采。
-使用 `full` 前完成[主机准备](../Getting_Started.md#1-检查主机环境)，并为新实验选择独立输出目录。
-
-仅传 `--model` 会使用默认完整矩阵。自动规划出 6 档输入时，它计划生成 1,344 行（含 warmup），
-仅主测量窗口就约 13 小时，下载、构建和 profiler 还需额外时间。详见[时间成本估算](../Profiling_Protocol.md#结果行数和时间成本估算)。
-
-[CPU / GPU 矩阵示例](../Getting_Started.md#运行正式实验) · [先探测最大输入](../Getting_Started.md#先探测最大输入) · [选择与补采 profiler](../Profilers.md) · [企业微信通知](../CLI_Reference.md#企业微信通知)
+实验采集需要满足要求的 Linux 主机、本机 Docker Engine 和 cgroup v2。Native Linux x86_64 支持符合前置条件的 FULL 测量；WSL2 仅有受限的 basic/PARTIAL 支持。详见[主机要求](../Getting_Started.md#1-检查主机环境)。
 
 ## 文档导航
 
-| 想继续做什么 | 阅读入口 |
+| 想做什么 | 阅读入口 |
 | --- | --- |
-| 配置环境，运行 Stable Diffusion、ONNX 或完整矩阵 | [安装与运行指南](../Getting_Started.md) |
-| 查参数、输入规模或自定义 workload | [CLI 参考](../CLI_Reference.md) |
-| 选择模型、backend 或了解镜像复用 | [运行兼容](../Runtime_Compatibility.md) |
-| 理解指标、能耗、图表和统计 | [指标与结果](../Metrics.md)、[能耗测量](../Energy_Measurement.md) |
-| 排查环境、OOM、超时或部分结果 | [运行排障](../Troubleshooting.md) |
-| 查采集协议和其他专题 | [完整文档索引](../README.md) |
+| 准备主机、跑通首个 CPU 实验或查看结果 | [安装与运行](../Getting_Started.md) |
+| 了解终端界面 | [TUI 用户指南](../TUI.md) |
+| 使用命令行选项与工具 | [CLI 参考](../CLI_Reference.md) |
+| 理解指标、分层 CSV 和报告 | [指标与结果分析](../Metrics.md) |
+| 了解支持的模型与运行环境 | [运行兼容](../Runtime_Compatibility.md) |
+| 开发或贡献 AC-Prof | [开发安装](../Getting_Started.md#开发安装)、[代码架构](../Architecture.md)、[测试指南](../Testing.md) |
 
-## 项目结构与开发
-
-开发或构建未发布版本时获取源码：
-
-```bash
-git clone https://github.com/kainam15/AC-Prof.git
-cd AC-Prof
-uv venv --python 3.10
-uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-uv pip install --no-deps -e .
-source .venv/bin/activate
-acprof --version
-```
-
-开发环境继续以现有带哈希的 requirements 为准。
-需要将 checkout 安装为隔离工具并检查主机时，可使用可选的 [`setup.sh` 辅助脚本](../Distribution.md#clone-后初始化)。
-
-[`pyproject.toml`](../../pyproject.toml) 声明主机依赖；[`requirements/`](../../requirements/) 集中保存 `host`、`dev`、`test` 和 `runtime-test` 的输入与锁文件。
-
-安装 `requirements/dev.lock` 后，使用 `python -m pytest` 运行开发测试；测试工具与运行依赖分离。
-模块职责见[代码架构](../Architecture.md)，开发依赖、pre-commit 和测试入口见[测试指南](../Testing.md#开发质量检查)。
-新增模型或 backend 参见[适配契约](../Runtime_Compatibility.md#新增一个模型适配)；Agent 协作规则见 [AGENTS.md](../../AGENTS.md)。
+[完整文档索引](../README.md) · [运行排障](../Troubleshooting.md)
 
 ## 许可与来源
 
-项目代码采用 [Apache-2.0](../../LICENSE)，延续原始项目定义的许可声明。
-AC-Prof 属于 JNU DISTINT 的 DOR 项目，原始贡献者及后续维护来源见 [NOTICE](../../NOTICE)。
-原始仓库、当前扩展范围与历史参考边界见[项目来源与演进](../Project_Origin.md)。
-内置 LibriSpeech 音频保留 [CC-BY-4.0](../../licenses/CC-BY-4.0.txt)；模型代码和权重遵循各自仓库的许可。
-
-使用 `acprof compare` 比较跨独立实验差异，使用 `acprof load` 执行独立非流式负载。详见[统计口径](../Metrics.md#跨独立实验比较)和[负载协议](../Profiling_Protocol.md#独立非流式负载)。
+项目代码采用 [Apache-2.0](../../LICENSE)。内置 LibriSpeech 音频保留 [CC-BY-4.0](../../licenses/CC-BY-4.0.txt)，模型代码和权重遵循各自许可。AC-Prof 属于 JNU DISTINT 的 DOR 项目；贡献记录及来源见 [NOTICE](../../NOTICE) 与[项目来源](../Project_Origin.md)。

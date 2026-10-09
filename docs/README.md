@@ -23,7 +23,7 @@ AC-Prof 的长期知识在本目录按主题维护。先按任务选择一篇，
 | 修改 Python、配置开发检查、选择测试、做 TUI 回归 | [测试指南](Testing.md)：[PyCharm MCP 工具约定](Testing.md#python-修改工作流)、Ruff/pre-commit、硬件冒烟与验证边界 |
 | 新建或修改 Skill、`AGENTS.md` | [编写规则](#skill-与-agent-文档编写)：触发条件、按需读取、完成与确认边界 |
 
-根 [README.md](../README.md) 是英文正式主文档，提供项目介绍和首次运行路线；简体中文版位于 [docs/i18n/README_zh-CN.md](i18n/README_zh-CN.md)。
+根 [README.md](../README.md) 是英文项目入口，提供能力概览、安装与 TUI 启动命令、文档导航；简体中文版位于 [docs/i18n/README_zh-CN.md](i18n/README_zh-CN.md)。
 修改任一语言的 README 时，必须在同一次改动中同步另一版本的对应内容、命令、链接和排版，保留各自语言及正确的相对路径；详细专题目前以简体中文维护。完整安装与实验示例在[运行指南](Getting_Started.md)，界面操作在 [TUI 用户指南](TUI.md)。
 实现与默认值用当前代码和 `--help` 核对；历史实验解释以当次产物的版本、计划、日志和来源为准。
 

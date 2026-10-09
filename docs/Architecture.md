@@ -12,8 +12,8 @@ WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](platforms/wsl2.md)。
 `installation.py` 区分只读构建资源和用户工作目录，并生成 Python/standalone 子进程命令。
 资源、安装与发布边界见[发行包说明](Distribution.md)。
 
-修改模块边界、依赖方向或兼容入口时查阅本文。操作说明见 [中文 README](i18n/README_zh-CN.md#项目结构与开发)，
-字段与测量口径见 [指标与结果分析](Metrics.md#result_allcsv-字段解释)，运行环境扩展见[模型运行环境与适配器](Runtime_Compatibility.md)。
+修改模块边界、依赖方向或兼容入口时查阅本文。开发安装与操作说明见 [开发安装](Getting_Started.md#开发安装)和[测试指南](Testing.md#开发质量检查)，
+字段与测量口径见 [指标与结果分析](Metrics.md#分层指标字段解释完整宽表导出)，运行环境扩展见[模型运行环境与适配器](Runtime_Compatibility.md)。
 
 - [Python 文件规模与拆分原则](#python-文件规模与拆分原则)：查看人工审查阈值与风险判断。
 - [目录与职责](#目录与职责)：先定位实现模块。

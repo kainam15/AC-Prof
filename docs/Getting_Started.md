@@ -16,12 +16,12 @@
 uv tool install acprof
 acprof --version
 acprof --help
-acprof
+acprof tui
 ```
 
 工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.10+。
 若找不到命令，执行 `uv tool update-shell`，按提示刷新 PATH 或重新打开终端。
-`acprof` 默认启动 TUI，等同于 `acprof tui`；查看版本和帮助不会启动采集。
+`acprof` 不带子命令时只显示 CLI 帮助；启动 TUI 请运行 `acprof tui`，查看版本和帮助不会启动采集。
 
 ### uv pip install / pip install
 
@@ -34,7 +34,7 @@ uv pip install acprof
 acprof --version
 ```
 
-使用 pip 的环境中执行 `pip install acprof`，随后同样运行 `acprof`。
+使用 pip 的环境中执行 `pip install acprof`，随后同样运行 `acprof tui`。
 安装包可以脱离仓库运行，Docker、驱动及采集工具仍由主机提供。
 
 ### 升级与固定版本
@@ -198,9 +198,20 @@ HF_ENDPOINT=https://hf-mirror.com
 
 ### 3. 跑一个最小 smoke test
 
-下面使用默认 `full` 模式，只运行一个 CPU、一个内存限制、一个输入尺度和一个请求，
-并关闭独立 profiler。首次跑通流程可使用[中文首页的 basic 示例](i18n/README_zh-CN.md#快速开始)；
-本例还要求前述 RAPL、perf 和抓包条件。
+首次尝试推荐 **basic CPU 单次实验**。只使用 1 个 CPU、4 GB 容器内存、一个输入规模和一次正式请求，主要用于验证采集流程，单次测量不足以得出性能结论。也可以直接在 TUI 中选择 Smoke 预设；以下是独立的 CLI 入门示例：
+
+```bash
+acprof run --model google-bert/bert-base-uncased \
+  --profiling-mode basic \
+  --cpus 1 --mems 4 --gpus off --input-scales 64 \
+  --warmup 0 --repeat 1 --repeat-in-window 1 \
+  --compute-profile-tool none --execution-profile-tool none \
+  --notify none --output-dir results/first-run
+```
+
+首次运行会先检查环境，再下载模型和依赖、构建镜像，准备阶段可能较久。此模式只采集基础指标，能耗、抓包和独立 profiler 的字段为 `nan` 属于预期结果。新实验需选择新的 `--output-dir`；中断后保留原参数并添加 `--resume`，详见[结果完整性与断点续跑](Profiling_Protocol.md#结果完整性与断点续跑)。
+
+需要验证完整采集链路时，再使用以下默认 **full CPU 示例**（同样只请求一次，不能作为性能结论）；它额外要求 RAPL、perf、抓包工具及主机权限：
 
 ```bash
 acprof run --model google-bert/bert-base-uncased \
@@ -276,7 +287,20 @@ acprof run --model Ritual-Net/iris-classification \
 
 ## 查看结果
 
-用 `acprof plot <结果目录>` 生成图表；如需完整宽表，显式执行 `acprof results export <结果目录> <新文件.csv>`。[结果阅读指南](Metrics.md#从结果目录开始)说明输出目录、分析过滤、只读审计与统计入口。
+上面的 basic 示例将主要产物写入 `results/first-run/google-bert--bert-base-uncased/`；TUI 运行时请使用界面显示的实际输出路径。实验完成后生成 `result_layers.json` 及独立模块 CSV；详细文件树和字段归属见[产物结构](Profiling_Protocol.md#artifact-layout-v2)与[结果阅读指南](Metrics.md#从结果目录开始)。
+
+可先只读校验结果，再生成适用的图表和离线报告：
+
+```bash
+acprof audit results/first-run/google-bert--bert-base-uncased/ --require-complete --require-ok
+acprof results verify results/first-run/google-bert--bert-base-uncased/
+acprof plot results/first-run/google-bert--bert-base-uncased/result_layers.json
+acprof report results/first-run/google-bert--bert-base-uncased/
+```
+
+用浏览器打开生成的 `report.html`，即可离线查看 Comparison Matrix、Pareto 和 Scaling 视图；报告不会默认覆盖旧文件，选项与分析口径见[交互式配置比较](Metrics.md#交互式配置比较报告)。正式分析只使用 `status=ok` 且 `warmup=0` 的行；没有采集的指标可为 `nan`。完整宽表不会自动生成，需要时显式运行 `acprof results export <结果目录> <新文件.csv>`。
+
+恢复实验、模型预检、矩阵参数及其它 CLI 选项参见[正式实验](#运行正式实验)和[CLI 参考](CLI_Reference.md)；TUI 操作、下载确认及镜像管理见[TUI 用户指南](TUI.md)。
 
 ## 运行正式实验
 
