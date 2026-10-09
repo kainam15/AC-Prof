@@ -14,6 +14,7 @@ from acprof.tui.views import ConfirmActionScreen
 
 
 class ProfileActions(MessagePump):
+    _pending_launch: PendingLaunch | None
     @on(Button.Pressed, "#profile-dry-run")
     def profile_dry_run_button(self) -> None:
         self._launch_profile(dry_run=True)

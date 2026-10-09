@@ -2,22 +2,29 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
+from textual.app import App
+from textual.message_pump import MessagePump
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Collapsible, Select, Static, TabbedContent, TabPane
 
 from acprof.tui.i18n import translate
 from acprof.tui.input import BarCursorInput as Input
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
 
-class LocalizationActions:
-    def tr(self, source: str) -> str:
+
+class LocalizationActions(MessagePump):
+    _applied_language: str | None
+    def tr(self: AcprofTui, source: str) -> str:
         return translate(source, self.ui_preferences.language)
 
-    def notify(self, message: str, *, title: str = "", **kwargs) -> None:
-        super().notify(self.tr(message), title=self.tr(title), **kwargs)
+    def notify(self: AcprofTui, message: str, *, title: str = "", **kwargs) -> None:
+        App.notify(self, self.tr(message), title=self.tr(title), **kwargs)
 
-    def _localized_widget(self, widget: Widget) -> Widget:
+    def _localized_widget(self: AcprofTui, widget: Widget) -> Widget:
         """Register only our own widgets, before Textual creates their children."""
         if isinstance(widget, (Button, Checkbox)):
             self._localized_text[widget, "label"] = widget.label.plain
@@ -31,17 +38,17 @@ class LocalizationActions:
             self._localized_text[widget, "tooltip"] = widget.tooltip
         return widget
 
-    def _localized_select(self, options, **kwargs) -> Select:
+    def _localized_select(self: AcprofTui, options, **kwargs) -> Select:
         sources = tuple(options)
         widget = Select(sources, **kwargs)
         self._localized_selects[widget] = sources
         return widget
 
-    def _set_text(self, widget: Widget, source: str, attribute: str = "content") -> None:
+    def _set_text(self: AcprofTui, widget: Widget, source: str, attribute: str = "content") -> None:
         self._localized_text[widget, attribute] = source
         self._render_text(widget, attribute, source)
 
-    def _render_text(self, widget: Widget, attribute: str, source: str) -> None:
+    def _render_text(self: AcprofTui, widget: Widget, attribute: str, source: str) -> None:
         rendered = self.tr(source)
         if attribute == "content":
             assert isinstance(widget, Static)
@@ -52,7 +59,7 @@ class LocalizationActions:
             # Recompute geometry when switching a visible page back and forth.
             widget.refresh(layout=True)
 
-    def _capture_language_text(self) -> None:
+    def _capture_language_text(self: AcprofTui) -> None:
         tabs = self.query_one("#main-tabs", TabbedContent)
         for pane in tabs.query(TabPane):
             tab = tabs.get_tab(pane)
@@ -61,7 +68,7 @@ class LocalizationActions:
             key: list(bindings) for key, bindings in self._bindings.key_to_bindings.items()
         }
 
-    def _apply_language(self) -> None:
+    def _apply_language(self: AcprofTui) -> None:
         if self._applied_language == self.ui_preferences.language:
             return
         self._applied_language = self.ui_preferences.language

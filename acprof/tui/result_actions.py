@@ -15,7 +15,14 @@ from textual.widgets import Button, DataTable, Static
 
 from acprof.experiment import RunConfigError
 from acprof.messages import join_messages, message
-from acprof.tui.commands import prepare_comparison, prepare_plot, prepare_stats, resolve_result_path
+from acprof.tui.commands import (
+    PendingLaunch,
+    prepare_comparison,
+    prepare_plot,
+    prepare_stats,
+    resolve_result_path,
+)
+from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.i18n import error_message
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
@@ -30,6 +37,8 @@ class ResultActions(MessagePump):
     _report_request: Event | None
     _report_path: Path | None
     _report_view: ReportView | None
+    _stats_report_path: Path | None
+    _recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None
     @on(Button.Pressed, "#clear-log")
     def clear_log_button(self) -> None:
         self.action_clear_log()

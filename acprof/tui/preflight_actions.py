@@ -6,8 +6,9 @@ cancellation; this mixin handles presentation and preflight requests.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from textual import on, work
 from textual.message_pump import MessagePump
@@ -20,8 +21,21 @@ from acprof.tui import run_form, run_planning
 from acprof.tui.diagnostics import PreflightCheck
 from acprof.tui.views import EnvironmentPreflightScreen
 
+if TYPE_CHECKING:
+    from acprof.tui.preparation import PreparationScreen
+
 
 class PreflightActions(MessagePump):
+    _environment_open: bool
+    _check_running: bool
+    _check_completed: bool
+    _preflight_error: str
+    _check_config: RunConfig | None
+    _checked_config: RunConfig | None
+    _planned_input_identity: tuple[object, ...] | None
+    _preparation_request: tuple[subprocess.Popen[str], int] | None
+    _preparation_screen: PreparationScreen | None
+    _preflight_checks: tuple[PreflightCheck, ...]
     @on(Button.Pressed, "#environment-status")
     def show_environment_status(self) -> None:
         lines = []

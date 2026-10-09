@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 class ModelActions(MessagePump):
     _candidate_pin: tuple[str, str, str] | None
+    _picker_open: bool
     @on(Button.Pressed, '#model-candidates')
     def open_model_candidates(self: AcprofTui) -> None:
         if not self._allow_operation('catalog'):

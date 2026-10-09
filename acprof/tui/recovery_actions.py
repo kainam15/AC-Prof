@@ -13,6 +13,7 @@ from textual.widgets import Button, Collapsible, Static
 from acprof.experiment import build_run_command
 from acprof.messages import message
 from acprof.tui.commands import PendingLaunch, format_command
+from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.i18n import error_message
 from acprof.tui.recovery import RecoveryReview, review_recovery
 from acprof.tui.rendering import CjkCompositor
@@ -67,6 +68,8 @@ class RecoveryScreen(ModalScreen[str | None]):
 
 
 class RecoveryActions(MessagePump):
+    _recovery_request: Event | None
+    _recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None
     def _review_run_destination(self: AcprofTui, pending: PendingLaunch, *, record=None,
                                 confirmed: bool = False) -> None:
         if not self._allow_operation("run"):
@@ -77,7 +80,8 @@ class RecoveryActions(MessagePump):
         self._execute_recovery_review(pending, record, token, confirmed)
 
     @work(thread=True, group="recovery", exit_on_error=False)
-    def _execute_recovery_review(self: AcprofTui, pending, record, token, confirmed) -> None:
+    def _execute_recovery_review(self: AcprofTui, pending: PendingLaunch, record: ExperimentRecord | None,
+                                 token: Event, confirmed: bool) -> None:
         from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         try:
             review, error = review_recovery(pending, record=record, project_dir=PROJECT_DIR,
@@ -86,7 +90,8 @@ class RecoveryActions(MessagePump):
             review, error = None, error_message(exc)
         self._safe_process_callback(self._show_recovery_review, pending, token, confirmed, review, error)
 
-    def _show_recovery_review(self: AcprofTui, pending, token, confirmed, review, error) -> None:
+    def _show_recovery_review(self: AcprofTui, pending: PendingLaunch, token: Event, confirmed: bool,
+                              review: RecoveryReview | None, error: str) -> None:
         self._read_jobs.discard(token)
         if not self.is_running or self._ui_closing:
             return
@@ -97,8 +102,14 @@ class RecoveryActions(MessagePump):
         if error:
             self.notify(error, severity="error", timeout=10)
             return
+        if pending.config is None:
+            self.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+            return
         if review is None or (confirmed and pending.config.resume and review.resume is not None):
             launch = pending if review is None else review.resume
+            if launch is None or launch.config is None:
+                self.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+                return
             self._apply_config(launch.config)
             if self._preflight_run_reason():
                 self._recovery_after_check = (launch, review.record if review else None)

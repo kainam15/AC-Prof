@@ -61,12 +61,14 @@ from acprof.tui.diagnostics import (
     summarize_result_csv,
 )
 from acprof.tui.experiment_actions import ExperimentActions
+from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.image_actions import ImageActions
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
 from acprof.tui.localization_actions import LocalizationActions
 from acprof.tui.log import SelectableLog
 from acprof.tui.model_actions import ModelActions
 from acprof.tui.preflight_actions import PreflightActions
+from acprof.tui.preparation import PreparationScreen
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
 from acprof.tui.profile_actions import ProfileActions
@@ -171,7 +173,7 @@ class AcprofTui(
         if color_system != "auto":
             # SSH often omits COLORTERM even when the client supports RGB.
             # Configure only this renderer; keep the subprocess environment intact.
-            self.console = Console(
+            self.console: Console = Console(
                 color_system=color_system,
                 file=self.console.file,
                 markup=True,
@@ -197,10 +199,10 @@ class AcprofTui(
         if self._saved_settings.last_model:
             config = replace(config, model=self._saved_settings.last_model,
                              revision=config.revision if config.model == self._saved_settings.last_model else "")
-        self.initial_config = initial_config if initial_config is not None else config
+        self.initial_config: RunConfig = initial_config if initial_config is not None else config
         self._extra_run_options = dict(self.initial_config.extra_options)
         self._planned_input: dict | None = None
-        self._planned_input_identity: tuple | None = None
+        self._planned_input_identity: tuple[object, ...] | None = None
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
         self.theme = self.ui_preferences.theme
@@ -222,15 +224,15 @@ class AcprofTui(
         self._preflight_error = ""
         self._summary_request: Event | None = None
         self._recovery_request: Event | None = None
-        self._recovery_after_check = None
+        self._recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None = None
         self._summary_path: Path | None = None
         self._report_request: Event | None = None
         self._report_path: Path | None = None
         self._read_jobs: set[object] = set()
-        self._process_token = None
+        self._process_token: object | None = None
         self._run_result = RunResult()
         self._environment_open = False
-        self._preparation_screen = None
+        self._preparation_screen: PreparationScreen | None = None
         self._preparation_cancelled = False
         self._pending_source_change = None
         self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
@@ -785,7 +787,7 @@ class AcprofTui(
             log.write(self.tr(message('[TUI][ERROR] 无法运行命令：{0}', launch_error)))
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
         elif comparison_ready:
-            notice = message("比较报告已生成；请查看可比性、质量和证据不足的原因。")
+            notice: str = message("比较报告已生成；请查看可比性、质量和证据不足的原因。")
             log.write(self.tr(notice))
             self.notify(notice, severity="information", timeout=8)
         elif returncode == 0 and kind != "run" and not self._stop_requested:
@@ -796,7 +798,7 @@ class AcprofTui(
         elif self._stop_requested:
             log.write(self.tr(message('[TUI] 任务已由用户终止，退出码 {0}', returncode)))
             self.notify("任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
-        elif unsupported_task:
+        elif unsupported_task and snapshot is not None:
             log.write(self.tr(snapshot.detail))
             log.write(self.tr(message(
                 '处理办法：换用已适配任务的模型；识别有误时修正配置；需要该任务时等待或开发适配。'
@@ -807,14 +809,14 @@ class AcprofTui(
             self.notify(message('任务失败，退出码 {0}', returncode), severity="error", timeout=8)
 
         current_csv = ""
-        if unsupported_task:
+        if unsupported_task and snapshot is not None:
             self._latest_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")
             self._render_snapshot(self._latest_snapshot)
         elif kind == "run":
             result = self._run_result
             stage = result.stage(returncode, self._stop_requested, launch_error)
             final_state = snapshot or self._latest_snapshot
-            detail = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
+            detail: str = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
                              result.total_cases or final_state.total_cases,
                              message("可查看结果，或检查恢复与重试选项") if stage != "已完成" else message("可查看结果与计算统计"))
             self.query_one("#run-recovery-actions").display = stage != "已完成"

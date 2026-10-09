@@ -10,6 +10,7 @@ from dataclasses import replace
 from textual import on
 from textual.message_pump import MessagePump
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Collapsible, ContentSwitcher, Label, Select, Static
 
@@ -21,11 +22,15 @@ from acprof.tui.i18n import error_message
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.scrollbar import SolidScrollBarRender
-from acprof.tui.settings import UiPreferences
+from acprof.tui.settings import TuiSettings, UiPreferences
 from acprof.tui.views import LogPanel
 
 
 class ConfigurationActions(MessagePump):
+    _saved_settings: TuiSettings
+    ui_preferences: UiPreferences
+    _selected_preset: str | None
+    _preview_timer: Timer | None
     def _apply_ui_preferences(self) -> None:
         self._apply_language()
         self.theme = self.ui_preferences.theme
@@ -265,8 +270,8 @@ class ConfigurationActions(MessagePump):
                         self.query_one(f"#{widget_id}", Input).value = value
                     for widget_id, value in selects.items():
                         self.query_one(f"#{widget_id}", Select).value = value
-                    for widget_id, value in checks.items():
-                        self.query_one(f"#{widget_id}", Checkbox).value = value
+                    for widget_id, checked_value in checks.items():
+                        self.query_one(f"#{widget_id}", Checkbox).value = checked_value
                     self.query_one("#run-preset", Select).value = preset
                     self._selected_preset = preset
         finally:
