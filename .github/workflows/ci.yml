@@ -36,6 +36,8 @@ jobs:
         run: python scripts/check_private_api.py
       - name: 禁止跨架构层反向导入
         run: python scripts/check_import_boundaries.py
+      - name: 审查 Python 模块规模（提示，不设行数硬门槛）
+        run: python scripts/check_module_sizes.py --top 25
 
   types:
     runs-on: ubuntu-24.04

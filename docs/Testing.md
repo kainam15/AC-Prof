@@ -67,6 +67,16 @@ MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限
 不把空调用树当作没有依赖。pytest 缺失时先安装开发锁；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](#pycharm-mcp-的验证边界)。
 真实 workload 缺少 Docker、GPU、模型等运行条件时，明确标为未验证，不用 IDE diagnostics 或 smoke test 代替。
 
+## Python 文件规模审查
+
+使用 `python scripts/check_module_sizes.py` 汇总 `acprof/` 文件的物理行数及最长函数、
+静态分支与 import 提示。大于 500 行列为软目标提醒，大于 800 行列为人工审查；
+`data-review` 表示源码以大段静态字典或列表为主，**不是默认拆分任务**。
+`--top 0` 列出全部待审查文件，`--json` 提供结构化结果。文件大小本身不作为 CI 拒绝条件；
+脚本只能在扫描失败、编码错误或源码语法错误时失败。
+CI 的 lint job 会运行该报告，pytest 覆盖阈值边界、数据目录识别、长函数和错误处理。
+指标和拆分顺序的解释见[Python 文件规模与拆分原则](Architecture.md#python-文件规模与拆分原则)。
+
 ## 开发质量检查
 
 产物布局改动的定向入口包括 `test_artifact_layout.py`、`test_run_recovery.py`、
