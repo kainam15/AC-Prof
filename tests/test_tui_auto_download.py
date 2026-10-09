@@ -73,7 +73,10 @@ workflow.run("model", fail)
                     await pilot.pause()
             await asyncio.wait_for(ready(), timeout=10)
             await pilot.click("#preparation-modelscope")
-            await pilot.pause()
+            async def source_screen_ready():
+                while not isinstance(app.screen, ModelSourceScreen) or not app.screen.query("#source-model-id"):
+                    await pilot.pause()
+            await asyncio.wait_for(source_screen_ready(), timeout=10)
             app.screen.query_one("#source-model-id", Input).value = "new/model"
             await pilot.click("#source-confirm")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
