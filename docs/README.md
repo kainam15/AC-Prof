@@ -13,7 +13,6 @@
 | **results/** · 结果 | [指标与分析](results/metrics.md) · [自动生成字段登记表](results/metric_reference.md) |
 | **development/** · 开发 | [架构](development/architecture.md) · [测试](development/testing.md) · [发行包](development/distribution.md) · [历史来源](development/history.md) |
 | **platforms/** · 平台 | [WSL2](platforms/wsl2.md) |
-| **reviews/** · 历史记录 | 审计快照，不代表当前实现 |
 | **i18n/** · 翻译 | [简体中文 README](i18n/README_zh-CN.md) |
 
 [项目首页](../README.md) 负责介绍和安装入口，不复制使用手册。
@@ -24,7 +23,6 @@
 - README、导航、Skills、AGENTS 和其他专题只做简短链接，不重复维护完整命令和字段表。
 - 移动文档须同步修复源码、脚本、测试及 Markdown 的相对链接和章节锚点。
 - 自动生成的字段登记表以项目指标注册表为权威来源，按原有生成脚本更新。
-- reviews/ 是历史证据，不能被当成现行配置。
 
 ## 文档、规则与流程的分工
 
@@ -39,8 +37,7 @@
 | 实验目录、命令输出 | 该次运行的事实与当前机器状态 | 实时、定向检查 |
 
 一个主题只维护一处完整定义，其他文档保留必要摘要或链接；相关小主题使用章节，不为每个字段创建文件。
-历史审计 `reviews/` 是带日期和输入指纹的证据快照，不是现行协议，也不证明当前机器状态。
-本轮 [Code Health 实施记录（2026-10-02）](reviews/2026-10-02-code-health.md) 汇总 private API、模块边界、输出和 coverage 的处理结果。
+一次性审查报告、历史验证记录归档在任务证据目录或 Git 历史中；长期有效的设计取舍只在对应专题维护。
 临时任务计划和验证输出放在会话或 `internal-testing/`，不要写进长期 Agent 规则。
 
 ## Skill 与 Agent 文档编写
