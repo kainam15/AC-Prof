@@ -23,7 +23,7 @@ def download_summary(report: dict, translate: Callable[[str], str]) -> str:
               if report["max_download_bytes"] is None else format_bytes(report["max_download_bytes"]))
     docker_details = {key: value for key, value in docker.items()
                       if key not in {"docker_storage_total_bytes", "docker_storage_available_bytes_at_start"}}
-    lines = [
+    lines: list[str] = [
         message("预计下载：{0}", format_bytes(report.get("expected_download_bytes"))),
         message("有效下载预算：{0}", budget),
         message("Model Store 路径：{0}", report.get("model_store_path", UNKNOWN)),

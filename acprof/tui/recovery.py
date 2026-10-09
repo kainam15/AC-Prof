@@ -48,7 +48,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
     if config is None:
         raise ValueError("recovery requires an experiment configuration")
     directory = config.result_dir(project_dir).resolve()
-    issues = []
+    issues: list[str] = []
     try:
         layout = ArtifactLayout.discover(directory)
         if record is None and not config.resume:
@@ -99,8 +99,8 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
         fresh = replace(fresh, revision=record.revision)
     restart = None
     try:
-        command = build_run_command(fresh, project_dir=project_dir, python_executable=python_executable)
-        restart = PendingLaunch(tuple(command), "run", fresh, result_dir=str(fresh.result_dir(project_dir)))
+        restart_command = build_run_command(fresh, project_dir=project_dir, python_executable=python_executable)
+        restart = PendingLaunch(tuple(restart_command), "run", fresh, result_dir=str(fresh.result_dir(project_dir)))
     except ValueError as exc:
         issues.append(error_message(exc))
     summary = {"preparation": "上次准备未完成，尚未进入正式采集。",

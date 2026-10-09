@@ -25,7 +25,7 @@ def format_bytes(value: int | None) -> str:
 def format_byte_fields(value: object, translate: Callable[[str], str]) -> object:
     """Copy diagnostic data for display, leaving all source byte counts intact."""
     if isinstance(value, dict):
-        result = {}
+        result: dict[str, object] = {}
         for key, item in value.items():
             if item is None and key in {"capacity_bytes", "max_download_bytes"}:
                 result[key] = translate(message("不限"))

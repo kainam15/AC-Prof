@@ -17,10 +17,13 @@ from acprof.platform import collection_policy_error
 from acprof.tui.commands import PendingLaunch, build_probe_command, format_command
 from acprof.tui.i18n import error_message
 from acprof.tui.input import BarCursorInput as Input
+from acprof.tui.settings import TuiSettings
 from acprof.tui.views import ConfirmActionScreen
 
 
 class ExperimentActions(MessagePump):
+    _pending_launch: PendingLaunch | None
+    _saved_settings: TuiSettings
     def preset_smoke(self) -> None:
         self._apply_preset("smoke")
 
@@ -145,7 +148,12 @@ class ExperimentActions(MessagePump):
             if value:
                 self.query_one(f"#{widget_id}", Input).value = value
                 updates[f"last_{widget_id.replace('-', '_')}"] = value
-        settings = replace(self._saved_settings, **updates)
+        settings = replace(
+            self._saved_settings,
+            last_model=updates.get("last_model", self._saved_settings.last_model),
+            last_result_dir=updates.get("last_result_dir", self._saved_settings.last_result_dir),
+            last_result_csv=updates.get("last_result_csv", self._saved_settings.last_result_csv),
+        )
         if settings == self._saved_settings:
             return
         if self._settings_warning:

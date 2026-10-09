@@ -24,6 +24,12 @@ from acprof.tui.reports import ReportView
 
 
 class ResultActions(MessagePump):
+    # These state slots are initialized by AcprofTui, not by this mixin.
+    _summary_request: Event | None
+    _summary_path: Path | None
+    _report_request: Event | None
+    _report_path: Path | None
+    _report_view: ReportView | None
     @on(Button.Pressed, "#clear-log")
     def clear_log_button(self) -> None:
         self.action_clear_log()

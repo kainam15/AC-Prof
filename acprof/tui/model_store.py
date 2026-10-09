@@ -128,7 +128,7 @@ class ModelStoreScreen(ModalScreen):
             self.app.tr("清理")), self._confirmed)
 
     def _confirmed(self, confirmed):
-        if confirmed:
+        if confirmed and self.preview is not None:
             approved = set(self.preview["entries"])
             self._begin_work("正在复核并清理未使用模型……")
             self.apply_prune(approved)

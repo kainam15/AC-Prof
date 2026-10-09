@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from textual import on
 from textual.message_pump import MessagePump
+from textual.widgets import Input as TextualInput
 
 from acprof.experiment import RunConfigError
 from acprof.messages import message
@@ -13,7 +14,7 @@ from acprof.tui.log import SelectableLog
 
 class SlashCommandActions(MessagePump):
     @on(Input.Submitted, "#slash-command")
-    def slash_command_submitted(self, event: Input.Submitted) -> None:
+    def slash_command_submitted(self, event: TextualInput.Submitted) -> None:
         value = event.value
         event.input.value = ""
         try:

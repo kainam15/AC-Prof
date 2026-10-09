@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from textual import on
 from textual.message_pump import MessagePump
 from textual.suggester import SuggestFromList
-from textual.widgets import Button, Select
+from textual.widgets import Button, Input as TextualInput, Select
 
 from acprof.experiment import RunConfigError
 from acprof.messages import message
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 
 class ModelActions(MessagePump):
+    _candidate_pin: tuple[str, str, str] | None
     @on(Button.Pressed, '#model-candidates')
     def open_model_candidates(self: AcprofTui) -> None:
         if not self._allow_operation('catalog'):
@@ -103,7 +104,7 @@ class ModelActions(MessagePump):
 
     @on(Input.Changed, '#model')
     @on(Select.Changed, '#model-source')
-    def candidate_identity_changed(self: AcprofTui, event: Input.Changed | Select.Changed) -> None:
+    def candidate_identity_changed(self: AcprofTui, event: TextualInput.Changed | Select.Changed) -> None:
         selected = getattr(self, '_candidate_pin', None)
         if selected and (self._input('model'), self._select('model-source')) != selected[:2]:
             if self._input('revision') == selected[2]:

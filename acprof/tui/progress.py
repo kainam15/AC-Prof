@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, replace
+from typing import Any
 
 from acprof.messages import message
 from acprof.preparation_events import parse_event as parse_preparation_event
@@ -118,21 +119,22 @@ class RunProgressTracker:
             labels = {"resolution": "接口解析", "dependencies": "解析依赖", "preflight": "环境预检", "image": "准备镜像",
                       "input": "准备输入", "runtime": "运行验证", "interface": "正在确认模型接口…",
                       "environment": "正在准备运行环境…", "model": "正在准备模型…"}
-            updates = {"stage": message(labels[stage]), "detail": preparation.get("request", {}).get("detail", "")}
+            preparation_updates = {"stage": message(labels[stage]), "detail": preparation.get("request", {}).get("detail", "")}
             if status == "failed":
-                updates["errors"] = self.snapshot.errors + 1
+                preparation_updates["errors"] = self.snapshot.errors + 1
             if stage in {"resolution", "interface"}:
-                updates["interface_status"] = status
+                preparation_updates["interface_status"] = status
             elif stage == "runtime":
-                updates["runtime_status"] = status
-            self.snapshot = replace(self.snapshot, **updates)
+                preparation_updates["runtime_status"] = status
+            self.snapshot = replace(self.snapshot, **preparation_updates)
             return self.snapshot
         event = parse_event(line)
         if event is not None:
             self._structured = True
             return self._feed_event(event)
         state = self.snapshot
-        updates: dict[str, object] = {}
+        # Legacy log fields are dynamically keyed dataclass replacements.
+        updates: dict[str, Any] = {}
 
         if "[WARN]" in line or "[warning]" in line.lower():
             updates["warnings"] = state.warnings + 1

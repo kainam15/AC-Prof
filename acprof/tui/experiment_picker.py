@@ -139,7 +139,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     @work(thread=True, exclusive=True, exit_on_error=False)
     def load_choices(self):
-        roots, skipped = (), ()
+        roots: tuple[Path, ...] = ()
+        skipped: tuple[str, ...] = ()
         try:
             roots, skipped = self.read_scope()
             choices, warnings = self.loader(self.cancelled.is_set)
@@ -148,7 +149,9 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         except Exception as exc:
             choices, warnings = (), (str(exc),)
         try:
-            self._owner.call_from_thread(self.loaded, choices, warnings, roots, skipped)
+            owner = self._owner
+            if owner is not None:
+                owner.call_from_thread(self.loaded, choices, warnings, roots, skipped)
         except RuntimeError:
             # The app exited while an already-cancelled bounded read completed.
             pass

@@ -68,6 +68,7 @@ def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
         estimate.formal_windows if estimate.formal_windows is not None else unknown)
     evidence = message("不足 3 个：仅验证流程，无置信区间" if config.repeat < 3 else "有效数以结果为准")
     per_condition = message("每条件计划 {0} 个正式窗口 · {1}", config.repeat, evidence)
+    duration: str
     if estimate.estimated_seconds is None:
         duration = unknown
     elif estimate.estimated_seconds >= 3600:

@@ -213,7 +213,7 @@ class AcprofTui(
         self._stop_requested = False
         self._latest_snapshot = ProgressSnapshot()
         self._check_running = False
-        self._ui_closing = False
+        self._ui_closing: bool = False
         self._check_request = None
         self._check_completed = False
         self._check_config: RunConfig | None = None

@@ -94,7 +94,7 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     after = RunArtifacts.read(before.directory, capture_state_error=True)
     layout = ArtifactLayout.discover(before.directory)
     if after.state_error:
-        details = [message("无法核验本次运行状态：{0}", after.state_error)]
+        details: list[str] = [message("无法核验本次运行状态：{0}", after.state_error)]
         if after.csv_stamp and after.csv_stamp != before.csv_stamp:
             details.append(message("检测到未核验的结果 CSV：{0}", layout.result_csv))
         return RunResult(detail=join_messages("; ", details), retained_dir=str(layout.root))
