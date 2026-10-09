@@ -5,4 +5,4 @@
 - 按任务关联的主题分组，优先增加已有章节；新文档必须能从根 Agent 导航或本目录索引到达。
 - `reviews/` 是历史审计证据，引用时保留日期和输入来源，不将其中状态提升为现行协议。
 
-链接、锚点和 Skill 的验证方式见[测试指南](development/testing.md#文档与-skill-检查)。
+链接、锚点和 Skill 的验证方式见[测试指南](development/documentation-checks.md#文档与-skill-检查)。

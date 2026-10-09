@@ -1,6 +1,6 @@
 # 计算与执行分析器
 
-选择 Torch、NCU、Massif、Nsys，解释工具指标或采样来源时查阅。操作见[补采已有结果](#补采已有结果)，参数见 [CLI 参考](../usage/cli.md#计算分析器)。
+选择 Torch、NCU、Massif、Nsys，解释工具指标或采样来源时查阅。操作见[补采已有结果](#补采已有结果)，参数见 [CLI 参考](../usage/cli-run.md#计算分析器)。
 
 [文档导航](../README.md)
 

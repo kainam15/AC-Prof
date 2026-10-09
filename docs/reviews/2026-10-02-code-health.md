@@ -5,7 +5,7 @@
 以下结果以本轮工作区核验为准。实现与验证完成后，按用户要求分模块提交 Git；未推送。
 
 现行设计见 [Architecture](../development/architecture.md)，检查与执行命令见
-[Testing](../development/testing.md#跨模块-private-api-检查)。本文件是实施证据快照，不替代这些专题。
+[Testing](../development/static-checks.md#跨模块-private-api-检查)。本文件是实施证据快照，不替代这些专题。
 
 ## 清单处理结果
 
@@ -125,4 +125,4 @@ Coverage.py 的语句与分支合计指标为 **80.96%**。没有百分比门槛
 - coverage 采用 [Coverage.py 官方合并流程](https://github.com/coveragepy/coveragepy/blob/main/coverage/data.py)，
   只增加开发依赖，保留 unittest 与现有 evidence runner。
 - 日志与 tmux 分别核对 CPython logging 和 tmux pipe-pane 的源码；许可证、维护情况及完整来源见
-  [Architecture](../development/architecture.md#host-command-与-diagnostics) 与 [Testing](../development/testing.md#host-coverage-baseline)。
+  [Architecture](../development/orchestration.md#host-command-与-diagnostics) 与 [Testing](../development/ci.md#host-coverage-baseline)。

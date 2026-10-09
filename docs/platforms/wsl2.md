@@ -52,7 +52,7 @@ TUI 顶栏显示 `WSL2 / PARTIAL`；确认页列出计划采集、语义受限�
 .venv/bin/python -m pytest -m "not native_linux"
 ```
 
-Native Linux 无需上述 WSL 平台筛选；具体测试范围按[验证范围](../development/testing.md#验证范围)选择。
+Native Linux 无需上述 WSL 平台筛选；具体测试范围按[验证范围](../development/validation-scope.md#验证范围)选择。
 平台与硬件相关 markers 包括 `unit`、`wsl`、`native_linux`、`hardware`。
 只对显式 `native_linux` / `wsl` 集成测试按环境 skip；普通单元测试和代码错误不因平台跳过。
 模拟 RAPL、cgroup、NVML 的测试仍应在 WSL 运行。`hardware` 本身不会触发笼统 skip；

@@ -7,7 +7,7 @@ description: 在用户要求运行 AC-Prof profiling 或 benchmark 实验时，�
 
 ## 按需读取
 
-初次采集查[最小 smoke test](../../../docs/usage/experiments.md#3-跑一个最小-smoke-test)；规划矩阵查[采集协议与时间预算](../../../docs/profiling/protocol.md#结果行数和时间成本估算)。
+初次采集查[最小 smoke test](../../../docs/usage/experiments.md#3-跑一个最小-smoke-test)；规划矩阵查[采集协议与时间预算](../../../docs/profiling/sizing.md#结果行数和时间成本估算)。
 仅当选用 profiler 时读[分析器](../../../docs/profiling/profilers.md)；模型支持和镜像复用查[运行兼容](../../../docs/models/runtime.md)。
 
 ## 执行流程

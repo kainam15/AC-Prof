@@ -15,7 +15,7 @@ AC-Prof profiles containerized AI model inference across CPU, memory, GPU, and i
 | Full profiling | Energy, packet-level timing, CPU hardware counters, and optional independent profilers |
 | Reproducible experiments | Input and environment metadata, layered CSV results, plots, and reports |
 
-AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/runtime.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
+AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and structured-data workloads when the model meets the [supported task interfaces](docs/models/supported-tasks.md#任务支持范围). A task label alone does not guarantee that every checkpoint will run.
 
 ## Quick start
 

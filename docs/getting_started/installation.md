@@ -174,8 +174,8 @@ acprof tui
 采集前先核对 TUI 中的模型、模式及输出目录；认证配置和输出路径相对于当前工作目录。
 
 容器运行依赖由独立的平台和完整制品锁管理：7 个任务族的逻辑 profile 共享依赖环境，
-当前数量和版本统一见[当前配置](../models/runtime.md#当前配置)，其中 `onnxruntime-cpu` 完全不安装 Torch。
-镜像按需构建和复用，分层及锁更新命令见[运行兼容](../models/runtime.md#当前配置)。
+当前数量和版本统一见[当前配置](../models/environment.md#当前配置)，其中 `onnxruntime-cpu` 完全不安装 Torch。
+镜像按需构建和复用，分层及锁更新命令见[运行兼容](../models/environment.md#当前配置)。
 
 ### Hugging Face 认证
 
@@ -194,4 +194,4 @@ HF_ENDPOINT=https://hf-mirror.com
 `.env.local` 已被 Git 忽略，可用 `chmod 600 .env.local` 限制读取权限。程序自动读取
 `.env` 和 `.env.local`；令牌只用于主机检测和 Model Store 下载，正式推理容器
 从只读挂载的固定 snapshot 离线加载模型，不接收令牌或在运行中下载权重。
-地址、令牌的优先级与空白值处理见 [主机环境与 Hugging Face 认证](../usage/cli.md#主机环境与-hugging-face-认证)。
+地址、令牌的优先级与空白值处理见 [主机环境与 Hugging Face 认证](../usage/configuration.md#主机环境与-hugging-face-认证)。

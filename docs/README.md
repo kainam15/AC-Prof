@@ -52,7 +52,7 @@
 - 规则聚焦任务或项目特有约束，避免重复指令、全量必读清单和不必要的固定流程。
 - 目录独有规则放在局部 `AGENTS.md`；跨目录规则按任务从根入口链接到权威章节，覆盖开发脚本、构建 hook 与测试。
 - 明确完成标准和需要确认的边界；在已授权范围内完成实现、相关验证和修复，验证范围与改动相称。
-- 移动内容时修复链接和章节锚点，并按[文档与 Skill 检查](development/testing.md#文档与-skill-检查)验证。
+- 移动内容时修复链接和章节锚点，并按[文档与 Skill 检查](development/documentation-checks.md#文档与-skill-检查)验证。
 
 Codex 的 [AGENTS.md 发现实现](https://github.com/openai/codex/blob/1cc7e2361237ce7244430ee1d581c77f95c57ac8/codex-rs/core/src/agents_md.rs)
 会沿项目根目录到工作目录收集指令；普通 Markdown 链接不是自动全文导入。

@@ -45,11 +45,11 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 | 当前现象 | 优先查阅 |
 | --- | --- |
 | 空值或统计量不可用 | [预期空值与失败](#先区分预期空值与失败) |
-| 模型或任务不支持 | [预检退出](#任务尚未适配的预检退出)、[图像描述兼容范围](../models/runtime.md#图像描述输出与兼容范围) |
+| 模型或任务不支持 | [预检退出](#任务尚未适配的预检退出)、[图像描述兼容范围](../models/supported-tasks.md#图像描述输出与兼容范围) |
 | 内存不足或跳过 case | [启动 OOM 与剪枝](#启动-oom-与剪枝占位)、[运行期 OOM](#运行期-oom) |
-| 能耗、基线或功率异常 | [GPU 空值](../profiling/energy.md#gpu-energy-字段全是-nan)、[CPU 空值](../profiling/energy.md#cpu-vcpu-energy-字段全是-nan)、[CPU 基线](../profiling/energy.md#cpu-idle-baseline-波动-warning)、[GPU 基线](../profiling/energy.md#gpu-idle-baseline-波动-warning)、[峰值功率](../profiling/energy.md#cpu-vcpu-peak-power-看起来异常) |
+| 能耗、基线或功率异常 | [GPU 空值](../profiling/energy.md#gpu-energy-字段全是-nan)、[CPU 空值](../profiling/energy.md#cpu--vcpu-energy-字段全是-nan)、[CPU 基线](../profiling/energy.md#cpu-idle-baseline-波动-warning)、[GPU 基线](../profiling/energy.md#gpu-idle-baseline-波动-warning)、[峰值功率](../profiling/energy.md#cpu--vcpu-peak-power-看起来异常) |
 | 资源或 PMU 指标异常 | [资源占用率](#资源占用率字段全是-nan)、[MIPS、cache 与 dTLB](#mipscache-miss-与-dtlb-miss) |
-| Profiler 字段缺失 | [计算分析器](../profiling/profilers.md#mflops-compute-profiling-字段全是-nan)、[执行分析器](../profiling/profilers.md#massif-nsight-systems-execution-profiling-字段全是-nan) |
+| Profiler 字段缺失 | [计算分析器](../profiling/profilers.md#mflops--compute-profiling-字段全是-nan)、[执行分析器](../profiling/profilers.md#massif--nsight-systems-execution-profiling-字段全是-nan) |
 
 ### 先区分预期空值与失败
 
@@ -61,16 +61,16 @@ Docker 数据可能在另一挂载点，磁盘问题还需对实际 `DockerRootD
 ### 任务尚未适配的预检退出
 
 - `acprof run` 与 `acprof probe` 在任务识别及显式覆盖后，检查已知采集缺口、未登记的任务标签和任务族不匹配；失败时显示 `[task-support][ERROR]` 及解决办法，退出码为 `2`。TUI 显示“任务不支持”，详细原因保留在日志中。
-- `image-to-text` 已支持 CV 单图请求及图像描述输出，要求 `--batch-size 1`；多图 batch 会在预检退出。`image-text-to-text` 等九类多模态任务及适配边界见 [README](../models/runtime.md#多模态任务)，同样要求单样本请求。预检不是对全部模型架构或依赖版本的兼容保证。
+- `image-to-text` 已支持 CV 单图请求及图像描述输出，要求 `--batch-size 1`；多图 batch 会在预检退出。`image-text-to-text` 等九类多模态任务及适配边界见 [README](../models/supported-tasks.md#多模态任务)，同样要求单样本请求。预检不是对全部模型架构或依赖版本的兼容保证。
 - 预检在模型镜像准备、输入规划和测量前执行，因此不新增测量 CSV、OOM/超时占位行或探测请求记录；已有测量结果保留。不要将此类退出解释为资源不足或一次实际推理失败。
-- 支持范围与适配步骤见 [README 的任务支持诊断](#task-supporterror-tui-显示任务不支持)。Hub 连接、鉴权或缺少元数据导致的识别失败继续使用独立诊断。
+- 支持范围与适配步骤见 [README 的任务支持诊断](#task-supporterror--tui-显示任务不支持)。Hub 连接、鉴权或缺少元数据导致的识别失败继续使用独立诊断。
 
 ### 启动 OOM 与剪枝占位
 
 - 容器在模型加载期间触达 `--memory` cgroup 上限并被内核终止；错误会同时记录 memory cap、Docker 状态和 exit code。
 - 该 case 的占位行保留为 `status=error`，latency、throughput、energy 和 resource usage 等未执行指标保持 `nan`。`acprof plot` 的性能图与 latency model 只使用 `status=ok` 行；资源可行性热力图会单独读取这些占位行，用来展示失败边界。
 - 增大 memory cap，或改用更小/量化模型；不要用推测值回填失败 case 的指标。
-- 默认剪枝在正式矩阵前执行独立 startup probe，按最低 CPU 的连续低内存 confirmed Docker OOM 前缀推断；probe 不写性能 CSV。对应全部 CPU（含参考 CPU）的正式 case 写为 `result_origin=inferred_not_measured`，热力图显示 `P-OOM`。正式尝试自身发生启动 OOM 才显示 `OOM-S`，不会回头扩大冻结计划的剪枝范围。需要每个资源格独立实测时使用 `--no-prune-startup-oom`；冻结顺序与证据见[采集协议](../profiling/protocol.md#startup-probe-与冻结矩阵)。
+- 默认剪枝在正式矩阵前执行独立 startup probe，按最低 CPU 的连续低内存 confirmed Docker OOM 前缀推断；probe 不写性能 CSV。对应全部 CPU（含参考 CPU）的正式 case 写为 `result_origin=inferred_not_measured`，热力图显示 `P-OOM`。正式尝试自身发生启动 OOM 才显示 `OOM-S`，不会回头扩大冻结计划的剪枝范围。需要每个资源格独立实测时使用 `--no-prune-startup-oom`；冻结顺序与证据见[采集协议](../profiling/measurement.md#startup-probe-与冻结矩阵)。
 
 ### 运行期 OOM
 
@@ -175,14 +175,14 @@ cat /proc/sys/kernel/perf_event_paranoid
 先区分镜像核验失败与独立推理验证失败。当前实现会核验指纹、模型 revision、环境与下载清单，
 不存在匹配镜像时自动构建；`--skip-build` 不会直接使用旧 `:latest`。
 指纹或清单不匹配时按报错重建；核验通过但接口失败时，检查 `runtime_validation.json`、设备日志、
-任务路由与实际容器依赖，不能把所有错误都归因于镜像陈旧。行为见[运行兼容说明](../models/runtime.md#构建复用和验证)。
+任务路由与实际容器依赖，不能把所有错误都归因于镜像陈旧。行为见[运行兼容说明](../models/images.md#构建复用和验证)。
 
 ### `[task-support][ERROR]` / TUI 显示“任务不支持”
 
 退出阶段和产物边界见[任务预检退出](#任务尚未适配的预检退出)。根据用户目标处理：
 
-- **想立即采集：** 换用[任务目录](../models/runtime.md#任务支持范围)中已覆盖接口的模型，例如图像分类、目标检测或 ASR 模型。
-- **必须采集此类型：** 等待支持该类型的项目版本，或按[适配契约](../models/runtime.md#新增一个模型适配)补齐输入、推理、输出与指标口径，再验证后采集。
+- **想立即采集：** 换用[任务目录](../models/supported-tasks.md#任务支持范围)中已覆盖接口的模型，例如图像分类、目标检测或 ASR 模型。
+- **必须采集此类型：** 等待支持该类型的项目版本，或按[适配契约](../models/adaptation.md#新增一个模型适配)补齐输入、推理、输出与指标口径，再验证后采集。
 - **确实是识别错误：** 核对模型页的 `pipeline_tag`，通过 `--task`、`--task-family`、`--backend`（TUI 高级配置中的“识别覆盖”）纠正。仅在模型实际支持目标任务时使用；把图像描述模型改填成图像分类不会获得分类能力。
 
 `image-to-text` 已有图像描述输出适配，要求 `--batch-size 1`，且最终 runtime profile 必须同时支持模型架构和 pipeline task。
@@ -191,7 +191,7 @@ cat /proc/sys/kernel/perf_event_paranoid
 镜像实际版本与选定 lock 不符则返回 `runtime_dependency_incompatible`，应按选定环境重建；
 只修改主机 `.venv` 不会改变镜像内依赖。历史日志中的 `Unknown task image-to-text` 也应先核对这两类证据。
 项目直接调用 4.57.6 的 [Apache-2.0 官方 pipeline](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/image_to_text.py)，
-未另引入推理框架。该路径不包含多模态对话任务，也不保证所有图像描述架构兼容；详见[Runtime 预检与失败证据](../models/runtime.md#runtime-预检与失败证据)。
+未另引入推理框架。该路径不包含多模态对话任务，也不保证所有图像描述架构兼容；详见[Runtime 预检与失败证据](../models/routing.md#runtime-预检与失败证据)。
 
 Hub 已明确给出的未知任务标签会保留并提示，不再被通用架构后缀猜成另一类任务。Hub 无法访问、缺少元数据等识别失败仍保留独立诊断，不统一归为“不支持”。
 

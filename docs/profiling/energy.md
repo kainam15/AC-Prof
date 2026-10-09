@@ -1,6 +1,6 @@
 # 能耗测量与归因
 
-解释 GPU、CPU package、DRAM、估算 vCPU 能耗或 idle baseline 时查阅。请求窗口与对照生命周期见 [采集协议](protocol.md#每行测量窗口)。
+解释 GPU、CPU package、DRAM、估算 vCPU 能耗或 idle baseline 时查阅。请求窗口与对照生命周期见 [采集协议](sizing.md#每行测量窗口)。
 
 [文档导航](../README.md)
 

@@ -17,26 +17,26 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 
 | 当前问题 | 文档入口 |
 | --- | --- |
-| 哪些行可用于分析、字段如何计算 | [CSV 字段分组与分析范围](../../../docs/results/metrics.md#分层指标字段解释完整宽表导出)，再读取相应指标组 |
-| 空值、失败或工具不适用 | [常见判断](../../../docs/usage/troubleshooting.md#常见判断)、[运行状态与错误](../../../docs/results/metrics.md#运行状态与错误) |
-| 行数、请求数或实验是否完成 | [CSV 行数与请求数](../../../docs/profiling/protocol.md#csv-行数与请求数)、[输出文件](../../../docs/profiling/protocol.md#输出文件) |
-| 元数据、补采或环境来源 | [静态元数据](../../../docs/profiling/protocol.md#static_metajson-字段)、[采集历史](../../../docs/profiling/protocol.md#collection_historyjson-字段)；涉及镜像时再查[运行兼容说明](../../../docs/models/runtime.md#构建复用和验证) |
+| 哪些行可用于分析、字段如何计算 | [CSV 字段分组与分析范围](../../../docs/results/fields.md#分层指标字段解释完整宽表导出)，再读取相应指标组 |
+| 空值、失败或工具不适用 | [常见判断](../../../docs/usage/troubleshooting.md#常见判断)、[运行状态与错误](../../../docs/results/fields.md#运行状态与错误) |
+| 行数、请求数或实验是否完成 | [CSV 行数与请求数](../../../docs/profiling/sizing.md#csv-行数与请求数)、[输出文件](../../../docs/profiling/artifacts.md#输出文件) |
+| 元数据、补采或环境来源 | [静态元数据](../../../docs/profiling/metadata.md#static_metajson-字段)、[采集历史](../../../docs/profiling/metadata.md#collection_historyjson-字段)；涉及镜像时再查[运行兼容说明](../../../docs/models/images.md#构建复用和验证) |
 
 ## 建立证据链
 
 1. **定位本次运行。** 确认实验目录、模型 ID/revision、命令、输入计划、时间和文件修改状态，不把模型 ID 当成本地结果路径。
-2. **检查产物。** 先按 `result_manifest.json` 与[产物布局](../../../docs/profiling/protocol.md#artifact-layout-v2)定位文件；v2 的计划和历史在 `metadata/`、运行状态在 `.acprof/`，旧目录按当时布局读取。检查 `result_all.csv`、`static_meta.json`、输入计划与已有采集历史；按问题读取 case CSV、日志、profiler 计划或报告。文件不存在时如实说明，不因旧根路径为空就认定产物缺失。
+2. **检查产物。** 先按 `result_manifest.json` 与[产物布局](../../../docs/profiling/artifacts.md#artifact-layout-v2)定位文件；v2 的计划和历史在 `metadata/`、运行状态在 `.acprof/`，旧目录按当时布局读取。检查 `result_all.csv`、`static_meta.json`、输入计划与已有采集历史；按问题读取 case CSV、日志、profiler 计划或报告。文件不存在时如实说明，不因旧根路径为空就认定产物缺失。
 3. **核对计划与来源。** 检查输入计划 hash、workload 素材来源、采集工具、schema 版本、补采和重试历史；`disabled` 与 `posthoc_backfill` 可能共同描述先关闭再补采的历史。
 4. **对照运行证据。** 根据日志确定容器及请求阶段。需要时对相关容器执行定向 `docker inspect`，只输出 `.State` 等必要字段，不打印包含凭据的完整环境。
 5. **追到当前代码。** 指标公式从实际生产者及聚合逻辑确认，不能只根据列名猜测。
 
 ## 划分可分析的数据
 
-按 [CSV 分析范围](../../../docs/results/metrics.md#分层指标字段解释完整宽表导出)筛选常规性能或能耗数据。另行统计异常、预热及跳过项，解释覆盖缺口；资源失败边界分析按[运行状态约定](../../../docs/results/metrics.md#运行状态与错误)保留失败记录。
+按 [CSV 分析范围](../../../docs/results/fields.md#分层指标字段解释完整宽表导出)筛选常规性能或能耗数据。另行统计异常、预热及跳过项，解释覆盖缺口；资源失败边界分析按[运行状态约定](../../../docs/results/fields.md#运行状态与错误)保留失败记录。
 
 缺少 `status` 或 `warmup` 的旧文件应明确说明并根据当时 schema 判断，不能未经说明就视为全部正式成功。错误行中的部分数值不自动成为有效测量。
 
-区分计划行数、实际写入行数、成功窗口数和请求数。根据[行数与请求数约定](../../../docs/profiling/protocol.md#csv-行数与请求数)，读取实际输入与资源计划及剪枝信息；不要套用固定矩阵行数。若文件仍在增长或实验仍在运行，标明审计时点，不把部分写入视为正式完成。
+区分计划行数、实际写入行数、成功窗口数和请求数。根据[行数与请求数约定](../../../docs/profiling/sizing.md#csv-行数与请求数)，读取实际输入与资源计划及剪枝信息；不要套用固定矩阵行数。若文件仍在增长或实验仍在运行，标明审计时点，不把部分写入视为正式完成。
 
 ## 分类与复核
 
@@ -56,7 +56,7 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 
 先给结论，再列出关键证据：相关文件、字段、行或容器状态；明确哪些已证实、哪些是推断、哪些还缺证据。必要时给出范围最小的后续检查。
 
-复用只读入口，完整参数见[其他 CLI 入口](../../../docs/usage/cli.md#其他入口)：
+复用只读入口，完整参数见[其他 CLI 入口](../../../docs/usage/cli-tools.md#其他入口)：
 
 ```bash
 acprof audit '用户指定的目录或CSV' --json

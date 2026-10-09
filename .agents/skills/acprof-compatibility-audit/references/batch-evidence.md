@@ -2,7 +2,7 @@
 
 ## 复用现有入口
 
-先核对当前 [CLI 契约](../../../../docs/usage/cli.md#acprof-coverage)和 `--help`。以下示例从仓库根目录使用已有 `.venv` 执行，无需先安装 console script；输出目录换成本次独立目录。已安装的 `acprof` 与 `python -m acprof` 使用相同命令分发。
+先核对当前 [CLI 契约](../../../../docs/usage/cli-discovery.md#acprof-coverage)和 `--help`。以下示例从仓库根目录使用已有 `.venv` 执行，无需先安装 console script；输出目录换成本次独立目录。已安装的 `acprof` 与 `python -m acprof` 使用相同命令分发。
 
 ```bash
 .venv/bin/python -m acprof inspect MODEL --revision FULL_SHA --explain --output-dir internal-testing/compatibility/inspect
@@ -31,6 +31,6 @@
 | basic profiling | 所选 basic 指标与计划的采集情况 | full 所需能耗、perf、packet 均完整 |
 | full profiling | 所选计划及必需指标的实际验收结果 | 未选择的 profiler、其它设备和模型质量 |
 
-full 的通过条件以当版[模式与能力证据](../../../../docs/profiling/protocol.md#profiling-mode-与能力证据)为准，结合退出码、完整计划、正式成功行、能力报告和只读审计；任何必需证据缺失保留为缺口。警告单列，不能把未知当成零或通过。
+full 的通过条件以当版[模式与能力证据](../../../../docs/profiling/measurement.md#profiling-mode-与能力证据)为准，结合退出码、完整计划、正式成功行、能力报告和只读审计；任何必需证据缺失保留为缺口。警告单列，不能把未知当成零或通过。
 
 报告同时给出样本总数、已尝试、未尝试及分类计数。权重存在时沿用冻结权重；没有实测或独立语义审阅的比率使用未知/null，不能虚构 0% 或 100%。
