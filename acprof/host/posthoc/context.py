@@ -1,8 +1,6 @@
 """Result inputs and types for post-hoc profiling."""
 from __future__ import annotations
 
-import codecs
-import csv
 import math
 import os
 import re
@@ -41,7 +39,7 @@ from acprof.model_repository import MODEL_SOURCES
 PROJECT_DIR = resource_root()
 
 
-RESULT_CSV_NAME = "result_all.csv"
+RESULT_CSV_NAME = "result_layers.json"
 
 
 STATIC_META_NAME = "static_meta.json"
@@ -172,15 +170,6 @@ def _integer(value: Any, field: str) -> int:
     return int(number)
 
 
-def _csv_encoding(path: Path) -> str:
-    with path.open("rb") as f:
-        return (
-            "utf-8-sig"
-            if f.read(len(codecs.BOM_UTF8)) == codecs.BOM_UTF8
-            else "utf-8"
-        )
-
-
 def _load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
 ) -> Dict[str, Any]:
@@ -197,11 +186,9 @@ def _load_result_csv(path: Path) -> Tuple[List[str], List[Dict[str, str]], str]:
         raise PosthocError(
             f"missing completed {RESULT_CSV_NAME}: {path}; wait for acprof run to finish"
         )
-    encoding = _csv_encoding(path)
-    with path.open("r", encoding=encoding, newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = list(reader.fieldnames or [])
-        rows = list(reader)
+    from acprof.result_csv import read_result_csv
+    fieldnames, rows = read_result_csv(path)
+    encoding = "utf-8"
     from acprof.result_csv import require_current_fields
     try:
         require_current_fields(fieldnames)

@@ -14,13 +14,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Collect missing Torch/NCU/Nsys/Massif metrics for an existing AC-Prof "
-            "result directory and safely backfill result_all.csv in place."
+            "result directory and transactionally update independent profiler result layers."
         )
     )
     parser.add_argument(
         "result_dir",
         help=(
-            "Completed model result directory containing result_all.csv, "
+            "Completed model result directory containing result_layers.json, "
             "static_meta.json, and input_scale_plan.json"
         ),
     )

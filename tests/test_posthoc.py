@@ -42,14 +42,14 @@ class TestPosthocProfile:
             (root / "input_scale_plan.json").rename(root / "metadata/input_scale_plan.json")
             layout.path("compute_profile_plan.json").write_text(json.dumps(self._compute_plan()))
             layout.path("execution_profile_plan.json").write_text(json.dumps(self._execution_plan()))
-            original = (root / "result_all.csv").read_bytes()
+            original = (root / "result_layers.json").read_bytes()
             with patch("acprof.host.posthoc.service.find_active_processes", return_value=[]), patch(
                 "acprof.host.posthoc.service._validate_profiler_runtime", side_effect=AssertionError("should reuse")):
                 summary = posthoc.run_posthoc(root)
             assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
             backup = Path(summary.backup_dir)
             assert (backup.is_relative_to(root / ".acprof/recovery/posthoc_backups"))
-            assert ((backup / "result_all.csv").read_bytes()) == (original)
+            assert ((backup / "result_layers.json").read_bytes()) == (original)
             assert ((root / "raw/posthoc_profiles/compute_profile_plan.json").is_file())
             assert ((root / "metadata/collection_history.json").is_file())
             assert not ((root / "posthoc_profiles").exists())
@@ -155,7 +155,7 @@ class TestPosthocProfile:
         if recorded_source != "missing":
             metadata["model_source"] = recorded_source
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-        before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
         monkeypatch.setenv("ACPROF_MODEL_SOURCE", environment_source)
 
         context = host_posthoc_context.load_result_context(tmp_path)
@@ -164,7 +164,7 @@ class TestPosthocProfile:
         assert context.task_info.model_id == "example/model"
         assert context.task_info.model_revision == "revision-1"
         assert context.static_meta == metadata
-        assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
 
     @pytest.mark.parametrize(
         "recorded_source",
@@ -179,13 +179,13 @@ class TestPosthocProfile:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata["model_source"] = recorded_source
         metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-        before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+        before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
         monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
 
         with pytest.raises(host_posthoc_context.PosthocError, match="model_source"):
             host_posthoc_context.load_result_context(tmp_path)
 
-        assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+        assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
 
     def _write_fixture(
         self,
@@ -242,6 +242,8 @@ class TestPosthocProfile:
             "mem_cap_gb",
             "gpu_mode",
             "input_scale",
+            "warmup",
+            "repeat_idx",
             "latency_s",
             "latency_app_s",
             *host_posthoc_context.TORCH_FIELDS,
@@ -261,6 +263,7 @@ class TestPosthocProfile:
                     "mem_cap_gb": "4",
                     "gpu_mode": "off",
                     "input_scale": "8",
+                    "warmup": "0", "repeat_idx": "0",
                     "latency_s": "2.0",
                     "latency_app_s": "2.5",
                     TORCH_LOGICAL_MFLOP_FIELD: (
@@ -281,6 +284,7 @@ class TestPosthocProfile:
                     "mem_cap_gb": "4",
                     "gpu_mode": "on",
                     "input_scale": "8",
+                    "warmup": "0", "repeat_idx": "0",
                     "latency_s": "0.5",
                     "latency_app_s": "0.4",
                     TORCH_LOGICAL_MFLOP_FIELD: (
@@ -294,11 +298,13 @@ class TestPosthocProfile:
                     "status": "ok",
                 }
             )
-        csv_path = root / host_posthoc_context.RESULT_CSV_NAME
+        csv_path = root / "result_all.csv"  # Fixture input only; production writes layers.
         with csv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(csv_path)
         return csv_path
 
     def _compute_plan(self):
@@ -438,8 +444,9 @@ class TestPosthocProfile:
         }
 
     def _read_rows(self, path: Path):
-        with path.open("r", encoding="utf-8", newline="") as f:
-            return list(csv.DictReader(f))
+        from acprof.result_csv import read_result_csv
+        source = path.parent / "result_layers.json" if path.name == "result_all.csv" else path
+        return read_result_csv(source)[1]
 
     def test_load_context_and_applicable_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -716,7 +723,7 @@ class TestPosthocProfile:
     def test_one_command_reuses_plans_updates_original_names_and_keeps_backup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "example--model"
-            csv_path = self._write_fixture(root)
+            self._write_fixture(root)
             initial_history = {
                 "schema_version": 1,
                 "posthoc_profile_history": [],
@@ -725,7 +732,7 @@ class TestPosthocProfile:
             }
             history_path = root / host_collection_history.COLLECTION_HISTORY_NAME
             history_path.write_text(json.dumps(initial_history), encoding="utf-8")
-            original_csv = csv_path.read_bytes()
+            original_csv = (root / "result_layers.json").read_bytes()
             original_meta = (root / host_posthoc_context.STATIC_META_NAME).read_bytes()
             original_history = history_path.read_bytes()
             (root / "compute_profile_plan.json").write_text(
@@ -743,11 +750,11 @@ class TestPosthocProfile:
             ):
                 summary = posthoc.run_posthoc(root)
 
-            assert (Path(summary.result_csv)) == (root / "result_all.csv")
+            assert (Path(summary.result_csv)) == (root / "result_layers.json")
             assert (Path(summary.static_meta)) == (root / "static_meta.json")
             assert (set(summary.reused_tools)) == ({"ncu", "nsys", "massif"})
             backup = Path(summary.backup_dir)
-            assert ((backup / "result_all.csv").read_bytes()) == (original_csv)
+            assert ((backup / "result_layers.json").read_bytes()) == (original_csv)
             assert ((backup / "static_meta.json").read_bytes()) == (original_meta)
             assert ((backup / host_collection_history.COLLECTION_HISTORY_NAME).read_bytes()) == (original_history)
 

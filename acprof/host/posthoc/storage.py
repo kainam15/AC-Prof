@@ -78,12 +78,20 @@ def create_backup(context: ResultContext) -> Path:
             (context.result_csv, RESULT_CSV_NAME),
             (context.static_meta_path, STATIC_META_NAME),
         ]
+        if context.result_csv.name == "result_layers.json":
+            from acprof.artifacts import read_json_object
+            from acprof.result_layers import LAYER_FILES, read_result_layers
+            read_result_layers(context.result_dir)  # Reject broken snapshots before backup.
+            manifest = read_json_object(context.result_csv, label="result layers")
+            sources.extend((context.result_dir / LAYER_FILES[layer], LAYER_FILES[layer])
+                           for layer in manifest["layers"])
         if context.collection_history_existed:
             sources.append(
                 (context.collection_history_path, COLLECTION_HISTORY_NAME)
             )
         for source, name in sources:
             destination = backup / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
             with destination.open("rb") as stream:
                 os.fsync(stream.fileno())
@@ -190,6 +198,83 @@ def _restore_from_backup(destination: Path, backup_file: Path) -> None:
             pass
 
 
+def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, static_meta,
+                               collection_history, backup_dir: Path) -> None:
+    """Publish profiler deltas with a recoverable multi-file transaction.
+
+    All candidate layers and metadata are validated off to the side; the
+    result manifest becomes visible only after the corresponding files exist.
+    """
+    from acprof.artifacts import atomic_write_json, read_json_object
+    from acprof.result_layers import LAYER_FILES, publish_result_rows, read_result_layers
+
+    original_manifest = read_json_object(context.result_csv, label="result layers")
+    existing_layers = {LAYER_FILES[layer] for layer in original_manifest["layers"]}
+    replaced: list[Path] = []
+    with tempfile.TemporaryDirectory(prefix=".posthoc-layers-", dir=context.result_dir) as temporary:
+        stage = Path(temporary)
+        publish_result_rows(fieldnames, rows, stage)
+        check_fields, check_rows = read_result_layers(stage)
+        if len(check_rows) != len(rows) or set(check_fields) != set(fieldnames):
+            raise PosthocError("staged result layers have mismatched schema or measurements")
+        meta_stage, history_stage = stage / STATIC_META_NAME, stage / COLLECTION_HISTORY_NAME
+        atomic_write_json(meta_stage, static_meta)
+        atomic_write_json(history_stage, collection_history)
+        _load_json_object(meta_stage, "staged static metadata")
+        normalize_collection_history(_load_json_object(history_stage, "staged collection history"))
+        staged_manifest = read_json_object(stage / RESULT_CSV_NAME, label="staged result layers")
+        try:
+            for layer in staged_manifest["layers"]:
+                relative = LAYER_FILES[layer]
+                destination = context.result_dir / relative
+                candidate = stage / relative
+                if destination.is_symlink():
+                    raise PosthocError(f"result layer is a symlink: {destination}")
+                if destination.exists() and destination.read_bytes() == candidate.read_bytes():
+                    continue
+                replaced.append(destination)
+                atomic_write(destination, lambda stream, data=candidate.read_bytes().decode("utf-8"): stream.write(data))
+            # Publish metadata before the result manifest; rollback restores both.
+            for candidate, destination in (
+                (meta_stage, context.static_meta_path),
+                (history_stage, context.collection_history_path),
+                (stage / RESULT_CSV_NAME, context.result_csv),
+            ):
+                replaced.append(destination)
+                atomic_write(destination, lambda stream, data=candidate.read_bytes().decode("utf-8"): stream.write(data))
+            _fsync_parent_directories(*replaced)
+            read_result_layers(context.result_dir)
+        except BaseException as primary_error:
+            errors = []
+            cancellation = primary_error if not isinstance(primary_error, Exception) else None
+            for destination in reversed(replaced):
+                relative = destination.relative_to(context.result_dir).as_posix()
+                backup = backup_dir / relative
+                try:
+                    if backup.is_file():
+                        _restore_from_backup(destination, backup)
+                    elif (relative in existing_layers or destination == context.result_csv
+                          or destination == context.static_meta_path
+                          or (destination == context.collection_history_path and context.collection_history_existed)):
+                        raise PosthocError(f"missing required recovery backup: {backup}")
+                    else:
+                        destination.unlink(missing_ok=True)
+                        _fsync_directory(destination.parent)
+                except BaseException as error:
+                    errors.append(f"{destination}: {type(error).__name__}: {error}")
+                    if cancellation is None and not isinstance(error, Exception):
+                        cancellation = error
+            if errors:
+                failure = PosthocError(
+                    f"layer publication failed ({primary_error}); recovery incomplete: "
+                    + "; ".join(errors) + f"; backups at {backup_dir}"
+                )
+                if cancellation is not None:
+                    raise cancellation from failure
+                raise failure from primary_error
+            raise
+
+
 def commit_result_files(
     context: ResultContext,
     *,
@@ -200,6 +285,10 @@ def commit_result_files(
     backup_dir: Path,
 ) -> None:
     temporaries: list[Path] = []
+    if context.result_csv.name == "result_layers.json":
+        return _commit_layer_result_files(context, fieldnames=fieldnames, rows=rows,
+                                          static_meta=static_meta,
+                                          collection_history=collection_history, backup_dir=backup_dir)
     attempted_publications: list[tuple[Path, str]] = []
     try:
         csv_temporary = _write_csv_temporary(

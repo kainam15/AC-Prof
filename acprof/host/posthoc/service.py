@@ -110,7 +110,7 @@ def run_posthoc(
     for tool in inapplicable:
         mode = "/".join(TOOL_GPU_MODES[tool])
         print(
-            f"[profile][{tool}] Skipped: result_all.csv has no gpu_mode={mode} rows"
+            f"[profile][{tool}] Skipped: result layers have no gpu_mode={mode} rows"
         )
     if not applicable:
         print("[profile] No requested profiler applies to this result CSV.")
