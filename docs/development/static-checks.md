@@ -5,13 +5,20 @@
 ## 渐进类型检查与边界回归
 `requirements/dev.lock` 固定 mypy 2.3.1；类型检查唯一配置在 `pyproject.toml`。
 显式白名单覆盖实验与结果协议、资源/能耗与窗口边界、比较统计、容器运行清单、
-模型契约、主机运行辅助模块及 CLI 入口。完整检查范围以 `files` 为准，不在文档中重复维护文件清单。
+模型契约、主机 Orchestrator、适配的容器 Handler、TUI 只读工具和部分控制器，以及 CLI 入口。
+完整检查范围以 `files` 为准，不在文档中重复维护文件清单。
 
 `check_untyped_defs = true` 让已纳入模块中**尚未完整注解的函数体**也受检查；
 这不等于参数和返回值都已有类型。`follow_imports = "silent"` 追踪依赖以改进类型推断，
 但不把未列入白名单的导入模块当作显式检查目标，也不报告那些模块内部的错误。
 缺失的第三方 stubs 仍暂时允许；不通过 `ignore_errors`、新增全局排除或强行改为全局 `strict`
-掩盖未解决的问题。后续按模块增加参数/返回值注解并逐步减少 `Any`，通过定向验证扩大显式清单。
+掩盖未解决的问题。对一批已验证全注解的模块，`[[tool.mypy.overrides]]` 局部启用
+`disallow_any_generics`、`disallow_untyped_defs` 和 `warn_return_any`。
+这些规则只约束对应模块，不能代表整个项目没有隐式 `Any`；保留外部 JSON / 动态框架更新等必要的动态边界。
+
+尚未纳入的 TUI App 大控制器、部分异步状态操作、复杂多模态 Handler 和运行环境组合模块
+需要先修复真实类型冲突，再分批纳入，不通过跳过函数体来提高覆盖率。
+未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
 GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：
 
@@ -30,8 +37,10 @@ python -m mypy
 `--python-executable` 应指向真实可用的 Python 3.10 解释器，以解析该版本环境的依赖；
 其他机器需使用自身的解释器路径。不要为了绕开 NumPy stub 报错把项目的 `python_version` 改成 3.12、
 或全局关闭第三方类型检查。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
-版本选择参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)
-与 [mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)。
+版本与实施策略参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)、
+[mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)
+和 [Pydantic 的 mypy 测试配置](https://github.com/pydantic/pydantic/blob/main/tests/mypy/configs/pyproject-default.toml)，
+只借鉴逐模块严格化的方法，不复制配置中的无关依赖豁免。
 Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路径的 `E402` 注释留在对应 import 语句上。
 
 `test_host_command.py` 使用真实短子进程验证 timeout、异常、编码、环境、cwd、耗时与脱敏。
