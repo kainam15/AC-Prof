@@ -52,6 +52,25 @@ def test_platform_is_omitted_only_when_parent_provides_matching_context():
     assert (child.profiles) == (("nlp-cu124",))
     assert (child.tags) == (("acprof-runtime-env:opaque",))
 
+def test_pinned_python_upstream_is_named_only_with_matching_repository_digest():
+    from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+    from acprof.tui.i18n import translate
+
+    upstream = ManagedImage(
+        "sha256:" + "e" * 64, (), 20, "", "untagged",
+        repo_digests=(PYTHON_BASE_IMAGE.replace(":3.10-slim@", "@"),),
+    )
+    name = image_display_name(upstream)
+    assert name == "Python 3.10 Slim（上游基础）"
+    assert translate(name, "en") == "Python 3.10 Slim (upstream base)"
+    for other in (replace(upstream, repo_digests=()),
+                  replace(upstream, repo_digests=("another.example/python@" + PYTHON_BASE_IMAGE.split("@")[1],)),
+                  replace(upstream, repo_digests=("docker.m.daocloud.io/library/python@sha256:" + "0" * 64,)),
+                  replace(upstream, acprof=True)):
+        assert image_display_name(other) == upstream.image_id[7:19]
+    assert image_display_name(replace(upstream, tags=("some-other-image:latest",))) == "some-other-image"
+
+
 def test_dotted_versions_and_model_names_are_preserved_without_guessing():
     item = ManagedImage(WEIGHTS, (), 400, "", "runtime", platform_id="cpu", environment_id="known",
                         profiles=("audio-cpu", "multimodal-transformers4576-cpu", "custom-v1.12.3-cpu", "custom123-cpu"))
@@ -886,6 +905,45 @@ class TestTuiImages:
             assert app._selected_image_ids == {RUNTIME, WEIGHTS, FINAL}
             assert upstream not in app._selected_image_ids
             assert len(self.docker.commands) == before, "切换筛选和勾选不应重新扫描 Docker"
+
+    async def test_full_tree_names_digest_verified_untagged_python_upstream(self):
+        from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+        from acprof.tui.images import image_diagnostics
+
+        upstream = "sha256:" + "e" * 64
+        digest = PYTHON_BASE_IMAGE.replace(":3.10-slim@", "@")
+        upstream_image = image(upstream, [], 20, ["os"])
+        upstream_image["RepoDigests"] = [digest]
+        self.docker.images[upstream] = upstream_image
+        app = self.make_app()
+        async with app.run_test(size=(120, 30)) as pilot:
+            await self.load_images(app, pilot, view="tree", expand_tree=True)
+            tree = app.query_one("#image-tree", Tree)
+            assert [node.data.image_id for node in tree.root.children] == [RUNTIME]
+
+            before = len(self.docker.commands)
+            app.query_one("#image-scope").value = "all"
+            await pilot.pause()
+            root = tree.root.children[0]
+            assert root.data.image_id == upstream
+            assert "Python 3.10 Slim（上游基础）" in root.label.plain
+            assert root.children[0].data.image_id == RUNTIME
+            inventory = app._image_inventory
+            assert digest in str(image_diagnostics(root.data, inventory))
+            assert upstream in str(image_diagnostics(root.data, inventory))
+            assert "Python 3.10 Slim（上游基础）" in str(image_metadata(root.data, inventory))
+
+            app.ui_preferences = replace(app.ui_preferences, language="en")
+            app._apply_ui_preferences()
+            await pilot.pause()
+            assert "Python 3.10 Slim (upstream base)" in tree.root.children[0].label.plain
+            await pilot.click("#image-view-list")
+            await pilot.pause()
+            table = app.query_one("#image-table", DataTable)
+            assert "Python 3.10 Slim (upstream base)" in table.get_cell(upstream, "name").plain
+            assert "Python 3.10 Slim (upstream base)" in table.get_cell(RUNTIME, "parent").plain
+            assert len(self.docker.commands) == before, "命名及筛选不能额外调用 Docker"
+
 
     async def test_tree_search_keeps_ancestors_and_language_resize_keeps_collapse(self):
         app = self.make_app()

@@ -369,6 +369,8 @@ ENGLISH: dict[str, str] = {
     "无法读取 Docker 数据目录所在磁盘的空间。": "Cannot read disk space for the Docker data directory.",
     "部分 Docker 空间统计不可用，缺失值显示未知。": "Some Docker statistics are unavailable; missing values are unknown.",
     "Docker 空间统计读取失败，请刷新重试。": "Docker storage statistics failed; refresh to retry.",
+    "Python {0} Slim（上游基础）": "Python {0} Slim (upstream base)",
+    "仓库摘要：{0}": "Repository digest: {0}",
     "镜像树": "Tree",
     "镜像依赖": "Image tree",
     "镜像列表": "List",

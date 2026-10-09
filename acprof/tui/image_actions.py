@@ -156,9 +156,11 @@ class ImageActions(MessagePump):
             parent = indexed.get(item.parent_id)
             table.add_row(
                 Text(image_selection_marker(item, self._selected_image_ids)),
-                Text(image_display_name(item) + " · " + item.image_id[7:13], overflow="ellipsis", no_wrap=True),
+                Text(self.tr(join_messages(" · ", (image_display_name(item), item.image_id[7:13]))),
+                     overflow="ellipsis", no_wrap=True),
                 Text(self.tr(format_bytes(item.size_bytes))), Text(self.tr(format_bytes(item.added_bytes))),
-                Text(str(len(item.containers))), Text(image_display_name(parent) if parent else self.tr(UNKNOWN), overflow="ellipsis", no_wrap=True),
+                Text(str(len(item.containers))), Text(self.tr(image_display_name(parent)) if parent else self.tr(UNKNOWN),
+                     overflow="ellipsis", no_wrap=True),
                 Text(self.tr(IMAGE_KINDS[item.kind])),
                 Text(repository if separator else item.name, overflow="ellipsis", no_wrap=True),
                 Text(tag if separator else "—", overflow="ellipsis", no_wrap=True),

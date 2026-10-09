@@ -56,6 +56,7 @@ class ManagedImage:
     system_dependencies: tuple[tuple[str, str], ...] = ()
     dependency_source: str = "unknown"
     dependency_stage: str = ""
+    repo_digests: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
@@ -235,10 +236,13 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
         for row in records:
             image_id, size = row["Id"], row["Size"]
             raw_tags = row.get("RepoTags") or []
+            raw_digests = row.get("RepoDigests") or []
             if (image_id not in ids or isinstance(size, bool) or not isinstance(size, int) or size < 0
-                    or not isinstance(raw_tags, list)
+                    or not isinstance(raw_tags, list) or not isinstance(raw_digests, list)
                     or any(not isinstance(tag, str) or not tag or tag.startswith("-") or
-                           any(char.isspace() for char in tag) for tag in raw_tags)):
+                           any(char.isspace() for char in tag) for tag in raw_tags)
+                    or any(not isinstance(digest, str) or not digest or
+                           any(char.isspace() for char in digest) for digest in raw_digests)):
                 raise ValueError("invalid image identity, tags or size")
             tags = tuple(sorted(set(raw_tags)))
             config = row.get("Config") or {}
@@ -267,6 +271,7 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
                 model_files_key=str(labels.get("org.acprof.model-files-key") or ""),
                 parent_id=parent,
                 parent_source="recorded" if parent else "unknown",
+                repo_digests=tuple(sorted(set(raw_digests))),
             ))
     except (KeyError, ValueError, TypeError, AttributeError) as exc:
         raise ImageManagementError("Docker 返回了无效的镜像信息", str(exc)) from exc

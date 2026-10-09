@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from rich.rule import Rule
 from rich.segment import Segment
 from rich.style import Style
@@ -22,6 +24,7 @@ from acprof.host.image_management import (
     ManagedImage,
 )
 from acprof.messages import join_messages, message
+from acprof.runtime_profiles import PYTHON_BASE_IMAGE
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
@@ -416,7 +419,15 @@ class ImageDeleteScreen(ConfirmActionScreen):
 
 
 def image_display_name(item: ManagedImage, parent: ManagedImage | None = None) -> str:
-    """显示平台与依赖版本；树中父节点已说明的平台无需在子节点重复。"""
+    """Display verified upstream base images and known AC-Prof platform names."""
+    # Digest is a pinned manifest identity, unlike an image ID or an inferred
+    # layer prefix. Never label arbitrary untagged images as the Python base.
+    pinned_ref, separator, pinned_digest = PYTHON_BASE_IMAGE.partition("@")
+    repository, tag_separator, version = pinned_ref.rpartition(":")
+    if (not item.tags and not item.acprof and separator and tag_separator
+            and re.fullmatch(r"\d+\.\d+-slim", version)
+            and f"{repository}@{pinned_digest}" in item.repo_digests):
+        return message("Python {0} Slim（上游基础）", version.removesuffix("-slim"))
     platform = IMAGE_PLATFORMS.get(item.platform_id, item.platform_id)
     if item.kind == "base" and item.platform_id in IMAGE_PLATFORMS:
         return platform
@@ -538,6 +549,8 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
                "missing": "父镜像不在本地", "ambiguous": "存在多个候选父镜像", "conflict": "父镜像记录与层链冲突",
                "unknown": "本地父镜像未知"}
     identity = [message("镜像 ID：{0}", item.image_id)]
+    if item.repo_digests:
+        identity.append(message("仓库摘要：{0}", ", ".join(item.repo_digests)))
     if item.parent_id:
         identity.append(message("父镜像 ID：{0}", item.parent_id))
     evidence = (
@@ -622,7 +635,7 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         evidence = (" ≈" if item.parent_source == "layer-prefix" and item.parent_id in nodes
                     else f" · {tr(UNKNOWN)}" if item.parent_source in {"ambiguous", "missing", "conflict"}
                     else "")
-        name = f" {marker}  {logical}{evidence}"
+        name = f" {marker}  {tr(logical)}{evidence}"
         label = Text(name, style="dim" if item.image_id not in matches else "")
         # 复选框及左右各一格留白可点击，不覆盖箭头、名称或数值。
         if not item.containers or item.descendant_ids:
