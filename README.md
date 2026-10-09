@@ -1,8 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/acprof-logo-dark.svg">
-    <img alt="AC-Prof" src="docs/assets/logos/acprof-logo-light.svg" width="55%">
-  </picture>
+  <img alt="AC-Prof" src="docs/assets/logos/acprof-logo-light.svg#gh-light-mode-only" width="55%">
+  <img alt="AC-Prof" src="docs/assets/logos/acprof-logo-dark.svg#gh-dark-mode-only" width="55%">
 </p>
 
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
