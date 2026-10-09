@@ -222,3 +222,18 @@ def test_audit_reports_corrupt_layer(wide_csv, tmp_path):
     report = audit_result(tmp_path)
     assert "invalid_csv" in {item["code"] for item in report["issues"]}
     assert not report["valid"]
+
+
+def test_audit_rejects_missing_environment_identity_in_layered_result(tmp_path):
+    from acprof.analysis.audit import audit_result
+    from acprof.result_layers import publish_result_rows
+
+    fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale",
+              "warmup", "repeat_idx", "status"]
+    publish_result_rows(fields, [{
+        "cpu_cores": "1", "mem_cap_gb": "4", "gpu_mode": "off",
+        "input_scale": "2", "warmup": "0", "repeat_idx": "0", "status": "ok",
+    }], tmp_path)
+    report = audit_result(tmp_path)
+    assert not report["valid"]
+    assert "missing_environment_class" in {entry["code"] for entry in report["issues"]}

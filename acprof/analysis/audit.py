@@ -199,7 +199,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         issue("invalid_csv", error)
         return report
     report["counts"]["rows"] = len(rows)
-    environments = {row["environment_class"] for row in rows}
+    if "environment_class" not in fields:
+        issue("missing_environment_class", "结果缺少 environment_class 环境身份列")
+    environments = {row.get("environment_class", "unknown") for row in rows}
     report["row_environment_classes"] = sorted(environments)
     if len(environments) > 1 or any(value not in {"unknown", report["environment_class"]}
                                   for value in environments):

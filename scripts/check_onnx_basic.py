@@ -25,9 +25,9 @@ from acprof.capabilities import (  # noqa: E402 -- 脚本先设置仓库导入�
 from acprof.config import STATIC_META_SCHEMA_VERSION  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.result_csv import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     expected_measurements,
-    merge_result_csvs,
     read_result_csv,
 )
+from acprof.result_layers import publish_result_rows  # noqa: E402 -- Publish strict result layers.
 from examples.onnxruntime.fixtures import BASIC_SCENARIOS  # noqa: E402 -- 脚本先设置仓库导入路径。
 
 
@@ -198,14 +198,14 @@ prepare_basic_scenario(os.environ['ACPROF_BASIC_SCENARIO'], Path('/evidence'))
         })
         run([sys.executable, "-m", "acprof.host.client"], environment=environment, log="client.log")
         expected = expected_measurements([2], [1], ["off"], [specification["input_scale"]], 1, 2)
-        merge_result_csvs([str(output / "result_case.csv")], str(output / "result_all.csv"), expected=expected)
-        _, rows = read_result_csv(output / "result_all.csv", expected=expected)
+        fields, rows = read_result_csv(output / "result_case.csv", expected=expected)
         audit_basic_rows(rows, scenario=scenario)
         capability = measurement_report("basic", gpu_modes=["off"])
         apply_runtime_validation(capability, {"devices": {"off": validation["runtime_validation"]}})
         apply_collection_result(capability, rows)
         report["capability_report"] = capability.to_dict()
         audit_basic_capabilities(capability)
+        publish_result_rows(fields, rows, output)
         # This records the diagnostic's measured plan; it does not invoke the hardware matrix.
         atomic_write_json(output / "static_meta.json", {
             **capability.identity,

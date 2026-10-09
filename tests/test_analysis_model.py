@@ -32,7 +32,7 @@ class TestAnalysisModel:
     @staticmethod
     def row(**changes):
         return {"cpu_cores": "2", "mem_cap_gb": "4", "gpu_mode": "off", "input_scale": "32",
-                "repeat_idx": "0", "warmup": "0", "status": "ok", "repeat_in_window": "2",
+                "repeat_idx": "0", "warmup": "0", "environment_class": "unknown", "status": "ok", "repeat_in_window": "2",
                 "latency_app_p95_s": ".04", "throughput_samples_per_s": "50",
                 "container_mem_usage_peak_bytes": "1024", "cpu_energy_total_j": "3", **changes}
 
@@ -96,15 +96,17 @@ class TestAnalysisModel:
     def test_cases_and_sources_never_collapse_across_workload_or_environment(self):
         from acprof.analysis.model import load_analysis
         a = self.source([self.row(), self.row(input_scale="64"),
-                         self.row(cpu_cores="4"), self.row(concurrency="2"),
-                         self.row(environment_class="wsl2")])
+                         self.row(cpu_cores="4"), self.row(repeat_idx="1", concurrency="2"),
+                         self.row(repeat_idx="2", environment_class="wsl2")])
         b = self.source([self.row()], directory="second", meta={"model_name": "other/model"})
         data = load_analysis([a, b])
         assert (len(data.configs)) == (6)
         assert (len({c["config_id"] for c in data.configs})) == (6)
         assert ({c["environment_class"] for c in data.configs}) == ({"unknown", "wsl2"})
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(a)
         with pytest.raises(ValueError, match="duplicate"):
-            load_analysis([a, a.parent])
+            load_analysis([a.parent, a.parent])
 
     def test_inferred_failures_and_nonfinite_values_cannot_become_measurements(self):
         from acprof.analysis.model import load_analysis
@@ -186,15 +188,16 @@ class TestAnalysisModel:
         source = self.source([self.row()])
         layout = ArtifactLayout.for_new_run(self.root / "v2")
         layout.initialize()
-        layout.result_csv.write_bytes(source.read_bytes())
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(source, output_dir=layout.root)
         layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
         layout.path("run_state.json").write_text(json.dumps({"run_id": "recorded-run", "status": "complete"}))
         data = load_analysis([layout.root])
         assert (data.configs[0]["run_id"]) == ("recorded-run")
         assert (data.sources[0]["run_state"]) == ("complete")
-        layout.result_csv.write_text("cpu_cores,status,warmup\n\n\n")
+        source.write_text("cpu_cores,status,warmup\n\n\n")
         with pytest.raises(ValueError, match="no measurement rows"):
-            load_analysis([layout.root])
+            load_analysis([source])
 
     def test_quality_evidence_survives_summary_without_hiding_observations(self):
         from acprof.analysis.model import load_analysis
@@ -226,16 +229,21 @@ class TestAnalysisModel:
         source = self.source([self.row()], directory=f"original-{recorded}")
         if recorded:
             (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(source)
         before = load_analysis([source]).configs[0]["config_id"]
         moved = self.root / f"renamed-{recorded}"
         source.parent.rename(moved)
         after = load_analysis([moved]).configs[0]["config_id"]
-        assert (after) == (before)
+        # Without a recorded run_id, the directory is part of the identity.
+        assert (after == before) is recorded
 
     def test_backup_is_rejected_as_duplicate_instead_of_another_configuration(self):
         from acprof.analysis.model import load_analysis
         source = self.source([self.row()])
         (source.parent / "run_state.json").write_text(json.dumps({"run_id": "stable-run"}))
+        from acprof.result_layers import publish_result_layers
+        publish_result_layers(source)
         copy = self.root / "backup"
         shutil.copytree(source.parent, copy)
         with pytest.raises(ValueError, match="duplicate measurement.*stable-run"):

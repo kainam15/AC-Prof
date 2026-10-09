@@ -75,7 +75,14 @@ class TestRunAttribution:
             runtime=dict(planned=dict(scales=[64, 128])),
             cases={"case.csv": dict(status="complete", completed_at="2026-10-02T01:01:00Z")})
         self.save_state()
-        write_csv(self.layout.result_csv)
+        from acprof.result_layers import publish_result_rows
+        fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
+                  "repeat_idx", "status", "latency_app_s", "environment_class"]
+        rows = [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale=str(scale),
+                     warmup="0", repeat_idx="0", status="ok", environment_class="unknown",
+                     latency_app_s=str(latency))
+                for scale, latency in ((64, 0.01), (128, 0.2))]
+        publish_result_rows(fields, rows, self.layout.root)
         self.layout.path("capability_report.json").write_text(json.dumps({"requested_measurements_complete": True}))
 
     def save_state(self):
@@ -375,7 +382,13 @@ state = dict(schema_version=1, layout_version=2, run_id="child-run", status="com
 layout.path("run_state.json").parent.mkdir(parents=True, exist_ok=True)
 layout.path("run_state.json").write_text(json.dumps(state))
 layout.path("capability_report.json").write_text(json.dumps({{"requested_measurements_complete": True}}))
-layout.result_csv.write_text("cpu_cores,mem_cap_gb,gpu_mode,input_scale,warmup,repeat_idx,status,latency_app_s\\n1,4,off,64,0,0,ok,0.02\\n")
+from acprof.result_layers import publish_result_rows
+publish_result_rows(["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup",
+                     "repeat_idx", "status", "latency_app_s", "environment_class"],
+                    [dict(cpu_cores="1", mem_cap_gb="4", gpu_mode="off", input_scale="64",
+                          warmup="0", repeat_idx="0", status="ok",
+                          environment_class="unknown", latency_app_s="0.02")],
+                    layout.root)
 print("Profiling complete!", flush=True)
 '''
         async with app.run_test(size=(150, 45)) as pilot:
@@ -385,7 +398,7 @@ print("Profiling complete!", flush=True)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
             assert (app._latest_snapshot.stage) == ("已完成")
-            assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_all.csv"))
+            assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_layers.json"))
             assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
             assert not (app._is_busy())
 

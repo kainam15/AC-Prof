@@ -43,6 +43,7 @@ class TestComparisonProfile:
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerow(row)
+        fixture.refresh(fixture.right)
         report = compare_results(fixture.left, fixture.right, purpose="resource-scaling")
         assert (report["status"]) == ("compatible")
         assert (report["allowed_resource_dimensions"]) == (["cpu", "memory"])
@@ -56,6 +57,7 @@ class TestComparisonProfile:
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerow(row)
+        fixture.refresh(fixture.right)
         assert (compare_results(fixture.left, fixture.right, purpose="resource-scaling")["status"]) == ("incompatible")
 
     def test_html_projects_each_configuration_workload_in_a_multi_case_experiment(self):
@@ -77,6 +79,7 @@ class TestComparisonProfile:
         fixture.change_json(fixture.left, "run_state.json", lambda state: state["options"].update(cpus="1,2"))
         fixture.change_json(fixture.left, "hardware_conditions.json", lambda evidence:
             evidence["cases"].update({"2c_4g_off": evidence["cases"]["1c_4g_off"]}))
+        fixture.refresh(fixture.left)
         configs = load_analysis([fixture.left]).configs
         profiles = [c["comparison_profiles"]["resource-scaling"] for c in configs]
         assert (all(p["status"] == "compatible" for p in profiles))
@@ -109,6 +112,7 @@ class TestIndependentHardwarePolicy:
             writer = csv.DictWriter(stream, fields)
             writer.writeheader()
             writer.writerow(row)
+        fixture.fixture.refresh(right)
         report = compare_experiments([left], [right], metrics=["latency_app_s"], purpose="resource-scaling", resamples=20)
         assert (len(report["groups"])) == (1)
         group = report["groups"][0]

@@ -274,6 +274,8 @@ class TestReportBrowser:
             fixture.write_json(directory, "quality_checks.json", {"schema_version": 1, "checks": []})
         fixture.change_json(fixture.right, "input_scale_plan.json", lambda plan:
                             plan["entries"][0]["payload"]["features"].reverse())
+        fixture.refresh(fixture.left)
+        fixture.refresh(fixture.right)
         assert (compare_results(fixture.left, fixture.right)["status"]) == ("incompatible")
         model = load_analysis([fixture.left, fixture.right])
         output = write_report(model, fixture.root / "incompatible.html", baseline=model.configs[0]["config_id"])
