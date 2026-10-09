@@ -3,24 +3,35 @@
 [← 返回专题目录](testing.md)
 
 ## 渐进类型检查与边界回归
-`requirements/dev.lock` 固定 mypy 2.3.1；`pyproject.toml` 的白名单覆盖 RunConfig、artifact/layout、
-extension schema、Handler boundary、Monitor interface、MonitorGroup 与 command runner，
-以及 matrix plan、run state、compute/execution plan、profiler support/纯解析器和
-comparison/independent comparison/uncertainty/precision、窗口边界诊断、latency report、runtime validation 与测试身份/分片。
-runtime validation 的任务、镜像和输入计划采用具体类型，报告顶层采用 TypedDict；
-容器返回的任务专有 JSON 仍在实际运行时验证。当前清单以 `pyproject.toml` 为准，仍只维护 mypy。
-初期允许未标注函数和缺失第三方 stubs，`follow_imports=skip` 防止隐式扩大检查范围；
-已经列出的模块仍检查已标注代码。不能用全包 `ignore_errors` 隐藏白名单内的问题。
-独立 CI `types` job 与本地运行同一条命令：
+`requirements/dev.lock` 固定 mypy 2.3.1；类型检查唯一配置在 `pyproject.toml`。
+显式白名单覆盖实验与结果协议、资源/能耗与窗口边界、比较统计、容器运行清单、
+模型契约、主机运行辅助模块及 CLI 入口。完整检查范围以 `files` 为准，不在文档中重复维护文件清单。
+
+`check_untyped_defs = true` 让已纳入模块中**尚未完整注解的函数体**也受检查；
+这不等于参数和返回值都已有类型。`follow_imports = "silent"` 追踪依赖以改进类型推断，
+但不把未列入白名单的导入模块当作显式检查目标，也不报告那些模块内部的错误。
+缺失的第三方 stubs 仍暂时允许；不通过 `ignore_errors`、新增全局排除或强行改为全局 `strict`
+掩盖未解决的问题。后续按模块增加参数/返回值注解并逐步减少 `Any`，通过定向验证扩大显式清单。
+
+GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：
 
 ```bash
-.venv/bin/python -m mypy
+python -m mypy
 ```
 
-类型工具只进入开发锁，不改变 host/runtime 的运行依赖。版本选择参考
-[mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)
-及 [Ruff 的 import sorting 说明](https://github.com/astral-sh/ruff/blob/main/docs/faq.md)；
-两者采用 MIT 许可并持续维护，检查目标保持 Python 3.10，开发检查没有测量期开销。
+本地也推荐使用 Python 3.10 的开发虚拟环境。若本机使用 Python 3.12 虚拟环境，
+其中较新的 NumPy `.pyi` 可能含仅适用于 3.12 的 `type` 语句，导致检查目标为 3.10 时解析失败；
+这不是项目源码的类型错误。在 dor-server 的现有混合环境中可运行：
+
+```bash
+.venv/bin/python -m mypy --python-executable /usr/bin/python3.10
+```
+
+`--python-executable` 应指向真实可用的 Python 3.10 解释器，以解析该版本环境的依赖；
+其他机器需使用自身的解释器路径。不要为了绕开 NumPy stub 报错把项目的 `python_version` 改成 3.12、
+或全局关闭第三方类型检查。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
+版本选择参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)
+与 [mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)。
 Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路径的 `E402` 注释留在对应 import 语句上。
 
 `test_host_command.py` 使用真实短子进程验证 timeout、异常、编码、环境、cwd、耗时与脱敏。

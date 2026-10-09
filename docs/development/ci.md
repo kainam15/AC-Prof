@@ -36,7 +36,9 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 ## CI 与环境测试
 
 独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
-不安装推理依赖，也不需要 Docker/GPU。检查内容及 hook 版本与本地一致。
+独立 `types` job 同样使用 Python 3.10 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
+中的渐进式白名单强制开启未注解函数体检查和导入类型追踪。
+这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
