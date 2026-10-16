@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import select
 import shutil
 import signal
 import subprocess
@@ -29,6 +30,7 @@ PERF_EVENTS = (PERF_EVENT, *PERF_OPTIONAL_EVENTS)
 PERF_TIMEOUT_MS = 86_400_000
 PERF_PROBE_TIMEOUT_S = 5.0
 PERF_STOP_TIMEOUT_S = 5.0
+PERF_CONTROL_TIMEOUT_S = 5.0
 
 
 class MIPSProfilingError(RuntimeError):
@@ -404,10 +406,45 @@ class PerfMIPSMonitor:
         self._command: Optional[List[str]] = None
         self._perf_path = "not found"
         self._paranoid = "unknown"
+        self._control_write: int | None = None
+        self._ack_read: int | None = None
+        self._t_end: float | None = None
+
+    def _close_control_pipes(self) -> None:
+        for name in ("_control_write", "_ack_read"):
+            fd = getattr(self, name)
+            setattr(self, name, None)
+            if fd is not None:
+                os.close(fd)
+
+    def _control(self, instruction: str) -> None:
+        """Synchronize an explicitly disabled/enabled perf counter with its ACK."""
+        if self._proc is None or self._control_write is None or self._ack_read is None:
+            raise MIPSProfilingError("perf control channel is not prepared")
+        if self._proc.poll() is not None:
+            raise MIPSProfilingError("perf exited before control handshake")
+        try:
+            os.write(self._control_write, instruction.encode("ascii") + b"\n")
+            deadline = time.monotonic() + PERF_CONTROL_TIMEOUT_S
+            response = bytearray()
+            while b"ack\n" not in response:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([self._ack_read], [], [], remaining)[0]:
+                    raise MIPSProfilingError(f"perf control {instruction} timed out before ack")
+                part = os.read(self._ack_read, 32)
+                if not part:
+                    raise MIPSProfilingError(f"perf control {instruction} closed without ack")
+                response.extend(part)
+                if len(response) > 128:
+                    raise MIPSProfilingError(f"perf control {instruction} produced unexpected data")
+        except OSError as exc:
+            raise MIPSProfilingError(f"perf control {instruction} failed: {exc}") from exc
 
     def prepare(self) -> None:
-        if self._proc is not None and self._proc.poll() is None:
-            raise MIPSProfilingError("MIPS monitor is already running")
+        if self._proc is not None:
+            if self._proc.poll() is None:
+                raise MIPSProfilingError("MIPS monitor is already running")
+            self.close()
         self._command = None
         if not self.container_name:
             raise MIPSProfilingError("CONTAINER_NAME is required for MIPS profiling")
@@ -433,31 +470,51 @@ class PerfMIPSMonitor:
             "--timeout",
             str(PERF_TIMEOUT_MS),
         ]
+        self._t_start = None
+        self._t_end = None
+        control_read, control_write = os.pipe()
+        ack_read, ack_write = os.pipe()
+        try:
+            command = [*self._command, "--delay=-1", f"--control=fd:{control_read},{ack_write}"]
+            self._proc = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                pass_fds=(control_read, ack_write),
+            )
+            self._control_write, self._ack_read = control_write, ack_read
+        except OSError as exc:
+            os.close(control_write)
+            os.close(ack_read)
+            raise MIPSProfilingError(f"failed to prepare perf: {exc}") from exc
+        finally:
+            os.close(control_read)
+            os.close(ack_write)
+        try:
+            # Preparation is outside the measurement window. Confirm that perf
+            # attached to the container PID before enabling event counters.
+            self._control("ping")
+        except BaseException:
+            self.close()
+            raise
 
     def start(self) -> None:
-        if self._proc is not None and self._proc.poll() is None:
-            raise MIPSProfilingError("MIPS monitor is already running")
-        if self._command is None:
+        if self._command is None or self._proc is None:
             raise MIPSProfilingError("MIPS monitor must be prepared before sampling")
-        try:
-            self._proc = subprocess.Popen(
-                self._command,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            self._t_start = time.perf_counter()
-        except OSError as exc:
-            raise MIPSProfilingError(f"failed to start perf: {exc}") from exc
+        if self._t_start is not None:
+            raise MIPSProfilingError("MIPS monitor is already running")
+        self._control("enable")
+        self._t_start = time.perf_counter()
 
     def stop(self, repeat_in_window: int, latency_app_s: float) -> MIPSResult:
         self._command = None
         if self._proc is None:
             raise MIPSProfilingError("MIPS monitor was not started")
 
+        try:
+            self._control("disable")
+            self._t_end = time.perf_counter()
+        finally:
+            self._close_control_pipes()
         if self._proc.poll() is None:
             self._proc.send_signal(signal.SIGINT)
         try:
@@ -472,8 +529,8 @@ class PerfMIPSMonitor:
 
         output = (stderr or "") + "\n" + (stdout or "")
         wall_elapsed_s = (
-            time.perf_counter() - self._t_start
-            if self._t_start is not None
+            self._t_end - self._t_start
+            if self._t_start is not None and self._t_end is not None
             else None
         )
         try:
@@ -532,12 +589,13 @@ class PerfMIPSMonitor:
 
     def sampling_boundary_snapshot(self) -> dict:
         """Do not infer an unrecorded end timestamp from perf elapsed time."""
-        return {"start_monotonic_s": self._t_start, "end_monotonic_s": None,
+        return {"start_monotonic_s": self._t_start, "end_monotonic_s": self._t_end,
                 "semantics": "monitor_recorded_timestamps",
-                "reason": "start timestamp follows process spawn; no monotonic stop timestamp is recorded"}
+                "reason": "perf enable/disable ACK boundaries, excluding disabled preparation"}
 
     def close(self) -> None:
         self._command = None
+        self._close_control_pipes()
         if self._proc is not None and self._proc.poll() is None:
             self._proc.kill()
             try:

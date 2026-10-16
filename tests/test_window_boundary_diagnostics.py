@@ -235,7 +235,7 @@ def test_partial_start_failure_cannot_reuse_a_control_window_timestamp():
     ("energy_cpu", "CPUEnergyMonitor", True),
     ("energy_nvml", "GPUEnergyMonitor", True),
     ("resource_usage", "ResourceUsageMonitor", True),
-    ("perf_mips", "PerfMIPSMonitor", False),
+    ("perf_mips", "PerfMIPSMonitor", True),
 ])
 def test_real_boundary_accessors_read_only_existing_timestamps(module, class_name, has_end):
     import importlib

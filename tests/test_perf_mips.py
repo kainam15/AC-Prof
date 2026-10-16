@@ -3,7 +3,7 @@ import math
 from contextlib import redirect_stderr
 from functools import partial
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -18,17 +18,48 @@ class TestPerfMIPS:
         locator.start()
         self._request.addfinalizer(partial(locator.stop))
 
-    def test_start_uses_prepared_command_without_discovery(self):
+    def test_start_enables_already_prepared_perf_without_spawning_inside_window(self):
         monitor = perf_mips.PerfMIPSMonitor("case")
         with patch.object(perf_mips.common, "docker_container_pid", return_value=1234), patch.object(
             perf_mips, "resolve_perf_command_prefix_for_pid", return_value=["perf"],
-        ):
+        ), patch.object(perf_mips.subprocess, "Popen") as launch, patch.object(
+            monitor, "_control", return_value=None,
+        ) as control:
+            launch.return_value.poll.return_value = None
             monitor.prepare()
-        with patch.object(perf_mips.common, "docker_container_pid", side_effect=AssertionError("window discovery")), patch.object(
-            perf_mips, "resolve_perf_command_prefix_for_pid", side_effect=AssertionError("window probe"),
-        ), patch.object(perf_mips.subprocess, "Popen") as launch:
-            monitor.start()
-        assert ("1234") in (launch.call_args.args[0])
+            assert launch.call_count == 1
+            assert "1234" in launch.call_args.args[0]
+            assert "--delay=-1" in launch.call_args.args[0]
+            assert any(str(arg).startswith("--control=fd:") for arg in launch.call_args.args[0])
+            with patch.object(perf_mips.common, "docker_container_pid", side_effect=AssertionError("window discovery")):
+                monitor.start()
+            assert launch.call_count == 1
+            assert [call.args[0] for call in control.call_args_list] == ["ping", "enable"]
+            monitor.close()
+
+    def test_control_ack_timeout_is_reported_as_failure(self):
+        monitor = perf_mips.PerfMIPSMonitor("case")
+        monitor._proc = SimpleNamespace(poll=lambda: None)
+        monitor._control_write = 10
+        monitor._ack_read = 11
+        with patch.object(perf_mips.os, "write", return_value=7) as send, patch.object(
+            perf_mips.select, "select", return_value=([], [], [])
+        ), pytest.raises(perf_mips.MIPSProfilingError, match="enable timed out before ack"):
+            monitor._control("enable")
+        send.assert_called_once_with(10, b"enable\n")
+        monitor._control_write = None
+        monitor._ack_read = None
+
+    def test_prepare_ack_failure_kills_process_and_closes_channels(self):
+        monitor = perf_mips.PerfMIPSMonitor("case", command_prefix=["perf"])
+        process = SimpleNamespace(poll=lambda: None, kill=Mock(), communicate=Mock())
+        with patch.object(perf_mips.common, "docker_container_pid", return_value=1234), patch.object(
+            perf_mips.subprocess, "Popen", return_value=process,
+        ), patch.object(monitor, "_control", side_effect=perf_mips.MIPSProfilingError("ping timeout")):
+            with pytest.raises(perf_mips.MIPSProfilingError, match="ping timeout"):
+                monitor.prepare()
+        process.kill.assert_called_once()
+        assert monitor._control_write is None and monitor._ack_read is None
 
     def test_unprepared_start_is_rejected_without_discovery(self):
         with patch.object(perf_mips.common, "docker_container_pid") as discover:
@@ -197,7 +228,7 @@ class TestPerfMIPS:
         with patch("acprof.monitors.common.run_command", return_value=fake_pid), patch(
             "acprof.monitors.perf_mips.subprocess.Popen",
             side_effect=lambda cmd, **kwargs: FakeProcess(cmd, **kwargs),
-        ):
+        ), patch.object(perf_mips.PerfMIPSMonitor, "_control", return_value=None):
             monitor = perf_mips.PerfMIPSMonitor(
                 container_name="case_container",
                 command_prefix=["perf"],
@@ -251,7 +282,9 @@ class TestPerfMIPS:
         with patch("acprof.monitors.common.run_command", return_value=fake_pid), patch(
             "acprof.monitors.perf_mips.subprocess.Popen",
             side_effect=lambda cmd, **kwargs: FakeProcess(),
-        ), patch("acprof.monitors.perf_mips.time.perf_counter", side_effect=[10.0, 10.25]):
+        ), patch("acprof.monitors.perf_mips.time.perf_counter", side_effect=[10.0, 10.25]), patch.object(
+            perf_mips.PerfMIPSMonitor, "_control", return_value=None,
+        ):
             monitor = perf_mips.PerfMIPSMonitor(
                 container_name="case_container",
                 command_prefix=["perf"],
@@ -288,7 +321,9 @@ class TestPerfMIPS:
         monitor = perf_mips.PerfMIPSMonitor("case_container", command_prefix=["perf"])
         monitor._proc = process
 
-        with pytest.raises(perf_mips.MIPSProfilingError, match="reaped after kill"):
+        with patch.object(monitor, "_control", return_value=None), pytest.raises(
+            perf_mips.MIPSProfilingError, match="reaped after kill"
+        ):
             monitor.stop(repeat_in_window=1, latency_app_s=0.1)
 
         assert process.killed
