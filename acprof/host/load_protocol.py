@@ -67,9 +67,10 @@ class LoadConfig:
         self.validate()
         if self.scenario != "arrival-rate":
             return None
+        if self.rate is None:
+            raise ValueError("arrival-rate requires a finite positive target rate")
         if self.arrival == "fixed":
             return [index / self.rate for index in range(self.requests)]
-        assert self.rate is not None
         rng, offsets = random.Random(self.seed), [0.0]
         for _ in range(self.requests - 1):
             offsets.append(offsets[-1] + rng.expovariate(self.rate))
@@ -117,7 +118,6 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
             with lock:
                 connections.append(client)
             local.client = client
-        assert client is not None
         return client
 
     def execute(index, planned):

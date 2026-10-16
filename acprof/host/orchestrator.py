@@ -387,6 +387,25 @@ def run_single_case(
                     "Review the client output above for the energy stability diagnostic."
                 )
 
+        ready_failure = _client_ready_failure(out_csv)
+        if ready_failure is not None:
+            case_incomplete = True
+            incomplete_case_reason = "client readiness failed"
+            print(f"[case][WARN] {ready_failure}", file=sys.stderr)
+            completed_rows_before_failure, _ = _write_case_error_csv(
+                task_info=task_info,
+                out_csv=out_csv,
+                cpu=cpu,
+                mem=mem,
+                gpu=gpu,
+                warmup=warmup,
+                repeat=repeat,
+                repeat_in_window=repeat_in_window,
+                input_scales=input_scales,
+                error=ready_failure,
+                preserve_existing=False,
+            )
+
         _finalize_case(
             tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu
         )
@@ -416,6 +435,25 @@ def run_single_case(
 
     print(f"[case] Done. Output: {out_csv}")
     return out_csv
+
+
+def _client_ready_failure(csv_path: str) -> str | None:
+    """Recognize the pre-window /ready sentinel before packet post-processing.
+
+    The sentinel has no planned measurement key. The orchestrator replaces it
+    with the full error matrix so resume and result auditing stay well formed.
+    """
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as stream:
+            reader = csv.DictReader(stream)
+            first = next(reader, None)
+            second = next(reader, None)
+    except (OSError, UnicodeError, csv.Error):
+        return None
+    if first is None or second is not None or first.get("status") != "error":
+        return None
+    error = str(first.get("error") or "")
+    return error if error.startswith("ready_failed:") else None
 
 
 def _case_result_status(csv_path: str) -> str:
@@ -456,7 +494,8 @@ def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_
                 )
         else:
             print("[sniff] Parsing pcap -> packet latencies...")
-            assert sniff_runtime is not None
+            if sniff_runtime is None:
+                raise _packet_latency_error("packet capture parser was not initialized")
             parse_result = host_command.run_command(sniff_runtime.parse_cmd, check=False)
             parse_output = parse_result.stdout.strip()
             if parse_result.returncode != 0:
@@ -675,6 +714,20 @@ def _write_case_error_csv(
                 # As in the client, publish groups before their CSV rows. A failed
                 # CSV replacement leaves a recoverable, uncommitted sidecar tail.
                 atomic_write(sidecar, write_error_groups)
+
+    if not preserve_existing:
+        # A client /ready sentinel may have published one sniff-group record.
+        # Replacing its CSV with planned errors must replace the parallel
+        # sidecar too, or a later resume sees fewer groups than committed rows.
+        from acprof.artifact_layout import case_sidecar
+        sidecar = case_sidecar(out_csv, "sniff_groups")
+        if sidecar.exists():
+            atomic_write(
+                sidecar,
+                lambda stream: stream.writelines(
+                    '{"sniff_group_id": ""}\n' for _ in rows
+                ),
+            )
 
     atomic_write(out_csv, write_error_rows)
 
