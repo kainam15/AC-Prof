@@ -29,8 +29,9 @@ class TestPlatformRuntime:
             assert ('torch') not in ({record['name'] for record in identity['packages']})
 
     def test_existing_torch_platform_and_environment_identity_is_stable(self):
-        assert (content_digest(profiles.platform_identity(profiles.PLATFORMS['cpu'], ROOT))) == ('160a6790e36ae6bdf22474eb063af40a0f085203e7c5c7742a9fa00e0c669de2')
-        assert (profiles.environment_id(profiles.ENVIRONMENTS['nlp-cpu'], ROOT)) == ('3b87fe3c394edc75f049363f28da2a6ffba01a4f1b5f313e228d1f2afb7889ac')
+        # Changing the pinned base-image registry changes both provenance identities.
+        assert (content_digest(profiles.platform_identity(profiles.PLATFORMS['cpu'], ROOT))) == ('3ad85005ae6dfaedbea80af055adbcb9b3a863d85ab938e0d312987527e0c19b')
+        assert (profiles.environment_id(profiles.ENVIRONMENTS['nlp-cpu'], ROOT)) == ('674493848d2921020917131519c05f5e086f0ecabbb4f9670fd42afe149f5eb2')
 
     def test_runtime_version_is_validated_without_torch(self):
         with tempfile.TemporaryDirectory() as temporary:
