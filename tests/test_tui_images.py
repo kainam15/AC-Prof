@@ -964,7 +964,7 @@ class TestTuiImages:
     async def test_default_image_tree_hides_external_parent_but_all_scope_shows_full_lineage(self):
         upstream = "sha256:" + "e" * 64
         self.docker.images[upstream] = image(
-            upstream, ["docker.m.daocloud.io/library/python:3.10-slim"], 20, ["os"])
+            upstream, ["docker.io/library/python:3.10-slim"], 20, ["os"])
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot, view="tree", expand_tree=True)
@@ -977,7 +977,7 @@ class TestTuiImages:
             platform = next(item for item in inventory.images if item.image_id == RUNTIME)
             assert platform.parent_id == upstream
             assert platform.parent_source == "layer-prefix"
-            assert "docker.m.daocloud.io/library/python" in str(image_metadata(platform, inventory))
+            assert "docker.io/library/python" in str(image_metadata(platform, inventory))
 
             before = len(self.docker.commands)
             app.query_one("#image-scope").value = "all"

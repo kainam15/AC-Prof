@@ -53,6 +53,12 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
+Python 3.10 Slim 的基础镜像固定为 Docker Hub 官方仓库的 OCI index SHA256，
+且 `runtime_profiles.py`、平台 manifest 与 system lock 必须一致。
+DaoCloud 代理曾在 GitHub runner 上对相同 digest 返回 `application/octet-stream`，
+导致 Docker BuildKit 无法解析镜像；CI 不使用该代理作为规范引用。
+这仅变更仓库位置，不变更固定的 OCI digest、镜像层或系统包锁。
+其他网络环境如需使用镜像加速，应在不改变镜像身份与 digest 校验的前提下独立配置。
 另有 `nlp-transformers560-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
 `custom-multimodal-cpu` 矩阵项运行 `test_custom_multimodal_runtime.py`：未知 `auto_map` 架构的
 随机小模型经音频、图像、视频输入映射执行，比较共享四阶段与上游 pipeline 结果，并检查

@@ -72,7 +72,10 @@ workflow.run("model", fail)
                 while not app.screen.query("#preparation-modelscope"):
                     await pilot.pause()
             await asyncio.wait_for(ready(), timeout=10)
-            await pilot.click("#preparation-modelscope")
+            # The other dialog test exercises physical hit-testing. Here a
+            # semantic press avoids a layout race on heavily loaded CI runners.
+            app.screen.query_one("#preparation-modelscope", Button).press()
+            await pilot.pause()
             async def source_screen_ready():
                 while not isinstance(app.screen, ModelSourceScreen) or not app.screen.query("#source-model-id"):
                     await pilot.pause()

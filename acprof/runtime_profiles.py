@@ -19,7 +19,7 @@ from acprof.extensions import CATALOG, select_extension
 from acprof.extensions.schema import validate_precision_policy
 
 PYTHON_BASE_IMAGE = (
-    "docker.m.daocloud.io/library/python:3.10-slim@sha256:"
+    "docker.io/library/python:3.10-slim@sha256:"
     "fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2"
 )
 @dataclass(frozen=True)

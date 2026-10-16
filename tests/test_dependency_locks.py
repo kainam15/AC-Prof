@@ -1,4 +1,5 @@
 """依赖和平台选择回归：构建身份必须覆盖锁与基础镜像。"""
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from runtime_fixture import ROOT, copy_dependency_tree
 
 from acprof.host.dependency_images import runtime_fingerprint
 from acprof.host.detect import TaskInfo
-from acprof.runtime_profiles import select_runtime_profile
+from acprof.runtime_profiles import PLATFORMS, PYTHON_BASE_IMAGE, select_runtime_profile
 
 
 class TestDependencyLock:
@@ -43,6 +44,15 @@ class TestDependencyLock:
         locked = (ROOT / environment.requirements_lock).read_text()
         assert ('# torch==') in (locked)
         assert ('# flask==3.0.2') in (locked)
+
+    def test_upstream_python_digest_is_identical_in_all_platform_locks(self):
+        # CI must resolve the original OCI index, not a registry proxy which
+        # may serve the pinned digest with an unsupported media type.
+        assert PYTHON_BASE_IMAGE.startswith("docker.io/library/python:3.10-slim@sha256:")
+        assert len(PYTHON_BASE_IMAGE.partition("@sha256:")[2]) == 64
+        system = json.loads((ROOT / "dockerfiles/locks/system-trixie-amd64.json").read_text())
+        assert system["base_image"] == PYTHON_BASE_IMAGE
+        assert {p.python_base_image for p in PLATFORMS.values()} == {PYTHON_BASE_IMAGE}
 
     def test_driver_selection_preserves_cuda124_with_pinned_wheel(self):
         from acprof.host.runtime_images import configure_runtime_profile
