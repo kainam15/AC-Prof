@@ -71,7 +71,8 @@ class TestRuntimeImageBuild:
             if recipe == self.failed_dockerfile:
                 return subprocess.CompletedProcess(command, 1, "", "build failed")
             arguments = dict(command[index + 1].split("=", 1)
-                             for index, value in enumerate(command) if value == "--build-arg")
+                             for index, value in enumerate(command) if value == "--build-arg"
+                             and "=" in command[index + 1])
             identifier = "sha256:" + f"{len(self.commands):064x}"
             Path(command[command.index("--iidfile") + 1]).write_text(identifier)
             labels = {"org.acprof.model-files-key": arguments.get("MODEL_FILES_KEY", ""),
@@ -114,6 +115,23 @@ class TestRuntimeImageBuild:
 
     def build_commands(self):
         return [command for command in self.commands if command[:2] == ["docker", "build"]]
+
+    def test_dependency_build_passes_proxy_names_without_exposing_proxy_values(self):
+        proxy = "http://local-proxy.example:7897"
+        with patch.dict(os.environ, {
+            "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
+            "NO_PROXY": "127.0.0.1,localhost",
+        }):
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        for command in self.build_commands():
+            recipe = Path(command[command.index("-f") + 1]).name
+            if recipe in {"platform.Dockerfile", "runtime.Dockerfile"}:
+                build_args = [command[i + 1] for i, value in enumerate(command)
+                              if value == "--build-arg"]
+                assert {"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} <= set(build_args)
+                assert proxy not in " ".join(command)
+            else:
+                assert "HTTPS_PROXY" not in command
 
     def test_service_build_context_contains_only_runtime_sources_and_licenses(self):
         runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))

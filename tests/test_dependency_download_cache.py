@@ -187,6 +187,93 @@ class TestDependencyDownloadCache:
         recorded.assert_not_called()
         assert list(tmp_path.iterdir()) == []
 
+    def test_resume_after_interrupted_build_keeps_partial_and_verifies_complete_hash(self, tmp_path):
+        helper = self.helper()
+        payload = b"complete SHA256 must cover every byte of this wheel"
+        prefix = payload[:17]
+        entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                 "url": "https://files.pythonhosted.org/example.whl"}
+        target = tmp_path / "example.whl"
+        first = BytesIO(prefix)
+        first.geturl = lambda: entry["url"]
+        first.status = 200
+        first.headers = {"Content-Length": str(len(payload))}
+        first_opener = SimpleNamespace(open=Mock(side_effect=[
+            first, TimeoutError("network paused"), TimeoutError("network paused"),
+        ]))
+        with patch("urllib.request.build_opener", return_value=first_opener), \
+                patch("time.sleep"), patch.object(helper, "_record_transfer"):
+            with pytest.raises(TimeoutError, match="network paused"):
+                helper.cached_artifact(entry, target, "python")
+        partial = target.with_suffix(".whl.part")
+        metadata = target.with_suffix(".whl.part.source.json")
+        assert partial.read_bytes() == prefix
+        assert json.loads(metadata.read_text())["sha256"] == entry["sha256"]
+        assert not target.exists()
+
+        rest = BytesIO(payload[len(prefix):])
+        rest.status = 206
+        rest.geturl = lambda: entry["url"]
+        rest.headers = {
+            "Content-Range": f"bytes {len(prefix)}-{len(payload) - 1}/{len(payload)}",
+            "Content-Length": str(len(payload) - len(prefix)),
+        }
+        second_opener = SimpleNamespace(open=Mock(return_value=rest))
+        with patch("urllib.request.build_opener", return_value=second_opener), \
+                patch.object(helper, "_record_transfer") as recorded:
+            assert helper.cached_artifact(entry, target, "python") == target
+        assert second_opener.open.call_args.args[0].get_header("Range") == f"bytes={len(prefix)}-"
+        assert target.read_bytes() == payload
+        assert not partial.exists()
+        assert not metadata.exists()
+        recorded.assert_called_once_with(entry, "python", len(payload), "files.pythonhosted.org", "miss")
+
+    def test_resume_restarts_safely_when_server_ignores_range(self, tmp_path):
+        helper = self.helper()
+        payload = b"a whole payload must not append twice"
+        entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                 "url": "https://files.pythonhosted.org/example.whl"}
+        target = tmp_path / "example.whl"
+        target.with_suffix(".whl.part").write_bytes(payload[:8])
+        target.with_suffix(".whl.part.source.json").write_text(json.dumps({
+            "url": entry["url"], "sha256": entry["sha256"],
+            "actual_source_host": "files.pythonhosted.org",
+        }))
+        response = BytesIO(payload)
+        response.status = 200
+        response.headers = {"Content-Length": str(len(payload))}
+        response.geturl = lambda: entry["url"]
+        opener = SimpleNamespace(open=Mock(return_value=response))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper, "_record_transfer"):
+            helper.cached_artifact(entry, target, "python")
+        assert opener.open.call_args.args[0].get_header("Range") == "bytes=8-"
+        assert target.read_bytes() == payload
+
+    def test_bad_content_range_never_publishes_or_preserves_partial(self, tmp_path):
+        helper = self.helper()
+        payload = b"abcdefghijklmno"
+        entry = {"name": "example", "sha256": hashlib.sha256(payload).hexdigest(),
+                 "url": "https://files.pythonhosted.org/example.whl"}
+        target = tmp_path / "example.whl"
+        target.with_suffix(".whl.part").write_bytes(payload[:4])
+        target.with_suffix(".whl.part.source.json").write_text(json.dumps({
+            "url": entry["url"], "sha256": entry["sha256"],
+            "actual_source_host": "files.pythonhosted.org",
+        }))
+        response = BytesIO(payload[4:])
+        response.status = 206
+        response.headers = {"Content-Range": f"bytes 3-14/{len(payload)}"}
+        response.geturl = lambda: entry["url"]
+        opener = SimpleNamespace(open=Mock(return_value=response))
+        with patch("urllib.request.build_opener", return_value=opener), \
+                patch.object(helper, "_record_transfer"):
+            with pytest.raises(ValueError, match="Content-Range"):
+                helper.cached_artifact(entry, target, "python")
+        assert not target.exists()
+        assert not target.with_suffix(".whl.part").exists()
+        assert not target.with_suffix(".whl.part.source.json").exists()
+
     @pytest.mark.parametrize('error', (
         URLError(ssl.SSLCertVerificationError(1, 'certificate rejected')),
         URLError(ssl.SSLError(1, 'unsupported TLS version')),

@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import shutil
 import ssl
 import subprocess
@@ -61,7 +62,12 @@ def _retryable_download_error(error):
 
 
 def cached_artifact(entry, path, category):
-    """Content-addressed payload cache with guarded redirects and no source fallback."""
+    """Download an exact SHA256 artifact; retain verified-origin partial bytes for HTTP Range resume.
+
+    Cache mounts survive interrupted Docker builds. A partial is never treated as
+    a finished artifact, and a resumed body is accepted only with a matching
+    Content-Range. Final publication still requires the complete SHA256.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file() and _digest(path) == entry["sha256"]:
         sidecar = path.with_suffix(path.suffix + ".source.json")
@@ -69,35 +75,126 @@ def cached_artifact(entry, path, category):
         _record_transfer(entry, category, 0, origin, "hit")
         print(f"[dependency-cache] {category} hit name={entry['name']} saved_bytes={path.stat().st_size}", flush=True)
         return path
+
     temporary = path.with_suffix(path.suffix + ".part")
+    partial_meta = temporary.with_suffix(temporary.suffix + ".source.json")
+
+    def discard_partial():
+        temporary.unlink(missing_ok=True)
+        partial_meta.unlink(missing_ok=True)
+
+    try:
+        metadata = json.loads(partial_meta.read_text()) if partial_meta.is_file() else {}
+    except (OSError, ValueError, TypeError):
+        metadata = {}
+    if not (temporary.is_file() and metadata.get("url") == entry["url"]
+            and metadata.get("sha256") == entry["sha256"]):
+        discard_partial()
+        metadata = {}
+    elif _digest(temporary) == entry["sha256"]:
+        origin = metadata.get("actual_source_host")
+        temporary.replace(path)
+        partial_meta.unlink(missing_ok=True)
+        path.with_suffix(path.suffix + ".source.json").write_text(
+            json.dumps({"actual_source_host": origin}) + "\n"
+        )
+        _record_transfer(entry, category, 0, origin, "hit")
+        return path
+
     opener = urllib.request.build_opener(PolicyRedirectHandler())
-    request = urllib.request.Request(entry["url"], headers={"User-Agent": DEPENDENCY_USER_AGENT})
+    actual_source = None
     try:
         for attempt in range(1, 4):
+            offset = temporary.stat().st_size if temporary.is_file() else 0
+            headers = {"User-Agent": DEPENDENCY_USER_AGENT}
+            if offset:
+                headers["Range"] = f"bytes={offset}-"
+            request = urllib.request.Request(entry["url"], headers=headers)
+            print(
+                f"[dependency-cache] {category} fetching name={entry['name']} "
+                f"resume_bytes={offset} source={urlsplit(entry['url']).hostname}",
+                flush=True,
+            )
             try:
-                with opener.open(request, timeout=60) as source, temporary.open("wb") as target:
-                    shutil.copyfileobj(source, target)
-                    actual_source = urlsplit(source.geturl()).hostname
+                with opener.open(request, timeout=60) as source:
+                    actual_source = urlsplit(
+                        getattr(source, "geturl", lambda: entry["url"])()
+                    ).hostname
+                    status = getattr(source, "status", 200)
+                    response_headers = getattr(source, "headers", {}) or {}
+                    match = None
+                    if offset and status == 206:
+                        content_range = response_headers.get("Content-Range", "")
+                        match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", content_range)
+                        if match is None or int(match[1]) != offset:
+                            raise ValueError("HTTP resume Content-Range does not match cached offset")
+                        if metadata.get("actual_source_host") not in (None, actual_source):
+                            raise ValueError("HTTP resume origin changed; cannot preserve source provenance")
+                        mode = "ab"
+                    elif status == 200:
+                        mode = "wb"  # A server may ignore Range; never append a full response.
+                        offset = 0
+                    else:
+                        raise ValueError(f"unexpected artifact HTTP status: {status}")
+                    partial_meta.write_text(json.dumps({
+                        "url": entry["url"], "sha256": entry["sha256"],
+                        "actual_source_host": actual_source,
+                    }) + "\n")
+                    metadata = json.loads(partial_meta.read_text())
+                    expected = response_headers.get("Content-Length")
+                    expected_bytes = int(expected) if expected and str(expected).isdigit() else None
+                    received = 0
+                    next_progress = 16 * 1024 * 1024
+                    with temporary.open(mode) as target:
+                        while True:
+                            block = source.read(1024 * 1024)
+                            if not block:
+                                break
+                            target.write(block)
+                            received += len(block)
+                            if received >= next_progress:
+                                print(
+                                    f"[dependency-cache] {category} progress name={entry['name']} "
+                                    f"cached_bytes={offset + received}",
+                                    flush=True,
+                                )
+                                next_progress += 16 * 1024 * 1024
+                    if expected_bytes is not None and received != expected_bytes:
+                        raise IncompleteRead(b"", expected_bytes - received)
+                    if match is not None and temporary.stat().st_size != int(match[3]):
+                        raise IncompleteRead(b"", int(match[3]) - temporary.stat().st_size)
             except (OSError, IncompleteRead) as exc:
-                temporary.unlink(missing_ok=True)
                 if attempt == 3 or not _retryable_download_error(exc):
                     raise
                 delay = 2 ** (attempt - 1)
                 reason = type(exc.reason if isinstance(exc, URLError) else exc).__name__
-                print(f"[dependency-cache] {category} retry name={entry['name']} attempt={attempt}/3 "
-                      f"source={urlsplit(entry['url']).hostname} reason={reason} retry_in_s={delay}", flush=True)
+                print(
+                    f"[dependency-cache] {category} retry name={entry['name']} "
+                    f"attempt={attempt}/3 source={urlsplit(entry['url']).hostname} "
+                    f"reason={reason} retry_in_s={delay}",
+                    flush=True,
+                )
                 time.sleep(delay)
             else:
                 break
         if _digest(temporary) != entry["sha256"]:
             raise ValueError(f"artifact SHA256 mismatch: {entry['name']}")
         temporary.replace(path)
-        path.with_suffix(path.suffix + ".source.json").write_text(json.dumps({"actual_source_host": actual_source}) + "\n")
+        path.with_suffix(path.suffix + ".source.json").write_text(
+            json.dumps({"actual_source_host": actual_source}) + "\n"
+        )
         _record_transfer(entry, category, path.stat().st_size, actual_source, "miss")
-        print(f"[dependency-cache] {category} miss name={entry['name']} actual_bytes={path.stat().st_size} source={actual_source}", flush=True)
+        print(
+            f"[dependency-cache] {category} miss name={entry['name']} "
+            f"actual_bytes={path.stat().st_size} source={actual_source}",
+            flush=True,
+        )
         return path
     finally:
-        temporary.unlink(missing_ok=True)
+        error = sys.exc_info()[1]
+        if (error is None or not _retryable_download_error(error)
+                or not temporary.is_file() or temporary.stat().st_size == 0):
+            discard_partial()
 
 
 def installed_packages() -> dict[str, str]:

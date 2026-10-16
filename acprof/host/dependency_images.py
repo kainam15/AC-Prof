@@ -185,6 +185,13 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
                    "-f", str(context / recipe)]
         for key, value in arguments.items():
             command += ["--build-arg", f"{key}={value}"]
+        # Docker does not automatically inherit proxy environment variables
+        # from the invoking shell. Pass standard proxy ARG names only so the
+        # CLI resolves their values without exposing credentials in argv or
+        # making the transport route part of the dependency image identity.
+        for proxy_name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY"):
+            if os.environ.get(proxy_name):
+                command += ["--build-arg", proxy_name]
         command.append(str(context))
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("依赖构建输入发生变化，尚未构建镜像")
