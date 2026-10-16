@@ -1,7 +1,25 @@
 """Theme surfaces and stable action colors for the TUI."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
+from typing import TypedDict
+
+
+class ThemeKwargs(TypedDict):
+    name: str
+    secondary: str
+    background: str
+    surface: str
+    panel: str
+    foreground: str
+    dark: bool
+    primary: str
+    success: str
+    warning: str
+    error: str
+    accent: str
+    ansi: bool
+    variables: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -15,9 +33,7 @@ class ThemePalette:
     foreground: str
     dark: bool = True
 
-    def theme_kwargs(self) -> dict[str, str | bool | dict[str, str]]:
-        values = asdict(self)
-        values.pop("label")
+    def theme_kwargs(self) -> ThemeKwargs:
         # Themes change surfaces; action colors keep the same meaning.
         semantics = (
             dict(primary="#66b8c4", success="#81b89a", warning="#e0bd65", error="#e68f91")
@@ -25,7 +41,13 @@ class ThemePalette:
             dict(primary="#176978", success="#347459", warning="#806000", error="#aa3e49")
         )
         return {
-            **values, **semantics, "accent": semantics["primary"], "ansi": False,
+            "name": self.name, "secondary": self.secondary,
+            "background": self.background, "surface": self.surface,
+            "panel": self.panel, "foreground": self.foreground,
+            "dark": self.dark, "primary": semantics["primary"],
+            "success": semantics["success"], "warning": semantics["warning"],
+            "error": semantics["error"], "accent": semantics["primary"],
+            "ansi": False,
             "variables": {"ui-disabled": "#858585" if self.dark else "#757575"},
         }
 

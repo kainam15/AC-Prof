@@ -27,7 +27,9 @@ if TYPE_CHECKING:
 class CatalogActions(MessagePump):
     """Each refresh is bounded and remains owned until its worker has finished."""
 
-    def _catalog_roots(self: AcprofTui) -> tuple[Path, ...]:
+    def _catalog_roots(self) -> tuple[Path, ...]:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.app import PROJECT_DIR
         roots = []
         for source in (self._input('output-dir'), self._saved_settings.last_result_dir,
@@ -39,7 +41,9 @@ class CatalogActions(MessagePump):
         roots.append(PROJECT_DIR / 'results')
         return tuple(dict.fromkeys(path.resolve() for path in roots))
 
-    def _picker_loading(self: AcprofTui, token: object, busy: bool) -> None:
+    def _picker_loading(self, token: object, busy: bool) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if busy:
             self._read_jobs.add(token)
         else:
@@ -48,10 +52,14 @@ class CatalogActions(MessagePump):
             self._set_busy(self._is_busy())
 
     @on(Button.Pressed, '.experiment-picker')
-    def select_experiment(self: AcprofTui, event: Button.Pressed) -> None:
+    def select_experiment(self, event: Button.Pressed) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._open_experiment_picker(event.button.name or 'result-csv')
 
-    def _open_experiment_picker(self: AcprofTui, target: str) -> None:
+    def _open_experiment_picker(self, target: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation('catalog'):
             return
         from acprof.tui.app import PROJECT_DIR
@@ -66,11 +74,15 @@ class CatalogActions(MessagePump):
             loading_changed=lambda busy: self._picker_loading(token, busy)),
             lambda choice: self._experiment_selected(target, choice))
 
-    def _picker_closed(self: AcprofTui) -> None:
+    def _picker_closed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._picker_open = False
         self._set_busy(self._is_busy())
 
-    def _experiment_selected(self: AcprofTui, target: str, choice) -> None:
+    def _experiment_selected(self, target: str, choice) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._picker_closed()
         if choice is None or not self._allow_operation('catalog'):
             return
@@ -97,7 +109,9 @@ class CatalogActions(MessagePump):
         elif action == 'resume':
             self._resume_experiment(record)
 
-    def _view_experiment(self: AcprofTui, record: ExperimentRecord) -> None:
+    def _view_experiment(self, record: ExperimentRecord) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._remember_last_used(result_dir=str(record.directory))
         self._activate_tab('plot-tab')
         csv_path = record.directory / 'result_layers.json'
@@ -108,7 +122,9 @@ class CatalogActions(MessagePump):
             self._set_text(self.query_one('#result-summary', Static),
                 message('尚无结果 CSV；保留的实验状态与失败证据：\n{0}', experiment_choice(record).detail))
 
-    def _resume_experiment(self: AcprofTui, record: ExperimentRecord) -> None:
+    def _resume_experiment(self, record: ExperimentRecord) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.experiment import build_run_command
         from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         try:

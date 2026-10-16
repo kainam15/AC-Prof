@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from textual import on
 from textual.message_pump import MessagePump
-from textual.widgets import Button
+from textual.widgets import Button, Checkbox
 
 from acprof.experiment import RunConfigError
 from acprof.messages import join_messages, message
 from acprof.tui.commands import PendingLaunch, format_command, prepare_profile
 from acprof.tui.views import ConfirmActionScreen
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
 
 class ProfileActions(MessagePump):
     _pending_launch: PendingLaunch | None
@@ -30,10 +33,12 @@ class ProfileActions(MessagePump):
         result_dir: str | None = None,
         tools: str | None = None,
     ) -> tuple[list[str], Path] | None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         directory = result_dir or self._input("result-dir")
         selected_tools = tools if tools is not None else ",".join(
             checkbox.name
-            for checkbox in self.query("#profile-tools Checkbox")
+            for checkbox in self.query("#profile-tools Checkbox").results(Checkbox)
             if checkbox.value and checkbox.name is not None
         )
         if not directory:
@@ -60,6 +65,8 @@ class ProfileActions(MessagePump):
         result_dir: str | None = None,
         tools: str | None = None,
     ) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("profile"):
             return
         prepared = self._profile_command(
@@ -78,6 +85,8 @@ class ProfileActions(MessagePump):
         result_dir: str | None = None,
         tools: str | None = None,
     ) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("profile"):
             return
         prepared = self._profile_command(

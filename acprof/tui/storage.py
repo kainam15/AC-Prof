@@ -16,6 +16,7 @@ from textual.widgets import Button, Static
 
 from acprof.host.image_management import STORAGE_KINDS, DockerStorage
 from acprof.messages import message
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.presentation import UNKNOWN, format_bytes
 from acprof.tui.rendering import CjkCompositor
 
@@ -53,7 +54,7 @@ class StorageSpaceScreen(ModalScreen[None]):
         self.selected_count = selected_count
 
     def compose(self) -> ComposeResult:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="storage-dialog") as dialog:
             dialog.border_title = tr("存储空间")
             with VerticalScroll(id="storage-content"):
@@ -85,11 +86,11 @@ class StorageSpaceScreen(ModalScreen[None]):
         table.add_column(min_width=18)
         table.add_column()
         for label, value in rows:
-            table.add_row(Text(self.app.tr(label)), Text(self.app.tr(value)))
+            table.add_row(Text(translated_app(self.app).tr(label)), Text(translated_app(self.app).tr(value)))
         self.query_one(selector, Static).update(table)
 
     def show_storage(self, storage: DockerStorage | None, estimate: int | None, error: str = "") -> None:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         disk = storage.disk if storage else None
         self.query_one("#storage-root", Static).update(storage.root_dir if storage else tr(UNKNOWN))
         percentage = disk.used / disk.total * 100 if disk and disk.total else None
@@ -133,7 +134,7 @@ class StorageSpaceScreen(ModalScreen[None]):
 
     def show_loading(self) -> None:
         self.query_one("#storage-refresh", Button).disabled = True
-        self.query_one("#storage-status", Static).update(self.app.tr("正在读取存储空间……"))
+        self.query_one("#storage-status", Static).update(translated_app(self.app).tr("正在读取存储空间……"))
 
     @on(Button.Pressed, "#storage-refresh")
     def request_refresh(self, event: Button.Pressed) -> None:

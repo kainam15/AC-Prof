@@ -9,6 +9,7 @@ from textual.widgets import Button, Collapsible, Label, Static
 from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
 from acprof.preparation_events import encode_reply
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.downloads import download_fields, download_summary
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -105,7 +106,7 @@ class PreparationScreen(ModalScreen):
         self.refresh(recompose=True)
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         request = self.event.get("request", {})
         review = request.get("kind") == "review"
         failed = request.get("kind") == "error"
@@ -237,7 +238,7 @@ class ModelSourceScreen(ModalScreen):
     """
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="source-dialog"):
             yield Label(tr("改用 ModelScope"))
             yield Static(tr("HF 与 ModelScope 是不同来源；同名不代表相同权重。请填写 ModelScope 模型 ID，确认后返回配置并创建新实验。"), markup=False)

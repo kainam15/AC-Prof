@@ -25,6 +25,10 @@ if TYPE_CHECKING:
     from acprof.tui.preparation import PreparationScreen
 
 
+
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
+
 class PreflightActions(MessagePump):
     _environment_open: bool
     _check_running: bool
@@ -38,6 +42,8 @@ class PreflightActions(MessagePump):
     _preflight_checks: tuple[PreflightCheck, ...]
     @on(Button.Pressed, "#environment-status")
     def show_environment_status(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         lines = []
         reason = self._preflight_run_reason()
         if reason:
@@ -58,6 +64,8 @@ class PreflightActions(MessagePump):
             self.action_quick_check()
 
     def _network_preflight_report(self, line: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         report = json.loads(line.split(" ", 1)[1])
         from acprof.tui.downloads import download_summary
         self.query_one("#network-download-summary", Static).update(download_summary(report, self.tr))
@@ -66,6 +74,8 @@ class PreflightActions(MessagePump):
 
     def _network_download_report(self, line: str) -> None:
 
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.downloads import download_result_summary
         report = json.loads(line.split(" ", 1)[1])
         summary = self.query_one("#network-download-summary", Static)
@@ -73,6 +83,8 @@ class PreflightActions(MessagePump):
 
     @on(Button.Pressed, "#open-model-store")
     def open_model_store(self):
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._is_busy() or self._check_running or self._latest_snapshot.measurement_active:
             return
         from acprof.host.model_store import store_root
@@ -83,6 +95,8 @@ class PreflightActions(MessagePump):
         self.push_screen(ModelStoreScreen(root, self._input("model-store-max")), self._environment_closed)
 
     def _show_preparation(self, event: dict) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.preparation import PreparationScreen
         if self._preparation_screen is None:
             self._preparation_screen = PreparationScreen(event, respond=self._preparation_answered)
@@ -98,6 +112,8 @@ class PreflightActions(MessagePump):
             screen.close()
 
     def _preparation_event(self, event: dict) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if event.get("input_plan") is not None and self._active_run_config is not None:
             if self._latest_snapshot.measurement_active:
                 raise RuntimeError("input plan update inside measurement window")
@@ -127,6 +143,8 @@ class PreflightActions(MessagePump):
             self._show_preparation(event)
 
     def _preparation_answered(self, result) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.preparation_events import encode_reply
         if result["action"] == "request-stop":
             self.action_request_stop()
@@ -157,6 +175,8 @@ class PreflightActions(MessagePump):
 
     def _preflight_config(self) -> RunConfig:
         # Diagnostics remain usable without a model or valid resource matrix.
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         compute_tool, execution_tool = run_form.profiler_tools_from_checks(
             {key: self._checked(key) for key in run_form.PROFILER_CHECKBOXES}
         )
@@ -170,6 +190,8 @@ class PreflightActions(MessagePump):
         )
 
     def _preflight_run_reason(self) -> str:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._ui_closing:
             return message("正在检查环境；完成后可开始采集。")
         if self._check_running or not self._check_completed:
@@ -183,6 +205,8 @@ class PreflightActions(MessagePump):
         return message("采集已阻止：{0}", join_messages("；", failures)) if failures else ""
 
     def _allow_collection(self) -> bool:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         reason = self._preflight_run_reason()
         if reason:
             self._refresh_preflight_state()
@@ -191,6 +215,8 @@ class PreflightActions(MessagePump):
         return True
 
     def _refresh_preflight_state(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._ui_closing:
             return
         reason = self._preflight_run_reason()
@@ -211,6 +237,8 @@ class PreflightActions(MessagePump):
         self.refresh_bindings()
 
     def action_quick_check(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._ui_closing:
             return
         if self._check_running:
@@ -226,6 +254,8 @@ class PreflightActions(MessagePump):
 
     @work(thread=True, group="preflight", exclusive=True, exit_on_error=False)
     def _execute_quick_check(self, config: RunConfig, token: object) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         try:
             # Perf probes and other diagnostics must never overlap a formal
             # measurement, including one owned by another AC-Prof process.
@@ -243,6 +273,8 @@ class PreflightActions(MessagePump):
         error: str,
         token: object,
     ) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._ui_closing or token is not self._check_request:
             return
         self._check_running = False

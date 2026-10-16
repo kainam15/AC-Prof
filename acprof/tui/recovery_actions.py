@@ -12,6 +12,7 @@ from textual.widgets import Button, Collapsible, Static
 
 from acprof.experiment import build_run_command
 from acprof.messages import message
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.commands import PendingLaunch, format_command
 from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.i18n import error_message
@@ -40,7 +41,7 @@ class RecoveryScreen(ModalScreen[str | None]):
         self.review = review
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="recovery-dialog"):
             yield Static(tr("恢复 / 重试"), id="recovery-title")
             with VerticalScroll(id="recovery-body"):
@@ -70,8 +71,10 @@ class RecoveryScreen(ModalScreen[str | None]):
 class RecoveryActions(MessagePump):
     _recovery_request: Event | None
     _recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None
-    def _review_run_destination(self: AcprofTui, pending: PendingLaunch, *, record=None,
+    def _review_run_destination(self, pending: PendingLaunch, *, record=None,
                                 confirmed: bool = False) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("run"):
             return
         token = self._recovery_request = Event()
@@ -80,8 +83,10 @@ class RecoveryActions(MessagePump):
         self._execute_recovery_review(pending, record, token, confirmed)
 
     @work(thread=True, group="recovery", exit_on_error=False)
-    def _execute_recovery_review(self: AcprofTui, pending: PendingLaunch, record: ExperimentRecord | None,
+    def _execute_recovery_review(self, pending: PendingLaunch, record: ExperimentRecord | None,
                                  token: Event, confirmed: bool) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         try:
             review, error = review_recovery(pending, record=record, project_dir=PROJECT_DIR,
@@ -90,8 +95,10 @@ class RecoveryActions(MessagePump):
             review, error = None, error_message(exc)
         self._safe_process_callback(self._show_recovery_review, pending, token, confirmed, review, error)
 
-    def _show_recovery_review(self: AcprofTui, pending: PendingLaunch, token: Event, confirmed: bool,
+    def _show_recovery_review(self, pending: PendingLaunch, token: Event, confirmed: bool,
                               review: RecoveryReview | None, error: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._read_jobs.discard(token)
         if not self.is_running or self._ui_closing:
             return
@@ -121,7 +128,9 @@ class RecoveryActions(MessagePump):
         self._set_busy(True)
         self.push_screen(RecoveryScreen(review), lambda action: self._recovery_selected(review, action))
 
-    def _finish_recovery_check(self: AcprofTui) -> None:
+    def _finish_recovery_check(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         pending = self._recovery_after_check
         self._recovery_after_check = None
         if pending is None:
@@ -136,7 +145,9 @@ class RecoveryActions(MessagePump):
         if self._allow_collection():
             self._review_run_destination(launch, record=record, confirmed=True)
 
-    def _recovery_selected(self: AcprofTui, review: RecoveryReview, action: str | None) -> None:
+    def _recovery_selected(self, review: RecoveryReview, action: str | None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._picker_closed()
         if action is not None:
             pending = review.resume if action == "resume" else review.restart
@@ -146,7 +157,9 @@ class RecoveryActions(MessagePump):
                                              confirmed=True)
 
     @on(Button.Pressed, "#review-run-recovery")
-    def review_failed_run(self: AcprofTui) -> None:
+    def review_failed_run(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         if not self._allow_operation("run"):
             return

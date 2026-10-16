@@ -307,6 +307,7 @@ files = [
     "acprof/plotting/styles.py",
     "acprof/result_layers.py",
     "acprof/tui/app.py",
+    "acprof/tui/app_contracts.py",
     "acprof/tui/configuration_actions.py",
     "acprof/tui/image_actions.py",
     "acprof/tui/localization_actions.py",

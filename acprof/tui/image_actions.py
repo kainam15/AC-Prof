@@ -66,16 +66,22 @@ class ImageActions(MessagePump):
     _storage_loading: bool
     _image_dependency_pending: set[str]
 
-    def action_show_images(self: AcprofTui) -> None:
+    def action_show_images(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._activate_tab("images-tab")
 
     @on(TabbedContent.TabActivated, "#main-tabs")
-    def image_tab_activated(self: AcprofTui, event: TabbedContent.TabActivated) -> None:
+    def image_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if event.pane.id == "images-tab":
             self.refresh_images()
         self._sync_image_refresh_timer()
 
-    def _sync_image_refresh_timer(self: AcprofTui) -> None:
+    def _sync_image_refresh_timer(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._image_refresh_timer is None:
             return
         # A queued worker/form callback may run after Screen children have
@@ -88,13 +94,17 @@ class ImageActions(MessagePump):
             # 从上一轮扫描完成后计时，慢查询不会排队或重叠。
             self._image_refresh_timer.reset()
 
-    def _images_unavailable(self: AcprofTui, *, allow_refresh: bool = False) -> bool:
+    def _images_unavailable(self, *, allow_refresh: bool = False) -> bool:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         state = self._operation_state()
         if allow_refresh and self._image_operation == "refresh":
             state = replace(state, maintenance=False)
         return not state.allows("cleanup") or self._pending_launch is not None
 
-    def _current_image(self: AcprofTui) -> ManagedImage | None:
+    def _current_image(self) -> ManagedImage | None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._image_view == "layers":
             return None
         if self._image_view == "tree":
@@ -104,7 +114,9 @@ class ImageActions(MessagePump):
         row = table.cursor_row
         return self._visible_images[row] if 0 <= row < len(self._visible_images) else None
 
-    def _update_image_controls(self: AcprofTui) -> None:
+    def _update_image_controls(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         busy = self._images_unavailable(allow_refresh=True)
         current = self._current_image()
         self.query_one("#image-storage", Button).disabled = self._images_unavailable()
@@ -117,7 +129,9 @@ class ImageActions(MessagePump):
             self._images_unavailable() or bool(self._image_refresh_error) or not self._selected_image_ids
         )
 
-    def _image_selection_status(self: AcprofTui) -> None:
+    def _image_selection_status(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._image_refresh_error:
             self._set_text(self.query_one("#image-status", Static), message(
                 "镜像读取失败，将自动重试：{0}", self._image_refresh_error,
@@ -132,8 +146,10 @@ class ImageActions(MessagePump):
             len(self._selected_image_ids), hidden,
         ))
 
-    def _render_images(self: AcprofTui, *, width: int | None = None, current_id: str | None = None,
+    def _render_images(self, *, width: int | None = None, current_id: str | None = None,
                        preserve_scroll: bool = False) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         table = self.query_one("#image-table", DataTable)
         offsets = [(widget, widget.scroll_offset) for widget in (
             table, self.query_one("#image-layer-table", DataTable),
@@ -191,7 +207,9 @@ class ImageActions(MessagePump):
             widget.call_after_refresh(widget.scroll_to, x=offset.x, y=offset.y,
                                       animate=False, immediate=True, force=True)
 
-    def _render_image_layers(self: AcprofTui, *, preserve_scroll: bool = False) -> None:
+    def _render_image_layers(self, *, preserve_scroll: bool = False) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         table: DataTable[Text | str] = self.query_one("#image-layer-table", DataTable)
         current = self._visible_image_layers[table.cursor_row].chain_id if 0 <= table.cursor_row < len(self._visible_image_layers) else ""
         shown = {item.image_id for item in self._visible_images}
@@ -208,12 +226,16 @@ class ImageActions(MessagePump):
                           animate=False, scroll=not preserve_scroll)
 
     @on(Button.Pressed, "#image-view-tree, #image-view-list, #image-view-layers")
-    def image_view_changed(self: AcprofTui, event: Button.Pressed) -> None:
+    def image_view_changed(self, event: Button.Pressed) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._images_unavailable(allow_refresh=True):
             return
         current = self._current_image()
         if current:
             self._focused_image_id = current.image_id
+        if event.button.id is None:
+            return
         self._image_view = event.button.id.removeprefix("image-view-")
         self.query_one("#image-browser", ContentSwitcher).current = {
             "tree": "image-tree-view", "list": "image-table", "layers": "image-layer-table"}[self._image_view]
@@ -222,23 +244,29 @@ class ImageActions(MessagePump):
         self._render_images(current_id=self._focused_image_id)
 
     @on(DataTable.HeaderSelected, "#image-table")
-    def sort_image_table(self: AcprofTui, event: DataTable.HeaderSelected) -> None:
+    def sort_image_table(self, event: DataTable.HeaderSelected) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         key = event.column_key.value
-        if self._images_unavailable(allow_refresh=True) or key == "selected":
+        if self._images_unavailable(allow_refresh=True) or key is None or key == "selected":
             return
         self._image_sort = (key, not self._image_sort[1] if self._image_sort[0] == key else False)
         self._render_images()
 
     @on(Input.Changed, "#image-search")
     @on(Select.Changed, "#image-scope")
-    def image_filter_changed(self: AcprofTui) -> None:
+    def image_filter_changed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._form_ready and not self._images_unavailable(allow_refresh=True):
             self._render_images()
 
     @on(DataTable.RowHighlighted, "#image-table")
     @on(DataTable.RowHighlighted, "#image-layer-table")
     @on(Tree.NodeHighlighted, "#image-tree")
-    def _show_image_detail(self: AcprofTui) -> None:
+    def _show_image_detail(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         detail = self.query_one("#image-detail-scroll", ImageDetailPanel)
         if self._image_view == "layers":
             row = self.query_one("#image-layer-table", DataTable).cursor_row
@@ -259,7 +287,9 @@ class ImageActions(MessagePump):
         self._update_image_controls()
 
     @on(Collapsible.Expanded, "#image-dependencies")
-    def _expand_image_dependencies(self: AcprofTui) -> None:
+    def _expand_image_dependencies(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         inventory, item = self._image_inventory, self._current_image()
         if inventory is None or item is None or item.dependency_source != "unknown":
             return
@@ -280,7 +310,9 @@ class ImageActions(MessagePump):
         self._execute_image_dependency_resolution(inventory, item.image_id)
 
     @work(thread=True, group="image-dependency-resolution", exit_on_error=False)
-    def _execute_image_dependency_resolution(self: AcprofTui, inventory: ImageInventory, image_id: str) -> None:
+    def _execute_image_dependency_resolution(self, inventory: ImageInventory, image_id: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.host.image_dependencies import resolve_image_dependencies
 
         try:
@@ -292,8 +324,10 @@ class ImageActions(MessagePump):
             resolved = dataclass_replace(inventory, images=images)
         self.call_from_thread(self._complete_image_dependency_resolution, inventory, image_id, resolved)
 
-    def _complete_image_dependency_resolution(self: AcprofTui, original: ImageInventory,
+    def _complete_image_dependency_resolution(self, original: ImageInventory,
                                               image_id: str, resolved: ImageInventory) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         getattr(self, "_image_dependency_pending", set()).discard(image_id)
         if not self.is_running or not self._form_ready or self._image_inventory is not original:
             return
@@ -304,7 +338,9 @@ class ImageActions(MessagePump):
     @on(DataTable.RowSelected, "#image-table")
     @on(Tree.NodeSelected, "#image-tree")
     @on(Button.Pressed, "#image-toggle")
-    def toggle_image_selection(self: AcprofTui) -> None:
+    def toggle_image_selection(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._images_unavailable(allow_refresh=True):
             return
         item = self._current_image()
@@ -322,13 +358,17 @@ class ImageActions(MessagePump):
         self._render_images()
 
     @on(Button.Pressed, "#image-clear")
-    def clear_image_selection(self: AcprofTui) -> None:
+    def clear_image_selection(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._images_unavailable(allow_refresh=True):
             self._selected_image_ids.clear()
             self._render_images()
 
     @on(Button.Pressed, "#image-model")
-    def select_model_images(self: AcprofTui) -> None:
+    def select_model_images(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         item = self._current_image()
         if self._images_unavailable(allow_refresh=True) or item is None or not item.model_key or self._image_inventory is None:
             return
@@ -342,13 +382,17 @@ class ImageActions(MessagePump):
             self.query_one("#image-scope", Select).value = "models"
         self._render_images()
 
-    def _begin_image_operation(self: AcprofTui, operation: str, status: str) -> None:
+    def _begin_image_operation(self, operation: str, status: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._image_operation = operation
         self._activate_tab("images-tab")
         self._set_text(self.query_one("#image-status", Static), status)
         self._set_busy(True)
 
-    def refresh_images(self: AcprofTui) -> None:
+    def refresh_images(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if (not self.is_running or not self._form_ready or len(self.screen_stack) != 1 or self._images_unavailable()
                 or self.query_one("#main-tabs", TabbedContent).active != "images-tab"
                 or self.mouse_captured is not None):
@@ -360,16 +404,20 @@ class ImageActions(MessagePump):
         self._execute_image_refresh()
 
     @work(thread=True, group="images", exclusive=True, exit_on_error=False)
-    def _execute_image_refresh(self: AcprofTui) -> None:
+    def _execute_image_refresh(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         try:
             inventory, error = list_images(), ""
         except Exception as exc:
             inventory, error = None, image_error(exc)
         self.call_from_thread(self._show_images, inventory, error)
 
-    def _show_images(self: AcprofTui, inventory: ImageInventory | None, error: str = "", *, clear_selection: bool = False) -> None:
+    def _show_images(self, inventory: ImageInventory | None, error: str = "", *, clear_selection: bool = False) -> None:
         # Textual stops the app before pruning widgets; on_unmount runs later.
         # A queued timer or worker result must not access the disappearing UI.
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready:
             return
         previous = self._image_inventory
@@ -398,14 +446,18 @@ class ImageActions(MessagePump):
         self._set_busy(self._is_busy())
 
     @on(Button.Pressed, "#image-storage")
-    def open_storage(self: AcprofTui) -> None:
+    def open_storage(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._images_unavailable() or len(self.screen_stack) != 1:
             return
         self._begin_image_operation("storage", "正在读取存储空间……")
         self._storage_screen = StorageSpaceScreen(self.refresh_storage, len(self._selected_image_ids))
         self.push_screen(self._storage_screen, self._storage_closed)
 
-    def refresh_storage(self: AcprofTui) -> None:
+    def refresh_storage(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         screen = self._storage_screen
         if (screen is None or self._storage_loading or self._image_operation != "storage"
                 or self._latest_snapshot.measurement_active or self._check_running):
@@ -415,7 +467,9 @@ class ImageActions(MessagePump):
         self._execute_storage_refresh(self._image_inventory, tuple(sorted(self._selected_image_ids)))
 
     @work(thread=True, group="storage", exclusive=True, exit_on_error=False)
-    def _execute_storage_refresh(self: AcprofTui, inventory: ImageInventory | None, ids: tuple[str, ...]) -> None:
+    def _execute_storage_refresh(self, inventory: ImageInventory | None, ids: tuple[str, ...]) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         storage, estimate, error = None, None, ""
         try:
             storage = read_storage(inventory.connection if inventory else None,
@@ -439,7 +493,9 @@ class ImageActions(MessagePump):
         except RuntimeError:
             pass  # App may have exited while the bounded Docker query was finishing.
 
-    def _show_storage(self: AcprofTui, storage: DockerStorage | None, estimate: int | None, error: str) -> None:
+    def _show_storage(self, storage: DockerStorage | None, estimate: int | None, error: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready:
             return
         self._storage_loading = False
@@ -448,7 +504,9 @@ class ImageActions(MessagePump):
         else:
             self._storage_closed()
 
-    def _storage_closed(self: AcprofTui, _result: None = None) -> None:
+    def _storage_closed(self, _result: None = None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._storage_screen = None
         if not self.is_running or not self._form_ready:
             return
@@ -461,7 +519,9 @@ class ImageActions(MessagePump):
         self._set_busy(self._is_busy())
 
     @on(Button.Pressed, "#image-delete")
-    def request_delete_images(self: AcprofTui) -> None:
+    def request_delete_images(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if (self._images_unavailable() or self._image_refresh_error
                 or self._image_inventory is None or not self._selected_image_ids):
             return
@@ -473,7 +533,9 @@ class ImageActions(MessagePump):
             lambda confirmed: self._confirmed_image_delete(confirmed, inventory, ids),
         )
 
-    def _confirmed_image_delete(self: AcprofTui, confirmed: bool, inventory: ImageInventory, ids: tuple[str, ...]) -> None:
+    def _confirmed_image_delete(self, confirmed: bool, inventory: ImageInventory, ids: tuple[str, ...]) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._image_operation = ""
         self._set_busy(self._is_busy())
         if not confirmed:
@@ -486,7 +548,9 @@ class ImageActions(MessagePump):
         self._execute_image_delete(inventory, ids)
 
     @work(thread=True, group="images", exclusive=True, exit_on_error=False)
-    def _execute_image_delete(self: AcprofTui, inventory: ImageInventory, ids: tuple[str, ...]) -> None:
+    def _execute_image_delete(self, inventory: ImageInventory, ids: tuple[str, ...]) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         outcomes: tuple[ImageRemoval, ...] = ()
         error = ""
         try:
@@ -500,7 +564,9 @@ class ImageActions(MessagePump):
             error = join_messages("\n", (error, image_error(exc))) if error else image_error(exc)
         self.call_from_thread(self._image_delete_finished, current, outcomes, error)
 
-    def _image_delete_finished(self: AcprofTui, inventory: ImageInventory | None, outcomes: tuple[ImageRemoval, ...], error: str) -> None:
+    def _image_delete_finished(self, inventory: ImageInventory | None, outcomes: tuple[ImageRemoval, ...], error: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._show_images(inventory, error, clear_selection=True)
         successful = sum(item.success for item in outcomes)
         result = message("已处理 {0} 个镜像，失败 {1} 个；操作详情见运行监控日志。", successful, len(outcomes) - successful)

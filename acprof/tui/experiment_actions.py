@@ -6,6 +6,7 @@ as well as the strict measurement-window lifecycle.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from textual import on
 from textual.message_pump import MessagePump
@@ -20,6 +21,8 @@ from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.settings import TuiSettings
 from acprof.tui.views import ConfirmActionScreen
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
 
 class ExperimentActions(MessagePump):
     _pending_launch: PendingLaunch | None
@@ -31,6 +34,8 @@ class ExperimentActions(MessagePump):
         self._apply_preset("main")
 
     def _apply_preset(self, preset: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("configure"):
             return
         try:
@@ -53,6 +58,8 @@ class ExperimentActions(MessagePump):
         self.action_request_probe()
 
     def action_request_probe(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("probe"):
             return
         try:
@@ -103,6 +110,8 @@ class ExperimentActions(MessagePump):
         )
 
     def action_request_run(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_collection() or not self._allow_operation("run"):
             return
         try:
@@ -127,6 +136,8 @@ class ExperimentActions(MessagePump):
         self._review_run_destination(PendingLaunch(tuple(command), "run", config))
 
     def _confirmed_launch(self, confirmed: bool | None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         pending = self._pending_launch
         self._pending_launch = None
         self._sync_image_refresh_timer()
@@ -138,6 +149,8 @@ class ExperimentActions(MessagePump):
         self, *, model: str = "", result_dir: str = "", result_csv: str = "",
     ) -> None:
         """Remember confirmed inputs, preserving explicitly saved preferences."""
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         updates = {}
         report_source = self.query_one("#report-source", Input)
         if result_csv and report_source.value in {"", self._saved_settings.last_result_csv}:

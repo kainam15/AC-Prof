@@ -72,7 +72,7 @@ class TestTuiLogView:
             log = app.query_one("#run-log", SelectableLog)
             panel = app.query_one("#log-panel", LogPanel)
             normal_height = log.content_region.height
-            log.clear().write("[build] first line")
+            log.clear_log().write("[build] first line")
             app.query_one("#stop-run", Button).disabled = False
 
             assert (await pilot.click("#expand-log", offset=(3, 0)))
@@ -148,7 +148,7 @@ class TestTuiLogView:
             await pilot.pause()
             log = app.query_one("#run-log", SelectableLog)
             raw = "[cmd] docker build --build-arg MODEL_ID=demo/model " + "中英文 payload " * 35
-            log.clear().write(raw)
+            log.clear_log().write(raw)
             log.selection = Selection((0, 0), log.document.end)
             await pilot.pause()
             narrow_rows = log.virtual_size.height
@@ -174,7 +174,7 @@ class TestTuiLogView:
             await pilot.pause()
             log = app.query_one("#run-log", SelectableLog)
             log.wrap = False
-            log.clear().write("\n".join(f"line {index:03d} " + "payload " * 30 for index in range(80)))
+            log.clear_log().write("\n".join(f"line {index:03d} " + "payload " * 30 for index in range(80)))
             app.theme = theme
             await pilot.pause()
             active_tab = app.query_one(Tabs).active_tab

@@ -20,6 +20,7 @@ from textual.widgets import (
 )
 from textual.widgets.button import ButtonVariant
 
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.field_validation import ConfigField
 from acprof.tui.i18n import LANGUAGE_OPTIONS
 from acprof.tui.input import BarCursorInput as Input
@@ -71,7 +72,7 @@ class EnvironmentPreflightScreen(ModalScreen[bool]):
         self.retry_disabled = retry_disabled
 
     def compose(self) -> ComposeResult:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="preflight-dialog"):
             yield Static(tr("环境状态"), id="preflight-title")
             with VerticalScroll(id="preflight-scroll"):
@@ -147,7 +148,7 @@ class ConfirmActionScreen(ModalScreen[bool]):
         self.confirm_variant = variant
 
     def compose(self) -> ComposeResult:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="confirm-dialog"):
             yield Static(tr(self.dialog_title), id="confirm-title", markup=False)
             yield Static(tr(self.message), id="confirm-message", markup=False)

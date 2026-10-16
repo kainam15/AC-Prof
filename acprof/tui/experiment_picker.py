@@ -9,11 +9,13 @@ from typing import Callable
 
 from rich.text import Text
 from textual import events, on, work
+from textual.app import App
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
 from acprof.messages import message
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.experiment_catalog import ExperimentRecord
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -111,12 +113,12 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         self.warnings: tuple[str, ...] = ()
         self.empty_message = empty_message
         self._choices_loading = True
-        self._owner = None
+        self._owner: App[object] | None = None
         self.scope = scope
         self.project_dir = project_dir if project_dir is not None else Path.cwd()
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id='picker-dialog'):
             yield Static(tr(self.title_text), id='picker-title', markup=False)
             yield Static(tr('正在检查搜索目录……'), id='picker-scope', markup=False)
@@ -132,7 +134,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
 
     def on_mount(self):
         self._owner = self.app
-        self.query_one('#picker-table', DataTable).add_columns(*(self.app.tr(column) for column in self.columns))
+        self.query_one('#picker-table', DataTable).add_columns(*(translated_app(self.app).tr(column) for column in self.columns))
         self.loading_changed(True)
         self.load_choices()
         self.query_one('#picker-search', Input).focus()
@@ -183,7 +185,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         return tuple(roots), tuple(skipped)
 
     def show_scope(self, roots: tuple[Path, ...], skipped: tuple[str, ...]) -> None:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         # Parent roots summarize the display only: bounded scans may need an
         # explicitly selected child beyond the parent's depth or record boundary.
         summary = [path for path in roots if not any(parent in path.parents for parent in roots)]
@@ -219,7 +221,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
             return
         terms = self.query_one('#picker-search', Input).value.casefold().split()
         self.filtered = tuple(choice for choice in self.choices if all(
-            term in (choice.search_text + ' ' + ' '.join(self.app.tr(cell) for cell in choice.cells)).casefold()
+            term in (choice.search_text + ' ' + ' '.join(translated_app(self.app).tr(cell) for cell in choice.cells)).casefold()
             for term in terms))
         table = self.query_one('#picker-table', PickerTable)
         table.clear()
@@ -227,7 +229,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         table.cell_tooltips = {(row, column): tooltip for row, choice in enumerate(self.filtered)
                                for column, tooltip in enumerate(choice.cell_tooltips) if tooltip}
         for index, choice in enumerate(self.filtered):
-            table.add_row(*(self.app.tr(cell) for cell in choice.cells), key=str(index))
+            table.add_row(*(translated_app(self.app).tr(cell) for cell in choice.cells), key=str(index))
         self.query_one('#picker-status', Static).update(f'{len(self.filtered)} / {len(self.choices)}' +
             (' · ' + '; '.join(self.warnings) if self.warnings else ''))
         self.show_choice()
@@ -245,13 +247,13 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         if choice:
             detail = choice.detail
         elif self._choices_loading:
-            detail = self.app.tr('正在读取已知目录内的实验……')
+            detail = translated_app(self.app).tr('正在读取已知目录内的实验……')
         elif self.choices:
-            detail = self.app.tr('没有匹配项，请修改搜索词。')
+            detail = translated_app(self.app).tr('没有匹配项，请修改搜索词。')
         elif self.warnings:
-            detail = self.app.tr('未读取到本地记录，请查看上方提示。')
+            detail = translated_app(self.app).tr('未读取到本地记录，请查看上方提示。')
         else:
-            detail = self.app.tr(self.empty_message)
+            detail = translated_app(self.app).tr(self.empty_message)
         self.query_one('#picker-detail', Static).update(detail)
         for action in self.actions:
             self.query_one('#picker-' + action, Button).disabled = choice is None or action not in choice.actions
@@ -259,6 +261,8 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
     @on(Button.Pressed, '.picker-action')
     def choose(self, event: Button.Pressed):
         choice = self.selected()
+        if event.button.id is None:
+            return
         action = event.button.id.removeprefix('picker-')
         if choice and action in choice.actions:
             self.dismiss((action, choice.value))

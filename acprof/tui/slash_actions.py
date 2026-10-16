@@ -1,6 +1,8 @@
 """Slash-command dispatch: map text input onto existing App actions."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual import on
 from textual.message_pump import MessagePump
 from textual.widgets import Input as TextualInput
@@ -11,10 +13,15 @@ from acprof.tui.commands import parse_slash_command
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
+
 
 class SlashCommandActions(MessagePump):
     @on(Input.Submitted, "#slash-command")
     def slash_command_submitted(self, event: TextualInput.Submitted) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         value = event.value
         event.input.value = ""
         try:

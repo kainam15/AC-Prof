@@ -193,9 +193,20 @@ def _requests_factory():
     from requests.adapters import HTTPAdapter
 
     class GuardedAdapter(HTTPAdapter):
-        def send(self, request, **kwargs):
+        def send(
+            self,
+            request: requests.PreparedRequest,
+            stream: bool = False,
+            timeout: float | tuple[float | None, float | None] | None = None,
+            verify: bool | str = True,
+            cert: str | tuple[str, str] | None = None,
+            proxies: dict[str, str] | None = None,
+        ) -> requests.Response:
             _request_hook(request)
-            response = super().send(request, **kwargs)
+            response = super().send(
+                request, stream=stream, timeout=timeout, verify=verify,
+                cert=cert, proxies=proxies,
+            )
             _response_hook(response)
             return response
 

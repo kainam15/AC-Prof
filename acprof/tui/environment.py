@@ -16,6 +16,7 @@ from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import message
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.diagnostics import quick_preflight
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -44,7 +45,7 @@ class PermissionReviewScreen(ConfirmActionScreen):
     """
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id='confirm-dialog'):
             yield Static(tr(self.dialog_title), id='confirm-title', markup=False)
             with VerticalScroll(id='confirm-message'):
@@ -89,7 +90,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         self.saved = False
 
     def _fields(self, fields):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Grid(classes='environment-fields'):
             for key, label, secret, placeholder in fields:
                 yield Label(tr(label))
@@ -97,7 +98,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                             id=field_id(key), classes='environment-input')
 
     def compose(self):
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id='environment-dialog'):
             with Vertical(id='environment-heading'):
                 yield Static(tr('连接与权限'), id='environment-title')
@@ -147,7 +148,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
 
     def _status(self, text, *, error=False):
         widget = self.query_one('#environment-status', Static)
-        widget.update(self.app.tr(text))
+        widget.update(translated_app(self.app).tr(text))
         widget.set_class(error, 'stage-error')
 
     @on(Button.Pressed, '#save-environment-settings')
@@ -174,7 +175,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         if self._working:
             return
         self._set_working(True)
-        self.query_one('#permission-report', Static).update(self.app.tr('正在检查环境……'))
+        self.query_one('#permission-report', Static).update(translated_app(self.app).tr('正在检查环境……'))
         self._check_permissions()
 
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
@@ -183,7 +184,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             with MeasurementLock():
                 checks = quick_preflight(RunConfig(profiling_mode='full', gpus='off', sniff_iface=self.sniff_iface),
                                          project_dir=self.project_dir)
-            report = '\n\n'.join(f'[{item.status}] {self.app.tr(item.label)}: {self.app.tr(item.detail)}'
+            report = '\n\n'.join(f'[{item.status}] {translated_app(self.app).tr(item.label)}: {translated_app(self.app).tr(item.detail)}'
                                  for item in checks)
             failures = sum(item.status == 'fail' for item in checks)
         except Exception as exc:
@@ -234,7 +235,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                 except (Exception, KeyboardInterrupt) as exc:
                     error = str(exc) or type(exc).__name__
         except SuspendNotSupported:
-            error = self.app.tr('当前终端不支持系统授权，请在原生终端启动 TUI。')
+            error = translated_app(self.app).tr('当前终端不支持系统授权，请在原生终端启动 TUI。')
         self._set_working(False)
         if error:
             self._status(message('权限配置未完成：{0}', error), error=True)

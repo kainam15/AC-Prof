@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Event
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import on, work
@@ -29,6 +30,8 @@ from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import CALCULATING
 from acprof.tui.reports import ReportView
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
 
 class ResultActions(MessagePump):
     # These state slots are initialized by AcprofTui, not by this mixin.
@@ -44,10 +47,14 @@ class ResultActions(MessagePump):
         self.action_clear_log()
 
     def action_clear_log(self) -> None:
-        self.query_one("#run-log", SelectableLog).clear()
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
+        self.query_one("#run-log", SelectableLog).clear_log()
 
     @on(Input.Changed, "#result-csv")
     def result_source_changed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._form_ready:
             if (self._summary_request is not None and
                     resolve_result_path(self._input("result-csv"), self._project_dir) == self._summary_path):
@@ -59,9 +66,13 @@ class ResultActions(MessagePump):
 
     @on(Button.Pressed, "#summarize-results")
     def summarize_results_button(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._update_result_summary(self._input("result-csv"))
 
     def _update_result_summary(self, result_csv: str, *, notify: bool = True) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("summary"):
             return
         if not result_csv:
@@ -82,6 +93,8 @@ class ResultActions(MessagePump):
 
     @work(thread=True, group="summary", exit_on_error=False)
     def _execute_summary_read(self, path: Path, token: Event, notify: bool) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         try:
             summary, error = self._summarize_result_csv(path, cancelled=token.is_set), ""
         except Exception as exc:
@@ -89,6 +102,8 @@ class ResultActions(MessagePump):
         self._safe_process_callback(self._show_result_summary, path, token, summary, error, notify)
 
     def _show_result_summary(self, path, token, summary, error: str, notify: bool) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._read_jobs.discard(token)
         if not self.is_running or self._ui_closing:
             return
@@ -108,6 +123,8 @@ class ResultActions(MessagePump):
             self.notify("结果摘要已更新", timeout=3)
 
     def _cancel_result_reads(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._recovery_request is not None:
             self._recovery_request.set()
         self._recovery_after_check = None
@@ -125,6 +142,8 @@ class ResultActions(MessagePump):
         self._launch_plot()
 
     def _launch_plot(self, path: str | None = None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("plot"):
             return
         result_csv = path or self._input("result-csv")
@@ -139,6 +158,8 @@ class ResultActions(MessagePump):
         self._launch(pending)
 
     def _clear_report(self, status: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._report_view = None
         self.query_one("#report-table", DataTable).clear(columns=True)
         self._set_text(self.query_one("#report-status", Static), status)
@@ -146,6 +167,8 @@ class ResultActions(MessagePump):
 
     @on(Input.Changed, "#report-source")
     def report_source_changed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._form_ready:
             if (self._report_request is not None and
                     resolve_result_path(self._input("report-source"), self._project_dir) == self._report_path):
@@ -160,6 +183,8 @@ class ResultActions(MessagePump):
         self._open_report()
 
     def _open_report(self, path: str | None = None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("report"):
             return
         self._activate_tab("reports-tab")
@@ -185,6 +210,8 @@ class ResultActions(MessagePump):
 
     @work(thread=True, group="report", exit_on_error=False)
     def _execute_report_read(self, path: Path, token: Event) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         try:
             view, error = self._read_report(path, cancelled=token.is_set), ""
         except Exception as exc:
@@ -192,6 +219,8 @@ class ResultActions(MessagePump):
         self._safe_process_callback(self._show_report, view, error, token)
 
     def _show_report(self, view: ReportView | None, error: str, token: object) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._read_jobs.discard(token)
         if not self.is_running or self._ui_closing:
             return
@@ -207,6 +236,8 @@ class ResultActions(MessagePump):
         self._render_report_view()
 
     def _render_report_view(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         view = self._report_view
         if view is None:
             return
@@ -227,6 +258,8 @@ class ResultActions(MessagePump):
         self._show_report_row(event.cursor_row)
 
     def _show_report_row(self, index: int) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         view = self._report_view
         if view is None:
             return
@@ -239,6 +272,8 @@ class ResultActions(MessagePump):
 
     @on(Button.Pressed, "#report-compare")
     def compare_experiments_button(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("compare"):
             return
         try:
@@ -251,6 +286,8 @@ class ResultActions(MessagePump):
         self._launch(pending)
 
     def _launch_stats(self, path: str | None = None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation("stats"):
             return
         self._activate_tab("reports-tab")

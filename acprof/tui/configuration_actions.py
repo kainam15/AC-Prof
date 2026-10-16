@@ -6,6 +6,7 @@ widgets, persisted state, and its project/venv path settings.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from textual import on
 from textual.message_pump import MessagePump
@@ -25,13 +26,19 @@ from acprof.tui.scrollbar import SolidScrollBarRender
 from acprof.tui.settings import TuiSettings, UiPreferences
 from acprof.tui.views import LogPanel
 
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
 
 class ConfigurationActions(MessagePump):
+    # Initialized on the fully composed AcprofTui controller.
+    _environment_open: bool
     _saved_settings: TuiSettings
     ui_preferences: UiPreferences
     _selected_preset: str | None
     _preview_timer: Timer | None
     def _apply_ui_preferences(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._apply_language()
         self.theme = self.ui_preferences.theme
         log = self.query_one("#run-log", SelectableLog)
@@ -44,12 +51,14 @@ class ConfigurationActions(MessagePump):
     @on(Select.Changed, ".ui-preference")
     @on(Checkbox.Changed, ".ui-preference")
     def _ui_preference_changed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._form_ready or self._is_busy():
             return
         preferences = UiPreferences(
             language=self._select("ui-language"),
             theme=self._select("ui-theme"),
-            log_max_lines=int(self.query_one("#ui-log-lines", Select).value),
+            log_max_lines=int(str(self.query_one("#ui-log-lines", Select).value or UiPreferences().log_max_lines)),
             log_wrap=self._checked("ui-log-wrap"),
             show_command_bar=self._checked("ui-command-bar"),
         )
@@ -62,6 +71,8 @@ class ConfigurationActions(MessagePump):
 
     @on(Button.Pressed, "#restore-ui-defaults")
     def restore_ui_defaults(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._is_busy():
             return
         defaults = UiPreferences()
@@ -77,6 +88,8 @@ class ConfigurationActions(MessagePump):
         self.query_one('#settings-status').set_classes('page-summary stage-running')
 
     def _save_settings(self, *, remember_run: bool) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._is_busy():
             self.notify("任务完成后可保存设置", severity="warning")
             return
@@ -113,10 +126,14 @@ class ConfigurationActions(MessagePump):
         self._save_settings(remember_run=True)
 
     def action_show_settings(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._activate_tab("settings-tab")
 
     @on(Button.Pressed, "#open-environment-settings")
     def open_environment_settings(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._is_busy() or self._check_running:
             return
         from acprof.tui.environment import EnvironmentSettingsScreen
@@ -132,17 +149,23 @@ class ConfigurationActions(MessagePump):
         self.push_screen(screen, self._environment_closed)
 
     def _environment_closed(self, _saved: bool | None) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._environment_open = False
         self._set_busy(False)
 
     @on(Button.Pressed, "#open-run-settings")
     def open_run_settings(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._activate_tab("run-tab")
         pages = self.query_one("#experiment-pages", ContentSwitcher)
         show_advanced = pages.current != "advanced-form"
         self._show_run_form("advanced-form" if show_advanced else "run-form")
 
     def _show_run_form(self, page: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self.query_one("#experiment-pages", ContentSwitcher).current = page
         show_advanced = page == "advanced-form"
         self._set_text(
@@ -152,6 +175,8 @@ class ConfigurationActions(MessagePump):
 
 
     def _gpu_options(self) -> list[tuple[str, str]]:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
         if self.initial_config.gpus not in {value for _, value in options}:
             options.append((message('自定义：{0}', self.initial_config.gpus), self.initial_config.gpus))
@@ -159,18 +184,26 @@ class ConfigurationActions(MessagePump):
 
 
     def _input(self, widget_id: str) -> str:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         return self.query_one(f"#{widget_id}", Input).value.strip()
 
     def _select(self, widget_id: str) -> str:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         value = self.query_one(f"#{widget_id}", Select).value
         return "" if value is Select.NULL else str(value)
 
     def _checked(self, widget_id: str) -> bool:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         return bool(self.query_one(f"#{widget_id}", Checkbox).value)
 
     def _configure_interaction(self) -> None:
         # Textual ignores another click while a button's active effect lasts
         # (200 ms by default). Use focus/hover styling for immediate feedback.
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         for button in self.query(Button):
             button.active_effect_duration = 0
         for field in self.query(Input):
@@ -179,13 +212,17 @@ class ConfigurationActions(MessagePump):
 
     def _configure_scrollbars(self) -> None:
         # Instance-level renderers keep this behavior local to this TUI.
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         for widget in self.query(Widget):
             if widget.is_scrollable:
-                widget.vertical_scrollbar.renderer = SolidScrollBarRender
-                widget.horizontal_scrollbar.renderer = SolidScrollBarRender
+                setattr(widget.vertical_scrollbar, "renderer", SolidScrollBarRender)
+                setattr(widget.horizontal_scrollbar, "renderer", SolidScrollBarRender)
 
     @on(Button.Pressed, "#copy-log")
     def copy_log_selection(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         log = self.query_one("#run-log", SelectableLog)
         if log.copy_selection():
             self.notify("已复制日志选区", timeout=2)
@@ -194,6 +231,8 @@ class ConfigurationActions(MessagePump):
 
     @on(Button.Pressed, "#follow-log")
     def follow_latest_log(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self.query_one("#run-log", SelectableLog).follow_tail()
 
     @on(Button.Pressed, "#expand-log")
@@ -202,6 +241,8 @@ class ConfigurationActions(MessagePump):
         self.action_toggle_log_view()
 
     def action_toggle_log_view(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if isinstance(self.screen, ModalScreen):
             return
         panel = self.query_one("#log-panel", LogPanel)
@@ -221,6 +262,8 @@ class ConfigurationActions(MessagePump):
     @on(Select.Changed, ".config-control")
     @on(Checkbox.Changed, ".config-control")
     def _configuration_changed(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._applying_config or self._is_busy():
             return
         self._cancel_preview_timer()
@@ -228,6 +271,8 @@ class ConfigurationActions(MessagePump):
         self._preview_timer = self.set_timer(0.05, self._sync_form_state)
 
     def _sync_form_state(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._preview_timer = None
         # Timer callbacks already queued before shutdown can run after the
         # form has been removed; do not query widgets during that phase.
@@ -237,6 +282,8 @@ class ConfigurationActions(MessagePump):
 
     @on(Select.Changed, "#run-preset")
     def _run_preset_changed(self, event: Select.Changed) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._form_ready or self._applying_config or self._is_busy():
             return
         preset = str(event.value)
@@ -249,6 +296,8 @@ class ConfigurationActions(MessagePump):
             self.preset_main()
 
     def _collect_config(self, *, allow_empty_model: bool = False) -> RunConfig:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         return run_form.collect_config(
             {key: self._input(key) for key in run_form.INPUT_FIELDS},
             {key: self._select(key) for key in run_form.SELECT_FIELDS},
@@ -257,6 +306,8 @@ class ConfigurationActions(MessagePump):
         )
 
     def _apply_config(self, config: RunConfig, *, preset: str = "custom") -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._cancel_preview_timer()
         self._applying_config = True
         self._extra_run_options = dict(config.extra_options)
@@ -280,6 +331,8 @@ class ConfigurationActions(MessagePump):
             self._refresh_command_preview(notify=False, sync_preset=True)
 
     def _show_config_error(self, exc: RunConfigError) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         text = join_messages("\n", (message("• {0}", issue.reason) for issue in exc.issues))
         self.notify(text, title="配置有误", severity="error", timeout=8)
         if not any(issue.field for issue in exc.issues):
@@ -299,11 +352,15 @@ class ConfigurationActions(MessagePump):
         self.call_after_refresh(self._focus_config_field, control)
 
     def _update_field_errors(self, issues):
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         from acprof.tui.field_validation import render_field_issues
         self._config_issues = tuple(issues)
         return render_field_issues(self, self._config_issues, self.tr)
 
     def _focus_config_field(self, control: Widget) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if (control.is_mounted and not control.is_disabled and not self._is_busy()
                 and not self._latest_snapshot.measurement_active):
             control.focus(scroll_visible=False)
@@ -312,6 +369,8 @@ class ConfigurationActions(MessagePump):
     def _refresh_command_preview(
         self, *, notify: bool = True, sync_preset: bool = False
     ) -> bool:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._refresh_preflight_state()
         config = None
         try:
@@ -379,6 +438,8 @@ class ConfigurationActions(MessagePump):
         return True
 
     def _update_plan_summary(self, config: RunConfig) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         planned = self._planned_input if self._planned_input_identity == run_planning.input_identity(config) else None
         summary = self.query_one("#run-plan-summary", Static)
         self._set_text(summary, run_planning.plan_summary(config, planned))

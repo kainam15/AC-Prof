@@ -26,6 +26,7 @@ from acprof.host.image_management import (
 )
 from acprof.messages import join_messages, message
 from acprof.runtime_profiles import PYTHON_BASE_IMAGE
+from acprof.tui.app_contracts import translated_app
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
@@ -83,7 +84,7 @@ class ImageTreeHeader(ResizableDataTable):
         self.clear(columns=True)
         for title, key, size in (("镜像依赖", "name", max(15, width - 32)),
                                  ("完整大小", "size", 10), ("新增大小", "added", 10), ("容器", "containers", 4)):
-            self.add_column(Text(self.app.tr(title)), key=key, width=size)
+            self.add_column(Text(translated_app(self.app).tr(title)), key=key, width=size)
 
     @on(ResizableDataTable.ColumnResized)
     def resize_tree_columns(self, event: ResizableDataTable.ColumnResized) -> None:
@@ -156,7 +157,7 @@ class ImageTree(Tree[ManagedImage]):
                 label.truncate(max(4, widths[0] - depth * self.guide_depth - 2), overflow="ellipsis", pad=True)
                 for value, width in zip((format_bytes(item.size_bytes), format_bytes(item.added_bytes),
                                          str(len(item.containers))), widths[1:]):
-                    cell = Text(self.app.tr(value))
+                    cell = Text(translated_app(self.app).tr(value))
                     cell.truncate(width - 2, overflow="ellipsis")
                     cell.align("left", width - 2)
                     label.append(" ")
@@ -410,7 +411,7 @@ class ImageDeleteScreen(ConfirmActionScreen):
         self.estimate = message("预计可释放：{0}", reclaimable_text(inventory, image_ids))
 
     def compose(self) -> ComposeResult:
-        tr = self.app.tr
+        tr = translated_app(self.app).tr
         with Vertical(id="confirm-dialog"):
             yield Static(tr(self.dialog_title), id="confirm-title", markup=False)
             with Horizontal(id="image-reclaim-row"):

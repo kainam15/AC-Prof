@@ -174,10 +174,15 @@ async def test_copy_all_and_clear_keep_real_newlines():
         await pilot.pause()
         assert (log.copy_all())
         assert (app.clipboard) == ("first\n\nsecond")
-        log.clear()
+        log.clear_log()
         await pilot.pause()
         assert (tuple(log.lines)) == (())
         assert (log.text) == ("")
         assert (log.following)
         assert not (log.copy_selection())
         assert not (log.copy_all())
+        log.write("after clear")
+        result = log.clear()
+        assert result.replaced_text == "after clear"
+        assert not tuple(log.lines)
+        assert log.following

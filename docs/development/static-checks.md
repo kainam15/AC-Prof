@@ -20,6 +20,16 @@ TUI App 与页面布局、实验恢复及部分交互控制器，以及 CLI 入�
 大型 TUI App 与内置多模态 Handler 已加入检查；其余较复杂的模型下载与依赖流、
 部分 TUI 报表、diffusion Handler、运行环境组合模块仍需先修复真实类型冲突，再分批纳入。
 不通过跳过函数体来提高覆盖率。
+
+TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单个 Mixin
+无法直接看到其他 Mixin 与最终 App 的方法/状态。只在确实访问组合控制器的函数体内使用
+`if TYPE_CHECKING: assert isinstance(self, AcprofTui)` 声明完整控制器依赖：
+它不执行运行时导入或断言，mypy 却会继续检查实际成员及其参数/返回值，
+避免全局 `ignore_errors` 或将不存在的属性都声明为 `Any`。将通用逻辑移出 Mixin 时，
+应优先改为独立参数及可复用的 `Protocol`，而不是扩散对完整 App 的依赖。
+弹窗和小部件只通过 Textual 的泛型 `self.app` 获取宿主，
+其实际使用的翻译与候选操作在 `acprof/tui/app_contracts.py` 中定义最小 `Protocol`，
+并由静态接口检查验证最终 `AcprofTui` 满足要求。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
 GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：

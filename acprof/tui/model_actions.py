@@ -24,7 +24,9 @@ class ModelActions(MessagePump):
     _candidate_pin: tuple[str, str, str] | None
     _picker_open: bool
     @on(Button.Pressed, '#model-candidates')
-    def open_model_candidates(self: AcprofTui) -> None:
+    def open_model_candidates(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if not self._allow_operation('catalog'):
             return
         from acprof.tui.app import PROJECT_DIR
@@ -84,7 +86,9 @@ class ModelActions(MessagePump):
             loading_changed=lambda busy: self._picker_loading(token, busy)),
             lambda choice: self._model_candidate_selected(choice, models))
 
-    def _model_candidate_selected(self: AcprofTui, choice, models: set[str]) -> None:
+    def _model_candidate_selected(self, choice, models: set[str]) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._picker_closed()
         if choice is None or not self._allow_operation('catalog'):
             return
@@ -105,7 +109,9 @@ class ModelActions(MessagePump):
 
     @on(Input.Changed, '#model')
     @on(Select.Changed, '#model-source')
-    def candidate_identity_changed(self: AcprofTui, event: TextualInput.Changed | Select.Changed) -> None:
+    def candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         selected = getattr(self, '_candidate_pin', None)
         if selected and (self._input('model'), self._select('model-source')) != selected[:2]:
             if self._input('revision') == selected[2]:

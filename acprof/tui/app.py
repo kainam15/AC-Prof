@@ -21,6 +21,7 @@ try:
     from textual.containers import Horizontal, Vertical
     from textual.geometry import Size
     from textual.theme import Theme
+    from textual.timer import Timer
     from textual.widget import Widget
     from textual.widgets import (
         Button,
@@ -231,26 +232,26 @@ class AcprofTui(
         self._read_jobs: set[object] = set()
         self._process_token: object | None = None
         self._run_result = RunResult()
-        self._environment_open = False
+        self._environment_open: bool = False
         self._preparation_screen: PreparationScreen | None = None
         self._preparation_cancelled = False
         self._pending_source_change = None
         self._preparation_request: tuple[subprocess.Popen[str], int] | None = None
-        self._form_ready = False
+        self._form_ready: bool = False
         self._config_issues = ()
         self._field_errors_visible = False
         self._applying_config = False
         self._preview_timer = None
         self._selected_preset: str | None = None
-        self._initial_preset = run_form.infer_preset(self.initial_config)
-        self._elapsed_timer = None
+        self._initial_preset: str = run_form.infer_preset(self.initial_config)
+        self._elapsed_timer: Timer | None = None
         self._report_view: ReportView | None = None
         self._stats_report_path: Path | None = None
         self._comparison_report_path: Path | None = None
         self._stats_report_reused = False
         self._image_inventory: ImageInventory | None = None
         self._image_operation = ""
-        self._image_refresh_timer = None
+        self._image_refresh_timer: Timer | None = None
         self._image_refresh_error = ""
         self._storage_screen = None
         self._storage_loading = False

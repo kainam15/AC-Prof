@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 
 from textual.containers import Vertical
 from textual.css.query import NoMatches
+from textual.dom import DOMNode
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -29,7 +30,7 @@ class ConfigField(Vertical):
         yield Static("", id=f"{self.field_id}-error", classes="field-error", markup=False)
 
 
-def render_field_issues(root: Widget, issues: Iterable[ConfigIssue], translate: Callable[[str], str]) -> Widget | None:
+def render_field_issues(root: DOMNode, issues: Iterable[ConfigIssue], translate: Callable[[str], str]) -> Widget | None:
     """Refresh existing slots and return the first invalid, addressable control."""
     controls = {field: identifier for identifier, field in
                 {**INPUT_FIELDS, **SELECT_FIELDS, **CHECKED_FIELDS}.items()}

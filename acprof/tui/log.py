@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.message import Message
 from textual.scrollbar import ScrollDown, ScrollTo, ScrollUp
 from textual.widgets import TextArea
-from textual.widgets.text_area import Selection
+from textual.widgets.text_area import EditResult, Selection
 
 
 class SelectableLog(TextArea):
@@ -118,11 +118,12 @@ class SelectableLog(TextArea):
         ):
             self._set_following(False)
 
-    def _on_mouse_down(self, event: events.MouseDown) -> None:
-        # TextArea's inherited handler still owns dragging.
+    async def _on_mouse_down(self, event: events.MouseDown) -> None:
+        # Keep native selection/drag behavior while pausing tail-follow.
         self._set_following(False)
+        await super()._on_mouse_down(event)
 
-    def _on_click(self, event: events.Click) -> None:
+    async def _on_click(self, event: events.Click) -> None:
         if event.chain not in (2, 3):
             return
         row, column = self.get_target_document_location(event)
@@ -277,16 +278,21 @@ class SelectableLog(TextArea):
             self.call_after_refresh(self._scroll_tail_if_following)
         return self
 
-    def clear(self) -> SelectableLog:
-        """Discard retained output and resume following future entries."""
+    def clear(self) -> EditResult:
+        """Clear the log while preserving TextArea's edit-result contract."""
         self._mutating_log = True
         try:
-            self.load_text("")
+            result = super().clear()
             self._has_entries = False
         finally:
             self._mutating_log = False
         self._set_following(True)
         self.scroll_home(animate=False, immediate=True)
+        return result
+
+    def clear_log(self) -> SelectableLog:
+        """Clear retained output and return this log for fluent writes."""
+        self.clear()
         return self
 
     def copy_selection(self) -> bool:

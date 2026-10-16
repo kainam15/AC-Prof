@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from rich.text import Text
 from textual.app import App
 from textual.message_pump import MessagePump
 from textual.widget import Widget
@@ -18,18 +19,29 @@ if TYPE_CHECKING:
 
 class LocalizationActions(MessagePump):
     _applied_language: str | None
-    def tr(self: AcprofTui, source: str) -> str:
+    def tr(self, source: str) -> str:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         return translate(source, self.ui_preferences.language)
 
-    def notify(self: AcprofTui, message: str, *, title: str = "", **kwargs) -> None:
+    def notify(self, message: str, *, title: str = "", **kwargs) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         App.notify(self, self.tr(message), title=self.tr(title), **kwargs)
 
-    def _localized_widget(self: AcprofTui, widget: Widget) -> Widget:
+    def _localized_widget(self, widget: Widget) -> Widget:
         """Register only our own widgets, before Textual creates their children."""
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if isinstance(widget, (Button, Checkbox)):
-            self._localized_text[widget, "label"] = widget.label.plain
+            label = widget.label
+            self._localized_text[widget, "label"] = label if isinstance(label, str) else label.plain
         elif isinstance(widget, Static):
-            self._localized_text[widget, "content"] = widget.content
+            content = widget.content
+            self._localized_text[widget, "content"] = (
+                content if isinstance(content, str) else
+                content.plain if isinstance(content, Text) else str(content)
+            )
         elif isinstance(widget, Input):
             self._localized_text[widget, "placeholder"] = widget.placeholder
         elif isinstance(widget, Collapsible):
@@ -38,17 +50,23 @@ class LocalizationActions(MessagePump):
             self._localized_text[widget, "tooltip"] = widget.tooltip
         return widget
 
-    def _localized_select(self: AcprofTui, options, **kwargs) -> Select:
+    def _localized_select(self, options, **kwargs) -> Select:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         sources = tuple(options)
         widget = Select(sources, **kwargs)
         self._localized_selects[widget] = sources
         return widget
 
-    def _set_text(self: AcprofTui, widget: Widget, source: str, attribute: str = "content") -> None:
+    def _set_text(self, widget: Widget, source: str, attribute: str = "content") -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         self._localized_text[widget, attribute] = source
         self._render_text(widget, attribute, source)
 
-    def _render_text(self: AcprofTui, widget: Widget, attribute: str, source: str) -> None:
+    def _render_text(self, widget: Widget, attribute: str, source: str) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         rendered = self.tr(source)
         if attribute == "content":
             assert isinstance(widget, Static)
@@ -59,7 +77,9 @@ class LocalizationActions(MessagePump):
             # Recompute geometry when switching a visible page back and forth.
             widget.refresh(layout=True)
 
-    def _capture_language_text(self: AcprofTui) -> None:
+    def _capture_language_text(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         tabs = self.query_one("#main-tabs", TabbedContent)
         for pane in tabs.query(TabPane):
             tab = tabs.get_tab(pane)
@@ -68,7 +88,9 @@ class LocalizationActions(MessagePump):
             key: list(bindings) for key, bindings in self._bindings.key_to_bindings.items()
         }
 
-    def _apply_language(self: AcprofTui) -> None:
+    def _apply_language(self) -> None:
+        if TYPE_CHECKING:
+            assert isinstance(self, AcprofTui)
         if self._applied_language == self.ui_preferences.language:
             return
         self._applied_language = self.ui_preferences.language
@@ -84,7 +106,9 @@ class LocalizationActions(MessagePump):
                 widget.value = value
                 # If the selection is the first option, its value did not
                 # change. Still refresh the displayed prompt from the catalog.
-                widget.mutate_reactive(Select.value)
+                # Use the actual reactive descriptor: a redraw alone leaves the
+                # current option label stale when Select.value is unchanged.
+                widget.mutate_reactive(getattr(Select, "value"))
             self._bindings.key_to_bindings = {
                 key: [replace(binding, description=self.tr(binding.description)) for binding in bindings]
                 for key, bindings in self._source_bindings.items()
