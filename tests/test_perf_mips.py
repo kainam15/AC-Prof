@@ -296,6 +296,42 @@ class TestPerfMIPS:
         assert (result.instructions_total) == (500_000)
         assert (result.perf_elapsed_s) == (0.25) or round(abs((result.perf_elapsed_s) - (0.25)), 7) == 0
 
+    def test_stop_recovers_after_first_sigint_is_consumed(self) -> None:
+        class SlowStopProcess:
+            returncode = None
+
+            def __init__(self):
+                self.signals = []
+                self.calls = 0
+
+            def poll(self):
+                return None if self.calls < 2 else self.returncode
+
+            def send_signal(self, sig):
+                self.signals.append(sig)
+
+            def communicate(self, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    assert timeout == perf_mips.PERF_STOP_SIGNAL_GRACE_S
+                    raise perf_mips.subprocess.TimeoutExpired("perf", timeout)
+                assert timeout == perf_mips.PERF_STOP_TIMEOUT_S - perf_mips.PERF_STOP_SIGNAL_GRACE_S
+                self.returncode = -2
+                return "", "12345,,instructions,100.00,,\n"
+
+            def kill(self):
+                raise AssertionError("graceful retry must not kill perf")
+
+        process = SlowStopProcess()
+        monitor = perf_mips.PerfMIPSMonitor("case_container", command_prefix=["perf"])
+        monitor._proc = process
+        monitor._t_start = 1.0
+        with patch.object(monitor, "_control", return_value=None):
+            result = monitor.stop(repeat_in_window=5, latency_app_s=0.1)
+        assert process.signals == [perf_mips.signal.SIGINT, perf_mips.signal.SIGINT]
+        assert result.instructions_total == 12345.0
+        assert result.instructions_per_request == 2469.0
+
     def test_stop_keeps_reap_after_kill_bounded(self) -> None:
         class HungProcess:
             returncode = None
@@ -328,7 +364,8 @@ class TestPerfMIPS:
 
         assert process.killed
         assert process.communicate_timeouts == [
-            perf_mips.PERF_STOP_TIMEOUT_S,
+            perf_mips.PERF_STOP_SIGNAL_GRACE_S,
+            perf_mips.PERF_STOP_TIMEOUT_S - perf_mips.PERF_STOP_SIGNAL_GRACE_S,
             perf_mips.PERF_STOP_TIMEOUT_S,
         ]
 

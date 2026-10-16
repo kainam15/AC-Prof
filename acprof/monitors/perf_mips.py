@@ -30,6 +30,7 @@ PERF_EVENTS = (PERF_EVENT, *PERF_OPTIONAL_EVENTS)
 PERF_TIMEOUT_MS = 86_400_000
 PERF_PROBE_TIMEOUT_S = 5.0
 PERF_STOP_TIMEOUT_S = 5.0
+PERF_STOP_SIGNAL_GRACE_S = 0.75
 PERF_CONTROL_TIMEOUT_S = 5.0
 
 
@@ -518,14 +519,25 @@ class PerfMIPSMonitor:
         if self._proc.poll() is None:
             self._proc.send_signal(signal.SIGINT)
         try:
-            stdout, stderr = self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
-        except subprocess.TimeoutExpired as exc:
-            self._proc.kill()
+            stdout, stderr = self._proc.communicate(timeout=PERF_STOP_SIGNAL_GRACE_S)
+        except subprocess.TimeoutExpired:
+            # Some perf builds consume the first SIGINT without exiting after
+            # a disabled fd-controlled session. A second SIGINT is safe: the
+            # disable ACK already marks the end of hardware counting, and the
+            # retry remains strictly outside the workload measurement window.
+            if self._proc.poll() is None:
+                self._proc.send_signal(signal.SIGINT)
             try:
-                self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
-            except subprocess.TimeoutExpired as kill_exc:
-                raise MIPSProfilingError("perf could not be reaped after kill") from kill_exc
-            raise MIPSProfilingError("perf did not stop after workload window") from exc
+                stdout, stderr = self._proc.communicate(
+                    timeout=PERF_STOP_TIMEOUT_S - PERF_STOP_SIGNAL_GRACE_S,
+                )
+            except subprocess.TimeoutExpired as exc:
+                self._proc.kill()
+                try:
+                    self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
+                except subprocess.TimeoutExpired as kill_exc:
+                    raise MIPSProfilingError("perf could not be reaped after kill") from kill_exc
+                raise MIPSProfilingError("perf did not stop after workload window") from exc
 
         output = (stderr or "") + "\n" + (stdout or "")
         wall_elapsed_s = (
