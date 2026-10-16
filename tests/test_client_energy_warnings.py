@@ -195,7 +195,7 @@ class TestEffectiveEnergyWarning:
                     "result_case.csv.idle_diag.jsonl",
                 ))
 
-    def test_matched_control_starts_all_monitors_before_wait_and_applies_baselines(self) -> None:
+    def test_matched_control_only_starts_energy_monitors_and_applies_baselines(self) -> None:
         events = []
 
         class FakeEnergyMonitor:
@@ -252,11 +252,7 @@ class TestEffectiveEnergyWarning:
         assert (events) == ([
                 "start:gpu",
                 "start:cpu",
-                "start:resource",
-                "start:mips",
                 "sleep:2.0",
-                "stop:mips:1:2.0",
-                "stop:resource",
                 "stop:gpu",
                 "stop:cpu",
                 "apply:gpu:True",
@@ -1837,7 +1833,7 @@ class TestEffectiveEnergyWarning:
         assert (rows[0]["cpu_dtlb_load_misses_per_request"]) == ("20.000000")
         assert (rows[0]["cpu_dtlb_load_miss_rate_pct"]) == ("1.000000")
 
-    def test_resource_usage_unavailable_keeps_successful_row_ok(self) -> None:
+    def test_resource_usage_unavailable_marks_successful_row_warn(self) -> None:
         class FakeUnavailableResourceUsageMonitor:
             def start(self):
                 return None
@@ -1895,8 +1891,8 @@ class TestEffectiveEnergyWarning:
                 with open(out_csv, "r", encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
-        assert (rows[0]["status"]) == ("ok")
-        assert (rows[0]["error"]) == ("")
+        assert rows[0]["status"] == "warn"
+        assert "resource monitor: resource usage unavailable" in rows[0]["error"]
         assert (rows[0]["container_cpu_util_avg_pct"]) == ("nan")
         assert (rows[0]["gpu_util_avg_pct"]) == ("nan")
         assert (rows[0]["gpu_sm_clock_mhz"]) == ("nan")

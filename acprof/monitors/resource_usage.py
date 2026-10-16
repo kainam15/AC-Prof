@@ -93,6 +93,7 @@ class ResourceUsageMonitor:
         self._t_end: Optional[float] = None
         self._init_error = ""
         self._runtime_error = ""
+        self._runtime_errors: list[str] = []
         self._closed = False
 
         try:
@@ -120,7 +121,7 @@ class ResourceUsageMonitor:
 
         if self.use_gpu:
             if pynvml is None:
-                self._runtime_error = "pynvml unavailable"
+                self._record_runtime_error("pynvml unavailable")
             else:
                 try:
                     pynvml.nvmlInit()
@@ -131,7 +132,7 @@ class ResourceUsageMonitor:
                         else pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
                     )
                 except Exception as exc:
-                    self._runtime_error = str(exc)
+                    self._record_runtime_error(str(exc))
                     self._gpu_handle = None
 
     @property
@@ -170,12 +171,12 @@ class ResourceUsageMonitor:
             try:
                 self._swap_limit_bytes = self._swap_limit_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
         if self._io_reader is not None:
             try:
                 self._io_start = self._io_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
         self._window_counters_start = self._read_window_counter_snapshots()
         self._t_start = time.perf_counter()
         self._t_end = None
@@ -211,7 +212,7 @@ class ResourceUsageMonitor:
             try:
                 self._io_end = self._io_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
         samples = [
             sample
             for sample in self.samples
@@ -228,12 +229,16 @@ class ResourceUsageMonitor:
         if self._swap_limit_bytes is not None:
             result.container_swap_limit_bytes = float(self._swap_limit_bytes)
         if self._io_start is not None and self._io_end is not None:
-            result.container_io_read_bytes = float(
-                max(0, self._io_end[0] - self._io_start[0])
-            )
-            result.container_io_write_bytes = float(
-                max(0, self._io_end[1] - self._io_start[1])
-            )
+            for direction, index in (("read", 0), ("write", 1)):
+                before, after = self._io_start[index], self._io_end[index]
+                delta = resource_metrics._counter_delta(
+                    {direction: float(before)}, {direction: float(after)}, direction
+                )
+                if after < before:
+                    self._record_runtime_error(
+                        f"container_io_{direction}_bytes counter reset: {before} -> {after}"
+                    )
+                setattr(result, f"container_io_{direction}_bytes", delta)
         resource_metrics._apply_window_counter_metrics(
             result,
             self._window_counters_start,
@@ -264,8 +269,23 @@ class ResourceUsageMonitor:
                 pass
         self._closed = True
 
+    def _record_runtime_error(self, error: str) -> None:
+        if not error or error in self._runtime_errors:
+            return
+        # Bound sampling-thread diagnostics without losing the first causes.
+        if len(self._runtime_errors) < 32:
+            self._runtime_errors.append(error)
+        elif self._runtime_errors[-1] != "additional monitor errors suppressed":
+            self._runtime_errors.append("additional monitor errors suppressed")
+        self._runtime_error = "; ".join(self._runtime_errors)
+
     def _error_message(self) -> str:
-        errors = [error for error in (self._init_error, self._runtime_error) if error]
+        # Retain each failing NVML query instead of losing the first cause to
+        # whichever collector happened to fail last.
+        gpu_errors = set(self.gpu_query_errors.values())
+        errors = [self._init_error] if self._init_error else []
+        errors.extend(error for error in self._runtime_errors if error not in gpu_errors)
+        errors.extend(f"gpu[{query}]: {error}" for query, error in self.gpu_query_errors.items())
         return "; ".join(errors)
 
     def _read_window_counter_snapshots(self) -> resource_metrics._WindowCounterSnapshots:
@@ -287,7 +307,7 @@ class ResourceUsageMonitor:
             try:
                 setattr(snapshots, field, reader())
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
         return snapshots
 
     def _read_sample(self, timestamp: float) -> resource_metrics.ResourceUsageSample:
@@ -308,24 +328,24 @@ class ResourceUsageMonitor:
             try:
                 container_cpu_s = self._cpu_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
 
         if self._mem_reader is not None:
             try:
                 container_mem_usage_bytes = self._mem_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
 
         if self._swap_reader is not None:
             try:
                 container_swap_usage_bytes = self._swap_reader()
             except Exception as exc:
-                self._runtime_error = str(exc)
+                self._record_runtime_error(str(exc))
 
         try:
             cpu_freq_avg_hz, cpu_freq_peak_hz = self._cpu_frequency_reader()
         except Exception as exc:
-            self._runtime_error = str(exc)
+            self._record_runtime_error(str(exc))
 
         if self._gpu_handle is not None and pynvml is not None:
             try:
@@ -393,8 +413,8 @@ class ResourceUsageMonitor:
         self.samples.append(self._read_sample(timestamp))
 
     def _gpu_query_error(self, query: str, error: Exception) -> None:
-        self.gpu_query_errors[query] = str(error)
         if (self._partial_platform and pynvml is not None
                 and isinstance(error, pynvml.NVMLError_NotSupported)):
             return
-        self._runtime_error = str(error)
+        self.gpu_query_errors[query] = str(error)
+        self._record_runtime_error(str(error))

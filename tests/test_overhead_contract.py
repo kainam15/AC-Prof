@@ -30,7 +30,7 @@ class TestOverheadContract:
 
             def stop(*_args):
                 events.append(name + ".stop")
-                if failure == "control" and name == "resource":
+                if failure == "control" and name == "cpu":
                     raise RuntimeError("control collector failed")
                 if name == "mips":
                     return PerfValue()
@@ -86,18 +86,21 @@ class TestOverheadContract:
                 assert (result["packet_request_count"]) == (1)
                 assert (result["request_count"]) == (1)
                 assert (pcap.with_suffix(".packets.json").exists())
-            for monitor in monitors.values():
+            for name, monitor in monitors.items():
                 monitor.close.assert_called_once()
-                assert (monitor.start.call_count) == (1 if failure == "control" else 2)
-                assert (monitor.stop.call_count) == (monitor.start.call_count)
+                expected_starts = (1 if name in {"gpu", "cpu"} else 0)
+                if failure != "control":
+                    expected_starts += 1
+                assert monitor.start.call_count == expected_starts
+                assert monitor.stop.call_count == expected_starts
             capture.terminate.assert_called_once()
         return events
 
     def test_full_runs_control_requests_cleanup_and_packet_report(self):
         events = self.window()
-        assert (events[:8]) == (["gpu.start", "cpu.start", "resource.start", "mips.start",
-                                      "mips.stop", "resource.stop", "gpu.stop", "cpu.stop"])
-        assert (events.index("cpu.baseline")) < (events.index("request"))
+        assert events[:4] == ["gpu.start", "cpu.start", "gpu.stop", "cpu.stop"]
+        assert events.index("cpu.baseline") < events.index("resource.start")
+        assert events.index("cpu.baseline") < events.index("request")
 
     def test_control_failure_closes_every_collector_and_capture_before_request(self):
         assert ("request") not in (self.window("control"))

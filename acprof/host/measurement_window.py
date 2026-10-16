@@ -111,8 +111,11 @@ def run_matched_control_window(monitors: MonitorGroup, *, idle_seconds: float,
     if not math.isfinite(idle_seconds) or idle_seconds < 0:
         raise ValueError("idle_seconds must be finite and nonnegative")
     group = MonitorGroup(close=False)
-    for name, monitor in monitors.monitors.items():
-        group.add(name, monitor)
+    # Idle baseline measures energy only. Resource and perf monitors belong
+    # exclusively to request windows; attaching them here contaminates control.
+    for name in ("gpu", "cpu"):
+        if name in monitors.monitors:
+            group.add(name, monitors.monitors[name])
     primary_error = None
     try:
         group.start()

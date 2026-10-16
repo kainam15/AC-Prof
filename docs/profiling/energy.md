@@ -10,6 +10,7 @@ GPU 来自容器实际绑定的物理 UUID，能量优先使用 NVML 累计计�
 累计计数不可用、读取失败或发生倒退时，回退到带时间戳的功率样本梯形积分并记录原因。
 功率采样继续提供 peak 和可选 trace。两种来源均为 device-level，包含同卡其他进程；
 绑定 UUID 不会让它成为逐容器独立能量计。
+Idle matched-control window 只借用 CPU/GPU 能耗监控器。容器资源采集与 perf MIPS 不在对照窗口启动，而只在正式 workload window 运行。
 CPU package 能量来自 RAPL 根域计数器差值，避免重复累加 core 子域。估算 vCPU 使用同一 RAPL 轨迹，
 按每个有效采样区间的容器/主机 CPU 时间比例归因。实现见
 [`energy_nvml.py`](../../acprof/monitors/energy_nvml.py)和 [`energy_cpu.py`](../../acprof/monitors/energy_cpu.py) 的 `_result_from_samples()`。

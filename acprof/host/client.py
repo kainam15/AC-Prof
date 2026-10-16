@@ -585,6 +585,8 @@ class ClientRunner:
         primary_error = None
         pending_request_id = ""
         _resource_usage_err = ""
+        _gpu_err = ""
+        _cpu_err = ""
         try:
             try:
                 if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is not None:
@@ -777,7 +779,22 @@ class ClientRunner:
             if mips_result is not None:
                 mips_metrics = _mips_metrics_from_result(mips_result)
 
-            warnings = []
+            warnings = [
+                f"{name} monitor: {error}"
+                for name, error in (
+                    ("resource", _resource_usage_err),
+                    ("gpu", _gpu_err),
+                    ("cpu", _cpu_err),
+                )
+                if error and not (
+                    name == "cpu"
+                    and self.config.dram_energy != "required"
+                    and error in {
+                        "RAPL unavailable",
+                        "RAPL powercap energy_uj unavailable",
+                    }
+                )
+            ]
             warnings.extend(_eff_negative_warnings(
                 avg_power_eff_w=gpu_metrics["gpu_avg_power_eff_w"],
                 peak_power_eff_w=gpu_metrics["gpu_peak_power_eff_w"],
