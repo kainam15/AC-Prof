@@ -133,6 +133,31 @@ class TestRuntimeImageBuild:
             else:
                 assert "HTTPS_PROXY" not in command
 
+    def test_dependency_build_host_network_is_explicit_and_scoped(self):
+        from acprof.host.dependency_images import platform_fingerprint
+        from acprof.runtime_profiles import PLATFORMS
+        original = platform_fingerprint(PLATFORMS["cu124"], PROJECT_ROOT)
+        with patch.dict(os.environ, {"ACPROF_DEPENDENCY_BUILD_NETWORK": "host"}):
+            assert platform_fingerprint(PLATFORMS["cu124"], PROJECT_ROOT) == original
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        for command in self.build_commands():
+            recipe = Path(command[command.index("-f") + 1]).name
+            if recipe in {"platform.Dockerfile", "runtime.Dockerfile"}:
+                assert "--network=host" in command
+            else:
+                assert "--network=host" not in command
+
+    def test_dependency_build_network_default_preserves_isolation(self):
+        with patch.dict(os.environ, {"ACPROF_DEPENDENCY_BUILD_NETWORK": "default"}):
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert not any("--network=host" in cmd for cmd in self.build_commands())
+
+    def test_dependency_build_rejects_invalid_network_mode(self):
+        with patch.dict(os.environ, {"ACPROF_DEPENDENCY_BUILD_NETWORK": "unknown"}):
+            with pytest.raises(ValueError, match="ACPROF_DEPENDENCY_BUILD_NETWORK"):
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert not self.build_commands()
+
     def test_service_build_context_contains_only_runtime_sources_and_licenses(self):
         runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         assert ("acprof/container/server.py") in (self.service_context_files)

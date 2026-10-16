@@ -183,6 +183,14 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         iidfile = context / "image-id"
         command = ["docker", "build", "--platform", "linux/amd64", "--iidfile", str(iidfile),
                    "-f", str(context / recipe)]
+        # Network mode controls only dependency downloads, never the measured
+        # inference container. Host networking is explicit opt-in because it
+        # relaxes the build's normal network namespace isolation.
+        build_network = os.environ.get("ACPROF_DEPENDENCY_BUILD_NETWORK", "default").strip()
+        if build_network not in {"default", "host"}:
+            raise ValueError("ACPROF_DEPENDENCY_BUILD_NETWORK must be default or host")
+        if build_network == "host":
+            command.append("--network=host")
         for key, value in arguments.items():
             command += ["--build-arg", f"{key}={value}"]
         # Docker does not automatically inherit proxy environment variables

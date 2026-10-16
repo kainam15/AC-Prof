@@ -81,6 +81,13 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 构建依赖镜像时，若宿主机已配置标准 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 或 `ALL_PROXY`，
 会仅向 `docker build --build-arg` 传递变量名称，由 Docker 从环境中获取值；不将代理地址写入命令行、
 锁定制品 URL 或镜像指纹。没有配置代理时继续正常直连，不会替用户发明网络出口。
+部分 Linux 网关/NAT 环境中，Docker 默认 bridge 在依赖下载时可能显著慢于 host 网络。
+可仅对锁定的依赖镜像构建设置 `ACPROF_DEPENDENCY_BUILD_NETWORK=host`，
+让 `platform.Dockerfile` 和 `runtime.Dockerfile` 使用 `docker build --network=host`；
+默认仍为 `default`（Docker 原网络隔离）。此开关不会更改正式推理容器的网络模式、下载来源、
+依赖 SHA256、镜像身份或实验测量窗口。host 模式放宽了构建过程的网络隔离，
+建议仅在受信任的单机 Linux 环境中、经过网络速度对照验证后启用，
+不支持任意自定义 Docker network 值。
 再次启动同一实验须使用新的空输出目录，不能把镜像构建中断误报为 Native profiling 已通过。
 
 发布 workflow 先发布平台，再由环境 job 拉取相同父层；避免各 job 重建平台后产生互不匹配的环境键。
