@@ -173,7 +173,8 @@ jobs:
             tests/test_private_api_guard.py \
             tests/test_resource_usage.py \
             tests/test_orchestrator_environment.py \
-            tests/test_static_gpu_fallback.py
+            tests/test_static_gpu_fallback.py \
+            tests/test_measurement_semantics_baseline.py
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
           TZ: UTC

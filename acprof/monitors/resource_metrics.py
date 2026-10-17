@@ -1,6 +1,7 @@
 """Pure resource sample reduction and window counter metric derivation."""
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -163,8 +164,9 @@ def counter_delta(
     start_value = float(start.get(key, float("nan")))
     end_value = float(end.get(key, float("nan")))
     if (
-        start_value != start_value
-        or end_value != end_value
+        not math.isfinite(start_value)
+        or not math.isfinite(end_value)
+        or start_value < 0.0
         or end_value < start_value
     ):
         return float("nan")
@@ -175,9 +177,10 @@ def _snapshot_value(snapshot: Optional[Dict[str, float]], key: str) -> float:
     if snapshot is None:
         return float("nan")
     try:
-        return float(snapshot.get(key, float("nan")))
+        value = float(snapshot.get(key, float("nan")))
     except (TypeError, ValueError):
         return float("nan")
+    return value if math.isfinite(value) else float("nan")
 
 
 def _pressure_stall_pct(

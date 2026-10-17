@@ -13,6 +13,12 @@
 - 输入计划、`input_scale_plan_sha256`、workload 素材与模型 revision 必须一致；派生字段复用已有采样，不额外发起请求。
 - 静态对象描述与采集过程来源分开保存；补采和修复记录进入 `collection_history.json`，保留原始备份和可回溯信息。
 
+## 确定性数值回归基线
+
+`tests/test_measurement_semantics_baseline.py` 用无硬件合成样本冻结数值语义：CPU 占用率按容器 CPU 秒数／窗口秒数／配额核心数计算，内存用字节均值和峰值；RAPL 微焦耳计数器跨范围回绕后换算为焦耳，matched-control 平均功率只从 effective 能量中扣除；计数器有效零增量保留 `0`，回退、负值或非有限数值归为 `nan`，不能充当真实观测。
+
+独立期望常量来自上述单位与公式，不从被测实现反推；这些仅是**数值计算的确定性回归证据**，不能证明传感器校准、采样对工作负载的扰动、Native Linux / GPU 硬件精度或跨运行方差。后者仍需真实硬件重复实验和 provenance 核对。设计上参考 [MLPerf LoadGen 对样本性能结果与场景上下文的分离](https://github.com/mlcommons/inference/blob/master/loadgen/results.h)，不引入其代码或依赖。
+
 ## Profiling mode 与能力证据
 
 `profiling_mode=full` 为默认，保留原有 native Linux、本机 Docker、cgroup v2、RAPL、硬件 instructions
