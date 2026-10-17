@@ -19,9 +19,31 @@ acprof --help
 acprof tui
 ```
 
+如果 PyPI 返回 `No solution found` / `not found` 等未发布错误，请改用下方 GitHub Release 安装方式，**不要反复尝试同一条 PyPI 命令**。
+
 工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.10+。
 若找不到命令，执行 `uv tool update-shell`，按提示刷新 PATH 或重新打开终端。
 `acprof` 不带子命令时只显示 CLI 帮助；启动 TUI 请运行 `acprof tui`，查看版本和帮助不会启动采集。
+
+### GitHub Release fallback
+
+在 `acprof` 尚未上架 PyPI 时，可以从 [v0.2.0 Release](https://github.com/kainam15/AC-Prof/releases/tag/v0.2.0) 安装带版本号的 Wheel（使用 PyPI 之外的发行源）：
+
+```bash
+uv tool install https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
+acprof --version
+```
+
+如果需要在安装前验证发行资产，先下载 Wheel 和同一 Release 的 `SHA256SUMS`，核验成功再安装本地文件：
+
+```bash
+curl -fLO https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
+curl -fLO https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/SHA256SUMS
+grep ' acprof-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum --check -
+uv tool install ./acprof-0.2.0-py3-none-any.whl
+```
+
+同一 Release 也提供 `acprof-linux-x86_64` standalone，可按需下载、对照 `SHA256SUMS` 核验并赋予执行权限。它面向 Linux x86_64，仍需符合 Docker 和 GPU / profiling 的主机要求。Wheel 的依赖仍由 uv 解析下载；从 GitHub 下载 Wheel **不等于**全部依赖离线可用。
 
 ### uv pip install / pip install
 

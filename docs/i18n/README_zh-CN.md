@@ -26,6 +26,15 @@ uv tool install acprof
 acprof tui
 ```
 
+在包正式发布到 PyPI 之前，可以从 [GitHub Releases v0.2.0](https://github.com/kainam15/AC-Prof/releases/tag/v0.2.0) 安装已发布的 Wheel：
+
+```bash
+uv tool install https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
+acprof tui
+```
+
+校验文件哈希及 Linux standalone 下载方式见[安装说明](../getting_started/installation.md#github-release-fallback)。
+
 实验采集需要满足要求的 Linux 主机、本机 Docker Engine 和 cgroup v2。Native Linux x86_64 支持符合前置条件的 FULL 测量；WSL2 仅有受限的 basic/PARTIAL 支持。详见[主机要求](../getting_started/installation.md#1-检查主机环境)。
 
 ### 开发者快速开始
