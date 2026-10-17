@@ -43,6 +43,7 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
+另设 Python 3.11 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
