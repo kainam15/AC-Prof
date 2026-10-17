@@ -489,6 +489,15 @@ def _detect_from_hub(
         pipeline_tag = _diffusers_task_from_index(model_id, sha, diagnostics)
         task_hint_source = "model_index"
 
+    # A Hub 'pretraining' label is not a runnable inference protocol. An exact
+    # registered checkpoint head can supply a stronger, executable task contract.
+    # Preserve the original Hub label in hub_metadata for audit/provenance.
+    if pipeline_tag and pipeline_tag not in CATALOG.task_families:
+        inferred = CATALOG.infer_task(model_config.get('architectures') or (), '')
+        if inferred and inferred in CATALOG.task_families:
+            pipeline_tag = inferred
+            task_hint_source = 'registered_architecture'
+
     # Keep raw metadata when unresolved so explicit CLI declarations can repair it.
     task_family = CATALOG.task_families.get(pipeline_tag)
     runtime_backend = "unknown"
@@ -518,7 +527,7 @@ def _detect_from_hub(
         detection_method="hub_api",
         model_config=model_config,
         hub_metadata={"pipeline_tag": hub_pipeline_tag, "transformers_info": transformers_info,
-                      "task_hint": pipeline_tag if not hub_pipeline_tag else None,
+                      "task_hint": pipeline_tag if pipeline_tag != hub_pipeline_tag else None,
                       "task_hint_source": task_hint_source},
         **repository,
         **_hub_model_metadata(info),

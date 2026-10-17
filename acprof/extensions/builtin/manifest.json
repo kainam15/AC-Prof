@@ -26,7 +26,8 @@
         "sentence-similarity",
         "table-question-answering",
         "text-ranking",
-        "conversational"
+        "conversational",
+        "replaced-token-detection"
       ],
       "handler_entrypoint": "acprof.container.handlers.nlp:NLPHandler",
       "validation_entrypoint": "acprof.container.validation:validate_output",
@@ -60,6 +61,22 @@
         ],
         "cross_encoder": [
           "text-ranking"
+        ],
+        "transformers_pipeline": [
+          "text-generation",
+          "text2text-generation",
+          "text-classification",
+          "token-classification",
+          "question-answering",
+          "summarization",
+          "translation",
+          "fill-mask",
+          "feature-extraction",
+          "zero-shot-classification",
+          "sentence-similarity",
+          "table-question-answering",
+          "text-ranking",
+          "conversational"
         ]
       },
       "backend_handler_options": {
@@ -80,6 +97,9 @@
         },
         "text-ranking": {
           "encoder": "cross",
+          "uses_pipeline": false
+        },
+        "replaced-token-detection": {
           "uses_pipeline": false
         }
       },
@@ -736,7 +756,8 @@
     "ForDepthEstimation": "depth-estimation",
     "ForAudioClassification": "audio-classification",
     "ForCTC": "automatic-speech-recognition",
-    "ForSpeechSeq2Seq": "automatic-speech-recognition"
+    "ForSpeechSeq2Seq": "automatic-speech-recognition",
+    "ElectraForPreTraining": "replaced-token-detection"
   },
   "model_type_tasks": {
     "moss_transcribe_diarize": "audio-text-to-text",
@@ -782,6 +803,14 @@
     "chronos-forecasting": "chronos"
   },
   "backend_rules": [
+    {
+      "task": "replaced-token-detection",
+      "libraries": [
+        "transformers"
+      ],
+      "backend": "transformers_model",
+      "priority": 200
+    },
     {
       "task": "feature-extraction",
       "libraries": [
@@ -1141,6 +1170,34 @@
                   "enum": [
                     "ranking"
                   ]
+                }
+              }
+            }
+          }
+        },
+        "replaced-token-detection": {
+          "output": {
+            "json_schema": {
+              "required": [
+                "task",
+                "output_type",
+                "n_results",
+                "output_shape"
+              ],
+              "properties": {
+                "output_type": {
+                  "enum": [
+                    "token_scores"
+                  ]
+                },
+                "output_shape": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
                 }
               }
             }

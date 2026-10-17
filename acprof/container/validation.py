@@ -102,6 +102,14 @@ def validate_output(model_ctx: dict, raw_input: dict, processed_input: Any,
         shape_evidence = {'status': 'verified' if actual_shape is not None else 'available',
                           'detail': 'actual tensor dimensions' if actual_shape is not None else 'postprocess dimensions'}
     task_checks = []
+    if task == 'replaced-token-detection':
+        observed = getattr(raw_output, 'shape', None)
+        batch = prepared.get('batch_size', raw_input.get('batch_size', 1))
+        if (response.get('output_type') != 'token_scores' or not isinstance(shape, list)
+                or len(shape) != 2 or observed is None or list(observed) != shape
+                or shape[0] != batch or response.get('n_results') != batch):
+            raise OutputValidationError('replaced-token-detection requires [batch, sequence] token logits')
+        task_checks.append('replaced_token_logits')
     if (model_ctx.get('model_spec', {}).get('format') == 'transformers-pipeline'
             and task in {'text-classification', 'image-classification', 'audio-classification'}):
         def classification_records(value):

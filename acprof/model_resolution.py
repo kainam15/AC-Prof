@@ -18,6 +18,7 @@ _TASK_MAPPINGS = {
     "text-generation": ("CAUSAL_LM",), "conversational": ("CAUSAL_LM",),
     "text2text-generation": ("SEQ_TO_SEQ_CAUSAL_LM",), "translation": ("SEQ_TO_SEQ_CAUSAL_LM",),
     "summarization": ("SEQ_TO_SEQ_CAUSAL_LM",), "fill-mask": ("MASKED_LM",),
+    "replaced-token-detection": ("PRETRAINING",),
     "text-classification": ("SEQUENCE_CLASSIFICATION",), "text-ranking": ("SEQUENCE_CLASSIFICATION",),
     "zero-shot-classification": ("SEQUENCE_CLASSIFICATION",), "token-classification": ("TOKEN_CLASSIFICATION",),
     "question-answering": ("QUESTION_ANSWERING",), "feature-extraction": ("",),
@@ -192,6 +193,12 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
             spec = {}
     hub_metadata = getattr(task_info, "hub_metadata", {}) or {}
     hub_task = hub_metadata.get("pipeline_tag", task_info.pipeline_tag)
+    raw_hub_task = hub_task
+    # Retain the raw Hub label as evidence, but do not let an unsupported generic
+    # tag override a registered, architecture-specific executable protocol.
+    if (hub_task not in CATALOG.task_families
+            and hub_metadata.get("task_hint_source") == "registered_architecture"):
+        hub_task = hub_metadata.get("task_hint")
     if hub_task == "unknown" or task_info.detection_method == "config_infer":
         hub_task = None
     if spec.get("pipeline_task") and hub_task == spec["pipeline_task"]:
@@ -242,6 +249,10 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
             elif shared_operation and auto_model != "AutoModel":
                 loader_hint = f"{auto_model} is a shared loader for {primary_task}; its library tag does not declare another workload"
     transformers_task = None if loader_hint else transformers_info.get("pipeline_tag")
+    if (hub_metadata.get("task_hint_source") == "registered_architecture"
+            and transformers_task == hub_metadata.get("pipeline_tag")
+            and transformers_task not in CATALOG.task_families):
+        transformers_task = None
     if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
         transformers_task = declared_task
     observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
@@ -269,7 +280,8 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
     spec_source = ("local_model_spec" if getattr(task_info, "model_spec", {}) else
                    "repository_model_spec" if metadata.get("acprof_model.json") else "generated_contract")
     add(declared_task, spec_source)
-    add(hub_task, "hub_metadata" if task_info.detection_method == "hub_api" else task_info.detection_method)
+    add(hub_task, ("registered_architecture" if raw_hub_task != hub_task
+                   else "hub_metadata" if task_info.detection_method == "hub_api" else task_info.detection_method))
     add(hub_metadata.get("task_hint"), hub_metadata.get("task_hint_source", "extension_catalog"))
     add(transformers_task, "hub.transformers_info.pipeline_tag")
     if not transformers_task:
@@ -330,11 +342,15 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
     if conflicts:
         status = "ambiguous"
     from acprof.model_evidence import resolution_provenance
-    provenance = resolution_provenance(task_info, candidates, hub_task=hub_task, selected=selected,
+    provenance = resolution_provenance(task_info, candidates, hub_task=(
+        raw_hub_task if raw_hub_task != hub_task and hub_metadata.get("task_hint_source") == "registered_architecture"
+        else hub_task), selected=selected,
                                         status=status, explicit_task=override_tag, explicit_backend=override_backend,
                                         overridden_conflicts=overridden_conflicts, loader_hint=loader_hint)
     semantic_status = ("conflict" if conflicts else "unresolved" if errors or not selected else
-                       "explicit" if override_tag else "declared" if declared_task and spec_source != "generated_contract" or hub_task or transformers_task else "inferred")
+                       "explicit" if override_tag else "declared" if (declared_task and spec_source != "generated_contract"
+                        or hub_task and hub_metadata.get("task_hint_source") != "registered_architecture"
+                        or transformers_task) else "inferred")
     return {"schema_version": 1, "status": status, "model_revision": task_info.model_revision,
             "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
                                                      "scope": "selected_workload; not_author_intent_or_model_quality"},

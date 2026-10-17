@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from numbers import Integral
+from types import SimpleNamespace
 from typing import Any, Dict, Optional, Tuple
 
 from acprof.container.handlers import (
@@ -291,7 +292,29 @@ class NLPHandler(BaseHandler):
         torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
         encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
-        if encoder:
+        if task_type == "replaced-token-detection":
+            if backend != "transformers_model":
+                raise ValueError("replaced-token-detection requires transformers_model")
+            # No Transformers pipeline implements the ELECTRA discriminator's
+            # binary per-token head. Resolve only a vetted architecture, never
+            # execute arbitrary Hub code or infer from model_type alone.
+            from transformers import AutoConfig, AutoTokenizer, ElectraForPreTraining
+
+            revision_args = model_revision_kwargs(model_source, model_revision)
+            local_args = {"local_files_only": True} if os.path.isdir(model_source) else {}
+            config = AutoConfig.from_pretrained(model_source, trust_remote_code=False,
+                                                **revision_args, **local_args)
+            if (config.model_type != "electra"
+                    or list(getattr(config, "architectures", ()) or ()) != ["ElectraForPreTraining"]):
+                raise ValueError("replaced-token-detection requires an ElectraForPreTraining checkpoint")
+            tokenizer = AutoTokenizer.from_pretrained(model_source, trust_remote_code=False,
+                                                      **revision_args, **local_args)
+            model_kwargs = pipeline_options.get("model_kwargs", {})
+            model = ElectraForPreTraining.from_pretrained(
+                model_source, dtype=torch_dtype, trust_remote_code=False,
+                **revision_args, **local_args, **model_kwargs).to(device).eval()
+            pipe = SimpleNamespace(model=model, tokenizer=tokenizer)
+        elif encoder:
             if encoder == "sentence":
                 from sentence_transformers import SentenceTransformer as Encoder
             else:
@@ -607,6 +630,15 @@ class NLPHandler(BaseHandler):
         params = processed_input.get("params", {})
         batch_size = processed_input.get("batch_size", 1)
 
+        if task_type == "replaced-token-detection":
+            import torch
+            tokenizer = pipe.tokenizer
+            encoded = tokenizer([processed_input["text"]] * batch_size, return_tensors="pt",
+                                padding=True, truncation=False)
+            encoded = {name: tensor.to(pipe.model.device) for name, tensor in encoded.items()}
+            with torch.inference_mode():
+                return pipe.model(**encoded).logits
+
         if task_type == "table-question-answering":
             # TAPAS batches queries natively for one table. The generic
             # Pipeline batch iterator cannot unpack its nested model_inputs
@@ -679,6 +711,13 @@ class NLPHandler(BaseHandler):
 
     def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
         task_type = model_ctx["task_type"]
+
+        if task_type == "replaced-token-detection":
+            shape = list(getattr(raw_output, "shape", ()))
+            if len(shape) != 2 or any(dimension <= 0 for dimension in shape):
+                raise ValueError("replaced-token-detection requires [batch, sequence] logits")
+            return {"task": task_type, "output_type": "token_scores", "output_shape": shape,
+                    "n_results": shape[0]}
 
         if task_type == "feature-extraction" and model_ctx.get("encoder") == "sentence":
             shape = list(raw_output.shape)
