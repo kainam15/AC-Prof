@@ -154,6 +154,24 @@ class TestRuntimeImageBuild:
                 runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
         assert not self.build_commands()
 
+    def test_dependency_build_routes_additional_mirrors_by_arg_name(self):
+        with patch.dict(os.environ, {
+            "ACPROF_PYPI_ARTIFACT_MIRROR": "tencent",
+            "ACPROF_PYTORCH_ARTIFACT_MIRROR": "aliyun",
+            "ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent",
+        }):
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        for cmd in self.build_commands():
+            recipe = Path(cmd[cmd.index("-f") + 1]).name
+            for name in ("ACPROF_PYPI_ARTIFACT_MIRROR", "ACPROF_PYTORCH_ARTIFACT_MIRROR",
+                         "ACPROF_DEBIAN_ARTIFACT_MIRROR"):
+                if recipe in {"platform.Dockerfile", "runtime.Dockerfile"}:
+                    assert name in cmd
+                    assert name + "=" not in " ".join(cmd)
+                    assert "ARG " + name in self.contexts[recipe][recipe]
+                else:
+                    assert name not in cmd
+
     def test_dependency_build_host_network_is_explicit_and_scoped(self):
         from acprof.host.dependency_images import platform_fingerprint
         from acprof.runtime_profiles import PLATFORMS

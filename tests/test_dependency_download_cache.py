@@ -318,7 +318,7 @@ class TestDomesticPyPIArtifactMirror:
         monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
         assert DownloadSource("python", actual, 10).to_dict()["route"] == "direct-socket"
         assert dependency_artifact_url("python", original, {}) == original
-        with pytest.raises(DownloadPolicyError, match="must be empty or tencent"):
+        with pytest.raises(DownloadPolicyError, match="unsupported mirror setting"):
             dependency_artifact_url("python", original, {"ACPROF_PYPI_ARTIFACT_MIRROR": "unknown"})
         with pytest.raises(DownloadPolicyError, match="unexpected"):
             dependency_artifact_url("python", "http://files.pythonhosted.org/packages/x.whl", opts)
@@ -447,3 +447,94 @@ class TestDomesticPyPIArtifactMirror:
                 helper.cached_artifact(entry, tmp_path / "bad.whl", "python")
         assert not (tmp_path / "bad.whl").exists()
         record.assert_not_called()
+
+
+class TestAdditionalDomesticArtifactMirrors:
+    @pytest.mark.parametrize(("category", "original", "settings", "expected"), [
+        ("python",
+         "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128.whl",
+         {"ACPROF_PYTORCH_ARTIFACT_MIRROR": "aliyun"},
+         "https://mirrors.aliyun.com/pytorch-wheels/cu128/torch-2.11.0%2Bcu128.whl"),
+        ("python",
+         "https://download-r2.pytorch.org/whl/triton-3.6.0.whl",
+         {"ACPROF_PYTORCH_ARTIFACT_MIRROR": "aliyun"},
+         "https://mirrors.aliyun.com/pytorch-wheels/triton-3.6.0.whl"),
+        ("debian",
+         "https://snapshot.debian.org/archive/debian/20260912T203535Z/pool/main/b/binutils/a.deb",
+         {"ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"},
+         "https://mirrors.cloud.tencent.com/debian/pool/main/b/binutils/a.deb"),
+        ("debian",
+         "https://snapshot.debian.org/archive/debian-security/20260912T203535Z/pool/updates/main/a/a.deb",
+         {"ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"},
+         "https://mirrors.cloud.tencent.com/debian/pool/updates/main/a/a.deb"),
+    ])
+    def test_exact_mapping_keeps_lock_untouched(self, category, original, settings, expected):
+        from acprof.network_policy import dependency_artifact_url, is_direct_artifact_mirror
+        assert dependency_artifact_url(category, original, settings) == expected
+        assert is_direct_artifact_mirror(expected, settings)
+        assert dependency_artifact_url(category, original, {}) == original
+
+    @pytest.mark.parametrize(("key", "selected"), [
+        ("ACPROF_PYTORCH_ARTIFACT_MIRROR", "aliyun"),
+        ("ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent"),
+    ])
+    def test_selected_direct_routes_never_use_proxy(self, key, selected, monkeypatch, tmp_path):
+        from acprof.network_policy import (
+            dependency_artifact_url,
+            require_direct_artifact_mirror_redirect,
+        )
+        helper = TestDependencyDownloadCache().helper()
+        category, original = (
+            ("python", "https://download-r2.pytorch.org/whl/cu128/example.whl") if selected == "aliyun"
+            else ("debian", "https://snapshot.debian.org/archive/debian/20260912T203535Z/pool/main/a/example.deb")
+        )
+        monkeypatch.setenv(key, selected)
+        monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
+        mirror = dependency_artifact_url(category, original)
+        data = b"verified locked bytes from direct mirror"
+        entry = {"name": "example", "url": original, "sha256": hashlib.sha256(data).hexdigest()}
+        response = BytesIO(data)
+        response.status = 200
+        response.headers = {"Content-Length": str(len(data))}
+        response.geturl = lambda: mirror
+        opener = SimpleNamespace(open=Mock(return_value=response))
+        target = tmp_path / "artifact"
+        with patch("urllib.request.build_opener", return_value=opener) as build, \
+                patch.object(helper, "_record_transfer") as record:
+            helper.cached_artifact(entry, target, category)
+        assert target.read_bytes() == data
+        assert build.call_args.args[0].proxies == {}
+        assert opener.open.call_args.args[0].full_url == mirror
+        assert record.call_args.args[3] == __import__("urllib.parse", fromlist=["urlsplit"]).urlsplit(mirror).hostname
+        with pytest.raises(ValueError, match="redirected outside"):
+            require_direct_artifact_mirror_redirect(mirror, original)
+
+    def test_unknown_mirror_settings_rejected_before_payload(self, monkeypatch, tmp_path):
+        from acprof.network_policy import dependency_artifact_url
+        for key in ("ACPROF_PYTORCH_ARTIFACT_MIRROR", "ACPROF_DEBIAN_ARTIFACT_MIRROR"):
+            with pytest.raises(ValueError, match=key):
+                dependency_artifact_url("python", "https://files.pythonhosted.org/packages/a.whl", {key: "unknown"})
+
+    def test_debian_mirror_rejects_unexpected_snapshot_path(self):
+        from acprof.network_policy import dependency_artifact_url
+        with pytest.raises(ValueError, match="unexpected Debian"):
+            dependency_artifact_url("debian", "https://snapshot.debian.org/not-a-fixed-snapshot/pool/a.deb",
+                                    {"ACPROF_DEBIAN_ARTIFACT_MIRROR": "tencent"})
+
+    @pytest.mark.parametrize(("category", "url", "key", "selected"), [
+        ("python", "https://mirrors.aliyun.com/pytorch-wheels/cu128/test.whl",
+         "ACPROF_PYTORCH_ARTIFACT_MIRROR", "aliyun"),
+        ("debian", "https://mirrors.cloud.tencent.com/debian/pool/main/a/test.deb",
+         "ACPROF_DEBIAN_ARTIFACT_MIRROR", "tencent"),
+    ])
+    def test_size_preflight_uses_head_without_proxy(self, category, url, key, selected, monkeypatch):
+        from acprof.host.network_preflight import artifact_size
+        monkeypatch.setenv(key, selected)
+        monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
+        response = BytesIO(b"")
+        response.headers = {"Content-Length": "777"}
+        opener = SimpleNamespace(open=Mock(return_value=response))
+        with patch("urllib.request.build_opener", return_value=opener) as build:
+            assert artifact_size(url) == 777
+        assert build.call_args.args[0].proxies == {}
+        assert opener.open.call_args.args[0].get_method() == "HEAD"

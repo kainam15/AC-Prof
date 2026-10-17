@@ -13,49 +13,86 @@ DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
 TENCENT_PYPI_ARTIFACT_HOST = "mirrors.cloud.tencent.com"
 TENCENT_PYPI_ARTIFACT_PREFIX = f"https://{TENCENT_PYPI_ARTIFACT_HOST}/pypi"
+ALIYUN_PYTORCH_ARTIFACT_PREFIX = "https://mirrors.aliyun.com/pytorch-wheels"
+TENCENT_DEBIAN_ARTIFACT_PREFIX = f"https://{TENCENT_PYPI_ARTIFACT_HOST}/debian"
+
+_MIRROR_OPTIONS = {
+    "ACPROF_PYPI_ARTIFACT_MIRROR": {"", "tencent"},
+    "ACPROF_PYTORCH_ARTIFACT_MIRROR": {"", "aliyun"},
+    "ACPROF_DEBIAN_ARTIFACT_MIRROR": {"", "tencent"},
+}
 
 
-def configured_pypi_artifact_mirror(environ: Mapping[str, str] | None = None) -> str:
-    """Validate the one approved optional mirror setting even before a download."""
+def configured_artifact_mirrors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Validate all download options before starting an expensive build."""
     env = os.environ if environ is None else environ
-    mode = env.get("ACPROF_PYPI_ARTIFACT_MIRROR", "").strip().lower()
-    if mode not in {"", "tencent"}:
-        raise DownloadPolicyError("ACPROF_PYPI_ARTIFACT_MIRROR must be empty or tencent")
-    return mode
+    result = {}
+    for key, values in _MIRROR_OPTIONS.items():
+        mode = env.get(key, "").strip().lower()
+        if mode not in values:
+            raise DownloadPolicyError(f"{key} has an unsupported mirror setting")
+        result[key] = mode
+    return result
 
 
 def dependency_artifact_url(category: str, locked_url: str, environ: Mapping[str, str] | None = None) -> str:
-    """Opt-in transport mirror for PyPI's immutable /packages/ artifacts only.
-
-    Version and digest remain those from the official lock; final SHA256 is
-    checked by the caller. Unknown modes fail closed rather than using a proxy.
-    """
-    mode = configured_pypi_artifact_mirror(environ)
-    if mode != "tencent" or category != "python":
-        return locked_url
+    """Opt-in transport remapping: locked URLs and SHA256 remain immutable."""
+    settings = configured_artifact_mirrors(environ)
     parsed = urlsplit(locked_url)
-    if parsed.hostname != "files.pythonhosted.org":
-        return locked_url  # PyTorch dedicated index and other registries are unchanged.
-    if (parsed.scheme != "https" or parsed.netloc != "files.pythonhosted.org"
-            or not parsed.path.startswith("/packages/") or ".." in parsed.path.split("/")
-            or parsed.query or parsed.fragment):
-        raise DownloadPolicyError("cannot mirror an unexpected PyPI artifact URL")
-    return TENCENT_PYPI_ARTIFACT_PREFIX + parsed.path
+    if category == "python" and parsed.hostname == "files.pythonhosted.org" and settings[
+        "ACPROF_PYPI_ARTIFACT_MIRROR"
+    ] == "tencent":
+        if (parsed.scheme != "https" or parsed.netloc != "files.pythonhosted.org"
+                or not parsed.path.startswith("/packages/") or ".." in parsed.path.split("/")
+                or parsed.query or parsed.fragment):
+            raise DownloadPolicyError("cannot mirror an unexpected PyPI artifact URL")
+        return TENCENT_PYPI_ARTIFACT_PREFIX + parsed.path
+    if category == "python" and parsed.hostname == "download-r2.pytorch.org" and settings[
+        "ACPROF_PYTORCH_ARTIFACT_MIRROR"
+    ] == "aliyun":
+        if (parsed.scheme != "https" or parsed.netloc != "download-r2.pytorch.org"
+                or not parsed.path.startswith("/whl/") or ".." in parsed.path.split("/")
+                or parsed.query or parsed.fragment):
+            raise DownloadPolicyError("cannot mirror an unexpected PyTorch artifact URL")
+        return ALIYUN_PYTORCH_ARTIFACT_PREFIX + "/" + parsed.path[len("/whl/"):]
+    if category == "debian" and parsed.hostname == "snapshot.debian.org" and settings[
+        "ACPROF_DEBIAN_ARTIFACT_MIRROR"
+    ] == "tencent":
+        if (parsed.scheme != "https" or parsed.netloc != "snapshot.debian.org"
+                or not re.fullmatch(r"/archive/debian(?:-security)?/[0-9]{8}T[0-9]{6}Z/pool/.+\.deb",
+                                    parsed.path)
+                or ".." in parsed.path.split("/") or parsed.query or parsed.fragment):
+            raise DownloadPolicyError("cannot mirror an unexpected Debian snapshot URL")
+        return TENCENT_DEBIAN_ARTIFACT_PREFIX + "/pool/" + parsed.path.split("/pool/", 1)[1]
+    return locked_url
 
 
 def is_direct_artifact_mirror(url: str, environ: Mapping[str, str] | None = None) -> bool:
-    return (configured_pypi_artifact_mirror(environ) == "tencent"
-            and urlsplit(url).scheme == "https"
-            and urlsplit(url).netloc == TENCENT_PYPI_ARTIFACT_HOST
-            and urlsplit(url).path.startswith("/pypi/packages/"))
+    settings = configured_artifact_mirrors(environ)
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.query or parsed.fragment:
+        return False
+    return (
+        (settings["ACPROF_PYPI_ARTIFACT_MIRROR"] == "tencent"
+         and parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
+         and parsed.path.startswith("/pypi/packages/"))
+        or (settings["ACPROF_PYTORCH_ARTIFACT_MIRROR"] == "aliyun"
+            and parsed.netloc == "mirrors.aliyun.com"
+            and parsed.path.startswith("/pytorch-wheels/"))
+        or (settings["ACPROF_DEBIAN_ARTIFACT_MIRROR"] == "tencent"
+            and parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
+            and parsed.path.startswith("/debian/pool/"))
+    )
 
 
 def require_direct_artifact_mirror_redirect(previous: str, current: str) -> None:
-    if urlsplit(previous).hostname == TENCENT_PYPI_ARTIFACT_HOST:
-        parsed = urlsplit(current)
-        if parsed.scheme != "https" or parsed.netloc != TENCENT_PYPI_ARTIFACT_HOST:
-            raise DownloadPolicyError("PyPI mirror redirected outside its HTTPS host; refusing proxy fallback")
-
+    parsed = urlsplit(previous)
+    if ((parsed.netloc == TENCENT_PYPI_ARTIFACT_HOST
+         and (parsed.path.startswith("/pypi/packages/") or parsed.path.startswith("/debian/pool/")))
+            or (parsed.netloc == "mirrors.aliyun.com" and parsed.path.startswith("/pytorch-wheels/"))):
+        nxt = urlsplit(current)
+        if nxt.scheme != "https" or nxt.netloc != parsed.netloc:
+            raise DownloadPolicyError("direct artifact mirror redirected outside HTTPS mirror host")
 
 
 class DownloadPolicyError(ValueError):
@@ -119,7 +156,7 @@ class DownloadSource:
     def to_dict(self) -> dict:
         return {**asdict(self), "host": urlsplit(self.url).hostname,
                 "route": ("externally-managed" if self.category == "oci" else
-                          "direct-socket" if self.category == "python" and is_direct_artifact_mirror(self.url)
+                          "direct-socket" if is_direct_artifact_mirror(self.url)
                           else source_route(self.url)),
                 "public_egress": "unknown"}
 

@@ -5,6 +5,8 @@ FROM ${PLATFORM_IMAGE}
 ARG ENVIRONMENT_ID
 ARG ENVIRONMENT_BUILD_FINGERPRINT
 ARG ACPROF_PYPI_ARTIFACT_MIRROR
+ARG ACPROF_PYTORCH_ARTIFACT_MIRROR
+ARG ACPROF_DEBIAN_ARTIFACT_MIRROR
 COPY requirements.lock expectation.json /opt/acprof/
 RUN --mount=type=bind,source=environment_tools.py,target=/build/environment_tools.py \
     --mount=type=bind,source=network_policy.py,target=/build/network_policy.py \
