@@ -26,6 +26,8 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 `host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `hardware.yml` 仍只手动运行；Release Tag、GHCR 运行环境发布规则保持原样。
+`codeql.yml` 在 `main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，不进入主机或容器测量路径；扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描。
+Dependabot 先仅更新固定 SHA 的 GitHub Actions。Python 的哈希锁和 Docker digest 仍需协调重锁与可复现验证，暂不让 Dependabot 直接修改不完整的锁文件集合。
 
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
