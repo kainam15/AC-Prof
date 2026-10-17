@@ -22,7 +22,10 @@ from acprof.host.dependency_images import (
 from acprof.network_policy import (
     DEPENDENCY_USER_AGENT,
     DownloadSource,
+    dependency_artifact_url,
     enforce_download_budget,
+    is_direct_artifact_mirror,
+    require_direct_artifact_mirror_redirect,
     require_source_transition,
     summarize_downloads,
 )
@@ -31,6 +34,7 @@ from acprof.runtime_profiles import environment_identity
 
 class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        require_direct_artifact_mirror_redirect(req.full_url, newurl)
         require_source_transition(req.full_url, newurl)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected is not None and req.get_method() == "HEAD":
@@ -41,7 +45,8 @@ class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def artifact_size(url: str) -> int | None:
     """HEAD only; no artifact GET is permitted during estimation."""
-    opener = urllib.request.build_opener(PolicyRedirectHandler())
+    handlers = [urllib.request.ProxyHandler({})] if is_direct_artifact_mirror(url) else []
+    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
     try:
         request = urllib.request.Request(url, headers={"User-Agent": DEPENDENCY_USER_AGENT}, method="HEAD")
         with opener.open(request, timeout=8) as response:
@@ -164,17 +169,17 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         if metadata.is_file():
             recorded_sizes.update(_recorded_artifact_sizes(metadata))
     def resolve_size(pair):
-        item = pair[1]
+        kind, item = pair
         size = item.get("size")
         if size is not None:
             return size
         size = recorded_sizes.get((item["url"], item["sha256"]))
-        return size if size is not None else size_probe(item["url"])
+        return size if size is not None else size_probe(dependency_artifact_url(kind, item["url"]))
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         sizes = list(executor.map(resolve_size, artifacts))
-    result += [DownloadSource(kind, item["url"], size, cache_status="unknown",
-                  detail=f"{item['name']}; conservative full artifact; BuildKit cache verified during build")
+    result += [DownloadSource(kind, dependency_artifact_url(kind, item["url"]), size, cache_status="unknown",
+                  detail=f"{item['name']}; original lock URL unchanged; BuildKit cache verified during build")
                for (kind, item), size in zip(artifacts, sizes)]
     summary["alternatives"]["local_build_bytes"] = summarize_downloads(result)["expected_download_bytes"]
     return result, summary

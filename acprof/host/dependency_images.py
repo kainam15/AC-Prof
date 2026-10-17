@@ -200,6 +200,11 @@ def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expect
         for proxy_name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY"):
             if os.environ.get(proxy_name):
                 command += ["--build-arg", proxy_name]
+        # This opt-in controls only the locked PyPI artifact transport. Passing
+        # an ARG name avoids hardcoding machine-specific settings in images.
+        from acprof.network_policy import configured_pypi_artifact_mirror
+        if configured_pypi_artifact_mirror():
+            command += ["--build-arg", "ACPROF_PYPI_ARTIFACT_MIRROR"]
         command.append(str(context))
         if current_fingerprint() != original_fingerprint:
             raise RuntimeError("依赖构建输入发生变化，尚未构建镜像")

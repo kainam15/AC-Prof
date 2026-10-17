@@ -133,6 +133,27 @@ class TestRuntimeImageBuild:
             else:
                 assert "HTTPS_PROXY" not in command
 
+    def test_dependency_build_passes_mirror_as_name_only(self):
+        with patch.dict(os.environ, {
+            "ACPROF_PYPI_ARTIFACT_MIRROR": "tencent",
+            "HTTPS_PROXY": "http://charged-vpn.example:7897",
+        }):
+            runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        for command in self.build_commands():
+            recipe = Path(command[command.index("-f") + 1]).name
+            if recipe in {"platform.Dockerfile", "runtime.Dockerfile"}:
+                assert "ACPROF_PYPI_ARTIFACT_MIRROR" in command
+                assert "ACPROF_PYPI_ARTIFACT_MIRROR=tencent" not in " ".join(command)
+                assert "ARG ACPROF_PYPI_ARTIFACT_MIRROR" in self.contexts[recipe][recipe]
+            else:
+                assert "ACPROF_PYPI_ARTIFACT_MIRROR" not in command
+
+    def test_dependency_build_rejects_unknown_mirror_without_docker(self):
+        with patch.dict(os.environ, {"ACPROF_PYPI_ARTIFACT_MIRROR": "untrusted"}):
+            with pytest.raises(ValueError, match="ACPROF_PYPI_ARTIFACT_MIRROR"):
+                runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
+        assert not self.build_commands()
+
     def test_dependency_build_host_network_is_explicit_and_scoped(self):
         from acprof.host.dependency_images import platform_fingerprint
         from acprof.runtime_profiles import PLATFORMS

@@ -11,6 +11,52 @@ from urllib.request import proxy_bypass_environment
 
 DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
+TENCENT_PYPI_ARTIFACT_HOST = "mirrors.cloud.tencent.com"
+TENCENT_PYPI_ARTIFACT_PREFIX = f"https://{TENCENT_PYPI_ARTIFACT_HOST}/pypi"
+
+
+def configured_pypi_artifact_mirror(environ: Mapping[str, str] | None = None) -> str:
+    """Validate the one approved optional mirror setting even before a download."""
+    env = os.environ if environ is None else environ
+    mode = env.get("ACPROF_PYPI_ARTIFACT_MIRROR", "").strip().lower()
+    if mode not in {"", "tencent"}:
+        raise DownloadPolicyError("ACPROF_PYPI_ARTIFACT_MIRROR must be empty or tencent")
+    return mode
+
+
+def dependency_artifact_url(category: str, locked_url: str, environ: Mapping[str, str] | None = None) -> str:
+    """Opt-in transport mirror for PyPI's immutable /packages/ artifacts only.
+
+    Version and digest remain those from the official lock; final SHA256 is
+    checked by the caller. Unknown modes fail closed rather than using a proxy.
+    """
+    mode = configured_pypi_artifact_mirror(environ)
+    if mode != "tencent" or category != "python":
+        return locked_url
+    parsed = urlsplit(locked_url)
+    if parsed.hostname != "files.pythonhosted.org":
+        return locked_url  # PyTorch dedicated index and other registries are unchanged.
+    if (parsed.scheme != "https" or parsed.netloc != "files.pythonhosted.org"
+            or not parsed.path.startswith("/packages/") or ".." in parsed.path.split("/")
+            or parsed.query or parsed.fragment):
+        raise DownloadPolicyError("cannot mirror an unexpected PyPI artifact URL")
+    return TENCENT_PYPI_ARTIFACT_PREFIX + parsed.path
+
+
+def is_direct_artifact_mirror(url: str, environ: Mapping[str, str] | None = None) -> bool:
+    return (configured_pypi_artifact_mirror(environ) == "tencent"
+            and urlsplit(url).scheme == "https"
+            and urlsplit(url).netloc == TENCENT_PYPI_ARTIFACT_HOST
+            and urlsplit(url).path.startswith("/pypi/packages/"))
+
+
+def require_direct_artifact_mirror_redirect(previous: str, current: str) -> None:
+    if urlsplit(previous).hostname == TENCENT_PYPI_ARTIFACT_HOST:
+        parsed = urlsplit(current)
+        if parsed.scheme != "https" or parsed.netloc != TENCENT_PYPI_ARTIFACT_HOST:
+            raise DownloadPolicyError("PyPI mirror redirected outside its HTTPS host; refusing proxy fallback")
+
+
 
 class DownloadPolicyError(ValueError):
     """A forbidden source or unbounded download must stop before payload transfer."""
@@ -72,7 +118,9 @@ class DownloadSource:
 
     def to_dict(self) -> dict:
         return {**asdict(self), "host": urlsplit(self.url).hostname,
-                "route": "externally-managed" if self.category == "oci" else source_route(self.url),
+                "route": ("externally-managed" if self.category == "oci" else
+                          "direct-socket" if self.category == "python" and is_direct_artifact_mirror(self.url)
+                          else source_route(self.url)),
                 "public_egress": "unknown"}
 
 

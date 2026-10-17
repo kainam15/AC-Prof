@@ -29,11 +29,18 @@ from dependency_locks import (
     require_parent_subset,
     system_lock_identity,
 )
-from network_policy import DEPENDENCY_USER_AGENT, require_source_transition
+from network_policy import (
+    DEPENDENCY_USER_AGENT,
+    dependency_artifact_url,
+    is_direct_artifact_mirror,
+    require_direct_artifact_mirror_redirect,
+    require_source_transition,
+)
 
 
 class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        require_direct_artifact_mirror_redirect(req.full_url, newurl)
         require_source_transition(req.full_url, newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -76,6 +83,8 @@ def cached_artifact(entry, path, category):
         print(f"[dependency-cache] {category} hit name={entry['name']} saved_bytes={path.stat().st_size}", flush=True)
         return path
 
+    source_url = dependency_artifact_url(category, entry["url"])
+    direct_mirror = is_direct_artifact_mirror(source_url)
     temporary = path.with_suffix(path.suffix + ".part")
     partial_meta = temporary.with_suffix(temporary.suffix + ".source.json")
 
@@ -87,8 +96,11 @@ def cached_artifact(entry, path, category):
         metadata = json.loads(partial_meta.read_text()) if partial_meta.is_file() else {}
     except (OSError, ValueError, TypeError):
         metadata = {}
-    if not (temporary.is_file() and metadata.get("url") == entry["url"]
+    if not (temporary.is_file() and metadata.get("url") == source_url
             and metadata.get("sha256") == entry["sha256"]):
+        if temporary.is_file() and metadata.get("sha256") == entry["sha256"] and metadata.get("url") != source_url:
+            print("[dependency-cache] source changed; discarding incompatible partial (complete hashes remain cached)",
+                  flush=True)
         discard_partial()
         metadata = {}
     elif _digest(temporary) == entry["sha256"]:
@@ -101,7 +113,10 @@ def cached_artifact(entry, path, category):
         _record_transfer(entry, category, 0, origin, "hit")
         return path
 
-    opener = urllib.request.build_opener(PolicyRedirectHandler())
+    # A selected domestic mirror must not consume the configured HTTP(S) VPN proxy.
+    # No silent fallback to the official URL (and therefore no surprise VPN bytes).
+    handlers = [urllib.request.ProxyHandler({})] if direct_mirror else []
+    opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
     actual_source = None
     try:
         for attempt in range(1, 4):
@@ -109,17 +124,20 @@ def cached_artifact(entry, path, category):
             headers = {"User-Agent": DEPENDENCY_USER_AGENT}
             if offset:
                 headers["Range"] = f"bytes={offset}-"
-            request = urllib.request.Request(entry["url"], headers=headers)
+            request = urllib.request.Request(source_url, headers=headers)
             print(
                 f"[dependency-cache] {category} fetching name={entry['name']} "
-                f"resume_bytes={offset} source={urlsplit(entry['url']).hostname}",
+                f"resume_bytes={offset} source={urlsplit(source_url).hostname} "
+                f"transport={'direct-mirror' if direct_mirror else 'system-network'}",
                 flush=True,
             )
             try:
                 with opener.open(request, timeout=60) as source:
                     actual_source = urlsplit(
-                        getattr(source, "geturl", lambda: entry["url"])()
+                        getattr(source, "geturl", lambda: source_url)()
                     ).hostname
+                    if direct_mirror and actual_source != urlsplit(source_url).hostname:
+                        raise ValueError("PyPI mirror response changed host; refusing external fallback")
                     status = getattr(source, "status", 200)
                     response_headers = getattr(source, "headers", {}) or {}
                     match = None
@@ -137,7 +155,7 @@ def cached_artifact(entry, path, category):
                     else:
                         raise ValueError(f"unexpected artifact HTTP status: {status}")
                     partial_meta.write_text(json.dumps({
-                        "url": entry["url"], "sha256": entry["sha256"],
+                        "url": source_url, "sha256": entry["sha256"],
                         "actual_source_host": actual_source,
                     }) + "\n")
                     metadata = json.loads(partial_meta.read_text())
@@ -170,7 +188,7 @@ def cached_artifact(entry, path, category):
                 reason = type(exc.reason if isinstance(exc, URLError) else exc).__name__
                 print(
                     f"[dependency-cache] {category} retry name={entry['name']} "
-                    f"attempt={attempt}/3 source={urlsplit(entry['url']).hostname} "
+                    f"attempt={attempt}/3 source={urlsplit(source_url).hostname} "
                     f"reason={reason} retry_in_s={delay}",
                     flush=True,
                 )
