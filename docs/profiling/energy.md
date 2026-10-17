@@ -52,8 +52,17 @@ CPU quota 节流、计数更新粒度与采样起点可能影响估算重复性�
 CSV 中两种能量最后再除以成功请求数；有效的零差值保留为零，不能把计数器更新粒度当成缺失。
 累计计数可用而功率查询失败时仍可有能量，peak 为 `nan`。`--idle-debug` 的诊断文件另外保留
 `gpu_power_samples`（相对窗口起点秒数、W）、累计计数器首尾 mJ、窗口时长及实际来源，
-写入发生在全部 monitor 停止之后。累计 API 可调用不等于已验证硬件精度；排查两种读数不一致时
-对照这些原始记录，不用固定倍数自动修正累计能耗。
+写入发生在全部 monitor 停止之后。累计 API 可调用不等于已验证硬件精度。若同一窗口累计能耗反推的平均功率超出
+独立功率样本最小／最大值形成的区间超过 25% 容差（用于考虑硬件刷新与漏采尖峰），
+丢弃该窗口累计计数并降级为功率时间积分，明确写入 `gpu_energy_source=power_integration` 与
+`gpu_energy_fallback_reason`；累计首尾原始值仍可在 `--idle-debug` 的侧车中诊断。
+同一测量对的 matched idle control 与 workload 必须使用**相同能耗来源**进行相减：
+任一侧降级时，另一侧也改用自己的功率积分结果；若 workload 触发降级，则将已采样 control
+重新按时间积分计算 idle baseline，同时更新 `gpu_idle_energy_source`，在 debug 侧车保留
+`gpu_idle_baseline_reselected_due_to_workload` 及未经修改的累计首尾数值。
+不得直接以功率积分的 workload 减去来源不同的累计计数 control。
+没有足够功率样本可交叉核对时继续保留原始来源及采样缺失警告，不假定累计值准确。
+不采用固定倍数修正累计能耗；采样积分仍有刷新率／功耗尖峰的不确定性，不能自动把结果视为科研验收通过。
 
 实现参考 [CodeCarbon 的 NVML 接口](https://github.com/mlco2/codecarbon/blob/master/codecarbon/core/gpu_nvidia.py)
 及其[硬件不支持累计能耗的案例](https://github.com/mlco2/codecarbon/issues/838)。仅借鉴来源选择与回退方式，

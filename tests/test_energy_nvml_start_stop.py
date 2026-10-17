@@ -49,6 +49,121 @@ def test_cumulative_energy_is_primary_and_power_still_supplies_peak():
     assert (result.measurement_duration_s) == (2.0)
     assert (len(samples)) == (2)
 
+@pytest.mark.parametrize(
+    ('start_mj', 'end_mj', 'power_mw', 'expected_phrase'),
+    [
+        (100_000, 900_000, [10_000, 12_000, 11_000], 'outside sampled-power envelope'),
+        (100_000, 101_000, [100_000, 105_000, 102_000], 'outside sampled-power envelope'),
+    ],
+)
+def test_implausible_cumulative_counter_falls_back_to_integrated_power(
+    start_mj, end_mj, power_mw, expected_phrase
+):
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', side_effect=[start_mj,end_mj]
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetPowerUsage', side_effect=power_mw), patch.object(
+        energy_nvml.time, 'perf_counter', side_effect=[0.0,2.0]
+    ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
+        monitor=energy_nvml.GPUEnergyMonitor()
+        monitor.start()
+        monitor._append_sample(1.0)
+        result,_,error,samples=monitor.stop()
+    assert not error
+    assert len(samples)==3
+    assert result.energy_source=='power_integration'
+    assert expected_phrase in result.energy_fallback_reason
+    assert result.counter_start_mj==start_mj and result.counter_end_mj==end_mj
+    assert result.energy_total_j > 0
+    assert result.avg_power_total_w <= max(power_mw)/1000
+
+
+def test_counter_rejection_recomputes_matched_idle_from_samples():
+    control_samples = [(0.0, 10.0), (1.0, 12.0), (2.0, 10.0)]
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', side_effect=[100_000, 900_000]
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetPowerUsage', side_effect=[4_000, 6_000, 8_000]), patch.object(
+        energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
+    ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
+        monitor = energy_nvml.GPUEnergyMonitor()
+        control = energy_nvml._result_from_samples(control_samples, float('nan'))
+        control.avg_power_total_w = 20.0  # Recorded cumulative control is biased.
+        control.energy_source = 'nvml_total_energy'
+        monitor.apply_control_baseline(control, control_samples, trace=True)
+        assert monitor.idle_power_w == 20.0
+        monitor.start()
+        monitor._append_sample(1.0)
+        result, _, err, _ = monitor.stop()
+    assert not err
+    assert result.energy_source == 'power_integration'
+    assert monitor.idle_energy_source == 'power_integration'
+    assert math.isclose(result.idle_power_w, 11.0)
+    assert math.isclose(monitor.idle_power_w, 11.0)
+    assert math.isclose(result.avg_power_total_w, 6.0)
+    assert math.isclose(result.energy_eff_j, (6.0 - 11.0) * 2.0)
+    assert math.isclose(result.peak_power_eff_w, 8.0 - 11.0)
+    assert monitor.idle_trace['gpu_idle_baseline_reselected_due_to_workload'] is True
+    assert monitor.idle_trace['gpu_idle_energy_source'] == 'power_integration'
+    assert 'paired control baseline recomputed' in result.energy_fallback_reason
+
+
+def test_workload_matches_fallback_control_source():
+    control_samples = [(0.0, 10.0), (2.0, 10.0)]
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', side_effect=[100_000, 140_000]
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetPowerUsage', side_effect=[15_000, 20_000, 25_000]), patch.object(
+        energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
+    ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
+        monitor = energy_nvml.GPUEnergyMonitor()
+        control = energy_nvml._result_from_samples(control_samples, float('nan'))
+        monitor.apply_control_baseline(control, control_samples)
+        monitor.start()
+        monitor._append_sample(1.0)
+        result, _, err, _ = monitor.stop()
+    assert not err
+    assert result.energy_source == monitor.idle_energy_source == 'power_integration'
+    assert math.isclose(result.avg_power_total_w, 20.0)
+    assert math.isclose(result.energy_eff_j, (20.0 - 10.0) * 2.0)
+    assert 'matched control source is power_integration' in result.energy_fallback_reason
+
+def test_missing_control_samples_never_silently_mixes_sources():
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', side_effect=[100_000, 900_000]
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetPowerUsage', side_effect=[4_000, 6_000, 8_000]), patch.object(
+        energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
+    ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
+        monitor = energy_nvml.GPUEnergyMonitor()
+        baseline = energy_nvml._result_from_samples([(0.0, 20.0), (2.0, 20.0)], float('nan'))
+        baseline.energy_source = 'nvml_total_energy'
+        monitor.apply_control_baseline(baseline, [])
+        monitor.start()
+        monitor._append_sample(1.0)
+        with pytest.raises(RuntimeError, match='idle power samples unavailable'):
+            monitor.stop()
+
+
+def test_missing_workload_samples_never_silently_mixes_sources():
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', side_effect=[100_000, 120_000]
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetPowerUsage', side_effect=RuntimeError('power unavailable')), patch.object(
+        energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
+    ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
+        monitor = energy_nvml.GPUEnergyMonitor()
+        baseline = energy_nvml._result_from_samples([(0.0, 10.0), (2.0, 10.0)], float('nan'))
+        monitor.apply_control_baseline(baseline, [(0.0, 10.0), (2.0, 10.0)])
+        monitor.start()
+        with pytest.raises(RuntimeError, match='workload power samples unavailable'):
+            monitor.stop()
+
 @pytest.mark.parametrize('readings_case', range(2), ids=['[100000, 90000]', "[RuntimeError('not supported')]"])
 def test_reset_or_unsupported_counter_uses_power_integral_with_reason(readings_case):
     readings = tuple(([100000, 90000], [RuntimeError('not supported')]))[readings_case]

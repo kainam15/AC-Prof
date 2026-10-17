@@ -928,6 +928,12 @@ class ClientRunner:
             execution_profile_plan=execution_profile_plan)
         idle_diag_record = None
         if self.config.idle_debug:
+            # Workload stop may reject a cumulative GPU counter and recompute
+            # the paired idle baseline from its original power samples. Read
+            # the final provenance here, not the snapshot captured before the
+            # workload monitor finalized its source selection.
+            if gpu_monitor is not None:
+                gpu_idle_trace = dict(getattr(gpu_monitor, "idle_trace", {}) or {})
             if idle_debug_snapshot is None:
                 idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
             idle_diag_record = {

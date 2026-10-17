@@ -9,6 +9,7 @@ import pynvml
 from acprof.config import DEFAULT_IDLE_SECONDS
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
+COUNTER_SAMPLE_POWER_TOLERANCE = 0.25
 
 
 @dataclass
@@ -144,6 +145,7 @@ class GPUEnergyMonitor:
         self._energy_start_mj: Optional[int] = None
         self._energy_error = ""
         self.idle_energy_source = "unavailable"
+        self._idle_sample_avg_w = float("nan")
 
         try:
             pynvml.nvmlInit()
@@ -215,6 +217,7 @@ class GPUEnergyMonitor:
         """Use a monitor-matched blank window as the workload baseline."""
         self.idle_power_w = float(result.avg_power_total_w)
         self.idle_energy_source = result.energy_source
+        self._idle_sample_avg_w = _time_weighted_average_power(samples)
         self.idle_trace = {}
         if trace and samples:
             self.idle_trace = self._build_idle_trace(
@@ -289,13 +292,71 @@ class GPUEnergyMonitor:
         if self._energy_start_mj is not None and energy_end_mj is not None:
             delta_mj = energy_end_mj - self._energy_start_mj
             if delta_mj >= 0 and duration_s > 0:
-                result.energy_total_j = delta_mj / 1000.0
-                result.avg_power_total_w = result.energy_total_j / duration_s
-                result.energy_eff_j = result.energy_total_j - self.idle_power_w * duration_s
-                result.avg_power_eff_w = result.avg_power_total_w - self.idle_power_w
-                result.energy_source = "nvml_total_energy"
+                counter_avg_w = delta_mj / 1000.0 / duration_s
+                sampled_powers = [power for _, power in samples if math.isfinite(power)]
+                # Some drivers return increasing but physically inconsistent
+                # cumulative readings. Compare against an independently
+                # sampled power envelope before accepting the counter. Leave
+                # headroom for sensor update lag and missed brief peaks.
+                if len(sampled_powers) >= 3 and (
+                    counter_avg_w > max(sampled_powers) * (1.0 + COUNTER_SAMPLE_POWER_TOLERANCE)
+                    or counter_avg_w < min(sampled_powers) * (1.0 - COUNTER_SAMPLE_POWER_TOLERANCE)
+                ):
+                    self._energy_error = (
+                        "NVML cumulative energy rejected: counter average "
+                        f"{counter_avg_w:.3f} W outside sampled-power envelope "
+                        f"[{min(sampled_powers):.3f}, {max(sampled_powers):.3f}] W "
+                        f"(tolerance={COUNTER_SAMPLE_POWER_TOLERANCE:.0%}); "
+                        "using time-integrated power samples"
+                    )
+                else:
+                    result.energy_total_j = delta_mj / 1000.0
+                    result.avg_power_total_w = counter_avg_w
+                    result.energy_eff_j = result.energy_total_j - self.idle_power_w * duration_s
+                    result.avg_power_eff_w = result.avg_power_total_w - self.idle_power_w
+                    result.energy_source = "nvml_total_energy"
             else:
                 self._energy_error = "cumulative energy counter decreased or window duration is invalid"
+        # A cumulative workload measurement cannot be corrected with an
+        # independently sampled idle baseline (or vice versa): the subtraction
+        # would mix two measurement sources with different update semantics.
+        # If either side distrusts the counter, prefer matched power integrals
+        # on both sides and retain raw counters in diagnostic provenance.
+        if self.idle_energy_source == "power_integration" and result.energy_source == "nvml_total_energy":
+            sample_result = _result_from_samples(samples, self.idle_power_w)
+            if not math.isfinite(sample_result.energy_total_j):
+                raise RuntimeError(
+                    "GPU counter/control source mismatch: workload power samples unavailable"
+                )
+            result.energy_total_j = sample_result.energy_total_j
+            result.avg_power_total_w = sample_result.avg_power_total_w
+            result.energy_eff_j = sample_result.energy_eff_j
+            result.avg_power_eff_w = sample_result.avg_power_eff_w
+            result.energy_source = "power_integration"
+            self._energy_error = (
+                (self._energy_error + "; ") if self._energy_error else ""
+            ) + "matched control source is power_integration; workload uses the same source"
+        elif self.idle_energy_source == "nvml_total_energy" and result.energy_source == "power_integration":
+            if not math.isfinite(self._idle_sample_avg_w):
+                raise RuntimeError(
+                    "GPU counter/control source mismatch: idle power samples unavailable"
+                )
+            self.idle_power_w = self._idle_sample_avg_w
+            self.idle_energy_source = "power_integration"
+            result.idle_power_w = self.idle_power_w
+            result.energy_eff_j = result.energy_total_j - self.idle_power_w * duration_s
+            result.avg_power_eff_w = result.avg_power_total_w - self.idle_power_w
+            result.peak_power_eff_w = result.peak_power_total_w - self.idle_power_w
+            if self.idle_trace:
+                self.idle_trace.update({
+                    "gpu_idle_power_w": self.idle_power_w,
+                    "gpu_idle_energy_source": "power_integration",
+                    "gpu_idle_baseline_method": "matched_control_time_weighted_mean",
+                    "gpu_idle_baseline_reselected_due_to_workload": True,
+                })
+            self._energy_error = (
+                (self._energy_error + "; ") if self._energy_error else ""
+            ) + "paired control baseline recomputed from time-integrated power samples"
         result.energy_fallback_reason = self._energy_error
 
         return (

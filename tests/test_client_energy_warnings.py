@@ -1501,6 +1501,8 @@ class TestEffectiveEnergyWarning:
                 return None
 
             def stop(self):
+                if self.idle_trace:
+                    self.idle_trace['gpu_idle_baseline_reselected_due_to_workload'] = True
                 return SimpleNamespace(
                     energy_iters=2,
                     idle_power_w=self.idle_power_w,
@@ -1575,6 +1577,7 @@ class TestEffectiveEnergyWarning:
         assert (rows[1]["cpu_idle_measured_at"]) == ("nan")
         assert (rows[1]["cpu_idle_rel_range_so_far"]) == ("nan")
         assert (diag_rows[1]["gpu_idle_trace_schema"]) == ("nvml_gpu_idle_v1")
+        assert diag_rows[1]['gpu_idle_baseline_reselected_due_to_workload'] is True
         assert (diag_rows[1]["cpu_idle_measured_at"]) == ("nan")
         assert (diag_rows[1]["gpu_idle_sample_count"]) == (2)
         assert (diag_rows[1]["gpu_idle_valid_count"]) == (2)
