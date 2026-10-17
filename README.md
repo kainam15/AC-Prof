@@ -66,6 +66,10 @@ See [developer setup](docs/development/distribution.md#本地开发环境) and [
 
 [All documentation](docs/README.md) · [Troubleshooting](docs/usage/troubleshooting.md)
 
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and review practices, and [SECURITY.md](SECURITY.md) for confidential vulnerability reporting and the third-party model trust boundary.
+
 ## License and origins
 
 Project code is licensed under [Apache-2.0](LICENSE). Bundled LibriSpeech audio retains [CC-BY-4.0](licenses/CC-BY-4.0.txt); model code and weights have their own licenses. AC-Prof is part of the DOR project at JNU DISTINT. See [NOTICE](NOTICE) and [project origins](docs/development/history.md).
