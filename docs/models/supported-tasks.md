@@ -48,6 +48,7 @@ acprof run --model Salesforce/blip-image-captioning-base \
 | `feature-extraction` | SentenceTransformer 完整模块图的句向量，或普通 Transformers token 特征 pipeline；依据 library／`modules.json` 选择 | 输入正文 token 数，prompt 另占模型容量 |
 | `text-generation` | Transformers 生成 pipeline | 输入 token 数 |
 | `fill-mask` | Transformers 掩码填充 pipeline，自动使用 tokenizer 的 mask token | 输入 token 数 |
+| `replaced-token-detection` | Transformers `ElectraForPreTraining` 判别头，直接模型推理，输出逐 Token 二分类 **logits** 的 `[batch, sequence]` 形状摘要（不是掩码填充/文本分类，也不是训练损失） | 输入 token 数 |
 | `sentence-similarity` | SentenceTransformer 编码并计算相似度；后端 `sentence_transformers` | 候选文本 token 数的最大值，query 和候选数量固定 |
 | `text-ranking` | CrossEncoder 成对评分；后端 `cross_encoder` | 候选文本 token 数的最大值，query 和候选数量固定 |
 | `text-to-speech` | Transformers TextToAudioPipeline 的自包含波形模型，如 VITS／Bark | 输入文本 token 数 |

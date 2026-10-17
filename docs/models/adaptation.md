@@ -44,6 +44,19 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 | 输入输出 | `BaseHandler` 保留四阶段接口，增加仅在窗口外调用的 `validate_output`；模型提示词、参数和尺度经 workload/输入计划传递，输出与 `host/model_schema.py` 一致。 |
 | 依赖和验证 | 精确锁对应目标 Python/CUDA 容器并通过 `pip check`；CPU、GPU、dtype 与 profiler 分别声明支持，普通推理验证不证明工具兼容。 |
 
+已知架构自动适配的一个例子是 `ElectraForPreTraining`：当模型元数据使用泛化的
+`pretraining` Hub 标签时，以精确匹配的 checkpoint head 选择
+`replaced-token-detection` / `transformers_model`，保留原始 Hub 标签作为 provenance。
+专用 loader 禁用远程代码执行，并要求 `config.model_type=electra`、
+`config.architectures=[ElectraForPreTraining]`。输入是确定性文本，经 tokenizer 产生带特殊符号的
+Token 序列；输出是形状 `[batch, sequence]` 的逐 Token 原始 logits，
+只在独立验证阶段检查数值、shape 与 batch，不能将它当作 `fill-mask` 或标签分类。
+有已登记、可执行的架构契约才能采用此自动选择；未知架构仍需显式 adapter/model_spec，
+不能仅凭模型库声称支持。正式采集前仍需一次完整链路 Smoke，
+本地静态识别通过不等于真实 checkpoint／GPU 已验证。
+参考官方 [ElectraForPreTraining](https://github.com/huggingface/transformers/blob/main/src/transformers/models/electra/modeling_electra.py)
+的 logits 接口（Apache-2.0）；复用现有 Handler 与 Transformers，不拷贝上游模型实现。
+
 `ARCHITECTURE_PROFILES` / `MODEL_PROFILES` 兼容视图已移除，旧导入明确失败。
 开发扩展在 manifest 维护。运行时选择同时匹配 architecture、family、backend 与 task，
 同一 architecture 的多个 backend 不再依靠全局单键覆盖决定。
