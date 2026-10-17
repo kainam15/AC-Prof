@@ -174,7 +174,7 @@ def _get_gpu_name(device_index: int = 0) -> str:
         return "unknown"
     if 0 <= device_index < len(gpu_names):
         return gpu_names[device_index]
-    return gpu_names[0]
+    return "unknown"
 
 
 def _get_gpu_mem_total_bytes(device_index: int = 0) -> Optional[int]:
@@ -206,7 +206,9 @@ def _get_gpu_mem_total_bytes(device_index: int = 0) -> Optional[int]:
     if not memory_mib:
         return None
 
-    raw_value = memory_mib[device_index] if 0 <= device_index < len(memory_mib) else memory_mib[0]
+    if not 0 <= device_index < len(memory_mib):
+        return None
+    raw_value = memory_mib[device_index]
     try:
         total = int(float(raw_value) * 1024 ** 2)
     except ValueError:
