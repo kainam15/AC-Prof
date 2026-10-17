@@ -231,7 +231,7 @@ class ResourceUsageMonitor:
         if self._io_start is not None and self._io_end is not None:
             for direction, index in (("read", 0), ("write", 1)):
                 before, after = self._io_start[index], self._io_end[index]
-                delta = resource_metrics._counter_delta(
+                delta = resource_metrics.counter_delta(
                     {direction: float(before)}, {direction: float(after)}, direction
                 )
                 if after < before:

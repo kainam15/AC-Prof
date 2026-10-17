@@ -153,7 +153,7 @@ def _dominant_pstate(values: List[str]) -> str:
     return min(candidates, key=lambda state: int(state[1:]))
 
 
-def _counter_delta(
+def counter_delta(
     start: Optional[Dict[str, float]],
     end: Optional[Dict[str, float]],
     key: str,
@@ -186,7 +186,7 @@ def _pressure_stall_pct(
     scope: str,
     elapsed_s: float,
 ) -> float:
-    delta_usec = _counter_delta(start, end, scope)
+    delta_usec = counter_delta(start, end, scope)
     if delta_usec != delta_usec or elapsed_s <= 0.0:
         return float("nan")
     return (delta_usec / (elapsed_s * 1_000_000.0)) * 100.0
@@ -198,17 +198,17 @@ def _apply_window_counter_metrics(
     end: _WindowCounterSnapshots,
     elapsed_s: float,
 ) -> None:
-    nr_periods = _counter_delta(
+    nr_periods = counter_delta(
         start.cpu_throttle,
         end.cpu_throttle,
         "nr_periods",
     )
-    nr_throttled = _counter_delta(
+    nr_throttled = counter_delta(
         start.cpu_throttle,
         end.cpu_throttle,
         "nr_throttled",
     )
-    throttled_usec = _counter_delta(
+    throttled_usec = counter_delta(
         start.cpu_throttle,
         end.cpu_throttle,
         "throttled_usec",
@@ -245,7 +245,7 @@ def _apply_window_counter_metrics(
         setattr(
             result,
             field,
-            _counter_delta(start.memory_events, end.memory_events, event),
+            counter_delta(start.memory_events, end.memory_events, event),
         )
 
     result.container_mem_pressure_some_stall_pct = _pressure_stall_pct(
@@ -277,28 +277,28 @@ def _apply_window_counter_metrics(
         end.memory_stat,
         "slab",
     )
-    result.container_mem_pgfault_delta = _counter_delta(
+    result.container_mem_pgfault_delta = counter_delta(
         start.memory_stat,
         end.memory_stat,
         "pgfault",
     )
-    result.container_mem_pgmajfault_delta = _counter_delta(
+    result.container_mem_pgmajfault_delta = counter_delta(
         start.memory_stat,
         end.memory_stat,
         "pgmajfault",
     )
-    result.container_mem_workingset_refault_delta = _counter_delta(
+    result.container_mem_workingset_refault_delta = counter_delta(
         start.memory_stat,
         end.memory_stat,
         "workingset_refault",
     )
 
-    result.container_io_read_ops = _counter_delta(
+    result.container_io_read_ops = counter_delta(
         start.io_operations,
         end.io_operations,
         "read_ops",
     )
-    result.container_io_write_ops = _counter_delta(
+    result.container_io_write_ops = counter_delta(
         start.io_operations,
         end.io_operations,
         "write_ops",
@@ -317,7 +317,7 @@ def _apply_window_counter_metrics(
     )
     result.container_pids_current_end = _snapshot_value(end.pids, "current")
     result.container_pids_peak_cgroup = _snapshot_value(end.pids, "peak")
-    result.container_pids_max_events_delta = _counter_delta(
+    result.container_pids_max_events_delta = counter_delta(
         start.pids,
         end.pids,
         "max_events",
