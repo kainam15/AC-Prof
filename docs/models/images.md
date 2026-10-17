@@ -79,8 +79,8 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 | 阶段 | 当前锁定来源 | 建议 |
 | --- | --- | --- |
 | Python PyPI wheel（含 NVIDIA `nvidia-*` CUDA 库） | `files.pythonhosted.org` | `ACPROF_PYPI_ARTIFACT_MIRROR=tencent`；腾讯云镜像直连、保留官方 SHA256 |
-| PyTorch wheel | `download-r2.pytorch.org` | 保留锁定 URL／已有缓存；仅经独立哈希核验后更换镜像，此开关不覆盖 |
-| Debian `.deb` | `snapshot.debian.org` | 保留固定快照与 SHA256，不能直接改成滚动 Debian 镜像 |
+| PyTorch wheel | `download-r2.pytorch.org` | `ACPROF_PYTORCH_ARTIFACT_MIRROR=aliyun`；只改传输地址，不改 PyTorch 锁及 SHA256 |
+| Debian `.deb` | `snapshot.debian.org` | `ACPROF_DEBIAN_ARTIFACT_MIRROR=tencent`；固定包名版本由腾讯云 Debian 镜像提供，仍须原锁 SHA256 校验 |
 | OCI base / 预构建依赖镜像 | Docker Hub / GHCR | Docker 自行拉取；`ACPROF_RUNTIME_IMAGE_SOURCE=build` 可跳过 GHCR 尝试但仍依赖 base image |
 | 模型元数据与权重 | HF endpoint / Model Store、可选 ModelScope | 缓存优先；HF 镜像或 ModelScope 按各自来源规则处理 |
 | 安装 AC-Prof 的宿主机依赖（uv / pip） | 进程包管理器 | 可以单独配置 uv / pip 国内 index，不受 runtime 镜像配置控制 |
@@ -88,13 +88,15 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 ```bash
 # 在项目根目录执行，或写入本地 .env.local。
 export ACPROF_PYPI_ARTIFACT_MIRROR=tencent
+export ACPROF_PYTORCH_ARTIFACT_MIRROR=aliyun
+export ACPROF_DEBIAN_ARTIFACT_MIRROR=tencent
 # 需要本机构建且希望避免先拉取 GHCR 时：
 export ACPROF_RUNTIME_IMAGE_SOURCE=build
 # 仅在确认宿主机网络更快时：
 export ACPROF_DEPENDENCY_BUILD_NETWORK=host
 ```
 
-腾讯云镜像只替换受控 PyPI wheel 传输入口，不改变锁文件与 SHA256；失败不会自动回退到可能消耗代理套餐的官方地址。透明 VPN 仍无法由应用层代理变量证明不存在。PyTorch、Debian、Docker、Hub 的流量须独立判断，不能把所有下载都归为 PyPI。修改构建配方仍会按现有规则改变镜像构建指纹。
+三个制品镜像开关均为**独立 opt-in**：PyPI 仅从 `files.pythonhosted.org/packages/` 替换为腾讯云，PyTorch 仅从 `download-r2.pytorch.org/whl/` 替换为阿里云 `pytorch-wheels/`，Debian 仅从固定 `snapshot.debian.org/archive/debian[-security]/<timestamp>/pool/` 替换为腾讯云 `debian/pool/`。默认均关闭，启用后的受控下载和 HEAD 预检强制绕过进程 HTTP(S) 代理；镜像故障不会自动回退到可能消耗 VPN 套餐的原地址。下载源仅是传输信息，不会改写锁中的 URL、版本与 SHA256。受限流量验证：PyTorch 11 个不同 wheel、Debian 59 个包的镜像 HEAD 与大小检查成功；少量小包完整 SHA256 通过；约 820 MB 的 torch **尚未整包验证**，仍须真正安装时完成哈希校验。国内镜像可能移除历史文件，届时明确失败。透明 VPN/上游 TUN 不能仅由应用层代理配置证明没有计费流量。Docker/GHCR 下载由 Docker 管理，不受三个开关控制；修改构建配方仍按现有规则改变镜像指纹。
 
 本机构建的系统与 Python 依赖制品使用 BuildKit cache mount 按 SHA256 缓存，成功制品不随单次构建失败而删除。
 构建中断或网络超时后，若 `.part` 与来源侧车同时匹配锁定的 URL、SHA256，可通过 HTTP Range 继续下载；
