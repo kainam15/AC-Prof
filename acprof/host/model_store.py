@@ -131,9 +131,14 @@ def entry_key(task) -> str:
         "adapter": task.model_adapter, "dependencies": task_model_spec(task).get("dependencies", [])})
 
 
+def _write_text(stream, content: str) -> None:
+    """Use a None-returning atomic writer to preserve the callback contract."""
+    stream.write(content)
+
+
 def _json(path: Path, value: dict) -> None:
     payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-    artifact_io.atomic_write(path, lambda stream: stream.write(payload))
+    artifact_io.atomic_write(path, lambda stream: _write_text(stream, payload))
 
 
 def _sync_directory_tree(root: Path) -> None:
@@ -310,6 +315,8 @@ def plan_model(task, root: Path | None = None) -> dict:
     from acprof.installation import resource_root
     from acprof.runtime_profiles import select_runtime_profile
     profile = select_runtime_profile(task)
+    if profile.environment is None:
+        raise ValueError("model profile is missing a runtime environment")
     versions = package_versions(read_python_lock(resource_root() / profile.environment.requirements_lock))
     catalog_path = resource_root() / "acprof/container/compat/transformers_model_types.json"
     catalog = json.loads(catalog_path.read_text())["versions"]
@@ -454,7 +461,7 @@ def require_space(plan: dict, root: Path | None = None) -> dict:
     sizes = [source.estimated_bytes for source in sources]
     if any(n is None for n in sizes):
         raise DownloadPolicyError("Model Store 文件大小未知；无法核验剩余空间，尚未下载权重")
-    needed = sum(sizes)
+    needed = sum(size for size in sizes if size is not None)
     report = disk_report(root)
     # Headroom covers directory metadata and small plan/index files, not another weights copy.
     reserve = 64 * 1024 * 1024
@@ -477,7 +484,10 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
     with store_lock(root):
         require_space(plan, root)
         sources = model_sources(plan, root)
-        needed = sum(source.estimated_bytes for source in sources)
+        sizes = [source.estimated_bytes for source in sources]
+        if any(size is None for size in sizes):
+            raise DownloadPolicyError("Model Store 文件大小未知；无法预估下载预算")
+        needed = sum(size for size in sizes if size is not None)
         enforce_download_budget({"expected_download_bytes": needed}, os.environ.get("ACPROF_MAX_DOWNLOAD"))
         if planned_download_bytes is not None and needed > planned_download_bytes:
             raise DownloadPolicyError("Model Store 缓存自预检后已变化；尚未下载权重，请重新预检")
@@ -546,7 +556,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                         link.symlink_to(os.path.relpath(blob, link.parent))
                     (cache / "refs").mkdir(exist_ok=True)
                     revision = repo["model_revision"]
-                    artifact_io.atomic_write(cache / "refs/main", lambda stream: stream.write(revision))
+                    artifact_io.atomic_write(cache / "refs/main", lambda stream: _write_text(stream, revision))
                 _json(temporary / PLAN_FILENAME, plan)
                 # Keep staging private until complete; publish a traversable view.
                 _make_entry_traversable(temporary)

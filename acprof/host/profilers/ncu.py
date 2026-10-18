@@ -317,6 +317,7 @@ def _ncu_checkpoint_matches(
         or type(raw_scale) not in {int, float}
     ):
         return False
+    assert isinstance(raw_scale, (int, float))
     checkpoint_scale = float(raw_scale)
     checkpoint_repeat = raw_repeat
     schema_version = raw_schema_version

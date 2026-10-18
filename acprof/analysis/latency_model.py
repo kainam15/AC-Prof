@@ -2,6 +2,7 @@
 
 import math
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -393,7 +394,7 @@ def _fit_log_latency_model(
     if hardware_model == "gpu" and calibrate_gpu_upper_tail:
         input_scales = sorted({float(row.input_scale) for row in rows})
         input_scale_span_ratio = input_scales[-1] / input_scales[0]
-        calibration = {
+        calibration: dict[str, Any] = {
             "available": False,
             "held_out_input_scale": None,
             "mean_absolute_percentage_error": None,
@@ -711,7 +712,7 @@ def _resource_configuration_validation(
         }
         fold_overlap_count = len(train_groups & test_groups)
         train_test_group_overlap_count += fold_overlap_count
-        fold_detail = {
+        fold_detail: dict[str, Any] = {
             "held_out_cpu_cores": cpu_cores,
             "held_out_mem_cap_gb": mem_cap_gb,
             "train_case_rows": len(train_rows),
