@@ -129,7 +129,7 @@ def test_pypi_install_check_cannot_republish():
     assert ('pypi-smoke') in (jobs)
     smoke = jobs['pypi-smoke']
     assert ('pypi') in (smoke['needs'])
-    assert (smoke['continue-on-error'])
+    assert not smoke.get('continue-on-error', False), 'failed PyPI verification must fail the release workflow'
     assert ('id-token') not in (smoke.get('permissions', {}))
     assert not (any(step.get('uses', '').startswith('pypa/gh-action-pypi-publish@')
                          for step in smoke['steps']))
