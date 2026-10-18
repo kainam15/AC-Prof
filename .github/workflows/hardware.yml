@@ -40,6 +40,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           clean: false # 专用主机复用已准备的 .venv 和本地验证产物。
+      - name: 拒绝与触发提交不一致的已跟踪代码
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet
+          git diff --cached --quiet
       - name: 离线故障回归（取消、恢复、清理和采样失败，不作为硬件证据）
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''

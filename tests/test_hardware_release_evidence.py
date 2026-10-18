@@ -86,6 +86,8 @@ def test_hardware_workflow_is_weekly_and_never_exposes_fork_prs():
     assert "pull_request" not in hardware["on"]
     job = hardware["jobs"]["profile"]
     assert "refs/heads/main" in job["if"]
+    tracked = next(step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", ""))
+    assert "git rev-parse HEAD" in tracked and "git diff --quiet" in tracked
     script = next(step for step in job["steps"] if "VALIDATION_PRESET" in step.get("env", {}))
     assert "pinned-matrix" in script["env"]["VALIDATION_PRESET"]
     assert "off,on" in script["env"]["VALIDATION_GPUS"]
