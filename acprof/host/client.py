@@ -75,6 +75,7 @@ from acprof.host.measurement_window import (
     MonitorGroup,
     run_matched_control_window,
 )
+from acprof.host.window_requests import WindowRequestProgress, execute_requests
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
 from acprof.workloads.contract import summarize_workload_contracts
 
@@ -586,7 +587,6 @@ class ClientRunner:
         request_payload_bytes = float("nan")
         output_length_avg = float("nan")
         output_token_count_avg = float("nan")
-        executed_task_param: Optional[str] = None
         status = "ok"
         err_msg = ""
         gpu_metrics = _nan_metrics(GPU_METRIC_FIELDS)
@@ -600,7 +600,6 @@ class ClientRunner:
         mips_metrics = _nan_metrics(MIPS_METRIC_FIELDS)
         latency_packet_distribution_metrics = _nan_metrics(LATENCY_PACKET_DISTRIBUTION_FIELDS)
         latency_app_distribution_metrics = _nan_metrics(LATENCY_APP_DISTRIBUTION_FIELDS)
-        effective_input_scale: Optional[float] = None
         cpu_idle_measured_at = "nan"
         gpu_idle_measured_at = "nan"
         idle_debug_snapshot: Optional[Dict[str, Any]] = None
@@ -617,16 +616,9 @@ class ClientRunner:
         _gpu_samples = []
         cpu_result = None
         resource_usage_result = None
-        actual_repeat_in_window = 0
-        lat_sum = 0.0
-        latency_app_values: List[float] = []
-        request_payload_bytes_values: List[float] = []
-        output_length_values: List[float] = []
-        output_token_count_values: List[float] = []
-        workload_contracts: List[dict | None] = []
+        progress = WindowRequestProgress()
         window_error = ""
         primary_error = None
-        pending_request_id = ""
         _resource_usage_err = ""
         _gpu_err = ""
         _cpu_err = ""
@@ -692,47 +684,23 @@ class ClientRunner:
 
                 monitors.start()
 
-                while self._should_send_window_request(
-                    actual_repeat_in_window,
-                    lat_sum,
-                    repeat_request_limit,
-                ):
-                    req_id = f"{sniff_group_id}:{actual_repeat_in_window}"
-                    pending_request_id = req_id
-                    out = self._one_request(scale_val, req_id=req_id, payload_override=payload_override)
-                    pending_request_id = ""
-                    request_latency_app_s = float(out["latency_app_s"])
-                    lat_sum += request_latency_app_s
-                    latency_app_values.append(request_latency_app_s)
-                    request_payload_bytes_values.append(
-                        _to_float_or_nan(out.get("request_payload_bytes"))
-                    )
-                    output_length_values.append(
-                        _to_float_or_nan(out.get("output_length"))
-                    )
-                    output_token_count_values.append(
-                        _to_float_or_nan(out.get("output_token_count"))
-                    )
-                    workload_contracts.append(out.get("workload_contract"))
-                    request_task_param = out.get("task_param")
-                    if (
-                        request_task_param is not None
-                        and executed_task_param is None
-                    ):
-                        executed_task_param = str(request_task_param)
-                    actual_repeat_in_window += 1
-                    effective_input_scale = _merge_effective_input_scale(
-                        effective_input_scale,
-                        out.get("effective_input_scale"),
-                        scale_val,
-                    )
+                execute_requests(
+                    progress,
+                    should_send=self._should_send_window_request,
+                    one_request=self._one_request,
+                    merge_scale=_merge_effective_input_scale,
+                    scale=scale_val,
+                    group_id=sniff_group_id,
+                    payload_override=payload_override,
+                    request_limit=repeat_request_limit,
+                )
             except BaseException as exc:
                 primary_error = exc
                 window_error = f"{type(exc).__name__}: {exc}"
                 raise
             finally:
-                monitors.finish(actual_repeat_in_window,
-                                lat_sum / actual_repeat_in_window if actual_repeat_in_window else float("nan"))
+                monitors.finish(progress.count,
+                                progress.elapsed_s / progress.count if progress.count else float("nan"))
                 if monitors.results.get("resource") is not None:
                     resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
                 if monitors.results.get("gpu") is not None:
@@ -743,11 +711,11 @@ class ClientRunner:
                 try:
                     client_publication._append_request_window(
                         requests_f, sniff_group_id=sniff_group_id,
-                        input_scale=effective_input_scale if effective_input_scale is not None else scale_val,
+                        input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else scale_val,
                         warmup=warmup_flag, repeat_idx=repeat_idx,
-                        latencies=latency_app_values,
+                        latencies=progress.latencies,
                         error="; ".join(part for part in (window_error, monitors.error) if part),
-                        failed_request_id=pending_request_id,
+                        failed_request_id=progress.pending_request_id,
                     )
                 finally:
                     if primary_error is not None and (
@@ -757,29 +725,29 @@ class ClientRunner:
                         raise primary_error
                     monitors.raise_if_failed()
 
-            latency_app_s = _mean(latency_app_values)
+            latency_app_s = _mean(progress.latencies)
             request_payload_bytes = _mean_finite(
-                request_payload_bytes_values
+                progress.payload_sizes
             )
-            output_length_avg = _mean_finite(output_length_values)
+            output_length_avg = _mean_finite(progress.output_lengths)
             output_token_count_avg = _mean_finite(
-                output_token_count_values
+                progress.output_token_counts
             )
             latency_app_distribution_metrics = _latency_distribution_metrics(
                 "latency_app",
-                latency_app_values,
+                progress.latencies,
                 slow_latency_threshold_s=slow_latency_threshold_s,
             )
 
             if gpu_result is not None:
                 gpu_metrics = gpu_metrics_from_result(
                     gpu_result,
-                    actual_repeat_in_window,
+                    progress.count,
                 )
             if cpu_result is not None:
                 cpu_metrics = cpu_metrics_from_result(
                     cpu_result,
-                    actual_repeat_in_window,
+                    progress.count,
                 )
             if self.config.dram_energy == "required" and not all(math.isfinite(cpu_metrics[field]) for field in (
                 "dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"
@@ -796,11 +764,11 @@ class ClientRunner:
                         raise RuntimeError("required CPU/memory measurement unavailable")
                 resource_usage_metrics = resource_usage_metrics_from_result(
                     resource_usage_result,
-                    actual_repeat_in_window,
+                    progress.count,
                 )
             resolved_input_scale = (
-                effective_input_scale
-                if effective_input_scale is not None
+                progress.effective_input_scale
+                if progress.effective_input_scale is not None
                 else scale_val
             )
             input_units_per_request = _input_units_per_request(
@@ -898,18 +866,18 @@ class ClientRunner:
             "input_num_samples": _fmt_float(input_num_samples),
             "request_payload_bytes": _fmt_float(request_payload_bytes),
             "task_param": (
-                executed_task_param
-                if executed_task_param is not None
+                progress.executed_task_param
+                if progress.executed_task_param is not None
                 else _canonical_task_param(payload_override)
             ),
-            "workload_contract": json.dumps(summarize_workload_contracts(workload_contracts), ensure_ascii=False, allow_nan=False, separators=(",", ":")),
+            "workload_contract": json.dumps(summarize_workload_contracts(progress.workload_contracts), ensure_ascii=False, allow_nan=False, separators=(",", ":")),
             "output_length_avg": _fmt_float(output_length_avg),
             "output_token_count_avg": _fmt_float(
                 output_token_count_avg
             ),
             "repeat_idx": str(repeat_idx),
             "warmup": str(warmup_flag),
-            "repeat_in_window": str(actual_repeat_in_window),
+            "repeat_in_window": str(progress.count),
             "latency_s": "nan",  # Placeholder: filled by merge_packet_latency
             "latency_s_per_input_unit": "nan",
             "latency_app_s": _fmt_float(latency_app_s),
