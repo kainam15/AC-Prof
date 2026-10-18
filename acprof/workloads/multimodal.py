@@ -158,7 +158,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._text = spec.get("text", declared_defaults.get("text", DEFAULT_TEXT[task_type]))
         if not isinstance(self._text, str) or not self._text.strip():
             raise ValueError("text must be a nonempty prompt or query")
-        defaults = {} if task_type in {"visual-question-answering", "document-question-answering", "visual-document-retrieval"} else {"max_new_tokens": 64, "do_sample": False}
+        defaults: Dict[str, Any] = {} if task_type in {"visual-question-answering", "document-question-answering", "visual-document-retrieval"} else {"max_new_tokens": 64, "do_sample": False}
         defaults.update(declared_defaults.get("params", {}))
         if task_type == "any-to-any":
             defaults.update(return_audio=True, talker_max_new_tokens=256, speaker="Chelsie", seed=12345)
@@ -172,7 +172,8 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._video_count = int(_positive_number(spec.get("video_num_frames", 4), "video_num_frames", integer=True))
         self._image = None
         self._frames = None
-        self._words, self._boxes = [], []
+        self._words: List[str] = []
+        self._boxes: List[List[float]] = []
         if "image" in self._modalities:
             if "image_path" in spec:
                 self._image = self._read_image(spec["image_path"])
@@ -236,8 +237,10 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
     def generate(self, scale_value: float) -> Dict[str, Any]:
         from PIL import Image
         scale = self._scale(scale_value)
-        sample = {"text": self._text}
+        sample: Dict[str, Any] = {"text": self._text}
         if "image" in self._modalities:
+            if self._image is None:
+                raise ValueError("image is required for the selected multimodal workload")
             resolution = int(scale) if self._scale_modality == "image" else self._image_resolution
             sample["image_base64"] = _png(self._image.resize((resolution, resolution), Image.Resampling.BICUBIC))
             if self.task_type == "document-question-answering":
@@ -278,7 +281,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         return max(self._scales)
 
     def plan_metadata(self) -> Dict[str, Any]:
-        fixed_media = {}
+        fixed_media: Dict[str, Any] = {}
         if "image" in self._modalities and self._scale_modality != "image" or "video" in self._modalities:
             fixed_media["image_resolution"] = self._image_resolution
         if "audio" in self._modalities and self._scale_modality != "audio":

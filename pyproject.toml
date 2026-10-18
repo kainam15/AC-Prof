@@ -106,6 +106,8 @@ files = [
     "acprof/runtime_dependencies.py",
     "acprof/host/collection_workflow.py",
     "acprof/workloads/__init__.py",
+    "acprof/workloads/diffusion.py",
+    "acprof/workloads/multimodal.py",
     "acprof/host/model_store.py",
     "acprof/host/profilers/ncu.py",
     "acprof/analysis/latency_model.py",

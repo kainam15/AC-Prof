@@ -87,7 +87,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         if self._task == "video-to-video" and not self._video_bytes:
             from PIL import Image, ImageDraw
 
-            for index in range(self._params["num_frames"]):
+            for index in range(int(self._params["num_frames"])):
                 image = Image.new("RGB", (256, 256), (220, 230, 240))
                 ImageDraw.Draw(image).rectangle(
                     (16 + index % 17 * 8, 64, 72 + index % 17 * 8, 128),
@@ -259,7 +259,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
 
     def generate(self, scale_value: float) -> Dict[str, Any]:
         resolution = self._scale(scale_value)
-        payload = {
+        payload: Dict[str, Any] = {
             "params": copy.deepcopy(self._params),
         }
         if self._task in PROMPT_TASKS:
@@ -306,7 +306,10 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
     ) -> float:
         if payload is None:
             return float(self._scale(scale_value))
-        return float(self._scale(payload.get("input_scale" if self._task in STEP_TASKS else "resolution")))
+        scale = payload.get("input_scale" if self._task in STEP_TASKS else "resolution")
+        if scale is None:
+            raise ValueError("diffusion payload is missing the selected input scale")
+        return float(self._scale(scale))
 
     def max_input_scale(self) -> float:
         return float(max(self._scales))
@@ -366,13 +369,19 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
     ) -> Dict[str, Any]:
         materialized = self.generate(scale_value) if payload is None else payload
         if self._task in STEP_TASKS:
-            steps = self._scale(materialized.get("input_scale"))
+            scale = materialized.get("input_scale")
+            if scale is None:
+                raise ValueError("diffusion payload is missing denoising steps")
+            steps = self._scale(scale)
             metadata = {"input_scale_type": "denoising_steps", "num_inference_steps": steps, "input_num_samples": 1}
             if "image_base64" in materialized:
                 content = base64.b64decode(materialized["image_base64"], validate=True)
                 metadata.update({"condition_image_sha256": hashlib.sha256(content).hexdigest(), "condition_image_resolution_px": 256})
             return metadata
-        resolution = self._resolution(materialized.get("resolution"))
+        scale = materialized.get("resolution")
+        if scale is None:
+            raise ValueError("diffusion payload is missing resolution")
+        resolution = self._resolution(scale)
         prompts = materialized.get("prompt")
         prompt_count = len(prompts) if isinstance(prompts, list) else 1
         metadata = {
