@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from acprof.analysis.uncertainty import summarize_windows
-from acprof.capabilities import Capability, measurement_requested
+from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
 from acprof.experiment import RunConfig
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
@@ -199,11 +199,12 @@ def quick_preflight(
         checks.append(PreflightCheck(message('抓包网卡'), "not_requested", message("本次不采集"), "not_requested"))
 
     rapl = probe_cpu_energy() if measurement_requested(config.profiling_mode, "cpu_energy") else Capability("not_requested", "basic", "profiling_mode")
+    rapl_status = CapabilityStatus(rapl.status).value
     checks.append(
         PreflightCheck(
             "CPU RAPL",
-            "ok" if rapl.status.value == "available" else "not_requested" if rapl.status.value == "not_requested" else "fail",
-            f"{rapl.status.value}: {rapl.detail}", rapl.status.value,
+            "ok" if rapl_status == "available" else "not_requested" if rapl_status == "not_requested" else "fail",
+            f"{rapl_status}: {rapl.detail}", rapl_status,
         )
     )
 
@@ -218,11 +219,12 @@ def quick_preflight(
             perf = Capability("error", str(exc), "environment")
         else:
             perf = probe_perf_instructions(env=probe_environ)
-    if perf.status.value == "available":
+    perf_status = CapabilityStatus(perf.status).value
+    if perf_status == "available":
         detail = message('普通用户 perf 可用，已读到 instructions 计数并通过跨用户 PID 附加检查')
-        checks.append(PreflightCheck("perf instructions", "ok", detail, perf.status.value))
+        checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status))
     else:
-        checks.append(PreflightCheck("perf instructions", "not_requested" if perf.status.value == "not_requested" else "fail", f"{perf.status.value}: {perf.detail}", perf.status.value))
+        checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
 
     if "on" in _csv_values(config.gpus.lower()):
         nvidia_smi = shutil.which("nvidia-smi")
@@ -280,7 +282,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
             rows.append(row)
     missing = set(KEY_FIELDS) - set(fields)
     metrics = [name for name in SUMMARY_METRICS if name in fields]
-    groups = ()
+    groups: tuple[dict, ...] = ()
     detail = ""
     if missing:
         detail = message("缺少配置身份字段，无法分组比较：{0}", ", ".join(sorted(missing)))

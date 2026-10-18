@@ -6,7 +6,7 @@ import math
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Literal, overload
 
 from acprof.messages import join_messages, message
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
@@ -44,7 +44,15 @@ _MAX_REPORT_BYTES = 32 * 1024 * 1024
 _REPORT_READ_CHUNK_BYTES = 256 * 1024
 
 
-def _number(value, *, nullable: bool = False) -> float | None:
+@overload
+def _number(value: Any, *, nullable: Literal[False] = False) -> float: ...
+
+
+@overload
+def _number(value: Any, *, nullable: Literal[True]) -> float | None: ...
+
+
+def _number(value: Any, *, nullable: bool = False) -> float | None:
     if value is None and nullable:
         return None
     if type(value) not in (int, float) or not math.isfinite(value):
@@ -61,7 +69,7 @@ def _count(value) -> int:
 def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, float | None]:
     low = _number(row.get(low_key), nullable=True)
     high = _number(row.get(high_key), nullable=True)
-    if (low is None) != (high is None) or (low is not None and low > high):
+    if (low is None) != (high is None) or (low is not None and high is not None and low > high):
         raise ValueError(message("报告置信区间无效"))
     return low, high
 
@@ -126,7 +134,7 @@ def _windows(source: Path, data: dict) -> ReportView:
         inapplicable = name == "gpu_energy_total_j" and mode == "off" and count == 0
         missing_value = NOT_APPLICABLE if inapplicable else UNKNOWN
         mean_text = missing_value if mean is None else f"{mean * multiplier:.6g} {display_unit}".strip()
-        interval = missing_value if low is None else f"[{low * multiplier:.6g}, {high * multiplier:.6g}] {display_unit}".strip()
+        interval = missing_value if low is None or high is None else f"[{low * multiplier:.6g}, {high * multiplier:.6g}] {display_unit}".strip()
         reason = _text(group.get("reason"))
         state = ("不适用" if inapplicable else "无有效窗口" if not count else _REASONS.get(reason, reason or
                  ("已估计" if low is not None else "区间不可用")))
@@ -151,7 +159,7 @@ def _windows(source: Path, data: dict) -> ReportView:
 def _comparison_row(label: str, row: dict, count: int, detail: str) -> ReportRow:
     change = _number(row.get("paired_mean_change_pct"))
     low, high = _interval(row, "ci_low_pct", "ci_high_pct")
-    if count < 3 or low is None:
+    if count < 3 or low is None or high is None:
         raise ValueError(message("对照报告缺少足够的配对轮次或区间"))
     state = "方向不确定" if low <= 0 <= high else "延迟增加" if low > 0 else "本次延迟降低"
     return ReportRow((label, str(count), f"{change:+.6g}%", f"[{low:.6g}%, {high:.6g}%]", message(state)), detail)
