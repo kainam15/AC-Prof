@@ -52,28 +52,17 @@ def test_wheel_ci_resolves_declared_runtime_dependencies_without_host_lock():
     assert ('--no-deps') not in (script)
     assert ('requirements/host.lock') not in (script)
 
-@pytest.mark.parametrize('commit,conclusion,expired,present,expected', (('abc', 'success', False, True, 'workflow_passed'), ('other', 'success', False, True, 'not_verified'), ('abc', 'failure', False, True, 'not_verified'), ('abc', 'success', True, True, 'not_verified'), ('abc', 'success', False, False, 'not_verified')))
-def test_hardware_evidence_requires_matching_success_and_retained_artifact(commit, conclusion, expired, present, expected):
+def test_publisher_uses_prevalidated_hardware_proof():
     release = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
-    script = next(step['run'] for step in release['jobs']['publish']['steps']
-                  if 'hardware-runs.json' in step.get('run', ''))
-    code = script.split("python3 - <<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        (root / 'dist').mkdir()
-        (root / 'hardware-runs.json').write_text(json.dumps({'workflow_runs': [
-            {'head_sha': commit, 'conclusion': conclusion, 'html_url': 'https://github.com/fixture/run'}
-        ] if present else []}))
-        (root / 'hardware-artifacts.json').write_text(json.dumps({'artifacts': [
-            {'name': 'hardware', 'expired': expired, 'id': 42}
-        ] if present else []}))
-        result = subprocess.run([sys.executable, '-c', code], cwd=root, capture_output=True, text=True,
-                                env={**os.environ, 'GITHUB_SHA': 'abc', 'GITHUB_REPOSITORY': 'fixture/project',
-                                     'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_RUN_ID': '1'})
-        assert (result.returncode) == (0), result.stderr
-        evidence = json.loads((root / 'dist/verification.json').read_text())
-        assert (evidence['commit']) == ('abc')
-        assert (evidence['hardware']['status']) == (expected)
+    jobs = release['jobs']
+    assert 'hardware-gate' in jobs['publish']['needs']
+    assert 'hardware-gate' in jobs['pypi']['needs']
+    script = next(step['run'] for step in jobs['publish']['steps']
+                  if 'hardware-proof.json' in step.get('run', ''))
+    assert "hardware.get('status') != 'verified'" in script
+    assert "hardware.get('commit') != sha" in script
+    assert "dist/verification.json" in script
+
 
 def test_only_version_tag_push_can_publish():
     release = yaml.load((ROOT / '.github/workflows/release.yml').read_text(), Loader=yaml.BaseLoader)

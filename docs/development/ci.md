@@ -25,7 +25,7 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 章节锚点、Markdown 格式、Skill frontmatter 与 YAML。主机测试不执行时，
 `host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
-`hardware.yml` 仍只手动运行；Release Tag、GHCR 运行环境发布规则保持原样。
+`hardware.yml` 每周一 03:15 UTC 在 main 定期运行固定 CPU/GPU 矩阵，也支持主分支人工触发；fork PR 和其他工作分支不允许在专用主机运行。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
 `codeql.yml` 在 `main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，不进入主机或容器测量路径；扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描。
 Dependabot 先仅更新固定 SHA 的 GitHub Actions。Python 的哈希锁和 Docker digest 仍需协调重锁与可复现验证，暂不让 Dependabot 直接修改不完整的锁文件集合。
 
@@ -311,7 +311,7 @@ cgroup CPU/内存、actual workload、输出验证和能力状态。合成图只
 真实 ORT、WordPiece tokenizer、HTTP probe 与既有规划器的联合回归还覆盖超限拒绝和自动尺度规划。
 真实 HTTP 回归还验证异步等待、后台失败、超时及请求内不执行输出验证。
 服务只发布 loopback 端口，不使用 privileged、Docker socket 挂载或硬件 runner；完成或失败后
-清理本次容器。已有 `.github/workflows/hardware.yml` 仍仅手动触发。
+清理本次容器。`.github/workflows/hardware.yml` 每周自动运行固定矩阵，也可在 main 上手动执行；Release 的同提交证据门禁不接受缺失的 GPU/能耗/perf 指标。
 
 两个预训练小模型可另行验证；第一步联网准备，第二步在同一无 Torch 环境断网执行。
 以下目录需尚未存在或为空，重复检查请换新目录：

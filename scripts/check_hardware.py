@@ -45,6 +45,7 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
     counts = audit["counts"]
     audit["successful"] &= counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
     unavailable = []
+    validated_gpu_modes = set()
     if audit["valid"]:
         _, rows = read_result_csv(config.result_csv(ROOT))
         for index, row in enumerate(rows, 2):
@@ -52,7 +53,11 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
                 required = ["latency_s", "latency_app_s", "cpu_energy_total_j", "cpu_instructions_per_request"]
                 if row["gpu_mode"] == "on":
                     required.append("gpu_energy_total_j")
-                unavailable.extend({"row": index, "field": name} for name in required if number(row.get(name)) is None)
+                missing = [name for name in required if number(row.get(name)) is None]
+                unavailable.extend({"row": index, "field": name} for name in missing)
+                if not missing and row.get("status") == "ok":
+                    validated_gpu_modes.add(row["gpu_mode"])
+    audit["validated_gpu_modes"] = sorted(validated_gpu_modes)
     audit["required_metrics_missing"] = unavailable
     audit["successful"] &= not unavailable
     atomic_write_json(output / "audit.json", audit)

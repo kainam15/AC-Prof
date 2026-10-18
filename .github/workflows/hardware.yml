@@ -1,5 +1,7 @@
 name: 专用主机采集验证
 on:
+  schedule:
+    - cron: '15 3 * * 1' # Weekly Monday 03:15 UTC; main branch only.
   workflow_dispatch:
     inputs:
       preset:
@@ -30,6 +32,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   profile:
+    # Never execute fork PRs or arbitrary branches on the dedicated host.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, linux, x64, acprof]
     timeout-minutes: 60
     steps:
@@ -48,11 +52,11 @@ jobs:
             --report "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
       - name: 使用主机现有环境采集并验收
         env:
-          VALIDATION_PRESET: ${{ inputs.preset }}
+          VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
           VALIDATION_MODEL: ${{ inputs.model }}
           VALIDATION_TASK: ${{ inputs.task }}
           VALIDATION_REVISION: ${{ inputs.revision }}
-          VALIDATION_GPUS: ${{ inputs.gpus }}
+          VALIDATION_GPUS: ${{ github.event_name == 'schedule' && 'off,on' || inputs.gpus }}
           ACPROF_WECOM_WEBHOOK_URL: ''
         shell: bash
         run: |

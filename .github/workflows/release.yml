@@ -159,9 +159,61 @@ jobs:
           name: standalone-evidence
           path: evidence/
 
+  hardware-gate:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: 验证同提交 Native Linux CPU/GPU/RAPL/perf 测量证据
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/hardware.yml/runs" \
+            -f head_sha="$GITHUB_SHA" -f status=success -f per_page=50 > hardware-runs.json
+          python3 - <<'PY' > hardware-runs.tsv
+          import json
+          import os
+          from pathlib import Path
+          for run in json.loads(Path("hardware-runs.json").read_text())["workflow_runs"]:
+              if (run["head_sha"] == os.environ["GITHUB_SHA"] and run["head_branch"] == "main"
+                      and run["event"] in ("schedule", "workflow_dispatch")
+                      and run["conclusion"] == "success"):
+                  print(f'{run["id"]}\t{run["html_url"]}')
+          PY
+          verified=0
+          while IFS=$'\t' read -r run_id run_url; do
+            [[ -n "$run_id" ]] || continue
+            rm -rf "$RUNNER_TEMP/hardware-release-evidence"
+            mkdir -p "$RUNNER_TEMP/hardware-release-evidence"
+            if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name hardware \
+              --dir "$RUNNER_TEMP/hardware-release-evidence"; then
+              continue
+            fi
+            if python3 scripts/verify_hardware_evidence.py \
+              --report "$RUNNER_TEMP/hardware-release-evidence/measurements/hardware_matrix.json" \
+              --matrix examples/hardware-validation.json --commit "$GITHUB_SHA" \
+              --run-url "$run_url" --output hardware-proof.json; then
+              verified=1
+              break
+            fi
+          done < hardware-runs.tsv
+          if [[ "$verified" != 1 ]]; then
+            echo "::error::No complete same-commit Native Linux CPU/GPU evidence. Run hardware.yml on main before tagging."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hardware-proof
+          path: hardware-proof.json
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [build, verify, verify-dist, standalone]
+    needs: [build, verify, verify-dist, standalone, hardware-gate]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -183,42 +235,33 @@ jobs:
           sha256sum --check STANDALONE-SHA256SUMS
           cat STANDALONE-SHA256SUMS >> SHA256SUMS
           rm STANDALONE-SHA256SUMS
-      - name: 关联当前提交的验证范围与硬件验收
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hardware-proof
+      - name: 记录已验证的同提交硬件证据
         run: |
-          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/hardware.yml/runs" \
-            -f head_sha="$GITHUB_SHA" -f status=success -f per_page=1 > hardware-runs.json
-          HARDWARE_RUN_ID=$(python3 -c 'import json; runs=json.load(open("hardware-runs.json"))["workflow_runs"]; print(runs[0]["id"] if runs else "")')
-          if [ -n "$HARDWARE_RUN_ID" ]; then
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${HARDWARE_RUN_ID}/artifacts" > hardware-artifacts.json
-          else
-            echo '{"artifacts": []}' > hardware-artifacts.json
-          fi
-          python3 - <<'PY'
+          python3 - <<'EOPY'
           import json
           import os
           from pathlib import Path
 
           sha = os.environ['GITHUB_SHA']
-          runs = json.loads(Path('hardware-runs.json').read_text())['workflow_runs']
-          artifacts = json.loads(Path('hardware-artifacts.json').read_text())['artifacts']
-          run = next((run for run in runs if run['head_sha'] == sha and run['conclusion'] == 'success'), None)
-          artifact = next((item for item in artifacts if item['name'] == 'hardware' and not item['expired']), None)
-          hardware = {'status': 'not_verified', 'reason': 'No successful same-commit hardware run with retained evidence.'}
-          if run and artifact:
-              hardware = {'status': 'workflow_passed', 'commit': sha, 'run_url': run['html_url'],
-                          'artifact_url': run['html_url'] + '/artifacts/' + str(artifact['id']),
-                          'scope': 'Only the devices, model and profilers recorded by this hardware artifact.'}
+          hardware = json.loads(Path('hardware-proof.json').read_text())
+          if hardware.get('commit') != sha or hardware.get('status') != 'verified':
+              raise SystemExit('release hardware proof is missing, invalid or from another commit')
           evidence = {'schema_version': 1, 'commit': sha,
-                      'ci': {'status': 'passed', 'required_jobs': ['lint', 'host', 'onnx-cpu', 'runtime', 'build', 'verify-dist', 'standalone'],
-                             'run_url': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY']
-                                        + '/actions/runs/' + os.environ['GITHUB_RUN_ID']},
+                      'ci': {'status': 'passed',
+                             'required_jobs': ['lint', 'host', 'onnx-cpu', 'runtime', 'build',
+                                               'verify-dist', 'standalone'],
+                             'run_url': os.environ['GITHUB_SERVER_URL'] + '/'
+                                        + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/'
+                                        + os.environ['GITHUB_RUN_ID']},
                       'hardware': hardware}
           Path('dist/verification.json').write_text(json.dumps(evidence, indent=2) + '\n')
-          note = 'Hardware evidence: ' + hardware.get('artifact_url', 'not verified for this commit.')
-          Path('verification-notes.md').write_text('Validation scope is recorded in verification.json.\n\n' + note + '\n')
-          PY
+          Path('verification-notes.md').write_text(
+              'Validation scope is recorded in verification.json.\n\n'
+              + 'Hardware evidence: ' + hardware['run_url'] + '\n')
+          EOPY
           cd dist
           sha256sum verification.json >> SHA256SUMS
       - name: 发布 GitHub Release
@@ -230,7 +273,7 @@ jobs:
 
   pypi:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [build, verify, verify-dist, standalone]
+    needs: [build, verify, verify-dist, standalone, hardware-gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
