@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from acprof.model_evidence import pinned_revision
 from acprof.tui.experiment_catalog import ExperimentRecord
@@ -68,7 +68,8 @@ def changed_conditions(recorded: dict, current: dict) -> tuple[str, ...]:
     for key in CONDITION_KEYS:
         old, new = recorded.get(key), current.get(key)
         missing = old in (None, '', 'unknown') or new in (None, '', 'unknown')
-        if key == 'revision' and (not pinned_revision(old) or not pinned_revision(new)):
+        if key == 'revision' and (not isinstance(old, str) or not pinned_revision(old)
+                                  or not isinstance(new, str) or not pinned_revision(new)):
             missing = True
         if missing:
             reasons.append(f'{key}: unknown')
@@ -176,7 +177,7 @@ def coverage_candidates(path: Path) -> tuple[ModelCandidate, ...]:
         reason = 'runtime environment and current conditions require revalidation'
         if failure:
             reason = str(failure.get('reason_code') or 'previous failure') + '; ' + reason
-        history_status = {'access_denied': 'access_required', 'resource_limit': 'resource_limited'}.get(failure.get('reason_code'),
+        history_status = {'access_denied': 'access_required', 'resource_limit': 'resource_limited'}.get(str(failure.get('reason_code') or ''),
             'previous_failure' if failure else 'revalidate')
         detail = json.dumps({'row': row, 'attempt_configuration': config, 'conditions': conditions,
                              'source': str(path)}, ensure_ascii=False, indent=2)
@@ -192,7 +193,8 @@ def current_context(config, project_dir: Path, *, needs_torch_platform: bool = T
 
     from acprof.host.run_state import host_identity
     from acprof.host.runtime_images import select_nlp_torch_index_url
-    context = {'host': host_identity(project_dir), 'gpu_uuid': None, 'torch_index_url': None, 'warnings': []}
+    context: dict[str, Any] = {'host': host_identity(project_dir), 'gpu_uuid': None,
+                               'torch_index_url': None, 'warnings': []}
     gpu_requested = 'on' in config.gpus.split(',')
     # Platform selection may depend on the driver even for a CPU-only task.
     # Resolve this once for the whole idle scan; UUID lookup is GPU-only.
@@ -239,12 +241,19 @@ def current_conditions(record: ExperimentRecord, config, context: dict, project_
         task.task_family = config.task_family or task.task_family
         task.runtime_backend = config.backend or task.runtime_backend
         profile = select_runtime_profile(task)
+        if profile.environment is None:
+            raise ValueError('selected runtime profile is missing an environment')
         if profile.adapter == 'family-default' and profile.environment.platform.torch_version:
             if context['torch_index_url'] is None:
                 return current
             profile = configure_runtime_profile(task, torch_index_url=context['torch_index_url'])
+            if profile.environment is None:
+                raise ValueError('resolved runtime profile is missing an environment')
+        selected_environment = profile.environment
+        if selected_environment is None:
+            raise ValueError('resolved runtime profile is missing an environment')
         current.update(runtime_profile=profile.profile_id,
-                       runtime_environment=environment_id(profile.environment, project_dir))
+                       runtime_environment=environment_id(selected_environment, project_dir))
     except (KeyError, ValueError, TypeError, OSError, RuntimeError) as exc:
         current['resolution_error'] = str(exc)
     return current

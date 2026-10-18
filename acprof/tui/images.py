@@ -16,6 +16,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import var
 from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, Static, Tree
+from textual.widgets.tree import TreeNode
 
 from acprof.host.image_graph import reclaimable_image_bytes
 from acprof.host.image_management import (
@@ -51,7 +52,8 @@ IMAGE_RUNTIME_NAMES = {
 class ImageTable(ResizableDataTable):
     BINDINGS = [Binding("space", "select_cursor", "勾选镜像", show=False)]
 
-    async def on_click(self, event: events.Click) -> None:
+    # Textual allows async event callbacks even when its base stub is synchronous.
+    async def on_click(self, event: events.Click) -> None:  # type: ignore[override]
         event.prevent_default()
         event.stop()
         if self.disabled or event.button != 1 or self._consume_resize_click(event):
@@ -233,7 +235,8 @@ class ImageWorkspace(Vertical):
         self.query_one(ImageDetailPanel).styles.height = self._clamp_detail_height(height)
 
 
-class ImageDetailResizeHandle(Static, can_focus=True):
+# Textual accepts can_focus as a runtime subclass keyword; its stub omits it.
+class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
     """单行分隔条；使用屏幕坐标拖动，避免控件移动时位置跳变。"""
 
     # Screen 在控件捕获鼠标前启动文本选择；分隔条拖动不能触发选区自动滚动。
@@ -497,7 +500,7 @@ def dependency_detail(item: ManagedImage) -> str:
     else:
         parts.append(message("系统包继承平台，本层无新增。"))
     if historical:
-        parts.append(dependency_source_detail(item))
+        parts.append(message("{0}", dependency_source_detail(item)))
     if item.dependency_note:
         parts.append(message(item.dependency_note))
     return join_messages("\n\n", parts)
@@ -665,9 +668,12 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
     header.set_columns(width)
     if inventory is None:
         return
-    nodes = {}
+    nodes: dict[str, TreeNode[ManagedImage]] = {}
+    root_node = tree.root
+    if root_node is None:
+        raise RuntimeError("image tree root missing after reset")
     for item in sorted((indexed[key] for key in shown), key=lambda item: (len(item.ancestor_ids), image_display_name(item), item.image_id)):
-        parent = nodes.get(item.parent_id, tree.root)
+        parent = nodes.get(item.parent_id) or root_node
         marker = image_selection_marker(item, selected)
         # 同名镜像仍按 image ID 分别管理；完整 ID 在详情中查看。
         logical = image_display_name(item, parent.data)
