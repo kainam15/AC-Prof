@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host.run_state import utc_now
@@ -92,7 +93,7 @@ class CoverageState:
                  retry_failed: bool, retry_stages: tuple[str, ...], retry_reasons: tuple[str, ...]):
         self.root, self.sample = root, sample
         self.sample_hash = content_digest(sample)
-        self.attempt = None
+        self.attempt: dict[str, Any] | None = None
         self.rows: dict[int, dict] = {}
         retry = retry_failed or bool(retry_stages or retry_reasons)
         if resume:
@@ -123,9 +124,11 @@ class CoverageState:
             raise ValueError("coverage history is missing the original configuration")
         last = self.attempts[-1] if self.attempts else None
         pending = last is not None and last["status"] != "complete"
-        unfinished = ([] if not pending else
-                      [index for index in last["model_indices"]
-                       if index not in {row["model_index"] for row in last["rows"]}])
+        unfinished = []
+        if pending:
+            assert last is not None
+            unfinished = [index for index in last["model_indices"]
+                          if index not in {row["model_index"] for row in last["rows"]}]
         previous = last["configuration"] if last else self.report["configuration"]
         expected = previous if pending else self.report["configuration"]
         if not retry and configuration != expected:
@@ -223,11 +226,15 @@ class CoverageState:
             atomic_write_json(self.directory / "attempt.json", self.attempt)
 
     def start_model(self, index: int) -> Path:
+        if self.attempt is None:
+            raise RuntimeError("coverage attempt must start before a model")
         self.attempt["active_model_index"] = index
         self.persist_attempt()
         return self.directory / f"model-{index:04d}"
 
     def record(self, index: int, row: dict):
+        if self.attempt is None:
+            raise RuntimeError("coverage attempt must start before recording")
         row.update(retain_cleanup_debt(self.rows.get(index, {}), row, self.attempt["attempt_id"]))
         row.update(model_index=index, attempt_id=self.attempt["attempt_id"],
                    attempt_path=str(self.directory.relative_to(self.root)),

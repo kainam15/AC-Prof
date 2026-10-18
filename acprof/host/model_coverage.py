@@ -6,6 +6,7 @@ import math
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Mapping, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.model_evidence import pinned_revision
@@ -25,7 +26,7 @@ def validate_sample(sample: dict) -> None:
         if not isinstance(item, dict):
             raise ValueError("model entries must be objects")
         validate_repo_id(item["model_id"])
-        if not pinned_revision(item.get("revision")):
+        if not isinstance(item.get("revision"), str) or not pinned_revision(item["revision"]):
             raise ValueError("coverage requires full commit SHAs")
         source = item.get("source", "huggingface")
         if source not in MODEL_SOURCES:
@@ -35,7 +36,7 @@ def validate_sample(sample: dict) -> None:
             raise ValueError("duplicate source/model/revision in sample")
         seen.add(identity)
         weight = item.get("weight")
-        if type(weight) not in {float, int} or not math.isfinite(weight) or weight < 0:
+        if type(weight) not in {float, int} or not math.isfinite(cast(float, weight)) or cast(float, weight) < 0:
             raise ValueError("coverage weights must be finite nonnegative numbers")
         reference = item.get("semantic_reference")
         if reference is not None and (not isinstance(reference, dict) or not isinstance(reference.get("task"), str)
@@ -134,7 +135,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
            "runtime_status": "not_requested" if probe == "none" else "not_run", "semantic_correct": None}
     stage = "resolution"
     task = None
-    validation = None
+    validation: Mapping[str, Any] | None = None
     try:
         task = detect_task(item["model_id"], revision=item["revision"])
         if task.model_revision != item["revision"] or task.model_source != row["source"]:
@@ -307,7 +308,8 @@ def run_sample(sample: dict, root: Path, *, probe: str = "none", cpus: int = 2, 
                         if recovery.get("status") != "complete":
                             raise ValueError("previous cleanup has not been confirmed complete")
                     except (Exception, SystemExit) as exc:
-                        detail = (exc.to_dict() if callable(getattr(exc, "to_dict", None)) else
+                        serializer = getattr(exc, "to_dict", None)
+                        detail = (serializer() if callable(serializer) else
                                   {"exception_type": type(exc).__name__, "detail": str(exc)})
                         row = {**previous, "runtime_status": "not_run", "failed_stage": "cleanup",
                                "cleanup_recovery": {"status": "incomplete", "error": detail},

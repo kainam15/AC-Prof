@@ -154,7 +154,8 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
                 client.close()
 
     pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="acprof-load")
-    pending, primary_error = set(), None
+    pending: set[Any] = set()
+    primary_error: BaseException | None = None
     epoch = time.perf_counter()
     barrier = threading.Barrier(config.concurrency + 1)
     try:
@@ -211,15 +212,15 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
             records[index] = {"request_id": f"{token}:{index}", "planned_s": schedule[index] if schedule else None,
                               "sent_s": None, "completed_s": None, "status": "cancelled",
                               "error": "not submitted", "connection": None}
-    records = [record for record in records if record is not None]
-    counts = Counter(record["status"] for record in records)
-    succeeded = [record for record in records if record["status"] == "ok"]
-    sent = sum(record["sent_s"] is not None for record in records)
+    completed_records = [record for record in records if record is not None]
+    counts = Counter(record["status"] for record in completed_records)
+    succeeded = [record for record in completed_records if record["status"] == "ok"]
+    sent = sum(record["sent_s"] is not None for record in completed_records)
     report = {"schema_version": 1, "kind": "nonstream_load_result", "protocol": config.protocol(),
               "protocol_sha256": config.identity(), "successful": primary_error is None and counts["ok"] == config.requests,
               "duration_s": duration, "target_requests_per_s": config.rate,
               "sent_requests_per_s": sent / duration if duration > 0 else None,
-              "completed_requests_per_s": sum(record["http_status"] is not None for record in records
+              "completed_requests_per_s": sum(record["http_status"] is not None for record in completed_records
                   if "http_status" in record) / duration if duration > 0 else None,
               "successful_requests_per_s": counts["ok"] / duration if duration > 0 else None,
               "success_rate": counts["ok"] / config.requests,
@@ -227,9 +228,9 @@ def run_load(url, payload, config: LoadConfig, *, token) -> dict[str, Any]:
                          "failed": counts["error"], "dropped": counts["dropped"], "cancelled": counts["cancelled"]},
               "latency_s": _distribution([record["completed_s"] - record["sent_s"] for record in succeeded]),
               "scheduled_latency_s": _distribution([record["completed_s"] - record["planned_s"] for record in succeeded]),
-              "queue_delay_s": _distribution([record["sent_s"] - record["planned_s"] for record in records if record["sent_s"] is not None]),
-              "connection_count": len({tuple(record["connection"]) for record in records if record["connection"]}),
-              "requests": records}
+              "queue_delay_s": _distribution([record["sent_s"] - record["planned_s"] for record in completed_records if record["sent_s"] is not None]),
+              "connection_count": len({tuple(record["connection"]) for record in completed_records if record["connection"]}),
+              "requests": completed_records}
     if primary_error is not None:
         setattr(primary_error, "load_report", report)
         raise primary_error
