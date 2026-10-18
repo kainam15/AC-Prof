@@ -131,7 +131,10 @@ def _architecture_tasks(architecture: str) -> tuple[str, ...]:
     for version in ("4.57.6", "5.6.0"):
         mappings = transformers_support(version)
         for task, operations in _TASK_MAPPINGS.items():
-            if task in {"conversational", "sentence-similarity"}:
+            if task in {"conversational", "sentence-similarity", "replaced-token-detection"}:
+                # PRETRAINING includes heads such as GPT2LMHeadModel and
+                # BertForPreTraining. Only the reviewed ELECTRA discriminator
+                # extension declares an executable replaced-token contract.
                 continue
             for operation in operations:
                 name = f"MODEL_FOR_{operation}_MAPPING_NAMES" if operation else "MODEL_MAPPING_NAMES"

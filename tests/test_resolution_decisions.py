@@ -142,6 +142,22 @@ def test_native_registry_reverse_lookup_resolves_architecture():
     assert (any(item["field"] == "config.architectures" for item in
                         task.model_resolution["provenance"]["observations"]))
 
+
+@pytest.mark.parametrize("architecture,model_type,expected", (
+    ("GPT2LMHeadModel", "gpt2", "text-generation"),
+    ("ElectraForPreTraining", "electra", "replaced-token-detection"),
+    ("BertForPreTraining", "bert", "unknown"),
+))
+def test_pretraining_registry_does_not_infer_unrelated_protocols(architecture, model_type, expected):
+    task = candidate(config={"architectures": [architecture], "model_type": model_type})
+    assert task.pipeline_tag == expected
+    if expected == "unknown":
+        assert task.model_resolution["status"] == "needs_configuration"
+    else:
+        assert task.model_resolution["status"] == "candidate"
+        assert any(item["field"] == "config.architectures"
+                   for item in task.model_resolution["provenance"]["observations"])
+
 def test_runtime_observation_cannot_rewrite_static_semantics():
     from acprof.model_contract import record_runtime_validation
     task = candidate(tag="text-generation")
