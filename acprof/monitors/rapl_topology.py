@@ -4,11 +4,12 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 
 def discover_rapl_topology(powercap_root="/sys/class/powercap") -> dict:
     root = Path(powercap_root)
-    records = {}
+    records: dict[str, dict[str, Any]] = {}
     visited = set()
     errors = []
 
@@ -59,7 +60,7 @@ def discover_rapl_topology(powercap_root="/sys/class/powercap") -> dict:
     if root.is_dir():
         walk(root)
     domains = sorted(records.values(), key=lambda entry: entry["id"])
-    selected_packages = {}
+    selected_packages: dict[str, dict[str, Any]] = {}
     for entry in domains:
         if entry["kind"] == "package" and entry["status"] == "available":
             # Alternate interfaces to the same package (e.g. MSR/MMIO) are not additive.

@@ -9,6 +9,7 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from acprof.analysis.audit import audit_result
 from acprof.analysis.comparison import load_comparison_snapshot
@@ -121,17 +122,17 @@ def _summarize(entries, name):
             valid.append((entry, numeric))
     n_windows = len(valid)
     if metric.aggregation == "lifecycle":
-        lifecycles = {}
-        for entry, value in valid:
+        lifecycles: dict[str, float] = {}
+        for entry, lifecycle_value in valid:
             # Without startup identity only one consistent reused value is defensible.
             key = _text(entry["row"].get("cold_start_started_at"))
-            if key in lifecycles and lifecycles[key] != value:
+            if key in lifecycles and lifecycles[key] != lifecycle_value:
                 return {"value": None, "n": 0, "aggregation": "lifecycle_conflict", "missing": 0}
-            lifecycles[key] = value
+            lifecycles[key] = lifecycle_value
         values = list(lifecycles.values())
     else:
         values = [value for _, value in valid]
-    value = None
+    value: float | None = None
     missing = sum(entry["eligible"] for entry in entries) - n_windows
     if values:
         if metric.aggregation == "sum":
@@ -181,7 +182,9 @@ class AnalysisModel:
 
 def load_analysis(sources) -> AnalysisModel:
     """Load authoritative experiment layers without writing a wide CSV."""
-    snapshots, entries, groups, seen_paths, seen_keys = [], [], defaultdict(list), set(), {}
+    snapshots, groups, seen_paths = [], defaultdict(list), set()
+    entries: list[dict[str, Any]] = []
+    seen_keys: dict[object, tuple[str, str]] = {}
     condition_snapshots = {}
     for source in sources:
         path = Path(source).expanduser().resolve()

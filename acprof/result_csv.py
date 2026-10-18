@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Sequence, cast
 
 from acprof.artifacts import atomic_write
 from acprof.config import CSV_FIELDS
@@ -103,7 +103,7 @@ class _DigestingRawReader(io.RawIOBase):
 def _parse_result_csv(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None
                       ) -> tuple[list[str], list[dict[str, str]]]:
     reader = csv.DictReader(stream, strict=True)
-    fields = reader.fieldnames or []
+    fields = list(reader.fieldnames or [])
     require_current_fields(fields)
     if not fields or len(fields) != len(set(fields)):
         raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
@@ -125,7 +125,7 @@ def _parse_result_csv(stream: Iterable[str], path: Path, expected: Iterable[Meas
         keys.add(key)
         if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
             row["environment_class"] = "unknown"
-        rows.append(row)
+        rows.append(cast(dict[str, str], row))
     if not rows:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
     if expected is not None:
@@ -191,10 +191,10 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     path = Path(path).resolve()
     if path.name == "result_layers.json":
         fields, rows = read_result_csv(path, expected=expected)
-        digest = _file_sha256(path)
-        if not result_csv_snapshot_unchanged(ResultCsvSnapshot(path, fields, rows, digest)):
+        layer_digest = _file_sha256(path)
+        if not result_csv_snapshot_unchanged(ResultCsvSnapshot(path, fields, rows, layer_digest)):
             raise ResultValidationError("layered results changed during read")
-        return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest)
+        return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
@@ -227,7 +227,7 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
     if Path(destination).resolve() in resolved:
         raise ResultValidationError("final CSV cannot also be an input case")
     rows, keys = [], set()
-    environments = set()
+    environments: set[str] = set()
     fields = list(CSV_FIELDS)
     for path in resolved:
         if not path.is_file():
