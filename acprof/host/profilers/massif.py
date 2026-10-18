@@ -177,6 +177,7 @@ def _massif_checkpoint_matches(
     schema_version = raw_schema_version
     checkpoint_cpu = raw_cpu
     checkpoint_mem = raw_mem
+    assert isinstance(raw_scale, (int, float))
     checkpoint_scale = float(raw_scale)
     checkpoint_repeat = raw_repeat
     if not math.isfinite(checkpoint_scale) or checkpoint_scale <= 0.0:

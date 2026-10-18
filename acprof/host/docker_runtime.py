@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NoReturn, Optional
 
 from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -238,7 +238,7 @@ def start_container_session(
     base_url = f"http://127.0.0.1:{host_port}"
     deadline = time.perf_counter() + READY_TIMEOUT_S
 
-    def fail_startup(reason: str, *, timed_out: bool = False) -> None:
+    def fail_startup(reason: str, *, timed_out: bool = False) -> NoReturn:
         state = container_state.inspect_container_state(container_id)
         try:
             logs = host_command.run_command(['docker', 'logs', container_id, '--tail', '200'], check=False, timeout=15)

@@ -6,8 +6,8 @@ import re
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from typing import Mapping
+from urllib import request as urllib_request
 from urllib.parse import urlsplit
-from urllib.request import proxy_bypass_environment
 
 DEPENDENCY_USER_AGENT = "acprof-dependency-downloader/1.0"
 
@@ -131,7 +131,7 @@ def source_route(url: str, environ: Mapping[str, str] | None = None) -> str:
             else:
                 proxies.pop(key[:-6], None)
     parsed = urlsplit(url)
-    if proxy_bypass_environment(parsed.netloc, proxies):
+    if getattr(urllib_request, "proxy_bypass_environment")(parsed.netloc, proxies):
         return "direct-socket"
     return "explicit-proxy" if proxies.get(parsed.scheme) or proxies.get("all") else "direct-socket"
 

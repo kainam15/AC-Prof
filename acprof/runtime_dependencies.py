@@ -6,6 +6,7 @@ import ast
 import hashlib
 import sys
 from pathlib import PurePosixPath
+from typing import Any
 
 from acprof.dependency_locks import normalized_name, package_versions, read_python_lock
 from acprof.failures import Failure, RuntimeFailure
@@ -38,7 +39,11 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
     metadata = task.repository_metadata or {}
     configs = [task.model_config, *(value for value in metadata.values() if isinstance(value, dict))]
     pending = set().union(*(custom_code_files(config) for config in configs))
-    records, sources, requirements, trees, processed = [], {}, [], {}, set()
+    records: list[dict[str, Any]] = []
+    sources: dict[str, str] = {}
+    requirements: list[Any] = []
+    trees: dict[str, ast.AST] = {}
+    processed: set[str] = set()
     tokenizer = metadata.get("tokenizer_config.json", {})
     if tokenizer.get("tokenizer_class") in {"BertJapaneseTokenizer", "MecabTokenizer"} and tokenizer.get("word_tokenizer_type", "mecab") == "mecab":
         records.append({"module": "fugashi", "source": "tokenizer_config.json", "conditional": False})
@@ -168,10 +173,11 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
     for record in records:
         if "status" in record:
             continue
-        distribution = distributions.get(record["module"])
-        record.update(distribution=distribution, installed=installed.get(distribution))
+        resolved_distribution = distributions.get(record["module"])
+        record.update(distribution=resolved_distribution, installed=(
+            installed.get(resolved_distribution) if resolved_distribution is not None else None))
         record["status"] = "present" if record["installed"] else (
-            "unknown" if record["conditional"] or distribution is None else "missing")
+            "unknown" if record["conditional"] or resolved_distribution is None else "missing")
     report = {"schema_version": 1, "revision": task.model_revision, "runtime_profile": profile.profile_id,
               "lock": profile.environment.requirements_lock, "source_sha256": sources, "dependencies": records}
     task.model_resolution["dependency_preflight"] = report

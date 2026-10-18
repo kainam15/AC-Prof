@@ -568,6 +568,51 @@ class ClientRunner:
             **idle_debug_snapshot,
         }
 
+    def _attach_window_monitors(self, monitors: MonitorGroup):
+        """Register collectors in their existing order before starting sampling.
+
+        The caller keeps ownership and executes MonitorGroup.finish even when
+        collector construction raises after earlier collectors registered.
+        """
+        gpu_monitor = None
+        cpu_monitor = None
+        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is not None:
+            gpu_monitor = self.energy_mod.GPUEnergyMonitor(
+                sample_hz=self.config.sample_hz,
+                idle_seconds=self.config.idle_seconds,
+                device_index=self.config.device_index,
+                device_uuid=self.config.gpu_device_uuid,
+            )
+            monitors.add("gpu", gpu_monitor)
+
+        if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.cpu_energy_mod is not None:
+            try:
+                cpu_monitor = self.cpu_energy_mod.CPUEnergyMonitor(
+                    sample_hz=self.config.sample_hz, idle_seconds=self.config.idle_seconds,
+                    container_name=self.config.container_name, dram_energy=self.config.dram_energy)
+                monitors.add("cpu", cpu_monitor)
+            except RuntimeError as exc:
+                if self.config.dram_energy == "required":
+                    raise EnergyAbort(str(exc)) from exc
+                raise
+
+        if self.resource_usage_mod is not None:
+            resource_usage_monitor = self.resource_usage_mod.ResourceUsageMonitor(
+                sample_hz=self.config.sample_hz,
+                container_name=self.config.container_name,
+                cpu_cores=_to_float_or_nan(self.config.cpu_cores),
+                mem_cap_gb=_to_float_or_nan(self.config.mem_cap_gb),
+                use_gpu=self.use_energy,
+                device_index=self.config.device_index,
+                device_uuid=self.config.gpu_device_uuid,
+            )
+            monitors.add("resource", resource_usage_monitor)
+
+        if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips:
+            mips_monitor = self.perf_mips_mod.PerfMIPSMonitor(self.config.container_name)
+            monitors.add("mips", mips_monitor)
+        return gpu_monitor, cpu_monitor
+
     def _execute_window(self, scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f, cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s, compute_profile_plan, execution_profile_plan):
         """Sample one window, then assemble its result; publication belongs to main."""
         scale_val = float(scale_entry["input_scale"])
@@ -610,8 +655,6 @@ class ClientRunner:
         monitors = MonitorGroup()
         gpu_monitor = None
         cpu_monitor = None
-        resource_usage_monitor = None
-        mips_monitor = None
         gpu_result = None
         _gpu_samples = []
         cpu_result = None
@@ -624,41 +667,7 @@ class ClientRunner:
         _cpu_err = ""
         try:
             try:
-                if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is not None:
-                    gpu_monitor = self.energy_mod.GPUEnergyMonitor(
-                        sample_hz=self.config.sample_hz,
-                        idle_seconds=self.config.idle_seconds,
-                        device_index=self.config.device_index,
-                        device_uuid=self.config.gpu_device_uuid,
-                    )
-                    monitors.add("gpu", gpu_monitor)
-
-                if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.cpu_energy_mod is not None:
-                    try:
-                        cpu_monitor = self.cpu_energy_mod.CPUEnergyMonitor(
-                            sample_hz=self.config.sample_hz, idle_seconds=self.config.idle_seconds,
-                            container_name=self.config.container_name, dram_energy=self.config.dram_energy)
-                        monitors.add("cpu", cpu_monitor)
-                    except RuntimeError as exc:
-                        if self.config.dram_energy == "required":
-                            raise EnergyAbort(str(exc)) from exc
-                        raise
-
-                if self.resource_usage_mod is not None:
-                    resource_usage_monitor = self.resource_usage_mod.ResourceUsageMonitor(
-                        sample_hz=self.config.sample_hz,
-                        container_name=self.config.container_name,
-                        cpu_cores=_to_float_or_nan(self.config.cpu_cores),
-                        mem_cap_gb=_to_float_or_nan(self.config.mem_cap_gb),
-                        use_gpu=self.use_energy,
-                        device_index=self.config.device_index,
-                        device_uuid=self.config.gpu_device_uuid,
-                    )
-                    monitors.add("resource", resource_usage_monitor)
-
-                if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips:
-                    mips_monitor = self.perf_mips_mod.PerfMIPSMonitor(self.config.container_name)
-                    monitors.add("mips", mips_monitor)
+                gpu_monitor, cpu_monitor = self._attach_window_monitors(monitors)
 
                 if gpu_monitor is not None or cpu_monitor is not None:
                     self._sleep_before_idle_baseline()

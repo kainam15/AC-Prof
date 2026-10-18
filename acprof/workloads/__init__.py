@@ -195,7 +195,7 @@ def get_generator(
         factory = getattr(cls, "from_config", None)
         config = {"workload_spec_path": workload_spec_path, "model_adapter": model_adapter, **options}
         if factory is None:
-            return WorkloadGenerator.from_config.__func__(cls, model_id, task_type, batch_size, **config)
+            return WorkloadGenerator.__dict__["from_config"].__func__(cls, model_id, task_type, batch_size, **config)
         return factory(model_id, task_type, batch_size, **config)
     except ModuleNotFoundError as exc:
         raise WorkloadDependencyMissingError(

@@ -6,6 +6,7 @@ import json
 import os
 import traceback
 from pathlib import Path
+from typing import Any
 
 RESULT_PREFIX = "ACPROF_INTERFACE_VALIDATION="
 
@@ -21,7 +22,7 @@ def validate_interface(payload: dict) -> dict:
     config = json.loads((Path(source) / "config.json").read_text())
     auto_maps = [json.loads(path.read_text()).get("auto_map", {}) for name in SOURCE_METADATA_FILES
                 if (path := Path(source) / name).is_file()]
-    checks = []
+    checks: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
     if config.get("custom_pipelines") or any(auto_maps):
         from acprof.container.load_policy import registered_policy
         from acprof.failures import Failure, RuntimeFailure
@@ -35,9 +36,11 @@ def validate_interface(payload: dict) -> dict:
         params = {"max_new_tokens": 1, "do_sample": False, **payload.get("params", {})}
         kwargs = {key: params[value[1:]] if isinstance(value, str) and value.startswith("$") else value
                   for key, value in spec.get("multimodal", {}).get("forward_kwargs", {}).items()}
-        checks.extend((getattr(pipeline_class, method), arguments, keywords)
-                      for method, arguments, keywords in (("preprocess", (None, {}), {}),
-                          ("_forward", (None, {}), kwargs), ("postprocess", (None, {}), {})))
+        arguments: tuple[Any, ...]
+        for method, arguments, keywords in (("preprocess", (None, {}), {}),
+                                            ("_forward", (None, {}), kwargs),
+                                            ("postprocess", (None, {}), {})):
+            checks.append((getattr(pipeline_class, method), arguments, keywords))
     else:
         handler = HandlerRegistry.get(os.environ["TASK_FAMILY"], os.environ["RUNTIME_BACKEND"])
         checks.extend((getattr(handler, method), arguments, {}) for method, arguments in (

@@ -10,6 +10,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
 
 from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
 from acprof.host.model_errors import ModelLookupError
@@ -102,7 +103,7 @@ class PreparationWorkflow:
                 detail = traceback.format_exc()[-24000:]
                 if not self.interactive:
                     raise
-                fields = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
+                fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
                 from acprof.hf_download import HfDownloadError, exception_chain
                 download_error = next((cause.to_dict() for cause in exception_chain(exc)
                                        if isinstance(cause, HfDownloadError)), None)
