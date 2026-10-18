@@ -7,7 +7,7 @@ import json
 import math
 from collections.abc import Mapping
 from numbers import Number
-from typing import Any
+from typing import Any, cast
 
 from acprof.extensions import CATALOG
 from acprof.workloads.contract import workload_contract
@@ -19,7 +19,7 @@ class OutputValidationError(ValueError):
 
 def _finite(value: Any, path: str = 'output') -> None:
     if isinstance(value, Number):
-        if not math.isfinite(value):
+        if not math.isfinite(cast(float, value)):
             raise OutputValidationError(f'{path} must be finite')
     elif isinstance(value, Mapping):
         for key, item in value.items():
@@ -82,9 +82,9 @@ def validate_output(model_ctx: dict, raw_input: dict, processed_input: Any,
     effective = prepared.get('_effective_input_scale')
     planned = raw_input.get('input_scale', raw_input.get('resolution'))
     if (isinstance(effective, bool) or not isinstance(effective, Number)
-            or not math.isfinite(effective) or effective <= 0):
+            or not math.isfinite(cast(float, effective)) or cast(float, effective) <= 0):
         raise OutputValidationError('actual input scale evidence must be finite and positive')
-    if planned is not None and not math.isclose(float(planned), float(effective), abs_tol=1e-6):
+    if planned is not None and not math.isclose(float(planned), float(cast(float, effective)), abs_tol=1e-6):
         raise OutputValidationError(f'actual input scale differs from plan: {effective} != {planned}')
     if prepared.get('_truncated_by_limit'):
         raise OutputValidationError('workload was truncated by the model limit')
@@ -130,7 +130,7 @@ def validate_output(model_ctx: dict, raw_input: dict, processed_input: Any,
             raise OutputValidationError('structured output requires output_shape')
         count = response.get('n_results')
         expected = len(raw_input.get('features', raw_input.get('observations', raw_input.get('graphs', []))))
-        if count != expected or shape[0] != expected:
+        if count != expected or shape is None or shape[0] != expected:
             raise OutputValidationError(f'output shape/rows differ from executed input: expected {expected}')
         task_checks.append('one_result_per_input_row_or_graph')
     if task == 'time-series-forecasting':

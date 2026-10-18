@@ -218,10 +218,14 @@ class WeComWebhookNotifier:
     def from_env(
         cls,
         environ: Optional[Mapping[str, str]] = None,
-        **kwargs: object,
+        *,
+        timeout_seconds: float = DEFAULT_NOTIFY_TIMEOUT_SECONDS,
+        attempts: int = DEFAULT_NOTIFY_ATTEMPTS,
+        retry_delay_seconds: float = DEFAULT_NOTIFY_RETRY_DELAY_SECONDS,
     ) -> "WeComWebhookNotifier":
         env = os.environ if environ is None else environ
-        return cls(env.get(WECOM_WEBHOOK_ENV, ""), **kwargs)
+        return cls(env.get(WECOM_WEBHOOK_ENV, ""), timeout_seconds=timeout_seconds,
+                   attempts=attempts, retry_delay_seconds=retry_delay_seconds)
 
     def __repr__(self) -> str:
         return (

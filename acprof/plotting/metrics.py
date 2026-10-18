@@ -1,10 +1,12 @@
 """单指标、指标概览及能耗图表。"""
 
 import math
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
@@ -193,7 +195,7 @@ def plot_metric_overview(
         raise ValueError("Overview panel count must match rows * columns")
 
     panels = tuple(
-        (*normalized_metric_spec(df, *panel[:3], xlabel), *panel[3:])
+        (*normalized_metric_spec(df, panel[0], panel[1], panel[2], xlabel), *panel[3:])
         if panel is not None else None
         for panel in panels
     )
@@ -240,7 +242,7 @@ def plot_metric_overview(
             if config[2]
         })
     figure_width = 18 if columns > 1 else 11
-    figure_height = {1: 8, 2: 11, 3: 14}.get(rows, 4 * rows + 2)
+    figure_height = float({1: 8, 2: 11, 3: 14}.get(rows, 4 * rows + 2))
     fig, axes = plt.subplots(
         rows,
         columns,
@@ -321,7 +323,7 @@ def plot_metric_overview(
     )
     fig.canvas.draw()
     legend_height_inches = legend.get_window_extent(
-        fig.canvas.get_renderer()
+        cast(FigureCanvasAgg, fig.canvas).get_renderer()
     ).height / fig.dpi
     note_lines = figure_note.count("\n") + 1 if figure_note else 0
     note_height_inches = 0.12 + 0.22 * note_lines if figure_note else 0.0

@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
@@ -120,7 +121,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     platform_key = platform_fingerprint(profile.environment.platform, project_dir)
     local = inspect(f"acprof-platform-{profile.environment.platform.platform_id}:{platform_key[:20]}")
     result = []
-    summary = {"source_mode": policy, "platform_local": local is not None, "environment_local": False,
+    summary: dict[str, Any] = {"source_mode": policy, "platform_local": local is not None, "environment_local": False,
                "will_attempt_ghcr_pull": False, "alternatives": {}}
     platform_id = local["image_id"] if local else None
     if not local and policy != "build":

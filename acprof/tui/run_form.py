@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 from acprof.experiment import PRESET_FIELDS, RunConfig
 from acprof.tui.presentation import format_input_number
@@ -74,7 +74,7 @@ def collect_config(inputs: Mapping[str, str], selects: Mapping[str, str],
                    checks: Mapping[str, bool], *, project_dir: Path,
                    allow_empty_model: bool = False, extra_options: dict | None = None) -> RunConfig:
     compute_tool, execution_tool = profiler_tools_from_checks(checks)
-    values = {**{field: inputs[key] for key, field in INPUT_FIELDS.items()},
+    values: dict[str, Any] = {**{field: inputs[key] for key, field in INPUT_FIELDS.items()},
               **{field: selects[key] for key, field in SELECT_FIELDS.items()},
               **{field: checks[key] for key, field in CHECKED_FIELDS.items()},
               "compute_profile_tool": compute_tool,
