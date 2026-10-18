@@ -1,9 +1,5 @@
 name: Coordinated dependency lock refresh
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/lock-refresh.yml'
   schedule:
     - cron: '29 4 1 * *' # Monthly, UTC; only the default branch
   workflow_dispatch:
@@ -32,7 +28,7 @@ jobs:
       pull-requests: write
       actions: write # workflow_dispatch explicitly starts the full CI for the generated branch
     env:
-      REFRESH_SCOPE: ${{ inputs.scope || (github.event_name == 'push' && 'host') || 'all' }}
+      REFRESH_SCOPE: ${{ inputs.scope || 'all' }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
