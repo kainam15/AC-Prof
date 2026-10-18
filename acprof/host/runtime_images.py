@@ -57,6 +57,8 @@ def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = N
     from acprof.runtime_profiles import PLATFORMS, profile_for_platform
 
     profile = select_runtime_profile(task_info)
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
     if profile.adapter == "family-default" and profile.environment.platform.torch_version:
         index = (torch_index_url or select_nlp_torch_index_url()).rstrip("/")
         variant = index.rsplit("/", 1)[-1]
@@ -87,6 +89,8 @@ def download_policy(task_info: Any) -> str:
 def request_fingerprint(task_info: Any, project_dir: str | Path = PROJECT_ROOT) -> str:
     root = Path(project_dir)
     profile = select_runtime_profile(task_info)
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
     overrides = runtime_build_overrides() if profile.adapter == "family-default" and profile.environment.platform.torch_version else {}
     logical_profile = profile.to_dict()
     logical_profile["environment"] = environment_id(profile.environment, root)
@@ -165,6 +169,10 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     except ValueError as exc:
         raise RuntimeError("镜像运行环境清单无效") from exc
     profile = select_runtime_profile(task_info)
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
     expected = {
         "request_fingerprint": fingerprint, "profile_id": profile.profile_id,
         "adapter": profile.adapter, "model_id": task_info.model_id,
@@ -203,6 +211,8 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     from acprof.container.model_files import ModelFilesError, validate_plan
 
     plan = manifest.get("model_download")
+    if not isinstance(plan, dict):
+        raise RuntimeError("镜像模型文件清单缺失或无效：model_download must be an object")
     try:
         validate_plan(plan)
         if plan.get("verification") != "sha256":
@@ -228,6 +238,8 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
     if os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1" and not reuse_existing:
         raise RuntimeError("硬件验证禁止隐式构建或下载：当前运行路径要求重新构建模型镜像")
     profile = configure_runtime_profile(task_info)
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if not re.fullmatch(r"[0-9a-f]{40}", task_info.model_revision or ""):
         from huggingface_hub import HfApi
@@ -266,6 +278,8 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
 
 def build_runtime_image(task_info: Any, project_dir: str):
     profile = select_runtime_profile(task_info)
+    if profile.environment is None:
+        raise RuntimeError("runtime profile does not declare a dependency environment")
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if not re.fullmatch(r"[0-9a-f]{40}", task_info.model_revision or ""):
         raise RuntimeError("镜像构建要求固定 model revision；请通过 prepare_image 准备镜像")
@@ -401,7 +415,7 @@ def select_nlp_torch_index_url() -> str:
     return DEFAULT_NLP_TORCH_INDEX_URL
 
 
-def _model_image_tag(task_info: TaskInfo, project_dir: Optional[str] = None) -> str:
+def _model_image_tag(task_info: TaskInfo, project_dir: str | Path | None = None) -> str:
     model_tag = model_token(task_info.model_id)
     fingerprint = request_fingerprint(task_info, project_dir or PROJECT_ROOT)
     return f"{DOCKER_IMAGE_PREFIX}-{task_info.task_family}-{model_tag}:{fingerprint[:20]}"

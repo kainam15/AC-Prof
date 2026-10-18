@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import math
 from pathlib import Path
-from types import SimpleNamespace
 from typing import (
     Any,
     Dict,
@@ -23,6 +22,7 @@ from acprof.host.compute_profile_plan import (
     find_compute_profile_entry,
 )
 from acprof.host.execution_profile_plan import find_execution_profile_entry
+from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
     POSTHOC_DIRNAME,
@@ -259,7 +259,8 @@ def _validate_profiler_runtime(
                 tag=context.image_tag,
                 runtime_environment=context.static_meta.get("runtime_environment") or {},
             ),
-            planned=SimpleNamespace(plan_file=str(context.input_scale_plan_path)),
+            planned=PlannedInputScales(scales=[], source="posthoc_reuse",
+                                       plan_file=str(context.input_scale_plan_path)),
             cpu_list=sorted({case[0] for case in cases}),
             mem_list=sorted({case[1] for case in cases}),
             gpu_list=modes,
@@ -288,7 +289,7 @@ def _collect_compute_plan(
 ) -> Dict[str, Any]:
     from acprof.host.compute_profile import collect_compute_profile_plan
 
-    modes = [
+    modes: list[str] = [
         mode
         for mode in ("off", "on")
         if mode in TOOL_GPU_MODES[tool] and context.cases_for_mode(mode)
@@ -555,9 +556,11 @@ def merge_execution_plans(
             if not isinstance(profile, Mapping):
                 continue
             try:
-                key = (
-                    int(profile.get("cpu_cores")),
-                    int(profile.get("mem_cap_gb")),
+                cpu_value, mem_value = profile.get("cpu_cores"), profile.get("mem_cap_gb")
+                if cpu_value is None or mem_value is None:
+                    continue
+                resource_key = (
+                    int(cpu_value), int(mem_value),
                     str(profile.get("gpu_mode") or "").strip().lower(),
                 )
             except (TypeError, ValueError):
@@ -569,11 +572,11 @@ def merge_execution_plans(
             if not isinstance(tool_profile, Mapping):
                 continue
             target = profiles.setdefault(
-                key,
+                resource_key,
                 {
-                    "cpu_cores": key[0],
-                    "mem_cap_gb": key[1],
-                    "gpu_mode": key[2],
+                    "cpu_cores": resource_key[0],
+                    "mem_cap_gb": resource_key[1],
+                    "gpu_mode": resource_key[2],
                     "tools": {},
                 },
             )

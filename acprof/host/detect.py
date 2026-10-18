@@ -84,13 +84,11 @@ def _download_metadata(
     from acprof.model_evidence import pinned_revision
 
     configure_hf_transport()
-    kwargs = {"repo_id": model_id, "filename": name}
-    if revision is not None:
-        kwargs["revision"] = revision
     def download(endpoint):
         size = None
-        if pinned_revision(revision):
-            metadata = hf_hub_download(**kwargs, endpoint=endpoint, dry_run=True)
+        if revision is not None and pinned_revision(revision):
+            metadata = hf_hub_download(repo_id=model_id, filename=name,
+                                       revision=revision, endpoint=endpoint, dry_run=True)
             size = getattr(metadata, "file_size", None)
             if type(size) is not int or not 0 <= size <= max_bytes:
                 raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
@@ -98,7 +96,7 @@ def _download_metadata(
                 raise ValueError("metadata preflight returned a different model revision")
         # Mutable-ref fallback must let the SDK record its ref for offline use.
         # A dry-run followed by a SHA download would leave a fresh ref absent.
-        path = hf_hub_download(**kwargs, endpoint=endpoint)
+        path = hf_hub_download(repo_id=model_id, filename=name, revision=revision, endpoint=endpoint)
         actual_size = Path(path).stat().st_size
         if actual_size > max_bytes:
             raise ValueError(f"{name} exceeds {max_bytes} bytes")
@@ -325,6 +323,8 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
     raw_parameter_count = _mapping_value(safetensors, "total")
     try:
         if raw_parameter_count is not None:
+            if not isinstance(raw_parameter_count, (int, str, float)):
+                raise ValueError("invalid model parameter count")
             parameter_count = int(raw_parameter_count)
     except (TypeError, ValueError):
         pass
@@ -462,7 +462,7 @@ def _detect_from_hub(
             else:
                 configure_hf_transport()
                 info = try_hf_endpoints(model_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
-                    model_id, **({"revision": revision} if revision else {})))
+                    model_id, revision=revision))
     except Exception as exc:
         _record_failure(diagnostics, "hub_api", _format_failure(exc))
         if failures is not None:
@@ -475,7 +475,7 @@ def _detect_from_hub(
     library_name = getattr(info, "library_name", None) or ""
     sha = getattr(info, "sha", None) or "main"
     from acprof.model_evidence import pinned_revision
-    if pinned_revision(revision) and sha != revision:
+    if revision is not None and pinned_revision(revision) and sha != revision:
         raise ValueError("Hub returned a different commit than the requested revision")
     transformers_info = getattr(info, "transformers_info", None)
     transformers_info = {key: value for key in ("auto_model", "pipeline_tag", "processor", "custom_class")
@@ -499,7 +499,7 @@ def _detect_from_hub(
             task_hint_source = 'registered_architecture'
 
     # Keep raw metadata when unresolved so explicit CLI declarations can repair it.
-    task_family = CATALOG.task_families.get(pipeline_tag)
+    task_family = CATALOG.task_families.get(pipeline_tag or "")
     runtime_backend = "unknown"
     try:
         resolved = CATALOG.resolve(task=pipeline_tag, library=library_name, config=model_config, model_id=model_id)
@@ -540,7 +540,7 @@ def _detect_from_config(
     *, requested_revision: str | None = None, failures: list[Exception] | None = None,
 ) -> Optional[TaskInfo]:
     """Level 2: Infer task from model architecture name."""
-    architectures = []
+    architectures: list[str] = []
     config_data = {}
     revision = "main"
     try:
@@ -550,7 +550,7 @@ def _detect_from_config(
         revision = Path(config_path).parent.name
         if not pinned_revision(revision) or Path(config_path).parent.parent.name != "snapshots":
             raise ValueError("config fallback requires a pinned snapshot commit SHA")
-        if pinned_revision(requested_revision) and revision != requested_revision:
+        if requested_revision is not None and pinned_revision(requested_revision) and revision != requested_revision:
             raise ValueError("config fallback returned a different model revision")
         config_data = _read_json_metadata(config_path)
         architectures = config_data.get("architectures") or []

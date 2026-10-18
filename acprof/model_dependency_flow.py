@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import PurePosixPath
+from typing import Any
 
 from acprof.model_source_analysis import parse_source
 
@@ -75,7 +76,7 @@ class DependencyAnalyzer:
         self.entries = {}
         for name, tree in self.trees.items():
             module = self.module_name(name)
-            env = {"config": copy.deepcopy(self.config)}
+            env: dict[str, Any] = {"config": copy.deepcopy(self.config)}
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     key = module + "." + node.name
@@ -155,7 +156,7 @@ class DependencyAnalyzer:
         for key, (_, owner, node) in self.functions.items():
             if key not in self.visited and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr == "from_pretrained" for n in ast.walk(node)):
-                args = [Instance(owner)] if owner else []
+                args: list[Any] = [Instance(owner)] if owner else []
                 self.invoke(key, args, {}, "unknown", [], None, use_defaults=False)
         return self.candidates
 
@@ -200,7 +201,7 @@ class DependencyAnalyzer:
                 not isinstance(item, ast.Name) or item.id not in {"classmethod", "staticmethod"}
                 for item in node.decorator_list):
             state = activation(state, UNKNOWN)
-        env = dict(self.modules[filename])
+        env: dict[str, Any] = dict(self.modules[filename])
         parameters = [*node.args.posonlyargs, *node.args.args]
         defaults = [None] * (len(parameters) - len(node.args.defaults)) + list(node.args.defaults)
         for index, (parameter, default) in enumerate(zip(parameters, defaults, strict=True)):
@@ -224,8 +225,8 @@ class DependencyAnalyzer:
         try:
             return self.block(node.body, env, filename, state, [*chain, location], alternative)[0]
         finally:
-            for parameter, original in bound_mappings.items():
-                updated = env[parameter]
+            for parameter_name, original in bound_mappings.items():
+                updated = env[parameter_name]
                 if isinstance(updated, dict) and updated is not original:
                     # Branch copies may have mutated a caller's mapping. Do not
                     # leave a stale caller-side config proof after a local call.
@@ -386,7 +387,7 @@ class DependencyAnalyzer:
         if isinstance(node, ast.BoolOp):
             uncertain = False
             stopped = False
-            result = UNKNOWN
+            bool_result: Any = UNKNOWN
             for part in node.values:
                 value = self.value(part, env, filename, "inactive" if stopped else activation(state, UNKNOWN)
                                    if uncertain else state, chain, alternative)
@@ -397,14 +398,14 @@ class DependencyAnalyzer:
                     uncertain = True
                 if truth == isinstance(node.op, ast.Or):
                     stopped = True
-                result = UNKNOWN if uncertain else value
-            return result
+                bool_result = UNKNOWN if uncertain else value
+            return bool_result
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
             value = known_truth(evaluate(node.operand))
             return UNKNOWN if value is UNKNOWN else not value
         if isinstance(node, ast.Compare):
             left = evaluate(node.left)
-            outcomes = []
+            outcomes: list[Any] = []
             for operator, comparator in zip(node.ops, node.comparators, strict=True):
                 right = evaluate(comparator)
                 if left is UNKNOWN or right is UNKNOWN or isinstance(left, Symbol) or isinstance(right, Symbol):
@@ -443,7 +444,8 @@ class DependencyAnalyzer:
             if (isinstance(node.key, ast.Name) and isinstance(node.value, ast.Name)
                     and isinstance(generator.target, ast.Tuple) and len(generator.target.elts) == 2
                     and all(isinstance(part, ast.Name) for part in generator.target.elts)
-                    and [part.id for part in generator.target.elts] == [node.key.id, node.value.id]
+                    and [part.id for part in generator.target.elts if isinstance(part, ast.Name)]
+                    == [node.key.id, node.value.id]
                     and isinstance(generator.iter, ast.Call) and isinstance(generator.iter.func, ast.Attribute)
                     and generator.iter.func.attr == "items" and not generator.iter.args and not generator.iter.keywords
                     and not generator.is_async and len(generator.ifs) == 1):
@@ -459,7 +461,8 @@ class DependencyAnalyzer:
         return UNKNOWN
 
     def arguments(self, node, env, filename, state, chain, alternative):
-        args, kwargs = [], {}
+        args: list[Any] = []
+        kwargs: dict[str, Any] = {}
         for arg in node.args:
             value = self.value(arg.value if isinstance(arg, ast.Starred) else arg, env, filename, state, chain, alternative)
             if isinstance(arg, ast.Starred):
