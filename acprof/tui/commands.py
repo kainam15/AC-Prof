@@ -109,7 +109,7 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
     layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
     output = layout.path("analysis") / f"experiment-comparison-{datetime.now(timezone.utc):%Y%m%d-%H%M%S-%f}.json"
     command = [*cli_command("compare", python_executable=python_executable)]
-    for name, paths in zip(("--left", "--right"), groups):
+    for name, paths in zip(("--left", "--right"), groups, strict=True):
         for path in paths:
             command.extend((name, str(path)))
     command.extend(("--purpose", purpose, "--output", str(output)))

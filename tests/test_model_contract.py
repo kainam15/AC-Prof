@@ -126,7 +126,7 @@ class TestModelContract:
             self.processor = AutoProcessor.from_pretrained("example/audio")
 '''),
         )
-        source, missing = tuple(zip(sources, ('multimodal.inputs', 'dependencies')))[source_case]
+        source, missing = tuple(zip(sources, ('multimodal.inputs', 'dependencies'), strict=True))[source_case]
         task = self.discover(source, transformers_info=GENERIC_LOADER)
         assert (task.model_resolution["status"]) == ("needs_configuration")
         assert not (task.model_resolution["conflicts"])

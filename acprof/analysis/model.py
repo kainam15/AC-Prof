@@ -83,7 +83,7 @@ def _identity(row, meta, run_id, batch):
         recorded if recorded != "unknown" else environment,
         _text(row.get("task") or meta.get("pipeline_tag") or meta.get("task_family")),
         _text(input_case), _text(row.get("experiment_batch"), batch),
-    )))
+    ), strict=True))
 
 
 def _values(row, device):
@@ -146,7 +146,7 @@ def _summarize(entries, name):
                 if weight is not None and weight > 0:
                     weights.append(weight)
             if not missing and len(weights) == len(values):
-                value = sum(v * w for v, w in zip(values, weights)) / sum(weights)
+                value = sum(v * w for v, w in zip(values, weights, strict=True)) / sum(weights)
         else:
             value = statistics.fmean(values)
     return {"value": number(value), "n": len(values), "missing": missing,

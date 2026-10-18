@@ -478,6 +478,7 @@ def _predict_primary_latency(row, model: dict) -> float:
                 model["hardware_model"],
                 model.get("input_scale_spline_knots", []),
             ),
+            strict=True,
         )
     )
     # The exponential link makes predictions positive. Clipping only protects
@@ -532,7 +533,7 @@ def _regression_metrics(
     )
     valid_pairs = [
         (float(actual), float(prediction))
-        for actual, prediction in zip(actuals, predictions)
+        for actual, prediction in zip(actuals, predictions, strict=True)
         if math.isfinite(float(actual)) and math.isfinite(float(prediction))
     ]
     if not valid_pairs:
@@ -557,7 +558,7 @@ def _regression_metrics(
     valid_predictions = [pair[1] for pair in valid_pairs]
     errors = [
         actual - predicted
-        for actual, predicted in zip(valid_actuals, valid_predictions)
+        for actual, predicted in zip(valid_actuals, valid_predictions, strict=True)
     ]
     absolute_errors = [abs(error) for error in errors]
     mae = sum(absolute_errors) / len(absolute_errors)
@@ -569,7 +570,7 @@ def _regression_metrics(
     relative_mae = None if mean_actual <= 0.0 else mae / mean_actual
     absolute_percentage_errors = [
         abs(actual - predicted) / abs(actual)
-        for actual, predicted in zip(valid_actuals, valid_predictions)
+        for actual, predicted in zip(valid_actuals, valid_predictions, strict=True)
         if abs(actual) > 0.0
     ]
     mean_absolute_percentage_error = (
@@ -584,7 +585,7 @@ def _regression_metrics(
     )
     smape_terms = [
         2.0 * abs(actual - predicted) / (abs(actual) + abs(predicted))
-        for actual, predicted in zip(valid_actuals, valid_predictions)
+        for actual, predicted in zip(valid_actuals, valid_predictions, strict=True)
         if abs(actual) + abs(predicted) > 0.0
     ]
     smape = None if not smape_terms else sum(smape_terms) / len(smape_terms)
@@ -740,7 +741,7 @@ def _resource_configuration_validation(
         fold_predictions = [
             _predict_latency(row, fold_model) for row in test_rows
         ]
-        for row, prediction in zip(test_rows, fold_predictions):
+        for row, prediction in zip(test_rows, fold_predictions, strict=True):
             predictions[_point_key(row)] = prediction
         fold_detail["status"] = "ok"
         fold_detail["metrics"] = _regression_metrics(
@@ -755,7 +756,7 @@ def _resource_configuration_validation(
     predicted = [predictions[_point_key(row)] for row in predicted_rows]
     case_relative_errors = [
         abs(actual - prediction) / actual
-        for actual, prediction in zip(actuals, predicted)
+        for actual, prediction in zip(actuals, predicted, strict=True)
     ]
     worst_case_idx = (
         None
@@ -892,7 +893,7 @@ def _input_scale_validation(
     predicted = [predictions[_point_key(row)] for row in test_rows]
     case_relative_errors = [
         abs(actual - prediction) / actual
-        for actual, prediction in zip(actuals, predicted)
+        for actual, prediction in zip(actuals, predicted, strict=True)
     ]
     worst_case_idx = max(
         range(len(test_rows)),

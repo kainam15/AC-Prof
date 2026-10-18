@@ -9,7 +9,7 @@ from acprof.host.measurement_window import MonitorGroup
 
 def group(*monitors, perf=None):
     result = MonitorGroup()
-    for name, monitor in zip(("cpu", "resource", "gpu"), monitors):
+    for name, monitor in zip(("cpu", "resource", "gpu"), monitors, strict=False):
         result.add(name, monitor)
     result.add("mips", perf)
     return result

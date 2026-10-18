@@ -259,7 +259,7 @@ def plot_metric_overview(
         for index in index_group[1:]:
             flat_axes[index].sharey(base_axis)
 
-    for panel_index, (axis, panel) in enumerate(zip(flat_axes, panels)):
+    for panel_index, (axis, panel) in enumerate(zip(flat_axes, panels, strict=True)):
         if panel is None:
             axis.set_visible(False)
             continue

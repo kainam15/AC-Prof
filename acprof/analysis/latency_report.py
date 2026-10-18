@@ -144,6 +144,7 @@ def _input_scale_basis(hardware_model: str, fitted_model: dict) -> dict:
             "coefficients": dict(zip(
                 upper_tail_feature_names,
                 upper_tail_coefficients,
+                strict=True,
             )),
             "minimum_fitted_slope_s_per_scale": upper_tail_model.get(
                 "minimum_fitted_slope_s_per_scale"
@@ -258,6 +259,7 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             for name, value in zip(
                 fitted_model["feature_names"],
                 fitted_model["coefficients"],
+                strict=True,
             )
         }
         input_scale_basis = _input_scale_basis(hardware_model, fitted_model)

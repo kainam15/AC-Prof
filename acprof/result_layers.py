@@ -198,12 +198,12 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
             expected_keys = keys
             if len(keys) != manifest["row_count"]:
                 raise ResultValidationError("summary row count mismatch")
-            combined = {key: dict(row) for key, row in zip(keys, rows)}
+            combined = {key: dict(row) for key, row in zip(keys, rows, strict=True)}
         elif expected_keys is None:
             raise ResultValidationError("summary layer must be first")
         elif layer not in PROFILER_LAYERS and keys != expected_keys:
             raise ResultValidationError(f"measurement order mismatch in {layer}")
-        for key, row in zip(keys, rows):
+        for key, row in zip(keys, rows, strict=True):
             if key not in combined:
                 raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
             if layer != "summary":

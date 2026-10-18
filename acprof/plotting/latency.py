@@ -290,12 +290,12 @@ def plot_latency_model_residuals(
         medianprops={"color": "black", "linewidth": 1.4},
         **boxplot_label_argument,
     )
-    for patch, color in zip(boxplot["boxes"], distribution_colors):
+    for patch, color in zip(boxplot["boxes"], distribution_colors, strict=True):
         patch.set_facecolor(color)
         patch.set_alpha(0.45)
     random_generator = np.random.default_rng(0)
     for position, (values, color) in enumerate(
-        zip(distribution_values, distribution_colors),
+        zip(distribution_values, distribution_colors, strict=True),
         start=1,
     ):
         jitter = random_generator.uniform(-0.13, 0.13, size=len(values))
@@ -529,7 +529,7 @@ def plot_latency_model_fit_curves(
         "gpu": "GPU-on model",
     }
 
-    for axis, hardware_model in zip(axes, hardware_order):
+    for axis, hardware_model in zip(axes, hardware_order, strict=True):
         hardware_df = residual_df[
             residual_df["hardware_model"] == hardware_model
         ]

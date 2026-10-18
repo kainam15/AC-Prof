@@ -81,7 +81,7 @@ class TestOverviewLegend:
             assert (len(cells)) == (len(headings))
             assert (len({round(text.get_window_extent(renderer).y0, 3) for text in cells})) == (1)
         samples = [
-            handle for handle, text in zip(legend.get_lines(), texts)
+            handle for handle, text in zip(legend.get_lines(), texts, strict=True)
             if text.get_text().startswith("Mem")
         ]
         assert (len(samples)) == (len(configs))

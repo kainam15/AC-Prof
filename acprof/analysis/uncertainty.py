@@ -47,7 +47,7 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         ordered = sorted(cases[case], key=lambda row: float(row["repeat_idx"]))
         gaps = ((block_size > 1 or precision_target is not None)
                 and any(float(b["repeat_idx"]) != float(a["repeat_idx"]) + 1
-                        for a, b in zip(ordered, ordered[1:])))
+                        for a, b in zip(ordered, ordered[1:], strict=False)))
         for name in metrics:
             if cancelled():
                 raise CancelledError()

@@ -114,7 +114,7 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 
 Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
 3.10，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
-`B904`（异常链）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
+`B904`（异常链）、`B905`（zip 长度语义显式声明）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
 `RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）。不启用全量 RUF/SIM、`E501` 或 formatter；
 `line-length = 100` 本身不检查行长。Ruff hook 只检查，不自动修复；空白和末尾换行 hooks
 会修正文件并返回失败，检查 `git diff` 后重新运行。不得用扩大 `ignore` 或排除目录掩盖新问题。

@@ -30,7 +30,7 @@ def write_csv(path, latencies=(0.01, 0.2)):
         writer = csv.DictWriter(stream, fieldnames=["cpu_cores", "mem_cap_gb", "gpu_mode",
             "input_scale", "warmup", "repeat_idx", "status", "latency_app_s"])
         writer.writeheader()
-        for scale, latency in zip((64, 128), latencies):
+        for scale, latency in zip((64, 128), latencies, strict=True):
             writer.writerow(dict(cpu_cores=1, mem_cap_gb=4, gpu_mode="off", input_scale=scale,
                                  warmup=0, repeat_idx=0, status="ok", latency_app_s=latency))
 

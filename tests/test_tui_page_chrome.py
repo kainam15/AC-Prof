@@ -41,7 +41,7 @@ class TestTuiPageChrome:
     def assert_actions_aligned(self, pane, secondary_ids, primary):
         secondary = [pane.query_one("#" + widget_id) for widget_id in secondary_ids]
         assert (secondary[0].region.x) == (pane.region.x + 2)
-        for left, right in zip(secondary, secondary[1:]):
+        for left, right in zip(secondary, secondary[1:], strict=False):
             assert (right.region.x) == (left.region.right + 1), right.id
         for action in secondary:
             assert (action.region.y) == (primary.region.y), action.id

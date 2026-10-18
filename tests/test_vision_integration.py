@@ -128,7 +128,7 @@ def test_denoising_scale_plan_preserves_steps_and_omits_fake_resolution(task):
         assert (planned.scales) == ([2.0, 4.0])
         assert (planned.workload["input_scale_type"]) == ("denoising_steps")
         data = json.loads(Path(planned.plan_file).read_text())
-        for entry, steps in zip(data["entries"], (2, 4)):
+        for entry, steps in zip(data["entries"], (2, 4), strict=True):
             assert (entry["payload"]["params"]["num_inference_steps"]) == (steps)
             assert ("resolution") not in (entry["payload"])
             assert (entry["input_metadata"]["input_num_samples"]) == (1)

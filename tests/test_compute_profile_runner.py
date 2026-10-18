@@ -51,7 +51,7 @@ class TestComputeProfileRunnerITT:
     @pytest.mark.parametrize("offline_values", ((None, None), ("0", "0"), ("1", "1")))
     def test_runner_fixture_restores_host_offline_settings(self, monkeypatch, offline_values):
         names = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
-        for name, value in zip(names, offline_values):
+        for name, value in zip(names, offline_values, strict=True):
             if value is None:
                 monkeypatch.delenv(name, raising=False)
             else:

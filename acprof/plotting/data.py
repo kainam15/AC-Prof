@@ -55,7 +55,7 @@ def build_plot_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
         if not cpu_df.empty and not gpu_df.empty
         else df.iloc[0:0].copy()
     )
-    return list(zip(PLOT_OUTPUT_DIRS, (cpu_df, gpu_df, combined_df)))
+    return list(zip(PLOT_OUTPUT_DIRS, (cpu_df, gpu_df, combined_df), strict=True))
 
 
 def _with_pixel_metrics(df: pd.DataFrame, static_meta: dict) -> pd.DataFrame:

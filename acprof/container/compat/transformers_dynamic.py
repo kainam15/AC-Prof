@@ -30,7 +30,7 @@ def load_pipeline_class_compat(root: Path, module_file: str, class_name: str) ->
         raise ValueError("custom pipeline relative imports must stay within the model snapshot")
     cached_module = get_cached_module_file(str(root), module_file, local_files_only=True)
     cached_root = (Path(HF_MODULES_CACHE) / cached_module).parents[len(Path(module_file).parts) - 1]
-    for source, relative in zip(dependencies, relative_files):
+    for source, relative in zip(dependencies, relative_files, strict=True):
         target = cached_root / relative
         if not target.is_file() or not filecmp.cmp(source, target, shallow=False):
             target.parent.mkdir(parents=True, exist_ok=True)

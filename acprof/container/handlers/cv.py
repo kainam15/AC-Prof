@@ -249,7 +249,7 @@ class CVHandler(BaseHandler):
             labels = getattr(model_ctx["model"].config, "id2label", {})
             classifications = [
                 {"label": labels.get(index, str(index)), "score": float(score)}
-                for score, index in zip(values.detach().cpu().tolist(), indices.detach().cpu().tolist())
+                for score, index in zip(values.detach().cpu().tolist(), indices.detach().cpu().tolist(), strict=True)
             ]
             return {"task": task_type, "output_type": "classification",
                     "n_results": len(classifications), "classifications": classifications}

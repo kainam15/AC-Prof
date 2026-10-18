@@ -203,11 +203,11 @@ class DependencyAnalyzer:
         env = dict(self.modules[filename])
         parameters = [*node.args.posonlyargs, *node.args.args]
         defaults = [None] * (len(parameters) - len(node.args.defaults)) + list(node.args.defaults)
-        for index, (parameter, default) in enumerate(zip(parameters, defaults)):
+        for index, (parameter, default) in enumerate(zip(parameters, defaults, strict=True)):
             env[parameter.arg] = (args[index] if index < len(args) else kwargs.get(parameter.arg, UNKNOWN)
                 if parameter.arg in kwargs else self.value(default, env, filename, "inactive", chain, alternative)
                 if use_defaults and default is not None and "@unknown_kwargs" not in kwargs else UNKNOWN)
-        for parameter, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+        for parameter, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
             env[parameter.arg] = kwargs.get(parameter.arg, self.value(default, env, filename, "inactive", chain, alternative)
                                                    if use_defaults and default is not None and "@unknown_kwargs" not in kwargs else UNKNOWN)
         if node.args.vararg:
@@ -253,7 +253,7 @@ class DependencyAnalyzer:
                     parent.update({name: UNKNOWN for name in parent})
         elif isinstance(target, (ast.Tuple, ast.List)):
             values = value if isinstance(value, (tuple, list)) and len(value) == len(target.elts) else [UNKNOWN] * len(target.elts)
-            for part, element in zip(target.elts, values):
+            for part, element in zip(target.elts, values, strict=True):
                 self.assign(part, element, env, filename, state, chain, alternative)
 
     def block(self, statements, env, filename, state, chain, alternative):
@@ -362,7 +362,7 @@ class DependencyAnalyzer:
             return [evaluate(part) for part in node.elts]
         if isinstance(node, ast.Dict):
             result = {}
-            for key, val in zip(node.keys, node.values):
+            for key, val in zip(node.keys, node.values, strict=True):
                 value = evaluate(val)
                 if key is None:
                     if isinstance(value, dict):
@@ -405,7 +405,7 @@ class DependencyAnalyzer:
         if isinstance(node, ast.Compare):
             left = evaluate(node.left)
             outcomes = []
-            for operator, comparator in zip(node.ops, node.comparators):
+            for operator, comparator in zip(node.ops, node.comparators, strict=True):
                 right = evaluate(comparator)
                 if left is UNKNOWN or right is UNKNOWN or isinstance(left, Symbol) or isinstance(right, Symbol):
                     outcomes.append(UNKNOWN)

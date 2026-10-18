@@ -156,7 +156,7 @@ class ImageTree(Tree[ManagedImage]):
                 label = self.name_labels[item.image_id].copy()
                 label.truncate(max(4, widths[0] - depth * self.guide_depth - 2), overflow="ellipsis", pad=True)
                 for value, width in zip((format_bytes(item.size_bytes), format_bytes(item.added_bytes),
-                                         str(len(item.containers))), widths[1:]):
+                                         str(len(item.containers))), widths[1:], strict=True):
                     cell = Text(translated_app(self.app).tr(value))
                     cell.truncate(width - 2, overflow="ellipsis")
                     cell.align("left", width - 2)

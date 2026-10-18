@@ -99,7 +99,7 @@ def run_matrix(cases: list[tuple[str, RunConfig]], output: Path, *, ui: str) -> 
     destination = output / "hardware_matrix.json"
     atomic_write_json(destination, report)
     try:
-        for row, (name, config) in zip(report["cases"], cases):
+        for row, (name, config) in zip(report["cases"], cases, strict=True):
             row["status"] = "running"
             atomic_write_json(destination, report)
             try:

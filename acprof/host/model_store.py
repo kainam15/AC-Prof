@@ -534,7 +534,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         if not destination.exists():
             with tempfile.TemporaryDirectory(prefix=".preparing-", dir=entries) as directory:
                 temporary = Path(directory)
-                for repo, source in zip(repository_plans(plan), targets):
+                for repo, source in zip(repository_plans(plan), targets, strict=True):
                     cache = temporary / "hf" / ("models--" + repo["model_id"].replace("/", "--"))
                     snapshot = cache / "snapshots" / repo["model_revision"]
                     for record in repo["files"]:

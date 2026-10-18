@@ -75,7 +75,7 @@ def _signature(method: ast.FunctionDef) -> dict[str, dict[str, Any]]:
     args = [*method.args.posonlyargs, *method.args.args]
     defaults = [None] * (len(args) - len(method.args.defaults)) + list(method.args.defaults)
     result = {}
-    for arg, default in [*zip(args[2:], defaults[2:]), *zip(method.args.kwonlyargs, method.args.kw_defaults)]:
+    for arg, default in [*zip(args[2:], defaults[2:], strict=True), *zip(method.args.kwonlyargs, method.args.kw_defaults, strict=True)]:
         value = _literal(default) if default is not None else _MISSING
         result[arg.arg] = {"required": default is None, "default_known": value is not _MISSING,
                            "default": None if value is _MISSING else value,

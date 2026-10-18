@@ -446,7 +446,7 @@ def find_active_processes(
             continue
         command = " ".join(args)
         executable = Path(args[0]).name.lower()
-        cli_subcommand = next((subcommand for program, subcommand in zip(args[:4], args[1:5])
+        cli_subcommand = next((subcommand for program, subcommand in zip(args[:4], args[1:5], strict=False)
                                if Path(program).name.startswith("acprof")
                                and subcommand in {"run", "profile"}), "")
         profiler_process = executable not in {"bash", "sh", "dash", "zsh"} and (bool(cli_subcommand) or any(

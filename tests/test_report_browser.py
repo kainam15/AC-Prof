@@ -303,7 +303,7 @@ class TestReportBrowser:
 
         def profile(contracts, counts):
             evidence = workload_case_profile({"request_count": sum(counts), "variants": [
-                {"contract": item, "count": count} for item, count in zip(contracts, counts)]})
+                {"contract": item, "count": count} for item, count in zip(contracts, counts, strict=True)]})
             return {"purpose": "same-hardware", "valid": True, "checks": {}, "workload": {"case": evidence}}
 
         generation = deepcopy(contract)

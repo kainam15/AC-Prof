@@ -36,7 +36,7 @@ class TestMatrixPlan:
             assert (len(plan['plan_sha256'])) == (64)
             assert (plan['algorithm_version'])
             assert ([(c['cpu_cores'], c['mem_cap_gb']) for c in plan['cases']]) == ([(c.kwargs['cpu'], c.kwargs['mem']) for c in case.call_args_list])
-            for item, call in zip(plan['cases'], case.call_args_list):
+            for item, call in zip(plan['cases'], case.call_args_list, strict=True):
                 assert (item['input_scales']) == (call.kwargs['input_scale_order'])
 
     def test_same_seed_produces_byte_identical_plan(self):

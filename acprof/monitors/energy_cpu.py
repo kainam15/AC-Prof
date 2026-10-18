@@ -422,7 +422,7 @@ def _dram_result_from_samples(samples, domains, idle_power_w, status="available"
         return result
     energy = 0.0
     peaks = []
-    for previous, current in zip(samples, samples[1:]):
+    for previous, current in zip(samples, samples[1:], strict=False):
         dt = current.timestamp - previous.timestamp
         if dt <= 0:
             result.status, result.error = "error", "invalid DRAM sample interval"

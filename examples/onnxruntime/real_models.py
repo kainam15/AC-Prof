@@ -120,7 +120,7 @@ def validate(name: str, directory: Path) -> dict:
     names = [spec.name for spec in context['output_specs']]
     reference = ReferenceEvaluator(model).run(names, processed['inputs'])
     errors = {}
-    for key, expected in zip(names, reference):
+    for key, expected in zip(names, reference, strict=True):
         np.testing.assert_allclose(output[key], expected, rtol=1e-4, atol=1e-4)
         errors[key] = float(np.max(np.abs(output[key] - expected)))
     return {

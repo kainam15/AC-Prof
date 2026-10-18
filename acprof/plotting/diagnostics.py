@@ -113,7 +113,7 @@ def summarize_resource_feasibility(df: pd.DataFrame) -> pd.DataFrame:
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
     records = []
     for key, rows in df.groupby(group_cols, dropna=False, sort=True):
-        record = dict(zip(group_cols, key))
+        record = dict(zip(group_cols, key, strict=True))
         record["state"] = _classify_feasibility_rows(rows)
         records.append(record)
     summary = pd.DataFrame.from_records(records)

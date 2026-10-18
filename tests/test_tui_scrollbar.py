@@ -21,7 +21,7 @@ class TestSolidScrollBarRender:
         assert (len(cells)) == (20)
         actions = [cell.style.meta.get("@mouse.down") for cell in cells]
         assert (actions) == (["scroll_up"] * 8 + ["grab"] * 4 + ["scroll_down"] * 8)
-        for cell, action in zip(cells, actions):
+        for cell, action in zip(cells, actions, strict=True):
             assert (cell.text) == (" ")
             assert not (cell.style.reverse)
             assert (cell.style.bgcolor) == (thumb if action == "grab" else back)

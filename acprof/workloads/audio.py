@@ -307,7 +307,7 @@ def _load_workload_spec(path: Path) -> Dict[str, Any]:
     ]
     if any(value <= 0 for value in normalized_values):
         raise ValueError("input_scale.values must all be positive")
-    if any(right <= left for left, right in zip(normalized_values, normalized_values[1:])):
+    if any(right <= left for left, right in zip(normalized_values, normalized_values[1:], strict=False)):
         raise ValueError("input_scale.values must be strictly increasing")
 
     inference = _require_object(spec["inference"], "inference")

@@ -28,7 +28,7 @@ class CjkCompositor(Compositor):
         claimed: list[set[int]] = [set() for _ in cuts]
         for region, clip, strips in self._get_renders(crop):
             visible = region.intersection(clip)
-            for y, strip in zip(visible.line_range, strips):
+            for y, strip in zip(visible.line_range, strips, strict=True):
                 if not is_rendered_line(y):
                     continue
                 boundaries, row, occupied = cuts[y], rows[y], claimed[y]

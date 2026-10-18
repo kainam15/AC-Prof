@@ -110,7 +110,7 @@ class StorageSpaceScreen(ModalScreen[None]):
         for label in ("类型", "占用", "可回收"):
             table.add_column(tr(label), justify="left" if label == "类型" else "right", no_wrap=True)
         usage = {row.kind: row for row in storage.usage} if storage else {}
-        for kind, label in zip(STORAGE_KINDS, ("镜像", "Docker 容器", "Volume", "Build Cache")):
+        for kind, label in zip(STORAGE_KINDS, ("镜像", "Docker 容器", "Volume", "Build Cache"), strict=True):
             row = usage.get(kind)
             table.add_row(tr(label), tr(format_bytes(row.size_bytes if row else None)),
                           tr(format_bytes(row.reclaimable_bytes if row else None)))

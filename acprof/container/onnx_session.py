@@ -120,7 +120,7 @@ def _validate_tensors(specs: list, tensors: dict, *, kind: str) -> None:
             raise ValueError(f'ONNX {kind} {spec.name} dtype must be {TENSOR_DTYPES[spec.type]}')
         if len(value.shape) != len(spec.shape) or any(size <= 0 for size in value.shape):
             raise ValueError(f'ONNX {kind} {spec.name} shape must match {spec.shape}; received {list(value.shape)}')
-        for declared, actual in zip(spec.shape, value.shape):
+        for declared, actual in zip(spec.shape, value.shape, strict=True):
             if isinstance(declared, int) and declared > 0 and actual != declared:
                 raise ValueError(f'ONNX fixed {kind} shape {spec.shape} for {spec.name}; received {list(value.shape)}')
             if isinstance(declared, str) and declared:
@@ -147,4 +147,4 @@ def run_session(context: dict, inputs: dict) -> dict:
     values = context['model'].run(names, inputs)
     if len(values) != len(names):
         raise ValueError('ONNX returned an incomplete set of named outputs')
-    return dict(zip(names, values))
+    return dict(zip(names, values, strict=True))

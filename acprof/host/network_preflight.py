@@ -180,7 +180,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
         sizes = list(executor.map(resolve_size, artifacts))
     result += [DownloadSource(kind, dependency_artifact_url(kind, item["url"]), size, cache_status="unknown",
                   detail=f"{item['name']}; original lock URL unchanged; BuildKit cache verified during build")
-               for (kind, item), size in zip(artifacts, sizes)]
+               for (kind, item), size in zip(artifacts, sizes, strict=True)]
     summary["alternatives"]["local_build_bytes"] = summarize_downloads(result)["expected_download_bytes"]
     return result, summary
 

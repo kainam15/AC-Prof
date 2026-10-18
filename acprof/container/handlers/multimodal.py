@@ -231,7 +231,7 @@ class MultimodalHandler(BaseHandler):
                 or box[0] > box[2] or box[1] > box[3]
             ):
                 raise ValueError("document boxes must be ordered [x0,y0,x1,y1] integers normalized to 0..1000")
-        return list(zip(words, boxes))
+        return list(zip(words, boxes, strict=True))
 
     def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
         task = model_ctx["task_type"]
