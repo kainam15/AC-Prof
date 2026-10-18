@@ -10,6 +10,6 @@ updates:
       github-actions:
         patterns:
           - '*'
-# Python and Docker artifact locks require coordinated regeneration and SHA256
-# verification. Automated version PRs are deferred until their lock workflow
-# can preserve the project's hash and OCI digest consistency requirements.
+# Python/Docker runtime artifact locks are refreshed together by the monthly
+# .github/workflows/lock-refresh.yml, with exact hash verification and manual PR review.
+# Dependabot stays scoped to Actions to avoid unsynchronized lock mutations.

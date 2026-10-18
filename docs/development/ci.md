@@ -27,7 +27,7 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `hardware.yml` 每周一 03:15 UTC 在 main 定期运行固定 CPU/GPU 矩阵，也支持主分支人工触发；fork PR 和其他工作分支不允许在专用主机运行。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
 `codeql.yml` 在 `main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，不进入主机或容器测量路径；扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描。
-Dependabot 先仅更新固定 SHA 的 GitHub Actions。Python 的哈希锁和 Docker digest 仍需协调重锁与可复现验证，暂不让 Dependabot 直接修改不完整的锁文件集合。
+Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，固定 uv 版本协调重建 host/test/dev/browser 哈希锁与 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。
 
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
