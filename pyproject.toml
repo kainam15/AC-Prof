@@ -102,6 +102,7 @@ files = [
     "acprof/host/docker_runtime.py",
     "acprof/host/profilers/massif.py",
     "acprof/container/model_probe.py",
+    "acprof/container/download_model.py",
     "acprof/runtime_dependencies.py",
     "acprof/host/collection_workflow.py",
     "acprof/workloads/__init__.py",

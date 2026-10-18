@@ -67,11 +67,20 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
         }
 
     def read_json(name: str):
-        if files[name].get("size") is None or files[name]["size"] > 4 * 1024 * 1024:
+        size = files[name].get("size")
+        if type(size) is not int or size < 0 or size > 4 * 1024 * 1024:
             raise ModelFilesError(f"metadata size is unknown or exceeds 4 MiB: {name}")
-        path = (modelscope_file(model_id, name, info.sha, Path(cache_dir).parent, sha256=files[name]["lfs_sha256"])
-                if source == "modelscope" else hf_hub_download(model_id, name, revision=info.sha,
-                    cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint))
+        if source == "modelscope":
+            verified_sha = files[name].get("lfs_sha256")
+            if not isinstance(verified_sha, str) or not verified_sha:
+                raise ModelFilesError(f"ModelScope metadata lacks a verified SHA256: {name}")
+            if cache_dir is None:
+                raise ModelFilesError("ModelScope metadata requires an explicit model cache directory")
+            path = modelscope_file(model_id, name, info.sha, Path(cache_dir).parent,
+                                   sha256=verified_sha)
+        else:
+            path = hf_hub_download(model_id, name, revision=info.sha,
+                                   cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint)
         try:
             with Path(path).open("rb") as stream:
                 data = stream.read(4 * 1024 * 1024 + 1)
