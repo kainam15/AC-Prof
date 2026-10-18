@@ -127,6 +127,7 @@ files = [
     "acprof/plotting/metrics.py",
     "acprof/container/validation.py",
     "acprof/container/handlers/nlp.py",
+    "acprof/container/handlers/diffusion.py",
     "acprof/container/compute_profile_runner.py",
     "acprof/result_csv.py",
     "acprof/monitors/rapl_topology.py",

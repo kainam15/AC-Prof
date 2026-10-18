@@ -561,9 +561,9 @@ class DiffusionHandler(BaseHandler):
         import torch
 
         if "native_kwargs" in processed_input:
-            kwargs = dict(processed_input["native_kwargs"])
-            kwargs["generator"] = torch.Generator(device=model_ctx["device"]).manual_seed(processed_input["seed"])
-            output = model_ctx["pipeline"](**kwargs)
+            native_kwargs = dict(processed_input["native_kwargs"])
+            native_kwargs["generator"] = torch.Generator(device=model_ctx["device"]).manual_seed(processed_input["seed"])
+            output = model_ctx["pipeline"](**native_kwargs)
             if _canonical_task(model_ctx["task_type"]) in VIDEO_TASKS | {"image-to-image"}:
                 return _ConditionedOutput(output, processed_input["resolution"], processed_input["num_frames"])
             return output
@@ -627,7 +627,8 @@ class DiffusionHandler(BaseHandler):
                 meshes = raw_output.get("images")
             if not isinstance(meshes, (list, tuple)) or len(meshes) != 1:
                 raise ValueError("ShapE must return one decoded mesh")
-            vertices, faces = [], []
+            vertices: list[int] = []
+            faces: list[int] = []
             for mesh in meshes:
                 for attr, target in (("verts", vertices), ("faces", faces)):
                     shape = getattr(getattr(mesh, attr, None), "shape", None)
@@ -660,16 +661,18 @@ class DiffusionHandler(BaseHandler):
                     size = frame_size
             if len(set(frame_counts)) != 1:
                 raise ValueError("video batches must have consistent frame counts")
-            width, height = int(size[0]), int(size[1])
+            if size is None:
+                raise ValueError("Diffusers video output must contain frame dimensions")
+            video_width, video_height = int(size[0]), int(size[1])
             return {
                 "task": model_ctx["task_type"],
                 "output_type": "video",
                 "n_results": len(frames),
                 "output_length": sum(frame_counts),
                 "video_frame_count": frame_counts[0],
-                "video_width": width,
-                "video_height": height,
-                "output_shape": [len(frames), frame_counts[0], height, width, 3],
+                "video_width": video_width,
+                "video_height": video_height,
+                "output_shape": [len(frames), frame_counts[0], video_height, video_width, 3],
             }
         images = getattr(raw_output, "images", None)
         if images is None and isinstance(raw_output, dict):
