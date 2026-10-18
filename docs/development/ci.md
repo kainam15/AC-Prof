@@ -159,7 +159,7 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
-第一阶段只记录覆盖情况，不设全仓百分比 gate，也不排除错误与清理路径来提高数字。
+仍不设全仓百分比 gate，也不排除错误与清理路径来提高数字。现对七个关键模块设置保守的逐文件 branch 覆盖门槛：result_csv 65%、result_layers 70%、matrix_plan 60%、run_state 65%、energy_cpu 55%、result_cleanup 75%、host/client 65%。下限源于 2026-10-18 的 144 项定向 host 测试测得的分支覆盖率（均留有余量），由 `scripts/check_critical_coverage.py` 对合并后的 coverage JSON 执行；缺失文件、无效计数或不足下限均会使 `host-summary` 失败。上传原始 coverage artifact 先于门禁执行，失败时仍保留报告用于排查。门槛不等于 Docker/硬件路径覆盖率。
 `pyproject.toml` 固定 `source=["acprof"]`、branch 和 relative paths；未运行的模块仍进入报告。
 默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
 
