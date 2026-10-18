@@ -154,8 +154,8 @@ def _integer_value(value: Any) -> Optional[int]:
 def _resource_case_matches(
     profile: Mapping[str, Any],
     *,
-    cpu_cores: int,
-    mem_cap_gb: int,
+    cpu_cores: int | str,
+    mem_cap_gb: int | str,
     gpu_mode: str,
 ) -> bool:
     profile_cpu = _integer_value(profile.get("cpu_cores"))
@@ -237,8 +237,8 @@ def _enabled_tools(plan: Mapping[str, Any]) -> Set[str]:
 def _find_resource_case(
     plan: Mapping[str, Any],
     *,
-    cpu_cores: int,
-    mem_cap_gb: int,
+    cpu_cores: int | str,
+    mem_cap_gb: int | str,
     gpu_mode: str,
     tool_key: str,
 ) -> Optional[Mapping[str, Any]]:
@@ -326,8 +326,8 @@ def _resolve_tool_entry(
 def _missing_case_error(
     *,
     tool_key: str,
-    cpu_cores: int,
-    mem_cap_gb: int,
+    cpu_cores: int | str,
+    mem_cap_gb: int | str,
     gpu_mode: str,
 ) -> str:
     return (
@@ -351,8 +351,8 @@ def _apply_entry(
 
 def find_execution_profile_entry(
     plan: Dict[str, Any],
-    cpu_cores: int,
-    mem_cap_gb: int,
+    cpu_cores: int | str,
+    mem_cap_gb: int | str,
     gpu_mode: str,
     input_scale: float,
 ) -> Dict[str, Any]:

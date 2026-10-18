@@ -258,6 +258,43 @@ def _named_negative_warnings(metrics: Dict[str, float]) -> List[str]:
     return [f"{name}<0" for name, value in metrics.items() if value == value and value < 0.0]
 
 
+def _window_monitor_warnings(
+    *, resource_error: str, gpu_error: str, cpu_error: str,
+    dram_energy: str, gpu_metrics: Dict[str, float], cpu_metrics: Dict[str, float],
+) -> List[str]:
+    """Derive warnings after monitor shutdown, preserving existing row semantics."""
+    warnings = [
+        f"{name} monitor: {error}"
+        for name, error in (
+            ("resource", resource_error),
+            ("gpu", gpu_error),
+            ("cpu", cpu_error),
+        )
+        if error and not (
+            name == "cpu"
+            and dram_energy != "required"
+            and error in {
+                "RAPL unavailable",
+                "RAPL powercap energy_uj unavailable",
+            }
+        )
+    ]
+    warnings.extend(_eff_negative_warnings(
+        avg_power_eff_w=gpu_metrics["gpu_avg_power_eff_w"],
+        peak_power_eff_w=gpu_metrics["gpu_peak_power_eff_w"],
+        energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
+    ))
+    warnings.extend(_named_negative_warnings({
+        "cpu_avg_power_eff_w": cpu_metrics["cpu_avg_power_eff_w"],
+        "cpu_peak_power_eff_w": cpu_metrics["cpu_peak_power_eff_w"],
+        "cpu_energy_eff_j": cpu_metrics["cpu_energy_eff_j"],
+        "vcpu_avg_power_eff_w": cpu_metrics["vcpu_avg_power_eff_w"],
+        "vcpu_peak_power_eff_w": cpu_metrics["vcpu_peak_power_eff_w"],
+        "vcpu_energy_eff_j": cpu_metrics["vcpu_energy_eff_j"],
+    }))
+    return warnings
+
+
 def _estimate_cpu_cycles(
     latency_s: float,
     cpu_freq_avg_hz: float,

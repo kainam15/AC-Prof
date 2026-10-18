@@ -14,7 +14,7 @@ import re
 import sys
 import time
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional
+from typing import IO, Any, Dict, List, Optional
 
 import requests
 
@@ -39,7 +39,7 @@ from acprof.host.client_metrics import (
     RESOURCE_USAGE_METRIC_FIELDS,
     _compute_profile_row_metrics,
     _derived_efficiency_metrics,
-    _eff_negative_warnings,
+    _eff_negative_warnings as _eff_negative_warnings,
     _estimate_cpu_cycles,
     _execution_profile_row_metrics,
     _finite_positive,
@@ -52,11 +52,12 @@ from acprof.host.client_metrics import (
     _mean,
     _mean_finite,
     _mips_metrics_from_result,
-    _named_negative_warnings,
+    _named_negative_warnings as _named_negative_warnings,
     _nan_metrics,
     _per_positive_denominator,
     _prepared_body_size_bytes,
     _to_float_or_nan,
+    _window_monitor_warnings,
     cpu_metrics_from_result,
     gpu_metrics_from_result,
     resource_usage_metrics_from_result,
@@ -524,6 +525,48 @@ class ClientRunner:
                     row[name] = "nan" if metric.kind == "number" else "unavailable"
         return row
 
+    def _build_idle_window_diagnostic(
+        self, *, row, sniff_group_id, gpu_monitor, gpu_result, _gpu_samples,
+        gpu_idle_trace, idle_debug_snapshot, gpu_idle_debug_snapshot,
+        gpu_idle_stats, idle_stats, idle_trace,
+    ):
+        """Assemble diagnostic provenance only after all monitors have finalized."""
+        # Workload stop may reject a cumulative GPU counter and recompute
+        # the paired idle baseline from its original power samples. Read
+        # the final provenance here, not the snapshot captured before the
+        # workload monitor finalized its source selection.
+        if gpu_monitor is not None:
+            gpu_idle_trace = dict(getattr(gpu_monitor, "idle_trace", {}) or {})
+        if idle_debug_snapshot is None:
+            idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
+        return {
+            "case_name": self.config.case_name,
+            "gpu_mode": self.config.gpu_mode,
+            "cpu_cores": self.config.cpu_cores,
+            "mem_cap_gb": self.config.mem_cap_gb,
+            "input_scale": row["input_scale"],
+            "warmup": row["warmup"],
+            "repeat_idx": row["repeat_idx"],
+            "repeat_in_window": row["repeat_in_window"],
+            "sniff_group_id": sniff_group_id,
+            "gpu_idle_measured_at": row["gpu_idle_measured_at"],
+            "gpu_device_uuid": row["gpu_device_uuid"],
+            "gpu_energy_source": row["gpu_energy_source"],
+            "gpu_energy_counter_start_mj": getattr(gpu_result, "counter_start_mj", None),
+            "gpu_energy_counter_end_mj": getattr(gpu_result, "counter_end_mj", None),
+            "gpu_energy_duration_s": getattr(gpu_result, "measurement_duration_s", None),
+            "gpu_power_samples": [[t - _gpu_samples[0][0], p] for t, p in _gpu_samples],
+            "gpu_idle_power_w": _to_float_or_nan(row["gpu_idle_power_w"]),
+            **gpu_idle_stats,
+            **gpu_idle_trace,
+            **(gpu_idle_debug_snapshot or {}),
+            "cpu_idle_measured_at": row["cpu_idle_measured_at"],
+            "cpu_idle_power_w": _to_float_or_nan(row["cpu_idle_power_w"]),
+            **idle_stats,
+            **idle_trace,
+            **idle_debug_snapshot,
+        }
+
     def _execute_window(self, scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f, cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s, compute_profile_plan, execution_profile_plan):
         """Sample one window, then assemble its result; publication belongs to main."""
         scale_val = float(scale_entry["input_scale"])
@@ -580,7 +623,7 @@ class ClientRunner:
         request_payload_bytes_values: List[float] = []
         output_length_values: List[float] = []
         output_token_count_values: List[float] = []
-        workload_contracts: List[Dict[str, Any]] = []
+        workload_contracts: List[dict | None] = []
         window_error = ""
         primary_error = None
         pending_request_id = ""
@@ -779,35 +822,14 @@ class ClientRunner:
             if mips_result is not None:
                 mips_metrics = _mips_metrics_from_result(mips_result)
 
-            warnings = [
-                f"{name} monitor: {error}"
-                for name, error in (
-                    ("resource", _resource_usage_err),
-                    ("gpu", _gpu_err),
-                    ("cpu", _cpu_err),
-                )
-                if error and not (
-                    name == "cpu"
-                    and self.config.dram_energy != "required"
-                    and error in {
-                        "RAPL unavailable",
-                        "RAPL powercap energy_uj unavailable",
-                    }
-                )
-            ]
-            warnings.extend(_eff_negative_warnings(
-                avg_power_eff_w=gpu_metrics["gpu_avg_power_eff_w"],
-                peak_power_eff_w=gpu_metrics["gpu_peak_power_eff_w"],
-                energy_eff_j=gpu_metrics["gpu_energy_eff_j"],
-            ))
-            warnings.extend(_named_negative_warnings({
-                "cpu_avg_power_eff_w": cpu_metrics["cpu_avg_power_eff_w"],
-                "cpu_peak_power_eff_w": cpu_metrics["cpu_peak_power_eff_w"],
-                "cpu_energy_eff_j": cpu_metrics["cpu_energy_eff_j"],
-                "vcpu_avg_power_eff_w": cpu_metrics["vcpu_avg_power_eff_w"],
-                "vcpu_peak_power_eff_w": cpu_metrics["vcpu_peak_power_eff_w"],
-                "vcpu_energy_eff_j": cpu_metrics["vcpu_energy_eff_j"],
-            }))
+            warnings = _window_monitor_warnings(
+                resource_error=_resource_usage_err,
+                gpu_error=_gpu_err,
+                cpu_error=_cpu_err,
+                dram_energy=self.config.dram_energy,
+                gpu_metrics=gpu_metrics,
+                cpu_metrics=cpu_metrics,
+            )
             if warnings:
                 status = "warn"
                 err_msg = "; ".join(warnings)
@@ -926,43 +948,16 @@ class ClientRunner:
         ), scale_entry=scale_entry, resolved_input_scale=resolved_input_scale,
             latency_app_s=latency_app_s, compute_profile_plan=compute_profile_plan,
             execution_profile_plan=execution_profile_plan)
-        idle_diag_record = None
-        if self.config.idle_debug:
-            # Workload stop may reject a cumulative GPU counter and recompute
-            # the paired idle baseline from its original power samples. Read
-            # the final provenance here, not the snapshot captured before the
-            # workload monitor finalized its source selection.
-            if gpu_monitor is not None:
-                gpu_idle_trace = dict(getattr(gpu_monitor, "idle_trace", {}) or {})
-            if idle_debug_snapshot is None:
-                idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
-            idle_diag_record = {
-                "case_name": self.config.case_name,
-                "gpu_mode": self.config.gpu_mode,
-                "cpu_cores": self.config.cpu_cores,
-                "mem_cap_gb": self.config.mem_cap_gb,
-                "input_scale": row["input_scale"],
-                "warmup": row["warmup"],
-                "repeat_idx": row["repeat_idx"],
-                "repeat_in_window": row["repeat_in_window"],
-                "sniff_group_id": sniff_group_id,
-                "gpu_idle_measured_at": row["gpu_idle_measured_at"],
-                "gpu_device_uuid": row["gpu_device_uuid"],
-                "gpu_energy_source": row["gpu_energy_source"],
-                "gpu_energy_counter_start_mj": getattr(gpu_result, "counter_start_mj", None),
-                "gpu_energy_counter_end_mj": getattr(gpu_result, "counter_end_mj", None),
-                "gpu_energy_duration_s": getattr(gpu_result, "measurement_duration_s", None),
-                "gpu_power_samples": [[t - _gpu_samples[0][0], p] for t, p in _gpu_samples],
-                "gpu_idle_power_w": _to_float_or_nan(row["gpu_idle_power_w"]),
-                **gpu_idle_stats,
-                **gpu_idle_trace,
-                **(gpu_idle_debug_snapshot or {}),
-                "cpu_idle_measured_at": row["cpu_idle_measured_at"],
-                "cpu_idle_power_w": _to_float_or_nan(row["cpu_idle_power_w"]),
-                **idle_stats,
-                **idle_trace,
-                **idle_debug_snapshot,
-            }
+        idle_diag_record = (
+            self._build_idle_window_diagnostic(
+                row=row, sniff_group_id=sniff_group_id, gpu_monitor=gpu_monitor,
+                gpu_result=gpu_result, _gpu_samples=_gpu_samples,
+                gpu_idle_trace=gpu_idle_trace, idle_debug_snapshot=idle_debug_snapshot,
+                gpu_idle_debug_snapshot=gpu_idle_debug_snapshot,
+                gpu_idle_stats=gpu_idle_stats, idle_stats=idle_stats,
+                idle_trace=idle_trace,
+            ) if self.config.idle_debug else None
+        )
         return row, idle_diag_record, sniff_group_id
 
     def main(self) -> None:
@@ -1011,6 +1006,7 @@ class ClientRunner:
                 sniff_groups_path,
             )
         sidecar_mode = "w" if need_header else "a"
+        diag_context: IO[Any] | nullcontext[None]
         if self.config.idle_debug:
             diag_path = self._idle_diag_path(self.config.out_csv)
             os.makedirs(os.path.dirname(diag_path) or ".", exist_ok=True)
@@ -1035,7 +1031,7 @@ class ClientRunner:
                 os.fsync(f.fileno())
 
             # /ready check
-            ready_error = None
+            ready_error: Exception | None = None
             try:
                 rr = requests.get(self.config.base_url + "/ready", timeout=60, headers={"Connection": "close"},
                                   **self._proxy_options)
