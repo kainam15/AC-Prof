@@ -74,6 +74,8 @@ class NLPHandler(BaseHandler):
     @staticmethod
     def _get_tokenizer_max_length(tokenizer: Any) -> Optional[int]:
         max_len = getattr(tokenizer, "model_max_length", None)
+        if max_len is None:
+            return None
         try:
             value = int(max_len)
             return value if 0 < value < 1_000_000 else None
@@ -391,7 +393,8 @@ class NLPHandler(BaseHandler):
         config = getattr(pipe, "generation_config", getattr(getattr(pipe, "model", None), "generation_config", None))
         encoder_decoder = bool(getattr(getattr(getattr(pipe, "model", None), "config", None), "is_encoder_decoder", False))
         inputs = [_actual_input_tokens(value) for value in state.get("inputs", [])]
-        counts, reasons = [], []
+        counts: list[int] = []
+        reasons: list[str] = []
         complete = len(state.get("outputs", [])) == state.get("batch_size")
         for output in state.get("outputs", []):
             prompt = output.get("input_ids")
@@ -675,17 +678,17 @@ class NLPHandler(BaseHandler):
 
         if task_type == "question-answering":
             if batch_size > 1:
-                sample = {"question": processed_input["question"], "context": processed_input["context"]}
-                return pipe([dict(sample) for _ in range(batch_size)], batch_size=batch_size)
+                qa_sample = {"question": processed_input["question"], "context": processed_input["context"]}
+                return pipe([dict(qa_sample) for _ in range(batch_size)], batch_size=batch_size)
             return pipe(
                 question=processed_input["question"],
                 context=processed_input["context"],
             )
         text = processed_input["text"]
-        inputs = [text] * batch_size if batch_size > 1 else text
+        request_inputs = [text] * batch_size if batch_size > 1 else text
         batch_kwargs = {"batch_size": batch_size} if batch_size > 1 else {}
         if task_type == "zero-shot-classification":
-            return pipe(inputs, candidate_labels=processed_input["candidate_labels"],
+            return pipe(request_inputs, candidate_labels=processed_input["candidate_labels"],
                         hypothesis_template=processed_input["hypothesis_template"],
                         multi_label=bool(params.get("multi_label", False)), **batch_kwargs)
         if task_type in _GENERATIVE_TASKS:
@@ -694,20 +697,20 @@ class NLPHandler(BaseHandler):
             if state is not None:
                 state.update(inputs=[], outputs=[], budget=max_new_tokens, batch_size=batch_size)
             return pipe(
-                inputs,
+                request_inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 truncation=True,
                 **batch_kwargs,
             )
         elif task_type in self._TRUNCATION_VIA_KWARGS_TASKS:
-            return pipe(inputs, tokenizer_kwargs={"truncation": True}, **batch_kwargs)
+            return pipe(request_inputs, tokenizer_kwargs={"truncation": True}, **batch_kwargs)
         elif task_type == "token-classification":
             # Transformers 4.x token classification truncates internally and
             # its sanitizer rejects a caller-supplied truncation keyword.
-            return pipe(inputs, **batch_kwargs)
+            return pipe(request_inputs, **batch_kwargs)
         else:
-            return pipe(inputs, truncation=True, **batch_kwargs)
+            return pipe(request_inputs, truncation=True, **batch_kwargs)
 
     def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
         task_type = model_ctx["task_type"]

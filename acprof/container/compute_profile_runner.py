@@ -35,7 +35,10 @@ def _find_payload(payload_file: str, input_scale: float) -> Dict[str, Any]:
         if not isinstance(entry, dict):
             continue
         try:
-            scale = float(entry.get("input_scale"))
+            raw_scale = entry.get("input_scale")
+            if raw_scale is None:
+                continue
+            scale = float(raw_scale)
         except (TypeError, ValueError):
             continue
         if math.isclose(scale, float(input_scale), rel_tol=0.0, abs_tol=1e-6):
@@ -128,6 +131,8 @@ def _sum_profiled_flops(prof: Any) -> float:
 
 
 def _run_torch_flop_profile(handler: Any, model_ctx: Any, processed: Any, repeat: int, *, execution=None) -> float:
+    if torch is None:
+        raise RuntimeError("Torch profiler unavailable for this runtime")
     # PyTorch derives FLOPs from operator shapes, so CPU activity is enough for
     # both CPU and CUDA tensors and avoids CUPTI/performance-counter privileges.
     with torch.profiler.profile(
@@ -332,6 +337,8 @@ def main() -> None:
             return
 
         if args.profile_mode == "gpu":
+            if torch is None:
+                raise RuntimeError("CUDA profiler requires Torch")
             _cuda_synchronize()
             torch.cuda.nvtx.range_push("acprof_compute")
             try:

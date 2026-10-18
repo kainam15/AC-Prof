@@ -17,7 +17,7 @@ TUI App 与页面布局、实验恢复及部分交互控制器，以及 CLI 入�
 `disallow_any_generics`、`disallow_untyped_defs` 和 `warn_return_any`。
 这些规则只约束对应模块，不能代表整个项目没有隐式 `Any`；保留外部 JSON / 动态框架更新等必要的动态边界。
 
-测量主控 `host/client.py`、Model Store、NCU profiling 以及延迟模型已在保持原有运行语义的修正后加入检查；结果 CSV、分析数据模型、RAPL 拓扑与新拆分的窗口请求进度模块均已纳入，容器启动、接口 Probe、模型依赖预检及 Workload 注册也已纳入，ModelScope 下载计划元数据校验也已纳入，此外包含输出协议校验、依赖网络预检、通知、TUI 配置与绘图，模型声明冲突解析和 Pipeline 源码结构分析也纳入检查，完整范围目前为 247 个文件。大型 TUI App 与内置多模态 Handler 已加入检查；其余较复杂的模型下载与依赖流、
+测量主控 `host/client.py`、Model Store、NCU profiling 以及延迟模型已在保持原有运行语义的修正后加入检查；结果 CSV、分析数据模型、RAPL 拓扑与新拆分的窗口请求进度模块均已纳入，容器启动、接口 Probe、模型依赖预检及 Workload 注册也已纳入，ModelScope 下载计划元数据校验也已纳入，此外包含输出协议校验、依赖网络预检、通知、TUI 配置与绘图，模型声明冲突解析和 Pipeline 源码结构分析也纳入检查，NLP Handler 与容器内 Compute Profile Runner 也纳入，完整范围目前为 249 个文件。大型 TUI App 与内置多模态 Handler 已加入检查；其余较复杂的模型下载与依赖流、
 部分 TUI 报表、diffusion Handler、运行环境组合模块仍需先修复真实类型冲突，再分批纳入。
 不通过跳过函数体来提高覆盖率。
 

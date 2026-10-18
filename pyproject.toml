@@ -117,6 +117,8 @@ files = [
     "acprof/tui/run_form.py",
     "acprof/plotting/metrics.py",
     "acprof/container/validation.py",
+    "acprof/container/handlers/nlp.py",
+    "acprof/container/compute_profile_runner.py",
     "acprof/result_csv.py",
     "acprof/monitors/rapl_topology.py",
     "acprof/host/energy_validation.py",
