@@ -613,6 +613,86 @@ class ClientRunner:
             monitors.add("mips", mips_monitor)
         return gpu_monitor, cpu_monitor
 
+    def _start_window_monitors(self, monitors, gpu_monitor, cpu_monitor):
+        """Measure control/idle first and start the request monitors afterwards.
+
+        No request is executed here. The caller's `finally` retains ownership
+        of every collector, including on startup/cancellation failure.
+        """
+        gpu_idle_measured_at = "nan"
+        cpu_idle_measured_at = "nan"
+        gpu_idle_trace = {}
+        idle_trace = {}
+        gpu_idle_debug_snapshot = None
+        idle_debug_snapshot = None
+        if gpu_monitor is not None or cpu_monitor is not None:
+            self._sleep_before_idle_baseline()
+            run_matched_control_window(monitors, idle_seconds=self.config.idle_seconds,
+                                       trace=self.config.idle_debug)
+            measured_at = _now_iso()
+            if gpu_monitor is not None:
+                gpu_idle_measured_at = measured_at
+                gpu_idle_trace = dict(
+                    getattr(gpu_monitor, "idle_trace", {}) or {}
+                )
+            if cpu_monitor is not None:
+                cpu_idle_measured_at = measured_at
+                idle_trace = dict(
+                    getattr(cpu_monitor, "idle_trace", {}) or {}
+                )
+
+            if self.config.idle_debug:
+                if gpu_monitor is not None:
+                    gpu_idle_debug_snapshot = self._collect_gpu_idle_debug_snapshot()
+                if cpu_monitor is not None:
+                    idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
+
+        monitors.start()
+
+        return (gpu_idle_measured_at, cpu_idle_measured_at, gpu_idle_trace,
+                idle_trace, gpu_idle_debug_snapshot, idle_debug_snapshot)
+
+    def _finish_window_monitors(
+        self, monitors: MonitorGroup, progress: WindowRequestProgress, *,
+        requests_f, sniff_group_id, scale_val, warmup_flag, repeat_idx,
+        window_error: str, primary_error: BaseException | None,
+    ):
+        """Finalize all collectors, then publish request evidence, preserving error priority."""
+        resource_usage_result = None
+        _resource_usage_err = ""
+        gpu_result = None
+        _gpu_err = ""
+        _gpu_samples = []
+        cpu_result = None
+        _cpu_err = ""
+        monitors.finish(progress.count,
+                        progress.elapsed_s / progress.count if progress.count else float("nan"))
+        if monitors.results.get("resource") is not None:
+            resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
+        if monitors.results.get("gpu") is not None:
+            gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = monitors.results["gpu"]
+        if monitors.results.get("cpu") is not None:
+            cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
+        mips_result = monitors.results.get("mips")
+        try:
+            client_publication._append_request_window(
+                requests_f, sniff_group_id=sniff_group_id,
+                input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else scale_val,
+                warmup=warmup_flag, repeat_idx=repeat_idx,
+                latencies=progress.latencies,
+                error="; ".join(part for part in (window_error, monitors.error) if part),
+                failed_request_id=progress.pending_request_id,
+            )
+        finally:
+            if primary_error is not None and (
+                not isinstance(primary_error, Exception)
+                or isinstance(primary_error, (RequestTimeoutAbort, EnergyAbort, MIPSAbort))
+            ):
+                raise primary_error
+            monitors.raise_if_failed()
+        return (resource_usage_result, _resource_usage_err, gpu_result, _gpu_err,
+                _gpu_samples, cpu_result, _cpu_err, mips_result)
+
     def _execute_window(self, scale_entry, repeat_request_limit, warmup_flag, repeat_idx, requests_f, cpu_idle_values_so_far, gpu_idle_values_so_far, slow_latency_threshold_s, compute_profile_plan, execution_profile_plan):
         """Sample one window, then assemble its result; publication belongs to main."""
         scale_val = float(scale_entry["input_scale"])
@@ -655,43 +735,17 @@ class ClientRunner:
         monitors = MonitorGroup()
         gpu_monitor = None
         cpu_monitor = None
-        gpu_result = None
-        _gpu_samples = []
-        cpu_result = None
-        resource_usage_result = None
         progress = WindowRequestProgress()
         window_error = ""
         primary_error = None
-        _resource_usage_err = ""
-        _gpu_err = ""
-        _cpu_err = ""
         try:
             try:
                 gpu_monitor, cpu_monitor = self._attach_window_monitors(monitors)
 
-                if gpu_monitor is not None or cpu_monitor is not None:
-                    self._sleep_before_idle_baseline()
-                    run_matched_control_window(monitors, idle_seconds=self.config.idle_seconds,
-                                               trace=self.config.idle_debug)
-                    measured_at = _now_iso()
-                    if gpu_monitor is not None:
-                        gpu_idle_measured_at = measured_at
-                        gpu_idle_trace = dict(
-                            getattr(gpu_monitor, "idle_trace", {}) or {}
-                        )
-                    if cpu_monitor is not None:
-                        cpu_idle_measured_at = measured_at
-                        idle_trace = dict(
-                            getattr(cpu_monitor, "idle_trace", {}) or {}
-                        )
-
-                    if self.config.idle_debug:
-                        if gpu_monitor is not None:
-                            gpu_idle_debug_snapshot = self._collect_gpu_idle_debug_snapshot()
-                        if cpu_monitor is not None:
-                            idle_debug_snapshot = client_diagnostics._collect_idle_debug_snapshot()
-
-                monitors.start()
+                (gpu_idle_measured_at, cpu_idle_measured_at, gpu_idle_trace,
+                 idle_trace, gpu_idle_debug_snapshot, idle_debug_snapshot) = self._start_window_monitors(
+                    monitors, gpu_monitor, cpu_monitor
+                )
 
                 execute_requests(
                     progress,
@@ -708,31 +762,12 @@ class ClientRunner:
                 window_error = f"{type(exc).__name__}: {exc}"
                 raise
             finally:
-                monitors.finish(progress.count,
-                                progress.elapsed_s / progress.count if progress.count else float("nan"))
-                if monitors.results.get("resource") is not None:
-                    resource_usage_result, _resource_usage_err, _resource_usage_samples = monitors.results["resource"]
-                if monitors.results.get("gpu") is not None:
-                    gpu_result, _gpu_name_ret, _gpu_err, _gpu_samples = monitors.results["gpu"]
-                if monitors.results.get("cpu") is not None:
-                    cpu_result, _cpu_err, _cpu_samples = monitors.results["cpu"]
-                mips_result = monitors.results.get("mips")
-                try:
-                    client_publication._append_request_window(
-                        requests_f, sniff_group_id=sniff_group_id,
-                        input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else scale_val,
-                        warmup=warmup_flag, repeat_idx=repeat_idx,
-                        latencies=progress.latencies,
-                        error="; ".join(part for part in (window_error, monitors.error) if part),
-                        failed_request_id=progress.pending_request_id,
-                    )
-                finally:
-                    if primary_error is not None and (
-                        not isinstance(primary_error, Exception)
-                        or isinstance(primary_error, (RequestTimeoutAbort, EnergyAbort, MIPSAbort))
-                    ):
-                        raise primary_error
-                    monitors.raise_if_failed()
+                (resource_usage_result, _resource_usage_err, gpu_result, _gpu_err,
+                 _gpu_samples, cpu_result, _cpu_err, mips_result) = self._finish_window_monitors(
+                    monitors, progress, requests_f=requests_f, sniff_group_id=sniff_group_id,
+                    scale_val=scale_val, warmup_flag=warmup_flag, repeat_idx=repeat_idx,
+                    window_error=window_error, primary_error=primary_error,
+                )
 
             latency_app_s = _mean(progress.latencies)
             request_payload_bytes = _mean_finite(
