@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -224,6 +225,8 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
 
 
 def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: bool = False):
+    if os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1" and not reuse_existing:
+        raise RuntimeError("硬件验证禁止隐式构建或下载：当前运行路径要求重新构建模型镜像")
     profile = configure_runtime_profile(task_info)
     task_info.runtime_profile_id, task_info.model_adapter = profile.profile_id, profile.adapter
     if not re.fullmatch(r"[0-9a-f]{40}", task_info.model_revision or ""):
@@ -252,6 +255,11 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
             verify_entry(image.runtime_environment)
             print(f"[build] 指纹核验通过，跳过构建并复用：{name}", flush=True)
             return image
+        if os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1":
+            raise RuntimeError(
+                f"硬件验证禁止隐式构建或下载：预备模型镜像不存在：{name}；"
+                "请在单独的受控准备阶段构建并验证完整模型镜像"
+            )
         print(f"[build] 未找到本地模型镜像 {name}；将自动构建，旧版 :latest 不用于本次采集。", flush=True)
     return build_runtime_image(task_info, project_dir)
 

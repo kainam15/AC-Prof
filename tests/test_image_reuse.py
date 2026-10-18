@@ -143,6 +143,31 @@ class TestPrepareImage:
             image = runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
         assert (image) is (built)
 
+    def test_hardware_validation_fails_closed_if_prepared_image_is_missing(self):
+        query = subprocess.CompletedProcess([], 1, stdout='', stderr='Error: No such image: expected')
+        with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
+            'acprof.host.command.run_command', return_value=query
+        ), patch('acprof.host.runtime_images.build_runtime_image') as build, pytest.raises(
+            RuntimeError, match='禁止隐式构建或下载'
+        ):
+            runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
+        build.assert_not_called()
+
+    def test_hardware_validation_blocks_explicit_rebuild(self):
+        with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
+            'acprof.host.runtime_images.build_runtime_image'
+        ) as build, pytest.raises(RuntimeError, match='禁止隐式构建或下载'):
+            runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=False)
+        build.assert_not_called()
+
+    def test_hardware_validation_reuses_verified_image_without_building(self):
+        with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
+            'acprof.host.command.run_command', side_effect=self.existing_image
+        ), patch('acprof.host.runtime_images.build_runtime_image') as build:
+            result = runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
+        assert result.tag == self.image_id
+        build.assert_not_called()
+
     @pytest.mark.parametrize('error', ('Cannot connect to the Docker daemon', 'permission denied'))
     def test_docker_query_errors_stop_without_building(self, error):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr=error)

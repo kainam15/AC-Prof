@@ -24,7 +24,7 @@ Dockerfile 和安装脚本；环境镜像再计对应配方及不可变平台 im
 分层构建与文件选择细节见[模型文件选择规则](adaptation.md#模型文件选择规则)。
 
 `--skip-build` 仅复用指纹和内部清单均匹配的镜像，执行引用固定为 Docker image ID。
-查不到目标指纹则自动构建；已有标签内容不符会报错。构建期间代码变动会使构建失败，避免
+查不到目标指纹则自动构建；已有标签内容不符会报错。专用硬件验收例外：设置 `ACPROF_REQUIRE_PREPARED_IMAGE=1` 后，只有 `--skip-build` 的精确指纹复用路径被允许，缺镜像或要求重建均直接失败，不触发隐式下载。构建期间代码变动会使构建失败，避免
 用旧指纹标记新代码。旧 `:latest` 镜像可留存供历史实验使用，但不直接用于新环境的采集。
 
 主机构建统一经 `build_image` → `build_runtime_image` → `prepare_environment_image`；环境验证脚本

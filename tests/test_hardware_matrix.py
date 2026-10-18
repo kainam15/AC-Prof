@@ -86,3 +86,20 @@ def test_matrix_stops_on_failure_and_records_unrun_cases(tmp_path, failure):
         'passed', 'cancelled' if failure == 'cancelled' else 'failed', 'not_run']
     assert report['source']['source_sha256']
     assert all(Path(case['output_dir']).is_relative_to(output) for case in report['cases'])
+
+
+def test_hardware_run_forces_prepared_offline_images(tmp_path):
+    """The validation entry point must not accidentally build or download."""
+    config = RunConfig(model='demo/prepared', task='fill-mask', skip_build=True)
+    def stop_before_launch(_command, **kwargs):
+        env = kwargs['env']
+        assert env['ACPROF_REQUIRE_PREPARED_IMAGE'] == '1'
+        assert env['ACPROF_MAX_DOWNLOAD'] == '0'
+        assert env['HF_HUB_OFFLINE'] == '1'
+        assert env['TRANSFORMERS_OFFLINE'] == '1'
+        raise RuntimeError('validated subprocess environment')
+    with patch.object(check_hardware, 'build_run_command', return_value=['acprof', 'run']), patch.object(
+        check_hardware.subprocess, 'run', side_effect=stop_before_launch
+    ):
+        with pytest.raises(RuntimeError, match='validated subprocess environment'):
+            check_hardware.run_config(config, tmp_path)

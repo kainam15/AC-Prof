@@ -27,7 +27,12 @@ def run_config(config: RunConfig, output: Path, *, ui: str = "cli") -> dict:
         raise ValueError("terminal 对照须在终端中运行；自动化可用 script 分配 PTY 并保存终端输出")
     command = build_run_command(config, project_dir=ROOT, python_executable=sys.executable)
     environment = os.environ.copy()
-    environment.update(ACPROF_WECOM_WEBHOOK_URL="", PYTHONUNBUFFERED="1")
+    # Hardware acceptance is measurement-only: never build Docker images or
+    # download model artifacts as an implicit side effect.
+    environment.update(ACPROF_WECOM_WEBHOOK_URL="", PYTHONUNBUFFERED="1",
+                       ACPROF_REQUIRE_PREPARED_IMAGE="1",
+                       HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
+                       ACPROF_MAX_DOWNLOAD="0")
     environment.pop("TMUX", None)
     environment.pop("TMUX_PANE", None)
     atomic_write_json(output / "command.json", {"command": command, "config": asdict(config), "ui": ui})

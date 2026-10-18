@@ -87,8 +87,9 @@ checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代
 workflow 先将取消、恢复、监测器清理和采样失败的离线回归保存到 `offline-faults/`，再把真实
 采集保存到 `measurements/`。离线故障回归使用 mock，不代表真实硬件故障已实测。
 
-`.github/workflows/hardware.yml` 只支持手动触发，在带 `acprof` 标签的专用 Linux x86_64 runner
-上使用预先准备的 `.venv`、本机 Docker/cgroup v2、RAPL、perf 和抓包权限。不会由 PR 自动触发。
+`.github/workflows/hardware.yml` 每周一自动运行固定矩阵，也支持从 `main` 手动触发；不会由 PR 触发。
+专用 Linux x86_64 runner 需要预先准备 `.venv`、Docker/cgroup v2、RAPL、perf、抓包权限与**当前源码指纹匹配的模型镜像**。
+硬件验收严格启用 `ACPROF_REQUIRE_PREPARED_IMAGE=1`、`HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1` 和零模型下载预算。缺失镜像、需要重建或模型元数据缓存不完整会明确失败并留下日志，**不会自动构建或下载**；镜像准备必须在单独的受控阶段完成。此限制只针对硬件验收，不改变普通 `--skip-build` 的兼容回退。
 本地同一入口为：
 
 ```bash
