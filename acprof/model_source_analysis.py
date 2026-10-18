@@ -121,7 +121,8 @@ def _input_fields(method: ast.FunctionDef) -> tuple[dict[str, dict[str, Any]], l
 
 def _assignments(method: ast.FunctionDef) -> dict[str, ast.expr]:
     """Only unique, straight-line assignments can supply literal aliases."""
-    assignments, writes = {}, {}
+    assignments: dict[str, ast.expr] = {}
+    writes: dict[str, int] = {}
     for node in ast.walk(method):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             writes[node.id] = writes.get(node.id, 0) + 1
@@ -146,7 +147,7 @@ def _sanitized_keys(method: ast.FunctionDef) -> list[str] | None:
     result = returns[0].value
     if not isinstance(result, (ast.Tuple, ast.List)) or len(result.elts) != 3:
         return None
-    forward = result.elts[1]
+    forward: ast.expr | None = result.elts[1]
     if isinstance(forward, ast.Name):
         forward = assignments.get(forward.id)
     if isinstance(forward, ast.Dict) and all(isinstance(_literal(key), str) for key in forward.keys):
@@ -163,7 +164,7 @@ def _sanitized_keys(method: ast.FunctionDef) -> list[str] | None:
             or not _name(forward.value.slice, key) or not isinstance(condition, ast.Compare)
             or not _name(condition.left, key) or len(condition.ops) != 1 or not isinstance(condition.ops[0], ast.In)):
         return None
-    allowed = condition.comparators[0]
+    allowed: ast.expr | None = condition.comparators[0]
     if isinstance(allowed, ast.Name):
         allowed = assignments.get(allowed.id)
     keys = _literal(allowed)
@@ -239,9 +240,9 @@ def _analyze_pipeline(source: str, filename: str, class_name: str) -> dict:
         raise ValueError(f"{filename}: pipeline methods must be defined locally without decorators")
     fields, issues = _input_fields(methods["preprocess"])
     for method_name in required:
-        for node in ast.walk(methods[method_name]):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "getattr"}:
-                issues.append(f"{method_name} uses unsupported dynamic operation {node.func.id}")
+        for scanned in ast.walk(methods[method_name]):
+            if isinstance(scanned, ast.Call) and isinstance(scanned.func, ast.Name) and scanned.func.id in {"eval", "exec", "getattr"}:
+                issues.append(f"{method_name} uses unsupported dynamic operation {scanned.func.id}")
     signature = _signature(methods["_forward"])
     sanitized = _sanitized_keys(methods["_sanitize_parameters"])
     kwargs = _forward_kwargs(methods["_forward"], signature)
@@ -253,10 +254,10 @@ def _analyze_pipeline(source: str, filename: str, class_name: str) -> dict:
         issues.append("_sanitize_parameters conflicts with _forward generation parameters")
         kwargs = None
     registrations = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "register_pipeline":
-            if node.args and any(kw.arg == "pipeline_class" and _name(kw.value, class_name) for kw in node.keywords):
-                name = _literal(node.args[0])
+    for scan_node in ast.walk(tree):
+        if isinstance(scan_node, ast.Call) and isinstance(scan_node.func, ast.Attribute) and scan_node.func.attr == "register_pipeline":
+            if scan_node.args and any(kw.arg == "pipeline_class" and _name(kw.value, class_name) for kw in scan_node.keywords):
+                name = _literal(scan_node.args[0])
                 if isinstance(name, str):
                     registrations.append(name)
     return {"inputs": fields, "signature": signature, "sanitized_keys": sanitized,
@@ -282,7 +283,7 @@ def model_card_examples(text: str) -> list[dict]:
             tree = parse_source(block.group(1), "README.md")
         except ValueError:
             continue
-        pipelines = set()
+        pipelines: set[str] = set()
         for statement in tree.body:
             if (isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call)
                     and ast.unparse(statement.value.func).rsplit(".", 1)[-1] == "pipeline"):

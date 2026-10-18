@@ -212,7 +212,8 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
         conflicts.append(f"task conflict: Hub={hub_task}, model spec={declared_task}; select --task explicitly")
     if override_tag and declared_task and override_tag != declared_task:
         conflicts.append("--task conflicts with model spec task; update --model-spec")
-    declared_backend = FORMAT_BACKENDS.get(spec.get("format"))
+    declared_format = spec.get("format")
+    declared_backend = FORMAT_BACKENDS.get(declared_format) if isinstance(declared_format, str) else None
     if override_backend and declared_backend and override_backend != declared_backend:
         conflicts.append("--backend conflicts with model spec format; update --model-spec")
 
@@ -259,7 +260,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
     if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
         transformers_task = declared_task
     observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
-    overridden_conflicts = []
+    overridden_conflicts: list[str] = []
     if len(observed_tasks) > 1:
         disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
         (overridden_conflicts if override_tag else conflicts).append(disagreement)
@@ -312,13 +313,15 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
         add("feature-extraction", "modules.json")
 
     selected = override_tag or declared_task or hub_task or transformers_task
-    selected_operations = set(_TASK_MAPPINGS.get(selected, ()))
-    hints = [] if encoder else [("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))]
+    selected_operations = set(_TASK_MAPPINGS.get(selected or "", ()))
+    hints: list[tuple[str, tuple[str | None, ...]]] = [] if encoder else [
+        ("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))
+    ]
     if not encoder and not config.get("auto_map") and not config.get("custom_pipelines"):
         hints.extend((f"config.architectures:{architecture}", _architecture_tasks(architecture))
                      for architecture in config.get("architectures") or [] if isinstance(architecture, str))
     for source, hint_tasks in hints:
-        hint_operations = {operation for task in hint_tasks for operation in _TASK_MAPPINGS.get(task, ())}
+        hint_operations = {operation for task in hint_tasks for operation in _TASK_MAPPINGS.get(task or "", ())}
         if selected_operations and hint_operations and selected_operations.isdisjoint(hint_operations):
             disagreement = f"task conflict: {selected} is incompatible with {source}"
             (overridden_conflicts if override_tag else conflicts).append(disagreement)
