@@ -112,6 +112,8 @@ files = [
     "acprof/analysis/model.py",
     "acprof/model_resolution.py",
     "acprof/model_source_analysis.py",
+    "acprof/extensions/__init__.py",
+    "acprof/tui/input.py",
     "acprof/notifications.py",
     "acprof/host/network_preflight.py",
     "acprof/tui/run_form.py",

@@ -94,14 +94,14 @@ class ExtensionCatalog:
                 f"后端 {backend} 不支持任务 {task}；请用 --backend 选择该任务的已登记后端。")
         return replace(
             declaration,
-            execution={**declaration.execution, **declaration.task_execution.get(task, {})},
-            precision=deepcopy(declaration.task_precision.get(task,
+            execution={**declaration.execution, **declaration.task_execution.get(task or "", {})},
+            precision=deepcopy(declaration.task_precision.get(task or "",
                                declaration.backend_precision.get(backend, declaration.precision))),
-            io_format=merge_template(declaration.io_format, declaration.task_io_format.get(task, {})),
-            input_plan=replace(declaration.input_plan, **declaration.task_input_plan.get(task, {})),
+            io_format=merge_template(declaration.io_format, declaration.task_io_format.get(task or "", {})),
+            input_plan=replace(declaration.input_plan, **declaration.task_input_plan.get(task or "", {})),
             handler_options=merge_template(
                 merge_template(declaration.handler_options, declaration.backend_handler_options.get(backend, {})),
-                declaration.task_handler_options.get(task, {})),
+                declaration.task_handler_options.get(task or "", {})),
         )
 
     def select_extension(self, task_info: Any) -> ExtensionDeclaration:
@@ -164,8 +164,8 @@ class ExtensionCatalog:
                 raise UnsupportedExtensionError(f"ambiguous inferred tasks: {sorted(inferred)}")
             task = next(iter(inferred), None) or self.infer_task(
                 config.get("architectures") or (), str(config.get("model_type") or ""))
-        expected_family = self.task_families.get(task)
-        if not expected_family:
+        expected_family = self.task_families.get(task or "")
+        if not expected_family or not task:
             raise UnsupportedExtensionError(f"未声明任务 {task!r}；请设置 --task 或补齐 extension 声明")
         if family and family != "unknown" and family != expected_family:
             raise UnsupportedExtensionError(f"task {task!r} belongs to {expected_family}, not {family}")
@@ -207,7 +207,7 @@ class ExtensionCatalog:
         )
 
     def _family_values(self, name: str) -> dict:
-        result = {}
+        result: dict[str, Any] = {}
         for declaration in self.extensions.values():
             value = getattr(declaration, name)
             if value is None:

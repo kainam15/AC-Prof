@@ -58,19 +58,26 @@ class BarCursorApp(App[None]):
     def get_driver_class(self) -> type[Driver]:
         driver_class = super().get_driver_class()
 
-        class CursorDriver(driver_class):
-            def start_application_mode(driver_self) -> None:
-                super().start_application_mode()
-                self._input_cursor_suspended = False
+        def start_application_mode(driver_self: Driver) -> None:
+            super(cursor_driver, driver_self).start_application_mode()
+            self._input_cursor_suspended = False
 
-            def stop_application_mode(driver_self) -> None:
-                # Covers normal exit, exceptions, and terminal suspension.
-                try:
-                    self._reset_input_cursor()
-                finally:
-                    super().stop_application_mode()
+        def stop_application_mode(driver_self: Driver) -> None:
+            # Covers normal exit, exceptions, and terminal suspension.
+            try:
+                self._reset_input_cursor()
+            finally:
+                super(cursor_driver, driver_self).stop_application_mode()
 
-        return CursorDriver
+        # A driver backend is selected at runtime by Textual. Constructing
+        # this subclass dynamically preserves the original backend MRO while
+        # making the type boundary explicit to the static checker.
+        cursor_driver: type[Driver] = type(
+            "CursorDriver", (driver_class,),
+            {"start_application_mode": start_application_mode,
+             "stop_application_mode": stop_application_mode},
+        )
+        return cursor_driver
 
     def _input_cursor_offset(self) -> Offset | None:
         field = self.focused
