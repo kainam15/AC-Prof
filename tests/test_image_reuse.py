@@ -19,6 +19,19 @@ from acprof.host.runtime_images import (
 )
 
 
+def test_docker_inspection_supports_unlabeled_base_images():
+    image = "python:3.10-slim"
+    identity = {"image_id": "sha256:" + "a" * 64, "labels": None}
+
+    def inspect(command, *, check):
+        assert command[:4] == ["docker", "image", "inspect", image]
+        assert '(index .Config "Labels")' in command[-1]
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(identity), stderr="")
+
+    with patch("acprof.host.command.run_command", side_effect=inspect):
+        assert runtime_images.inspect_identity(image) == identity
+
+
 class TestPrepareImage:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
