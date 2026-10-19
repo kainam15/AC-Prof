@@ -241,6 +241,8 @@ def _prepare_platform(platform: PlatformSpec, root: Path, platform_data: dict,
                          "python_base_image": platform.python_base_image, "architecture": platform.architecture}
     existing = checked_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform, platform_data, "platform")
     print(f"[runtime-cache] platform={'hit' if existing else 'miss'} source={source_policy}", flush=True)
+    if existing is None and os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1":
+        raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备平台镜像不存在：{platform_name}")
     if existing is None:
         existing = _pull_cached_image(platform_name, PLATFORM_LABEL, platform_key, expected_platform,
                                       platform_data, "platform", source_policy, registry)
@@ -285,6 +287,8 @@ def prepare_environment_image(environment: DependencyEnvironment, project_dir=PR
                 "environment_id": content_digest(identity), "environment_build_fingerprint": environment_key}
     existing = checked_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity, "environment")
     print(f"[runtime-cache] environment={'hit' if existing else 'miss'} source={source_policy}", flush=True)
+    if existing is None and os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1":
+        raise RuntimeError(f"硬件验证禁止隐式构建或下载：预备依赖环境镜像不存在：{name}")
     if existing is None:
         existing = _pull_cached_image(name, ENVIRONMENT_LABEL, environment_key, expected, identity,
                                       "environment", source_policy, registry)
