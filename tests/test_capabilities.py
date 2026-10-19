@@ -22,6 +22,33 @@ class TestCapability:
         native.start()
         self._request.addfinalizer(partial(native.stop))
 
+    def test_warmup_missing_vcpu_energy_does_not_invalidate_formal_measurements(self):
+        caps = self.capabilities()
+        report = caps.measurement_report("full", gpu_modes=["off"])
+        measured = {"status": "ok", "gpu_mode": "off", "warmup": "0",
+                    "latency_app_s": "0.1", "latency_s": "0.09",
+                    "throughput_samples_per_s": "10", "container_cpu_util_avg_pct": "1",
+                    "container_mem_usage_avg_bytes": "1024",
+                    "cpu_energy_total_j": "0.09", "vcpu_energy_total_j": "0.01",
+                    "cpu_instructions_per_request": "100"}
+        warmup = {**measured, "warmup": "1", "vcpu_energy_total_j": "nan"}
+        caps.apply_collection_result(report, [warmup, measured])
+        assert report.measurement["cpu_energy"].status.value == "verified"
+        assert caps.missing_required_measurements(report, [warmup, measured]) == []
+
+    def test_missing_vcpu_energy_on_formal_row_still_fails(self):
+        caps = self.capabilities()
+        report = caps.measurement_report("full", gpu_modes=["off"])
+        measured = {"status": "ok", "gpu_mode": "off", "warmup": "0",
+                    "latency_app_s": "0.1", "latency_s": "0.09",
+                    "throughput_samples_per_s": "10", "container_cpu_util_avg_pct": "1",
+                    "container_mem_usage_avg_bytes": "1024",
+                    "cpu_energy_total_j": "0.09", "vcpu_energy_total_j": "nan",
+                    "cpu_instructions_per_request": "100"}
+        caps.apply_collection_result(report, [measured])
+        assert report.measurement["cpu_energy"].status.value == "unavailable"
+        assert caps.missing_required_measurements(report, [measured]) == ["cpu_energy"]
+
     def test_optional_dram_is_verified_without_becoming_a_full_prerequisite(self):
         caps = self.capabilities()
         report = caps.measurement_report('full', gpu_modes=['off'], dram_energy='auto')

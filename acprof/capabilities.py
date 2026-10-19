@@ -308,10 +308,16 @@ REQUIRED_MEASUREMENT_FIELDS = {
 }
 
 
+def _is_formal_success_row(row: Mapping) -> bool:
+    """Warmup rows are diagnostics, not required formal measurement windows."""
+    return (row.get("status") in {"ok", "warn"}
+            and str(row.get("warmup", "0")).strip().lower() not in {"1", "true"})
+
+
 def missing_required_measurements(report: CapabilityReport, rows: Sequence[Mapping]) -> list[str]:
     """Require actual evidence for success rows; explicit failed/OOM cases stay failed."""
     return sorted(name for name in REQUIRED_MEASUREMENT_FIELDS if name in report.requested
-                  and any(row.get("status") in {"ok", "warn"}
+                  and any(_is_formal_success_row(row)
                           and (name != "gpu_power" or row.get("gpu_mode") == "on") for row in rows)
                   and report.measurement[name].status != CapabilityStatus.VERIFIED)
 
@@ -351,7 +357,7 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
         item = report.measurement.get(name)
         if item is None or item.status == CapabilityStatus.NOT_REQUESTED:
             continue
-        relevant = [row for row in rows if row.get("status") in {"ok", "warn"} and row.get("gpu_mode") == "on"]
+        relevant = [row for row in rows if _is_formal_success_row(row) and row.get("gpu_mode") == "on"]
         try:
             verified = bool(relevant) and all(math.isfinite(float(row.get(metric, "nan")))
                                               for row in relevant for metric in metrics)
@@ -368,7 +374,7 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
             and report.measurement[name].status != CapabilityStatus.NOT_REQUESTED
         ):
             continue
-        relevant = [row for row in rows if row.get("status") in {"ok", "warn"}
+        relevant = [row for row in rows if _is_formal_success_row(row)
                     and (name != "gpu_power" or row.get("gpu_mode") == "on")]
         def finite(row):
             try:
