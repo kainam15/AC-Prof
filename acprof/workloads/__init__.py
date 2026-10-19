@@ -189,6 +189,10 @@ def get_generator(
     model_adapter: Optional[str] = None,
     **options: Any,
 ) -> WorkloadGenerator:
+    # An omitted CLI --workload-spec is represented as an empty string.
+    # Never resolve it as Path(""), which points to the project directory.
+    if workload_spec_path == "":
+        workload_spec_path = None
     cls = _resolve_generator(task_family)
     try:
         # Older externally registered classes need not inherit WorkloadGenerator.

@@ -7,7 +7,17 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from acprof.workloads import get_generator
 from acprof.workloads.cv import CVWorkloadGenerator
+
+
+def test_omitted_cli_workload_spec_generates_synthetic_input():
+    generator = get_generator("cv", "example/model", "image-classification", 1,
+                              workload_spec_path="")
+    payload = generator.generate(0.125)
+    assert payload["input_scale"] == 0.125
+    assert "image_base64" in payload
+
 
 
 @pytest.mark.parametrize('task', ('image-classification', 'mask-generation', 'video-classification'))
