@@ -88,6 +88,17 @@ def test_matrix_stops_on_failure_and_records_unrun_cases(tmp_path, failure):
     assert all(Path(case['output_dir']).is_relative_to(output) for case in report['cases'])
 
 
+def test_pinned_vit_matrix_uses_bounded_cv_resolution():
+    from acprof.workloads.cv import CVWorkloadGenerator
+
+    matrix = json.loads((Path(__file__).resolve().parents[1] /
+                         "examples/hardware-validation.json").read_text())
+    selected = [entry for entry in matrix["cases"] if entry["task"] == "image-classification"]
+    assert len(selected) == 1
+    scale = float(selected[0]["input_scales"])
+    assert CVWorkloadGenerator._resolution(scale) == 224
+
+
 def test_hardware_run_forces_prepared_offline_images(tmp_path):
     """The validation entry point must not accidentally build or download."""
     config = RunConfig(model='demo/prepared', task='fill-mask', skip_build=True)

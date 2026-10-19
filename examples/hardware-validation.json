@@ -13,7 +13,7 @@
       "model": "hf-internal-testing/tiny-random-ViTForImageClassification",
       "revision": "5b3b44a3ed492070c273e481e30ecf4deddc5ec3",
       "task": "image-classification",
-      "input_scales": "30"
+      "input_scales": "1"
     }
   ]
 }
