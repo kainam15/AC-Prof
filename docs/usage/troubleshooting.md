@@ -170,11 +170,11 @@ cat /proc/sys/kernel/perf_event_paranoid
 
 这是正常的：矩阵执行期间先写 `.acprof/work/cases/<case-id>/result.csv`（旧目录为 `result_case_*.csv`），全部 case 完成后才合并为 `result_all.csv`。如果在 tmux 中运行，采集期间查看对应终端；`logs/terminal.log`（旧目录为 `tmux_all.log`）在命令结束或报错退出时落盘。
 
-### `--skip-build` 后接口报错
+### 复用镜像后接口报错
 
 先区分镜像核验失败与独立推理验证失败。当前实现会核验指纹、模型 revision、环境与下载清单，
-不存在匹配镜像时自动构建；`--skip-build` 不会直接使用旧 `:latest`。
-指纹或清单不匹配时按报错重建；核验通过但接口失败时，检查 `runtime_validation.json`、设备日志、
+默认复用核验通过的镜像，不存在匹配镜像时自动构建；不会直接使用旧 `:latest`。
+指纹或清单不匹配时，可在 TUI 的高级参数中选择“镜像高级操作 → 重新构建镜像（仅本次）”，或为新实验加 `--rebuild-image`；核验通过但接口失败时，检查 `runtime_validation.json`、设备日志、
 任务路由与实际容器依赖，不能把所有错误都归因于镜像陈旧。行为见[运行兼容说明](../models/images.md#构建复用和验证)。
 
 ### `[task-support][ERROR]` / TUI 显示“任务不支持”

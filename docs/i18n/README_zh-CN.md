@@ -52,6 +52,8 @@ uv pip install --no-deps -e .
 
 完整流程见[开发环境](../development/distribution.md#本地开发环境)和[测试指南](../development/testing.md)。
 
+当前源码默认复用通过校验的模型镜像，缺失时自动构建。需要单次重建时，使用 `--rebuild-image` 或 TUI 的“镜像高级操作”；仍可使用 Docker 缓存。详见[镜像准备](../models/images.md#构建复用和验证)。
+
 ## 文档导航
 
 | 想做什么 | 阅读入口 |

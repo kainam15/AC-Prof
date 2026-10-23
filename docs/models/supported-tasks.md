@@ -188,7 +188,7 @@ CV 可使用 `--workload-spec` 指定图片、视频帧、候选标签、姿态�
 
 实际 Hub 标签 `image-to-image`、`image-to-video` 也会接入 Diffusers 适配。显式的 `image-text-to-image`／`image-text-to-video` 任务要求模型同时接收文字和图像条件；`image-to-video` 也可使用无文本的原生 pipeline。模型如需要非方形输出、更大的分辨率、不同帧数或额外组件，需要满足其自身约束；仅采用上述官方原生 pipeline 转换，不执行 Diffusers 自定义远程代码。
 
-TUI 的高级配置可选 `Multimodal`，也可使用 CLI。首次运行应重建模型镜像，后续再用 `--skip-build` 复用。以下例子只运行一个 VQA 输入尺度：
+TUI 的高级配置可选 `Multimodal`，也可使用 CLI。默认自动构建缺失镜像，后续核验匹配后复用；需要显式重建时使用 `--rebuild-image`。以下例子只运行一个 VQA 输入尺度：
 
 ```bash
 acprof run --model dandelin/vilt-b32-finetuned-vqa \

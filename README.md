@@ -53,6 +53,8 @@ uv pip install --no-deps -e .
 
 See [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md) for the full workflow.
 
+Current source builds reuse verified model images automatically and build missing ones. Use `--rebuild-image` or the TUI's advanced image options for a one-time rebuild; Docker cache may still be used. See [image preparation](docs/models/images.md#构建复用和验证).
+
 ## Documentation
 
 | Goal | Guide |

@@ -105,7 +105,7 @@ acprof report results/first-run/google-bert--bert-base-uncased/
 
 ```bash
 acprof probe --model google-bert/bert-base-uncased \
-  --cpus 1,2,4 --mems 2,4,8 --gpus off,on --skip-build
+  --cpus 1,2,4 --mems 2,4,8 --gpus off,on
 ```
 
 这个例子固定使用最小 CPU `1`，优先选择 `GPU=off`，按 `2GB → 4GB → 8GB` 实测。
@@ -179,8 +179,8 @@ acprof run --model google-bert/bert-base-uncased \
 acprof run --model amazon/chronos-bolt-base \
   --task-family timeseries --backend chronos
 
-# 复用已有镜像
-acprof run --model google-bert/bert-base-uncased --skip-build
+# 默认核验并复用已有镜像，缺失时自动构建
+acprof run --model google-bert/bert-base-uncased
 
 # 单个推理请求最多等待 30 分钟
 acprof run --model stable-diffusion-v1-5/stable-diffusion-v1-5 \
@@ -193,7 +193,7 @@ acprof run --help
 ### 镜像复用、超时与失败处理
 
 - 模型文件筛选、依赖/模型/代码分层及缓存含义见[运行兼容说明](../models/adaptation.md#模型文件选择规则)。
-- `--skip-build` 核验匹配后复用，不存在则构建；镜像与独立推理验证的失败边界见[构建、复用和验证](../models/images.md#构建复用和验证)。
+- 默认核验匹配后复用，不存在则构建；`--rebuild-image` 显式重建，仍可使用 Docker 缓存；镜像与独立推理验证的失败边界见[构建、复用和验证](../models/images.md#构建复用和验证)。
 - 启动 OOM、剪枝推断及部分结果处理见[排障说明](troubleshooting.md#启动-oom-与剪枝占位)。
 - 长请求可设置 `--request-timeout-seconds 1800`；它限制单次请求，不限制整个矩阵。默认值与适用阶段见[CLI 参数](cli-run.md#请求窗口与采样)。
 

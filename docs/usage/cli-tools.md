@@ -6,7 +6,7 @@
 `--revision` 接受 branch、tag 或完整 commit SHA；TUI 的模型候选、采集前自动解析和最大输入探测共用当前填写的 revision。
 
 复用 `--model`、`--task`、`--task-family`、`--backend`、`--model-spec`、`--batch-size`、`--workload-spec`、
-`--output-dir` 和 `--skip-build` 的参数及默认值。
+`--output-dir` 和 `--rebuild-image` 的参数及默认值。
 资源列表与超时的用途如下：
 
 | 参数 | 默认值 | 说明 |
