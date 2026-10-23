@@ -1,6 +1,8 @@
 """Request-loop progress is published even when a partially completed window aborts."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from acprof.host.window_requests import WindowRequestProgress, execute_requests
@@ -44,6 +46,22 @@ def test_request_order_and_summary_are_preserved():
     assert progress.executed_task_param == "preset"
     assert progress.effective_input_scale == 60.0
     assert progress.pending_request_id == ""
+
+
+def test_optional_request_metrics_preserve_float_and_nan_semantics():
+    responses = iter([
+        {"latency_app_s": 0.1, "request_payload_bytes": "12.5",
+         "output_length": None, "output_token_count": "not-a-number"},
+        {"latency_app_s": 0.2},
+    ])
+    progress = WindowRequestProgress()
+    _collect(progress, lambda *_args, **_kwargs: next(responses), limit=2)
+
+    assert progress.payload_sizes[0] == 12.5
+    assert math.isnan(progress.payload_sizes[1])
+    assert all(math.isnan(value) for value in progress.output_lengths)
+    assert all(math.isnan(value) for value in progress.output_token_counts)
+    assert progress.count == 2
 
 
 def test_failed_second_request_keeps_partial_window_and_pending_id():

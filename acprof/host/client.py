@@ -56,11 +56,11 @@ from acprof.host.client_metrics import (
     _nan_metrics,
     _per_positive_denominator,
     _prepared_body_size_bytes,
-    _to_float_or_nan,
-    _window_monitor_warnings,
     cpu_metrics_from_result,
     gpu_metrics_from_result,
     resource_usage_metrics_from_result,
+    to_float_or_nan as _to_float_or_nan,
+    window_monitor_warnings as _window_monitor_warnings,
 )
 from acprof.host.compute_profile_plan import (
     find_compute_profile_entry as _find_compute_profile_entry,

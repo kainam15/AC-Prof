@@ -7,7 +7,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from acprof.host.client_metrics import (
-    _to_float_or_nan,
+    to_float_or_nan as _to_float_or_nan,
 )
 from acprof.host.command import run_command
 

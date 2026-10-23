@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from acprof.host.client_metrics import _to_float_or_nan
+from acprof.host.client_metrics import to_float_or_nan
 
 
 @dataclass
@@ -45,9 +45,9 @@ def execute_requests(
         latency = float(response["latency_app_s"])
         progress.elapsed_s += latency
         progress.latencies.append(latency)
-        progress.payload_sizes.append(_to_float_or_nan(response.get("request_payload_bytes")))
-        progress.output_lengths.append(_to_float_or_nan(response.get("output_length")))
-        progress.output_token_counts.append(_to_float_or_nan(response.get("output_token_count")))
+        progress.payload_sizes.append(to_float_or_nan(response.get("request_payload_bytes")))
+        progress.output_lengths.append(to_float_or_nan(response.get("output_length")))
+        progress.output_token_counts.append(to_float_or_nan(response.get("output_token_count")))
         progress.workload_contracts.append(response.get("workload_contract"))
         parameter = response.get("task_param")
         if parameter is not None and progress.executed_task_param is None:

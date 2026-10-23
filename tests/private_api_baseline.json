@@ -223,11 +223,6 @@
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_to_float_or_nan"
-    },
-    {
-      "source": "acprof.host.client",
       "target": "acprof.host.client_publication",
       "symbol": "_append_request_window"
     },
@@ -235,11 +230,6 @@
       "source": "acprof.host.client",
       "target": "acprof.host.client_publication",
       "symbol": "_append_row"
-    },
-    {
-      "source": "acprof.host.client_diagnostics",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_to_float_or_nan"
     },
     {
       "source": "acprof.host.compute_profile",
