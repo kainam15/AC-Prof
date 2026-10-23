@@ -23,11 +23,12 @@ from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
-from acprof.tui.i18n import ENGLISH, error_message, translate
+from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 from acprof.tui.stages import Stage
+from acprof.tui.translation_catalog import ENGLISH_BY_ID, SOURCE_BY_ID, SOURCE_TO_ID
 
 
 def test_templates_translate_nested_ui_text_and_preserve_user_values():
@@ -79,10 +80,29 @@ def test_stage_identity_is_stable_and_translations_are_presentation_only(stage):
 
 
 def test_stage_control_flow_ignores_translation_changes():
-    with patch.dict(ENGLISH, {'已完成': 'Succeeded with new wording'}):
+    with patch.dict(ENGLISH_BY_ID, {Stage.COMPLETED.label.msgid: 'Succeeded with new wording'}):
         assert Stage.COMPLETED is Stage.COMPLETED
         assert translate(Stage.COMPLETED.label, 'en') == 'Succeeded with new wording'
         assert Stage.COMPLETED.value == 'completed'
+
+
+def test_stable_message_id_is_not_a_source_string():
+    key = SOURCE_TO_ID['保存位置：{0}']
+    value = message_id(key, '等待/{模型}')
+    assert isinstance(value, CatalogMessage)
+    assert value.msgid == key
+    assert value.template == SOURCE_BY_ID[key]
+    assert translate(value, 'en') == 'Settings file: 等待/{模型}'
+    assert translate(value, 'zh') == '保存位置：等待/{模型}'
+    with pytest.raises(KeyError):
+        message_id('ui.nonexistent')
+
+
+def test_message_catalog_has_bijective_stable_ids():
+    assert len(SOURCE_BY_ID) == len(SOURCE_TO_ID) == len(ENGLISH_BY_ID) == len(ENGLISH)
+    assert set(SOURCE_BY_ID) == set(ENGLISH_BY_ID)
+    assert all(key.startswith('ui.') and key[3:].isdigit() for key in SOURCE_BY_ID)
+    assert all(SOURCE_BY_ID[key] in ENGLISH for key in SOURCE_BY_ID)
 
 
 class TestTuiLanguage:

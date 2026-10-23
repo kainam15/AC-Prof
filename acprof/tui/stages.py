@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from enum import Enum
 
-from acprof.messages import Message, message
+from acprof.messages import Message
+from acprof.tui.i18n import message_id
 
 
 class Stage(Enum):
@@ -50,47 +51,47 @@ class Stage(Enum):
     @property
     def label(self) -> Message:
         """Localized only by the presentation layer; safe for control flow."""
-        return message(_LABELS[self])
+        return message_id(_LABELS[self])
 
 
 _LABELS: dict[Stage, str] = {
-    Stage.WAITING: "等待",
-    Stage.STARTING: "启动中",
-    Stage.CLEANUP_INCOMPLETE: "清理未完成",
-    Stage.VERIFYING_ARTIFACT: "核验产物",
-    Stage.TASK_UNSUPPORTED: "任务不支持",
-    Stage.RUNTIME_VALIDATION: "运行验证",
-    Stage.INTERFACE_RESOLUTION: "接口解析",
-    Stage.DEPENDENCY_RESOLUTION: "解析依赖",
-    Stage.ENVIRONMENT_PREFLIGHT: "环境预检",
-    Stage.PREPARING_IMAGE: "准备镜像",
-    Stage.PREPARING_INPUT: "准备输入",
-    Stage.CONFIRMING_INTERFACE: "正在确认模型接口…",
-    Stage.PREPARING_ENVIRONMENT: "正在准备运行环境…",
-    Stage.PREPARING_MODEL: "正在准备模型…",
-    Stage.STARTING_PROBE_CONTAINER: "启动探测容器",
-    Stage.PREPARING_MEMORY_PROBE: "准备内存探测",
-    Stage.SCANNING_MEMORY: "探测最低可用内存",
-    Stage.MEMORY_FOUND: "找到最低可用内存",
-    Stage.MEMORY_FEASIBILITY: "内存可行性探测",
-    Stage.PROBE_COMPLETED: "探测完成",
-    Stage.PROBE_FAILED: "探测失败",
-    Stage.PREPARING_MATRIX: "准备矩阵",
-    Stage.STARTING_CONTAINER: "启动容器",
-    Stage.MAX_SCALE_PROBE: "最大尺度探测",
-    Stage.BUILDING_IMAGE: "构建镜像",
-    Stage.PLANNING_INPUT: "规划输入",
-    Stage.COMPUTE_PROFILING: "计算分析",
-    Stage.EXECUTION_PROFILING: "执行分析",
-    Stage.SERVER_READY: "服务就绪",
-    Stage.MEASURING: "正式测量",
-    Stage.CLEANING_CASE: "清理 case",
-    Stage.CASE_COMPLETED: "case 完成",
-    Stage.OOM_PRUNED: "OOM 剪枝",
-    Stage.MERGING_RESULTS: "合并结果",
-    Stage.COMPLETED: "已完成",
-    Stage.FAILED: "失败",
-    Stage.STOPPED: "已停止",
-    Stage.PARTIAL: "部分完成",
-    Stage.TERMINATED: "已终止",
+    Stage.WAITING: "ui.0692",
+    Stage.STARTING: "ui.0764",
+    Stage.CLEANUP_INCOMPLETE: "ui.0258",
+    Stage.VERIFYING_ARTIFACT: "ui.0196",
+    Stage.TASK_UNSUPPORTED: "ui.0585",
+    Stage.RUNTIME_VALIDATION: "ui.0237",
+    Stage.INTERFACE_RESOLUTION: "ui.0233",
+    Stage.DEPENDENCY_RESOLUTION: "ui.0238",
+    Stage.ENVIRONMENT_PREFLIGHT: "ui.0234",
+    Stage.PREPARING_IMAGE: "ui.0235",
+    Stage.PREPARING_INPUT: "ui.0236",
+    Stage.CONFIRMING_INTERFACE: "ui.0053",
+    Stage.PREPARING_ENVIRONMENT: "ui.0054",
+    Stage.PREPARING_MODEL: "ui.0055",
+    Stage.STARTING_PROBE_CONTAINER: "ui.0863",
+    Stage.PREPARING_MEMORY_PROBE: "ui.0865",
+    Stage.SCANNING_MEMORY: "ui.0867",
+    Stage.MEMORY_FOUND: "ui.0769",
+    Stage.MEMORY_FEASIBILITY: "ui.0874",
+    Stage.PROBE_COMPLETED: "ui.0768",
+    Stage.PROBE_FAILED: "ui.0772",
+    Stage.PREPARING_MATRIX: "ui.0877",
+    Stage.STARTING_CONTAINER: "ui.0776",
+    Stage.MAX_SCALE_PROBE: "ui.0775",
+    Stage.BUILDING_IMAGE: "ui.0777",
+    Stage.PLANNING_INPUT: "ui.0778",
+    Stage.COMPUTE_PROFILING: "ui.0881",
+    Stage.EXECUTION_PROFILING: "ui.0882",
+    Stage.SERVER_READY: "ui.0779",
+    Stage.MEASURING: "ui.0774",
+    Stage.CLEANING_CASE: "ui.0780",
+    Stage.CASE_COMPLETED: "ui.0770",
+    Stage.OOM_PRUNED: "ui.0781",
+    Stage.MERGING_RESULTS: "ui.0884",
+    Stage.COMPLETED: "ui.0767",
+    Stage.FAILED: "ui.0771",
+    Stage.STOPPED: "ui.0195",
+    Stage.PARTIAL: "ui.0194",
+    Stage.TERMINATED: "ui.0773",
 }

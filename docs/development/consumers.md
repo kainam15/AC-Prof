@@ -89,7 +89,12 @@ CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TU
 字段错误元数据与候选控件参考 [Textual validation](https://github.com/Textualize/textual/blob/main/src/textual/validation.py)
 和 [Input 文档](https://github.com/Textualize/textual/blob/main/docs/widgets/input.md)（MIT）。
 沿用现有 Textual 与标准库；共享校验不引入 UI 依赖，界面校验只在编辑或提交阶段执行，不进入正式测量窗口。
-`acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
+`acprof.messages` 保存可翻译的结构化消息；`tui.translation_catalog` 为 927 条已审校显示文案
+固定 `ui.NNNN` 标识及中文源文案、英文翻译，键只追加不重新编号。
+`tui.i18n.message_id(key, *values)` 构造保留 msgid 的消息，`translate` 在展示边界按标识查找，
+允许文本变化而不影响身份；已有 `message(中文源文本)` 及少量直接字符串调用仍可从同一目录生成
+`ENGLISH` 源文案索引逐步迁移，避免改变验证错误文本、CLI 与结果协议。
+缺失 ID 直接抛出 `KeyError`，参数位置／格式必须与两种语言模板一致，禁止回退成任意字符串。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
 `stages.Stage` 是进度与最终进程状态的稳定机器标识；其中文源标签通过 `Stage.label`
 在 `app`、命令回显等展示边界翻译，状态判断、状态样式和测试只比较枚举身份。
