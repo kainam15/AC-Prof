@@ -53,6 +53,7 @@
 | `acprof/model_candidates.py` | 静态任务候选、Hub/配置/模型声明的证据与歧义决策，保留原有 provenance；不加载权重 |
 | `acprof/model_resolution.py`、`acprof/model_spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
 | `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
+| `acprof/model_dependency_domain.py`、`acprof/model_dependency_eval.py`、`acprof/model_dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
 | `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
 | `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
