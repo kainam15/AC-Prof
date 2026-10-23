@@ -29,6 +29,21 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 `codeql.yml` 在 `main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，不进入主机或容器测量路径；扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描。
 Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，固定 uv 版本协调重建 host/test/dev/browser 哈希锁与 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。
 
+`dependency-audit.yml` 在每周二 UTC、手动触发以及相关 lock/扫描代码 PR 上使用
+[PyPA pip-audit](https://github.com/pypa/pip-audit) 扫描 host、test、dev、runtime-test、browser
+及 audit 自身的**已锁定版本**。扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
+wheel 的 SHA256，不加入被测 host/runtime 环境；重新生成时使用仓库的固定 uv 版本：
+
+```bash
+uv pip compile requirements/audit.in --python-version 3.10 --universal --generate-hashes --output-file requirements/audit.lock
+```
+
+扫描使用 `--require-hashes --disable-pip` 避免重新求解或安装被测依赖，JSON 报告作为
+GitHub Actions artifact 保留 30 天；每个报告还要经 `scripts/check_dependency_audit.py`
+核对结构及非空依赖集合。**已知漏洞只发出告警，不阻断普通开发合并**；缺失或损坏的扫描证据
+属于 CI 故障并应失败。此检查不能检测未公开漏洞、源码逻辑漏洞，也不能取代 OCI/base OS 安全扫描。
+lock 文件仍通过现有协调更新 PR 由维护者审核，不自动升级、合并或发布。
+
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
 是保留工作流入口与单独保护汇总作业的依据。设计也参考
@@ -39,9 +54,8 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 
 独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
 独立 `types` job 同样使用 Python 3.10 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
-中的渐进式白名单强制开启未注解函数体检查和导入类型追踪，并对已验证的协议与 TUI 模块
-应用模块级严格规则；新纳入的 Orchestrator、多模态 Handler、TUI App、
-运行结果与主机辅助模块由同一 job 自动检查。
+中的 `packages = ["acprof"]` 全包发现强制开启未注解函数体检查和导入类型追踪，
+并对已验证的协议与 TUI 模块应用模块级严格规则。新增 Python 包文件会自动纳入同一 job。
 这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
 `.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
