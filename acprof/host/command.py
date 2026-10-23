@@ -65,6 +65,10 @@ def _command_metadata(command: list[str], cwd: str, overrides: Mapping[str, str]
                             for key, value in overrides.items()}, duration_s, returncode, error_type)
 
 
+DOCKER_INSPECT_TIMEOUT_S = 15
+DOCKER_RUN_TIMEOUT_S = 120
+
+
 def run_command(
     command: Sequence[str], *, check: bool = False, capture_output: bool = True,
     timeout: float | None = None, cwd: str | os.PathLike[str] | None = None,

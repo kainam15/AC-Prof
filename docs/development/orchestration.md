@@ -73,7 +73,8 @@ preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜�
 runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
 返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。
 默认捕获输出、`check=False`；调用方原有的 check、capture 和 timeout 选择保持原义，未设置 timeout
-仍为无限等待。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
+仍为无限等待；与 Docker daemon 交互的生产路径应显式使用有界 timeout，启动和 inspect
+预算由 `host.command` 集中定义。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
 非零退出按 check 决定是否抛出 `CalledProcessError`；timeout、OSError 和取消继续传播原异常。
 timeout 的部分输出保留标准库的 bytes 语义。runner 不增加 retry、进程组或 Docker 容器清理策略。
 长期进程继续由 `ProcessLifecycle`、`PerfMIPSMonitor`、orchestrator/load 的 tcpdump owner 管理。

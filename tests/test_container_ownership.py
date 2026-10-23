@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -140,6 +141,20 @@ class TestContainerOwnership:
         with patch("acprof.host.command.run_command", side_effect=failed), pytest.raises(RuntimeError, match="port already allocated"):
             self.start()
         assert ([args[-1] for args in self.commands if args[:2] == ["docker", "rm"]]) == ([self.identifier])
+
+    def test_docker_run_timeout_reclaims_only_the_cidfile_container(self):
+        from acprof.host.command import DOCKER_RUN_TIMEOUT_S
+
+        def stall(args, **kwargs):
+            assert kwargs['timeout'] == DOCKER_RUN_TIMEOUT_S
+            Path(args[args.index('--cidfile') + 1]).write_text(self.identifier)
+            raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+
+        with patch('acprof.host.docker_runtime.host_command.run_command', side_effect=stall) as run, patch(
+            'acprof.host.docker_runtime.remove_owned_container',
+        ) as remove, pytest.raises(subprocess.TimeoutExpired):
+            docker_runtime._launch_container(['docker', 'run', '-d', 'fixture'])
+        remove.assert_called_once_with(self.identifier, run)
 
     def test_cancelled_readiness_cleans_only_owned_container(self):
         with patch("acprof.host.command.run_command", side_effect=self.command), patch(

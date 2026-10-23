@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
+
 LIFECYCLE_LABEL = "org.acprof.container.lifecycle"
 OWNER_PREFIX = "org.acprof.owner."
 _OWNER_SCOPE_LABELS = (LIFECYCLE_LABEL, OWNER_PREFIX + "host", OWNER_PREFIX + "uid")
@@ -17,7 +19,7 @@ _OWNER_SCOPE_LABELS = (LIFECYCLE_LABEL, OWNER_PREFIX + "host", OWNER_PREFIX + "u
 
 STOP_TIMEOUT_S = 15
 REMOVE_TIMEOUT_S = 30
-INSPECT_TIMEOUT_S = 15
+INSPECT_TIMEOUT_S = DOCKER_INSPECT_TIMEOUT_S
 
 
 class ContainerCleanupError(RuntimeError):

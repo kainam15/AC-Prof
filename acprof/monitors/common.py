@@ -5,13 +5,14 @@ import threading
 import time
 from typing import Callable
 
-from acprof.host.command import run_command
+from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, run_command
 
 
 def docker_container_pid(container_name: str, *, error_type: type[RuntimeError] = RuntimeError) -> int:
     result = run_command(
         ["docker", "inspect", "--format", "{{.State.Pid}}", container_name],
         capture_output=True, text=True, check=False, encoding="utf-8", errors="replace",
+        timeout=DOCKER_INSPECT_TIMEOUT_S,
     )
     if result.returncode != 0:
         raise error_type(result.stderr.strip() or f"docker inspect failed for {container_name}")

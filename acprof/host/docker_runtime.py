@@ -20,6 +20,7 @@ from acprof.config import (
     SERVER_PORT,
 )
 from acprof.host import command as host_command, container_state
+from acprof.host.command import DOCKER_RUN_TIMEOUT_S
 from acprof.host.container_lifecycle import (
     container_owner_labels,
     recover_abandoned_containers,
@@ -144,7 +145,10 @@ def _launch_container(command: List[str]) -> str:
     with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
         cidfile = Path(directory) / "container.cid"
         try:
-            result = host_command.run_command([*command[:3], '--cidfile', str(cidfile), *command[3:]], check=False)
+            result = host_command.run_command(
+                [*command[:3], '--cidfile', str(cidfile), *command[3:]],
+                check=False, timeout=DOCKER_RUN_TIMEOUT_S,
+            )
             if result.returncode != 0:
                 raise RuntimeError(f"docker run failed: {result.stderr.strip()}")
             identifier = result.stdout.strip()
