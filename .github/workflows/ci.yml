@@ -1,4 +1,4 @@
-name: 离线回归与容器兼容
+name: CI
 on:
   push:
     branches: ['**']

@@ -1,4 +1,4 @@
-name: 安装包、PyPI 与 Linux standalone
+name: Build & Release
 on:
   push:
     tags: ['v*']

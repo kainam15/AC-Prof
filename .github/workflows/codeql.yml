@@ -1,4 +1,4 @@
-name: CodeQL Python security scan
+name: CodeQL
 
 on:
   push:

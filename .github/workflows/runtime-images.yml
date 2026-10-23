@@ -1,4 +1,4 @@
-name: GHCR 预构建依赖环境
+name: Runtime Images
 on:
   push:
     tags: ['v*']

@@ -1,4 +1,4 @@
-name: 专用主机采集验证
+name: Hardware Validation
 on:
   schedule:
     - cron: '15 3 * * 1' # Weekly Monday 03:15 UTC; main branch only.

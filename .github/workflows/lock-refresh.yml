@@ -1,4 +1,4 @@
-name: Coordinated dependency lock refresh
+name: Dependency Lock Refresh
 on:
   schedule:
     - cron: '29 4 1 * *' # Monthly, UTC; only the default branch
