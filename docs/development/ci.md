@@ -43,6 +43,11 @@ GitHub Actions artifact 保留 30 天；每个报告还要经 `scripts/check_dep
 核对结构及非空依赖集合。**已知漏洞只发出告警，不阻断普通开发合并**；缺失或损坏的扫描证据
 属于 CI 故障并应失败。此检查不能检测未公开漏洞、源码逻辑漏洞，也不能取代 OCI/base OS 安全扫描。
 lock 文件仍通过现有协调更新 PR 由维护者审核，不自动升级、合并或发布。
+2026-10 安全更新中 `certifi`、`urllib3`、uv、pytest、virtualenv 和 Python 3.11+ 的
+Pillow/filelock 已升级到附哈希版本；**Python 3.10 的 Pillow 12.3.0 和 filelock 4.1.0 仍有已知报告**，
+因为上游已修复版本要求更新的 Python。它们不能通过忽略漏洞 ID 或将全局扫描标绿处理，
+下一步需基于 Docker CPU/GPU 平台锁迁移 Python 基线，并同步调整运行验证与镜像/权重身份。
+在确认新平台后，单独重锁 Docker runtime 工件，并核验真实推理及实验复现，禁止只更新 host.lock 断言安全。
 
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
@@ -218,7 +223,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。
 
 更新锁前后比较原完整包版本，验证目标 wheel 的 ABI/平台和全部制品 SHA256。默认锁生成保留原
-版本，显式 `--upgrade` 才更新环境包；uv 固定 0.12.13，生成 wheel 锁的脚本使用 Python 3.11+，
+版本，显式 `--upgrade` 才更新环境包；uv 固定 0.13.5，生成 wheel 锁的脚本使用 Python 3.11+，
 只读检查兼容 Python 3.10+。系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
 指定输出锁。具体命令见[当前配置](../models/environment.md#当前配置)。
 

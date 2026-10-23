@@ -58,10 +58,10 @@ if [[ -z "$uv_command" ]]; then
 fi
 if [[ -z "$uv_command" ]]; then
     # Match the development/Release toolchain and use the upstream installer.
-    installer_url='https://astral.sh/uv/0.12.13/install.sh'
+    installer_url='https://astral.sh/uv/0.13.5/install.sh'
     installer_dir="$(mktemp -d)"
     trap 'rm -rf -- "$installer_dir"' EXIT
-    printf '[setup] 下载 uv 0.12.13 到 %s\n' "$uv_install_dir"
+    printf '[setup] 下载 uv 0.13.5 到 %s\n' "$uv_install_dir"
     if command -v curl >/dev/null 2>&1; then
         curl --fail --location --retry 2 --connect-timeout 15 --max-time 120 \
             --output "$installer_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"

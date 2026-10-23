@@ -41,7 +41,7 @@ jobs:
           PY
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.10'
       # uv first builds the sdist, then builds the release wheel from that sdist.
       - run: uv build
@@ -69,7 +69,7 @@ jobs:
       - run: cd dist && sha256sum --check SHA256SUMS
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.10'
       - name: uv pip 安装发布 wheel 并验证完整 CLI 与资源
         run: |
@@ -128,7 +128,7 @@ jobs:
       - run: cd dist && sha256sum --check SHA256SUMS
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.10'
       - name: 从同一 wheel 准备锁定的 standalone 环境
         run: |
@@ -311,7 +311,7 @@ jobs:
           path: dist/
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.10'
       - name: 等待 PyPI 可见并核对安装和制品哈希
         working-directory: ${{ runner.temp }}

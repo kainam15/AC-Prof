@@ -150,7 +150,7 @@ wheel CI 同时验证两层依赖契约：锁定环境先按 `requirements/host.
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
 分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立
 `report-browser` job 执行，Python 3.12、Playwright 和绘图依赖锁在 `requirements/browser.lock`，
-不安装到共享 `.venv` 或 runtime。锁使用现有 uv 0.12.13 生成：
+不安装到共享 `.venv` 或 runtime。锁使用现有 uv 0.13.5 生成：
 
 ```bash
 .venv/bin/uv pip compile requirements/browser.in --python-version 3.12 \

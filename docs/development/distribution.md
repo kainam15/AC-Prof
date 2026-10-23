@@ -80,7 +80,7 @@ cd AC-Prof
 ./setup.sh
 ```
 
-`setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.12.13，
+`setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.13.5，
 默认安装到 `~/.local/bin`（可用 `UV_INSTALL_DIR` 指定）。随后用 Python 3.10 和
 `requirements/host.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.10 时由 uv 下载。
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。

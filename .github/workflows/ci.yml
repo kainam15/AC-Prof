@@ -303,7 +303,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.12'
       - name: 构建并隔离安装当前提交的 wheel
         run: |
@@ -322,7 +322,7 @@ jobs:
         run: |
           uv venv "$RUNNER_TEMP/acprof-resolved" --python 3.12
           uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl \
-            'pytest==8.4.2' 'pytest-asyncio==1.2.0'
+            'pytest==9.0.3' 'pytest-asyncio==1.4.0'
           uv pip check --python "$RUNNER_TEMP/acprof-resolved/bin/python"
           cd "$RUNNER_TEMP"
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -c 'import acprof; print(acprof.__version__)'
@@ -402,11 +402,12 @@ jobs:
       - name: 固定场景 SVG 回归（统一 pytest 配置）
         run: |
           mkdir -p evidence
-          python -m pytest tests/visual -q --snapshot-report evidence/ui.html --junitxml=evidence/ui.xml
+          python -m pytest tests/visual -q --junitxml=evidence/ui.xml
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
           TZ: UTC
           PYTHONHASHSEED: '0'
+          ACPROF_SNAPSHOT_OUTPUT_DIR: evidence/svg
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

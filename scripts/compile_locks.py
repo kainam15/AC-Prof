@@ -25,7 +25,7 @@ from acprof.runtime_profiles import (  # noqa: E402 -- 脚本先设置仓库导�
     environment_identity,
 )
 
-UV_VERSION = "0.12.13"
+UV_VERSION = "0.13.5"
 
 
 def check_host_lock(root):

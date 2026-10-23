@@ -125,7 +125,7 @@ Hydra、datasets 等依赖；项目自述仍为 WIP，不能据此替代本仓�
 声明解析、导入和完整验证在测量前完成。每请求的实际工作量摘要属于当前响应协议，有小量固定序列化成本；
 不把它当作零开销，也不重算或重新发送推理请求。
 
-依赖解析继续使用 [uv](https://github.com/astral-sh/uv) 0.12.13（MIT / Apache-2.0），
+依赖解析继续使用 [uv](https://github.com/astral-sh/uv) 0.13.5（MIT / Apache-2.0），
 复用其目标平台解析和制品哈希；分层缓存复用 [BuildKit](https://github.com/moby/buildkit)
 （Apache-2.0）。两者持续维护，不新增服务运行依赖。系统来源采用
 [Debian Snapshot](https://snapshot.debian.org/)，显式锁更新时由 APT 验证签名索引，普通构建
