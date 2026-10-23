@@ -37,6 +37,9 @@ class TestPrepareImage:
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
         self.project_dir = str(Path(__file__).resolve().parents[1])
+        self.model_store_root = tmp_path / "model-store"
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("ACPROF_MODEL_STORE", str(self.model_store_root))
         driver = patch('acprof.host.runtime_images.select_nlp_torch_index_url',
                        return_value='https://download.pytorch.org/whl/cu128')
         driver.start()
@@ -127,7 +130,7 @@ class TestPrepareImage:
         with patch(
             "acprof.host.runtime_images.prepare_runtime_image", return_value=image
         ), patch(
-            "acprof.host.model_store.store_root", return_value=Path(self.project_dir)
+            "acprof.host.model_store.store_root", return_value=self.model_store_root
         ), patch(
             "acprof.host.model_store.require_entry"
         ) as require_entry, patch(
@@ -138,12 +141,16 @@ class TestPrepareImage:
             prepared = runtime_images.prepare_image(self.task, self.project_dir)
 
         require_entry.assert_called_once_with(prepared.runtime_environment)
+        assert prepared.runtime_environment["model_store"]["host_path"] == str(self.model_store_root)
         acquire_mount.assert_not_called()
 
     def test_invalid_model_store_stops_default_reuse_without_building(self):
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), patch(
             "acprof.host.model_store.verify_entry", side_effect=ValueError("model file checksum mismatch")
-        ), patch("acprof.host.runtime_images.build_runtime_image") as build, pytest.raises(
+        ), patch(
+            "acprof.host.runtime_images.build_runtime_image",
+            side_effect=AssertionError("an invalid Model Store must not trigger a build"),
+        ) as build, pytest.raises(
             ValueError, match="checksum mismatch"
         ):
             runtime_images.prepare_image(self.task, self.project_dir)
@@ -170,7 +177,10 @@ class TestPrepareImage:
         query = subprocess.CompletedProcess([], 1, stdout='', stderr='Error: No such image: expected')
         with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
             'acprof.host.command.run_command', return_value=query
-        ), patch('acprof.host.runtime_images.build_runtime_image') as build, pytest.raises(
+        ), patch(
+            'acprof.host.runtime_images.build_runtime_image',
+            side_effect=AssertionError("hardware validation must not build images"),
+        ) as build, pytest.raises(
             RuntimeError, match='禁止隐式构建或下载'
         ):
             runtime_images.prepare_image(self.task, self.project_dir)
@@ -178,7 +188,8 @@ class TestPrepareImage:
 
     def test_hardware_validation_blocks_explicit_rebuild(self):
         with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
-            'acprof.host.runtime_images.build_runtime_image'
+            'acprof.host.runtime_images.build_runtime_image',
+            side_effect=AssertionError("hardware validation must not build images"),
         ) as build, pytest.raises(RuntimeError, match='禁止隐式构建或下载'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=False)
         build.assert_not_called()
@@ -186,7 +197,10 @@ class TestPrepareImage:
     def test_hardware_validation_reuses_verified_image_without_building(self):
         with patch.dict('os.environ', {'ACPROF_REQUIRE_PREPARED_IMAGE': '1'}), patch(
             'acprof.host.command.run_command', side_effect=self.existing_image
-        ), patch('acprof.host.runtime_images.build_runtime_image') as build:
+        ), patch(
+            'acprof.host.runtime_images.build_runtime_image',
+            side_effect=AssertionError("hardware validation must not build images"),
+        ) as build:
             result = runtime_images.prepare_image(self.task, self.project_dir)
         assert result.tag == self.image_id
         build.assert_not_called()
@@ -195,6 +209,7 @@ class TestPrepareImage:
     def test_docker_query_errors_stop_without_building(self, error):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr=error)
         with patch("acprof.host.command.run_command", return_value=query), patch("acprof.host.runtime_images.build_runtime_image",
+            side_effect=AssertionError("Docker query errors must not trigger a build"),
         ) as build, pytest.raises(RuntimeError, match=error):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
         build.assert_not_called()
@@ -202,6 +217,7 @@ class TestPrepareImage:
     def test_retagged_or_wrong_revision_image_is_rejected(self):
         self.manifest['model_revision'] = 'another-revision'
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), patch("acprof.host.runtime_images.build_runtime_image",
+            side_effect=AssertionError("an invalid image revision must not trigger a build"),
         ) as build, pytest.raises(RuntimeError, match='revision'):
             runtime_images.prepare_image(self.task, self.project_dir)
         build.assert_not_called()
