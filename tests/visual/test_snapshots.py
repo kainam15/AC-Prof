@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import pytest_textual_snapshot
 from textual.widgets import Button, Static, TabbedContent
 
 from acprof.experiment import RunConfig
@@ -37,11 +36,6 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "wsl-review"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
-    normalize = pytest_textual_snapshot.normalize_svg
-    # Rich emits whitespace-only CSS lines. Keep baseline serialization stable
-    # under the repository's whitespace hooks without changing rendered text.
-    monkeypatch.setattr(pytest_textual_snapshot, "normalize_svg",
-                        lambda svg: "\n".join(line.rstrip() for line in normalize(svg).splitlines()) + "\n")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))

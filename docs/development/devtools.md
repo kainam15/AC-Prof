@@ -3,16 +3,17 @@
 [← 返回专题目录](testing.md)
 
 ## 辅助开发工具
-`requirements/test.in` / `test.lock` 统一固定 pytest、pytest-asyncio、pytest-cov 和
-pytest-textual-snapshot；`dev.in` 包含它，主机和推理 runtime 的依赖声明不包含测试工具。
-Textual 与主机锁一致；pytest 8.4.2 / syrupy 4.8.0 保留已有 SVG 序列化格式。
+`requirements/test.in` / `test.lock` 统一固定 pytest 9、pytest-asyncio、pytest-cov。
+`dev.in` 引入这些工具，但主机和推理 runtime 的依赖声明不包含测试工具。
+固定场景 SVG 回归使用仓库自有 `tests/visual/conftest.py`，基于 Textual 截图导出，
+不再依赖停更且约束 pytest＜9 的 pytest-textual-snapshot/syrupy；既有 SVG 文件不改变。
 `textual-dev` 与 Hypothesis 仍是按需工具，添加普通测试依赖前须同步开发锁和 CI。
 
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
 | `textual-dev` | Textual 开发日志、事件和调试界面 | `.venv/bin/textual` |
 | Hypothesis | 同步输入与状态转换的性质测试 | pytest 中的 `@given` / `strategies` |
-| `pytest-textual-snapshot` | 固定场景 SVG 视觉回归 | `.venv/bin/python -m pytest tests/visual` |
+| 仓库的 `snap_compare` fixture | 固定场景 SVG 视觉回归及失败差异证据 | `.venv/bin/python -m pytest tests/visual` |
 
 ```bash
 .venv/bin/python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
@@ -47,8 +48,8 @@ WSL2 检测等待场景通过 F5 启动模拟受控任务，在 Monitor 内显�
 普通功能测试与 SVG 回归共用开发环境和 pytest 配置：
 
 ```bash
-TZ=UTC PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/visual -q \
-  --snapshot-report internal-testing/tui-snapshot-report.html
+TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/tui-svg \
+  .venv/bin/python -m pytest tests/visual -q --junitxml=internal-testing/tui.xml
 ```
 
 更新测试工具和开发锁（保持 `host.lock` 约束，Python 3.10+）：
@@ -69,16 +70,17 @@ TZ=UTC PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/visual -q \
 测量中和清理未完成的场景还须模拟由应用管理、`poll()` 返回 `None` 的进程，
 并隔离停止操作；截取前断言停止按钮可用，不启动真实采集或向真实进程发送信号。
 
-先查看失败报告的 HTML / SVG 差异，再在预期变更或首次建立基线时对选定用例追加
-`--snapshot-update`；普通验证不更新基线。快照与功能测试使用同一 pytest runner，
+先查看 pytest 提供的 SVG unified diff 与 `ACPROF_SNAPSHOT_OUTPUT_DIR` 中的实际截图；
+有意变更时人工审阅并更新相应的 `tests/visual/__snapshots__` SVG 文件。
+普通验证只读基线，绝不自动更新。快照与功能测试使用同一 pytest runner，
 不能代替行为断言、evidence JSON 或[真实终端证据](terminal-validation.md#tui-与终端证据)。
 上述调试、样例生成和截图均在正式测量窗口之外运行；按任务选择流程见
 [TUI 回归 Skill](../../.agents/skills/acprof-textual-regression/SKILL.md#按需选择辅助工具)。
 
 用法参考上游维护的 [textual-dev](https://github.com/Textualize/textual-dev)
-与 [pytest-textual-snapshot](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
+与 [Textual App.run/export_screenshot](https://textual.textualize.io/guide/testing/)（MIT），
 以及 [Hypothesis](https://github.com/HypothesisWorks/hypothesis)（MPL-2.0）。
-复用现有 CLI、性质测试和快照机制；通过统一测试锁及按需运行控制依赖与维护成本，
+沿用现有 CLI 和 pytest，使用少量自有 fixture 保持旧快照格式，同时减少锁定依赖，
 不向推理环境或正式采集进程加入开发工具。
 
 ## PyCharm MCP 的验证边界

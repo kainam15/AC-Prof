@@ -12,7 +12,7 @@ def isolated_environment(overrides: Mapping[str, str] | None = None) -> dict[str
     """
     environment = {
         name: value for name, value in os.environ.items()
-        if name.startswith(("PYTEST_", "TEXTUAL_SNAPSHOT_"))
+        if name.startswith("PYTEST_")
     }
     environment.update(overrides or {})
     return environment

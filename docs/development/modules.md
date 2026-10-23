@@ -132,7 +132,9 @@ Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要�
 子进程采用 Python 3.10+ 标准库（PSF License），遵循 [CPython 等待/超时语义](https://github.com/python/cpython/blob/3.10/Lib/subprocess.py)；
 硬件观测借鉴 [pyperf 元数据采集](https://github.com/psf/pyperf/blob/main/pyperf/_collect_metadata.py)（MIT），
 不引入 benchmark 调度依赖。Requests（Apache-2.0）的超时边界依据 [overall timeout Issue](https://github.com/psf/requests/issues/3099)，
-保留既有 Requests 和串行短连接协议。视觉回归复用 [Textual 官方插件](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
-依赖与运行入口统一见[辅助开发工具](devtools.md#辅助开发工具)；不将其依赖或事件轮询带入测量窗口。
+保留既有 Requests 和串行短连接协议。视觉回归通过 Textual 的 `App.run` 与
+`export_screenshot(simplify=True)` 捕获基线 SVG，由自有 pytest fixture 标准化 Rich 临时 ID 并严格比对；
+不再依赖绑定旧 pytest/syrupy 的外部快照插件。
+依赖与运行入口统一见[辅助开发工具](devtools.md#辅助开发工具)；不将其事件轮询带入测量窗口。
 依赖升级通过锁文件和独立回归验收；硬件查询仅在 case 开始边界执行，不增加窗口内采样器。
 这些改动复用当前架构中的 `MonitorGroup`、artifact layout 与 evidence runner，不复制第三方框架。
