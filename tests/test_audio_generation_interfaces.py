@@ -39,7 +39,7 @@ def test_new_auto_registration_selects_new_environment():
     assert (select_runtime_profile(info).profile_id) == ('multimodal-transformers560-cu128')
 
 def test_text_generation_subconfig_uses_registered_auto_not_full_speech_output():
-    from acprof import model_resolution
+    from acprof import model_support
 
     config = {'model_type': 'qwen2_5_omni', 'thinker_config': {
         'model_type': 'qwen2_5_omni_thinker', 'audio_config': {'model_type': 'qwen2_5_omni_audio_encoder'},
@@ -47,7 +47,7 @@ def test_text_generation_subconfig_uses_registered_auto_not_full_speech_output()
     info = task('qwen2_5_omni', model_config=config)
     require_task_support(info)
     assert (select_runtime_profile(info).profile_id) == ('multimodal-transformers560-cu128')
-    assert (model_resolution.audio_text_loader('5.6.0', config)) == (('AutoModelForImageTextToText', 'thinker_config'))
+    assert (model_support.audio_text_loader('5.6.0', config)) == (('AutoModelForImageTextToText', 'thinker_config'))
 
 @pytest.mark.parametrize('config', ({'model_type': 'not_registered'}, {'model_type': 'custom', 'auto_map': {'AutoConfig': 'custom.Config'}}))
 def test_unknown_or_custom_architectures_still_fail_before_build(config):

@@ -70,7 +70,7 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
             task_info.model_resolution["runtime_profile"] = profile.profile_id
             from acprof.runtime_dependencies import dependency_preflight
             dependency_preflight(task_info, profile)
-            from acprof.model_resolution import supports_transformers_task
+            from acprof.model_support import supports_transformers_task
             from acprof.precision import remote_code_allowed, resolve_precision
             from acprof.runtime_profiles import locked_transformers_version
             extension = select_extension(task_info)

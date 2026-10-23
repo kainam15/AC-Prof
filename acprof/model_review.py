@@ -69,7 +69,7 @@ def review_questions(task_info) -> list[dict]:
 def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
     from acprof.host.task_support import require_task_support
-    from acprof.model_resolution import discover_model_candidates
+    from acprof.model_candidates import discover_model_candidates
 
     questions = review_questions(task_info)
     if any(item.get("read_only") for item in questions):

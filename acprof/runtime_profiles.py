@@ -147,7 +147,7 @@ def locked_transformers_version(environment: DependencyEnvironment, *, lock_path
 
 
 def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:
-    from acprof.model_resolution import supports_transformers_task
+    from acprof.model_support import supports_transformers_task
     if task_info.runtime_backend not in {"transformers_model", "transformers_pipeline"}:
         return None
     config = getattr(task_info, "model_config", {}) or {}

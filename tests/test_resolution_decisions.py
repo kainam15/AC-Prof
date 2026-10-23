@@ -4,7 +4,8 @@ import copy
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.model_resolution import discover_model_candidates, require_resolved_candidate
+from acprof.model_candidates import discover_model_candidates
+from acprof.model_resolution import require_resolved_candidate
 
 
 def candidate(*, tag="unknown", config=None, hub=None):

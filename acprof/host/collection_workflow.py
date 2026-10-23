@@ -197,8 +197,8 @@ class PreparationWorkflow:
             result = apply_review(task, answers, resolve_repository=lookup)
         else:
             from acprof.host.detect import read_model_source
+            from acprof.model_candidates import discover_model_candidates
             from acprof.model_contract import apply_model_contract
-            from acprof.model_resolution import discover_model_candidates
             choices = PreparationWorkflow.questions(task, args)
             if not choices or answers["task"] not in choices[0].get("options", []):
                 raise ValueError("select an available task")

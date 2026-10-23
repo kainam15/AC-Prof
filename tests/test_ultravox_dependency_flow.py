@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.host.detect import TaskInfo
+from acprof.model_candidates import discover_model_candidates
 from acprof.model_contract import apply_model_contract
-from acprof.model_resolution import discover_model_candidates
 from acprof.model_spec import task_model_spec
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ultravox_dependency_snapshot"

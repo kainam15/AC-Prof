@@ -49,7 +49,9 @@
 | `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
-| `acprof/model_resolution.py`、`acprof/model_spec.py` | 静态接口候选、schema 校验与执行契约；本地／作者声明优先于自动生成 |
+| `acprof/model_support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
+| `acprof/model_candidates.py` | 静态任务候选、Hub/配置/模型声明的证据与歧义决策，保留原有 provenance；不加载权重 |
+| `acprof/model_resolution.py`、`acprof/model_spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
 | `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
 | `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |

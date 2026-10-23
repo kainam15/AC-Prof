@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from acprof.model_resolution import transformers_capabilities
 from acprof.model_spec import custom_code_files
+from acprof.model_support import transformers_capabilities
 
 
 def load_local_pipeline_class(model_source: str, pipeline_name: str) -> type:

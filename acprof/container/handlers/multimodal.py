@@ -127,7 +127,7 @@ class MultimodalHandler(BaseHandler):
                 )
             class_name, mode = "Qwen2_5OmniForConditionalGeneration", "omni"
         elif task_type == "audio-text-to-text":
-            from acprof.model_resolution import audio_text_loader
+            from acprof.model_support import audio_text_loader
 
             selection = audio_text_loader(transformers.__version__, config.to_dict())
             if selection is None:

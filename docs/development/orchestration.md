@@ -150,12 +150,14 @@ machine events 继续由 `RunProgressTracker` 解析。
 供 server、输入规划和 profiler 共用。`extensions/*/manifest.json` 同时提供 config 映射、任务支持、
 profile 和延迟入口，读取声明不导入推理框架；声明文件参与服务镜像指纹。
 `extensions/schema.py` 按类型注解校验声明，family 默认值与 task/backend 覆盖统一由 catalog 合并。
-`detect` 与 `model_resolution` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
+`detect` 与 `model_candidates` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
 `model_schema`、`input_plan` 和 handler 消费选中声明。`config` 的尺度/任务参数与 TUI 的任务族列表由 catalog 派生。
 旧 `DEFAULT_BACKEND`、三个路由镜像字典、`default_backend()`、MOSS 常量及旧 architecture/profile 镜像导出均已移除，
 旧 extension schema v1 直接拒绝；完整字段与优先级见[扩展声明](../models/extensions.md#扩展声明与按需加载)。
-`model_resolution` 按固定 commit 的仓库布局和原生接口解析候选，`extensions/transformers` 保存
-固定版本的 Auto 注册数据；profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
+`model_candidates` 只根据固定 commit 的仓库布局、Hub/作者声明和注册表推导候选；
+`model_support` 读取 `extensions/transformers` 的已审查 Auto 注册及本地 loader 能力。
+`model_resolution` 校验最终选定的执行接口，不重算候选，不加载模型权重；
+profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
 标准库模块 `model_spec` 共用本地／仓库模型声明及代码引用检查；候选记录保留证据和歧义，
 有效声明参与服务镜像与恢复身份，并传入容器 loader。自定义 pipeline 复用标准任务 Handler，
 不在采集器增加模型分支；是否可运行由独立验证的各阶段结果判断。

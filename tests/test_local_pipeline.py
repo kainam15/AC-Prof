@@ -44,7 +44,7 @@ class TestLocalPipelineRouting:
         data = {"schema_version": 1, "version": installed_version, "mappings": {}, "capabilities": capabilities}
         data.update(overrides)
         path.write_text(json.dumps(data))
-        patcher = patch("acprof.model_resolution.__file__", str(self.root / "model_resolution.py"))
+        patcher = patch("acprof.model_support.__file__", str(self.root / "model_support.py"))
         patcher.start()
         self._request.addfinalizer(partial(patcher.stop))
 
