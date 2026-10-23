@@ -21,6 +21,35 @@ from acprof.tui.settings import (
 
 
 class TestTuiSettings:
+    @pytest.mark.parametrize("legacy_reuse", (False, True))
+    def test_old_image_preference_migrates_without_changing_experiment(self, legacy_reuse):
+        self.write_payload({"version": SETTINGS_VERSION, "run_defaults": {
+            "model": "demo/model", "cpus": "2", "skip_build": legacy_reuse,
+        }})
+        original = self.path.read_bytes()
+        settings, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert settings.run_defaults == RunConfig(model="demo/model", cpus="2")
+        assert self.path.read_bytes() == original
+        save_settings(self.path, settings, self.project)
+        assert "skip_build" not in json.loads(self.path.read_text())["run_defaults"]
+
+    def test_rebuild_is_never_saved_as_an_experiment_default(self):
+        settings = TuiSettings(run_defaults=RunConfig(model="demo/model", rebuild_image=True))
+        save_settings(self.path, settings, self.project)
+        assert "rebuild_image" not in json.loads(self.path.read_text())["run_defaults"]
+        restored, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert not restored.run_defaults.rebuild_image
+
+    def test_loading_rebuild_preference_cannot_enable_a_future_rebuild(self):
+        self.write_payload({"version": SETTINGS_VERSION, "run_defaults": {
+            "model": "demo/model", "rebuild_image": True,
+        }})
+        settings, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert not settings.run_defaults.rebuild_image
+
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
@@ -190,7 +219,7 @@ class TestTuiSettings:
             TuiSettings(last_model=False),
             TuiSettings(last_result_dir=False),
             TuiSettings(last_result_csv=Path("result_all.csv")),
-            TuiSettings(run_defaults=RunConfig(skip_build="false")),
+            TuiSettings(run_defaults=RunConfig(rebuild_image="false")),
             TuiSettings(run_defaults=RunConfig(repeat=True)),
             TuiSettings(run_defaults=RunConfig(sample_hz=10 ** 400)),
         )

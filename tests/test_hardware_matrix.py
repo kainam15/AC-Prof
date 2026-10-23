@@ -1,12 +1,31 @@
 """Validate hardware plans and failure evidence without starting real workloads."""
 import json
+from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from acprof.experiment import RunConfig
-from scripts import check_hardware
+from scripts import check_hardware, compare_ui
+
+
+@pytest.mark.parametrize("image_options", ({"skip_build": True}, {"skip_build": False}, {"rebuild_image": True}))
+def test_ui_comparison_reuses_images_from_saved_command_configs(tmp_path, image_options):
+    config = asdict(RunConfig.smoke("demo/prepared"))
+    config.pop("rebuild_image")
+    config.update(image_options)
+    path = tmp_path / "command.json"
+    path.write_text(json.dumps({"config": config}))
+    original = path.read_bytes()
+    with patch.object(compare_ui, "run_config", return_value={"successful": False}) as run, pytest.raises(
+        RuntimeError, match="采集未通过审计"
+    ):
+        compare_ui.main([str(path), "--output-dir", str(tmp_path / "comparison")])
+    run.assert_called_once()
+    assert not run.call_args.args[0].rebuild_image
+    assert run.call_args.args[0].model == "demo/prepared"
+    assert path.read_bytes() == original
 
 
 def matrix_file(tmp_path, cases=None):
@@ -35,7 +54,7 @@ def test_checked_in_matrix_has_a_successful_serial_execution_path(tmp_path):
         assert check_hardware.main(['--matrix', str(path), '--output-dir', str(output)]) == 0
         assert run.call_count == 2
         assert [call.args[0].task for call in run.call_args_list] == ['fill-mask', 'image-classification']
-        assert all(call.args[0].skip_build and call.args[0].gpus == 'off,on'
+        assert all(not call.args[0].rebuild_image and call.args[0].gpus == 'off,on'
                    for call in run.call_args_list)
     report = json.loads((output / 'hardware_matrix.json').read_text())
     assert report['successful'] is True
@@ -101,7 +120,7 @@ def test_pinned_vit_matrix_uses_bounded_cv_resolution():
 
 def test_hardware_run_forces_prepared_offline_images(tmp_path):
     """The validation entry point must not accidentally build or download."""
-    config = RunConfig(model='demo/prepared', task='fill-mask', skip_build=True)
+    config = RunConfig(model='demo/prepared', task='fill-mask')
     def stop_before_launch(_command, **kwargs):
         env = kwargs['env']
         assert env['ACPROF_REQUIRE_PREPARED_IMAGE'] == '1'

@@ -156,7 +156,7 @@ def main(argv=None):
                        warmup=1, repeat=args.repeat, repeat_window_seconds=args.repeat_window_seconds,
                        idle_seconds=args.idle_seconds, idle_cooldown_seconds=1.0, sample_hz=args.sample_hz,
                        compute_profile_tool=args.compute_profile_tool, execution_profile_tool=args.execution_profile_tool,
-                       notify="none", skip_build=True)
+                       notify="none")
     try:
         if args.matrix:
             if args.revision or args.task or args.input_scales is not None:

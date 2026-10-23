@@ -81,9 +81,10 @@ class PreparationWorkflow:
             raise ValueError("stale or invalid preparation reply")
         if reply.get("action") == "cancel":
             raise KeyboardInterrupt("preparation cancelled")
-        if stage == "runtime" and kind == "error" and reply.get("action") == "rebuild":
+        if stage in {"image", "runtime"} and kind == "error" and reply.get("action") == "rebuild":
             self.rebuild_environment = True
-            self.emit("runtime", "not_started")
+            for invalidated in ("image", "input", "runtime"):
+                self.emit(invalidated, "not_started")
             raise RebuildEnvironment()
         if kind == "review" and reply.get("action") == "revise":
             return reply

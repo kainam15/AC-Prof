@@ -133,14 +133,14 @@ class RunConfig:
     sniff_iface: str = "docker0"
     notify: str = "auto"
     prune_startup_oom: bool = True
-    skip_build: bool = False
+    rebuild_image: bool = False
     resume: bool = False
     idle_debug: bool = False
 
     def experiment_parameters(self) -> tuple[tuple[str, object], ...]:
         """Preset identity excludes transport, storage and execution controls."""
         execution = {"model", "output_dir", "download_mode", "max_download", "model_store",
-                     "model_store_max", "notify", "skip_build", "resume", "idle_debug", "sniff_iface"}
+                     "model_store_max", "notify", "rebuild_image", "resume", "idle_debug", "sniff_iface"}
         return tuple((item.name, getattr(self, item.name)) for item in fields(self)
                      if item.name not in execution)
 
@@ -194,6 +194,8 @@ class RunConfig:
     def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
         """Normalize form values and reject invalid or misleading runs."""
         errors: list[ConfigIssue] = []
+        if self.resume and self.rebuild_image:
+            errors.append(ConfigIssue("rebuild_image", message("恢复实验必须使用原镜像；如需重建，请创建新实验。")))
         try:
             if not isinstance(self.extra_options, dict) or set(self.extra_options) & {item.name for item in fields(self)}:
                 raise ValueError('extra options must contain only unmapped public CLI fields')
@@ -425,8 +427,8 @@ def build_run_command(
             command.extend((option, value))
     if not config.prune_startup_oom:
         command.append("--no-prune-startup-oom")
-    if config.skip_build:
-        command.append("--skip-build")
+    if config.rebuild_image:
+        command.append("--rebuild-image")
     if config.resume:
         command.append("--resume")
     if config.idle_debug:

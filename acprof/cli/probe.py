@@ -94,9 +94,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Model files: auto selects verified loader formats; full keeps the complete repository",
     )
     parser.add_argument(
-        "--skip-build",
+        "--rebuild-image",
         action="store_true",
-        help="Reuse the local model image if present; automatically build it if missing",
+        help="Rebuild the model image (Docker cache allowed); by default reuse a verified image or build if missing",
     )
     from acprof.run_args import add_download_arguments
     add_download_arguments(parser)
@@ -161,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     task_info.model_download_policy = args.model_download_policy
     try:
         image_info = prepare_image(
-            task_info, str(PROJECT_DIR), reuse_existing=args.skip_build,
+            task_info, str(PROJECT_DIR), reuse_existing=not args.rebuild_image,
         )
         planned = plan_input_scales(
             task_info=task_info,

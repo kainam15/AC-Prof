@@ -55,7 +55,7 @@ def test_run_and_probe_reject_unsupported_tasks_before_build_or_results(tag, fam
         build = stack.enter_context(patch(build_target, side_effect=AssertionError("unsupported task reached image preparation")))
         stderr = stack.enter_context(redirect_stderr(io.StringIO()))
         stack.enter_context(redirect_stdout(io.StringIO()))
-        argv = ["--model", "example/caption-model", "--output-dir", tmp, "--skip-build", "--batch-size", str(batch_size)]
+        argv = ["--model", "example/caption-model", "--output-dir", tmp, "--batch-size", str(batch_size)]
         if module is run:
             stack.enter_context(patch.object(sys, "argv", ["acprof run", *argv, "--notify", "none"]))
             with pytest.raises(SystemExit) as caught:

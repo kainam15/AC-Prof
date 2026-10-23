@@ -1,6 +1,7 @@
 """One recovery review for start, history and the failed-run action."""
 from __future__ import annotations
 
+from dataclasses import replace
 from threading import Event
 from typing import TYPE_CHECKING
 
@@ -165,5 +166,6 @@ class RecoveryActions(MessagePump):
             return
         config = self._active_run_config
         if config is not None:
+            config = replace(config, rebuild_image=False)
             command = build_run_command(config, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
             self._review_run_destination(PendingLaunch(tuple(command), "run", config))

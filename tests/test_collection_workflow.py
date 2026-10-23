@@ -66,6 +66,31 @@ class TestCollectionWorkflow:
         assert not (any(item.get("request") for item in records))
         assert (self.run.calls) == ([1, 2])
 
+    @pytest.mark.parametrize("rebuild", (False, True))
+    def test_cli_prepares_image_with_requested_policy(self, rebuild):
+        policies = []
+        def prepare(_task, _root, *, reuse_existing):
+            policies.append(reuse_existing)
+            return self.run.image
+        self.run.invoke(*(["--rebuild-image"] if rebuild else []), image=prepare)
+        assert policies == [not rebuild]
+        assert self.run.calls == [1, 2]
+
+    def test_image_verification_failure_rebuilds_only_after_explicit_reply(self):
+        policies = []
+        def prepare(_task, _root, *, reuse_existing):
+            policies.append(reuse_existing)
+            assert not self.run.calls
+            if reuse_existing:
+                raise RuntimeError("image fingerprint mismatch")
+            return self.run.image
+        with patch.dict(os.environ, {"ACPROF_INTERACTIVE_PREPARATION": "1"}), patch(
+            "sys.stdin", io.StringIO('{"id":1,"action":"rebuild"}\n'),
+        ):
+            self.run.invoke(image=prepare)
+        assert policies == [True, False]
+        assert self.run.calls == [1, 2]
+
     def test_runtime_retry_keeps_resolved_model_image_and_input_plan(self):
         output = io.StringIO()
         attempts = []
@@ -322,6 +347,15 @@ class TestCollectionWorkflow:
             workflow = PreparationWorkflow(interactive=True)
             with pytest.raises(ValueError, match="non-finite number"):
                 workflow.ask("runtime", "error", detail="missing file")
+
+    @pytest.mark.parametrize("stage", ("image", "runtime"))
+    def test_rebuild_request_is_explicit_and_invalidates_preparation(self, stage):
+        from acprof.host.collection_workflow import RebuildEnvironment
+
+        workflow = PreparationWorkflow(interactive=True)
+        with patch("sys.stdin", io.StringIO('{"id":1,"action":"rebuild"}\n')), pytest.raises(RebuildEnvironment):
+            workflow.ask(stage, "error", detail="image verification failed")
+        assert workflow.rebuild_environment
 
     def test_explicit_rebuild_invalidates_image_and_plan_but_keeps_resolution(self):
         output = io.StringIO()

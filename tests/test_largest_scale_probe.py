@@ -493,7 +493,6 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
                 "64,512",
                 "--output-dir",
                 temporary_dir,
-                "--skip-build",
             ]
         )
         assert (_detect_task.call_args.kwargs["revision"]) == ("a" * 40)

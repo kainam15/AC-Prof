@@ -234,7 +234,7 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     return ImageInfo(tag=identity["image_id"], name=name, runtime_environment=manifest)
 
 
-def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: bool = False):
+def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: bool = True):
     if os.environ.get("ACPROF_REQUIRE_PREPARED_IMAGE") == "1" and not reuse_existing:
         raise RuntimeError("硬件验证禁止隐式构建或下载：当前运行路径要求重新构建模型镜像")
     profile = configure_runtime_profile(task_info)
@@ -273,6 +273,9 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
                 "请在单独的受控准备阶段构建并验证完整模型镜像"
             )
         print(f"[build] 未找到本地模型镜像 {name}；将自动构建，旧版 :latest 不用于本次采集。", flush=True)
+    else:
+        print(f"[build] 已请求重新构建模型镜像 {name}；允许使用 Docker 构建缓存。", flush=True)
+    print(f"[build] 开始构建：{name}", flush=True)
     return build_runtime_image(task_info, project_dir)
 
 
@@ -425,7 +428,7 @@ def prepare_image(
     task_info: TaskInfo,
     project_dir: str,
     *,
-    reuse_existing: bool = False,
+    reuse_existing: bool = True,
 ) -> ImageInfo:
     """Resolve a compatible runtime and verify exact image reuse."""
 

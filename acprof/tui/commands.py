@@ -165,8 +165,8 @@ def build_probe_command(
     ):
         if value:
             command.extend((option, value))
-    if config.skip_build:
-        command.append("--skip-build")
+    if config.rebuild_image:
+        command.append("--rebuild-image")
     return command
 
 

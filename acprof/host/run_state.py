@@ -105,7 +105,7 @@ def host_identity(project_dir: str | Path) -> dict:
 
 def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
-    ignored = {"resume", "skip_build", "output_dir", "notify"}
+    ignored = {"resume", "rebuild_image", "output_dir", "notify"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
     from acprof.model_repository import model_source
     source = model_source(options.get("model_source"))

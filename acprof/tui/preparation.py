@@ -148,7 +148,7 @@ class PreparationScreen(ModalScreen):
                             import json
                             yield Static(json.dumps(failure, ensure_ascii=False, indent=2), markup=False)
                         yield Static(request.get("detail", ""), id="preparation-traceback", markup=False)
-                        if self.event["stage"] == "runtime":
+                        if self.event["stage"] in {"image", "runtime"}:
                             yield Button(tr("重新准备环境"), id="preparation-rebuild")
                 else:
                     yield Static(tr(STAGE_LABELS.get(self.event["stage"], "正在确认模型能否正常运行…")), id="preparation-stage", markup=False)

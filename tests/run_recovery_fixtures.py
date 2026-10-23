@@ -54,7 +54,7 @@ class RunRecoveryFixture:
         return PlannedInputScales([64.0], "manual", str(path), {},
                                   hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def invoke(self, *extra, case=None, validation=None, output=None):
+    def invoke(self, *extra, case=None, validation=None, image=None, output=None):
         from acprof.platform import Environment
         metadata = StaticMeta(
             **Environment("native_linux").metadata(),
@@ -82,7 +82,7 @@ class RunRecoveryFixture:
             stack.enter_context(patch("acprof.host.detect.detect_task", return_value=self.task))
             stack.enter_context(patch("acprof.host.interface_probe.probe_interface", return_value={"status": "ok"}))
             stack.enter_context(patch("acprof.host.runtime_images.configure_runtime_profile"))
-            stack.enter_context(patch("acprof.host.runtime_images.prepare_image", return_value=self.image))
+            stack.enter_context(patch("acprof.host.runtime_images.prepare_image", side_effect=image, return_value=self.image))
             stack.enter_context(patch("acprof.host.runtime_images.require_image_identity"))
             stack.enter_context(patch("acprof.host.runtime_validation.validate_runtime",
                                       side_effect=validation, return_value={"status": "ok"}))

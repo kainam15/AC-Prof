@@ -25,6 +25,7 @@ try:
     from textual.widget import Widget
     from textual.widgets import (
         Button,
+        Checkbox,
         Header,
         Select,
         Static,
@@ -406,6 +407,9 @@ class AcprofTui(
             return
         if not self._allow_operation("run"):
             return
+        if pending.kind in {"run", "probe"}:
+            with self.prevent(Checkbox.Changed):
+                self.query_one("#rebuild-image", Checkbox).value = False
         model = pending.config.model if pending.config is not None else ""
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
@@ -898,7 +902,7 @@ class AcprofTui(
                 config = self._active_run_config or self.initial_config
                 self._apply_config(replace(config, model=change["model_id"], revision=change["revision"],
                     model_source="modelscope", download_mode="auto", task="", task_family="", backend="",
-                    model_spec="", resume=False, skip_build=False,
+                    model_spec="", resume=False, rebuild_image=False,
                     output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
         if current_csv:
             self._update_result_summary(current_csv, notify=False)

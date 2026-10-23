@@ -73,7 +73,7 @@ def test_probe_command_uses_matrix_bounds_without_collection_options():
         repeat=11,
         idle_seconds=99,
         request_timeout_seconds=999,
-        skip_build=True,
+        rebuild_image=True,
     )
 
     command = build_probe_command(
@@ -86,7 +86,7 @@ def test_probe_command_uses_matrix_bounds_without_collection_options():
     assert (command[command.index("--cpus") + 1]) == ("1,4")
     assert (command[command.index("--mems") + 1]) == ("2,8")
     assert (command[command.index("--input-scales") + 1]) == ("64,512")
-    assert ("--skip-build") in (command)
+    assert ("--rebuild-image") in (command)
     assert ("--warmup") not in (command)
     assert ("--repeat") not in (command)
     assert ("--idle-seconds") not in (command)
@@ -124,7 +124,7 @@ def test_optional_overrides_and_flags_are_preserved():
         gpus="off",
         input_scales="64,128",
         request_timeout_seconds=123.5,
-        skip_build=True,
+        rebuild_image=True,
         prune_startup_oom=False,
         idle_debug=True,
     )
@@ -136,7 +136,7 @@ def test_optional_overrides_and_flags_are_preserved():
     assert ("--task") in (command)
     assert ("--task-family") in (command)
     assert ("--backend") in (command)
-    assert ("--skip-build") in (command)
+    assert ("--rebuild-image") in (command)
     assert ("--no-prune-startup-oom") in (command)
     assert ("--idle-debug") in (command)
     assert (command[command.index("--request-timeout-seconds") + 1]) == ("123.5")
@@ -414,7 +414,8 @@ class TestTuiApp:
             assert (str(app.query_one("#probe-largest").label)) == ("探测最大输入")
 
             prune = app.query_one("#prune-startup-oom", StatusCheckbox)
-            reuse = app.query_one("#skip-build", StatusCheckbox)
+            assert not app.query("#skip-build")
+            reuse = app.query_one("#rebuild-image", StatusCheckbox)
             assert (StatusCheckbox.BUTTON_INNER) == ("✓")
             assert (prune.value)
             assert (prune.has_class("-on"))

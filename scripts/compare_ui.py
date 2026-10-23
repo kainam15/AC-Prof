@@ -34,10 +34,13 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         parser.error("对照输出目录必须为空")
-    config = RunConfig(**json.loads(args.command.read_text())["config"])
+    options = json.loads(args.command.read_text())["config"]
+    if "skip_build" in options and type(options.pop("skip_build")) is not bool:
+        parser.error("command.json 中 skip_build 必须是布尔值")
+    config = RunConfig(**options)
     if any("," in str(value) for value in (config.cpus, config.mems, config.gpus, config.input_scales)):
         parser.error("UI 对照每次只选择一个 CPU/内存/设备/尺度 case，避免混合不同工作负载")
-    config = replace(config, notify="none", skip_build=True, compute_profile_tool="none", execution_profile_tool="none")
+    config = replace(config, notify="none", rebuild_image=False, compute_profile_tool="none", execution_profile_tool="none")
     rng = random.Random(args.seed)
     results = {"schema_version": 1, "kind": "ui_overhead", "ui": args.ui, "seed": args.seed,
                "successful": False, "pairs": [],

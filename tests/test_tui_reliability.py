@@ -37,7 +37,7 @@ def write_csv(path, latencies=(0.01, 0.2)):
 
 def test_execution_settings_do_not_change_preset():
     config = replace(RunConfig.smoke("demo/model"), output_dir="elsewhere", model_store="cache",
-                     download_mode="direct", notify="auto", resume=True, skip_build=True)
+                     download_mode="direct", notify="auto", resume=False, rebuild_image=True)
     assert (infer_preset(config)) == ("smoke")
     assert (matches_preset(config, "smoke"))
     assert not (matches_preset(replace(config, cpus="2"), "smoke"))

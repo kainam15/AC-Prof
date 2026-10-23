@@ -288,9 +288,9 @@ Examples:
     parser.add_argument("--sniff-iface", default="docker0", help="Network interface for tcpdump")
     parser.add_argument("--output-dir", default="results", help="Output directory")
     parser.add_argument(
-        "--skip-build",
+        "--rebuild-image",
         action="store_true",
-        help="Reuse the local model image if present; automatically build it if missing",
+        help="Rebuild the model image (Docker cache allowed); by default reuse a verified image or build if missing",
     )
     parser.add_argument(
         "--notify",
@@ -309,6 +309,10 @@ Examples:
 def flatten_run_options(options: dict) -> dict:
     """Recover the public fields from saved RunConfig containers without losing values."""
     flattened = dict(options)
+    # Retired execution preference was never part of measurement identity.
+    if "skip_build" in flattened:
+        if type(flattened.pop("skip_build")) is not bool:
+            raise ValueError("invalid frozen boolean: skip_build")
     extra = flattened.pop("extra_options", {})
     if not isinstance(extra, dict):
         raise ValueError("invalid frozen extra_options: expected an object")

@@ -272,7 +272,7 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
     from acprof.run_args import arguments_from_options
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     options = {name: value for name, value in flatten_run_options(record.options).items()
-               if name not in derived | {'resume', 'output_dir', 'notify', 'skip_build'}}
+               if name not in derived | {'resume', 'output_dir', 'notify', 'rebuild_image'}}
     arguments = arguments_from_options(options)
     arguments.extend(('--resume', '--output-dir', str(record.directory.parent)))
     build_parser().parse_args(arguments)

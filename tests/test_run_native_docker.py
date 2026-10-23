@@ -624,7 +624,6 @@ class TestNativeDockerGuard:
                 "acprof run",
                 "--model",
                 "dummy-model",
-                "--skip-build",
                 "--cpus",
                 "1",
                 "--mems",
@@ -714,7 +713,6 @@ class TestNativeDockerGuard:
                 "acprof run",
                 "--model",
                 "dummy-model",
-                "--skip-build",
                 "--compute-profile-tool",
                 "both",
                 "--cpus",
@@ -823,7 +821,6 @@ class TestNativeDockerGuard:
                 "acprof run",
                 "--model",
                 "dummy-model",
-                "--skip-build",
                 "--compute-profile-tool", "none",
                 "--cpus",
                 "1",
@@ -883,7 +880,7 @@ class TestNativeDockerGuard:
             run.main()
 
         _, kwargs = collect_static_meta.call_args
-        assert (kwargs["run_command"]) == ("acprof run --model dummy-model --skip-build --compute-profile-tool none "
+        assert (kwargs["run_command"]) == ("acprof run --model dummy-model --compute-profile-tool none "
             "--cpus 1 --mems 2 --gpus off --output-dir "
             + tmp_dir)
         assert (kwargs["cgroup_version"]) == ("v2")

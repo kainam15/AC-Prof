@@ -348,7 +348,7 @@ class TestRunNotificationLifecycle:
             sys,
             "argv",
             [
-                "acprof run", "--model", "org/requested-model", "--skip-build",
+                "acprof run", "--model", "org/requested-model",
                 "--compute-profile-tool", "both", "--execution-profile-tool", "both",
                 "--cpus", "1", "--mems", "4", "--gpus", "off,on",
                 "--notify", provider, "--output-dir", tmp_dir,

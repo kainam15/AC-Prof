@@ -95,7 +95,7 @@ class ConfigurationActions(MessagePump):
             return
         try:
             config = (
-                self._collect_config(allow_empty_model=True)
+                replace(self._collect_config(allow_empty_model=True), rebuild_image=False)
                 if remember_run else self._saved_settings.run_defaults
             )
             settings = replace(

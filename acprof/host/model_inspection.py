@@ -62,7 +62,7 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
 
 def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
                            memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
-                           reuse_existing: bool = False) -> RuntimeValidationReport:
+                           reuse_existing: bool = True) -> RuntimeValidationReport:
     from acprof.host.input_plan import PlannedInputScales, _get_task_generator, resolve_input_scales
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock

@@ -490,7 +490,7 @@ def _prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_li
                      timeout_seconds=args.request_timeout_seconds)
         try:
             image_info = workflow.run("image", prepare_image,
-                task_info, PROJECT_DIR, reuse_existing=args.skip_build and not workflow.rebuild_environment,
+                task_info, PROJECT_DIR, reuse_existing=not (args.rebuild_image or workflow.rebuild_environment),
             )
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)

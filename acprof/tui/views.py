@@ -424,13 +424,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control option-checkbox",
                     ))
                     yield app._localized_widget(StatusCheckbox(
-                        "复用现有镜像",
-                        value=app.initial_config.skip_build,
-                        id="skip-build",
-                        classes="config-control option-checkbox",
-                        tooltip="优先复用本地模型镜像；未找到时提示并自动构建。",
-                    ))
-                    yield app._localized_widget(StatusCheckbox(
                         "Idle 诊断",
                         value=app.initial_config.idle_debug,
                         id="idle-debug",
@@ -446,6 +439,14 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
                 with Horizontal(classes="button-row"):
                     yield app._localized_widget(Button("记住实验配置", id="save-run-default"))
+                with Collapsible(title=app.tr("镜像高级操作"), collapsed=True, id="image-build-options"):
+                    yield app._localized_widget(StatusCheckbox(
+                        "重新构建镜像（仅本次）",
+                        value=app.initial_config.rebuild_image,
+                        id="rebuild-image",
+                        classes="config-control option-checkbox",
+                        tooltip="仅用于下一次采集或探测，不保存为默认配置；仍可使用 Docker 构建缓存。",
+                    ))
 
         with Vertical(id="run-footer"):
             yield app._localized_widget(Static("", id="run-plan-summary", markup=False))

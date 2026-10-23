@@ -44,7 +44,7 @@ SELECT_FIELDS = {
 }
 CHECKED_FIELDS = {
     "prune-startup-oom": "prune_startup_oom",
-    "skip-build": "skip_build",
+    "rebuild-image": "rebuild_image",
     "resume-run": "resume",
     "idle-debug": "idle_debug",
 }

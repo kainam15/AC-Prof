@@ -68,6 +68,7 @@ class TuiSettings:
             if not isinstance(config, RunConfig):
                 raise ValueError(message('实验默认配置必须是 RunConfig'))
             _validate_field_types(asdict(config), RunConfig, message('实验默认配置'))
+            config = replace(config, rebuild_image=False)
             # A reusable default need not select a model, but must otherwise
             # meet the same requirements as the live experiment form.
             model = config.model.strip()
@@ -139,6 +140,9 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
             raise UnsupportedSettingsError(
                 "设置包含已删除的 allow_cgroup_v1；请归档旧设置文件后重新配置。"
             )
+        if "skip_build" in defaults_values:
+            if type(defaults_values.pop("skip_build")) is not bool:
+                raise ValueError(message('实验默认配置字段 skip_build 的类型不正确'))
         _validate_field_types(defaults_values, RunConfig, message('实验默认配置'))
         if defaults_values.get("download_mode") in {"mirror-only", "mirror-preferred", "official"}:
             defaults_values = {**defaults_values, "download_mode": "auto"}
@@ -185,7 +189,7 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
         "last_result_dir": normalized.last_result_dir,
         "last_result_csv": normalized.last_result_csv,
         "run_defaults": (
-            asdict(normalized.run_defaults)
+            {key: value for key, value in asdict(normalized.run_defaults).items() if key != "rebuild_image"}
             if normalized.run_defaults is not None
             else None
         ),

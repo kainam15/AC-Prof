@@ -314,7 +314,7 @@ def _post_probe_payload(
     if response.status_code >= 400:
         stale_image_hint = ""
         if response.status_code == 404:
-            stale_image_hint = " /probe endpoint is missing; rebuild the image without --skip-build."
+            stale_image_hint = " /probe endpoint is missing; rebuild the image with --rebuild-image."
         raise RuntimeError(
             f"/probe HTTP {response.status_code} for {desc}: {response.text[:300]}{stale_image_hint}"
         )
@@ -344,7 +344,7 @@ def _request_scale_meta(
     if response.status_code >= 400:
         stale_image_hint = ""
         if response.status_code == 404:
-            stale_image_hint = " /scale_meta endpoint is missing; rebuild the image without --skip-build."
+            stale_image_hint = " /scale_meta endpoint is missing; rebuild the image with --rebuild-image."
         raise RuntimeError(
             f"/scale_meta HTTP {response.status_code}: {response.text[:300]}{stale_image_hint}"
         )
@@ -400,7 +400,7 @@ def _request_audio_scale_meta(
     if not reason:
         raise RuntimeError(
             "cannot determine audio input constraints from /scale_meta; "
-            "rebuild the audio image without --skip-build"
+            "rebuild the audio image with --rebuild-image"
         )
 
     result: Dict[str, Any] = {
