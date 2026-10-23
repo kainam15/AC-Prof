@@ -426,7 +426,7 @@ class TestTuiModelMemory:
         config = RunConfig.smoke("demo/first")
         app = AcprofTui(config, settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
-            with patch("acprof.tui.app.subprocess.Popen", side_effect=OSError("test failure")):
+            with patch("acprof.tui.process.subprocess.Popen", side_effect=OSError("test failure")):
                 app._launch(PendingLaunch(("unused",), "run", config))
                 await app.workers.wait_for_complete()
             await pilot.pause()

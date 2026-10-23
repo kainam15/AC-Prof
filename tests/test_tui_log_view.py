@@ -93,7 +93,7 @@ class TestTuiLogView:
             # no collection command or external process may start in this test.
             process = Mock()
             process.poll.return_value = None
-            with patch("acprof.tui.app.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
+            with patch("acprof.tui.process.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
                 app._lifecycle, "process", process
             ):
                 app._process_started(12345, "test")

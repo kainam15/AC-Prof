@@ -43,7 +43,12 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`app` 保留顶层 UI 状态、子进程启动/回收、测量窗口状态和退出清理；`process.ProcessLifecycle` 统一拥有子进程及停止策略。`views` 使用页面构建函数输出 TabPane 子树。
+`app` 保留顶层 UI 状态、采集启动决策、最终结果、测量窗口呈现、终止及退出清理；
+`process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_actions.ProcessWorkerActions`
+独立负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
+worker 通过 App 的 `_project_dir` 读取当前工作根目录，不额外缓存路径或覆盖子进程所有权；
+正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
+`views` 使用页面构建函数输出 TabPane 子树。
 `localization_actions.LocalizationActions` 只处理 UI 文案登记、翻译和语言切换，
 通过现有 Textual MRO 提供 `tr/notify` 等操作；`app` 仍拥有首屏、业务状态和页面生命周期，
 不把日志原文、命令参数或实验事件交给翻译模块。
