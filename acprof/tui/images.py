@@ -27,7 +27,7 @@ from acprof.host.image_management import (
 )
 from acprof.messages import join_messages, message
 from acprof.runtime_profiles import PYTHON_BASE_IMAGE
-from acprof.tui.app_contracts import translated_app
+from acprof.tui.app_contracts import image_detail_app, translated_app
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
@@ -71,12 +71,14 @@ class ImageTable(ResizableDataTable):
 class ImageTreeHeader(ResizableDataTable):
     """树表头复用相同拖动交互，并与树的内容宽度和横向滚动同步。"""
 
-    tree: ImageTree | None = None
+    image_tree: ImageTree | None = None
     minimum_name_width = 6
 
     def on_mount(self) -> None:
-        self.tree = self.parent.query_one(ImageTree)
-        self.tree.column_header = self
+        parent = self.parent
+        assert parent is not None
+        self.image_tree = parent.query_one(ImageTree)
+        self.image_tree.column_header = self
         self.set_columns(self.size.width)
 
     def minimum_column_width(self, key: str | None) -> int:
@@ -91,13 +93,13 @@ class ImageTreeHeader(ResizableDataTable):
     @on(ResizableDataTable.ColumnResized)
     def resize_tree_columns(self, event: ResizableDataTable.ColumnResized) -> None:
         event.stop()
-        if self.tree is not None:
-            self.tree.set_column_widths(tuple(column.get_render_width(self) for column in self.ordered_columns))
+        if self.image_tree is not None:
+            self.image_tree.set_column_widths(tuple(column.get_render_width(self) for column in self.ordered_columns))
 
     def watch_scroll_x(self, old_value: float, new_value: float) -> None:
         super().watch_scroll_x(old_value, new_value)
-        if self.tree is not None and self.tree.scroll_x != new_value:
-            self.tree.scroll_to(x=new_value, animate=False, force=True)
+        if self.image_tree is not None and self.image_tree.scroll_x != new_value:
+            self.image_tree.scroll_to(x=new_value, animate=False, force=True)
 
 
 class ImageTree(Tree[ManagedImage]):
@@ -235,8 +237,8 @@ class ImageWorkspace(Vertical):
         self.query_one(ImageDetailPanel).styles.height = self._clamp_detail_height(height)
 
 
-# Textual accepts can_focus as a runtime subclass keyword; its stub omits it.
-class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
+# Textual supports can_focus as a widget subclass keyword.
+class ImageDetailResizeHandle(Static, can_focus=True):
     """单行分隔条；使用屏幕坐标拖动，避免控件移动时位置跳变。"""
 
     # Screen 在控件捕获鼠标前启动文本选择；分隔条拖动不能触发选区自动滚动。
@@ -254,6 +256,13 @@ class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
         self.tooltip = "上下拖动调整详情高度；聚焦后 ↑/↓ 微调，Home 恢复默认。本次会话保留。"
         self._drag_origin: tuple[int, int] | None = None
 
+    @property
+    def _workspace(self) -> ImageWorkspace:
+        parent = self.parent
+        if not isinstance(parent, ImageWorkspace):
+            raise RuntimeError("image resize handle requires an ImageWorkspace parent")
+        return parent
+
     def render(self) -> Rule:
         return Rule(str(self.content), style="")
 
@@ -263,7 +272,7 @@ class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
         event.prevent_default()
         event.stop()
         self.focus(scroll_visible=False)
-        detail = self.parent.query_one(ImageDetailPanel)
+        detail = self._workspace.query_one(ImageDetailPanel)
         self._drag_origin = (event.screen_y, detail.size.height)
         self.capture_mouse()
         self.add_class("-dragging")
@@ -271,7 +280,7 @@ class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
     def _resize_to(self, screen_y: int) -> None:
         if self._drag_origin is not None:
             origin_y, height = self._drag_origin
-            self.parent.set_detail_height(height + origin_y - screen_y)
+            self._workspace.set_detail_height(height + origin_y - screen_y)
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         if self._drag_origin is not None:
@@ -313,12 +322,13 @@ class ImageDetailResizeHandle(Static, can_focus=True):  # type: ignore[call-arg]
     def action_adjust(self, delta: int) -> None:
         if not self.disabled:
             self.finish_resize()
-            self.parent.set_detail_height(self.parent.query_one(ImageDetailPanel).size.height + delta)
+            workspace = self._workspace
+            workspace.set_detail_height(workspace.query_one(ImageDetailPanel).size.height + delta)
 
     def action_reset_height(self) -> None:
         if not self.disabled:
             self.finish_resize()
-            self.parent.set_detail_height(None)
+            self._workspace.set_detail_height(None)
 
     def action_cancel_resize(self) -> None:
         self.finish_resize()
@@ -330,20 +340,21 @@ class ImageDetailPanel(VerticalScroll):
     _detail_key: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
+        app = image_detail_app(self.app)
         with Horizontal(id="image-detail-heading"):
-            yield self.app._localized_widget(Static("", id="image-detail-title", markup=False))
-            yield self.app._localized_widget(Static("", id="image-detail-created", markup=False))
-        yield self.app._localized_widget(Static(
+            yield app._localized_widget(Static("", id="image-detail-title", markup=False))
+            yield app._localized_widget(Static("", id="image-detail-created", markup=False))
+        yield app._localized_widget(Static(
             "选择一行查看镜像摘要；展开分组查看详情。", id="image-detail", markup=False,
         ))
         for group, content, title in (("dependencies", "dependency", "依赖清单"),
                                        ("metadata", "metadata", "镜像信息"),
                                        ("diagnostics", "diagnostic", "诊断信息")):
-            with self.app._localized_widget(Collapsible(
+            with app._localized_widget(Collapsible(
                 title=title, collapsed=True, id="image-" + group,
                 collapsed_symbol=COLLAPSED_SYMBOL, expanded_symbol=EXPANDED_SYMBOL,
             )):
-                yield self.app._localized_widget(Static("", id=f"image-{content}-detail", markup=False))
+                yield app._localized_widget(Static("", id=f"image-{content}-detail", markup=False))
 
     def on_mount(self) -> None:
         self.show_empty("选择一行查看镜像摘要；展开分组查看详情。")
@@ -352,20 +363,21 @@ class ImageDetailPanel(VerticalScroll):
               sections: dict[str, tuple[str, str]], *, created: str | None = None) -> None:
         changed = key != self._detail_key
         self._detail_key = key
+        app = image_detail_app(self.app)
         self.query_one("#image-detail-heading", Horizontal).display = bool(title)
         heading = self.query_one("#image-detail-title", Static)
         heading.display = bool(title)
-        self.app._set_text(heading, title)
+        app._set_text(heading, title)
         created_label = self.query_one("#image-detail-created", Static)
         created_label.display = created is not None
         if created is not None:
-            self.app._set_text(created_label, message("创建日期：{0}", image_created_text(created)))
-        self.app._set_text(self.query_one("#image-detail", Static), summary)
+            app._set_text(created_label, message("创建日期：{0}", image_created_text(created)))
+        app._set_text(self.query_one("#image-detail", Static), summary)
         for group in self.query(Collapsible):
-            section_title, content = sections.get(group.id, ("", ""))
+            section_title, content = sections.get(group.id or "", ("", ""))
             group.display = bool(section_title)
-            self.app._set_text(group, section_title, "title")
-            self.app._set_text(group.query_one("Contents > Static", Static), content)
+            app._set_text(group, section_title, "title")
+            app._set_text(group.query_one("Contents > Static", Static), content)
             if changed:
                 group.collapsed = True
         if changed:
@@ -693,7 +705,8 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
         node.allow_expand = bool(node.children)
     tree.set_column_widths(tuple(column.get_render_width(header) for column in header.ordered_columns))
     target = nodes.get(current_id) or next(iter(nodes.values()), None)
-    while target and target.parent is not tree.root and not target.parent.is_expanded:
+    while (target is not None and target.parent is not None
+           and target.parent is not tree.root and not target.parent.is_expanded):
         target = target.parent
     # 新节点要等 Textual 完成行布局，才有可用于 move_cursor 的行号。
     tree.call_after_refresh(tree.move_cursor, target)

@@ -38,16 +38,18 @@ GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开
 python -m mypy
 ```
 
-本地也推荐使用 Python 3.10 的开发虚拟环境。若本机使用 Python 3.12 虚拟环境，
-其中较新的 NumPy `.pyi` 可能含仅适用于 3.12 的 `type` 语句，导致检查目标为 3.10 时解析失败；
-这不是项目源码的类型错误。在 dor-server 的现有混合环境中可运行：
+本地也应使用 Python 3.10 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 是 Python 3.12，
+可单独创建隔离环境，而不是修改项目的 `python_version`：
 
 ```bash
-.venv/bin/python -m mypy --python-executable /usr/bin/python3.10
+uv venv --python 3.10 /tmp/acprof-mypy-310
+uv pip install --python /tmp/acprof-mypy-310/bin/python --require-hashes -r requirements/dev.lock
+/tmp/acprof-mypy-310/bin/python -m mypy
 ```
 
-`--python-executable` 应指向真实可用的 Python 3.10 解释器，以解析该版本环境的依赖；
-其他机器需使用自身的解释器路径。不要为了绕开 NumPy stub 报错把项目的 `python_version` 改成 3.12、
+仅在 Python 3.12 的混合环境中给 mypy 指定 `--python-executable /usr/bin/python3.10` 不等于复现 CI：
+如果目标解释器没有安装 Textual 等开发依赖，第三方声明可能被视为未知类型，产生**错误的通过结果**。
+NumPy `.pyi` 中包含仅适用于 Python 3.12 的 `type` 语句时，也不应因此把目标版本改为 3.12，
 或全局关闭第三方类型检查。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
 版本与实施策略参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)、
 [mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)

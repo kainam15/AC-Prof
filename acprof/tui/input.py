@@ -59,7 +59,8 @@ class BarCursorApp(App[None]):
         driver_class = super().get_driver_class()
 
         def start_application_mode(driver_self: Driver) -> None:
-            super(cursor_driver, driver_self).start_application_mode()
+            # The selected driver backend provides this hook dynamically.
+            getattr(super(cursor_driver, driver_self), "start_application_mode")()
             self._input_cursor_suspended = False
 
         def stop_application_mode(driver_self: Driver) -> None:
@@ -67,7 +68,7 @@ class BarCursorApp(App[None]):
             try:
                 self._reset_input_cursor()
             finally:
-                super(cursor_driver, driver_self).stop_application_mode()
+                getattr(super(cursor_driver, driver_self), "stop_application_mode")()
 
         # A driver backend is selected at runtime by Textual. Constructing
         # this subclass dynamically preserves the original backend MRO while
