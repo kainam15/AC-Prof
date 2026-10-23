@@ -127,7 +127,10 @@ machine events 继续由 `RunProgressTracker` 解析。
 界面刷新、绘图、通知与额外文件操作继续位于正式测量窗口之外。
 
 `cli.run` 将资源校验、运行准备和矩阵调度分开；准备阶段返回 `_PreparedRuntime`，汇总镜像、
-输入计划、profiler 计划与能力报告。client 的 CSV 格式化、像素指标和 profiler 关联集中于
+输入计划、profiler 计划与能力报告。`cli.run_notifications` 单独保存本次通知上下文，
+在预检前、每个 profiler/case 正式窗口结束后及终态完成时创建通知事件，
+并负责 CSV 摘要、保密错误回显与尽力发送；CLI 调度只调用它的明确入口。
+终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。client 的 CSV 格式化、像素指标和 profiler 关联集中于
 `ClientRunner._build_result_row`；`ClientConfig.from_env()` 仅在入口读取并验证配置，
 导入 client 不修改代理环境、不读取实验参数、不创建 workload。每次执行持有独立状态；
 `_execute_window` 复用 `MonitorGroup` 保持采样顺序，`main` 负责窗口调度与结果发布。
