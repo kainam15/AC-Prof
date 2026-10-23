@@ -86,6 +86,10 @@ CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TU
 沿用现有 Textual 与标准库；共享校验不引入 UI 依赖，界面校验只在编辑或提交阶段执行，不进入正式测量窗口。
 `acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
+`stages.Stage` 是进度与最终进程状态的稳定机器标识；其中文源标签通过 `Stage.label`
+在 `app`、命令回显等展示边界翻译，状态判断、状态样式和测试只比较枚举身份。
+修改标签或英语翻译不会改变事件解析与状态转移。该状态不写入实验 CSV、resume、progress event
+等持久化协议，不为此引入兼容映射。
 `diagnostics` 负责提示性预检和结果摘要。TUI 提示性检查与 CLI 权威检查保留各自用途。
 启动检查直接复用 `diagnostics.quick_preflight` 及其 host 探测，不新增环境检测器。`app` 在首屏
 刷新后调用现有 thread worker，以测量锁隔离诊断，保存请求身份、检查配置和结果；UI 回调只接受

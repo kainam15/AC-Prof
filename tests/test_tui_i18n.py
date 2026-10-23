@@ -27,6 +27,7 @@ from acprof.tui.i18n import ENGLISH, error_message, translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
+from acprof.tui.stages import Stage
 
 
 def test_templates_translate_nested_ui_text_and_preserve_user_values():
@@ -49,13 +50,13 @@ def test_validation_keeps_translatable_errors_without_changing_config_contract(c
 def test_probe_progress_is_language_independent_and_keeps_duration_semantics():
     tracker = RunProgressTracker()
     snapshot = tracker.feed("[largest-probe] MEMORY_RESULT mem=4 status=startup_oom")
-    assert (snapshot.stage) == ("内存可行性探测")
+    assert (snapshot.stage) == (Stage.MEMORY_FEASIBILITY)
     assert (translate(snapshot.detail, "en")) == ("4GB · Startup OOM; trying next candidate")
     snapshot = tracker.feed(
         "[largest-probe] RESULT status=ok input_scale=512 cpu=1 mem=8 gpu=off "
         "cold_start_s=nan request_s=1.25 ready_plus_request_s=3.5"
     )
-    assert (snapshot.stage) == ("探测完成")
+    assert (snapshot.stage) == (Stage.PROBE_COMPLETED)
     assert ("Single request 1.250s · Cold start Unknown · Ready + request 3.500s") in (translate(snapshot.detail, "en"))
     assert not (snapshot.measurement_active)
 
@@ -67,6 +68,21 @@ def test_catalog_preserves_interpolation_fields_and_numeric_formats(source, tran
         return sorted((name, spec, conversion or "") for _, name, spec, conversion in Formatter().parse(text) if name is not None)
     assert (fields(source)) == (fields(translated))
     assert (translated.strip())
+
+
+@pytest.mark.parametrize('stage', list(Stage), ids=lambda stage: stage.value)
+def test_stage_identity_is_stable_and_translations_are_presentation_only(stage):
+    assert stage.value.isascii()
+    assert stage.label.template in ENGLISH
+    assert translate(stage.label, 'zh') == stage.label.template
+    assert translate(stage.label, 'en') == ENGLISH[stage.label.template]
+
+
+def test_stage_control_flow_ignores_translation_changes():
+    with patch.dict(ENGLISH, {'已完成': 'Succeeded with new wording'}):
+        assert Stage.COMPLETED is Stage.COMPLETED
+        assert translate(Stage.COMPLETED.label, 'en') == 'Succeeded with new wording'
+        assert Stage.COMPLETED.value == 'completed'
 
 
 class TestTuiLanguage:
@@ -138,7 +154,7 @@ class TestTuiLanguage:
             old_text, old_selection, old_scroll = log.text, log.selection, log.scroll_y
             assert not (log.following)
             snapshot = ProgressSnapshot(
-                stage="case 完成", current_case=1, completed_cases=1, total_cases=2,
+                stage=Stage.CASE_COMPLETED, current_case=1, completed_cases=1, total_cases=2,
                 cpu="1", mem="4", gpu="on", detail=message("正在准备 case {0}/{1}", 1, 2),
             )
             app._latest_snapshot = snapshot

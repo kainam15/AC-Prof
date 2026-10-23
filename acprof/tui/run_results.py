@@ -10,6 +10,7 @@ from acprof.analysis.audit import audit_result
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.run_state import RunStateError, load_run_state
 from acprof.messages import Message, join_messages, message
+from acprof.tui.stages import Stage
 
 MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
 
@@ -79,14 +80,14 @@ class RunResult:
     detail: str = ""
     retained_dir: str = ""
 
-    def stage(self, returncode: int, stopped: bool, error: str) -> str:
+    def stage(self, returncode: int, stopped: bool, error: str) -> Stage:
         if stopped:
-            return "已停止"
+            return Stage.STOPPED
         if error:
-            return "部分完成" if self.result_csv or self.new_cases else "失败"
+            return Stage.PARTIAL if self.result_csv or self.new_cases else Stage.FAILED
         if self.complete and not returncode:
-            return "部分完成" if self.partial else "已完成"
-        return "部分完成" if self.result_csv or self.new_cases else "失败"
+            return Stage.PARTIAL if self.partial else Stage.COMPLETED
+        return Stage.PARTIAL if self.result_csv or self.new_cases else Stage.FAILED
 
 
 def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:

@@ -43,7 +43,7 @@ class SlashCommandActions(MessagePump):
         elif command == "status":
             snapshot = self._latest_snapshot
             self.query_one("#run-log", SelectableLog).write(
-                f"[TUI] status={self.tr(snapshot.stage)}; "
+                f"[TUI] status={self.tr(snapshot.stage.label)}; "
                 f"case={snapshot.completed_cases}/{snapshot.total_cases}; "
                 f"resource=CPU {snapshot.cpu}, MEM {snapshot.mem}GB, GPU {snapshot.gpu}; "
                 f"warnings={snapshot.warnings}; errors={snapshot.errors}"

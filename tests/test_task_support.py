@@ -20,6 +20,7 @@ from acprof.tui.commands import PendingLaunch
 from acprof.tui.i18n import translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import RunProgressTracker
+from acprof.tui.stages import Stage
 
 
 def task_info(tag="image-text-to-text", family="unknown"):
@@ -125,13 +126,13 @@ def test_manual_caption_task_is_supported_but_requires_single_image_batch():
 def test_progress_preserves_unsupported_task_and_points_to_remedies():
     tracker = RunProgressTracker()
     state = tracker.feed("[task-support][ERROR] Unsupported collection task: image-text-to-text")
-    assert (state.stage) == ("任务不支持")
+    assert (state.stage) == (Stage.TASK_UNSUPPORTED)
     assert ("image-text-to-text") in (state.detail)
     assert ("解决办法见日志") in (state.detail)
     assert not (state.measurement_active)
     assert (state.errors) == (1)
     state = tracker.feed("  原因：当前项目尚未登记该任务类型的采集适配。")
-    assert (state.stage) == ("任务不支持")
+    assert (state.stage) == (Stage.TASK_UNSUPPORTED)
     assert ("image-text-to-text") in (translate(state.detail, "en"))
     assert ("log") in (translate(state.detail, "en"))
 
@@ -166,7 +167,7 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
             ) as read_old_results:
                 app._process_finished(kind, 2, tracker.snapshot, "")
             await pilot.pause()
-            assert (app._latest_snapshot.stage) == ("任务不支持")
+            assert (app._latest_snapshot.stage) == (Stage.TASK_UNSUPPORTED)
             assert (app.query_one("#status-stage", Static).content) == ("任务不支持" if language == "zh" else "Unsupported task")
             stage = app.query_one("#status-stage", Static)
             assert (stage.region.width) > (0)

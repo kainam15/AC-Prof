@@ -22,6 +22,7 @@ from acprof.tui.commands import (
 from acprof.tui.diagnostics import _readable_rapl_paths, summarize_result_csv
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import RunProgressTracker
+from acprof.tui.stages import Stage
 from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -147,7 +148,7 @@ def test_progress_tracker_marks_measurement_and_completion():
     tracker.feed("# Case 1/1: CPU=2, MEM=8GB, GPU=off")
     measuring = tracker.feed("[case] Running workload...")
     assert (measuring.measurement_active)
-    assert (measuring.stage) == ("正式测量")
+    assert (measuring.stage) is Stage.MEASURING
 
     tracker.feed("[case][WARN] recoverable warning")
     tracker.feed("[case] Stopping container...")
@@ -159,7 +160,7 @@ def test_progress_tracker_marks_measurement_and_completion():
     assert (complete.completed_cases) == (1)
     assert (complete.warnings) == (1)
     assert (complete.final_csv) == ("/tmp/result_all.csv")
-    assert (complete.stage) == ("已完成")
+    assert (complete.stage) is Stage.COMPLETED
 
 def test_progress_tracker_reports_largest_scale_probe_timings():
     tracker = RunProgressTracker()
@@ -167,7 +168,7 @@ def test_progress_tracker_reports_largest_scale_probe_timings():
         "[largest-probe] Starting minimum configuration: "
         "CPU=1, MEM=2GB, GPU=off, input_scale=512"
     )
-    assert (starting.stage) == ("启动探测容器")
+    assert (starting.stage) is Stage.STARTING_PROBE_CONTAINER
     assert ((starting.cpu, starting.mem, starting.gpu)) == (("1", "2", "off"))
     measuring = tracker.feed(
         "[largest-probe] Running one largest-scale request..."
@@ -184,7 +185,7 @@ def test_progress_tracker_reports_largest_scale_probe_timings():
     )
 
     assert not (complete.measurement_active)
-    assert (complete.stage) == ("探测完成")
+    assert (complete.stage) is Stage.PROBE_COMPLETED
     assert (complete.completed_cases) == (1)
     assert ("单次请求 4.321s") in (complete.detail)
     assert (complete.probe_summary) == ("/tmp/probes/largest_scale_probe.json")
@@ -195,7 +196,7 @@ def test_progress_tracker_shows_memory_scan_before_timing():
         "[largest-probe] MEMORY_SCAN cpu=1 gpu=off "
         "candidates=2,4,8 input_scale=512"
     )
-    assert (scan.stage) == ("准备内存探测")
+    assert (scan.stage) is Stage.PREPARING_MEMORY_PROBE
     assert (scan.total_cases) == (3)
 
     tracker.feed(
@@ -220,7 +221,7 @@ def test_progress_tracker_shows_memory_scan_before_timing():
     found = tracker.feed(
         "[largest-probe] MEMORY_RESULT mem=4 status=ok"
     )
-    assert (found.stage) == ("找到最低可用内存")
+    assert (found.stage) is Stage.MEMORY_FOUND
     assert ("4GB") in (found.detail)
 
     complete = tracker.feed(
@@ -228,7 +229,7 @@ def test_progress_tracker_shows_memory_scan_before_timing():
         "gpu=off cold_start_s=5 request_s=2 "
         "ready_plus_request_s=7"
     )
-    assert (complete.stage) == ("探测完成")
+    assert (complete.stage) is Stage.PROBE_COMPLETED
     assert (complete.total_cases) == (2)
     assert (complete.completed_cases) == (2)
     assert ("最低可用内存 4GB") in (complete.detail)
@@ -480,7 +481,7 @@ class TestTuiApp:
                 if not app._is_busy():
                     break
             assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == ("失败")
+            assert (app._latest_snapshot.stage) == (Stage.FAILED)
             assert (app._latest_snapshot.completed_cases) == (0)
 
     async def test_measurement_failure_keeps_multiline_diagnostic(self):
@@ -549,7 +550,7 @@ class TestTuiApp:
                     break
 
             assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == ("探测完成")
+            assert (app._latest_snapshot.stage) == (Stage.PROBE_COMPLETED)
             assert ("最低可用内存 4GB") in (app._latest_snapshot.detail)
             assert ("单次请求 4.321s") in (app._latest_snapshot.detail)
             assert (app._latest_snapshot.probe_summary) == ("/tmp/probe.json")
@@ -630,14 +631,14 @@ class TestTuiApp:
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             stage_widget = app.query_one("#status-stage", Static)
-            app._render_snapshot(ProgressSnapshot(stage="已完成"))
+            app._render_snapshot(ProgressSnapshot(stage=Stage.COMPLETED))
             await pilot.pause()
             assert (stage_widget.has_class("stage-success"))
-            app._render_snapshot(ProgressSnapshot(stage="失败"))
+            app._render_snapshot(ProgressSnapshot(stage=Stage.FAILED))
             await pilot.pause()
             assert (stage_widget.has_class("stage-error"))
             assert not (stage_widget.has_class("stage-success"))
-            app._render_snapshot(ProgressSnapshot(stage="正式测量"))
+            app._render_snapshot(ProgressSnapshot(stage=Stage.MEASURING))
             await pilot.pause()
             assert (stage_widget.has_class("stage-measuring"))
 

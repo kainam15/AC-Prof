@@ -16,6 +16,7 @@ from acprof.tui.preparation import PreparationScreen
 from acprof.tui.process import StopResult
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.reports import ReportRow, ReportView
+from acprof.tui.stages import Stage
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import ConfirmActionScreen
 
@@ -140,7 +141,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app._active_command = ("acprof", "run")
             app._pending_launch = None
             snapshot = ProgressSnapshot(
-                stage="正式测量", detail="Fixed measurement window",
+                stage=Stage.MEASURING, detail="Fixed measurement window",
                 current_case=1, total_cases=4, cpu="2", mem="4", gpu="off", measurement_active=True,
                 interface_status="passed", runtime_status="passed", measurement_status="running",
             )

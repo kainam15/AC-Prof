@@ -34,6 +34,7 @@ from acprof.tui.settings import (
     load_settings,
     save_settings,
 )
+from acprof.tui.stages import Stage
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -193,7 +194,7 @@ class TestTuiLayoutSettings:
             await pilot.pause()
             app._activate_tab("monitor-tab")
             app._render_snapshot(ProgressSnapshot(
-                stage="正式测量", detail="正在执行工作负载", current_case=1,
+                stage=Stage.MEASURING, detail="正在执行工作负载", current_case=1,
                 total_cases=32, cpu="1", mem="2", gpu="off", measurement_active=True,
             ))
             app.query_one("#stop-run", Button).disabled = False
@@ -519,7 +520,7 @@ class TestTuiModelMemory:
             with patch("acprof.tui.app.save_settings", wraps=save_settings) as save:
                 app._process_finished(
                     "run", 0,
-                    ProgressSnapshot(stage="已完成", final_csv=str(csv_path.relative_to(PROJECT_DIR))),
+                    ProgressSnapshot(stage=Stage.COMPLETED, final_csv=str(csv_path.relative_to(PROJECT_DIR))),
                     "",
                 )
                 await app.workers.wait_for_complete()

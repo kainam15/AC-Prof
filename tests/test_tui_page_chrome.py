@@ -13,6 +13,7 @@ from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.stages import Stage
 from acprof.tui.themes import UI_THEMES
 
 
@@ -137,7 +138,7 @@ class TestTuiPageChrome:
             await pilot.pause()
             assert (normal.styles.color.hex) == (foreground.upper())
 
-    @pytest.mark.parametrize('stage,family', (('服务就绪', 'green'), ('已完成', 'green'), ('正式测量', 'cyan'), ('失败', 'red')))
+    @pytest.mark.parametrize('stage,family', ((Stage.SERVER_READY, 'green'), (Stage.COMPLETED, 'green'), (Stage.MEASURING, 'cyan'), (Stage.FAILED, 'red')))
     async def test_ready_success_and_failure_feedback_have_semantic_colors(self, stage, family):
         app = self.app
         async with app.run_test(size=(80, 24)) as pilot:

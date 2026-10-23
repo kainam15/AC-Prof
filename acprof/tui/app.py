@@ -86,6 +86,7 @@ from acprof.tui.settings import (
     save_settings,
 )
 from acprof.tui.slash_actions import SlashCommandActions
+from acprof.tui.stages import Stage
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_CATALOG
 from acprof.tui.views import (
@@ -432,7 +433,7 @@ class AcprofTui(
         self._started_monotonic = time.monotonic()
         self._stop_requested = False
         self._preparation_cancelled = False
-        self._latest_snapshot = ProgressSnapshot(stage="启动中", detail="正在创建子进程")
+        self._latest_snapshot = ProgressSnapshot(stage=Stage.STARTING, detail="正在创建子进程")
         self._set_busy(True)
         self._activate_tab("monitor-tab")
         # Moving focus away from inputs stops the native cursor's blink timer.
@@ -461,21 +462,21 @@ class AcprofTui(
         self._set_text(self.query_one('#status-elapsed', Static), elapsed)
 
     _STAGE_CSS_CLASS = {
-        "等待": "stage-idle",
-        "服务就绪": "stage-success",
-        "已完成": "stage-success",
-        "探测完成": "stage-success",
-        "找到最低可用内存": "stage-success",
-        "case 完成": "stage-success",
-        "失败": "stage-error",
-        "清理未完成": "stage-error",
-        "探测失败": "stage-error",
-        "任务不支持": "stage-error",
-        "已终止": "stage-error",
-        "已停止": "stage-error",
-        "部分完成": "stage-running",
-        "正式测量": "stage-measuring",
-        "最大尺度探测": "stage-measuring",
+        Stage.WAITING: "stage-idle",
+        Stage.SERVER_READY: "stage-success",
+        Stage.COMPLETED: "stage-success",
+        Stage.PROBE_COMPLETED: "stage-success",
+        Stage.MEMORY_FOUND: "stage-success",
+        Stage.CASE_COMPLETED: "stage-success",
+        Stage.FAILED: "stage-error",
+        Stage.CLEANUP_INCOMPLETE: "stage-error",
+        Stage.PROBE_FAILED: "stage-error",
+        Stage.TASK_UNSUPPORTED: "stage-error",
+        Stage.TERMINATED: "stage-error",
+        Stage.STOPPED: "stage-error",
+        Stage.PARTIAL: "stage-running",
+        Stage.MEASURING: "stage-measuring",
+        Stage.MAX_SCALE_PROBE: "stage-measuring",
     }
     _STAGE_CLASSES = frozenset({
         "stage-idle", "stage-running", "stage-measuring",
@@ -657,7 +658,7 @@ class AcprofTui(
 
     def _process_cleanup_incomplete(self, result: StopResult) -> None:
         detail = message('PID {0} 仍未确认退出：{1}；可再次停止。', result.pid, result.error)
-        self._latest_snapshot = replace(self._latest_snapshot, stage="清理未完成", detail=detail)
+        self._latest_snapshot = replace(self._latest_snapshot, stage=Stage.CLEANUP_INCOMPLETE, detail=detail)
         self._render_snapshot(self._latest_snapshot)
         self._write_log(detail)
         self._set_busy(True)
@@ -703,8 +704,8 @@ class AcprofTui(
         if line:
             self.query_one("#run-log", SelectableLog).write(line)
         if snapshot is not None:
-            if self._process_kind == "run" and snapshot.stage == "已完成":
-                snapshot = replace(snapshot, stage="核验产物", detail="进程已报告完成，等待本次产物核验。")
+            if self._process_kind == "run" and snapshot.stage is Stage.COMPLETED:
+                snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
             was_measuring = self._latest_snapshot.measurement_active
             self._latest_snapshot = snapshot
             self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
@@ -734,7 +735,7 @@ class AcprofTui(
         )
         # Stage text with visual category coloring.
         stage_widget = self.query_one("#status-stage", Static)
-        self._set_text(stage_widget, snapshot.stage)
+        self._set_text(stage_widget, snapshot.stage.label)
         stage_widget.set_classes(
             self._STAGE_CSS_CLASS.get(snapshot.stage, "stage-running")
         )
@@ -785,7 +786,7 @@ class AcprofTui(
             self._activate_tab("reports-tab")
         log = self.query_one("#run-log", SelectableLog)
         unsupported_task = (
-            snapshot is not None and snapshot.stage == "任务不支持"
+            snapshot is not None and snapshot.stage is Stage.TASK_UNSUPPORTED
             and returncode != 0 and not self._stop_requested and not launch_error
         )
         if launch_error:
@@ -823,8 +824,8 @@ class AcprofTui(
             final_state = snapshot or self._latest_snapshot
             detail: str = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
                              result.total_cases or final_state.total_cases,
-                             message("可查看结果，或检查恢复与重试选项") if stage != "已完成" else message("可查看结果与计算统计"))
-            self.query_one("#run-recovery-actions").display = stage != "已完成"
+                             message("可查看结果，或检查恢复与重试选项") if stage is not Stage.COMPLETED else message("可查看结果与计算统计"))
+            self.query_one("#run-recovery-actions").display = stage is not Stage.COMPLETED
             if result.detail:
                 detail = join_messages("\n", (detail, result.detail))
             if result.new_cases and result.retained_dir:
@@ -833,7 +834,7 @@ class AcprofTui(
                 detail = join_messages("\n", (detail, message("已有实验已完成；本次未重新采集。")))
             self._latest_snapshot = replace(final_state, stage=stage, detail=detail,
                 completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
-                measurement_active=False, measurement_status=("passed" if stage == "已完成" else
+                measurement_active=False, measurement_status=("passed" if stage is Stage.COMPLETED else
                     "cancelled" if self._stop_requested else "failed"))
             self._render_snapshot(self._latest_snapshot)
             current_csv = result.result_csv
@@ -844,33 +845,33 @@ class AcprofTui(
                                 if result.detail and not result.belongs_to_attempt else
                                 message("本次未产生结果 CSV；已保留 {0} 个本次完成的 case。历史结果可通过原路径查看。", result.new_cases))
                 self._set_text(self.query_one("#result-summary", Static), summary_text)
-            self.notify(message("实验{0} · {1}", message(stage), detail),
-                        severity="information" if stage == "已完成" else "warning" if stage in {"部分完成", "已停止"} else "error")
+            self.notify(message("实验{0} · {1}", stage.label, detail),
+                        severity="information" if stage is Stage.COMPLETED else "warning" if stage in {Stage.PARTIAL, Stage.STOPPED} else "error")
         elif kind == "probe":
             final_state = snapshot or self._latest_snapshot
             if launch_error or (returncode != 0 and not self._stop_requested):
                 detail = launch_error or (
                     final_state.detail
-                    if final_state.stage == "探测失败"
+                    if final_state.stage is Stage.PROBE_FAILED
                     else message('探测进程退出码 {0}', returncode)
                 )
                 final_state = replace(
                     final_state,
-                    stage="探测失败",
+                    stage=Stage.PROBE_FAILED,
                     detail=detail,
                     measurement_active=False,
                 )
             elif self._stop_requested:
                 final_state = replace(
                     final_state,
-                    stage="已终止",
+                    stage=Stage.TERMINATED,
                     detail="用户终止了最大尺度探测",
                     measurement_active=False,
                 )
-            elif final_state.stage != "探测完成":
+            elif final_state.stage is not Stage.PROBE_COMPLETED:
                 final_state = replace(
                     final_state,
-                    stage="探测完成",
+                    stage=Stage.PROBE_COMPLETED,
                     detail="最大尺度单次请求已完成",
                     measurement_active=False,
                 )
@@ -878,13 +879,13 @@ class AcprofTui(
             self._render_snapshot(final_state)
         else:
             if launch_error or (returncode != 0 and not self._stop_requested and not comparison_ready):
-                stage = "失败"
+                stage = Stage.FAILED
                 detail = launch_error or message('{0} 进程退出码 {1}', kind, returncode)
             elif self._stop_requested:
-                stage = "已终止"
+                stage = Stage.TERMINATED
                 detail = message('用户终止了 {0} 任务', kind)
             else:
-                stage = "已完成"
+                stage = Stage.COMPLETED
                 detail = message('{0} 任务已完成', kind)
             self._latest_snapshot = ProgressSnapshot(stage=stage, detail=detail)
             self._render_snapshot(self._latest_snapshot)
