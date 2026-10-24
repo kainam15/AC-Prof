@@ -4,7 +4,10 @@
 
 ## 按变更范围执行 CI
 
-`.github/workflows/ci.yml` 在 Push、Pull Request 上保持完整的工作流检查入口，
+`.github/workflows/ci.yml` 自动响应 `main` 的 Push 和所有 Pull Request，
+工作分支只由 PR 触发，避免同一分支提交同时启动两轮完整矩阵。
+未创建 PR 的工作分支仍可使用 `workflow_dispatch` 手动运行完整验证；
+Release 的 `workflow_call` 入口保持独立。
 由 `changes` 作业确定本次改动需要的测试范围，而不是通过 `paths-ignore` 跳过整个工作流。
 这样无需依赖 `[skip ci]` 或 commit message，也不会让被路径过滤跳过的必需检查一直 Pending。
 
