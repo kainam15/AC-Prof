@@ -19,7 +19,7 @@ from acprof.config import (
     STATIC_META_FIELDS,
     STATIC_META_SCHEMA_VERSION,
 )
-from acprof.host import client
+from acprof.host import client, client_metrics, window_requests
 from acprof.host.client import ClientRunner
 from acprof.host.client_config import ClientConfig
 from acprof.monitors import energy_cpu
@@ -176,11 +176,11 @@ class TestEffectiveEnergyWarning:
     def test_latency_metrics_use_the_explicit_slo_threshold(self, threshold_case) -> None:
         latencies = [0.01, 0.06, 0.2, float("nan"), float("inf")]
         (threshold, expected) = tuple(((0.05, 2 / 3), (0.1, 1 / 3)))[threshold_case]
-        assert (client._latency_distribution_metrics(
+        assert (client_metrics._latency_distribution_metrics(
                 "latency_app", latencies, slow_latency_threshold_s=threshold,
             )[
                 "latency_app_slow_ratio"
-            ]) == (expected) or round(abs((client._latency_distribution_metrics(
+            ]) == (expected) or round(abs((client_metrics._latency_distribution_metrics(
                 "latency_app", latencies, slow_latency_threshold_s=threshold,
             )[
                 "latency_app_slow_ratio"
@@ -398,7 +398,7 @@ class TestEffectiveEnergyWarning:
             "context": [[0.1, 0.2]],
             "prediction_length": 64,
         }
-        assert (client._canonical_task_param(payload)) == ('{"prediction_length":64}')
+        assert (window_requests.canonical_task_param(payload)) == ('{"prediction_length":64}')
 
     def test_request_shape_metrics_are_averaged_per_window(self) -> None:
         responses = iter([
@@ -507,7 +507,7 @@ class TestEffectiveEnergyWarning:
         assert (CSV_FIELDS[start + len(expected)]) == ("gpu_util_avg_pct")
 
     def test_gpu_runtime_metrics_normalize_pstate(self) -> None:
-        metrics = client._gpu_runtime_metrics_from_result(
+        metrics = client_metrics._gpu_runtime_metrics_from_result(
             SimpleNamespace(
                 gpu_sm_clock_mhz=1800.0,
                 gpu_memory_clock_mhz=7500.0,
@@ -638,7 +638,7 @@ class TestEffectiveEnergyWarning:
             ]) == ([*massif_fields, *nsys_fields])
 
     def test_execution_profile_metrics_are_formatted_independently(self) -> None:
-        metrics = client._execution_profile_row_metrics({
+        metrics = client_metrics._execution_profile_row_metrics({
             "cpu_heap_peak_bytes_massif": 4096,
             "compute_profile_error_massif": "",
             "host_inference_wall_time_ms_per_request_nsys": 2.5,
@@ -802,7 +802,7 @@ class TestEffectiveEnergyWarning:
         assert (rows[0]["latency_app_tail_ratio"]) == ("3.000000")
 
     def test_efficiency_metrics_are_derived_without_new_measurements(self) -> None:
-        metrics = client._derived_efficiency_metrics(
+        metrics = client_metrics._derived_efficiency_metrics(
             gpu_mode="on",
             batch_size=2,
             latency_app_s=0.5,
@@ -819,7 +819,7 @@ class TestEffectiveEnergyWarning:
         assert (metrics["container_attributed_j_per_output_token"]) == (0.05) or round(abs((metrics["container_attributed_j_per_output_token"]) - (0.05)), 7) == 0
         assert (metrics["container_attributed_j_per_input_unit"]) == (0.0625) or round(abs((metrics["container_attributed_j_per_input_unit"]) - (0.0625)), 7) == 0
 
-        missing_gpu = client._derived_efficiency_metrics(
+        missing_gpu = client_metrics._derived_efficiency_metrics(
             gpu_mode="on",
             batch_size=1,
             latency_app_s=0.5,
@@ -1284,7 +1284,7 @@ class TestEffectiveEnergyWarning:
         assert (sidecar_rows) == ([{"sniff_group_id": "case_seq1_r0"}])
 
     def test_negative_effective_metrics_are_reported_per_field(self) -> None:
-        warnings = client._eff_negative_warnings(
+        warnings = client_metrics._eff_negative_warnings(
             avg_power_eff_w=-0.1,
             peak_power_eff_w=0.0,
             energy_eff_j=-0.001,
@@ -1293,7 +1293,7 @@ class TestEffectiveEnergyWarning:
         assert (warnings) == (["gpu_avg_power_eff_w<0", "gpu_energy_eff_j<0"])
 
     def test_cpu_vcpu_negative_effective_metrics_keep_full_field_names(self) -> None:
-        warnings = client._named_negative_warnings({
+        warnings = client_metrics._named_negative_warnings({
             "cpu_energy_eff_j": -0.001,
             "vcpu_avg_power_eff_w": -0.1,
             "vcpu_energy_total_j": 1.0,
@@ -1430,7 +1430,7 @@ class TestEffectiveEnergyWarning:
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ), patch_client(self.runner,
-                "_collect_idle_debug_snapshot",
+                "collect_idle_debug_snapshot",
                 return_value={
                     "snapshot_scope": "after_idle",
                     "loadavg": [0.1, 0.2, 0.3],
@@ -1548,7 +1548,7 @@ class TestEffectiveEnergyWarning:
                 "_one_request",
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ), patch_client(self.runner,
-                "_collect_gpu_idle_debug_snapshot",
+                "collect_gpu_idle_debug_snapshot",
                 return_value={
                     "gpu_snapshot_scope": "after_gpu_idle",
                     "nvidia_smi_gpu": {"pstate": "P0", "clocks_sm_mhz": 1200.0},
@@ -2054,7 +2054,7 @@ class TestEffectiveEnergyWarning:
             "compute_profile_error_ncu": "",
         }
 
-        row_metrics = client._compute_profile_row_metrics(profile, 0.5)
+        row_metrics = client_metrics._compute_profile_row_metrics(profile, 0.5)
 
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:
             assert (field) not in (row_metrics)

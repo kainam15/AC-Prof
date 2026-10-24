@@ -87,7 +87,7 @@ def _append_idle_diag(diag_f, record: Dict[str, Any]) -> None:
     os.fsync(diag_f.fileno())
 
 
-def _append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat_idx,
+def append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat_idx,
                            latencies, error="", failed_request_id="") -> None:
     """Persist buffered successful requests after every monitor has stopped.
 

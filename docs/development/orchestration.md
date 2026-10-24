@@ -29,9 +29,11 @@
 | `measurement_window` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
 | `load_protocol` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
-| `client` | 环境与 workload 初始化、请求、对照窗口和正式窗口控制、结果写入 |
-| `client_metrics` | 已完成采样结果到指标字段的纯计算与格式化 |
-
+| `client` | 环境与 workload 初始化、短连接 HTTP 请求适配、窗口调度和完成结果发布 |
+| `client_metrics` | 已完成采样结果的纯计算与格式化；`WindowMetrics` 保留部分计算结果、判定指标状态并组装完整结果行 |
+| `window_execution` | `WindowExecutor.execute` 拥有单窗口 collector 构造、对照采集、请求、停止、请求证据发布和异常优先级 |
+| `window_types` / `window_errors` | `WindowSpec`、`WindowObservations`、`WindowResult` 与共享的致命测量异常；不访问硬件 |
+| `window_requests` | 串行请求进度、实际参数和有效输入尺度一致性；不拥有 collector 或文件 |
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
@@ -62,6 +64,28 @@
 `profile` 与 `error_entry` 调度各工具，不再重导出其私有采集、恢复或解析入口。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
+
+### 单窗口执行边界
+
+`ClientRunner` 在准备阶段加载 profiler 计划、建立 execution profile 解析快照，
+再以 `WindowSpec` 调用 `WindowExecutor.execute`。执行器返回 `WindowResult`，
+包含结果行、可选 idle diagnostic 和抓包分组标识；调用者统一发布 CSV 和 sidecar。
+请求适配器仍使用原有短连接 HTTP 协议，自动请求窗口仍按已完成请求的应用时延累计判断。
+
+执行器独立拥有所有已登记 collector，即使后续构造、prepare、start 或请求失败，
+也完成原定的 stop/close 收敛。请求日志在全部 collector 停止后写入，保留已完成请求、
+失败请求 ID 和原有错误诊断。超时、能耗中止、PMU 中止及取消优先于清理或日志写入故障；
+普通请求错误与清理失败同时出现时，清理失败阻止后续窗口。
+
+`WindowMetrics` 在采集结束后按既定顺序归约数据。数值计算中途失败时保留此前已取得的字段，
+吞吐量保持未知；请求本身失败时保留请求证据和完成数量，不将该不完整窗口重新归约为成功结果。
+idle history 由执行器按 case 保存，GPU idle 来源在 workload stop 完成累计计数器回退后读取。
+
+边界测试直接使用替代 collector 和请求端口，验证完整窗口、部分请求、初始化失败、
+清理次数和组合故障的异常优先级；CLI/CSV 集成测试继续验证外部产物。
+设计参考 [MLPerf LoadGen 的 IssueQueries / PerformanceResult 边界](https://github.com/mlcommons/inference/blob/master/loadgen/loadgen.cc)，
+以及 [pyperf 对测量阶段状态与 teardown 上下文的讨论](https://github.com/psf/pyperf/issues/239)。
+仅借鉴生命周期和结果分离，不引入依赖，也不修改现有采样策略、CSV schema 或 monitor 启停顺序。
 
 ### Host command 与 diagnostics
 
@@ -115,6 +139,13 @@ machine events 继续由 `RunProgressTracker` 解析。
 `config`、`metric_registry` 和 `extensions` 不为消除 late import / `E402` 注释而拆分。
 只有实际依赖循环导致初始化顺序或职责问题时才调整模块边界。
 
+`ExecutionProfileResolver` 在载入 execution profile plan 后建立一次资源索引，
+常规窗口、post-hoc 完整性检查和批量回填各自复用同一解析器。
+解析器只保存实际使用工具的标量结果快照，不复制 report 等大型载荷；
+计划合并或变更后须重新建立解析器。输入尺度仍按原顺序使用 `isclose` 容差匹配，
+首个含目标工具的资源 case、disabled/missing/invalid 和错误优先级保持不变。
+单次 `find_execution_profile_entry` 仍支持直接读取计划；持久化 schema 与 provenance 不变。
+
 `metric_registry` 统一 CSV 字段、单位、来源、窗口和 profiler 完成条件；`config.CSV_FIELDS`
 保留同一列表对象。
 `acprof.hardware_conditions` 仅定义历史硬件条件字段与产物路径；
@@ -130,10 +161,11 @@ machine events 继续由 `RunProgressTracker` 解析。
 输入计划、profiler 计划与能力报告。`cli.run_notifications` 单独保存本次通知上下文，
 在预检前、每个 profiler/case 正式窗口结束后及终态完成时创建通知事件，
 并负责 CSV 摘要、保密错误回显与尽力发送；CLI 调度只调用它的明确入口。
-终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。client 的 CSV 格式化、像素指标和 profiler 关联集中于
-`ClientRunner._build_result_row`；`ClientConfig.from_env()` 仅在入口读取并验证配置，
-导入 client 不修改代理环境、不读取实验参数、不创建 workload。每次执行持有独立状态；
-`_execute_window` 复用 `MonitorGroup` 保持采样顺序，`main` 负责窗口调度与结果发布。
+终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。
+CSV 格式化、像素指标和 profiler 关联集中于 `WindowMetrics.build_row`；
+`ClientConfig.from_env()` 仅在入口读取并验证配置，导入 client 不修改代理环境、
+不读取实验参数、不创建 workload。每次执行持有独立状态；`WindowExecutor.execute`
+复用 `MonitorGroup` 保持采样顺序，`ClientRunner.main` 负责窗口调度与结果发布。
 `orchestrator._finalize_case` 负责采集后的抓包合并和结果校验，清理故障仍会执行容器回收。
 
 `source_identity` 统一续跑身份与服务构建的文件选择。续跑包括执行声明和输入资源；服务构建

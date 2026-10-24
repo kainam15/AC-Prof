@@ -2,7 +2,7 @@
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
-from acprof.host import client, client_diagnostics, client_publication
+from acprof.host import client, client_diagnostics, client_publication, window_execution
 
 
 def patch_client(runner, name, *args, **kwargs):
@@ -10,7 +10,7 @@ def patch_client(runner, name, *args, **kwargs):
     if name.isupper() and hasattr(runner.config, name.lower()):
         return patch.object(runner.config, name.lower(), *args, **kwargs)
     name = special.get(name, name)
-    owner = next(module for module in (runner, client, client_diagnostics, client_publication) if hasattr(module, name))
+    owner = next(module for module in (runner, client, client_diagnostics, client_publication, window_execution) if hasattr(module, name))
     return patch.object(owner, name, *args, **kwargs)
 
 

@@ -103,128 +103,13 @@
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.client_diagnostics",
-      "symbol": "_collect_idle_debug_snapshot"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_diagnostics",
-      "symbol": "_collect_nvidia_smi_compute_apps"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_diagnostics",
-      "symbol": "_collect_nvidia_smi_gpu_snapshot"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_diagnostics",
-      "symbol": "_collect_nvidia_smi_pmon"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_compute_profile_row_metrics"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_derived_efficiency_metrics"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_eff_negative_warnings"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_estimate_cpu_cycles"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_execution_profile_row_metrics"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_finite_positive"
-    },
-    {
-      "source": "acprof.host.client",
       "target": "acprof.host.client_metrics",
       "symbol": "_fmt_float"
     },
     {
       "source": "acprof.host.client",
       "target": "acprof.host.client_metrics",
-      "symbol": "_gpu_runtime_metrics_from_result"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_idle_debug_stats"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_idle_power_debug_stats"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_input_num_samples"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_input_units_per_request"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_latency_distribution_metrics"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_mean"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_mean_finite"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_mips_metrics_from_result"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_named_negative_warnings"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_nan_metrics"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
-      "symbol": "_per_positive_denominator"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
       "symbol": "_prepared_body_size_bytes"
-    },
-    {
-      "source": "acprof.host.client",
-      "target": "acprof.host.client_publication",
-      "symbol": "_append_request_window"
     },
     {
       "source": "acprof.host.client",

@@ -1,9 +1,12 @@
 """测量结果的纯计算与格式化，不初始化客户端或监测器。"""
 from __future__ import annotations
 
+import json
 import math
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
+from acprof.capabilities import measurement_requested
+from acprof.config import GPU_RUNTIME_STATE_FIELDS
 from acprof.host.compute_profile_plan import (
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
@@ -15,7 +18,17 @@ from acprof.host.compute_profile_plan import (
     TORCH_ERROR_FIELD,
     TORCH_LOGICAL_MFLOP_FIELD,
     compute_mflops as _compute_mflops,
+    find_compute_profile_entry,
 )
+from acprof.host.window_errors import EnergyAbort
+from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
+from acprof.workloads.contract import summarize_workload_contracts
+
+if TYPE_CHECKING:
+    from acprof.host.client_config import ClientConfig
+    from acprof.host.execution_profile_plan import ExecutionProfileResolver
+    from acprof.host.window_requests import WindowRequestProgress
+    from acprof.host.window_types import WindowObservations
 
 
 def to_float_or_nan(x: Any) -> float:
@@ -851,3 +864,247 @@ def _idle_power_debug_stats(values: List[float], prefix: str) -> Dict[str, float
 
 def _idle_debug_stats(values: List[float]) -> Dict[str, float]:
     return _idle_power_debug_stats(values, "cpu")
+
+class WindowMetrics:
+    """Reduce completed collector data and assemble a window's CSV values.
+
+    Reduction updates fields in protocol order so an ordinary failure retains
+    already-computed values. Construction and row assembly do no measurement I/O.
+    """
+
+    def __init__(
+        self, config: ClientConfig, scale_entry: dict[str, Any], *,
+        use_energy: bool, slow_latency_threshold_s: float | None = None,
+    ) -> None:
+        self.config = config
+        self.scale_entry = scale_entry
+        self.use_energy = use_energy
+        self.slow_latency_threshold_s = slow_latency_threshold_s
+        self.input_num_samples = _input_num_samples(scale_entry.get("input_metadata"))
+        self.resolved_input_scale = float(scale_entry["input_scale"])
+        self.input_units_per_request = _input_units_per_request(
+            self.resolved_input_scale, config.batch_size,
+        )
+        self.latency_app_s = float("nan")
+        self.latency_app_s_per_input_unit = float("nan")
+        self.request_payload_bytes = float("nan")
+        self.output_length_avg = float("nan")
+        self.output_token_count_avg = float("nan")
+        self.throughput = float("nan")
+        self.throughput_per_cpu_core = float("nan")
+        self.status = "ok"
+        self.error = ""
+        self.gpu = _nan_metrics(GPU_METRIC_FIELDS)
+        self.cpu = _nan_metrics(CPU_METRIC_FIELDS)
+        self.efficiency = _nan_metrics(EFFICIENCY_METRIC_FIELDS)
+        self.resource = _nan_metrics(RESOURCE_USAGE_METRIC_FIELDS)
+        self.gpu_runtime: dict[str, Any] = {
+            **_nan_metrics(GPU_RUNTIME_STATE_FIELDS), "gpu_pstate": "nan",
+        }
+        self.mips = _nan_metrics(MIPS_METRIC_FIELDS)
+        self.packet_distribution = _nan_metrics(LATENCY_PACKET_DISTRIBUTION_FIELDS)
+        self.app_distribution = _nan_metrics(LATENCY_APP_DISTRIBUTION_FIELDS)
+        self.gpu_idle_stats: dict[str, float] = {}
+        self.cpu_idle_stats: dict[str, float] = {}
+
+    def reduce(
+        self, progress: WindowRequestProgress, observations: WindowObservations,
+    ) -> None:
+        """Consume finalized samples, preserving partial results on failure."""
+        self.latency_app_s = _mean(progress.latencies)
+        self.request_payload_bytes = _mean_finite(progress.payload_sizes)
+        self.output_length_avg = _mean_finite(progress.output_lengths)
+        self.output_token_count_avg = _mean_finite(progress.output_token_counts)
+        self.app_distribution = _latency_distribution_metrics(
+            "latency_app", progress.latencies,
+            slow_latency_threshold_s=self.slow_latency_threshold_s,
+        )
+        if observations.gpu_result is not None:
+            self.gpu = gpu_metrics_from_result(observations.gpu_result, progress.count)
+        if observations.cpu_result is not None:
+            self.cpu = cpu_metrics_from_result(observations.cpu_result, progress.count)
+        if self.config.dram_energy == "required" and not all(math.isfinite(self.cpu[field]) for field in (
+            "dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"
+        )):
+            raise EnergyAbort("required DRAM RAPL measurement unavailable or incomplete")
+        if observations.resource_result is not None:
+            if self.config.profiling_mode == "basic":
+                if observations.resource_error:
+                    raise RuntimeError(f"required CPU/memory measurement failed: {observations.resource_error}")
+                if not all(math.isfinite(value) for value in (
+                    observations.resource_result.container_cpu_util_avg_pct,
+                    observations.resource_result.container_mem_usage_avg_bytes,
+                )):
+                    raise RuntimeError("required CPU/memory measurement unavailable")
+            self.resource = resource_usage_metrics_from_result(
+                observations.resource_result, progress.count,
+            )
+        self.resolved_input_scale = (
+            progress.effective_input_scale
+            if progress.effective_input_scale is not None
+            else float(self.scale_entry["input_scale"])
+        )
+        self.input_units_per_request = _input_units_per_request(
+            self.resolved_input_scale, self.config.batch_size,
+        )
+        self.efficiency = _derived_efficiency_metrics(
+            gpu_mode=self.config.gpu_mode,
+            batch_size=self.config.batch_size,
+            latency_app_s=self.latency_app_s,
+            output_token_count_avg=self.output_token_count_avg,
+            gpu_energy_eff_j=self.gpu["gpu_energy_eff_j"],
+            vcpu_energy_eff_j=self.cpu["vcpu_energy_eff_j"],
+            input_units_per_request=self.input_units_per_request,
+        )
+        self.gpu_runtime = _gpu_runtime_metrics_from_result(observations.resource_result)
+        if observations.mips_result is not None:
+            self.mips = _mips_metrics_from_result(observations.mips_result)
+        warnings = window_monitor_warnings(
+            resource_error=observations.resource_error,
+            gpu_error=observations.gpu_error,
+            cpu_error=observations.cpu_error,
+            dram_energy=self.config.dram_energy,
+            gpu_metrics=self.gpu,
+            cpu_metrics=self.cpu,
+        )
+        if warnings:
+            self.status = "warn"
+            self.error = "; ".join(warnings)
+        if self.latency_app_s == self.latency_app_s and self.latency_app_s > 0:
+            self.throughput = float(self.config.batch_size) / float(self.latency_app_s)
+        else:
+            self.throughput = float("nan")
+        self.latency_app_s_per_input_unit = _per_positive_denominator(
+            self.latency_app_s, self.input_units_per_request,
+        )
+        self.throughput_per_cpu_core = _per_positive_denominator(
+            self.throughput, self.config.cpu_cores,
+        )
+
+    def fail(self, exc: Exception) -> None:
+        """Mark an ordinary window failure without discarding prior reduction."""
+        self.status = "error"
+        self.error = repr(exc)
+        self.throughput = float("nan")
+        self.throughput_per_cpu_core = float("nan")
+
+    def build_row(
+        self, progress: WindowRequestProgress, observations: WindowObservations, *,
+        warmup: int, repeat_idx: int, environment_class: str,
+        cold_start: dict[str, Any], compute_profile_plan: dict[str, Any],
+        execution_profiles: ExecutionProfileResolver,
+        cpu_idle_history: list[float], gpu_idle_history: list[float],
+    ) -> dict[str, Any]:
+        """Join formatting and profile metadata only after the sampling window."""
+        from acprof.host.window_requests import canonical_task_param
+
+        self.gpu_idle_stats = _idle_power_debug_stats(gpu_idle_history, "gpu")
+        if self.config.idle_debug and _finite_positive(self.gpu["gpu_idle_power_w"]):
+            gpu_idle_history.append(to_float_or_nan(self.gpu["gpu_idle_power_w"]))
+            self.gpu_idle_stats = _idle_power_debug_stats(gpu_idle_history, "gpu")
+        self.cpu_idle_stats = _idle_debug_stats(cpu_idle_history)
+        if self.config.idle_debug and _finite_positive(self.cpu["cpu_idle_power_w"]):
+            cpu_idle_history.append(to_float_or_nan(self.cpu["cpu_idle_power_w"]))
+            self.cpu_idle_stats = _idle_debug_stats(cpu_idle_history)
+        cpu_cycles = _estimate_cpu_cycles(
+            self.latency_app_s,
+            self.resource["cpu_freq_avg_hz"],
+            to_float_or_nan(self.config.cpu_cores),
+            self.resource["container_cpu_util_avg_pct"],
+        )
+        gpu_power_requested = measurement_requested(
+            self.config.profiling_mode, "gpu_power", gpu=self.use_energy,
+        )
+        row: dict[str, Any] = {
+            "cpu_cores": self.config.cpu_cores,
+            "mem_cap_gb": self.config.mem_cap_gb,
+            "gpu_mode": self.config.gpu_mode,
+            "packet_request_wire_bytes_per_request": "nan",
+            "packet_response_wire_bytes_per_request": "nan",
+            "packet_total_wire_bytes_per_request": "nan",
+            "packet_tcp_payload_bytes_per_request": "nan",
+            "packet_protocol_overhead_bytes_per_request": "nan",
+            "packet_protocol_overhead_ratio": "nan",
+            **cold_start,
+            "result_origin": "formal_measurement",
+            "environment_class": environment_class,
+            "gpu_device_uuid": self.config.gpu_device_uuid if self.use_energy else "nan",
+            "gpu_energy_source": getattr(observations.gpu_result, "energy_source", "unavailable") if gpu_power_requested else "not_requested",
+            "gpu_energy_fallback_reason": getattr(observations.gpu_result, "energy_fallback_reason", ""),
+            "gpu_idle_energy_source": getattr(observations.gpu_monitor, "idle_energy_source", "unavailable") if gpu_power_requested else "not_requested",
+            "input_scale": str(self.resolved_input_scale),
+            "input_units_per_request": _fmt_float(self.input_units_per_request),
+            "input_num_samples": _fmt_float(self.input_num_samples),
+            "request_payload_bytes": _fmt_float(self.request_payload_bytes),
+            "task_param": (
+                progress.executed_task_param
+                if progress.executed_task_param is not None
+                else canonical_task_param(self.scale_entry.get("payload"))
+            ),
+            "workload_contract": json.dumps(
+                summarize_workload_contracts(progress.workload_contracts),
+                ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+            ),
+            "output_length_avg": _fmt_float(self.output_length_avg),
+            "output_token_count_avg": _fmt_float(self.output_token_count_avg),
+            "repeat_idx": str(repeat_idx),
+            "warmup": str(warmup),
+            "repeat_in_window": str(progress.count),
+            "latency_s": "nan",  # Filled by merge_packet_latency.
+            "latency_s_per_input_unit": "nan",
+            "latency_app_s": _fmt_float(self.latency_app_s),
+            "latency_app_s_per_input_unit": _fmt_float(self.latency_app_s_per_input_unit),
+            "throughput_samples_per_s": _fmt_float(self.throughput),
+            "throughput_samples_per_s_per_cpu_core": _fmt_float(self.throughput_per_cpu_core),
+            "gpu_idle_measured_at": observations.gpu_idle_measured_at if self.config.idle_debug else "nan",
+            "gpu_idle_rel_range_so_far": (
+                _fmt_float(self.gpu_idle_stats["gpu_idle_rel_range_so_far"])
+                if self.config.idle_debug else "nan"
+            ),
+            "dram_energy_status": (
+                "not_requested" if self.config.profiling_mode == "basic" or self.config.dram_energy == "off" else
+                getattr(getattr(observations.cpu_result, "dram", None), "status", "unavailable")
+            ),
+            "dram_energy_error": getattr(getattr(observations.cpu_result, "dram", None), "error", ""),
+            "cpu_idle_measured_at": observations.cpu_idle_measured_at if self.config.idle_debug else "nan",
+            "cpu_idle_rel_range_so_far": (
+                _fmt_float(self.cpu_idle_stats["cpu_idle_rel_range_so_far"])
+                if self.config.idle_debug else "nan"
+            ),
+            "cpu_cycles_est_app": _fmt_float(cpu_cycles),
+            "cpu_cycles_est_packet": "nan",
+            "status": self.status,
+            "error": self.error,
+        }
+        for metrics in (
+            self.gpu, self.cpu, self.efficiency, self.resource,
+            self.gpu_runtime, self.mips, self.packet_distribution, self.app_distribution,
+        ):
+            row.update({name: str(value) if name == "gpu_pstate" else _fmt_float(value)
+                        for name, value in metrics.items()})
+        pixel_counts = pixel_counts_from_metadata(
+            self.scale_entry.get("input_metadata")
+            if self.resolved_input_scale == float(self.scale_entry["input_scale"]) else None,
+            self.config.batch_size,
+            task_family=self.config.task_family,
+            pipeline_tag=self.config.pipeline_tag,
+            workload=self.scale_entry.get("workload"),
+        )
+        row.update({field: _fmt_float(value) for field, value in pixel_counts.items()})
+        row.update({field: _fmt_float(value) for field, value in pixel_rate_metrics(row).items()})
+        row_scale = to_float_or_nan(row["input_scale"])
+        compute_profile = find_compute_profile_entry(
+            compute_profile_plan, self.config.gpu_mode, row_scale,
+        )
+        row.update(_compute_profile_row_metrics(compute_profile, self.latency_app_s))
+        execution_profile = execution_profiles.resolve(
+            self.config.cpu_cores, self.config.mem_cap_gb, self.config.gpu_mode, row_scale,
+        )
+        row.update(_execution_profile_row_metrics(execution_profile))
+        if environment_class == "wsl2":
+            from acprof.metric_registry import METRICS
+            from acprof.platform import native_only_metric
+            for name, metric in METRICS.items():
+                if native_only_metric(metric):
+                    row[name] = "nan" if metric.kind == "number" else "unavailable"
+        return row

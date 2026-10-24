@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 import pytest
 from client_fixtures import patch_client
 
-from acprof.host import client, client_publication
+from acprof.host import client, client_publication, window_execution
 from acprof.host.client import ClientRunner
 from acprof.host.client_config import ClientConfig
 from acprof.host.measurement_window import MonitorGroup
@@ -61,8 +61,8 @@ class TestMonitorCleanup:
 
             with patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200)), patch.object(
                 runner, "_one_request", side_effect=request,
-            ), patch.object(client_publication, "_append_request_window", side_effect=publish(
-                client_publication._append_request_window, "requests",
+            ), patch.object(client_publication, "append_request_window", side_effect=publish(
+                client_publication.append_request_window, "requests",
             )), patch.object(client_publication, "_append_row", side_effect=publish(
                 client_publication._append_row, "result",
             )), patch.object(logging.Logger, "isEnabledFor", return_value=True), patch.object(
@@ -152,7 +152,7 @@ class TestMonitorCleanup:
     def run_failure(self, fault, *, request_error=None, journal_error=None):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             if journal_error is not None:
-                stack.enter_context(patch_client(self.runner, "_append_request_window", side_effect=journal_error))
+                stack.enter_context(patch_client(self.runner, "append_request_window", side_effect=journal_error))
             path = Path(temporary) / "case.csv"
             cpu = Mock()
             cpu.idle_trace = {}
@@ -175,8 +175,8 @@ class TestMonitorCleanup:
             for key, value in settings.items():
                 stack.enter_context(patch_client(self.runner, key, value))
             stack.enter_context(patch.object(client.requests, "get", return_value=SimpleNamespace(status_code=200, text="ok")))
-            stack.enter_context(patch.object(client, "run_matched_control_window"))
-            stack.enter_context(patch_client(self.runner, "_sleep_before_idle_baseline"))
+            stack.enter_context(patch.object(window_execution, "run_matched_control_window"))
+            stack.enter_context(patch.object(self.runner.config, "idle_cooldown_seconds", 0.0))
             request = stack.enter_context(patch_client(self.runner, "_one_request", side_effect=request_error,
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0,
                               "workload_contract": {"schema_version": 1, "actual_rows": 1}}))

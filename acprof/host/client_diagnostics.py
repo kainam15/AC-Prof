@@ -192,7 +192,26 @@ def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
     return rows
 
 
-def _collect_idle_debug_snapshot() -> Dict[str, Any]:
+def collect_gpu_idle_debug_snapshot(device_index: int) -> Dict[str, Any]:
+    snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
+    try:
+        snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
+    except Exception as exc:
+        snapshot["nvidia_smi_gpu_error"] = repr(exc)
+
+    try:
+        snapshot["nvidia_smi_pmon"] = _collect_nvidia_smi_pmon(device_index)
+    except Exception as exc:
+        snapshot["nvidia_smi_pmon_error"] = repr(exc)
+
+    try:
+        snapshot["nvidia_smi_compute_apps"] = _collect_nvidia_smi_compute_apps(device_index)
+    except Exception as exc:
+        snapshot["nvidia_smi_compute_apps_error"] = repr(exc)
+
+    return snapshot
+
+def collect_idle_debug_snapshot() -> Dict[str, Any]:
     snapshot: Dict[str, Any] = {"snapshot_scope": "after_idle"}
     try:
         snapshot["loadavg"] = list(os.getloadavg())
