@@ -11,6 +11,34 @@ import sys
 from pathlib import Path
 
 
+def vulnerability_groups(findings: list[dict]) -> list[list[str]]:
+    """Merge advisory identifiers and aliases, including transitive bridges."""
+    parents: dict[str, str] = {}
+
+    def root(identifier: str) -> str:
+        parents.setdefault(identifier, identifier)
+        while parents[identifier] != identifier:
+            parents[identifier] = parents[parents[identifier]]
+            identifier = parents[identifier]
+        return identifier
+
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise ValueError("invalid pip-audit report: malformed vulnerability")
+        identifier, aliases = finding.get("id"), finding.get("aliases", [])
+        if (not isinstance(identifier, str) or not identifier.strip()
+                or not isinstance(aliases, list)
+                or any(not isinstance(alias, str) or not alias.strip() for alias in aliases)):
+            raise ValueError("invalid pip-audit report: malformed vulnerability identifiers")
+        canonical = root(identifier)
+        for alias in aliases:
+            parents[root(alias)] = canonical
+    groups: dict[str, list[str]] = {}
+    for identifier in parents:
+        groups.setdefault(root(identifier), []).append(identifier)
+    return sorted(sorted(group) for group in groups.values())
+
+
 def summarize_report(path: Path) -> tuple[int, int, list[str], list[str]]:
     """Count audited packages, findings and explicitly skipped packages separately."""
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -19,7 +47,7 @@ def summarize_report(path: Path) -> tuple[int, int, list[str], list[str]]:
     dependencies = data["dependencies"]
     if not dependencies:
         raise ValueError("invalid pip-audit report: empty dependencies")
-    total_findings = 0
+    all_findings: list[dict] = []
     summaries: list[str] = []
     skipped: list[str] = []
     seen: set[str] = set()
@@ -42,15 +70,13 @@ def summarize_report(path: Path) -> tuple[int, int, list[str], list[str]]:
         findings = dep.get("vulns")
         if not isinstance(findings, list):
             raise ValueError("invalid pip-audit report: missing vulnerability list or skip reason")
-        for finding in findings:
-            if not isinstance(finding, dict) or not isinstance(finding.get("id"), str) or not finding["id"]:
-                raise ValueError("invalid pip-audit report: malformed vulnerability")
-        total_findings += len(findings)
+        groups = vulnerability_groups(findings)
+        all_findings.extend(findings)
         if findings:
-            summaries.append(f"{name}: {len(findings)}")
+            summaries.append(f"{name}: {len(groups)}")
     if len(dependencies) == len(skipped):
         raise ValueError("invalid pip-audit report: no dependencies assessed")
-    return len(dependencies) - len(skipped), total_findings, summaries, skipped
+    return len(dependencies) - len(skipped), len(vulnerability_groups(all_findings)), summaries, skipped
 
 
 def main(argv: list[str] | None = None) -> int:

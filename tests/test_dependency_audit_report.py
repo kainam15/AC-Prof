@@ -88,6 +88,20 @@ def test_known_findings_and_unassessed_packages_are_both_visible(tmp_path):
     assert "INCOMPLETE" in result.stdout
 
 
+def test_vulnerability_aliases_merge_transitively_across_packages(tmp_path):
+    result = run_check(tmp_path, {"dependencies": [
+        {"name": "first", "version": "1", "vulns": [
+            {"id": "GHSA-first", "aliases": ["CVE-shared"]},
+            {"id": "PYSEC-first", "aliases": ["GHSA-other"]},
+            {"id": "CVE-shared", "aliases": ["GHSA-other"]},
+        ]},
+        {"name": "second", "version": "2", "vulns": [{"id": "GHSA-other"}]},
+    ]})
+    assert result.returncode == 0, result.stderr
+    assert "audited 2 packages, skipped 0 packages; 1 known vulnerability" in result.stdout
+    assert "first: 1" in result.stdout
+
+
 @pytest.mark.parametrize("data", [
     None, "", "{", "[]", "{}", {"dependencies": []},
     {"dependencies": [{"name": "example"}]},
@@ -99,6 +113,8 @@ def test_known_findings_and_unassessed_packages_are_both_visible(tmp_path):
                       {"name": "flask", "vulns": []}]},
     {"dependencies": [{"name": "flask", "vulns": []},
                       {"name": "flask", "vulns": []}]},
+    {"dependencies": [{"name": "flask", "vulns": [{"id": "CVE-example", "aliases": "not-a-list"}]}]},
+    {"dependencies": [{"name": "flask", "vulns": [{"id": "CVE-example", "aliases": [""]}]}]},
 ])
 def test_missing_or_invalid_evidence_fails_closed(tmp_path, data):
     result = run_check(tmp_path, data)
