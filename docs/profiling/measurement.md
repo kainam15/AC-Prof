@@ -19,6 +19,27 @@
 
 独立期望常量来自上述单位与公式，不从被测实现反推；这些仅是**数值计算的确定性回归证据**，不能证明传感器校准、采样对工作负载的扰动、Native Linux / GPU 硬件精度或跨运行方差。后者仍需真实硬件重复实验和 provenance 核对。设计上参考 [MLPerf LoadGen 对样本性能结果与场景上下文的分离](https://github.com/mlcommons/inference/blob/master/loadgen/results.h)，不引入其代码或依赖。
 
+## 周期采样调度
+
+CPU 能耗和资源监控器共用 `monitors.common.sample_periodically`。首个周期采样
+安排在 `started_at + interval`，后续 deadline 以原始相位递增；回调收到的是实际
+开始采样时的单调时钟时间，不是已经错过的计划时间。
+
+当前超时策略保留 Burst 语义：回调或线程调度延迟后，已过期的 deadline 会连续执行，
+直到追上原计划；若每次回调都比周期长，采样线程可能持续执行而无法追上。连续读取
+不会恢复过去时刻的瞬时状态，也不代表实际采样间隔仍然均匀。停止信号会终止后续
+采样，包括超时回调之后的追赶；回调异常向调用方传播，不自动重试。
+
+`tests/test_monitor_common.py` 使用随等待和回调耗时前进的假时钟，固定首周期、
+绝对相位、单次和持续超时、调度迟到、停止及异常行为。这些测试是调度协议的
+回归基线，不能证明采样器的实际开销、传感器精度或对工作负载的扰动。
+
+后续若评估 Skip，应分别记录计划时间与实际时间、回调耗时、开始迟到和跳过的
+计划时点；诊断自身的时钟调用、内存操作与输出成本也必须计入开销评估，输出应在
+窗口结束后完成。保留相位的 Skip 不保证任意相邻实际采样都间隔一个完整周期。
+术语参考 [Tokio MissedTickBehavior](https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html)，
+只借鉴策略分类；切换策略仍需独立的 Native Linux 对照证据，不照搬其定时容差。
+
 ## Profiling mode 与能力证据
 
 `profiling_mode=full` 为默认，保留原有 native Linux、本机 Docker、cgroup v2、RAPL、硬件 instructions

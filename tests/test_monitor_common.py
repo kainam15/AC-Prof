@@ -37,28 +37,190 @@ def test_pid_lookup_propagates_timeout_without_fabricating_a_pid():
     ), pytest.raises(subprocess.TimeoutExpired):
         docker_container_pid('owned-container')
 
-def test_sampling_uses_absolute_deadlines_and_does_not_drift_with_callback_cost():
+@pytest.fixture
+def sampling_clock(monkeypatch):
+    """Advance time through waits and callback work, without sleeping."""
     stop = threading.Event()
+
+    class Clock:
+        def __init__(self):
+            self.now = 10.0
+            self.waits = []
+
+        def perf_counter(self):
+            return self.now
+
+        def advance(self, seconds):
+            self.now += seconds
+
+        def wait(self, seconds):
+            self.waits.append(seconds)
+            self.advance(seconds)
+            if len(self.waits) > 20:
+                raise AssertionError("sampling did not stop within the test budget")
+            return stop.is_set()
+
+    clock = Clock()
+    monkeypatch.setattr("acprof.monitors.common.time.perf_counter", clock.perf_counter)
+    monkeypatch.setattr(stop, "wait", clock.wait)
+    return clock, stop
+
+
+def test_sampling_preserves_first_interval_and_absolute_phase(sampling_clock):
+    clock, stop = sampling_clock
     samples = []
 
     def sample(timestamp):
-        samples.append(timestamp)
-        if len(samples) == 2:
+        samples.append(timestamp - 10.0)
+        clock.advance(0.02)
+        if len(samples) == 4:
             stop.set()
 
-    with patch('acprof.monitors.common.time.perf_counter', side_effect=[10.0, 11.0, 11.4, 12.0]), patch.object(
-        stop, 'wait', return_value=False,
-    ) as wait:
-        sample_periodically(stop, 10.0, 1.0, sample)
-    assert (samples) == ([11.0, 12.0])
-    assert (len(wait.call_args_list)) == (2)
-    assert (wait.call_args_list[1].args[0]) == (0.6) or round(abs((wait.call_args_list[1].args[0]) - (0.6)), 7) == 0
+    sample_periodically(stop, 10.0, 0.05, sample)
 
-def test_stopping_during_wait_does_not_append_an_extra_sample():
-    stop = threading.Event()
+    assert samples == pytest.approx([0.05, 0.10, 0.15, 0.20])
+    assert clock.waits == pytest.approx([0.05, 0.03, 0.03, 0.03])
+
+
+@pytest.mark.parametrize(
+    "callback_costs, expected_starts, expected_waits",
+    [
+        pytest.param(
+            [0.120, 0.005, 0.005, 0.005, 0.005, 0.005],
+            [0.050, 0.170, 0.175, 0.200, 0.250, 0.300],
+            [0.050, 0.020, 0.045, 0.045],
+            id="transient-overrun-catches-up",
+        ),
+        pytest.param(
+            [0.080] * 6,
+            [0.050, 0.130, 0.210, 0.290, 0.370, 0.450],
+            [0.050],
+            id="sustained-overrun-keeps-running-without-waits",
+        ),
+    ],
+)
+def test_sampling_preserves_burst_policy_after_callback_overrun(
+    sampling_clock, callback_costs, expected_starts, expected_waits
+):
+    clock, stop = sampling_clock
     samples = []
-    with patch('acprof.monitors.common.time.perf_counter', return_value=10.0), patch.object(
-        stop, 'wait', return_value=True,
-    ):
-        sample_periodically(stop, 10.0, 1.0, samples.append)
-    assert (samples) == ([])
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(callback_costs[len(samples) - 1])
+        if len(samples) == len(callback_costs):
+            stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, sample)
+
+    assert samples == pytest.approx(expected_starts)
+    assert clock.waits == pytest.approx(expected_waits)
+
+
+def test_sampling_catches_up_after_scheduler_delay(sampling_clock, monkeypatch):
+    clock, stop = sampling_clock
+    samples = []
+
+    def delayed_wait(seconds):
+        stopped = clock.wait(seconds)
+        if len(clock.waits) == 1:
+            clock.advance(0.07)
+        return stopped
+
+    monkeypatch.setattr(stop, "wait", delayed_wait)
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(0.005)
+        if len(samples) == 3:
+            stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, sample)
+
+    assert samples == pytest.approx([0.120, 0.125, 0.150])
+    assert clock.waits == pytest.approx([0.050, 0.020])
+
+
+def test_sampling_stopped_before_start_does_not_wait_or_sample(sampling_clock):
+    clock, stop = sampling_clock
+    samples = []
+    stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, samples.append)
+
+    assert samples == []
+    assert clock.waits == []
+
+
+def test_stopping_during_wait_does_not_append_an_extra_sample(sampling_clock, monkeypatch):
+    clock, stop = sampling_clock
+    samples = []
+
+    def stopping_wait(seconds):
+        clock.wait(seconds)
+        stop.set()
+        return True
+
+    monkeypatch.setattr(stop, "wait", stopping_wait)
+
+    sample_periodically(stop, 10.0, 0.05, samples.append)
+
+    assert samples == []
+    assert clock.waits == pytest.approx([0.05])
+
+
+def test_stopping_in_overrunning_callback_prevents_catch_up(sampling_clock):
+    clock, stop = sampling_clock
+    samples = []
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(0.12)
+        stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, sample)
+
+    assert samples == pytest.approx([0.05])
+    assert clock.waits == pytest.approx([0.05])
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(RuntimeError("collector failed"), id="collector-error"),
+        pytest.param(KeyboardInterrupt(), id="cancellation"),
+    ],
+)
+def test_sampling_propagates_callback_failure_without_retry(sampling_clock, error):
+    clock, stop = sampling_clock
+    samples = []
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(0.12)
+        raise error
+
+    with pytest.raises(type(error)) as caught:
+        sample_periodically(stop, 10.0, 0.05, sample)
+
+    assert caught.value is error
+    assert samples == pytest.approx([0.05])
+    assert clock.waits == pytest.approx([0.05])
+
+
+def test_sampling_without_start_timestamp_does_not_publish_samples(sampling_clock, monkeypatch):
+    clock, stop = sampling_clock
+    samples = []
+
+    def bounded_wait(seconds):
+        clock.wait(seconds)
+        if len(clock.waits) == 2:
+            stop.set()
+        return stop.is_set()
+
+    monkeypatch.setattr(stop, "wait", bounded_wait)
+
+    sample_periodically(stop, None, 0.05, samples.append)
+
+    assert samples == []
+    assert clock.waits == pytest.approx([0.05, 0.05])
