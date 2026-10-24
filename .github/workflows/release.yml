@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'requirements/**', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'tests/test_release_gate.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/workflows/release.yml', '.github/workflows/ci.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'uv.lock', '.python-version', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'tests/test_release_gate.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:
@@ -28,12 +28,17 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --only-group build
       - name: 在构建前核对 tag 与 package version
         id: version
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         run: |
-          python3 - <<'PY'
+          uv run --locked --only-group build python - <<'PY'
           import os
           from acprof import __version__
           tag = os.environ['RELEASE_TAG']
@@ -42,12 +47,10 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'version={__version__}\n')
           PY
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          version: '0.13.5'
-          python-version: '3.12'
       # uv first builds the sdist, then builds the release wheel from that sdist.
-      - run: uv build
+      - run: |
+          uv export --locked --only-group build --no-emit-project --output-file "$RUNNER_TEMP/build.txt"
+          uv build --build-constraint "$RUNNER_TEMP/build.txt" --require-hashes
       - name: 固定待发布制品的 SHA256
         working-directory: dist
         run: sha256sum *.whl *.tar.gz > SHA256SUMS
@@ -72,7 +75,7 @@ jobs:
       - run: cd dist && sha256sum --check SHA256SUMS
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.13.5'
+          version-file: pyproject.toml
           python-version: '3.12'
       - name: uv pip 安装发布 wheel 并验证完整 CLI 与资源
         run: |
@@ -82,13 +85,14 @@ jobs:
           .release-venv/bin/python -I scripts/check_distribution.py \
             --wheel dist/*.whl --sdist dist/*.tar.gz --expected-version "$RELEASE_VERSION" \
             --report evidence/wheel.json
-      - name: 从 sdist 独立重建并用 pip 安装（不替换发布制品）
+      - name: 从 sdist 独立重建并用 uv 安装（不替换发布制品）
         working-directory: ${{ runner.temp }}
         run: |
-          uv build --wheel "$GITHUB_WORKSPACE"/dist/*.tar.gz --out-dir "$RUNNER_TEMP/rebuilt-dist"
-          uv venv "$RUNNER_TEMP/sdist-venv" --python 3.12 --seed
-          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip install "$RUNNER_TEMP"/rebuilt-dist/*.whl
-          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip check
+          uv export --project "$GITHUB_WORKSPACE" --locked --only-group build --no-emit-project --output-file "$RUNNER_TEMP/build.txt"
+          uv build --build-constraint "$RUNNER_TEMP/build.txt" --require-hashes --wheel "$GITHUB_WORKSPACE"/dist/*.tar.gz --out-dir "$RUNNER_TEMP/rebuilt-dist"
+          uv venv "$RUNNER_TEMP/sdist-venv" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/sdist-venv/bin/python" "$RUNNER_TEMP"/rebuilt-dist/*.whl
+          uv pip check --python "$RUNNER_TEMP/sdist-venv/bin/python"
           "$RUNNER_TEMP/sdist-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_distribution.py" \
             --wheel "$RUNNER_TEMP"/rebuilt-dist/*.whl --sdist "$GITHUB_WORKSPACE"/dist/*.tar.gz \
             --expected-version "$RELEASE_VERSION" --report "$GITHUB_WORKSPACE/evidence/sdist.json"
@@ -104,7 +108,7 @@ jobs:
           acprof --help
       - name: 核对两种 wheel 的 Docker context 身份
         run: |
-          python3 - <<'PY'
+          uv run --locked --only-group build python - <<'PY'
           import json
           from pathlib import Path
           def fingerprint(name):
@@ -122,6 +126,8 @@ jobs:
     needs: [build, verify-dist]
     runs-on: ubuntu-22.04
     timeout-minutes: 25
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/internal-testing/standalone-venv
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -131,20 +137,20 @@ jobs:
       - run: cd dist && sha256sum --check SHA256SUMS
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.13.5'
+          version-file: pyproject.toml
           python-version: '3.12'
       - name: 从同一 wheel 准备锁定的 standalone 环境
         run: |
-          uv venv .release-venv --python 3.12
-          uv pip install --python .release-venv/bin/python --require-hashes -r requirements/host.lock
-          uv pip install --python .release-venv/bin/python --no-deps dist/*.whl
+          uv sync --locked --no-default-groups --group standalone --no-install-project
+          uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps dist/*.whl
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
       - name: 构建并验证 standalone
         env:
           RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          uv pip install --python .release-venv/bin/python 'pyinstaller==6.22.3'
-          .release-venv/bin/python -m PyInstaller --noconfirm --clean packaging/acprof.spec
-          .release-venv/bin/python scripts/check_distribution.py --binary dist/acprof \
+          # Keep the verified installed wheel; syncing here would replace it with the checkout.
+          uv run --locked --no-sync python -m PyInstaller --noconfirm --clean packaging/acprof.spec
+          uv run --locked --no-sync python scripts/check_distribution.py --binary dist/acprof \
             --expected-version "$RELEASE_VERSION" --report evidence/standalone.json
           mv dist/acprof dist/acprof-linux-x86_64
           cd dist
@@ -171,6 +177,11 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --only-group build
       - name: 验证同提交 Native Linux CPU/GPU/RAPL/perf 测量证据
         shell: bash
         env:
@@ -178,7 +189,7 @@ jobs:
         run: |
           gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/hardware.yml/runs" \
             -f head_sha="$GITHUB_SHA" -f status=success -f per_page=50 > hardware-runs.json
-          python3 - <<'PY' > hardware-runs.tsv
+          uv run --locked --only-group build python - <<'PY' > hardware-runs.tsv
           import json
           import os
           from pathlib import Path
@@ -197,7 +208,7 @@ jobs:
               --dir "$RUNNER_TEMP/hardware-release-evidence"; then
               continue
             fi
-            if python3 scripts/verify_hardware_evidence.py \
+            if uv run --locked --only-group build python scripts/verify_hardware_evidence.py \
               --report "$RUNNER_TEMP/hardware-release-evidence/measurements/hardware_matrix.json" \
               --matrix examples/hardware-validation.json --commit "$GITHUB_SHA" \
               --run-url "$run_url" --output hardware-proof.json; then
@@ -223,6 +234,11 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --only-group build
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: python-dist
@@ -243,7 +259,7 @@ jobs:
           name: hardware-proof
       - name: 记录已验证的同提交硬件证据
         run: |
-          python3 - <<'EOPY'
+          uv run --locked --only-group build python - <<'EOPY'
           import json
           import os
           from pathlib import Path
@@ -308,14 +324,16 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.build.outputs.version }}
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: python-dist
           path: dist/
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.13.5'
+          version-file: pyproject.toml
           python-version: '3.12'
+      - run: uv sync --locked --only-group build
       - name: 等待 PyPI 可见并核对安装和制品哈希
         working-directory: ${{ runner.temp }}
         env:
@@ -323,7 +341,7 @@ jobs:
           UV_TOOL_BIN_DIR: ${{ runner.temp }}/acprof-pypi-bin
         run: |
           check_pypi_hashes() {
-            python3 - <<'PY'
+            uv run --project "$GITHUB_WORKSPACE" --locked --only-group build python - <<'PY'
           import hashlib
           import json
           import os

@@ -45,7 +45,7 @@ def matches(patterns: list[str], changed_path: str) -> bool:
     (".agents/skills/example/scripts/rebuild.py", True, False, False),
     ("acprof/cli/main.py", True, False, False),
     ("tests/test_architecture.py", True, False, False),
-    ("requirements/dev.lock", True, False, False),
+    ("uv.lock", True, False, False),
     ("pyproject.toml", True, False, False),
     ("scripts/check_docs.py", True, False, False),
     (".github/workflows/ci.yml", True, False, False),

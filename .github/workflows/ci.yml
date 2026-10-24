@@ -70,14 +70,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements/dev.lock
-      - run: python -m pip install --require-hashes -r requirements/dev.lock
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --only-group lint
       - name: 检查 Markdown 链接、锚点、格式和 Skill YAML
-        run: python scripts/check_docs.py
+        run: uv run --locked --only-group lint python scripts/check_docs.py
 
   # 生成字段表被手工改动时仅检查同步；源码变更则由 contracts 作业检查。
   metric-docs:
@@ -87,8 +88,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --no-default-groups
       - name: 校验生成指标文档
-        run: python3 scripts/render_metric_reference.py --check
+        run: uv run --locked --no-default-groups python scripts/render_metric_reference.py --check
 
   lint:
     needs: changes
@@ -97,22 +103,23 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements/dev.lock
-      - run: python -m pip install --require-hashes -r requirements/dev.lock
-      - run: python -m pip check
-      - run: python -m pre_commit run --all-files --show-diff-on-failure
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - run: uv pip check
+      - run: uv run --locked python -m pre_commit run --all-files --show-diff-on-failure
       - name: 禁止重新引入旧测试执行框架
-        run: python scripts/check_test_framework.py
+        run: uv run --locked python scripts/check_test_framework.py
       - name: 禁止新增跨模块 private dependency，并清除过期 baseline
-        run: python scripts/check_private_api.py
+        run: uv run --locked python scripts/check_private_api.py
       - name: 禁止跨架构层反向导入
-        run: python scripts/check_import_boundaries.py
+        run: uv run --locked python scripts/check_import_boundaries.py
       - name: 审查 Python 模块规模（提示，不设行数硬门槛）
-        run: python scripts/check_module_sizes.py --top 25
+        run: uv run --locked python scripts/check_module_sizes.py --top 25
 
   types:
     needs: changes
@@ -121,16 +128,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: |
-            requirements/host.lock
-            requirements/dev.lock
-      - run: python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-      - run: python -m pip check
-      - run: python -m mypy
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group typing
+      - run: uv pip check
+      - run: uv run --locked --no-default-groups --group typing python -m mypy
 
   contracts:
     needs: changes
@@ -139,17 +145,18 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements/dev.lock
-      - run: python -m pip install --require-hashes -r requirements/dev.lock
-      - run: python -m pip check
-      - run: python scripts/compile_locks.py --check
-      - run: python scripts/compile_locks.py --host-only --check
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - run: uv pip check
+      - run: uv run --locked python scripts/compile_locks.py --check
+      - run: uv lock --check
       - name: 校验指标文档编码与同步状态
-        run: python scripts/render_metric_reference.py --check
+        run: uv run --locked python scripts/render_metric_reference.py --check
 
   python313-smoke:
     needs: changes
@@ -158,20 +165,17 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.13'
-          cache: pip
-          cache-dependency-path: |
-            requirements/host.lock
-            requirements/test.lock
-      - run: python -m pip install --require-hashes -r requirements/host.lock
-      - run: python -m pip install --no-deps -e .
-      - run: python -m pip install --require-hashes -r requirements/test.lock
-      - run: python -m pip check
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group test
+      - run: uv pip check
       - name: Python 3.13 host and measurement-contract smoke
         run: |
-          python -m pytest -q \
+          uv run --locked --no-default-groups --group test python -m pytest -q \
             tests/test_architecture.py \
             tests/test_private_api_guard.py \
             tests/test_resource_usage.py \
@@ -195,26 +199,22 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: ${{ matrix.python }}
-          cache: pip
-          cache-dependency-path: |
-            requirements/host.lock
-            requirements/test.lock
-      - run: python -m pip install --require-hashes -r requirements/host.lock
-      - run: python -m pip install --no-deps -e .
-      - name: 安装统一 pytest 测试锁
-        run: python -m pip install --require-hashes -r requirements/test.lock
-      - run: python -m pytest --version
-      - run: python -m pip check
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group test
+      - run: uv run --locked --no-default-groups --group test python -m pytest --version
+      - run: uv pip check
       - run: |
           set -o pipefail
           mkdir -p evidence
           if [[ '${{ matrix.python }}' == '3.12' ]]; then
-            python -m coverage run --branch --parallel-mode scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count "$HOST_TEST_SHARDS" --report evidence/host.json 2>&1 | tee evidence/host.log
+            uv run --locked --no-default-groups --group test python -m coverage run --branch --parallel-mode scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count "$HOST_TEST_SHARDS" --report evidence/host.json 2>&1 | tee evidence/host.log
           else
-            python scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count "$HOST_TEST_SHARDS" --report evidence/host.json 2>&1 | tee evidence/host.log
+            uv run --locked --no-default-groups --group test python scripts/run_tests.py --shard-index ${{ matrix.shard }} --shard-count "$HOST_TEST_SHARDS" --report evidence/host.json 2>&1 | tee evidence/host.log
           fi
         shell: bash
         env:
@@ -225,15 +225,15 @@ jobs:
       - name: 检查 CLI 帮助与源码编译
         if: matrix.shard == 0
         run: |
-          acprof --help
-          acprof run --help
-          acprof probe --help
-          acprof profile --help
-          acprof plot --help
-          acprof audit --help
-          acprof stats --help
-          acprof tui --help
-          python -m compileall -q acprof scripts packaging
+          uv run --locked --no-default-groups --group test acprof --help
+          uv run --locked --no-default-groups --group test acprof run --help
+          uv run --locked --no-default-groups --group test acprof probe --help
+          uv run --locked --no-default-groups --group test acprof profile --help
+          uv run --locked --no-default-groups --group test acprof plot --help
+          uv run --locked --no-default-groups --group test acprof audit --help
+          uv run --locked --no-default-groups --group test acprof stats --help
+          uv run --locked --no-default-groups --group test acprof tui --help
+          uv run --locked --no-default-groups --group test python -m compileall -q acprof scripts packaging
           git diff --check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -255,17 +255,20 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --only-group test
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: host-*
           path: evidence/shards
           merge-multiple: false
       - name: 校验两个 Python 版本的完整测试证据
-        run: python scripts/aggregate_test_reports.py evidence/shards --shard-count "$HOST_TEST_SHARDS" --report evidence/host-summary.json
-      - run: python -m pip install --require-hashes -r requirements/dev.lock
+        run: uv run --locked --only-group test python scripts/aggregate_test_reports.py evidence/shards --shard-count "$HOST_TEST_SHARDS" --report evidence/host-summary.json
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-3.12-*
@@ -279,10 +282,10 @@ jobs:
           for ((shard=0; shard<HOST_TEST_SHARDS; shard++)); do
             compgen -G "evidence/coverage-shards/coverage-3.12-${shard}/.coverage.*" >/dev/null || exit 1
           done
-          python -m coverage combine --keep evidence/coverage-shards/coverage-3.12-*
-          python -m coverage xml -o evidence/coverage/coverage.xml
-          python -m coverage json -o evidence/coverage/coverage.json
-          python -m coverage html -d evidence/coverage/html
+          uv run --locked --only-group test python -m coverage combine --keep evidence/coverage-shards/coverage-3.12-*
+          uv run --locked --only-group test python -m coverage xml -o evidence/coverage/coverage.xml
+          uv run --locked --only-group test python -m coverage json -o evidence/coverage/coverage.json
+          uv run --locked --only-group test python -m coverage html -d evidence/coverage/html
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-baseline-3.12
@@ -290,7 +293,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
       - name: 核对关键测量路径的分支覆盖率下限
-        run: python scripts/check_critical_coverage.py --report evidence/coverage/coverage.json
+        run: uv run --locked --only-group test python scripts/check_critical_coverage.py --report evidence/coverage/coverage.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -306,26 +309,32 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.13.5'
+          version-file: pyproject.toml
           python-version: '3.12'
+      - name: 从项目锁导出构建和安装约束
+        run: |
+          uv lock --check
+          uv export --locked --no-default-groups --no-emit-project --output-file "$RUNNER_TEMP/host.txt"
+          uv export --locked --only-group build --no-emit-project --output-file "$RUNNER_TEMP/build.txt"
+          uv export --locked --only-group runtime-test --no-emit-project --output-file "$RUNNER_TEMP/test.txt"
       - name: 构建并隔离安装当前提交的 wheel
         run: |
-          uv build --wheel --out-dir "$RUNNER_TEMP/wheel-dist"
-          uv build --sdist --out-dir "$RUNNER_TEMP/sdist-dist"
-          uv build "$RUNNER_TEMP"/sdist-dist/*.tar.gz --wheel --out-dir "$RUNNER_TEMP/sdist-wheel-dist"
+          uv build --build-constraint "$RUNNER_TEMP/build.txt" --require-hashes --wheel --out-dir "$RUNNER_TEMP/wheel-dist"
+          uv build --build-constraint "$RUNNER_TEMP/build.txt" --require-hashes --sdist --out-dir "$RUNNER_TEMP/sdist-dist"
+          uv build --build-constraint "$RUNNER_TEMP/build.txt" --require-hashes "$RUNNER_TEMP"/sdist-dist/*.tar.gz --wheel --out-dir "$RUNNER_TEMP/sdist-wheel-dist"
           uv venv "$RUNNER_TEMP/acprof-wheel" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --require-hashes -r requirements/host.lock
+          uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --require-hashes -r "$RUNNER_TEMP/host.txt"
           uv pip install --python "$RUNNER_TEMP/acprof-wheel/bin/python" --no-deps "$RUNNER_TEMP"/wheel-dist/*.whl
           uv pip check --python "$RUNNER_TEMP/acprof-wheel/bin/python"
           uv venv "$RUNNER_TEMP/acprof-sdist-wheel" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" --require-hashes -r requirements/host.lock
+          uv pip install --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" --require-hashes -r "$RUNNER_TEMP/host.txt"
           uv pip install --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" --no-deps "$RUNNER_TEMP"/sdist-wheel-dist/*.whl
           uv pip check --python "$RUNNER_TEMP/acprof-sdist-wheel/bin/python"
       - name: 验证公开依赖范围可由安装器解析
         run: |
           uv venv "$RUNNER_TEMP/acprof-resolved" --python 3.12
-          uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl \
-            'pytest==9.0.3' 'pytest-asyncio==1.4.0'
+          uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" --require-hashes -r "$RUNNER_TEMP/test.txt"
+          uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl
           uv pip check --python "$RUNNER_TEMP/acprof-resolved/bin/python"
           cd "$RUNNER_TEMP"
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -c 'import acprof; print(acprof.__version__)'
@@ -354,21 +363,21 @@ jobs:
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/internal-testing/browser-venv
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: |
-            requirements/browser.lock
-            requirements/runtime-test.lock
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - name: 安装独立锁定浏览器验证环境
         run: |
-          python -m venv .venv-browser
-          .venv-browser/bin/python -m pip install --require-hashes -r requirements/browser.lock -r requirements/runtime-test.lock
-          .venv-browser/bin/python -m pip check
-          .venv-browser/bin/python -m playwright install --with-deps chromium
+          uv sync --locked --only-group browser
+          uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
+          uv run --locked --only-group browser playwright install --with-deps chromium
       - name: 离线执行 HTML 交互测试（不允许 skip）
         shell: bash
         env:
@@ -377,7 +386,7 @@ jobs:
           ACPROF_WECOM_WEBHOOK_URL: ''
         run: |
           mkdir -p evidence/browser
-          .venv-browser/bin/python scripts/run_tests.py --pattern test_report_browser.py \
+          uv run --locked --only-group browser python scripts/run_tests.py --pattern test_report_browser.py \
             --report evidence/browser/tests.json --require-no-skips 2>&1 | tee evidence/browser/tests.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -393,19 +402,18 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: |
-            requirements/host.lock
-            requirements/test.lock
-      - run: python -m pip install --require-hashes -r requirements/host.lock -r requirements/test.lock
-      - run: python -m pip check
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group test
+      - run: uv pip check
       - name: 固定场景 SVG 回归（统一 pytest 配置）
         run: |
           mkdir -p evidence
-          python -m pytest tests/visual -q --junitxml=evidence/ui.xml
+          uv run --locked --no-default-groups --group test python -m pytest tests/visual -q --junitxml=evidence/ui.xml
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
           TZ: UTC
@@ -423,12 +431,15 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements/host.lock
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group runtime-tools
       - name: 无 Torch 的 ONNX 容器接口和 basic 端到端验证（禁止 skip）
-        run: python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e --output-dir evidence/onnx-cpu
+        run: uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e --output-dir evidence/onnx-cpu
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -458,20 +469,23 @@ jobs:
             profile: custom-multimodal-cpu
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version-file: pyproject.toml
           python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements/host.lock
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --no-default-groups --group runtime-tools
       - run: |
           runtime_check_status=0
           for family in ${{ matrix.families }}; do
-            python scripts/check_runtime.py --family "$family" --variant cpu --output-dir "evidence/$family" || runtime_check_status=1
+            uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --family "$family" --variant cpu --output-dir "evidence/$family" || runtime_check_status=1
           done
           if [ "${{ matrix.profile }}" = custom-multimodal-cpu ]; then
-            python scripts/check_runtime.py --profile custom-multimodal-cpu --test-pattern test_custom_multimodal_runtime.py --output-dir evidence/custom-multimodal || runtime_check_status=1
+            uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile custom-multimodal-cpu --test-pattern test_custom_multimodal_runtime.py --output-dir evidence/custom-multimodal || runtime_check_status=1
           elif [ -n "${{ matrix.profile }}" ]; then
-            python scripts/check_runtime.py --profile "${{ matrix.profile }}" --test-pattern test_transformers5_runtime.py --output-dir evidence/transformers5 || runtime_check_status=1
-            python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
+            uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile "${{ matrix.profile }}" --test-pattern test_transformers5_runtime.py --output-dir evidence/transformers5 || runtime_check_status=1
+            uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
           fi
           exit "$runtime_check_status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

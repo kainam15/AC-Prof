@@ -54,8 +54,9 @@ def test_wheel_ci_resolves_declared_runtime_dependencies_without_host_lock():
     assert ('uv pip check') in (script)
     assert ('env -u PYTHONPATH') in (script)
     assert (' -I -c ') in (script)
-    assert ("'pytest==9.0.3'") in (script)
-    assert ("'pytest-asyncio==1.4.0'") in (script)
+    assert '--require-hashes -r "$RUNNER_TEMP/test.txt"' in script
+    exports = "\n".join(step.get("run", "") for step in steps)
+    assert "uv export --locked --only-group runtime-test --no-emit-project" in exports
     assert ('tests/test_hf_auto_download.py') in (script)
     assert ('-p acprof.testing.plugin') in (script)
     assert ('--no-deps') not in (script)
@@ -107,7 +108,7 @@ def test_version_mismatch_is_rejected_before_building(tag_case):
     assert (len(version_steps)) == (1), 'version gate must run before uv build'
     gate = version_steps[0]
     assert (steps.index(gate)) < (next(i for i, step in enumerate(steps) if 'uv build' in step.get('run', '')))
-    code = gate['run'].split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    code = gate['run'].split(" - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
     from acprof import __version__
     (tag, expected) = tuple((('', 0), ('v' + __version__, 0), ('v999.0.0', 1)))[tag_case]
     with tempfile.TemporaryDirectory() as temporary:
@@ -136,7 +137,7 @@ def test_pypi_install_check_cannot_republish():
 def test_published_hash_check_rejects_changed_or_missing_artifacts(changed, missing):
     jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
     script = next(step['run'] for step in jobs['pypi-smoke']['steps'] if 'check_pypi_hashes' in step.get('run', ''))
-    code = script.split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
+    code = script.split(" - <<'PY'\n", 1)[1].split('\nPY', 1)[0]
     with tempfile.TemporaryDirectory() as temporary:
         dist = Path(temporary) / 'dist'
         dist.mkdir()
@@ -167,7 +168,8 @@ def test_pypi_install_retry_is_bounded_and_stops_after_success(success_after, ex
         # Replace only external tools. Execute the real workflow's retry/exit logic.
         programs = {
             'python3': 'exit 0\n',
-            'uv': 'echo attempt >> "$ACPROF_TEST_ATTEMPTS"\n'
+            'uv': 'if [ "$1" = run ]; then exit 0; fi\n'
+                  'echo attempt >> "$ACPROF_TEST_ATTEMPTS"\n'
                   'count=$(/usr/bin/wc -l < "$ACPROF_TEST_ATTEMPTS")\n'
                   'test "$count" -ge "$ACPROF_TEST_SUCCESS_AFTER"\n',
             'sleep': 'echo sleep >> "$ACPROF_TEST_SLEEPS"\n',

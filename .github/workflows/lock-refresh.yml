@@ -34,34 +34,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
-        with:
-          python-version: '3.12'
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.13.5'
+          version-file: pyproject.toml
           python-version: '3.12'
-      - name: Refresh Python host and test locks with hashes
+      - name: Refresh the project lock and all dependency groups
         if: env.REFRESH_SCOPE == 'all' || env.REFRESH_SCOPE == 'host'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/compile_locks.py --host-only --upgrade
-          for name in runtime-test test dev; do
-            uv pip compile "requirements/${name}.in" --python-version 3.12 --universal \
-              --generate-hashes --no-annotate --no-header --upgrade \
-              --output-file "requirements/${name}.lock"
-          done
-          uv pip compile requirements/browser.in --python-version 3.12 \
-            --generate-hashes --no-annotate --no-header --upgrade \
-            --output-file requirements/browser.lock
-      # The lock compiler imports packaging to select target wheel artifacts.
-      # Install refreshed hash-locked host/dev dependencies before running it.
-      - name: Install lock compiler and test dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+        run: uv lock --upgrade
+      - name: Prepare the locked development toolchain
+        run: uv sync --locked
       - name: Refresh Docker runtime Python artifact locks
         if: env.REFRESH_SCOPE == 'all' || env.REFRESH_SCOPE == 'runtime'
         shell: bash
@@ -69,21 +50,21 @@ jobs:
           set -euo pipefail
           # Resolve pinned platform wheels and runtime environments as a single
           # verified graph; do not rewrite base OCI digests or apt system locks.
-          python scripts/compile_locks.py --runtime-only --upgrade
+          uv run --locked python scripts/compile_locks.py --upgrade
       - name: Check regenerated hashes, profiles and metadata
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/compile_locks.py --host-only --check
-          python scripts/compile_locks.py --check
-          python -m pytest -q tests/test_lock_compiler.py tests/test_dependency_locks.py \
+          uv lock --check
+          uv run --locked python scripts/compile_locks.py --check
+          uv run --locked pytest -q tests/test_lock_compiler.py tests/test_dependency_locks.py \
             tests/test_runtime_profiles.py tests/test_container_lock_resolution.py
       - name: Stage only coordinated lock and artifact changes
         id: changes
         shell: bash
         run: |
           set -euo pipefail
-          git add -A requirements dockerfiles/locks
+          git add -A uv.lock dockerfiles/locks
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'changed=false' >> "$GITHUB_OUTPUT"
@@ -107,7 +88,7 @@ jobs:
           git push origin "HEAD:refs/heads/${branch}"
           gh pr create --repo "$REPOSITORY" --base main --head "$branch" \
             --title "chore(deps): review ${REFRESH_SCOPE} lock refresh" \
-            --body "Automated lock candidate with fixed uv, exact artifact hashes and offline lock checks. Review all version/digest changes before merging. Docker base OCI and apt system locks remain pinned; no production rollout or auto-merge."
+            --body "Automated uv.lock and runtime artifact candidate with the declared uv version and locked checks. Review all version/digest changes before merging. Docker base OCI and apt system locks remain pinned; no production rollout or auto-merge."
           # A GitHub Actions GITHUB_TOKEN push does not trigger ordinary push/PR
           # workflows. workflow_dispatch is permitted, so request full CI here.
           gh workflow run ci.yml --repo "$REPOSITORY" --ref "$branch"

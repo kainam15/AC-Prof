@@ -21,13 +21,18 @@ jobs:
       registry: ${{ steps.matrix.outputs.registry }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --no-default-groups
       - id: matrix
         env:
           REPOSITORY: ${{ github.repository }}
         run: |
-          python3 - <<'PY'
-          import json, os, subprocess
-          matrix = json.loads(subprocess.check_output(['python3', 'scripts/publish_runtime_images.py', '--matrix']))
+          uv run --locked --no-default-groups python - <<'PY'
+          import json, os, subprocess, sys
+          matrix = json.loads(subprocess.check_output([sys.executable, 'scripts/publish_runtime_images.py', '--matrix']))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for name, values in matrix.items():
                   print(f'{name}={json.dumps(values)}', file=output)
@@ -47,6 +52,11 @@ jobs:
         platform: ${{ fromJSON(needs.matrix.outputs.platforms) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --no-default-groups
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -56,7 +66,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           REGISTRY: ${{ needs.matrix.outputs.registry }}
-        run: python3 scripts/publish_runtime_images.py --platform "$PLATFORM" --registry "$REGISTRY" --push --report evidence/platform.json
+        run: uv run --locked --no-default-groups python scripts/publish_runtime_images.py --platform "$PLATFORM" --registry "$REGISTRY" --push --report evidence/platform.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -76,6 +86,11 @@ jobs:
         environment: ${{ fromJSON(needs.matrix.outputs.environments) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --no-default-groups
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -85,7 +100,7 @@ jobs:
         env:
           ENVIRONMENT: ${{ matrix.environment }}
           REGISTRY: ${{ needs.matrix.outputs.registry }}
-        run: python3 scripts/publish_runtime_images.py --environment "$ENVIRONMENT" --pull-platform --registry "$REGISTRY" --push --report evidence/environment.json
+        run: uv run --locked --no-default-groups python scripts/publish_runtime_images.py --environment "$ENVIRONMENT" --pull-platform --registry "$REGISTRY" --push --report evidence/environment.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

@@ -26,13 +26,14 @@ def test_lock_refresh_runs_only_on_main_and_is_not_self_merging():
 def test_lock_refresh_generates_and_verifies_coordinated_artifacts():
     steps = workflow()["jobs"]["refresh"]["steps"]
     scripts = "\n".join(step.get("run", "") for step in steps)
-    assert "scripts/compile_locks.py --host-only --upgrade" in scripts
-    assert "scripts/compile_locks.py --runtime-only --upgrade" in scripts
-    assert "uv pip compile" in scripts and "--generate-hashes" in scripts
-    assert "scripts/compile_locks.py --host-only --check" in scripts
+    assert "uv lock --upgrade" in scripts
+    assert "uv sync --locked" in scripts
+    assert "scripts/compile_locks.py --upgrade" in scripts
+    assert "uv pip compile" not in scripts
+    assert "uv lock --check" in scripts
     assert "scripts/compile_locks.py --check" in scripts
     assert "tests/test_lock_compiler.py" in scripts
-    assert "git add -A requirements dockerfiles/locks" in scripts
+    assert "git add -A uv.lock dockerfiles/locks" in scripts
     assert "git diff --cached --quiet" in scripts
     assert "git push" in scripts
     assert "gh workflow run ci.yml" in scripts
@@ -41,18 +42,19 @@ def test_lock_refresh_generates_and_verifies_coordinated_artifacts():
 def test_refresh_installs_locked_python_deps_before_runtime_compilation():
     steps = workflow()["jobs"]["refresh"]["steps"]
     positions = {step["name"]: i for i, step in enumerate(steps) if "name" in step}
-    host = positions["Refresh Python host and test locks with hashes"]
-    install = positions["Install lock compiler and test dependencies"]
+    host = positions["Refresh the project lock and all dependency groups"]
+    install = positions["Prepare the locked development toolchain"]
     runtime = positions["Refresh Docker runtime Python artifact locks"]
     verify = positions["Check regenerated hashes, profiles and metadata"]
 
     assert host < install < runtime < verify
     assert "if" not in steps[install]  # Also required for runtime-only refreshes.
+    assert steps[install]["run"].strip() == "uv sync --locked"
     assert (
-        "python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock"
-        in steps[install]["run"]
+        "uv run --locked python scripts/compile_locks.py --upgrade"
+        in steps[runtime]["run"]
     )
-    assert "python -m pip install" not in steps[verify]["run"]
+    assert "uv sync" not in steps[verify]["run"]
 
 
 def test_refresh_scripts_restrict_publication_and_supply_input_defaults():

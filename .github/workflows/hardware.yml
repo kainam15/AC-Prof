@@ -45,17 +45,23 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git diff --quiet
           git diff --cached --quiet
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - name: 在测量开始前同步锁定的主机和测试环境
+        run: uv sync --locked --no-default-groups --group test
       - name: 离线故障回归（取消、恢复、清理和采样失败，不作为硬件证据）
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
         run: |
-          .venv/bin/python scripts/run_tests.py \
+          uv run --locked --no-default-groups --group test python scripts/run_tests.py \
             --pattern test_monitor_cleanup.py --pattern test_run_recovery.py \
             --pattern test_runtime_validation.py --pattern test_perf_mips.py \
             --pattern test_energy_cpu.py --pattern test_energy_nvml_start_stop.py \
             --require-no-skips \
             --report "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
-      - name: 使用主机现有环境采集并验收
+      - name: 使用已同步的环境采集并验收
         env:
           VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
           VALIDATION_MODEL: ${{ inputs.model }}
@@ -70,7 +76,7 @@ jobs:
           else
             selection=(--model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --revision "$VALIDATION_REVISION")
           fi
-          .venv/bin/python scripts/check_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
+          uv run --locked --no-default-groups --group test python scripts/check_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
             --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
