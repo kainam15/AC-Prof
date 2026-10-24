@@ -111,7 +111,7 @@ class DockerFixture:
         return [command for command in self.commands if "rm" in command]
 
 
-def dependency_images(docker, profile="moss-transformers560"):
+def dependency_images(docker, profile="moss-transformers5104"):
     from pathlib import Path
 
     from acprof.host.dependency_images import platform_fingerprint
@@ -287,7 +287,7 @@ class TestImageManagement:
         assert (("build-essential:amd64", "12.12")) in (platform.system_dependencies)
         assert ("base-files:amd64") not in (dict(platform.system_dependencies)), "不能把系统基础镜像已有包算成本层安装制品"
         assert (runtime.dependency_source) == ("environment-lock")
-        assert (("transformers", "5.6.0")) in (runtime.python_dependencies)
+        assert (("transformers", "5.10.4")) in (runtime.python_dependencies)
         assert (("torchaudio", "2.11.0+cu128")) in (runtime.python_dependencies)
         assert ("torch") not in (dict(runtime.python_dependencies))
         assert (runtime.system_dependencies) == (())

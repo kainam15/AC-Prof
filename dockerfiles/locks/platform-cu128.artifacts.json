@@ -225,7 +225,7 @@
   ],
   "index_url": null,
   "python_target": "x86_64-manylinux_2_28",
-  "python_version": "3.12.12",
+  "python_version": "3.12.15",
   "schema_version": 1,
   "torch_index_url": null
 }

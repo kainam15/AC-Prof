@@ -10,6 +10,8 @@ from __future__ import annotations
 import filecmp
 import importlib
 import shutil
+import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -28,7 +30,20 @@ def load_pipeline_class_compat(root: Path, module_file: str, class_name: str) ->
     relative_files = [path.relative_to(root) for path in dependencies]
     if any(".." in path.parts for path in relative_files):
         raise ValueError("custom pipeline relative imports must stay within the model snapshot")
-    cached_module = get_cached_module_file(str(root), module_file, local_files_only=True)
+    with ExitStack() as stack:
+        source_root = root
+        sources = {root / module_file, *dependencies}
+        if any(source.is_symlink() for source in sources):
+            # Some upstream loaders resolve each source symlink before finding
+            # sibling imports. Materialize only the code closure, preserving its
+            # snapshot names and bytes; never copy weights or mutate Hub blobs.
+            directory = stack.enter_context(tempfile.TemporaryDirectory(prefix="acprof-pipeline-"))
+            source_root = Path(directory) / root.name
+            for source in sources:
+                destination = source_root / source.relative_to(root)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+        cached_module = get_cached_module_file(str(source_root), module_file, local_files_only=True)
     cached_root = (Path(HF_MODULES_CACHE) / cached_module).parents[len(Path(module_file).parts) - 1]
     for source, relative in zip(dependencies, relative_files, strict=True):
         target = cached_root / relative

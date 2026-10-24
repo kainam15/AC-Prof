@@ -100,13 +100,13 @@ def test_source_and_dependency_changes_invalidate_cached_image():
         root = Path(temporary)
         copy_dependency_tree(root)
         source = root / "acprof/handler.py"
-        lock = root / "dockerfiles/locks/moss-transformers560.txt"
+        lock = root / "dockerfiles/locks/moss-transformers5104.txt"
         source.write_text("adapter = 1\n")
         original = request_fingerprint(moss_task(), root)
         source.write_text("adapter = 2\n")
         changed = request_fingerprint(moss_task(), root)
         assert (original) != (changed)
-        lock.write_text(lock.read_text().replace("transformers-5.6.0-", "transformers-5.6.1-"))
+        lock.write_text(lock.read_text().replace("transformers-5.10.4-", "transformers-5.10.5-"))
         assert (changed) != (request_fingerprint(moss_task(), root))
 
 def test_manifest_only_change_invalidates_service_but_not_environment_identity():

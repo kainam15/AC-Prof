@@ -45,7 +45,7 @@ IMAGE_PLATFORMS = {
 }
 # 已知环境别名对应的版本来自依赖锁；不猜测其它名称中的数字含义。
 IMAGE_RUNTIME_NAMES = {
-    "moss-transformers560": "moss-transformers5.6.0",
+    "moss-transformers5104": "moss-transformers5.10.4",
     "multimodal-transformers4576": "multimodal-transformers4.57.6",
 }
 

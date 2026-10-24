@@ -18,10 +18,7 @@ from acprof.dependency_locks import (
 from acprof.extensions import CATALOG, select_extension
 from acprof.extensions.schema import validate_precision_policy
 
-PYTHON_BASE_IMAGE = (
-    "docker.io/library/python:3.12.12-slim-trixie@sha256:"
-    "42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48"
-)
+PYTHON_BASE_IMAGE = CATALOG.platforms["python-cpu"]["python_base_image"]
 @dataclass(frozen=True)
 class PlatformSpec:
     platform_id: str
@@ -30,7 +27,7 @@ class PlatformSpec:
     torch_index_url: str | None = None
     requirements_lock: str = ""
     python_base_image: str = PYTHON_BASE_IMAGE
-    python_version: str = "3.12.12"
+    python_version: str = CATALOG.platforms["python-cpu"]["python_version"]
     architecture: str = "linux/amd64"
     python_target: str = "x86_64-manylinux_2_28"
     system_lock: str = "dockerfiles/locks/system-trixie-amd64.json"

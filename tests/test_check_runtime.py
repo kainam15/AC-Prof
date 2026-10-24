@@ -70,14 +70,14 @@ class TestRuntimeCheckSelection:
             'scripts.check_runtime.prepare_environment_image', return_value=image,
         ), patch('scripts.check_runtime.subprocess.run',
                  return_value=subprocess.CompletedProcess([], 0)) as run:
-            assert main(['--profile', 'nlp-transformers560-cpu', '--output-dir', directory]) == 0
+            assert main(['--profile', 'nlp-transformers5104-cpu', '--output-dir', directory]) == 0
         command = next(call.args[0] for call in run.call_args_list
                        if 'scripts/run_tests.py' in call.args[0])
         assert '/tmp/acprof-tests/bin/python' in command
         assert any('--no-index' in argument and '--require-hashes' in argument for argument in command)
         assert command[command.index('--network') + 1] == 'none'
 
-    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers560-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
+    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers5104-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
     def test_container_uses_selected_profile_and_adapter_loading_policy(self, profile_id, task, trust):
         from acprof.container.load_policy import registered_policy
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',

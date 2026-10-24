@@ -51,10 +51,10 @@
     },
     {
       "name": "flask",
-      "sha256": "3232e0e9c850d781933cf0207523d1ece087eb8d87b23777ae38456e2fbe7c6e",
-      "size": 101300,
-      "url": "https://files.pythonhosted.org/packages/93/a6/aa98bfe0eb9b8b15d36cdfd03c8ca86a03968a87f27ce224fb4f766acb23/flask-3.0.2-py3-none-any.whl",
-      "version": "3.0.2"
+      "sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+      "size": 103424,
+      "url": "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl",
+      "version": "3.1.3"
     },
     {
       "name": "fsspec",
@@ -331,10 +331,10 @@
     },
     {
       "name": "sentence-transformers",
-      "sha256": "724ce0ea62200f413f1a5059712aff66495bc4e815a1493f7f9bca242414c333",
-      "size": 488009,
-      "url": "https://files.pythonhosted.org/packages/bb/a6/a607a737dc1a00b7afe267b9bfde101b8cee2529e197e57471d23137d4e5/sentence_transformers-5.1.2-py3-none-any.whl",
-      "version": "5.1.2"
+      "sha256": "d2075b5e687a1611005e20ab04a6846994d51adfcf39610aed066af3c0c0b81f",
+      "size": 596411,
+      "url": "https://files.pythonhosted.org/packages/76/c1/dc1582b79e9a2eb0cddf9559cd9bcdff084f541d6fe881fdd9d98630dba7/sentence_transformers-5.6.0-py3-none-any.whl",
+      "version": "5.6.0"
     },
     {
       "name": "sentencepiece",
@@ -454,7 +454,7 @@
   ],
   "index_url": null,
   "python_target": "x86_64-manylinux_2_28",
-  "python_version": "3.12.12",
+  "python_version": "3.12.15",
   "schema_version": 1,
   "torch_index_url": null
 }

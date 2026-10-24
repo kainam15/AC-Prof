@@ -44,10 +44,10 @@
     },
     {
       "name": "flask",
-      "sha256": "3232e0e9c850d781933cf0207523d1ece087eb8d87b23777ae38456e2fbe7c6e",
-      "size": 101300,
-      "url": "https://files.pythonhosted.org/packages/93/a6/aa98bfe0eb9b8b15d36cdfd03c8ca86a03968a87f27ce224fb4f766acb23/flask-3.0.2-py3-none-any.whl",
-      "version": "3.0.2"
+      "sha256": "f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c",
+      "size": 103424,
+      "url": "https://files.pythonhosted.org/packages/7f/9c/34f6962f9b9e9c71f6e5ed806e0d0ff03c9d1b0b2340088a0cf4bce09b18/flask-3.1.3-py3-none-any.whl",
+      "version": "3.1.3"
     },
     {
       "name": "fsspec",
@@ -184,10 +184,10 @@
     },
     {
       "name": "setuptools",
-      "sha256": "fdd925d5c5d9f62e4b74b30d6dd7828ce236fd6ed998a08d81de62ce5a6310d6",
-      "size": 1062021,
-      "url": "https://files.pythonhosted.org/packages/e1/e3/c164c88b2e5ce7b24d667b9bd83589cf4f3520d97cad01534cd3c4f55fdb/setuptools-81.0.0-py3-none-any.whl",
-      "version": "81.0.0"
+      "sha256": "5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9",
+      "size": 819380,
+      "url": "https://files.pythonhosted.org/packages/18/02/b4bbb90f8f29e334898ff45c6d9b1fffaa6f378017052b3023a06262b5f7/setuptools-84.1.0-py3-none-any.whl",
+      "version": "84.1.0"
     },
     {
       "name": "skops",
@@ -212,9 +212,9 @@
     },
     {
       "name": "torch",
-      "sha256": "f82e2ae20c1545bb03997d1cc3143d94e14b800038669ee1aca45808a9acc338",
-      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.11.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl",
-      "version": "2.11.0+cpu"
+      "sha256": "5a6363570c753812540a05eb82380e329469cbe668643e88111414c12627711f",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "2.14.1+cpu"
     },
     {
       "name": "torchaudio",
@@ -224,9 +224,9 @@
     },
     {
       "name": "torchvision",
-      "sha256": "cf547dc0975eb40bc3249be4ccbeb736597d2c3ece305b1c4e5b7a5dd7363567",
-      "url": "https://download-r2.pytorch.org/whl/cpu/torchvision-0.26.0%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl",
-      "version": "0.26.0+cpu"
+      "sha256": "ef220d4b21878c58947851beb7337382897159105f012f0c9c07bf7e84174d7e",
+      "url": "https://download-r2.pytorch.org/whl/cpu/torchvision-0.29.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.29.1+cpu"
     },
     {
       "name": "tqdm",
@@ -273,7 +273,7 @@
   ],
   "index_url": null,
   "python_target": "x86_64-manylinux_2_28",
-  "python_version": "3.12.12",
+  "python_version": "3.12.15",
   "schema_version": 1,
   "torch_index_url": null
 }

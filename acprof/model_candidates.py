@@ -23,7 +23,7 @@ _AUTO_TASKS = {
 def _architecture_tasks(architecture: str) -> tuple[str, ...]:
     """Reverse locked Auto registries, retaining ambiguity between task protocols."""
     tasks = set()
-    for version in ("4.57.6", "5.6.0"):
+    for version in ("4.57.6", "5.10.4"):
         mappings = transformers_support(version)
         for task, operations in TASK_MAPPINGS.items():
             if task in {"conversational", "sentence-similarity", "replaced-token-detection"}:

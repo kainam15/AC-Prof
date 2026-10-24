@@ -99,9 +99,11 @@ class TestAudioGenerationRuntime:
             WhisperFeatureExtractor,
         )
 
+        # Voxtral folds four encoder frames into one audio token (50 / 12.5 Hz).
+        # Keep the projector input width consistent when shrinking the encoder.
         config = VoxtralConfig(
             audio_config={'model_type': 'voxtral_encoder', 'hidden_size': 32, 'num_hidden_layers': 1,
-                          'num_attention_heads': 4, 'num_key_value_heads': 4, 'head_dim': 8, 'intermediate_size': 64,
+                          'num_attention_heads': 4, 'num_key_value_heads': 4, 'head_dim': 8, 'intermediate_size': 128,
                           'num_mel_bins': 128, 'max_source_positions': 1500},
             text_config={'model_type': 'llama', 'vocab_size': 320, 'hidden_size': 32, 'intermediate_size': 64,
                          'num_hidden_layers': 1, 'num_attention_heads': 4, 'num_key_value_heads': 2,

@@ -43,12 +43,12 @@ class TestDependencyLock:
         assert ('@sha256:') in (environment.platform.python_base_image)
         locked = (ROOT / environment.requirements_lock).read_text()
         assert ('# torch==') in (locked)
-        assert ('# flask==3.0.2') in (locked)
+        assert ('# flask==3.1.3') in (locked)
 
     def test_upstream_python_digest_is_identical_in_all_platform_locks(self):
-        # CI must resolve the original OCI index, not a registry proxy which
+        # CI must resolve the official OCI manifest, not a registry proxy which
         # may serve the pinned digest with an unsupported media type.
-        assert PYTHON_BASE_IMAGE.startswith("docker.io/library/python:3.12.12-slim-trixie@sha256:")
+        assert PYTHON_BASE_IMAGE.startswith("docker.io/library/python:3.12.15-slim-trixie@sha256:")
         assert len(PYTHON_BASE_IMAGE.partition("@sha256:")[2]) == 64
         system = json.loads((ROOT / "dockerfiles/locks/system-trixie-amd64.json").read_text())
         assert system["base_image"] == PYTHON_BASE_IMAGE

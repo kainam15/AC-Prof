@@ -41,7 +41,7 @@ class TestRuntimeValidation:
     def task(self):
         return TaskInfo('Example/model', 'audio-text-to-text', 'multimodal',
                         'transformers_model', 'transformers', 'a' * 40, 'unit',
-                        runtime_profile_id='moss-transformers560', model_config={'model_type': 'moss_transcribe_diarize'})
+                        runtime_profile_id='moss-transformers5104', model_config={'model_type': 'moss_transcribe_diarize'})
 
     def test_native_status_ok_without_output_validation_cannot_pass(self, tmp_path):
         def run(command, **kwargs):
