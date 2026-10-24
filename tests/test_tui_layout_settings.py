@@ -374,7 +374,7 @@ class TestTuiModelMemory:
             app.query_one("#cpus", Input).value = "2"
             app.query_one("#ui-theme", Select).value = "acprof-dark"
             await pilot.pause(0.12)
-            def check_persisted_before_launch(command, launched_kind):
+            def check_persisted_before_launch(command, launched_kind, *, config):
                 assert (launched_kind) == (kind)
                 assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
 
@@ -573,7 +573,7 @@ class TestTuiModelMemory:
             )
             app = AcprofTui(settings_path=self.settings_path)
             async with app.run_test(size=(120, 30)) as pilot:
-                def check_persisted_before_launch(command, launched_kind):
+                def check_persisted_before_launch(command, launched_kind, *, config):
                     assert (launched_kind) == (kind)
                     assert (load_settings(self.settings_path, PROJECT_DIR)) == ((expected, ""))
                     subcommand = "plot" if kind == "plot" else "profile"

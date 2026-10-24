@@ -16,6 +16,40 @@ from acprof.tui.stages import Stage
 MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
 
 
+def inspect_probe_result(snapshot, config, project_dir: Path, pid: int, started_at_ns: int) -> None:
+    """Verify a current probe's existing summary after its subprocess has exited."""
+    from acprof.host.largest_scale_probe import PROBE_SUMMARY_NAME, read_probe_summary
+
+    if snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED or not snapshot.probe_result:
+        raise ValueError("Probe exited without a successful structured completion event")
+    if not snapshot.probe_summary or config is None:
+        raise ValueError("Probe exited without its summary path or launch configuration")
+    path = Path(snapshot.probe_summary).resolve()
+    root = ArtifactLayout.discover(config.result_dir(project_dir)).path("probes").resolve()
+    if path.name != PROBE_SUMMARY_NAME or path.parent.parent != root:
+        raise ValueError("Probe summary is outside the current experiment's probe directory")
+    # create_probe_output_dir already records the child PID in this immutable
+    # directory name. No new identity sidecar or historical file is rewritten.
+    parts = path.parent.name.split("_")
+    if len(parts) not in (4, 5) or parts[:2] != ["largest", "scale"] or parts[3] != str(pid):
+        raise ValueError("Probe summary does not belong to the current subprocess")
+    if path.stat().st_mtime_ns < started_at_ns:
+        raise ValueError("Probe summary predates this subprocess launch")
+    summary = read_probe_summary(path)
+    if summary["model"]["id"] != config.model:
+        raise ValueError("Probe summary model identity differs from the launch configuration")
+    expected = {
+        "status": summary["status"], "cpu": summary["resource"]["cpu_cores"],
+        "mem": summary["resource"]["mem_gb"], "gpu": summary["resource"]["gpu_mode"],
+        "input_scale": summary["input"]["planned_scale"],
+        "request_s": summary["timing"].get("request_s"),
+        "ready_plus_request_s": summary["timing"].get("ready_plus_request_s"),
+        "cold_start_s": summary["cold_start"].get("total_s"),
+    }
+    if any(snapshot.probe_result.get(key) != value for key, value in expected.items()):
+        raise ValueError("Probe completion event disagrees with the persisted summary")
+
+
 def _finite_json_number(raw: str) -> float:
     value = float(raw)
     if not math.isfinite(value):

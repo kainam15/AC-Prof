@@ -45,7 +45,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.app.quick_preflight", lambda *args, **kwargs: [])
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
-    monkeypatch.setattr(app, "_execute_command", lambda *args: None)
+    monkeypatch.setattr(app, "_execute_command", lambda *args, **kwargs: None)
     app.ui_preferences = replace(app.ui_preferences, theme="acprof-graphite", language=language)
 
     async def prepare(pilot):
@@ -66,7 +66,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             monkeypatch.setattr(app._lifecycle, "process", process)
             monkeypatch.setattr(app._lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
             app._process_started(process.pid, "run")
-            tracker = RunProgressTracker(structured=True)
+            tracker = RunProgressTracker()
             snapshot = tracker.feed(encode_event("interface", "running"))
             app._consume_process_line("Checking model interface...", snapshot, True)
             app._preparation_event({"stage": "interface", "status": "running"})

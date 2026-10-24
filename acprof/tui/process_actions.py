@@ -5,39 +5,42 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from typing import TYPE_CHECKING
 
 from textual import work
 from textual.message_pump import MessagePump
 
 from acprof.tui.progress import RunProgressTracker
-from acprof.tui.run_results import RunArtifacts, RunResult, inspect_run_result
+from acprof.tui.run_results import RunArtifacts, RunResult, inspect_probe_result, inspect_run_result
 
 if TYPE_CHECKING:
+    from acprof.experiment import RunConfig
     from acprof.tui.app import AcprofTui
 
 
 class ProcessWorkerActions(MessagePump):
     @work(thread=True, group="process", exclusive=True, exit_on_error=False)
-    def _execute_command(self, command: list[str], kind: str) -> None:
+    def _execute_command(self, command: list[str], kind: str, *, config: RunConfig | None) -> None:
         if TYPE_CHECKING:
             assert isinstance(self, AcprofTui)
         token = self._process_token
         def deliver(callback, *args):
             self.call_from_thread(self._deliver_process_callback, token, callback, *args)
         run_before = None
-        if kind == "run" and self._active_run_config is not None:
+        if kind == "run" and config is not None:
             try:
-                run_before = RunArtifacts.read(self._active_run_config.result_dir(self._project_dir))
+                run_before = RunArtifacts.read(config.result_dir(self._project_dir))
             except (OSError, ValueError, RuntimeError):
                 pass  # CLI reports invalid history; it cannot become current results.
         from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
-        tracker = RunProgressTracker(structured=(kind == "run")) if kind in {"run", "probe"} else None
+        tracker = RunProgressTracker() if kind in {"run", "probe"} else None
         suppressed_lines = 0
         deferred_important_lines: list[str] = []
         process: subprocess.Popen[str] | None = None
         launch_error = ""
         returncode = 1
+        started_at_ns = time.time_ns()
         diagnostic_continuation = False
         try:
             child_env = os.environ.copy()
@@ -137,6 +140,12 @@ class ProcessWorkerActions(MessagePump):
                     returncode = process.returncode
                 if kind == "run" and process is not None and run_before is not None:
                     self._inspect_finished_run(run_before, process.pid, token)
+                elif kind == "probe" and process is not None and returncode == 0 and not launch_error:
+                    try:
+                        inspect_probe_result(final_snapshot, config,
+                                             self._project_dir, process.pid, started_at_ns)
+                    except (OSError, ValueError) as exc:
+                        launch_error = str(exc)
                 if suppressed_lines:
                     self._safe_process_callback(self._show_suppressed_count, suppressed_lines)
                 if deferred_important_lines:

@@ -54,7 +54,7 @@ async def test_rebuild_is_reachable_once_and_not_saved(tmp_path, kind, size, lan
             assert "rebuild_image" not in json.loads(path.read_text())["run_defaults"]
             assert rebuild.value  # Saving does not consume the next launch action.
             app._launch(PendingLaunch(tuple(command), kind, config))
-            execute.assert_called_once_with(command, kind)
+            execute.assert_called_once_with(command, kind, config=config)
             assert not rebuild.value
             next_command = builder(app._collect_config(), project_dir=Path.cwd())
             assert "--rebuild-image" not in next_command

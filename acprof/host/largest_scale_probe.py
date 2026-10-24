@@ -12,7 +12,7 @@ from typing import Any, Dict, Sequence
 
 import requests
 
-from acprof.artifacts import atomic_write, read_input_scale_plan
+from acprof.artifacts import atomic_write, read_input_scale_plan, read_json_object
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -27,6 +27,36 @@ from acprof.host.runtime_images import ImageInfo
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3
 RETRYABLE_MEMORY_OOM_STATUSES = frozenset({"startup_oom", "runtime_oom"})
+
+
+def read_probe_summary(path: str | os.PathLike[str]) -> dict:
+    """Validate the existing diagnostic summary before claiming probe success."""
+    summary = read_json_object(Path(path), label="largest-scale probe summary")
+    if summary.get("schema_version") != PROBE_SUMMARY_SCHEMA_VERSION:
+        raise ValueError("unsupported largest-scale probe summary version")
+    if summary.get("status") != "ok":
+        raise ValueError("largest-scale probe summary is not successful")
+    model, resource, inputs, timing, cold = (summary.get(key) for key in
+                                           ("model", "resource", "input", "timing", "cold_start"))
+    if (not isinstance(model, dict) or not isinstance(resource, dict) or not isinstance(inputs, dict)
+            or not isinstance(timing, dict) or not isinstance(cold, dict)):
+        raise ValueError("incomplete largest-scale probe summary")
+    if not isinstance(model.get("id"), str) or not model["id"]:
+        raise ValueError("missing largest-scale probe model identity")
+    if (any(type(resource.get(key)) is not int or resource[key] <= 0 for key in ("cpu_cores", "mem_gb"))
+            or resource.get("gpu_mode") not in {"off", "on"}):
+        raise ValueError("invalid largest-scale probe resources")
+    planned, effective = inputs.get("planned_scale"), inputs.get("effective_scale")
+    if (not isinstance(planned, (int, float)) or isinstance(planned, bool) or planned <= 0
+            or not isinstance(effective, (int, float)) or isinstance(effective, bool) or effective <= 0
+            or not math.isclose(planned, effective, rel_tol=0.0, abs_tol=1e-6)):
+        raise ValueError("invalid largest-scale probe input evidence")
+    for value in (timing.get("request_s"), timing.get("ready_plus_request_s"), cold.get("total_s")):
+        if value is not None and (type(value) not in (int, float) or value < 0):
+            raise ValueError("invalid largest-scale probe timing evidence")
+    if timing.get("request_s") is None:
+        raise ValueError("missing largest-scale probe request timing")
+    return summary
 
 
 def select_minimum_resources(
@@ -250,6 +280,9 @@ def _probe_memory_candidate(
     status = "error"
     error = ""
 
+    from acprof.progress_events import emit_event
+    emit_event("probe_memory_started", "largest_scale_probe", current=attempt_index,
+               total=attempt_total, cpu=cpu, mem=mem, gpu=gpu, input_scale=planned_scale)
     print(
         "[largest-probe] MEMORY_TRY "
         f"current={attempt_index} total={attempt_total} "
@@ -268,6 +301,7 @@ def _probe_memory_candidate(
         )
         phase = "request"
         print("[largest-probe] Running one largest-scale request...")
+        emit_event("probe_request_started", "largest_scale_probe")
         request_started = time.perf_counter()
         response = requests.post(
             session.base_url + "/predict",
@@ -316,6 +350,8 @@ def _probe_memory_candidate(
             container_name=session.name if session is not None else container_name,
         ) or "error"
     finally:
+        if request_started is not None:
+            emit_event("probe_request_stopped", "largest_scale_probe")
         if session is not None:
             stop_container_session(session, log_prefix="[largest-probe]")
 
@@ -340,6 +376,7 @@ def _probe_memory_candidate(
         },
     }
     print(f"[largest-probe] MEMORY_RESULT mem={mem} status={status}")
+    emit_event("probe_memory_finished", "largest_scale_probe", mem=mem, status=status)
     if error:
         print(f"[largest-probe] Memory {mem}GB: {error}", file=sys.stderr)
     return attempt, response_payload
@@ -379,6 +416,9 @@ def run_largest_scale_probe(
     response_payload: Dict[str, Any] | None = None
     selected_mem: int | None = None
 
+    from acprof.progress_events import emit_event
+    emit_event("probe_started", "largest_scale_probe", cpu=cpu, gpu=gpu,
+               memory_candidates=memory_candidates, input_scale=planned_scale)
     print(
         "[largest-probe] MEMORY_SCAN "
         f"cpu={cpu} gpu={gpu} candidates="
@@ -512,6 +552,12 @@ def run_largest_scale_probe(
         },
     }
     write_probe_summary(summary_path, summary)
+    emit_event("probe_finished", "largest_scale_probe", status=status, cpu=cpu,
+               mem=selected_mem if selected_mem is not None else last_attempt["mem_gb"],
+               gpu=gpu, input_scale=planned_scale, request_s=request_s,
+               cold_start_s=_finite_or_none(cold_start.get("total_s")),
+               ready_plus_request_s=ready_plus_request_s)
+    emit_event("probe_summary", path=str(summary_path))
     print(_result_marker(summary))
     if error:
         print(f"[largest-probe][ERROR] {error}", file=sys.stderr)

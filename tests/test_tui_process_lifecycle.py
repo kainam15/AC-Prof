@@ -55,7 +55,7 @@ def test_callback_failure_keeps_live_process_busy_and_does_not_finish():
             patch.object(app, "_watch_failed_process", create=True),
             patch.object(app, "_process_cleanup_incomplete", create=True),
         ):
-            AcprofTui._execute_command.__wrapped__(app, ["collector"], "run")
+            AcprofTui._execute_command.__wrapped__(app, ["collector"], "run", config=None)
         assert (app._is_busy()), "live collector must remain owned"
         app._process_finished.assert_not_called()
 

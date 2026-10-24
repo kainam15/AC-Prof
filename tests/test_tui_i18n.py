@@ -22,6 +22,7 @@ from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
+from acprof.progress_events import encode_event
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
 from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
@@ -69,12 +70,12 @@ def test_validation_keeps_translatable_errors_without_changing_config_contract(c
 
 def test_probe_progress_is_language_independent_and_keeps_duration_semantics():
     tracker = RunProgressTracker()
-    snapshot = tracker.feed("[largest-probe] MEMORY_RESULT mem=4 status=startup_oom")
+    tracker.feed(encode_event("probe_started", "largest_scale_probe", cpu=1, gpu="off", memory_candidates=[4,8], input_scale=512))
+    snapshot = tracker.feed(encode_event('probe_memory_finished', 'largest_scale_probe', mem=4, status='startup_oom'))
     assert (snapshot.stage) == (Stage.MEMORY_FEASIBILITY)
     assert (translate(snapshot.detail, "en")) == ("4GB · Startup OOM; trying next candidate")
     snapshot = tracker.feed(
-        "[largest-probe] RESULT status=ok input_scale=512 cpu=1 mem=8 gpu=off "
-        "cold_start_s=nan request_s=1.25 ready_plus_request_s=3.5"
+        encode_event('probe_finished', 'largest_scale_probe', cpu=1, mem=8, gpu='off', input_scale=512.0, status='ok', request_s=1.25, cold_start_s=None, ready_plus_request_s=3.5)
     )
     assert (snapshot.stage) == (Stage.PROBE_COMPLETED)
     assert ("Single request 1.250s · Cold start Unknown · Ready + request 3.500s") in (translate(snapshot.detail, "en"))

@@ -450,7 +450,7 @@ class AcprofTui(
         log.write(f"$ {format_command(pending.command)}")
         log.write(self.tr(message_id('ui.0766')))
         self._render_snapshot(self._latest_snapshot)
-        self._execute_command(list(pending.command), pending.kind)
+        self._execute_command(list(pending.command), pending.kind, config=pending.config)
 
     def _tick_elapsed(self) -> None:
         """Update elapsed time display; skipped during measurement windows."""
@@ -591,6 +591,10 @@ class AcprofTui(
     ) -> None:
         if kind == "stats" and returncode == 0 and not launch_error and self._stats_report_path is None:
             launch_error = "统计进程未返回报告路径"
+        if kind == "probe" and returncode == 0 and not launch_error and not self._stop_requested:
+            if (snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED
+                    or not snapshot.probe_result or not snapshot.probe_summary):
+                launch_error = self.tr(message_id('ui.0183', "missing structured probe result"))
         comparison_ready = (kind == "compare" and returncode in {0, 1} and not launch_error
                             and not self._stop_requested and self._comparison_report_path is not None
                             and self._comparison_report_path.is_file())
@@ -696,13 +700,6 @@ class AcprofTui(
                     final_state,
                     stage=Stage.TERMINATED,
                     detail="用户终止了最大尺度探测",
-                    measurement_active=False,
-                )
-            elif final_state.stage is not Stage.PROBE_COMPLETED:
-                final_state = replace(
-                    final_state,
-                    stage=Stage.PROBE_COMPLETED,
-                    detail="最大尺度单次请求已完成",
                     measurement_active=False,
                 )
             self._latest_snapshot = final_state

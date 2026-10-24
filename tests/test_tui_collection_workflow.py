@@ -71,7 +71,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
 
 
 def test_runtime_failure_retains_successful_resolution():
-    tracker = RunProgressTracker(structured=True)
+    tracker = RunProgressTracker()
     tracker.feed(encode_event("resolution", "passed"))
     state = tracker.feed(encode_event("runtime", "failed"))
     assert (getattr(state, "interface_status", None)) == ("passed")

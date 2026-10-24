@@ -115,6 +115,7 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
     ]
     lines.append("  本次未进入资源矩阵或推理测量，不会生成新的测量 CSV；已有测量结果保留。")
     failure = Failure("preflight", "runtime_task_unsupported", "\n".join(lines),
-                      runtime_profile=task_info.runtime_profile_id)
+                      runtime_profile=task_info.runtime_profile_id,
+                      evidence={"task": task})
     task_info.model_resolution["failure"] = failure.to_dict()
     raise TaskSupportError(failure)

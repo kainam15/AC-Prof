@@ -2,6 +2,7 @@ import csv
 import os
 import sys
 import tempfile
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +13,7 @@ from textual.widgets import Input, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
+from acprof.progress_events import encode_event
 from acprof.tui.commands import (
     PendingLaunch,
     build_probe_command,
@@ -144,44 +146,42 @@ def test_optional_overrides_and_flags_are_preserved():
 
 def test_progress_tracker_marks_measurement_and_completion():
     tracker = RunProgressTracker()
-    tracker.feed("Resource matrix: 1 CPUs x 1 MEMs x 1 GPUs = 1 cases")
-    tracker.feed("# Case 1/1: CPU=2, MEM=8GB, GPU=off")
-    measuring = tracker.feed("[case] Running workload...")
+    tracker.feed(encode_event('matrix_planned', total_cases=1))
+    tracker.feed(encode_event('case_selected', 'fixture', current=1, total=1, cpu=2, mem=8, gpu='off'))
+    measuring = tracker.feed(encode_event('measurement_started', 'fixture'))
     assert (measuring.measurement_active)
     assert (measuring.stage) is Stage.MEASURING
 
     tracker.feed("[case][WARN] recoverable warning")
-    tracker.feed("[case] Stopping container...")
-    tracker.feed("[case] Done. Output: result.csv")
-    tracker.feed("[merge] Final CSV: /tmp/result_all.csv (3 rows)")
-    complete = tracker.feed("Profiling complete!")
+    tracker.feed(encode_event('measurement_stopped', 'fixture'))
+    tracker.feed(encode_event('case_finished', 'fixture', status='ok'))
+    tracker.feed(encode_event('result_published', final_csv='/tmp/result_all.csv'))
+    complete = tracker.feed(encode_event('run_finished', status='ok'))
 
     assert not (complete.measurement_active)
     assert (complete.completed_cases) == (1)
     assert (complete.warnings) == (1)
     assert (complete.final_csv) == ("/tmp/result_all.csv")
-    assert (complete.stage) is Stage.COMPLETED
+    assert (complete.stage) is Stage.VERIFYING_ARTIFACT
 
 def test_progress_tracker_reports_largest_scale_probe_timings():
     tracker = RunProgressTracker()
     starting = tracker.feed(
-        "[largest-probe] Starting minimum configuration: "
-        "CPU=1, MEM=2GB, GPU=off, input_scale=512"
+        encode_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2], input_scale=512.0)
     )
-    assert (starting.stage) is Stage.STARTING_PROBE_CONTAINER
-    assert ((starting.cpu, starting.mem, starting.gpu)) == (("1", "2", "off"))
+    assert (starting.stage) is Stage.PREPARING_MEMORY_PROBE
+    assert ((starting.cpu, starting.mem, starting.gpu)) == (("1", "-", "off"))
     measuring = tracker.feed(
-        "[largest-probe] Running one largest-scale request..."
+        encode_event('probe_request_started', 'largest_scale_probe')
     )
     assert (measuring.measurement_active)
 
+    tracker.feed(encode_event("probe_request_stopped", "largest_scale_probe"))
     complete = tracker.feed(
-        "[largest-probe] RESULT status=ok input_scale=512 cpu=1 mem=2 "
-        "gpu=off cold_start_s=12.500000 request_s=4.321000 "
-        "ready_plus_request_s=16.821000"
+        encode_event('probe_finished', 'largest_scale_probe', cpu=1, mem=2, gpu='off', input_scale=512.0, status='ok', request_s=4.321, cold_start_s=12.5, ready_plus_request_s=16.821)
     )
     complete = tracker.feed(
-        "[largest-probe] Summary JSON: /tmp/probes/largest_scale_probe.json"
+        encode_event('probe_summary', path='/tmp/probes/largest_scale_probe.json')
     )
 
     assert not (complete.measurement_active)
@@ -193,41 +193,37 @@ def test_progress_tracker_reports_largest_scale_probe_timings():
 def test_progress_tracker_shows_memory_scan_before_timing():
     tracker = RunProgressTracker()
     scan = tracker.feed(
-        "[largest-probe] MEMORY_SCAN cpu=1 gpu=off "
-        "candidates=2,4,8 input_scale=512"
+        encode_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2, 4, 8], input_scale=512.0)
     )
     assert (scan.stage) is Stage.PREPARING_MEMORY_PROBE
     assert (scan.total_cases) == (3)
 
     tracker.feed(
-        "[largest-probe] MEMORY_TRY current=1 total=3 "
-        "cpu=1 mem=2 gpu=off input_scale=512"
+        encode_event('probe_memory_started', 'largest_scale_probe', current=1, total=3, cpu=1, mem=2, gpu='off', input_scale=512.0)
     )
     first = tracker.feed(
-        "[largest-probe] MEMORY_RESULT mem=2 status=startup_oom"
+        encode_event('probe_memory_finished', 'largest_scale_probe', mem=2, status='startup_oom')
     )
     assert not (first.measurement_active)
     assert ("启动 OOM") in (first.detail)
     assert (first.completed_cases) == (1)
 
     tracker.feed(
-        "[largest-probe] MEMORY_TRY current=2 total=3 "
-        "cpu=1 mem=4 gpu=off input_scale=512"
+        encode_event('probe_memory_started', 'largest_scale_probe', current=2, total=3, cpu=1, mem=4, gpu='off', input_scale=512.0)
     )
     measuring = tracker.feed(
-        "[largest-probe] Running one largest-scale request..."
+        encode_event('probe_request_started', 'largest_scale_probe')
     )
     assert (measuring.measurement_active)
     found = tracker.feed(
-        "[largest-probe] MEMORY_RESULT mem=4 status=ok"
+        encode_event('probe_memory_finished', 'largest_scale_probe', mem=4, status='ok')
     )
     assert (found.stage) is Stage.MEMORY_FOUND
     assert ("4GB") in (found.detail)
 
+    tracker.feed(encode_event("probe_request_stopped", "largest_scale_probe"))
     complete = tracker.feed(
-        "[largest-probe] RESULT status=ok input_scale=512 cpu=1 mem=4 "
-        "gpu=off cold_start_s=5 request_s=2 "
-        "ready_plus_request_s=7"
+        encode_event('probe_finished', 'largest_scale_probe', cpu=1, mem=4, gpu='off', input_scale=512.0, status='ok', request_s=2.0, cold_start_s=5.0, ready_plus_request_s=7.0)
     )
     assert (complete.stage) is Stage.PROBE_COMPLETED
     assert (complete.total_cases) == (2)
@@ -455,17 +451,17 @@ class TestTuiApp:
                 assert launch.call_args.args[0].kind == "run"
 
     async def test_subprocess_progress_is_event_driven(self):
-        script = "\n".join(
+        script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
             (
-                "print('Resource matrix: x = 1 cases', flush=True)",
-                "print('# Case 1/1: CPU=1, MEM=4GB, GPU=off', flush=True)",
-                "print('[case] Running workload...', flush=True)",
+                "emit_event('matrix_planned', total_cases=1)",
+                "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
+                "emit_event('measurement_started', 'fixture')",
                 "print('routine measurement detail', flush=True)",
-                "print('[case] Stopping container...', flush=True)",
-                "print('[case] Done. Output: result.csv', flush=True)",
-                "print('Profiling complete!', flush=True)",
+                "emit_event('measurement_stopped', 'fixture')",
+                "emit_event('case_finished', 'fixture', status='ok')",
+                "emit_event('run_finished', status='ok')",
             )
-        )
+        )))
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
@@ -495,12 +491,12 @@ class TestTuiApp:
             '[case] Stopping container...',
         ]
         script = (
-            "from acprof.progress_events import emit_event\n"
+            ("from acprof.progress_events import emit_event\n" + ("from acprof.progress_events import emit_event\n"
             "emit_event('case_started', 'fixture')\n"
             "emit_event('measurement_started', 'fixture')\n"
             + '\n'.join(f'print({line!r}, flush=True)' for line in lines)
             + "\nemit_event('measurement_stopped', 'fixture')\n"
-            "emit_event('case_finished', 'fixture', status='error')\nraise SystemExit(1)"
+            "emit_event('case_finished', 'fixture', status='error')\nraise SystemExit(1)"))
         )
         app = AcprofTui(RunConfig.smoke('demo/model'))
         async with app.run_test(size=(120, 30)) as pilot:
@@ -515,33 +511,41 @@ class TestTuiApp:
                 assert (line) in (log)
             assert ('routine sample output') not in (log)
 
-    async def test_probe_subprocess_keeps_timing_result_in_monitor(self):
-        script = "\n".join(
-            (
-                "print('[largest-probe] MEMORY_SCAN cpu=1 gpu=off "
-                "candidates=2,4 input_scale=512', flush=True)",
-                "print('[largest-probe] MEMORY_TRY current=1 total=2 "
-                "cpu=1 mem=2 gpu=off input_scale=512', flush=True)",
-                "print('[largest-probe] MEMORY_RESULT mem=2 "
-                "status=startup_oom', flush=True)",
-                "print('[largest-probe] MEMORY_TRY current=2 total=2 "
-                "cpu=1 mem=4 gpu=off input_scale=512', flush=True)",
-                "print('[largest-probe] Running one largest-scale request...', flush=True)",
-                "print('[largest-probe] MEMORY_RESULT mem=4 status=ok', flush=True)",
-                "print('[largest-probe] RESULT status=ok input_scale=512 "
-                "cpu=1 mem=4 gpu=off cold_start_s=12.5 request_s=4.321 "
-                "ready_plus_request_s=16.821', flush=True)",
-                "print('[largest-probe] Summary JSON: /tmp/probe.json', flush=True)",
-            )
+    async def test_probe_subprocess_keeps_timing_result_in_monitor(self, tmp_path):
+        config = replace(RunConfig.smoke("demo/model"), output_dir=str(tmp_path))
+        payload = {
+            "schema_version": 3, "status": "ok", "model": {"id": "demo/model"},
+            "resource": {"cpu_cores": 1, "mem_gb": 4, "gpu_mode": "off"},
+            "input": {"planned_scale": 512, "effective_scale": 512},
+            "timing": {"request_s": 4.321, "ready_plus_request_s": 16.821},
+            "cold_start": {"total_s": 12.5},
+        }
+        setup = (
+            "from acprof.host.largest_scale_probe import create_probe_output_dir, write_probe_summary\n"
+            f"summary_path = create_probe_output_dir({str(tmp_path)!r}, 'demo/model') / 'largest_scale_probe.json'\n"
+            f"write_probe_summary(summary_path, {payload!r})\n"
         )
-        app = AcprofTui(RunConfig.smoke("demo/model"))
+        script = setup + ("from acprof.progress_events import emit_event\n" + ("\n".join(
+            (
+                "emit_event('probe_started', 'largest_scale_probe', cpu=1, gpu='off', memory_candidates=[2, 4], input_scale=512.0)",
+                "emit_event('probe_memory_started', 'largest_scale_probe', current=1, total=2, cpu=1, mem=2, gpu='off', input_scale=512.0)",
+                "emit_event('probe_memory_finished', 'largest_scale_probe', mem=2, status='startup_oom')",
+                "emit_event('probe_memory_started', 'largest_scale_probe', current=2, total=2, cpu=1, mem=4, gpu='off', input_scale=512.0)",
+                "emit_event('probe_request_started', 'largest_scale_probe')",
+                "emit_event('probe_request_stopped', 'largest_scale_probe')",
+                "emit_event('probe_memory_finished', 'largest_scale_probe', mem=4, status='ok')",
+                "emit_event('probe_finished', 'largest_scale_probe', cpu=1, mem=4, gpu='off', input_scale=512.0, status='ok', request_s=4.321, cold_start_s=12.5, ready_plus_request_s=16.821)",
+                "emit_event('probe_summary', path=str(summary_path))",
+            )
+        )))
+        app = AcprofTui(config)
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             app._launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
                     "probe",
-                    RunConfig.smoke("demo/model"),
+                    config,
                 )
             )
             for _ in range(40):
@@ -553,22 +557,23 @@ class TestTuiApp:
             assert (app._latest_snapshot.stage) == (Stage.PROBE_COMPLETED)
             assert ("最低可用内存 4GB") in (app._latest_snapshot.detail)
             assert ("单次请求 4.321s") in (app._latest_snapshot.detail)
-            assert (app._latest_snapshot.probe_summary) == ("/tmp/probe.json")
+            assert Path(app._latest_snapshot.probe_summary).is_file()
+            assert Path(app._latest_snapshot.probe_summary).name == "largest_scale_probe.json"
 
     async def test_elapsed_timer_skips_during_measurement(self):
         """Elapsed ticker must not cause widget updates during measurement."""
-        script = "\n".join(
+        script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
             (
                 "import time",
-                "print('Resource matrix: x = 1 cases', flush=True)",
-                "print('# Case 1/1: CPU=1, MEM=4GB, GPU=off', flush=True)",
-                "print('[case] Running workload...', flush=True)",
+                "emit_event('matrix_planned', total_cases=1)",
+                "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
+                "emit_event('measurement_started', 'fixture')",
                 "time.sleep(0.2)",
-                "print('[case] Stopping container...', flush=True)",
-                "print('[case] Done. Output: result.csv', flush=True)",
-                "print('Profiling complete!', flush=True)",
+                "emit_event('measurement_stopped', 'fixture')",
+                "emit_event('case_finished', 'fixture', status='ok')",
+                "emit_event('run_finished', status='ok')",
             )
-        )
+        )))
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
@@ -596,16 +601,17 @@ class TestTuiApp:
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
-            script = "\n".join(
+            script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
                 (
-                    "print('Resource matrix: x = 1 cases', flush=True)",
-                    "print('# Case 1/1: CPU=1, MEM=4GB, GPU=off', flush=True)",
-                    "print('[case] Running workload...', flush=True)",
-                    "print('[case] Stopping container...', flush=True)",
-                    "print('[case] Done. Output: result.csv', flush=True)",
+                    "emit_event('matrix_planned', total_cases=1)",
+                    "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
+                    "emit_event('measurement_started', 'fixture')",
+                    "emit_event('measurement_stopped', 'fixture')",
+                    "emit_event('case_finished', 'fixture', status='ok')",
+                    "emit_event('run_finished', status='ok')",
                     "print('Profiling complete!', flush=True)",
                 )
-            )
+            )))
             app._launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
@@ -621,7 +627,9 @@ class TestTuiApp:
             assert not (app._is_busy())
             assert (app.query_one("#status-stage", Static).content) == ("失败")
             assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 0/1")
-            assert ("Profiling complete!") in (app.query_one("#run-log", SelectableLog).text)
+            log = app.query_one("#run-log", SelectableLog).text
+            assert "Profiling complete!" in log
+            assert not any(line.startswith("ACPROF_EVENT ") for line in log.splitlines())
             assert (len(app.query("#case-progress, #matrix-board, #matrix-table"))) == (0)
 
     async def test_stage_gets_color_class(self):

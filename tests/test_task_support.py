@@ -12,7 +12,8 @@ import pytest
 from textual.widgets import Button, Static
 from tui_fixtures import AcprofTui
 
-from acprof.cli import probe, run
+from acprof.application import run
+from acprof.cli import probe, run as run_cli
 from acprof.experiment import RunConfig
 from acprof.host import detect
 from acprof.host.task_support import TaskSupportError, require_task_support
@@ -60,7 +61,7 @@ def test_run_and_probe_reject_unsupported_tasks_before_build_or_results(tag, fam
         if module is run:
             stack.enter_context(patch.object(sys, "argv", ["acprof run", *argv, "--notify", "none"]))
             with pytest.raises(SystemExit) as caught:
-                run.main()
+                run_cli.main()
             code = caught.value.code
         else:
             code = probe.main(argv)
@@ -124,8 +125,14 @@ def test_manual_caption_task_is_supported_but_requires_single_image_batch():
         require_task_support(info, batch_size=2)
 
 def test_progress_preserves_unsupported_task_and_points_to_remedies():
+    import json
+
+    from acprof.failures import FAILURE_PREFIX, Failure
+
     tracker = RunProgressTracker()
-    state = tracker.feed("[task-support][ERROR] Unsupported collection task: image-text-to-text")
+    failure = Failure("preflight", "runtime_task_unsupported", "Any human-readable wording",
+                      evidence={"task": "image-text-to-text"})
+    state = tracker.feed(FAILURE_PREFIX + json.dumps(failure.to_dict()))
     assert (state.stage) == (Stage.TASK_UNSUPPORTED)
     assert ("image-text-to-text") in (state.detail)
     assert ("解决办法见日志") in (state.detail)

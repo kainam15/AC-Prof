@@ -1,4 +1,4 @@
-"""采集日志进度解析及正式测量窗口状态；不依赖 Textual。"""
+"""结构化采集进度及正式测量窗口状态；普通日志不参与控制。"""
 
 from __future__ import annotations
 
@@ -15,59 +15,8 @@ from acprof.tui.presentation import UNKNOWN
 from acprof.tui.stages import Stage
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-CASE_RE = re.compile(
-    r"# Case\s+(?P<current>\d+)/(?P<total>\d+):\s+"
-    r"CPU=(?P<cpu>\d+),\s+MEM=(?P<mem>\d+)GB,\s+GPU=(?P<gpu>\S+)"
-)
-MATRIX_RE = re.compile(r"Resource matrix:.*=\s*(?P<total>\d+)\s+cases")
-FINAL_CSV_RE = re.compile(r"Merged results:\s+(?P<path>.+)$")
-MERGE_CSV_RE = re.compile(r"\[merge\]\s+Final CSV:\s+(?P<path>.+?)\s+\(\d+\s+rows\)")
-TASK_SUPPORT_ERROR_RE = re.compile(
-    r"^\[task-support\]\[ERROR\] Unsupported collection task: (?P<task>.+)$"
-)
-LARGEST_PROBE_START_RE = re.compile(
-    r"\[largest-probe\] Starting minimum configuration:\s+"
-    r"CPU=(?P<cpu>\d+),\s+MEM=(?P<mem>\d+)GB,\s+"
-    r"GPU=(?P<gpu>\S+),\s+input_scale=(?P<scale>\S+)"
-)
-LARGEST_PROBE_SCAN_RE = re.compile(
-    r"\[largest-probe\] MEMORY_SCAN\s+"
-    r"cpu=(?P<cpu>\d+)\s+gpu=(?P<gpu>\S+)\s+"
-    r"candidates=(?P<candidates>[\d,]+)\s+"
-    r"input_scale=(?P<scale>\S+)"
-)
-LARGEST_PROBE_MEMORY_TRY_RE = re.compile(
-    r"\[largest-probe\] MEMORY_TRY\s+"
-    r"current=(?P<current>\d+)\s+total=(?P<total>\d+)\s+"
-    r"cpu=(?P<cpu>\d+)\s+mem=(?P<mem>\d+)\s+"
-    r"gpu=(?P<gpu>\S+)\s+input_scale=(?P<scale>\S+)"
-)
-LARGEST_PROBE_MEMORY_RESULT_RE = re.compile(
-    r"\[largest-probe\] MEMORY_RESULT\s+"
-    r"mem=(?P<mem>\d+)\s+status=(?P<status>\S+)"
-)
-LARGEST_PROBE_RESULT_RE = re.compile(
-    r"\[largest-probe\] RESULT\s+"
-    r"status=(?P<status>\S+)\s+"
-    r"input_scale=(?P<scale>\S+)\s+"
-    r"cpu=(?P<cpu>\d+)\s+"
-    r"mem=(?P<mem>\S+)\s+"
-    r"gpu=(?P<gpu>\S+)\s+"
-    r"cold_start_s=(?P<cold>\S+)\s+"
-    r"request_s=(?P<request>\S+)\s+"
-    r"ready_plus_request_s=(?P<total>\S+)"
-)
-LARGEST_PROBE_SUMMARY_RE = re.compile(
-    r"\[largest-probe\] Summary JSON:\s+(?P<path>.+)$"
-)
-
-
-def _format_probe_duration(raw: str) -> str:
-    try:
-        value = float(raw)
-    except ValueError:
-        return UNKNOWN
-    return f"{value:.3f}s" if math.isfinite(value) else UNKNOWN
+def _format_probe_duration(value: float | None) -> str:
+    return f"{value:.3f}s" if value is not None and math.isfinite(value) else UNKNOWN
 
 
 @dataclass(frozen=True)
@@ -85,6 +34,7 @@ class ProgressSnapshot:
     errors: int = 0
     final_csv: str = ""
     probe_summary: str = ""
+    probe_result: dict | None = None
     interface_status: str = "not_started"
     runtime_status: str = "not_started"
     measurement_status: str = "not_started"
@@ -92,10 +42,9 @@ class ProgressSnapshot:
 
 
 class RunProgressTracker:
-    """Translate stable acprof run log markers into low-frequency UI state."""
+    """Translate validated control records into low-frequency UI state."""
 
-    def __init__(self, *, structured: bool = False) -> None:
-        self._structured = structured
+    def __init__(self) -> None:
         self._case_id = ""
         self.snapshot = ProgressSnapshot()
 
@@ -108,9 +57,12 @@ class RunProgressTracker:
                 failure = Failure(**json.loads(line[len(FAILURE_PREFIX):]))
             except (ValueError, TypeError):
                 return self.snapshot
+            detail = (message_id('ui.0586', failure.evidence["task"])
+                      if failure.reason_code == "runtime_task_unsupported" and "task" in failure.evidence
+                      else f"{failure.reason_code}: {failure.detail}")
             self.snapshot = replace(self.snapshot,
                 stage=Stage.TASK_UNSUPPORTED if failure.stage in {"preflight", "dependency_preflight", "precision_preflight"} else Stage.RUNTIME_VALIDATION,
-                detail=f"{failure.reason_code}: {failure.detail}", measurement_active=False,
+                detail=detail, measurement_active=False,
                 errors=max(1, self.snapshot.errors), failure=failure.to_dict())
             return self.snapshot
         preparation = parse_preparation_event(line)
@@ -120,7 +72,8 @@ class RunProgressTracker:
             stage, status = preparation["stage"], preparation["status"]
             labels = {"resolution": Stage.INTERFACE_RESOLUTION, "dependencies": Stage.DEPENDENCY_RESOLUTION, "preflight": Stage.ENVIRONMENT_PREFLIGHT, "image": Stage.PREPARING_IMAGE,
                       "input": Stage.PREPARING_INPUT, "runtime": Stage.RUNTIME_VALIDATION, "interface": Stage.CONFIRMING_INTERFACE,
-                      "environment": Stage.PREPARING_ENVIRONMENT, "model": Stage.PREPARING_MODEL}
+                      "environment": Stage.PREPARING_ENVIRONMENT, "model": Stage.PREPARING_MODEL,
+                      "compute_profile": Stage.COMPUTE_PROFILING, "execution_profile": Stage.EXECUTION_PROFILING}
             preparation_updates = {"stage": labels[stage], "detail": preparation.get("request", {}).get("detail", "")}
             if status == "failed":
                 preparation_updates["errors"] = self.snapshot.errors + 1
@@ -132,248 +85,111 @@ class RunProgressTracker:
             return self.snapshot
         event = parse_event(line)
         if event is not None:
-            self._structured = True
             return self._feed_event(event)
-        state = self.snapshot
-        # Legacy log fields are dynamically keyed dataclass replacements.
+        # Human-readable output is diagnostic only. Wording or localization
+        # cannot change identity, progress, measurement boundaries or artifacts.
         updates: dict[str, Any] = {}
-
         if "[WARN]" in line or "[warning]" in line.lower():
-            updates["warnings"] = state.warnings + 1
+            updates["warnings"] = self.snapshot.warnings + 1
         if "[ERROR]" in line or line.startswith("Traceback"):
-            updates["errors"] = state.errors + 1
-
-        task_support_error = TASK_SUPPORT_ERROR_RE.match(line)
-        if task_support_error:
-            updates.update(
-                stage=Stage.TASK_UNSUPPORTED,
-                detail=message_id(
-                    'ui.0586',
-                    task_support_error.group("task"),
-                ),
-                measurement_active=False,
-            )
-
-        probe_start = LARGEST_PROBE_START_RE.search(line)
-        if probe_start:
-            updates.update(
-                stage=Stage.STARTING_PROBE_CONTAINER,
-                detail=(
-                    message_id('ui.0864', probe_start.group('scale'))
-                ),
-                current_case=1,
-                completed_cases=0,
-                total_cases=1,
-                cpu=probe_start.group("cpu"),
-                mem=probe_start.group("mem"),
-                gpu=probe_start.group("gpu"),
-                measurement_active=False,
-            )
-
-        probe_scan = LARGEST_PROBE_SCAN_RE.search(line)
-        if probe_scan:
-            candidates = probe_scan.group("candidates").split(",")
-            updates.update(
-                stage=Stage.PREPARING_MEMORY_PROBE,
-                detail=(
-                    message_id('ui.0866', probe_scan.group('candidates'), probe_scan.group('scale'))
-                ),
-                current_case=0,
-                completed_cases=0,
-                total_cases=len(candidates),
-                cpu=probe_scan.group("cpu"),
-                mem="-",
-                gpu=probe_scan.group("gpu"),
-                measurement_active=False,
-            )
-
-        memory_try = LARGEST_PROBE_MEMORY_TRY_RE.search(line)
-        if memory_try:
-            current = int(memory_try.group("current"))
-            updates.update(
-                stage=Stage.SCANNING_MEMORY,
-                detail=(
-                    message_id('ui.0868', memory_try.group('mem'), memory_try.group('scale'))
-                ),
-                current_case=current,
-                completed_cases=max(state.completed_cases, current - 1),
-                total_cases=int(memory_try.group("total")),
-                cpu=memory_try.group("cpu"),
-                mem=memory_try.group("mem"),
-                gpu=memory_try.group("gpu"),
-                measurement_active=False,
-            )
-
-        memory_result = LARGEST_PROBE_MEMORY_RESULT_RE.search(line)
-        if memory_result:
-            memory_status = memory_result.group("status")
-            status_labels = {
-                "ok": message_id('ui.0869'),
-                "startup_oom": message_id('ui.0870'),
-                "runtime_oom": message_id('ui.0871'),
-                "cuda_oom": message_id('ui.0872'),
-                "timeout": message_id('ui.0873'),
-                "error": message_id('ui.0772'),
-            }
-            updates.update(
-                stage=(
-                    Stage.MEMORY_FOUND
-                    if memory_status == "ok"
-                    else Stage.MEMORY_FEASIBILITY
-                ),
-                detail=(
-                    message("{0}GB · {1}", memory_result.group("mem"),
-                            status_labels.get(memory_status, memory_status))
-                ),
-                completed_cases=max(state.completed_cases, state.current_case),
-                measurement_active=False,
-            )
-
-        probe_result = LARGEST_PROBE_RESULT_RE.search(line)
-        if probe_result:
-            status = probe_result.group("status")
-            completed = max(1, state.current_case)
-            if status == "ok":
-                result_detail = message_id(
-                    'ui.0875',
-                    probe_result.group("mem"), probe_result.group("scale"),
-                    _format_probe_duration(probe_result.group("request")),
-                    _format_probe_duration(probe_result.group("cold")),
-                    _format_probe_duration(probe_result.group("total")),
-                )
-            else:
-                result_detail = (
-                    message_id('ui.0876', probe_result.group('mem'), status)
-                )
-            updates.update(
-                stage=Stage.PROBE_COMPLETED if status == "ok" else Stage.PROBE_FAILED,
-                detail=result_detail,
-                current_case=completed,
-                completed_cases=completed,
-                total_cases=completed,
-                cpu=probe_result.group("cpu"),
-                mem=probe_result.group("mem"),
-                gpu=probe_result.group("gpu"),
-                measurement_active=False,
-            )
-
-        probe_summary = LARGEST_PROBE_SUMMARY_RE.search(line)
-        if probe_summary:
-            updates["probe_summary"] = probe_summary.group("path").strip()
-
-        match = MATRIX_RE.search(line)
-        if match:
-            updates.update(
-                stage=Stage.PREPARING_MATRIX,
-                detail=message_id('ui.0878'),
-                total_cases=int(match.group("total")),
-            )
-
-        match = CASE_RE.search(line)
-        if match:
-            current = int(match.group("current"))
-            updates.update(
-                stage=Stage.STARTING_CONTAINER,
-                detail=message_id('ui.0879', current, match.group('total')),
-                current_case=current,
-                completed_cases=max(state.completed_cases, current - 1),
-                total_cases=int(match.group("total")),
-                cpu=match.group("cpu"),
-                mem=match.group("mem"),
-                gpu=match.group("gpu"),
-                measurement_active=False,
-            )
-        elif line.startswith("[largest-probe] Running one largest-scale request"):
-            updates.update(
-                stage=Stage.MAX_SCALE_PROBE,
-                detail=message_id('ui.0880', state.mem),
-                measurement_active=True,
-            )
-        elif line.startswith("[largest-probe][ERROR]"):
-            updates.update(
-                stage=Stage.PROBE_FAILED,
-                detail=line.partition("] ")[2] or line,
-                measurement_active=False,
-            )
-        elif line.startswith("[build]"):
-            updates.update(stage=Stage.BUILDING_IMAGE, detail=line)
-        elif line.startswith("[scale]") or line.startswith("[probe]"):
-            updates.update(stage=Stage.PLANNING_INPUT, detail=line)
-        elif line.startswith("[compute-profile]"):
-            updates.update(stage=Stage.COMPUTE_PROFILING, detail=line)
-        elif line.startswith("[execution-profile]"):
-            updates.update(stage=Stage.EXECUTION_PROFILING, detail=line)
-        elif "[case] Server ready" in line:
-            updates.update(stage=Stage.SERVER_READY, detail=line)
-        elif "[case] Running workload" in line:
-            updates.update(
-                stage=Stage.MEASURING,
-                detail=message_id('ui.0883'),
-                measurement_active=True,
-            )
-        elif "[case] Stopping container" in line:
-            updates.update(
-                stage=Stage.CLEANING_CASE,
-                detail=line,
-                measurement_active=False,
-            )
-        elif "[case] Done." in line:
-            updates.update(
-                stage=Stage.CASE_COMPLETED,
-                detail=line,
-                completed_cases=max(state.completed_cases, state.current_case),
-                measurement_active=False,
-            )
-        elif "[oom-prune] Skipping" in line:
-            updates.update(
-                stage=Stage.OOM_PRUNED,
-                detail=line,
-                completed_cases=max(state.completed_cases, state.current_case),
-                measurement_active=False,
-            )
-        elif line.startswith("[merge]"):
-            updates.update(stage=Stage.MERGING_RESULTS, detail=line, measurement_active=False)
-        elif "Profiling complete!" in line:
-            updates.update(
-                stage=Stage.COMPLETED,
-                detail=message_id('ui.0885'),
-                completed_cases=state.total_cases or state.completed_cases,
-                measurement_active=False,
-                measurement_status="passed",
-            )
-
-        final_match = FINAL_CSV_RE.search(line) or MERGE_CSV_RE.search(line)
-        if final_match:
-            updates["final_csv"] = final_match.group("path").strip()
-
-        if self._structured:
-            updates.pop("measurement_active", None)
-            # Ordinary logs may enrich diagnostics, but cannot end a live case.
-            if state.measurement_active:
-                updates.pop("stage", None)
-                updates.pop("detail", None)
-                updates.pop("completed_cases", None)
+            updates["errors"] = self.snapshot.errors + 1
         if updates:
-            self.snapshot = replace(state, **updates)
+            self.snapshot = replace(self.snapshot, **updates)
         return self.snapshot
 
     def _feed_event(self, event: dict) -> ProgressSnapshot:
-        name, case_id = event["event"], event["case_id"]
-        if name == "case_started":
-            if self.snapshot.measurement_active:
+        name = event["event"]
+        case_id = event.get("case_id", "")
+        state = self.snapshot
+        updates: dict[str, Any] = {}
+        if name == "matrix_planned":
+            updates.update(stage=Stage.PREPARING_MATRIX, detail=message_id('ui.0878'),
+                           total_cases=event["total_cases"])
+        elif name == "case_selected":
+            if state.measurement_active:
+                raise ValueError("case_selected while measurement is still active")
+            self._case_id = case_id
+            updates.update(stage=Stage.STARTING_CONTAINER,
+                detail=message_id('ui.0879', event["current"], event["total"]),
+                current_case=event["current"], total_cases=event["total"],
+                completed_cases=max(state.completed_cases, event["current"] - 1),
+                cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"])
+        elif name == "case_started":
+            if state.measurement_active:
                 raise ValueError("case_started while measurement is still active")
             self._case_id = case_id
-            self.snapshot = replace(self.snapshot, stage=Stage.STARTING_CONTAINER, measurement_active=False)
+            stage = Stage.MERGING_RESULTS if event.get("phase") == "postprocessing" else Stage.STARTING_CONTAINER
+            updates.update(stage=stage, measurement_active=False)
+        elif name == "results_merging":
+            updates.update(stage=Stage.MERGING_RESULTS, measurement_active=False)
+        elif name == "result_published":
+            # A path is an association hint. ProcessWorkerActions still verifies
+            # persisted run/attempt identity and audits the published result.
+            updates["final_csv"] = event["final_csv"]
+        elif name == "run_finished":
+            status = event["status"]
+            updates.update(stage={"ok": Stage.VERIFYING_ARTIFACT, "no_results": Stage.PARTIAL,
+                                  "failed": Stage.FAILED, "cancelled": Stage.STOPPED}[status],
+                           measurement_active=False)
+        elif name == "probe_summary":
+            updates["probe_summary"] = event["path"]
+        elif name == "probe_started":
+            if state.measurement_active:
+                raise ValueError("probe_started while measurement is still active")
+            self._case_id = case_id
+            candidates = event["memory_candidates"]
+            updates.update(stage=Stage.PREPARING_MEMORY_PROBE,
+                detail=message_id('ui.0866', ",".join(map(str, candidates)), f'{event["input_scale"]:g}'),
+                current_case=0, completed_cases=0, total_cases=len(candidates),
+                cpu=str(event["cpu"]), mem="-", gpu=event["gpu"], measurement_active=False)
         elif case_id == self._case_id:
             if name == "measurement_started":
-                self.snapshot = replace(self.snapshot, stage=Stage.MEASURING,
-                    detail=message_id('ui.0883'), measurement_active=True, measurement_status="running")
+                updates.update(stage=Stage.MEASURING, detail=message_id('ui.0883'),
+                               measurement_active=True, measurement_status="running")
             elif name == "measurement_stopped":
-                self.snapshot = replace(self.snapshot, stage=Stage.CLEANING_CASE, measurement_active=False)
-            elif name == "case_finished":
-                self.snapshot = replace(self.snapshot,
-                    stage=Stage.CASE_COMPLETED if event["status"] == "ok" else Stage.FAILED,
-                    completed_cases=max(self.snapshot.completed_cases, self.snapshot.current_case),
-                    measurement_active=False)
+                updates.update(stage=Stage.CLEANING_CASE, measurement_active=False)
+            elif name in {"case_finished", "case_skipped"}:
+                status = event["status"]
+                stage = (Stage.OOM_PRUNED if status == "oom_pruned" else
+                         Stage.CASE_COMPLETED if status in {"ok", "completed"} else Stage.FAILED)
+                updates.update(stage=stage, completed_cases=max(state.completed_cases, state.current_case),
+                               measurement_active=False)
                 self._case_id = ""
+            elif name == "probe_memory_started":
+                updates.update(stage=Stage.SCANNING_MEMORY,
+                    detail=message_id('ui.0868', event["mem"], f'{event["input_scale"]:g}'),
+                    current_case=event["current"], total_cases=event["total"],
+                    completed_cases=max(state.completed_cases, event["current"] - 1),
+                    cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"], measurement_active=False)
+            elif name == "probe_request_started":
+                updates.update(stage=Stage.MAX_SCALE_PROBE, detail=message_id('ui.0880', state.mem),
+                               measurement_active=True)
+            elif name == "probe_request_stopped":
+                updates.update(measurement_active=False)
+            elif name == "probe_memory_finished":
+                status = event["status"]
+                labels = {"ok": message_id('ui.0869'), "startup_oom": message_id('ui.0870'),
+                          "runtime_oom": message_id('ui.0871'), "cuda_oom": message_id('ui.0872'),
+                          "timeout": message_id('ui.0873'), "error": message_id('ui.0772')}
+                updates.update(stage=Stage.MEMORY_FOUND if status == "ok" else Stage.MEMORY_FEASIBILITY,
+                    detail=message("{0}GB · {1}", event["mem"], labels.get(status, status)),
+                    completed_cases=max(state.completed_cases, state.current_case), measurement_active=False)
+            elif name == "probe_finished":
+                status = event["status"]
+                detail = (message_id('ui.0875', event["mem"], f'{event["input_scale"]:g}',
+                    _format_probe_duration(event.get("request_s")),
+                    _format_probe_duration(event.get("cold_start_s")),
+                    _format_probe_duration(event.get("ready_plus_request_s"))) if status == "ok" else
+                    message_id('ui.0876', event["mem"], status))
+                completed = max(1, state.current_case)
+                updates.update(stage=Stage.PROBE_COMPLETED if status == "ok" else Stage.PROBE_FAILED,
+                    detail=detail, current_case=completed, completed_cases=completed, total_cases=completed,
+                    cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"], measurement_active=False,
+                    probe_result=event)
+        if state.measurement_active and name not in {"measurement_stopped", "case_finished", "run_finished",
+                                                     "probe_request_stopped", "probe_memory_finished"}:
+            if name not in {"measurement_started", "probe_request_started"}:
+                raise ValueError("control progress inside measurement window")
+        if updates:
+            self.snapshot = replace(state, **updates)
         return self.snapshot

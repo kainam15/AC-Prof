@@ -63,7 +63,7 @@ sys.addaudithook(protect_production_lock)
 from unittest.mock import patch
 from acprof.tui.app import AcprofTui
 
-def finish_immediately(self, command, kind):
+def finish_immediately(self, command, kind, *, config):
     self._consume_process_line("validation child finished", None, False)
     self._process_finished(kind, int(command[-1]), None, "")
 
@@ -78,7 +78,7 @@ with patch.object(AcprofTui, "_execute_command", finish_immediately):
 from unittest.mock import patch
 from acprof.tui.app import AcprofTui
 
-def finish_after_focus(self, command, kind):
+def finish_after_focus(self, command, kind, *, config):
     self._consume_process_line("validation child finished", None, False)
 
     def pending_focus():
