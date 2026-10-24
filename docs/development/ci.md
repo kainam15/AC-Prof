@@ -55,7 +55,9 @@ PyPI 无法查询的 CUDA/CPU 特殊 wheel（常见为 `torch`、`torchaudio` �
 会在 JSON 中带 `skip_reason`，报告器将其单列为 **NOT ASSESSED / INCOMPLETE**，
 明确区分于已检查而无已知漏洞的包。结构损坏、缺少原因、所有包均跳过或扫描输出缺失会使
 CI 报告核验失败，不允许将跳过状态解释为安全。跳过的包需另行检查官方公告与制品来源。
-运行时平台统一迁移 Python 3.12.12（amd64 固定 OCI digest），Debian system lock 已按新的固定
+报告器按 advisory ID 和 aliases 的传递关系去重，避免同一漏洞的 PYSEC/GHSA/CVE 重复计数。
+当前版本修复和剩余风险见[运行时安全基线](runtime-security.md)。
+运行时平台统一迁移 Python 3.12.15（amd64 固定 OCI digest），Debian system lock 已按新的固定
 snapshot 重新生成，4 个平台锁和 27 个环境锁按目标 ABI 再解析并固定 URL/SHA256。
 所有含 Pillow/filelock 的运行时环境分别要求 Pillow 13.0.0、filelock 4.2.4。
 仍有其他已知漏洞或未能在 PyPI 审计的 PyTorch 特定 wheel，必须独立报告；
@@ -87,25 +89,24 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
-Python 3.12.12 Slim Trixie 的基础镜像固定为 Docker Hub 官方仓库的 OCI index SHA256，
+Python 3.12.15 Slim Trixie 的基础镜像固定为 Docker Hub 官方仓库的 amd64 OCI manifest SHA256，
 且 `runtime_profiles.py`、平台 manifest 与 system lock 必须一致。
 DaoCloud 代理曾在 GitHub runner 上对相同 digest 返回 `application/octet-stream`，
 导致 Docker BuildKit 无法解析镜像；CI 不使用该代理作为规范引用。
-这仅变更仓库位置，不变更固定的 OCI digest、镜像层或系统包锁。
 其他网络环境如需使用镜像加速，应在不改变镜像身份与 digest 校验的前提下独立配置。
-另有 `nlp-transformers560-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
+另有 `nlp-transformers5104-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
 `custom-multimodal-cpu` 矩阵项运行 `test_custom_multimodal_runtime.py`：未知 `auto_map` 架构的
 随机小模型经音频、图像、视频输入映射执行，比较共享四阶段与上游 pipeline 结果，并检查
 重复推理、真实 Torch profiler 算子及独立 runtime validation；容器禁止网络和跳过。
 两个 Transformers 版本线均执行 `test_audio_generation_runtime.py`：保存小型原生模型 snapshot，
 再经过共享 Auto 加载、原生音频消息、真实 `generate` 和输出验证；逐参数核对加载权重，防止
-组合模型的前缀处理丢失权重。4.57.6 验证 Voxtral/Qwen2 Audio；5.6.0 另验证 Omni 文本子模型。
+组合模型的前缀处理丢失权重。4.57.6 验证 Voxtral/Qwen2 Audio；5.10.4 另验证 Omni 文本子模型。
 这些随机权重验证接口，不证明完整 checkpoint 的容量、质量或正式 profiling 指标。
 
 `check_runtime.py` 将所选 `ACPROF_RUNTIME_PROFILE` 与 `ACPROF_MODEL_ADAPTER` 显式传入容器，
 让版本核对、adapter、精度和 remote-code 策略都绑定该 profile。共享同一依赖环境的不同任务仍
-各用合法 profile：5.6.0 的 NLP 与音频生成分别为 `nlp-transformers560-cpu` 和
-`multimodal-transformers560-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
+各用合法 profile：5.10.4 的 NLP 与音频生成分别为 `nlp-transformers5104-cpu` 和
+`multimodal-transformers5104-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
 进程注册允许/拒绝 profile，生产信任策略不放宽；basic probe fixture 显式设置 backend、profile 和 adapter，
 避免继承主机环境或在导入测试前因缺少配置而失败。
 容器测试继续保留版本检查、禁网和 `--require-no-skips`。
@@ -122,9 +123,9 @@ CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
 .venv/bin/python scripts/run_tests.py --report internal-testing/host-tests.json
 .venv/bin/python scripts/compile_locks.py --check
 .venv/bin/python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/audio-runtime
-.venv/bin/python scripts/check_runtime.py --profile moss-transformers560 --build-only --output-dir internal-testing/moss-dependencies
-.venv/bin/python scripts/check_runtime.py --profile nlp-transformers560-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
-.venv/bin/python scripts/check_runtime.py --profile multimodal-transformers560-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
+.venv/bin/python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/moss-dependencies
+.venv/bin/python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
+.venv/bin/python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
 .venv/bin/python scripts/render_metric_reference.py --check
 ```
 
@@ -247,7 +248,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 比较 Chronos-Bolt／Chronos-2 的多序列预测；`test_nlp_runtime.py` 比较完整句向量模块图、默认 prompt
 和归一化数值。`test_transformers5_runtime.py` 用旧环境没有的 Qwen3.5 原生小配置验证共享 NLP 入口，
 并验证新版图像 processor 的输入形状、检测框及依赖 OpenCV 的多边形输出。该测试需在
-`nlp-transformers560-cpu` 共享环境显式运行；随机小配置不是热门 checkpoint 的采集或准确率证据。
+`nlp-transformers5104-cpu` 共享环境显式运行；随机小配置不是热门 checkpoint 的采集或准确率证据。
 
 候选发现、冲突处理、本地模型声明、镜像／恢复身份和输入宽度回归见
 `test_model_discovery.py`；`test_validation_stages.py` 检查成功步骤、失败位置及原异常保留。

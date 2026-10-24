@@ -217,8 +217,8 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 焦点移到搜索或详情区域后仍保留该路径，高亮与复选框勾选状态独立。
 平台节点统一显示 `Python CPU`、`PyTorch CPU`、`PyTorch CUDA 12.4`、`PyTorch CUDA 12.8`；`Python CPU` 对应不预装 Torch 的 `python-cpu` 平台，其余平台预装相应 CPU/CUDA 版 Torch。父节点已说明同一平台时，运行依赖子节点省略与平台 ID 完全匹配的后缀，如 `nlp-cu124` 显示为 `nlp`。
 列表、层引用和缺少同平台父节点的依赖镜像保留可读的平台说明，例如 `nlp · PyTorch CUDA 12.4`。已有平台筛选项使用相同名称。
-已知环境别名显示为 `moss-transformers5.6.0`、`multimodal-transformers4.57.6`，其它名称中已有的小数点原样保留。
-搜索同时支持完整显示名称（如 `PyTorch CUDA 12.8`）、名称片段（如 `CUDA 12.8`、`5.6.0`）与原始标签、profile 名称。
+已知环境别名显示为 `moss-transformers5.10.4`、`multimodal-transformers4.57.6`，其它名称中已有的小数点原样保留。
+搜索同时支持完整显示名称（如 `PyTorch CUDA 12.8`）、名称片段（如 `CUDA 12.8`、`5.10.4`）与原始标签、profile 名称。
 `acprof-runtime-env:<hash>` 的逻辑名称通过 `org.acprof.environment` 与当前完整依赖锁身份精确匹配，
 相同环境的多个名称并列显示；旧环境无法匹配时显示环境摘要与平台，不凭标签猜任务族。原始 repository/tag 和 Docker 镜像保持原样。
 
@@ -227,7 +227,7 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 不是“层共享”视图中的每条物理 Diff ID：
 
 - 公共基础：显示平台 Python 锁中的完整包集合（包含上游 Python 基础镜像已有包），以及系统锁中本层安装的 `.deb` 制品；不将完整系统包表中的上游包算成本层安装。
-- 运行依赖：用完整环境锁减去其平台锁，显示本层新增 Python 包；系统包继承平台。例如 MOSS 层显示 `transformers==5.6.0`，平台已有的 `torch` 不重复列入。
+- 运行依赖：用完整环境锁减去其平台锁，显示本层新增 Python 包；系统包继承平台。例如 MOSS 层显示 `transformers==5.10.4`，平台已有的 `torch` 不重复列入。
 - 模型文件与推理服务：最近构建步骤、父镜像关系和环境身份均可核对时显示“无新增包”，分别说明本层添加模型文件或服务代码与运行清单。
 - 当前依赖锁无法匹配历史镜像时，不据当前 profile 猜测旧版本；只在展开某镜像的依赖分组后后台读取该镜像内的 `platform-manifest.json` 或 `environment-manifest.json`。原始清单保存的是构建时核验过的完整 Python / Debian 安装集合；同时校验清单中的构建身份与不可变镜像标签。
 - 若镜像不存在有效构建清单，仅对 AC-Prof 管理且可识别构建步骤的基础/运行依赖镜像，在禁网、只读、去 capability、禁提权、CPU/内存/PID 限制的临时容器内查询实际 Python 发行包及 dpkg 系统包；结束即删除容器，不加载模型。构建记录不可核验或 Python/dpkg 不可用时保留“未知”及具体原因，不对任意第三方镜像执行代码。
