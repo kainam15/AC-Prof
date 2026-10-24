@@ -528,7 +528,7 @@ class TestTuiImages:
             await pilot.pause()
             detail = str(app.query_one("#image-dependency-detail", Static).content)
             assert ("transformers==4.57.6") in (detail)
-            assert ("sentence-transformers==5.1.2") in (detail)
+            assert ("sentence-transformers==5.6.0") in (detail)
             assert ("torch==") not in (detail)
             assert ("sha256:") not in (detail)
             assert ("依赖来源") not in (detail)

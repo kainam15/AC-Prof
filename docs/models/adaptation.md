@@ -96,15 +96,17 @@ AC-Prof 沿用现有 manifest／Handler 和独立 Docker 验证，将有效声�
 [Transformers pipeline 工厂](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
 的 `custom_pipelines/auto_map` 协议；上游维护中的接口仍以本项目锁定版本和实际验证为准。
 
-共享模型接口直接复用官方 [Transformers Auto 注册表](https://github.com/huggingface/transformers/blob/v5.10.4/src/transformers/models/auto/modeling_auto.py)、
+共享模型接口直接复用官方 [Transformers Auto 注册表](https://github.com/huggingface/transformers/blob/main/src/transformers/models/auto/modeling_auto.py)、
 [timm wrapper](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/models/timm_wrapper/configuration_timm_wrapper.py)、
 [Chronos 基类分派](https://github.com/amazon-science/chronos-forecasting/blob/v2.3.2/src/chronos/base.py) 与
 [SentenceTransformer 模块加载和 encode](https://github.com/huggingface/sentence-transformers/blob/v5.1.2/sentence_transformers/SentenceTransformer.py)。
 这些上游持续维护，许可均为 Apache-2.0；保留固定版本，模型权重另按仓库许可。
 不复制各 checkpoint 的推理脚本；新增依赖为 CV 的 timm 和独立的 Transformers 5.10.4 共享环境。
-新版共享环境还锁定 [OpenCV headless](https://github.com/opencv/opencv-python) 4.13.0.92，供原生
+新版共享环境还锁定 [OpenCV headless](https://github.com/opencv/opencv-python) 4.14.0.94，供原生
 图像 processor 的轮廓／多边形处理使用；只安装 headless 包，不引入 GUI 依赖。OpenCV 采用
-Apache-2.0，Python 打包工具为 MIT；目标 wheel 约 60 MB，沿用 NumPy 2.2.6，不升级其余锁定包。
+Apache-2.0，Python 打包工具为 MIT；沿用 NumPy 2.2.6，制品大小及 SHA256 以对应锁清单为准。
+精确 Transformers 注册表来自已锁定 wheel，源码文件路径和 SHA256 见
+[5.10.4 支持目录](../../acprof/extensions/transformers/5.10.4.json)。
 已有采集器不按模型分支。元数据解析、环境选择与下载在测量前完成；prompt、Pooling、Normalize
 和必要的预测输出整理属于实际请求工作，不从测量中扣除。
 
