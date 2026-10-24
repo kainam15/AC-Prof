@@ -450,9 +450,9 @@ def image_display_name(item: ManagedImage, parent: ManagedImage | None = None) -
     pinned_ref, separator, pinned_digest = PYTHON_BASE_IMAGE.partition("@")
     repository, tag_separator, version = pinned_ref.rpartition(":")
     if (not item.tags and not item.acprof and separator and tag_separator
-            and re.fullmatch(r"\d+\.\d+-slim", version)
+            and (match := re.fullmatch(r"(\d+\.\d+)(?:\.\d+)?-slim(?:-[a-z0-9]+)?", version))
             and f"{repository}@{pinned_digest}" in item.repo_digests):
-        return message_id('ui.0330', version.removesuffix("-slim"))
+        return message_id('ui.0330', match.group(1))
     platform = IMAGE_PLATFORMS.get(item.platform_id, item.platform_id)
     if item.kind == "base" and item.platform_id in IMAGE_PLATFORMS:
         return platform
