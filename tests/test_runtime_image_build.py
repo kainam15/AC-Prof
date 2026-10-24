@@ -34,6 +34,13 @@ FAMILIES = {
 }
 
 
+def test_docker_build_context_excludes_developer_artifacts():
+    ignore = (PROJECT_ROOT / '.dockerignore').read_text(encoding='utf-8').splitlines()
+    patterns = {item.strip() for item in ignore if item.strip() and not item.startswith('#')}
+    assert {'tests/', 'docs/', '.pytest_cache/', '.mypy_cache/', '.ruff_cache/',
+            '.coverage*', '.env*', 'internal-testing', 'results*'} <= patterns
+
+
 class TestRuntimeImageBuild:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):

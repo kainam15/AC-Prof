@@ -8,6 +8,9 @@
 构建链路为 `platform.Dockerfile` → `runtime.Dockerfile` → `runtime-model.Dockerfile` →
 `runtime-final.Dockerfile`，分别缓存平台、完整环境、模型计划清单和服务代码。
 模型权重由主机 [Model Store](model-store.md#下载网络与-model-store) 管理并只读挂载，不写入新镜像。
+Docker build context 忽略 `tests/`、`docs/`、pytest/mypy/Ruff 缓存、覆盖率和本地运行证据；
+服务镜像构建仍由 `source_identity.service_context_files` 按白名单独立暂存源文件，
+不会将开发凭据、实验结果或测试目录复制进推理镜像。
 
 `environment_id` 是规范化平台声明、系统锁及全部 Python 包版本、来源 URL、制品 SHA256 的摘要。
 锁的文件名、注释、顺序、profile、adapter、模型和业务代码不参与该身份。平台镜像的指纹另计

@@ -4,6 +4,12 @@
 .release-venv
 dist
 build
+tests/
+docs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
 .env*
 .agents
 .codex
