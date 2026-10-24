@@ -11,6 +11,13 @@
 Docker build context 忽略 `tests/`、`docs/`、pytest/mypy/Ruff 缓存、覆盖率和本地运行证据；
 服务镜像构建仍由 `source_identity.service_context_files` 按白名单独立暂存源文件，
 不会将开发凭据、实验结果或测试目录复制进推理镜像。
+最终服务镜像先以 root 完成固定的源码清单生成，再创建 UID/GID 65532 的 `acprof`
+账户并切换为非 root 运行，`HOME` 和 Torch 缓存指向容器临时目录；主机 Model Store 始终只读。
+可缓存的 Python 镜像仍在 root 构建阶段安装已锁定依赖，不需要运行时安装权限。
+非 root 运行须分别验收 CPU 模型 `/ready`、`/predict`、CUDA 设备和 GPU profiler；
+这些基础 smoke **不能替代** 当前源码指纹对应的 CPU/GPU 完整采集与正式测量窗口验收。
+Docker bridge 保留本机回环地址端口映射；直接改成 `--network none` 或 internal network 会破坏
+现有 HTTP 测量链路。模型离线加载不等于 Docker 层级的出站网络封锁。
 
 `environment_id` 是规范化平台声明、系统锁及全部 Python 包版本、来源 URL、制品 SHA256 的摘要。
 锁的文件名、注释、顺序、profile、adapter、模型和业务代码不参与该身份。平台镜像的指纹另计

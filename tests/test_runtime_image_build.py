@@ -41,6 +41,16 @@ def test_docker_build_context_excludes_developer_artifacts():
             '.coverage*', '.env*', 'internal-testing', 'results*'} <= patterns
 
 
+def test_final_runtime_runs_as_nonroot_without_changing_build_stage():
+    dockerfile = (PROJECT_ROOT / 'dockerfiles/runtime-final.Dockerfile').read_text()
+    manifest_index = dockerfile.index('RUN python -m acprof.container.runtime_manifest')
+    user_index = dockerfile.index('USER acprof:acprof')
+    assert manifest_index < user_index
+    assert 'useradd --no-log-init --uid 65532 --gid 65532' in dockerfile
+    assert 'ENV HOME=/tmp TORCHINDUCTOR_CACHE_DIR=/tmp/acprof-torch' in dockerfile
+    assert dockerfile.index('COPY acprof/') < manifest_index
+
+
 class TestRuntimeImageBuild:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
