@@ -39,8 +39,14 @@ def pytest_configure(config):
 
 def pytest_ignore_collect(collection_path, config):
     patterns = config.getoption("pattern")
-    if patterns and collection_path.suffix == ".py":
-        return not any(fnmatch(collection_path.name, pattern) for pattern in patterns)
+    if patterns:
+        if collection_path.is_dir():
+            # pytest imports a directory's conftest before visiting its files.
+            # Exclude unselected trees before optional runtime fixtures import.
+            return not any(fnmatch(path.name, pattern)
+                           for path in collection_path.rglob("*.py") for pattern in patterns)
+        if collection_path.suffix == ".py":
+            return not any(fnmatch(collection_path.name, pattern) for pattern in patterns)
     return None
 
 

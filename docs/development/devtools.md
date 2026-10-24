@@ -5,6 +5,8 @@
 ## 辅助开发工具
 `requirements/test.in` / `test.lock` 统一固定 pytest 9、pytest-asyncio、pytest-cov。
 `dev.in` 引入这些工具，但主机和推理 runtime 的依赖声明不包含测试工具。
+开发锁还固定 `pip`，供 `check_runtime.py` 下载带哈希的容器测试工具；
+`uv venv` 本身不预装 `pip`。
 固定场景 SVG 回归使用仓库自有 `tests/visual/conftest.py`，基于 Textual 截图导出，
 不再依赖停更且约束 pytest＜9 的 pytest-textual-snapshot/syrupy；既有 SVG 文件不改变。
 `textual-dev` 与 Hypothesis 仍是按需工具，添加普通测试依赖前须同步开发锁和 CI。

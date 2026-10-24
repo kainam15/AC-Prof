@@ -177,6 +177,29 @@ def test_overlapping_patterns_do_not_duplicate_cases(suite):
     assert report["counts"]["passed"] == 1
 
 
+@pytest.mark.parametrize("wrapper", [False, True])
+def test_pattern_prunes_unselected_directory_before_loading_its_conftest(suite, tmp_path, wrapper):
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    (unrelated / "conftest.py").write_text("raise RuntimeError('unselected fixture dependency')\n")
+    (unrelated / "test_unrelated.py").write_text("def test_other():\n    pass\n")
+    selected = tmp_path / "nested" / "selected"
+    selected.mkdir(parents=True)
+    (selected / "test_selected.py").write_text("def test_nested():\n    pass\n")
+    source = "def test_root():\n    pass\n"
+    result, report = suite(source, "--pattern", "test_sample.py", "--pattern", "test_selected.py",
+                           wrapper=wrapper)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert report["counts"]["passed"] == 2
+    assert report["collection_errors"] == []
+
+    # An explicitly selected directory must still expose its broken fixture.
+    result, report = suite(source, "--pattern", "test_unrelated.py", wrapper=wrapper)
+    assert result.returncode != 0
+    assert report["successful"] is False
+    assert "unselected fixture dependency" in str(report["collection_errors"])
+
+
 def test_deselection_precedes_sharding_and_collection_only_is_not_execution(suite):
     source = "def test_selected():\n    pass\ndef test_other():\n    pass\n"
     result, report = suite(source, "-k", "selected", "--collect-only")
