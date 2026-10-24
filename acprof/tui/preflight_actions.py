@@ -19,6 +19,7 @@ from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
 from acprof.tui import run_form, run_planning
 from acprof.tui.diagnostics import PreflightCheck
+from acprof.tui.i18n import message_id
 from acprof.tui.views import EnvironmentPreflightScreen
 
 if TYPE_CHECKING:
@@ -126,7 +127,7 @@ class PreflightActions(MessagePump):
         if self._stop_requested:
             return
         if event["stage"] == "runtime" and event.get("status") == "passed":
-            self._write_log(self.tr("✓ 模型检测完成"))
+            self._write_log(self.tr(message_id('ui.0060')))
             self._close_preparation()
             return
         request = event.get("request")
@@ -193,16 +194,16 @@ class PreflightActions(MessagePump):
         if TYPE_CHECKING:
             assert isinstance(self, AcprofTui)
         if not self.is_running or not self._form_ready or self._ui_closing:
-            return message("正在检查环境；完成后可开始采集。")
+            return message_id('ui.0599')
         if self._check_running or not self._check_completed:
-            return message("正在检查环境；完成后可开始采集。")
+            return message_id('ui.0599')
         if self._preflight_error:
-            return message("环境检查失败：{0}", self._preflight_error)
+            return message_id('ui.0600', self._preflight_error)
         if self._preflight_config() != self._checked_config:
-            return message("环境相关配置已更改，请重新检查。")
+            return message_id('ui.0601')
         failures = [message("{0}: {1}", check.label, check.detail)
                     for check in self._preflight_checks if check.status == "fail"]
-        return message("采集已阻止：{0}", join_messages("；", failures)) if failures else ""
+        return message_id('ui.0602', join_messages("；", failures)) if failures else ""
 
     def _allow_collection(self) -> bool:
         if TYPE_CHECKING:

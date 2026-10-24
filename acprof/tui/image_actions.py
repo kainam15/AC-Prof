@@ -29,7 +29,8 @@ from acprof.host.image_management import (
     list_images,
     read_storage,
 )
-from acprof.messages import join_messages, message
+from acprof.messages import Message, join_messages
+from acprof.tui.i18n import message_id
 from acprof.tui.images import (
     IMAGE_KINDS,
     ImageDeleteScreen,
@@ -133,15 +134,15 @@ class ImageActions(MessagePump):
         if TYPE_CHECKING:
             assert isinstance(self, AcprofTui)
         if self._image_refresh_error:
-            self._set_text(self.query_one("#image-status", Static), message(
-                "镜像读取失败，将自动重试：{0}", self._image_refresh_error,
+            self._set_text(self.query_one("#image-status", Static), message_id(
+                'ui.0453', self._image_refresh_error,
             ))
             return
         if self._image_inventory is None:
             return
         hidden = len(self._selected_image_ids - {item.image_id for item in self._visible_images})
-        self._set_text(self.query_one("#image-status", Static), message(
-            "环境 {0} · 匹配 {1}/{2} · 已选 {3}（筛选外 {4}）",
+        self._set_text(self.query_one("#image-status", Static), message_id(
+            'ui.0420',
             self._image_inventory.connection.name, len(self._visible_images), len(self._image_inventory.images),
             len(self._selected_image_ids), hidden,
         ))
@@ -295,7 +296,7 @@ class ImageActions(MessagePump):
             return
         if self._latest_snapshot.measurement_active:
             self._set_text(self.query_one("#image-dependency-detail", Static),
-                           message("正式测量期间不读取镜像依赖。"))
+                           message_id('ui.0358'))
             return
         pending = getattr(self, "_image_dependency_pending", None)
         if pending is None:
@@ -304,9 +305,9 @@ class ImageActions(MessagePump):
             return
         pending.add(item.image_id)
         panel = self.query_one("#image-dependencies", Collapsible)
-        self._set_text(panel, message("依赖清单 · 正在读取"), "title")
+        self._set_text(panel, message_id('ui.0356'), "title")
         self._set_text(self.query_one("#image-dependency-detail", Static),
-                       message("正在读取镜像原始清单；缺失时将尝试安全扫描。"))
+                       message_id('ui.0357'))
         self._execute_image_dependency_resolution(inventory, item.image_id)
 
     @work(thread=True, group="image-dependency-resolution", exit_on_error=False)
@@ -399,7 +400,7 @@ class ImageActions(MessagePump):
             return
         self._image_operation = "refresh"
         if self._image_inventory is None and not self._image_refresh_error:
-            self._set_text(self.query_one("#image-status", Static), message("{0} 正在读取 Docker 镜像与容器引用", CALCULATING))
+            self._set_text(self.query_one("#image-status", Static), message_id('ui.0454', CALCULATING))
         self._set_busy(True)
         self._execute_image_refresh()
 
@@ -483,7 +484,7 @@ class ImageActions(MessagePump):
                 if current.daemon_id == storage.daemon_id and set(ids) <= available:
                     estimate = reclaimable_image_bytes(current, ids)
                 else:
-                    error = message("所选镜像或引用已改变，请关闭弹窗并重新选择。")
+                    error = message_id('ui.0324')
             else:
                 estimate = 0
         except Exception as exc:
@@ -569,9 +570,9 @@ class ImageActions(MessagePump):
             assert isinstance(self, AcprofTui)
         self._show_images(inventory, error, clear_selection=True)
         successful = sum(item.success for item in outcomes)
-        result = message("已处理 {0} 个镜像，失败 {1} 个；操作详情见运行监控日志。", successful, len(outcomes) - successful)
+        result: Message = message_id('ui.0461', successful, len(outcomes) - successful)
         if error:
-            result = join_messages("\n", (result, message("镜像操作未完成：{0}", error)))
+            result = join_messages("\n", (result, message_id('ui.0462', error)))
         self._set_text(self.query_one("#image-status", Static), result)
         log = self.query_one("#run-log", SelectableLog)
         log.write(self.tr(result))

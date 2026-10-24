@@ -15,9 +15,9 @@ from acprof.experiment import RunConfig
 from acprof.host.env_utils import configurable_env_values, save_project_env
 from acprof.host.permissions import build_permission_plan, execute_permission_plan
 from acprof.host.run_state import MeasurementLock
-from acprof.messages import message
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.diagnostics import quick_preflight
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.views import ConfirmActionScreen, StatusCheckbox
@@ -102,7 +102,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         with Vertical(id='environment-dialog'):
             with Vertical(id='environment-heading'):
                 yield Static(tr('连接与权限'), id='environment-title')
-                yield Static(tr(message('保存到 {0}；保存后用于本次会话和后续启动。', self.project_dir / '.env.local')),
+                yield Static(tr(message_id('ui.0266', self.project_dir / '.env.local')),
                              id='environment-status', markup=False)
             with TabbedContent(id='environment-tabs'):
                 with TabPane(tr('连接配置'), id='connections-tab'):
@@ -160,10 +160,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
             path = save_project_env(self.project_dir, values, expected_text=self.original_text)
             self.original_text = path.read_text(encoding='utf-8')
         except (OSError, ValueError) as exc:
-            self._status(message('配置保存失败：{0}', str(exc)), error=True)
+            self._status(message_id('ui.0283', str(exc)), error=True)
             return
         self.saved = True
-        self._status(message('已保存到 {0}；新启动的任务使用这些配置。', path))
+        self._status(message_id('ui.0284', path))
 
     def _set_working(self, working):
         self._working = working
@@ -175,7 +175,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         if self._working:
             return
         self._set_working(True)
-        self.query_one('#permission-report', Static).update(translated_app(self.app).tr('正在检查环境……'))
+        self.query_one('#permission-report', Static).update(translated_app(self.app).tr(message_id('ui.0285')))
         self._check_permissions()
 
     @work(thread=True, exclusive=True, group='environment-check', exit_on_error=False)
@@ -196,7 +196,7 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         if not self.is_mounted or self is not self.app.screen:
             return
         self.query_one('#permission-report', Static).update(report)
-        self._status(message('环境检查完成：{0} 项失败；详细结果见下方。', failures), error=bool(failures))
+        self._status(message_id('ui.0260', failures), error=bool(failures))
         self._set_working(False)
 
     @on(Button.Pressed, '#configure-environment-permissions')
@@ -208,11 +208,10 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
         try:
             plan = build_permission_plan(names)
         except (OSError, ValueError) as exc:
-            self._status(message('无法配置权限：{0}', str(exc)), error=True)
+            self._status(message_id('ui.0286', str(exc)), error=True)
             return
-        detail = message(
-            '为当前用户授权所选工具，限制普通用户执行范围；不修改 perf_event_paranoid。\n'
-            '会保存原权限，并通过系统终端请求 sudo 授权。\n\n{0}',
+        detail = message_id(
+            'ui.0287',
             '\n'.join(shlex.join(command) for command in plan.commands),
         )
         self.app.push_screen(PermissionReviewScreen('配置采集权限', detail, '执行配置'),
@@ -235,12 +234,12 @@ class EnvironmentSettingsScreen(ModalScreen[bool]):
                 except (Exception, KeyboardInterrupt) as exc:
                     error = str(exc) or type(exc).__name__
         except SuspendNotSupported:
-            error = translated_app(self.app).tr('当前终端不支持系统授权，请在原生终端启动 TUI。')
+            error = translated_app(self.app).tr(message_id('ui.0290'))
         self._set_working(False)
         if error:
-            self._status(message('权限配置未完成：{0}', error), error=True)
+            self._status(message_id('ui.0291', error), error=True)
         else:
-            self._status(message('权限配置已执行，原权限保存在 {0}；正在复查。', backup))
+            self._status(message_id('ui.0292', backup))
             self.check_permissions()
 
     @on(Button.Pressed, '#close-environment-settings')

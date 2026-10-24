@@ -8,8 +8,8 @@ from textual.message_pump import MessagePump
 from textual.widgets import Input as TextualInput
 
 from acprof.experiment import RunConfigError
-from acprof.messages import message
 from acprof.tui.commands import parse_slash_command
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 
@@ -87,16 +87,10 @@ class SlashCommandActions(MessagePump):
             self.action_show_settings()
         elif command == "help":
             self.query_one("#run-log", SelectableLog).write(
-                self.tr("[TUI] /run 采集 · /probe 最大输入探测 · /check 环境检查 · "
-                "/status 状态 · /stop 终止 · "
-                "/smoke 最小预设 · /main 主矩阵 · /preview 命令预览 · "
-                "/plot [csv] 绘图 · /profile [dir] [tools] 补采计划 · "
-                "/profile-run [dir] [tools] 执行补采 · /results [csv] 摘要 · "
-                "/stats [csv/dir] 统计 · /report [json] 报告 · /images 镜像管理 · "
-                "/settings 应用设置 · /log 放大日志 · /clear 清日志 · /quit 退出")
+                self.tr(message_id('ui.0818'))
             )
             self._activate_tab("monitor-tab")
         elif command in {"quit", "exit"}:
             self.action_request_quit()
         else:
-            self.notify(message('未知快捷命令：/{0}', command), severity="error")
+            self.notify(message_id('ui.0819', command), severity="error")

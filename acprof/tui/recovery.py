@@ -24,7 +24,7 @@ from acprof.tui.experiment_catalog import (
     resume_command,
     scan_experiments,
 )
-from acprof.tui.i18n import error_message
+from acprof.tui.i18n import error_message, message_id
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
             record = catalog.records[0] if catalog.records else None
             issues.extend(catalog.warnings)
         elif read_artifact(layout.path("run_state.json")) != record.state:
-            raise ValueError(message("实验记录已变化，请重新选择后检查恢复条件。"))
+            raise ValueError(message_id('ui.0039'))
     except (OSError, ValueError) as exc:
         issues.append(error_message(exc))
         record = None
@@ -72,7 +72,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
     if record is not None:
         phase = recovery_phase(directory, record.state)
         if record.status == "complete":
-            issues.append(message("原实验记录为已完成；可以查看结果或创建新实验。"))
+            issues.append(message_id('ui.0040'))
         else:
             try:
                 _check_writer(ArtifactLayout.discover(directory))
@@ -90,7 +90,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
             except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
                 issues.append(error_message(exc))
     else:
-        issues.append(message("没有可还原的实验状态；原目录保留，重新运行会创建新实验。"))
+        issues.append(message_id('ui.0041'))
 
     fresh = new_experiment_config(config, directory.parent)
     if (record is not None and pinned_revision(record.revision)
@@ -108,7 +108,7 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
                "complete": "原实验记录为已完成。", "unknown": "无法确认原实验的恢复状态。"}[phase]
     details = [message(summary), *issues]
     if resume is not None:
-        details.append(message("恢复使用原实验的完整参数；启动时仍会核对镜像与实际运行条件。"))
+        details.append(message_id('ui.0046'))
     if restart is not None:
-        details.append(message("新实验使用当前配置，原目录与历史记录保留。\n新输出目录：{0}", fresh.output_dir))
+        details.append(message_id('ui.0047', fresh.output_dir))
     return RecoveryReview(directory, phase, join_messages("\n\n", details), resume, restart, record)

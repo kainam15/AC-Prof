@@ -1,3 +1,4 @@
+import ast
 import re
 import tempfile
 from dataclasses import replace
@@ -29,6 +30,24 @@ from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 from acprof.tui.stages import Stage
 from acprof.tui.translation_catalog import ENGLISH_BY_ID, SOURCE_BY_ID, SOURCE_TO_ID
+
+
+def test_tui_catalog_literals_use_stable_message_ids():
+    """New UI display call sites cannot regress to Chinese string keys."""
+    root = Path(__file__).resolve().parents[1] / 'acprof' / 'tui'
+    failures = []
+    for path in root.rglob('*.py'):
+        if path.name in {'i18n.py', 'translation_catalog.py'}:
+            continue
+        for call in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if not (isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant)
+                    and isinstance(call.args[0].value, str) and call.args[0].value in SOURCE_TO_ID):
+                continue
+            if isinstance(call.func, ast.Name) and call.func.id == 'message':
+                failures.append(f'{path.name}:{call.lineno}: message')
+            if isinstance(call.func, ast.Attribute) and call.func.attr == 'tr':
+                failures.append(f'{path.name}:{call.lineno}: tr')
+    assert failures == []
 
 
 def test_templates_translate_nested_ui_text_and_preserve_user_values():

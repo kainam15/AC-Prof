@@ -12,6 +12,8 @@ from pathlib import Path
 from threading import Event
 from typing import Literal
 
+from acprof.tui.i18n import message_id
+
 try:
     from rich.console import Console
     from textual import events, on, work
@@ -296,7 +298,7 @@ class AcprofTui(
         self._configure_scrollbars()
         self._capture_language_text()
         self._apply_ui_preferences()
-        self._set_text(self.query_one('#settings-location', Static), message('保存位置：{0}', self.settings_path))
+        self._set_text(self.query_one('#settings-location', Static), message_id('ui.0729', self.settings_path))
         self._update_responsive_layout()
         self._selected_preset = self._select("run-preset")
         self._form_ready = True
@@ -446,7 +448,7 @@ class AcprofTui(
         self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         log = self.query_one("#run-log", SelectableLog)
         log.write(f"$ {format_command(pending.command)}")
-        log.write(self.tr("[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。"))
+        log.write(self.tr(message_id('ui.0766')))
         self._render_snapshot(self._latest_snapshot)
         self._execute_command(list(pending.command), pending.kind)
 
@@ -485,7 +487,7 @@ class AcprofTui(
     })
 
     def _process_cleanup_incomplete(self, result: StopResult) -> None:
-        detail = message('PID {0} 仍未确认退出：{1}；可再次停止。', result.pid, result.error)
+        detail = message_id('ui.0259', result.pid, result.error)
         self._latest_snapshot = replace(self._latest_snapshot, stage=Stage.CLEANUP_INCOMPLETE, detail=detail)
         self._render_snapshot(self._latest_snapshot)
         self._write_log(detail)
@@ -495,17 +497,17 @@ class AcprofTui(
     def _process_started(self, pid: int, kind: str) -> None:
         self._set_busy(True)
         self.query_one("#run-log", SelectableLog).write(
-            self.tr(message('[TUI] {0} 进程已启动，PID={1}', kind, pid))
+            self.tr(message_id('ui.0782', kind, pid))
         )
 
     def _show_suppressed_count(self, count: int) -> None:
         self.query_one("#run-log", SelectableLog).write(
-            self.tr(message('[TUI] 为降低测量干扰，本窗口隐藏了 {0} 行常规输出。', count))
+            self.tr(message_id('ui.0783', count))
         )
 
     def _show_deferred_lines(self, lines: tuple[str, ...]) -> None:
         log = self.query_one("#run-log", SelectableLog)
-        log.write(self.tr("[TUI] 测量窗口结束，显示期间延迟刷新的重要消息："))
+        log.write(self.tr(message_id('ui.0784')))
         for line in lines:
             log.write(line)
 
@@ -568,8 +570,8 @@ class AcprofTui(
             self._STAGE_CSS_CLASS.get(snapshot.stage, "stage-running")
         )
         self._set_text(self.query_one('#status-elapsed', Static), elapsed)
-        self._set_text(self.query_one("#status-case", Static), message(
-            "当前 {0} · 已完成 {1}/{2}", snapshot.current_case or NOT_APPLICABLE,
+        self._set_text(self.query_one("#status-case", Static), message_id(
+            'ui.0785', snapshot.current_case or NOT_APPLICABLE,
             snapshot.completed_cases, snapshot.total_cases,
         ))
         missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
@@ -618,29 +620,29 @@ class AcprofTui(
             and returncode != 0 and not self._stop_requested and not launch_error
         )
         if launch_error:
-            log.write(self.tr(message('[TUI][ERROR] 无法运行命令：{0}', launch_error)))
+            log.write(self.tr(message_id('ui.0786', launch_error)))
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
         elif comparison_ready:
-            notice: str = message("比较报告已生成；请查看可比性、质量和证据不足的原因。")
+            notice: str = message_id('ui.0488')
             log.write(self.tr(notice))
             self.notify(notice, severity="information", timeout=8)
         elif returncode == 0 and kind != "run" and not self._stop_requested:
-            log.write(self.tr(message('[TUI] {0} 任务完成，退出码 0', kind)))
-            notice = (message("已有相同报告：{0}", self._stats_report_path)
+            log.write(self.tr(message_id('ui.0788', kind)))
+            notice = (message_id('ui.0571', self._stats_report_path)
                       if kind == "stats" and self._stats_report_reused else "任务已完成")
             self.notify(notice, severity="information", timeout=8 if self._stats_report_reused else 5)
         elif self._stop_requested:
-            log.write(self.tr(message('[TUI] 任务已由用户终止，退出码 {0}', returncode)))
+            log.write(self.tr(message_id('ui.0790', returncode)))
             self.notify("任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
         elif unsupported_task and snapshot is not None:
             log.write(self.tr(snapshot.detail))
-            log.write(self.tr(message(
-                '处理办法：换用已适配任务的模型；识别有误时修正配置；需要该任务时等待或开发适配。'
+            log.write(self.tr(message_id(
+                'ui.0587'
             )))
             self.notify(snapshot.detail, title="任务不支持", severity="error", timeout=12)
         elif kind != "run":
-            log.write(self.tr(message('[TUI][ERROR] {0} 任务失败，退出码 {1}', kind, returncode)))
-            self.notify(message('任务失败，退出码 {0}', returncode), severity="error", timeout=8)
+            log.write(self.tr(message_id('ui.0792', kind, returncode)))
+            self.notify(message_id('ui.0793', returncode), severity="error", timeout=8)
 
         current_csv = ""
         if unsupported_task and snapshot is not None:
@@ -650,16 +652,16 @@ class AcprofTui(
             result = self._run_result
             stage = result.stage(returncode, self._stop_requested, launch_error)
             final_state = snapshot or self._latest_snapshot
-            detail: str = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
+            detail: str = message_id('ui.0191', result.completed_cases,
                              result.total_cases or final_state.total_cases,
-                             message("可查看结果，或检查恢复与重试选项") if stage is not Stage.COMPLETED else message("可查看结果与计算统计"))
+                             message_id('ui.0048') if stage is not Stage.COMPLETED else message_id('ui.0192'))
             self.query_one("#run-recovery-actions").display = stage is not Stage.COMPLETED
             if result.detail:
                 detail = join_messages("\n", (detail, result.detail))
             if result.new_cases and result.retained_dir:
-                detail = join_messages("\n", (detail, message("已保留的实验目录：{0}", result.retained_dir)))
+                detail = join_messages("\n", (detail, message_id('ui.0184', result.retained_dir)))
             if result.complete and not result.result_csv and not result.new_cases:
-                detail = join_messages("\n", (detail, message("已有实验已完成；本次未重新采集。")))
+                detail = join_messages("\n", (detail, message_id('ui.0185')))
             self._latest_snapshot = replace(final_state, stage=stage, detail=detail,
                 completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
                 measurement_active=False, measurement_status=("passed" if stage is Stage.COMPLETED else
@@ -669,11 +671,11 @@ class AcprofTui(
             if current_csv:
                 self._remember_last_used(result_csv=current_csv, result_dir=str(Path(current_csv).parent))
             else:
-                summary_text = (message("无法确认本次结果：{0}；历史结果可通过原路径查看。", result.detail)
+                summary_text = (message_id('ui.0183', result.detail)
                                 if result.detail and not result.belongs_to_attempt else
-                                message("本次未产生结果 CSV；已保留 {0} 个本次完成的 case。历史结果可通过原路径查看。", result.new_cases))
+                                message_id('ui.0190', result.new_cases))
                 self._set_text(self.query_one("#result-summary", Static), summary_text)
-            self.notify(message("实验{0} · {1}", stage.label, detail),
+            self.notify(message_id('ui.0193', stage.label, detail),
                         severity="information" if stage is Stage.COMPLETED else "warning" if stage in {Stage.PARTIAL, Stage.STOPPED} else "error")
         elif kind == "probe":
             final_state = snapshot or self._latest_snapshot
@@ -681,7 +683,7 @@ class AcprofTui(
                 detail = launch_error or (
                     final_state.detail
                     if final_state.stage is Stage.PROBE_FAILED
-                    else message('探测进程退出码 {0}', returncode)
+                    else message_id('ui.0796', returncode)
                 )
                 final_state = replace(
                     final_state,
@@ -708,13 +710,13 @@ class AcprofTui(
         else:
             if launch_error or (returncode != 0 and not self._stop_requested and not comparison_ready):
                 stage = Stage.FAILED
-                detail = launch_error or message('{0} 进程退出码 {1}', kind, returncode)
+                detail = launch_error or message_id('ui.0799', kind, returncode)
             elif self._stop_requested:
                 stage = Stage.TERMINATED
-                detail = message('用户终止了 {0} 任务', kind)
+                detail = message_id('ui.0800', kind)
             else:
                 stage = Stage.COMPLETED
-                detail = message('{0} 任务已完成', kind)
+                detail = message_id('ui.0801', kind)
             self._latest_snapshot = ProgressSnapshot(stage=stage, detail=detail)
             self._render_snapshot(self._latest_snapshot)
 
@@ -743,7 +745,7 @@ class AcprofTui(
                 self._open_report(str(report_path))
             else:
                 self._activate_tab("reports-tab")
-                self._clear_report(message("统计未完成，请查看“运行监控”中的错误或终止日志。"))
+                self._clear_report(message_id('ui.0570'))
         elif kind == "compare":
             report_path, self._comparison_report_path = self._comparison_report_path, None
             # The comparison CLI uses exit 1 for a valid incompatible/unknown
@@ -752,7 +754,7 @@ class AcprofTui(
                 self._open_report(str(report_path))
             else:
                 self._activate_tab("reports-tab")
-                self._clear_report(message("比较未完成，请查看“运行监控”中的错误或终止日志。"))
+                self._clear_report(message_id('ui.0486'))
 
     @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:

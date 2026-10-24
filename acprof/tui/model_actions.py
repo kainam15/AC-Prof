@@ -10,10 +10,10 @@ from textual.suggester import SuggestFromList
 from textual.widgets import Button, Input as TextualInput, Select
 
 from acprof.experiment import RunConfigError
-from acprof.messages import message
 from acprof.model_evidence import pinned_revision
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.experiment_picker import SearchPickerScreen
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -100,7 +100,7 @@ class ModelActions(MessagePump):
             self.query_one('#model-source', Select).value = candidate.model_source
             self.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
             self._refresh_command_preview()
-            self.notify(message('模型候选已填入；开始前仍会执行当前条件验证。{0}', candidate.reason))
+            self.notify(message_id('ui.0150', candidate.reason))
         elif action == 'view' and candidate.record:
             self._view_experiment(candidate.record)
         elif action == 'view' and candidate.report:

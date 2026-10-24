@@ -6,6 +6,7 @@ import json
 from textual.widget import Widget
 from textual.widgets import Select
 
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 
 
@@ -33,16 +34,16 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
         try:
             if isinstance(widget, Select):
                 if widget.value is Select.NULL:
-                    raise ValueError(screen.app.tr("请选择"))
+                    raise ValueError(screen.app.tr(message_id('ui.0253')))
                 value = widget.value
             elif isinstance(widget, Input):
                 value = widget.value.strip() if question.get("kind") in {"path", "text"} else json.loads(widget.value)
                 if question.get("kind") == "path" and not value and not question.get("optional"):
-                    raise ValueError(screen.app.tr("本地文件路径"))
+                    raise ValueError(screen.app.tr(message_id('ui.0109')))
                 if question.get("kind") == "path" and value:
                     from pathlib import Path
                     if not Path(value).expanduser().is_file():
-                        raise ValueError(screen.app.tr("文件不存在"))
+                        raise ValueError(screen.app.tr(message_id('ui.0111')))
             else:
                 raise TypeError("unsupported model review input")
         except (ValueError, TypeError) as exc:

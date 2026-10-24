@@ -9,8 +9,9 @@ from textual.message_pump import MessagePump
 from textual.widgets import Button, Checkbox
 
 from acprof.experiment import RunConfigError
-from acprof.messages import join_messages, message
+from acprof.messages import join_messages
 from acprof.tui.commands import PendingLaunch, format_command, prepare_profile
+from acprof.tui.i18n import message_id
 from acprof.tui.views import ConfirmActionScreen
 
 if TYPE_CHECKING:
@@ -102,9 +103,8 @@ class ProfileActions(MessagePump):
             ConfirmActionScreen(
                 "执行 profiler 补采？",
                 join_messages("", (
-                    message(
-                        "该操作会启动隔离 profiler，并在成功后原子回填现有结果。"
-                        "原文件会按项目规则备份。\n\n"
+                    message_id(
+                        'ui.0817'
                     ),
                     format_command(command),
                 )),

@@ -2,12 +2,12 @@
 
 from collections.abc import Callable
 
-from acprof.messages import message
+from acprof.tui.i18n import message_id
 
 NOT_APPLICABLE = "—"
 CALCULATING = "…"
-UNKNOWN = message("未知")
-STATUS_LEGEND = message("— 不适用 · … 正在计算 · 未知 无法确定")
+UNKNOWN = message_id('ui.0405')
+STATUS_LEGEND = message_id('ui.0407')
 
 
 def format_bytes(value: int | None) -> str:
@@ -28,7 +28,7 @@ def format_byte_fields(value: object, translate: Callable[[str], str]) -> object
         result: dict[str, object] = {}
         for key, item in value.items():
             if item is None and key in {"capacity_bytes", "max_download_bytes"}:
-                result[key] = translate(message("不限"))
+                result[key] = translate(message_id('ui.0071'))
             elif (key.endswith("_bytes") or key.endswith("_bytes_at_start")) and (item is None or type(item) is int):
                 result[key] = translate(format_bytes(item))
             else:
