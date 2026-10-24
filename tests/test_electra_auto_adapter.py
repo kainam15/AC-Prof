@@ -18,11 +18,14 @@ from acprof.model_candidates import apply_model_candidate, discover_model_candid
 from acprof.model_evidence import content_digest
 
 
-def _hub(architecture, tag="pretraining", transformer_tag=None):
+def _hub(architecture, tag="pretraining", transformer_tag=None, auto_model=None):
     return SimpleNamespace(
         pipeline_tag=tag, library_name="transformers", sha="a" * 40,
         config={"architectures": [architecture], "model_type": "electra"},
-        transformers_info=SimpleNamespace(pipeline_tag=transformer_tag or tag, auto_model=None),
+        transformers_info=SimpleNamespace(
+            pipeline_tag=transformer_tag if transformer_tag is not None else tag,
+            auto_model=auto_model,
+        ),
         siblings=[],
     )
 
@@ -47,6 +50,44 @@ def test_known_head_becomes_runnable_without_model_id_special_case():
     require_task_support(task, devices=("cpu",))
     assert task.model_adapter == "family-default"
     assert CATALOG.resolve(task="replaced-token-detection", library="transformers").backend == "transformers_model"
+
+
+def test_missing_primary_hub_tag_uses_registered_electra_head():
+    # Real Hub shape: the top-level pipeline_tag is absent while its nested
+    # TransformersInfo reports the generic, unregistered `pretraining` label.
+    task = _detect(_hub("ElectraForPreTraining", tag=None, transformer_tag="pretraining",
+                        auto_model="AutoModelForPreTraining"))
+    result = apply_model_candidate(task, discover_model_candidates(task))
+    assert (task.pipeline_tag, task.task_family, task.runtime_backend) == (
+        "replaced-token-detection", "nlp", "transformers_model")
+    assert result["status"] == "candidate"
+    assert result["semantics"]["status"] == "inferred"
+    assert not result["conflicts"] and not result["missing"]
+    assert task.hub_metadata["pipeline_tag"] is None
+    assert result["provenance"]["sources"]["hub"]["sha256"] == content_digest(task.hub_metadata)
+    assert any(item.get("kind") == "unsupported_task_hint" and item.get("value") == "pretraining"
+               for item in result["provenance"]["observations"])
+    task.model_resolution = result
+    assert PreparationWorkflow.questions(task, SimpleNamespace(task=None, model_spec=None)) == []
+    require_task_support(task, devices=("cpu",))
+
+
+def test_missing_primary_hub_tag_cannot_invent_an_unknown_pretraining_head():
+    task = _detect(_hub("SomeUnknownForPreTraining", tag=None,
+                        transformer_tag="pretraining", auto_model="AutoModelForPreTraining"))
+    result = apply_model_candidate(task, discover_model_candidates(task))
+    assert result["status"] == "needs_configuration"
+    assert result["semantics"]["status"] == "unresolved"
+    assert task.runtime_backend == "unknown"
+
+
+def test_missing_primary_hub_tag_does_not_hide_supported_task_disagreement():
+    task = _detect(_hub("ElectraForPreTraining", tag=None,
+                        transformer_tag="fill-mask", auto_model="AutoModelForMaskedLM"))
+    result = apply_model_candidate(task, discover_model_candidates(task))
+    assert result["status"] == "ambiguous"
+    assert result["semantics"]["status"] == "conflict"
+    assert result["conflicts"]
 
 
 def test_unknown_pretraining_and_other_electra_head_are_not_silently_reclassified():

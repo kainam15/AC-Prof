@@ -47,6 +47,8 @@ Model Store 的 `entries/<id>/model_download_plan.json` 保存所选文件、排
 已知架构自动适配的一个例子是 `ElectraForPreTraining`：当模型元数据使用泛化的
 `pretraining` Hub 标签时，以精确匹配的 checkpoint head 选择
 `replaced-token-detection` / `transformers_model`，保留原始 Hub 标签作为 provenance。
+同样覆盖 Hub 顶层任务为空、但 `transformers_info.pipeline_tag=pretraining` 的情况；
+未登记的泛化标签仅为静态提示，不能覆盖已审查的执行协议。
 专用 loader 禁用远程代码执行，并要求 `config.model_type=electra`、
 `config.architectures=[ElectraForPreTraining]`。输入是确定性文本，经 tokenizer 产生带特殊符号的
 Token 序列；输出是形状 `[batch, sequence]` 的逐 Token 原始 logits，

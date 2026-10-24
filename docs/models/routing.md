@@ -75,6 +75,12 @@ Auto loader 的 image-text-to-text 标签，包括 Hub 的 `AutoModelForMultimod
 缺少匹配 Auto class、明确 head 不相容，以及 summarization 与 translation 这类两个具体任务
 的冲突仍须选择。解析报告保留原标签、分类理由和来源哈希，不按榜单任务强制覆盖。
 
+Hub 顶层 `pipeline_tag` 缺失时，`transformers_info.pipeline_tag=pretraining` 等未注册为可执行协议的标签
+只作为 `unsupported_task_hint` 记录，不能抢占已登记的 checkpoint head。例如
+`config.architectures=[ElectraForPreTraining]` 可选择 `replaced-token-detection/transformers_model`；
+未知 head 仍为 `needs_configuration`。反之，嵌套标签是已支持任务且与唯一已登记 head 相矛盾时，
+仍标记 `ambiguous`，需要明确选择，不把两种模型执行语义静默合并。
+
 Sentence Transformers 的 feature-extraction/sentence-similarity 路径，若 `modules.json` 明确
 声明从根目录加载 `sentence_transformers.models.Transformer`，实际使用的是 `AutoModel`。
 此时底层 checkpoint 的 MLM/CausalLM head 与库标签只描述存储架构，不阻止声明的编码操作；

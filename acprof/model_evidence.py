@@ -23,7 +23,7 @@ def content_digest(value: Any) -> str:
 def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | None,
                           selected: str | None, status: str, explicit_task: str | None,
                           explicit_backend: str | None, overridden_conflicts: list[str],
-                          loader_hint: str | None) -> dict:
+                          loader_hint: str | None, unsupported_task_hint: str | None) -> dict:
     """Capture correlated observations; no counting of fields as independent votes."""
     from acprof.model_spec import task_model_spec
     revision = task_info.model_revision
@@ -59,10 +59,11 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
         if field_name in {"processor", "custom_class"}:
             observations.append({"field": f"hub.transformers_info.{field_name}", "source_id": "hub",
                                  "task": selected, "value": value, "backend": task_info.runtime_backend})
-        elif field_name == "pipeline_tag" and loader_hint:
+        elif field_name == "pipeline_tag" and (loader_hint or unsupported_task_hint):
             observations.append({"field": "hub.transformers_info.pipeline_tag", "source_id": "hub",
-                                 "task": None, "value": value, "kind": "loader_hint",
-                                 "reason": loader_hint})
+                                 "task": None, "value": value,
+                                 "kind": "loader_hint" if loader_hint else "unsupported_task_hint",
+                                 "reason": loader_hint or unsupported_task_hint})
     identity = {"schema_version": 1, "resolver_version": "model-selection-v3",
                 "model_id": task_info.model_id, "revision": revision, "sources": sources,
                 "observations": observations, "selected_task": selected, "status": status,

@@ -163,14 +163,29 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
             elif shared_operation and auto_model != "AutoModel":
                 loader_hint = f"{auto_model} is a shared loader for {primary_task}; its library tag does not declare another workload"
     transformers_task = None if loader_hint else transformers_info.get("pipeline_tag")
-    if (hub_metadata.get("task_hint_source") == "registered_architecture"
-            and transformers_task == hub_metadata.get("pipeline_tag")
-            and transformers_task not in CATALOG.task_families):
+    unsupported_transformers_hint = None
+    if transformers_task and transformers_task not in CATALOG.task_families:
+        # E.g. `pretraining` is a Hub metadata label, not a runnable task.
+        # Do not let it outrank an executable head registered by an extension.
+        unsupported_transformers_hint = (
+            f"{transformers_task!r} is not a registered executable task; "
+            "task semantics still require a declaration or a recognized checkpoint head"
+        )
         transformers_task = None
     if spec.get("pipeline_task") and transformers_task == spec["pipeline_task"]:
         transformers_task = declared_task
     observed_tasks = {value for value in (declared_task, hub_task, transformers_task) if value}
     overridden_conflicts: list[str] = []
+    # Without a primary Hub task, a *supported* TransformersInfo task must not
+    # silently contradict a uniquely registered checkpoint head.
+    head_tasks = {inferred for architecture in config.get("architectures") or []
+                  if isinstance(architecture, str)
+                  if (inferred := CATALOG.infer_task([architecture], ""))}
+    if (not hub_task and not declared_task and len(head_tasks) == 1 and transformers_task
+            and transformers_task not in head_tasks):
+        disagreement = (f"task conflict: transformers_info={transformers_task} "
+                        f"disagrees with registered checkpoint head={next(iter(head_tasks))}")
+        (overridden_conflicts if override_tag else conflicts).append(disagreement)
     if len(observed_tasks) > 1:
         disagreement = "task conflict between declarations/Hub: " + ", ".join(sorted(observed_tasks))
         (overridden_conflicts if override_tag else conflicts).append(disagreement)
@@ -262,7 +277,8 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
         raw_hub_task if raw_hub_task != hub_task and hub_metadata.get("task_hint_source") == "registered_architecture"
         else hub_task), selected=selected,
                                         status=status, explicit_task=override_tag, explicit_backend=override_backend,
-                                        overridden_conflicts=overridden_conflicts, loader_hint=loader_hint)
+                                        overridden_conflicts=overridden_conflicts, loader_hint=loader_hint,
+                                         unsupported_task_hint=unsupported_transformers_hint)
     semantic_status = ("conflict" if conflicts else "unresolved" if errors or not selected else
                        "explicit" if override_tag else "declared" if (declared_task and spec_source != "generated_contract"
                         or hub_task and hub_metadata.get("task_hint_source") != "registered_architecture"
