@@ -46,7 +46,7 @@
 | `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
 | `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
 | `profiler_support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
-| `cli/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，CLI 持有活动会话并负责 finally 清理 |
+| `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
 `host.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
 继续保留原来的错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
@@ -157,10 +157,15 @@ machine events 继续由 `RunProgressTracker` 解析。
 冷启动状态仍由 client 管理。对照窗口、monitor 启停、正式请求和停止后的统计顺序保持一致。
 界面刷新、绘图、通知与额外文件操作继续位于正式测量窗口之外。
 
-`cli.run` 将资源校验、运行准备和矩阵调度分开；准备阶段返回 `_PreparedRuntime`，汇总镜像、
-输入计划、profiler 计划与能力报告。`cli.run_notifications` 单独保存本次通知上下文，
-在预检前、每个 profiler/case 正式窗口结束后及终态完成时创建通知事件，
-并负责 CSV 摘要、保密错误回显与尽力发送；CLI 调度只调用它的明确入口。
+`application.run.RunApplication.run(RunConfig)` 是准备与采集的应用入口，返回 `RunOutcome`，
+不解析进程 argv、不调用 `sys.exit`，并且不反向导入 CLI 或 TUI。
+每个实例独立持有 `RunState`、tmux 日志句柄和 `RunNotifications`，可注入准备工作流、
+状态工厂、运行时准备、矩阵执行、环境配置与日志边界；已有测量锁仍阻止并发正式实验。
+`cli.run` 只适配参数、SIGTERM 与退出码，原始参数的 `None` 保留未显式覆盖环境设置的含义。
+`RunConfig.from_namespace` 和 `to_namespace` 复用既有参数声明，并保留 seed、SLO 等额外公共选项，
+不另建配置 schema。准备阶段返回 `PreparedRuntime`，汇总镜像、输入计划、profiler 计划与能力报告。
+`RunNotifications` 在预检前、每个 profiler/case 窗口结束后及终态完成时创建通知事件，
+并负责 CSV 摘要、保密错误回显与尽力发送；不同应用实例之间不共享通知上下文。
 终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。
 CSV 格式化、像素指标和 profiler 关联集中于 `WindowMetrics.build_row`；
 `ClientConfig.from_env()` 仅在入口读取并验证配置，导入 client 不修改代理环境、

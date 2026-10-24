@@ -55,6 +55,8 @@ See [developer setup](docs/development/distribution.md#本地开发环境) and [
 
 Current source builds reuse verified model images automatically and build missing ones. Use `--rebuild-image` or the TUI's advanced image options for a one-time rebuild; Docker cache may still be used. See [image preparation](docs/models/images.md#构建复用和验证).
 
+The TUI tracks collection and probe progress through structured events. After a collection exits, it verifies the saved experiment identity and audits the result before reporting success; a successful process exit alone is insufficient.
+
 ## Documentation
 
 | Goal | Guide |

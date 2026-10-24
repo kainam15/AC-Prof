@@ -17,23 +17,32 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 
 ```text
 <model-dir>/
-├── result_layers.json         # 分层结果的 SHA256 与字段/行数清单
-├── summary.csv                # 行身份、输入与状态
-├── performance.csv            # 延迟、吞吐、启动
-├── resources.csv              # CPU、GPU、内存与 PMU
-├── energy.csv                 # 功率、能耗与来源
-├── network.csv                # 抓包网络统计
-├── profiling/                 # 各分析器独立的可选 CSV
-│   ├── torch_profiler.csv
-│   ├── ncu.csv
-│   ├── nsys.csv
-│   └── massif.csv
+├── result_layers.json         # 指向当前完整 generation 的 SHA256 与字段/行数清单
+├── result_generations/<generation>/  # 发布后保持不变；旧代不自动删除
+│   ├── summary.csv            # 行身份、输入与状态
+│   ├── performance.csv        # 延迟、吞吐、启动
+│   ├── resources.csv          # CPU、GPU、内存与 PMU
+│   ├── energy.csv             # 功率、能耗与来源
+│   ├── network.csv            # 抓包网络统计
+│   └── profiling/             # 各分析器独立的可选 CSV
+│       ├── torch_profiler.csv
+│       ├── ncu.csv
+│       ├── nsys.csv
+│       └── massif.csv
 ├── static_meta.json
 ├── capability_report.json
 ├── result_manifest.json
 ├── metadata/                # 解析、输入/矩阵/profiler 计划和 collection_history
 ├── raw/
 │   ├── requests/<case-id>.jsonl
+│   ├── windows/<case-id>/<attempt-id>/*.json  # 每个窗口最后提交的不可变 receipt
+│   ├── telemetry/<case-id>/<attempt-id>/*.json # 原始采样、计数器及调度诊断
+│   ├── measurements/<case-id>/<attempt-id>/  # 完整测量的后处理输入快照
+│   │   ├── checkpoint.json
+│   │   ├── measurement.csv
+│   │   ├── sniff.pcap
+│   │   ├── sniff_groups.jsonl
+│   │   └── requests.jsonl
 │   ├── compute_profiles/
 │   ├── execution_profiles/
 │   ├── posthoc_profiles/
@@ -75,9 +84,9 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | 文件 | 说明 |
 | --- | --- |
 | `result_manifest.json` | Artifact Layout v2 的路径契约，不代表文件已生成或测量成功。 |
-| `result_layers.json` | 分层 CSV schema v1 清单，记录来源宽表 SHA256、层路径、字段、行数和内容哈希。它是完成时发布的独立产物，不更改固定的 Layout v2 路由清单。 |
-| `summary.csv` / `performance.csv` / `resources.csv` / `energy.csv` / `network.csv` | 同一组测量窗口按来源和职责拆分，保留全部六个测量身份字段，避免每个文件包含全部 200 多列。 |
-| `profiling/{torch_profiler,ncu,nsys,massif}.csv` | 四种 Profiler 分别输出；没有实际字段证据的工具省略，存在的工具允许仅记录部分测量键。 |
+| `result_layers.json` | 分层 CSV schema v2 清单，记录 generation、可选导入来源 SHA256、层路径、字段、行数和内容哈希；最后原子切换。schema v1 固定路径结果仍可读取。它不更改固定的 Layout v2 路由清单。 |
+| `result_generations/<generation>/{summary,performance,resources,energy,network}.csv` | 同一组测量窗口按来源和职责拆分，保留全部六个测量身份字段，避免每个文件包含全部 200 多列；不同 generation 的文件互不覆盖。 |
+| `result_generations/<generation>/profiling/{torch_profiler,ncu,nsys,massif}.csv` | 四种 Profiler 分别输出；没有实际字段证据的工具省略，存在的工具允许仅记录部分测量键。 |
 | `capability_report.json` | 本次采集的能力状态及实际完整性，和静态元数据中的准备阶段快照分开。 |
 | `quality_checks.json` | 独立 schema v1 的质量观察；普通 warning 不撤销已验证 Capability 或 `full_profile_complete`。 |
 | `runtime_failures.json` | 存在正式请求失败时汇总的 typed failure 列表，保留请求 ID、阶段与环境；不改变测量 CSV 数值协议。 |
@@ -85,6 +94,9 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `metadata/runtime_validation.json` | 测量窗口外独立运行验证的结构化报告；原始输出在 `logs/runtime_validation_<device>.log`。 |
 | `.acprof/work/cases/<case-id>/result.csv` | 采集期间逐资源配置写入的可恢复中间结果；成功合并后清理。 |
 | `raw/requests/<case-id>.jsonl` | 长期保留的紧凑 request-level latency，每窗口一行；含 application 原始样本和按请求 ID 对齐的 packet 样本。详见下方约定，不参与默认统计聚合。 |
+| `raw/windows/<case-id>/<attempt-id>/*.json` | schema v1 的不可变窗口提交记录，绑定 run、case、attempt、window 身份、原始 CSV 行、请求样本、telemetry SHA256 和发布时投影引用。receipt 最后落盘，缺少 receipt 的尾部 CSV 或 telemetry 不算已提交窗口。 |
+| `raw/telemetry/<case-id>/<attempt-id>/*.json` | schema v1 原始 CPU/GPU/resource 样本、边界计数器、单位、时钟、采集器和 reducer 版本，以及 Burst/Skip 聚合诊断。超过保存上限的样本子集明确标记不完整，不能用于精确全量重算。 |
+| `raw/measurements/<case-id>/<attempt-id>/` | 完整 case 测量结束后的不可变输入快照；含原始 CSV、已关闭的 PCAP、请求/分组投影及 `checkpoint.json`，后处理失败时用它恢复，不重新推理。抓包未启用时没有 PCAP。 |
 | 分层结果（`result_layers.json` 与各模块 CSV） | 动态测量结果。每一行对应一个 resource config、一个 input scale、一次 warmup/repeat iteration，并记录归一化指标、PCAP 网络字节、cold-start phases，以及该窗口的 cgroup memory/stat/PID、swap、块 I/O 与压力/事件。 |
 | `.acprof/run_state.json` | 主实验状态 schema v1，记录实验 ID、参数、主机与源码/依赖指纹、绑定的镜像和输入计划、case 完成状态与 CSV SHA256、启动/恢复记录、最终完成状态。 |
 | `.acprof/recovery/interrupted_cases/` | 恢复时保存中断 case 的原始 CSV、PCAP 与关联 sidecar；备份完成后才开始该 case 的新测量。 |
@@ -137,8 +149,9 @@ request record 结构及有限数值；损坏或非有限数据报错，不截�
 `source=client_http`、`latency_app_s` 数组及请求阶段 `status`。数组下标 `i` 对应请求 ID
 `<sniff_group_id>:<i>`，数值单位为秒，保留原始浮点精度；只包含成功返回的请求，失败尝试另记
 `failed_request_id` 和 `error`。超时中止时仍写出此前成功的请求，自动预热不进入该文件。
-packet merge 在清理 PCAP 前追加同长度的 `latency_packet_s`，未匹配位置为 `null`；
-basic 模式不生成该数组。恢复未完成 case 时，旧请求文件随 CSV 一起备份后重采。
+packet merge 在工作投影中追加同长度的 `latency_packet_s`，未匹配位置为 `null`；
+basic 模式不生成该数组。原始请求和 PCAP 保留在不可变测量快照中；恢复未完成测量时，
+旧工作请求文件随 CSV 一起备份后重采。
 
 序列化和 `fsync` 在全部监测停止后执行，窗口内复用已有 latency 数组；不记录输入或输出 payload。
 该设计参考 [MLPerf LoadGen 的延后日志处理](https://github.com/mlcommons/inference/blob/master/loadgen/logging.h)，
@@ -178,13 +191,31 @@ v2 备份位于 `.acprof/recovery/preparation_attempts/<attempt-id>/`；新 atte
 
 case 只有在抓包回填和原有校验结束，且其测量唯一键完整匹配计划后才记为完成。唯一键为
 `CPU × memory × GPU mode × input scale × warmup × repeat_idx`。恢复会复用校验通过的完整
-case；中断 case 先备份，再创建新容器，重新执行该 case 的原 warmup/repeat 协议。已记录完整
+case；测量尚未完成的中断 case 先备份，再创建新容器，重新执行该 case 的原 warmup/repeat 协议。已记录完整
 错误占位的 OOM/timeout case 也属于已完成的尝试，不在恢复时自动改变超时或重测条件。
 非整数 input scale 在计划、传参和 CSV 身份中保留可往返的完整数值，例如 `30/224` 不会被
 格式化为六位有效数字。唯一键继续精确比较，不通过容差合并相邻尺度；显示用四舍五入不进入恢复身份。
 OOM pruning 继续按原有参考 CPU/内存顺序重建证据，复用与推断不会增加正式请求。
 
-合并拒绝缺失/空 case、重复文件、重复测量、截断行和与计划不符的行；不适用的可选指标为 `nan`。校验通过后分别原子写入各模块 CSV，最后发布 `result_layers.json` 完整性清单；不会默认创建 `result_all.csv`。失败保留可恢复的 case 产物，不将未完成结果标记为完整。
+case 状态分别记录 `measurement_status`、`processing_status` 和 `cleanup_status`。
+client 退出、全部 monitor 停止、tcpdump 关闭后，先核对完整计划及已提交 receipt，
+再复制原始输入到临时目录；复制体重新校验并 `fsync` 后整体发布到
+`raw/measurements/<case-id>/<attempt-id>/`，最后把 checkpoint 引用写入 `run_state.json`。
+此后 PCAP 解析、packet merge 或质量检查失败，`--resume` 校验快照、receipt 和 telemetry 的
+身份/摘要，重建可变投影，仅重试后处理；不会启动新推理容器，也不会重复 warmup/repeat。
+解析命令由当前受信源码重建，状态文件只提供经校验的数据参数。
+
+容器清理失败或进程在清理确认前退出时，恢复先使用既有容器所有权协议清理已确认遗弃的容器，
+并验证原不可变 container ID 已不存在；清理未确认时拒绝后处理。旧清理错误归档保留。
+没有完整测量 checkpoint 的 case 仍按整次 attempt 重采，不拼接不同 cold start/warmup 下的窗口。
+每次 attempt 使用独立 UUID；旧窗口 receipt、telemetry 和已发布测量快照保留在各自路径。
+成功发布正式结果后，仅删除工作目录中的中间副本；原始 PCAP、测量快照和旧 generation
+不会自动删除，因此长时间或高采样率实验需要预留相应磁盘空间。
+
+新增采样策略和原始样本保存上限进入运行身份，包括默认值。升级前未完成实验不能跨源码身份
+变化继续采集；已有 v2 实验的固定路径分层 schema v1 仍可读取，新写入统一发布 schema v2 generation。
+
+合并拒绝缺失/空 case、重复文件、重复测量、截断行和与计划不符的行；不适用的可选指标为 `nan`。校验通过后在临时目录写入完整分层结果，原子安装不可变 generation，最后切换 `result_layers.json` 完整性清单；不会默认创建 `result_all.csv`。清单切换前失败不覆盖上一代的任何层。失败保留可恢复的 case 产物，不将未完成结果标记为完整。快照身份、并发发布及旧格式读取规则见[不可变结果快照](../results/metrics.md#不可变结果快照)。
 完成状态先持久化，再清理中间文件。`status=complete` 表示计划已执行并完成合并，
 `outcome=partial` 表示其中包含错误行，两者不能等同于全部测量成功。
 

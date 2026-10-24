@@ -34,7 +34,8 @@
 
 | 位置 | 职责 |
 | --- | --- |
-| `acprof/cli/` | `run.py` 负责 CLI 参数、采集调度、退出与信号清理；`run_matrix.py` 纯校验 CPU/内存/GPU 矩阵；`run_preparation.py` 构建／恢复不可变镜像与输入、运行验证及 profiler 计划，在正式测量窗口前写入证据；`run_notifications.py` 独立负责通知 |
+| `acprof/cli/` | 参数、命令分发、进程信号与退出码；`run.py` 将共享 `RunConfig` 交给采集应用层 |
+| `acprof/application/` | `RunApplication` 持有单次运行、终端日志及通知生命周期；`preparation` 构建／恢复运行时证据，`resources` 校验资源轴，`notifications` 和 `terminal_log` 负责窗口外输出；只依赖共享协议与 host，不反向导入 CLI/TUI |
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |

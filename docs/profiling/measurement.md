@@ -25,7 +25,8 @@ CPU 能耗和资源监控器共用 `monitors.common.sample_periodically`。首�
 安排在 `started_at + interval`，后续 deadline 以原始相位递增；回调收到的是实际
 开始采样时的单调时钟时间，不是已经错过的计划时间。
 
-当前超时策略保留 Burst 语义：回调或线程调度延迟后，已过期的 deadline 会连续执行，
+`--sampling-policy burst|skip` 显式选择超时策略，默认仍为 Burst；策略及
+`periodic-v1` 协议版本进入窗口原始证据。Burst 的语义是：回调或线程调度延迟后，已过期的 deadline 会连续执行，
 直到追上原计划；若每次回调都比周期长，采样线程可能持续执行而无法追上。连续读取
 不会恢复过去时刻的瞬时状态，也不代表实际采样间隔仍然均匀。停止信号会终止后续
 采样，包括超时回调之后的追赶；回调异常向调用方传播，不自动重试。
@@ -34,11 +35,78 @@ CPU 能耗和资源监控器共用 `monitors.common.sample_periodically`。首�
 绝对相位、单次和持续超时、调度迟到、停止及异常行为。这些测试是调度协议的
 回归基线，不能证明采样器的实际开销、传感器精度或对工作负载的扰动。
 
-后续若评估 Skip，应分别记录计划时间与实际时间、回调耗时、开始迟到和跳过的
-计划时点；诊断自身的时钟调用、内存操作与输出成本也必须计入开销评估，输出应在
-窗口结束后完成。保留相位的 Skip 不保证任意相邻实际采样都间隔一个完整周期。
+Skip 保留原计划相位，在回调完成后跳过严格早于完成时刻的计划时点，下一次采样
+等待未过期的 deadline；它不会补造丢失的瞬时状态。GPU 保留原先线程启动后立即
+首采的协议，CPU/resource 保留等待首个周期的协议；所有采集器的 start/stop 次序保持不变。
+
+每个采集器记录周期回调数量、迟到次数/总量/最大值、回调耗时总量/最大值、超周期次数、
+跳过的计划时点数量，以及首尾计划时间/实际时间。统计使用常量空间，不保存另一份逐 tick
+数组；边界首尾样本不进入周期回调计数。回调耗时包括既有传感器读取，不包括诊断累计本身，
+也不宣称是硬件内部采样时刻。诊断的额外时钟调用和内存操作仍须纳入真实开销对照。
+热路径没有新增文件输出或日志，证据序列化和落盘在所有采集器停止后执行。
+
+保留相位的 Skip 不保证任意相邻实际采样都间隔一个完整周期；Burst 与 Skip 的结果
+必须保留各自协议身份，不能在缺少对照证据时直接合并或切换默认策略。
 术语参考 [Tokio MissedTickBehavior](https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html)，
 只借鉴策略分类；切换策略仍需独立的 Native Linux 对照证据，不照搬其定时容差。
+
+采样开销对照沿用 `scripts/measure_overhead.py`，从已完成实验复用冻结镜像、输入和资源条件：
+
+```bash
+uv run python scripts/measure_overhead.py results/example-run \
+  --gpu on --rounds 5 --requests 100 --sample-hz 20,100 \
+  --sampling-policies burst,skip --output-dir results/overhead-policy-comparison
+```
+
+`--sampling-policies` 默认 `burst`。每轮随机打乱一次 `none` 基线及各 policy × rate 场景，
+仍按相同 round 配对延迟差值和置信区间；CPU/GPU 模式分别运行，不跨设备拼接配对。
+`overhead.json` schema v2 同时记录每个采集器的周期诊断、策略/频率和主机进程 CPU 秒数。
+`host_process_cpu_s` 仅包含请求循环内 Python 进程所有线程的 CPU 时间，排除容器 CPU、
+collector start/stop、文件落盘；`host_process_cpu_pct` 以一个 CPU 核心为 100%，不是整机利用率。
+`--modes none,basic,full` 的内部采集对照仍要求单频率、单策略。该诊断不产生正式画像，
+也不包含原样本序列化成本；窗口后持久化成本需结合整个 case 生命周期另行评估。
+
+## 窗口原始证据与提交记录
+
+新采集的每个已尝试窗口具有 `run_id / case_id / case_attempt_id / window_id` 四层身份。
+`case_id` 是资源配置键，`case_name` 继续用于进程、日志和请求 group 名；重跑同一 case 使用
+新 attempt，不能覆盖旧窗口证据。控制窗口与正式/预热窗口分别记录，不把控制窗口计入请求总体。
+
+`raw/telemetry/<case_id>/<case_attempt_id>/` 保存独立 JSON schema v1，包含 CPU RAPL 原始微焦耳
+计数器与回绕范围、host/container CPU 时间、DRAM domain/拓扑、resource 样本、窗口首尾 cgroup
+计数器、NVML 功率样本及累积能耗计数器、单位、逻辑时钟边界、控制基线和实际选用的能耗来源。
+GPU 从累积计数器回退到功率积分的原因以及控制基线重选也保留；不重新读取硬件推断历史来源。
+GPU 的 `capabilities` 分别记录能量总值、功率样本和功率峰值能力。累计计数器有效但功率
+采样不可用时，保留真实的空 samples 并允许重算总能量和平均功率；峰值保持 unknown，
+不从平均值补造样本。没有可用样本或计数器证据、或清理失败的 collector 明确标记 unavailable。
+
+`--raw-sample-limit` 默认 100000，限制每个 collector、每个 workload/control 窗口**保存的样本数**。
+超过上限时保留首尾和按索引均匀选取的子集，记录 observed/retained/omitted 数量及 `complete=false`。
+这限制的是持久化证据和窗口后序列化规模；现有采集器仍保留完整内存样本用于既有聚合公式，
+**不是整个采集进程的内存上限**。截断不会改变当次 CSV 聚合值，但不再具备从保存子集精确重算
+全部原始指标的能力。将采集 buffer 改为流式聚合，需要按 CPU、GPU、resource 各自算法另做数值与开销验证。
+
+所有 collector 停止后，client 原子写入 telemetry，持久化 request journal、sniff-group sidecar
+及 CSV 行，最后在 `raw/windows/<case_id>/<case_attempt_id>/` 原子提交不可变 receipt。
+receipt 保存原始 client 行、请求记录、各自内容 hash、telemetry 文件 SHA256，以及当时的投影位置。
+这是单写入者的提交标记协议，不宣称多文件事务：崩溃后多出的 CSV/sidecar 尾部、无 receipt 的
+telemetry 都是未提交证据。超时或取消后的可用原样本可以保留为未提交文件，不成为成功窗口。
+PCAP/补采可在之后重建 CSV 投影，receipt 中的原始 client 观测保持不变。
+
+`acprof.window_records.read_window_record` 校验 schema、文件名与窗口身份、记录内容 hash、
+请求/行 hash，以及关联 telemetry 的 hash 和身份；整个结果根移动后相对引用仍然有效。
+`verify_case_window_records` 可进一步限定 run/case/attempt 身份。历史数据缺 receipt 或 raw 时
+保留旧聚合读取能力，并明确 `legacy_or_missing_raw_evidence`，不为旧结果补造样本。
+
+纯分析入口 `acprof.telemetry.recompute_window` 使用 `window-reduction-v1` 重放已有 CPU/DRAM、
+GPU 与 resource 数值公式，不初始化 monitor、不查询当前环境、不做文件 I/O。它使用记录的控制
+基线和 GPU 来源选择；缺失 collector 保持 unavailable，截断序列明确拒绝精确重算。
+`raw_capability` 分别说明 workload 重算能力与 control 样本完整性。CSV 每请求字段仍需按记录的
+completed request count 归一化，不能把窗口总能耗直接解释为 J/request。
+
+设计参考 [MLflow 的 run 元数据与 artifact 分离](https://mlflow.org/docs/latest/ml/tracking/)、
+[pyperf 的校准与正式样本阶段](https://github.com/psf/pyperf/blob/main/pyperf/_manager.py)，
+只借鉴边界设计；未引入外部运行平台或复制上游实现。
 
 ## Profiling mode 与能力证据
 
