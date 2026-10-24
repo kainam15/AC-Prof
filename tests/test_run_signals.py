@@ -24,7 +24,7 @@ def test_sigterm_unwinds_case_and_run_cleanup_and_restores_handler():
                     print('case cleaned', flush=True)
 
             with patch.object(run, '_run_main', side_effect=measure), patch.object(
-                run, '_record_run_termination', side_effect=lambda *args: print(args[0], flush=True)
+                run.notices, 'record_termination', side_effect=lambda *args: print(args[0], flush=True)
             ):
                 try:
                     run.main()
