@@ -1,2 +1,0 @@
-# Isolated security-audit tooling, not a runtime or profiling dependency.
-pip-audit==2.10.1

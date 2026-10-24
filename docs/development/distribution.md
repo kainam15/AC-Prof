@@ -76,7 +76,7 @@ uv 的下载缓存可共享，环境和源码绑定保持独立。
 | CI 或严格复现 | `uv sync --locked`、`uv run --locked <command>` |
 
 发行依赖只在 `[project.dependencies]` 声明，开发依赖使用 `[dependency-groups]`；
-`uv.lock` 是项目环境唯一主要锁文件，必须随依赖声明一同提交。`uv run` 会检查和同步环境；
+`uv.lock` 是项目环境唯一锁文件，必须随依赖声明一同提交。`uv run` 会检查和同步环境；
 CI 使用 `--locked`，声明漂移直接失败，不在运行测试时改写锁。
 
 | 依赖组 | 用途与隔离 |
@@ -100,7 +100,6 @@ Ruff 的组依赖与 `tool.ruff.required-version` 须协调更新；hook 直接�
 Docker 的 `dockerfiles/locks` 保留目标 Python/CUDA wheel、URL、SHA256 和环境身份；
 `uv.lock` 不取代这些推理锁。`uv export --locked` 只为安装包验证、安全审计和容器测试
 产生临时哈希清单，不提交第二套项目锁，也不手工维护导出文件。
-历史 `requirements/*.in` / `*.lock` 不再参与新的开发与 CI 安装路径；迁移保留的旧文件须在 CI 和发行链路全部验证通过后再删除，不能把保留文件作为另一套依赖更新入口。
 
 开发检查和 Git hooks 见[测试指南](quality.md#开发质量检查)。
 需要将当前 checkout 安装成用户工具时可运行 `uv tool install .`，或用下方 `setup.sh`。

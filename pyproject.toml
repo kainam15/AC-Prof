@@ -103,7 +103,7 @@ path = "packaging/hatch_build.py"
 include = [
     "/acprof", "/assets", "/dockerfiles", "/examples", "/scripts", "/tests",
     "/packaging", "/docs", "/README.md", "/pyproject.toml",
-    "/requirements", "/uv.lock", "/.python-version", "/.dockerignore", "/setup.sh",
+    "/uv.lock", "/.python-version", "/.dockerignore", "/setup.sh",
     "/LICENSE", "/NOTICE", "/licenses",
 ]
 exclude = ["**/AGENTS.md", "**/__pycache__", "**/*.pyc"]

@@ -34,7 +34,7 @@ def capture_provenance(test_paths: Iterable[Path], *, root: Path = ROOT) -> dict
                                  "docs", "examples", ".github/workflows") for path in _files(root / name)]
     sources.extend(path for name in ("pyproject.toml", ".python-version", "README.md", "setup.sh", ".gitignore")
                    if (path := root / name).is_file())
-    locks = _files(root / "requirements")
+    locks: list[Path] = []
     if (root / "uv.lock").is_file():
         locks.append(root / "uv.lock")
     tests = _files(root / "tests")
