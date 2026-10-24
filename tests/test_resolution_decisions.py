@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import discover_model_candidates
+from acprof.model_candidates import apply_model_candidate, discover_model_candidates
 from acprof.model_resolution import require_resolved_candidate
 
 
@@ -14,7 +14,7 @@ def candidate(*, tag="unknown", config=None, hub=None):
     task.model_config = config or {}
     task.repository_metadata = {"config.json": task.model_config}
     task.hub_metadata = hub or {}
-    task.model_resolution = discover_model_candidates(task)
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
     return task
 
 
@@ -33,7 +33,7 @@ def test_conflicting_hub_observations_abstain_even_when_runtime_passed():
 
 def test_explicit_choice_preserves_conflict_evidence():
     task = candidate(tag="fill-mask", hub={"transformers_info": {"pipeline_tag": "text-generation"}})
-    task.model_resolution = discover_model_candidates(task, override_tag="text-generation")
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task, override_tag="text-generation"))
     require_resolved_candidate(task)
     assert (task.model_resolution["semantics"]["status"]) == ("explicit")
     assert (task.model_resolution["provenance"]["overridden_conflicts"])
@@ -129,11 +129,11 @@ def test_sentence_transformer_modules_establish_the_encoder_interface(architectu
         {"idx": 0, "path": "", "type": "sentence_transformers.models.Transformer"},
         {"idx": 1, "path": "1_Pooling", "type": "sentence_transformers.models.Pooling"},
     ]
-    task.model_resolution = discover_model_candidates(task)
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
     require_resolved_candidate(task)
     assert (task.runtime_backend) == ("sentence_transformers")
     task.repository_metadata.pop("modules.json")
-    task.model_resolution = discover_model_candidates(task)
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
     with pytest.raises(ValueError, match="conflict"):
         require_resolved_candidate(task)
 

@@ -639,8 +639,9 @@ def detect_task(
     info.requested_revision = revision
     if info.model_source == "modelscope":
         info.model_metadata_source = "modelscope_hub"
-    from acprof.model_candidates import discover_model_candidates
-    info.model_resolution = discover_model_candidates(info, override_tag=override_tag, override_backend=override_backend)
+    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    info.model_resolution = apply_model_candidate(info, discover_model_candidates(
+        info, override_tag=override_tag, override_backend=override_backend))
     if not info.metadata_errors:
         from acprof.model_contract import apply_model_contract
         source_revision = info.model_revision

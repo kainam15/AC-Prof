@@ -1,6 +1,7 @@
 """Static task candidates and evidence ranking, independent of model execution."""
 from __future__ import annotations
 
+import copy
 from functools import lru_cache
 from typing import Any
 
@@ -70,11 +71,26 @@ def _sentence_transformer_encoder(task_info: Any, task: str | None, backend: str
                 for module in modules))
 
 
+def apply_model_candidate(task_info: Any, resolution: dict) -> dict:
+    """Explicitly apply a discovery decision at an orchestration boundary."""
+    from acprof.extensions import CATALOG
+
+    task = resolution.get("selection", {}).get("task")
+    if task:
+        task_info.pipeline_tag = task
+        task_info.task_family = CATALOG.task_families.get(task, "unknown")
+        task_info.runtime_backend = resolution["selection"]["backend"]
+    return resolution
+
+
 def discover_model_candidates(task_info: Any, *, override_tag: str | None = None,
                               override_backend: str | None = None) -> dict:
     """Collect static evidence before selecting a route. Never import model code."""
     from acprof.extensions import CATALOG
 
+    # Evidence collection is a query, not an update to the caller's task.
+    # The selected route is applied explicitly by the owning workflow.
+    task_info = copy.copy(task_info)
     config = task_info.model_config or {}
     metadata = task_info.repository_metadata or {}
     files: set[str] = set(task_info.repository_files or ())

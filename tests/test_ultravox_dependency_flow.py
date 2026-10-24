@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import discover_model_candidates
+from acprof.model_candidates import apply_model_candidate, discover_model_candidates
 from acprof.model_contract import apply_model_contract
 from acprof.model_spec import task_model_spec
 
@@ -26,7 +26,7 @@ class TestUltravoxDependencyFlow:
                         repositories[MODEL]["revision"], "hub_api", model_config=config,
                         repository_files=tuple(repositories[MODEL]["files"]), repository_metadata=metadata,
                         hub_metadata={"transformers_info": {"auto_model": "AutoModel", "pipeline_tag": "feature-extraction"}})
-        task.model_resolution = discover_model_candidates(task)
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
 
         def read_text(name):
             return (FIXTURE / (name + ".txt" if name.endswith(".py") else name)).read_text()

@@ -69,7 +69,7 @@ def review_questions(task_info) -> list[dict]:
 def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
     from acprof.host.task_support import require_task_support
-    from acprof.model_candidates import discover_model_candidates
+    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
 
     questions = review_questions(task_info)
     if any(item.get("read_only") for item in questions):
@@ -84,7 +84,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
         if answers["pipeline_task"] not in questions[0].get("options", []):
             raise ValueError("select a declared Pipeline")
         previous = task.model_resolution["contract"]
-        task.model_resolution = discover_model_candidates(task)
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
         apply_model_contract(task, lambda name: read_model_source(task.model_id, name, task.model_revision),
                              resolve_repository=resolve_repository or dependency_metadata, selected_pipeline=answers["pipeline_task"])
         task.model_resolution["contract"]["reviews"] = [*previous.get("reviews", []),
@@ -135,7 +135,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     from acprof.model_contract import apply_model_contract
     previous = report
     task.model_spec = draft
-    task.model_resolution = discover_model_candidates(task)
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
     def source(name):
         if name not in task.repository_sources:
             task.repository_sources[name] = read_model_source(task.model_id, name, task.model_revision)

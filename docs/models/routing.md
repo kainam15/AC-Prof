@@ -13,7 +13,9 @@ Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按�
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。
 
 `model_candidates` 先基于已审查的 `model_support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
-`model_resolution` 再对选中候选执行无权重的接口约束检查。两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。
+`model_resolution` 再对选中候选执行无权重的接口约束检查。候选发现是无副作用查询，
+只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend`；
+两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。
 持久化的 `model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
 `model_type`、元数据文件名与所选 profile。`status=candidate` 只表示通过静态检查，成功加载、
 输入 dtype/shape 和真实输出仍由独立 `runtime_validation` 判断。元数据读取失败单独报告，

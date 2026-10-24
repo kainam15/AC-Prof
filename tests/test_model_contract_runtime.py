@@ -11,7 +11,7 @@ import test_custom_multimodal_runtime as multimodal_fixture
 from test_multimodal_handler import audio_payload
 
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import discover_model_candidates
+from acprof.model_candidates import apply_model_candidate, discover_model_candidates
 from acprof.model_contract import apply_model_contract
 from acprof.model_spec import encode_model_spec, task_model_spec
 
@@ -106,7 +106,7 @@ def test_reviewed_chat_transform_runs_through_real_model():
                         "transformers", "a" * 40, "hub_api", model_config=config,
                         repository_files=tuple(path.name for path in root.iterdir()),
                         repository_metadata={"config.json": config})
-        info.model_resolution = discover_model_candidates(info)
+        info.model_resolution = apply_model_candidate(info, discover_model_candidates(info))
         apply_model_contract(info, lambda name: (root / name).read_text())
         assert (info.model_resolution["contract"]["status"]) == ("needs_confirmation")
         info = apply_review(info, {"multimodal.inputs.turns": {
@@ -140,7 +140,7 @@ def test_synthesis_load_preprocess_predict_postprocess_and_output_validation():
                             "auto_model": "AutoModel", "pipeline_tag": "feature-extraction"}},
                         repository_files=tuple(path.name for path in root.iterdir()),
                         repository_metadata={"config.json": config})
-        info.model_resolution = discover_model_candidates(info)
+        info.model_resolution = apply_model_candidate(info, discover_model_candidates(info))
         apply_model_contract(info, lambda name: (root / name).read_text())
         assert (info.model_resolution["contract"]["status"]) == ("resolved")
         spec = task_model_spec(info)

@@ -197,14 +197,14 @@ class PreparationWorkflow:
             result = apply_review(task, answers, resolve_repository=lookup)
         else:
             from acprof.host.detect import read_model_source
-            from acprof.model_candidates import discover_model_candidates
+            from acprof.model_candidates import apply_model_candidate, discover_model_candidates
             from acprof.model_contract import apply_model_contract
             choices = PreparationWorkflow.questions(task, args)
             if not choices or answers["task"] not in choices[0].get("options", []):
                 raise ValueError("select an available task")
             result = copy.deepcopy(task)
-            result.model_resolution = discover_model_candidates(result, override_tag=answers["task"],
-                                                                 override_backend=args.backend)
+            result.model_resolution = apply_model_candidate(result, discover_model_candidates(
+                result, override_tag=answers["task"], override_backend=args.backend))
             apply_model_contract(result, lambda name: read_model_source(result.model_id, name, result.model_revision),
                                  override_tag=answers["task"], override_backend=args.backend,
                                  resolve_repository=lookup)
