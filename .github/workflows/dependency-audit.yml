@@ -27,8 +27,11 @@ jobs:
       matrix:
         include:
           - {lock: host, python: '3.10'}
+          - {lock: host, python: '3.12'}
           - {lock: test, python: '3.10'}
           - {lock: dev, python: '3.10'}
+          - {lock: test, python: '3.12'}
+          - {lock: dev, python: '3.12'}
           - {lock: runtime-test, python: '3.10'}
           - {lock: browser, python: '3.12'}
           - {lock: audit, python: '3.10'}
@@ -57,7 +60,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dependency-audit-${{ matrix.lock }}
+          name: dependency-audit-${{ matrix.lock }}-${{ matrix.python }}
           path: audit-${{ matrix.lock }}.json
           if-no-files-found: error
           retention-days: 30

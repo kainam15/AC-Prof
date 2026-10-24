@@ -31,7 +31,9 @@ Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不�
 
 `dependency-audit.yml` 在每周二 UTC、手动触发以及相关 lock/扫描代码 PR 上使用
 [PyPA pip-audit](https://github.com/pypa/pip-audit) 扫描 host、test、dev、runtime-test、browser
-及 audit 自身的**已锁定版本**。扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
+及 audit 自身的**已锁定版本**；host、test、dev 同时审计 Python 3.10 和 3.12
+解释器分支，并用版本号区分报告 artifact，避免将 Python 3.12 上的安全结果误用到 3.10。
+扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
 wheel 的 SHA256，不加入被测 host/runtime 环境；重新生成时使用仓库的固定 uv 版本：
 
 ```bash
