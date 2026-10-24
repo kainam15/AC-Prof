@@ -114,7 +114,7 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 `source_sha256` 仍只表示 Auto 注册表来源，不是 dynamic loader 的验证证明。
 
 ```bash
-.venv/bin/python scripts/export_transformers_support.py \
+uv run python scripts/export_transformers_support.py \
   --source /path/to/modeling_auto.py --version 5.10.4 \
   --pipeline-source /path/to/pipelines/__init__.py \
   --output acprof/extensions/transformers/5.10.4.json

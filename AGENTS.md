@@ -72,6 +72,12 @@ WSL、mock 和离线测试不能替代需要真实硬件证据的 Native validat
 
 历史架构、旧默认值或项目来源不明确时，再读取 `docs/development/history.md`。
 
+## Python 环境
+
+- 主机发行依赖与开发依赖组统一声明在 `pyproject.toml`，项目环境只更新 `uv.lock`；使用 `uv sync` 准备环境、`uv run` 执行开发命令，CI 和固定版本验证使用 `--locked`。
+- 每个 Git worktree 使用自己的 `.venv`；uv 安装在项目环境之外，不要求手动激活虚拟环境。依赖组与更新方式见 `docs/development/distribution.md#本地开发环境`。
+- Docker 的目标平台 wheel、哈希与系统锁继续由 `dockerfiles/` 独立管理；项目 `uv.lock` 不替代推理环境身份。
+
 ## 验证与执行边界
 
 在当前任务授权范围内，可以直接：

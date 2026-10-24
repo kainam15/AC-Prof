@@ -42,56 +42,40 @@ Debian `20261023T202718Z` 和安全仓库 `20261023T214343Z` 的实际 snapshot 
 固定，并计入最终完整包集合。普通构建只下载锁中的制品，校验哈希后通过 `--no-download` 安装，
 不查询浮动 apt 仓库、不动态选择包名。
 
-主机使用 [`requirements/host.lock`](../../requirements/host.lock)，支持 Python 3.12+。依赖集合与兼容区间只在
-[`pyproject.toml`](../../pyproject.toml) 声明；[`requirements/host.in`](../../requirements/host.in) 是已验证版本约束，
-安装直接指定 `requirements/host.lock`。主机、开发工具和测试依赖采用以下布局：
+主机支持 Python ≥3.12，依赖范围与工具组由 [`pyproject.toml`](../../pyproject.toml) 声明，
+版本和制品哈希由 [`uv.lock`](../../uv.lock) 统一管理。开发环境、分组及更新命令见
+[本地开发环境](../development/distribution.md#本地开发环境)。
 
-```text
-AC-Prof/
-├── pyproject.toml
-├── requirements/
-│   ├── host.in
-│   ├── host.lock
-│   ├── dev.in
-│   ├── dev.lock
-│   ├── test.in
-│   ├── test.lock
-│   ├── runtime-test.in
-│   └── runtime-test.lock
-├── acprof/
-├── dockerfiles/
-├── scripts/
-└── tests/
-```
+| 路径 | 维护内容 |
+| --- | --- |
+| `pyproject.toml` | 发行依赖与开发依赖组 |
+| `uv.lock` | 项目环境的精确版本、条件和制品哈希 |
+| `.python-version` | 默认开发解释器 |
+| `dockerfiles/requirements/` | 推理环境依赖输入 |
+| `dockerfiles/locks/` | 目标平台 wheel、制品清单与系统锁 |
 
-以上只展示依赖相关目录。`dev.in` 和 `test.in` 通过相对路径 `-c host.lock`
-约束共享包版本；安装和生成命令从仓库根目录执行。容器输入与制品锁仍位于 `dockerfiles/`。
-锁更新工具固定为 uv 0.13.5。
-锁生成、离线检查与运行代码统一使用 Python 3.12+。
+容器锁生成、离线检查与运行代码统一使用 Python 3.12+；工具版本读取 `tool.uv.required-version`。
 4 个平台锁和 27 个环境锁均须附带匹配的 `.artifacts.json`；离线检查核对目标 Python/ABI、
 包集合、版本、URL 与 SHA256，拒绝缺失或过期清单。制品大小不参与环境身份，存在时须为正整数。
-主机检查离线核对 Python 3.12–3.14 的 marker 分支、直接依赖和 pin，不代表在这些解释器上运行过测试。
-模型依赖预检的 Python 版本 marker 使用所选容器平台版本；Python 3.13 主机不能替代 Python 3.12 目标解释器参与依赖判断。
+主机的 `uv lock --check` 只证明声明与通用锁一致，不代表在所有解释器和平台实测。
+模型依赖预检仍使用所选容器平台的 Python marker，不能用主机解释器替代目标版本。
 
 ```bash
-# 只读：锁格式、目标平台、源约束及 profile/环境映射；不访问 Docker 或网络
-.venv/bin/python scripts/compile_locks.py --check
-# 只读：主机声明、已验证约束与 lock 的版本一致性
-.venv/bin/python scripts/compile_locks.py --host-only --check
-# 从 pyproject.toml 和已验证约束重新生成主机锁
-.venv/bin/python scripts/compile_locks.py --host-only --uv .venv/bin/uv
-# 保持当前全部包版本重新解析制品；--upgrade 才允许更新环境包
-.venv/bin/python scripts/compile_locks.py --runtime-only --variant cpu --uv /path/to/uv
-# 在固定基础容器中重新解析系统锁；只有此显式更新步骤运行 apt update
-.venv/bin/python scripts/compile_system_lock.py --snapshot 20260913T000000Z
+# 只读：项目声明与锁一致性
+uv lock --check
+# 只读：容器锁格式、目标平台、源约束及 profile/环境映射
+uv run --locked python scripts/compile_locks.py --check
+# 保持当前全部包版本重新解析容器制品；--upgrade 才允许更新环境包
+uv run python scripts/compile_locks.py --variant cpu
+# 在固定基础容器中显式重新解析系统锁
+uv run python scripts/compile_system_lock.py --snapshot 20260913T000000Z
 ```
 
-不带 `--check` 时，`--host-only` 只更新主机锁；`--variant` 可重复，省略时处理全部平台。迁移重新锁定 Python 3.12 制品，并升级已验证的安全修复版本；
-尚不能直接升级的环境须在安全审计中单独记录原因和受影响范围。更新锁后仍需执行目标容器验证。即使依赖和
-来源完全锁定，也不宣称重建的 image ID 必然相同；复现实验和补采仍使用原始 image ID。
-
-主机输入收敛复用 [uv 的 pyproject 与 constraints 编译方式](https://github.com/astral-sh/uv/blob/main/docs/pip/compile.md)。
-沿用已有工具和锁格式，不引入新的包管理器或运行依赖；uv 提供 MIT 许可，解析仅在显式更新时运行。
+`compile_locks.py` 只维护容器锁，`--variant` 可重复，省略时处理全部平台；
+主机与开发依赖用 `uv lock`。更新容器锁后仍需执行对应镜像和设备验证；
+已锁定来源和哈希不保证重建的 image ID 相同，复现实验和补采继续使用原始 image ID。
+容器解析复用 [uv 的 constraints 编译方式](https://github.com/astral-sh/uv/blob/main/docs/pip/compile.md)，
+保持已有平台 wheel 约束和哈希验证，不增加测量期解析开销。
 
 主机构建预检沿用驱动兼容分支，CUDA 12.4 选择固定的 Torch 2.6.0 wheel，CUDA 12.8+ 选择 2.11.0。
 `ACPROF_NLP_TORCH_INDEX_URL` 接受官方 `cu124`、`cu128` 和 `cpu` 索引；显式

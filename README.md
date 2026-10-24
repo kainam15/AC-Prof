@@ -40,16 +40,16 @@ Collection requires a suitable Linux host with a local Docker Engine and cgroup 
 
 ### Develop from source
 
-To contribute or work on the latest source code, clone the repository and install it in editable mode:
+To contribute or work on the latest source code, clone the repository and let uv prepare the editable project and development tools:
 
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
 cd AC-Prof
-uv venv --python 3.12
-uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-uv pip install --no-deps -e .
-.venv/bin/acprof tui
+uv sync
+uv run acprof tui
 ```
+
+`uv sync` creates and updates this checkout's `.venv`; no manual activation is needed. Each Git worktree has its own environment and shares uv's download cache. Ordinary release users continue to use `uv tool install acprof` and `acprof tui`.
 
 See [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md) for the full workflow.
 

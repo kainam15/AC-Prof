@@ -5,7 +5,7 @@
 ## 验证范围
 
 WSL2 是开发与 PARTIAL 采集平台。pytest 注册 `unit`、`wsl`、`native_linux`、`hardware`
-markers；未标集成边界的测试归入 unit。WSL 默认执行 `.venv/bin/python -m pytest -m "not native_linux"`，
+markers；未标集成边界的测试归入 unit。WSL 默认执行 `uv run pytest -m "not native_linux"`，
 Native Linux 无需此平台筛选，具体测试范围按下表选择。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
 模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
 环境检测、能力矩阵、历史 unknown、CSV 合并与比较隔离回归在 `test_environment_policy.py`、
@@ -65,7 +65,7 @@ Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revis
 局部修改不默认跑完整测试集；只有新改动、失败或未解决问题才扩大或重复验证。
 
 MCP 不可用、索引不完整或没有适用 Run Configuration 时，说明限制并用源码分析和项目 CLI 入口继续；
-不把空调用树当作没有依赖。pytest 缺失时先安装开发锁；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](devtools.md#pycharm-mcp-的验证边界)。
+不把空调用树当作没有依赖。pytest 缺失时先运行 `uv sync`；IDE、pytest 与 evidence 的边界见 [PyCharm MCP 的验证边界](devtools.md#pycharm-mcp-的验证边界)。
 真实 workload 缺少 Docker、GPU、模型等运行条件时，明确标为未验证，不用 IDE diagnostics 或 smoke test 代替。
 
 ## Python 文件规模审查

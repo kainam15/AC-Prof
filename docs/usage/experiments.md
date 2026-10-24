@@ -66,7 +66,7 @@ acprof run --model Ritual-Net/iris-classification \
 离线容器回归（含真实服务、CPU/内存采集、落盘和审计）：
 
 ```bash
-.venv/bin/python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
+uv run python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
   --output-dir internal-testing/onnx-runtime
 ```
 

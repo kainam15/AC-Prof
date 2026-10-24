@@ -39,16 +39,16 @@ acprof tui
 
 ### 开发者快速开始
 
-参与开发或使用最新源码时，克隆仓库并以 editable 模式安装：
+参与开发或使用最新源码时，克隆仓库，由 uv 准备 editable 项目和开发工具：
 
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
 cd AC-Prof
-uv venv --python 3.12
-uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-uv pip install --no-deps -e .
-.venv/bin/acprof tui
+uv sync
+uv run acprof tui
 ```
+
+`uv sync` 自动创建和同步当前 checkout 的 `.venv`，无需手动激活。每个 Git worktree 使用独立环境，并共享 uv 下载缓存。普通发行用户仍使用 `uv tool install acprof` 和 `acprof tui`。
 
 完整流程见[开发环境](../development/distribution.md#本地开发环境)和[测试指南](../development/testing.md)。
 

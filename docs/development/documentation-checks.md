@@ -16,9 +16,9 @@ pytest evidence 协议，先消除重复 CI 检查，再依据当前节点耗时
 Textual 为 MIT 许可且由上游维护；这里只覆盖现有 TCSS，
 保留控件尺寸和事件处理，不增加依赖、终端自动探测或测量期间的后台处理。
 
-开发检查复用 [Ruff 官方 hook](https://github.com/astral-sh/ruff-pre-commit)
-和 [pre-commit 官方基础 hooks](https://github.com/pre-commit/pre-commit-hooks)（MIT，持续维护，
-所选版本支持 Python 3.10）。参考 [HTTPX 的工具配置](https://github.com/encode/httpx/blob/master/pyproject.toml)
+开发检查参考 [Ruff 官方 hook](https://github.com/astral-sh/ruff-pre-commit) 的文件类型与串行参数，
+本地 Ruff 和测试框架 hook 通过 `uv run --locked` 使用项目工具锁。
+格式检查复用 [pre-commit 官方基础 hooks](https://github.com/pre-commit/pre-commit-hooks)（MIT，持续维护）。参考 [HTTPX 的工具配置](https://github.com/encode/httpx/blob/master/pyproject.toml)
 把 Ruff 规则放在 `pyproject.toml`，通过 pytest 插件保存本项目的 evidence。
 hooks 固定完整 commit SHA，CI 直接执行同一份配置，避免维护第二份检查清单；只新增开发依赖，
 没有采集期间的后台进程或测量开销。
@@ -37,7 +37,7 @@ hooks 固定完整 commit SHA，CI 直接执行同一份配置，避免维护第
 结果原子发布采用 [CPython 的 tempfile](https://github.com/python/cpython/blob/main/Lib/tempfile.py)
 和标准库文件同步、替换机制；实验身份参考 [ASV 的结果管理](https://github.com/airspeed-velocity/asv/blob/main/asv/results.py)。
 两者的通用做法与现有 CSV/目录协议兼容，恢复仍按 AC-Prof 的 case 与测量窗口实现。
-依赖解析复用持续维护的 [uv](https://github.com/astral-sh/uv)（MIT / Apache-2.0），只在更新锁时使用。
+依赖解析复用持续维护的 [uv](https://github.com/astral-sh/uv)（MIT / Apache-2.0），只在环境准备、更新锁和开发验证时使用，不进入正式测量窗口。
 指标元数据参考 [Prometheus Python client](https://github.com/prometheus/client_python)（Apache-2.0）的类型与单位声明，
 窗口区间参考 [SciPy bootstrap](https://github.com/scipy/scipy/blob/main/scipy/stats/_resampling.py)（BSD-3-Clause）的重采样方法。
 本项目只需离线登记表和均值区间，使用标准库实现，无需在采集服务加入 exporter 或 SciPy 依赖。
@@ -87,9 +87,9 @@ TUI 回归核对重复计算时打开已有文件、显示中英文提示及控�
 
 ## 文档与 Skill 检查
 
-修改文档后，可在仓库根目录执行 `.venv/bin/python scripts/check_docs.py`。
-检查所需的 `markdown-it-py` 由 `requirements/dev.in` 直接声明，并与 PyYAML 一起锁定在
-`requirements/dev.lock`；只安装开发锁即可运行，不依赖主机环境间接安装 Markdown 解析器。
+修改文档后，可在仓库根目录执行 `uv run python scripts/check_docs.py`。
+检查所需的 `markdown-it-py` 由 `lint` 组直接声明，并与 PyYAML 一起锁定在 `uv.lock`；
+默认 `uv sync` 或独立 `uv sync --locked --only-group lint` 均能准备文档检查环境。
 该检查扫描 Git 跟踪的 `docs/`、根 README、`AGENTS.md` 和 Skill 文档/YAML，
 核对本地相对链接、Markdown 标题锚点、图片路径、UTF-8、行尾和 YAML/frontmatter；
 不访问外部链接，也不声称远程链接依然可用。GitHub CI 的 `docs-check` 始终运行此检查。

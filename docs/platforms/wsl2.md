@@ -49,7 +49,7 @@ TUI 顶栏显示 `WSL2 / PARTIAL`；确认页列出计划采集、语义受限�
 测试统一使用 pytest，按[测试指南](../development/testing.md)安装开发依赖；WSL 默认命令为：
 
 ```bash
-.venv/bin/python -m pytest -m "not native_linux"
+uv run pytest -m "not native_linux"
 ```
 
 Native Linux 无需上述 WSL 平台筛选；具体测试范围按[验证范围](../development/validation-scope.md#验证范围)选择。

@@ -14,9 +14,9 @@ standalone 从 wheel 收集同一份 dist-info 元数据。wheel 的 Docker 构�
 
 ## Host dependency split 评估
 
-默认安装保持完整可用：`pip/uv install` 与 `setup.sh` 安装相同的 host 依赖，打开 TUI
-和执行分析不要求理解 extras。当前不拆分发行依赖；`requirements/host.lock` 继续包含完整环境及 hashes，
-runtime profile 的严格版本锁独立维护。
+默认安装保持完整可用：`uv tool install` 与 `setup.sh` 安装相同的 host 依赖集合，打开 TUI
+和执行分析不要求理解 extras。发行依赖在 `project.dependencies` 声明；项目环境由 `uv.lock`
+固定版本和制品哈希，runtime profile 的专用 wheel 锁继续独立维护。
 
 | 候选边界 | 当前依赖与约束 |
 | --- | --- |
@@ -26,8 +26,8 @@ runtime profile 的严格版本锁独立维护。
 | GPU | nvidia-ml-py；CPU 路径已有可选加载，但 GPU capability 与错误提示仍须单独验收 |
 
 新增 extras 在保持默认完整依赖时不会减少默认安装成本；改为精简默认又不符合当前开箱即用约定。
-因此本轮仅保留上述职责边界，未新增组合安装模式或重写主机锁。若将来有明确的 headless/minimal
-部署需求，应为每种组合增加隔离安装与实际 CLI smoke，同时继续生成完整 host hashed lock。
+因此保留上述职责边界，不新增组合安装模式。若将来有明确的 headless/minimal
+部署需求，应为每种组合增加隔离安装与实际 CLI smoke，并在 `uv.lock` 中维护对应闭包。
 代码路径拆分不改变依赖许可证，也不把容器模型框架移入 host 默认安装。
 
 ## Python 工具安装
@@ -44,29 +44,73 @@ Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境�
 
 ## 从源码安装（开发者）
 
-日常开发按下方说明创建 `.venv` 并 editable 安装。
 ### 本地开发环境
 
-开发或构建未发布版本才需要 Git clone。使用已有 `.venv` 时跳过创建环境：
+安装 `pyproject.toml` 中 `tool.uv.required-version` 指定的 uv 版本；当前工具链使用 0.13.5。
+已有 standalone uv 可运行 `uv self update 0.13.5`，其他安装渠道按各自方式更新。
+项目要求 Python ≥3.12，`.python-version` 默认选择 3.12；CI 保留 3.12 / 3.13 回归。
+uv 可按需下载解释器，不要求开发者预先安装或激活 `.venv`。
 
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
 cd AC-Prof
-uv venv --python 3.12
-uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-uv pip install --no-deps -e .
-source .venv/bin/activate
-acprof --version
+uv sync
+uv run acprof tui
 ```
 
-主机兼容区间由 `pyproject.toml` 声明，已验证版本由 `requirements/host.in` 及带哈希的
-`requirements/host.lock` 管理；开发锁包含统一测试依赖，TUI 快照复用同一项目环境，见[辅助开发工具](devtools.md#辅助开发工具)。
-这里沿用 `uv pip` 安装现有锁，
-不引入与 requirements 重复维护的 `uv.lock` / `uv sync` 路径。
+`uv sync` 创建当前 checkout 的 `.venv`、以 editable 模式安装项目，并同步默认 `dev` 组。
+每个 Git worktree 在自己的目录运行相同命令，保留独立 `.venv`；不要用符号链接共享环境，
+也不要全局设置指向其他 worktree 的 `UV_PROJECT_ENVIRONMENT`。
+uv 的下载缓存可共享，环境和源码绑定保持独立。
+
+| 用途 | 命令 |
+| --- | --- |
+| 首次准备或同步环境 | `uv sync` |
+| 启动 TUI | `uv run acprof tui` |
+| 运行测试 | `uv run pytest` |
+| Lint | `uv run ruff check .` |
+| 类型检查 | `uv run mypy` |
+| 查看依赖树 | `uv tree` |
+| 添加开发依赖 | `uv add --dev <package>` |
+| 检查锁文件与声明一致 | `uv lock --check` |
+| CI 或严格复现 | `uv sync --locked`、`uv run --locked <command>` |
+
+发行依赖只在 `[project.dependencies]` 声明，开发依赖使用 `[dependency-groups]`；
+`uv.lock` 是项目环境唯一主要锁文件，必须随依赖声明一同提交。`uv run` 会检查和同步环境；
+CI 使用 `--locked`，声明漂移直接失败，不在运行测试时改写锁。
+
+| 依赖组 | 用途与隔离 |
+| --- | --- |
+| `dev`（默认） | 包含 `test`、`lint`、`typing`、`runtime-tools` |
+| `test` / `runtime-test` | 主机测试、coverage / 临时容器 pytest 工具；不进入发行依赖 |
+| `lint` / `typing` | Ruff、pre-commit、文档解析 / mypy |
+| `browser` | Playwright、Plotly 与 pytest；使用独立 `UV_PROJECT_ENVIRONMENT` |
+| `runtime-tools` | 准备目标平台测试 wheel 的 pip 下载工具；环境由 uv 管理 |
+| `audit` | pip-audit；用 `--only-group audit` 与待审计环境隔离 |
+| `build` / `standalone` | Hatchling 构建闭包 / PyInstaller；从同一锁解析 |
+
+`uv sync --no-default-groups --group test` 安装主机和测试依赖；`--only-group lint`
+只安装工具组，不安装项目。后续 `uv run` 使用相同组参数，避免隐式切回默认环境。
+按需环境可用 `UV_PROJECT_ENVIRONMENT=internal-testing/browser-venv uv sync --locked --only-group browser`。
+`uv sync --all-groups` 用于同时安装并验证全部工具依赖，不是日常默认安装要求。锁文件解析仍覆盖所有依赖组。
+
+依赖更新使用 `uv lock --upgrade-package <package>` 或显式 `uv lock --upgrade`，随后
+`uv sync --locked` 并运行相关回归；更新声明使用 `uv add` / `uv remove`。
+Ruff 的组依赖与 `tool.ruff.required-version` 须协调更新；hook 直接使用锁定环境。月度候选更新与审核见 [CI](ci.md)。
+Docker 的 `dockerfiles/locks` 保留目标 Python/CUDA wheel、URL、SHA256 和环境身份；
+`uv.lock` 不取代这些推理锁。`uv export --locked` 只为安装包验证、安全审计和容器测试
+产生临时哈希清单，不提交第二套项目锁，也不手工维护导出文件。
+历史 `requirements/*.in` / `*.lock` 不再参与新的开发与 CI 安装路径；迁移保留的旧文件须在 CI 和发行链路全部验证通过后再删除，不能把保留文件作为另一套依赖更新入口。
+
 开发检查和 Git hooks 见[测试指南](quality.md#开发质量检查)。
-需要隔离工具安装当前 checkout 时可运行 `uv tool install .`，或使用
-[`setup.sh`](distribution.md#clone-后初始化) 完成安装和主机诊断。
-容器锁的只读检查为 `python scripts/compile_locks.py --check`；构建发行包运行 `uv build`。
+需要将当前 checkout 安装成用户工具时可运行 `uv tool install .`，或用下方 `setup.sh`。
+容器锁检查运行 `uv run python scripts/compile_locks.py --check`。
+
+迁移方法参考 [uv 官方 requirements 迁移指南](https://docs.astral.sh/uv/guides/migration/pip-to-project/)
+与 [Ruff 的 dependency-groups](https://github.com/astral-sh/ruff/blob/main/pyproject.toml)：
+导入旧锁的版本约束生成初始锁，再由 uv 保留现有解；不在迁移时批量升级。
+uv 为 MIT / Apache-2.0，Ruff 为 MIT；只借鉴维护中的标准依赖组和环境管理方式，
+不复制源码，不引入第二个包管理器或测量窗口内的依赖解析。
 
 下方脚本是把当前 checkout 安装成隔离工具的可选辅助入口。
 
@@ -82,7 +126,8 @@ cd AC-Prof
 
 `setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.13.5，
 默认安装到 `~/.local/bin`（可用 `UV_INSTALL_DIR` 指定）。随后用 Python 3.12 和
-`requirements/host.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.12 时由 uv 下载。
+从 `uv.lock` 以 `uv export --locked --no-default-groups --no-emit-project` 导出的临时约束
+隔离安装当前 checkout；导出失败会停止安装，临时文件在退出时清理。缺少 Python 3.12 时由 uv 下载。
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。
 脚本不自动安装系统包、修改 Docker 权限或 GPU 驱动；错误修复后重试原命令即可。
 
@@ -134,17 +179,19 @@ wheel 内置 Dockerfile、平台/环境锁、扩展声明、音频素材及构�
 standalone 同时收集 Plotly 的 bundle 数据。报告生成时内嵌资源，不从 CDN 下载。
 `scripts/check_distribution.py` 在空工作目录实际生成 HTML，核对模板与 bundle 可用性。
 
-editable 安装（`uv pip install -e .`）直接从当前 checkout 读取这些资源，build hook
+editable 安装（`uv sync`）直接从当前 checkout 读取这些资源，build hook
 不生成 `acprof/_bundle` 副本，避免保留过期源码副本，以及 IDE 同时索引两份同名 Python 符号。
 普通 wheel 仍携带完整资源，standalone 继续从 wheel 收集资源。
 
 ### 发行包验证
 
 `uv build` 在隔离构建环境中先生成 sdist，再从 sdist 构建待发布 wheel。
+CI 先导出 `build` 组，再通过 `--build-constraint <export> --require-hashes` 固定构建闭包。
 Release workflow 将它们与 `SHA256SUMS` 保存为唯一的 `python-dist` artifact；后续 job 下载并核对这份制品。
 `verify-dist` 使用未附加仓库 lock 的依赖解析，分别验证 `uv pip` 安装、`uv tool` 安装，
-以及从仓库外重新构建 sdist 后用 pip 安装。验证用的重建 wheel 留在 runner 临时目录，绝不替换待发布制品。
-已有 CI 与 standalone 环境仍安装 `requirements/host.lock`，保留已验证版本的回归范围。
+以及从仓库外重新构建 sdist 后用 uv 安装。验证用的重建 wheel 留在 runner 临时目录，绝不替换待发布制品。
+CI 从 `uv.lock` 导出主机哈希约束，standalone 用 `uv sync --locked --no-default-groups --group standalone --no-install-project`
+准备依赖，再安装待发布 wheel；冻结时通过 `uv run --locked --no-sync` 保留这个已验证 wheel，避免换成源码 editable 安装。
 
 本地构建后，在独立 venv 安装 wheel，再从仓库外执行：
 
@@ -181,19 +228,21 @@ PyInstaller 单文件模式启动时会解压到临时目录，该目录需要�
 需要时通过 `TMPDIR` 选择合适的临时目录。采集子进程使用同一可执行文件的内部 worker 入口，
 不会把它误当成系统 Python；worker 只允许 client 和两个 packet 模块。
 
-本地重现构建（已有 `.venv/bin/uv` 时可替换下列 `uv`）：
+本地重现构建：
 
 ```bash
-uv build --out-dir internal-testing/distribution/dist
-uv venv internal-testing/distribution/venv --python 3.12
-uv pip install --python internal-testing/distribution/venv/bin/python -r requirements/host.lock
-uv pip install --python internal-testing/distribution/venv/bin/python --no-deps internal-testing/distribution/dist/*.whl
-uv pip install --python internal-testing/distribution/venv/bin/python 'pyinstaller==6.22.3'
-internal-testing/distribution/venv/bin/python scripts/check_distribution.py
-internal-testing/distribution/venv/bin/python -m PyInstaller --noconfirm packaging/acprof.spec \
+mkdir -p internal-testing/distribution
+uv export --locked --only-group build --no-emit-project --output-file internal-testing/distribution/build.txt
+uv build --build-constraint internal-testing/distribution/build.txt --require-hashes --out-dir internal-testing/distribution/dist
+export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/distribution/venv"
+uv sync --locked --no-default-groups --group standalone --no-install-project
+uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" --no-deps internal-testing/distribution/dist/*.whl
+uv pip check --python "$UV_PROJECT_ENVIRONMENT/bin/python"
+uv run --locked --no-sync python -m PyInstaller --noconfirm packaging/acprof.spec \
   --distpath internal-testing/distribution/standalone --workpath internal-testing/distribution/build
-internal-testing/distribution/venv/bin/python scripts/check_distribution.py \
+uv run --locked --no-sync python scripts/check_distribution.py \
   --binary internal-testing/distribution/standalone/acprof
+unset UV_PROJECT_ENVIRONMENT
 ```
 
 本机生成的 binary 使用本机构建环境的 glibc 下限；只有相应 runner 上构建并验证的资产才能按
@@ -207,11 +256,17 @@ Release 的 PR 检查和 `workflow_dispatch` 仅构建、验证和保存 artifac
 `release.yml` 在构建前要求 Tag 精确等于 `v` + `acprof.__version__`，不一致直接失败。
 发布流程如下：
 
-```text
-同一提交的 ci.yml ─────────────────────────────────────┐
-uv build → python-dist → verify-dist → standalone ────┤
-                                                     ├→ GitHub Release
-                                                     └→ PyPI → 安装与哈希回查
+```mermaid
+flowchart TD
+    CI["同提交 CI"] --> Gate["发布条件全部通过"]
+    Build["uv build / python-dist"] --> Verify["verify-dist"]
+    Verify --> Standalone["standalone"]
+    Standalone --> Gate
+    Hardware["main 上的同提交硬件证据"] --> HardwareGate["hardware-gate"]
+    HardwareGate --> Gate
+    Gate --> Release["GitHub Release"]
+    Gate --> PyPI["PyPI"]
+    PyPI --> Smoke["安装与哈希回查"]
 ```
 
 GitHub Release 与 PyPI job 下载同一份 `python-dist`，发布前各自核对 SHA256，不重新构建。
@@ -260,9 +315,11 @@ PyPI 项目描述来自同一制品的 README，metadata 的 Changelog 链接指
 实验 `static_meta.json` 中的 `platform_runtime.acprof_version` 保存执行包版本，源码开发态另外保留
 `git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](../profiling/measurement.md#环境身份与能力支持)。
 
-Release 附带 `verification.json`，记录源码 SHA、CI run 和硬件证据范围。硬件报告仅关联同一 SHA
-上成功的 `hardware.yml` run，且 `hardware` artifact 尚未过期；否则明确标为 `not_verified`。
-这不是硬件强制门禁，也不代表所有设备或 profiler 均已验收，具体范围以对应 artifact 为准。
+Release 附带 `verification.json`，记录源码 SHA、CI run 和已验证的硬件证据。
+`hardware-gate` 要求同一 SHA 在 main 上成功执行 `hardware.yml`，对应 `hardware` artifact
+仍可下载，且通过固定 CPU/GPU 矩阵、Native Linux 身份及正式测量指标核验；
+缺失、过期或不完整均阻止 GitHub Release 和 PyPI 发布。该门禁只证明对应 artifact
+记录的设备与测量范围，不代表所有设备或 profiler 均已验收。
 复用工作流遵循 [GitHub reusable workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)，
 本地相对路径保证执行同一提交；普通 CI 处理分支 push，tag 的 CI 由 release 调用，避免重复运行。
 
@@ -290,7 +347,7 @@ GHCR 只预构建平台和依赖环境，不发布模型权重、用户数据或
 - [uv tools](https://github.com/astral-sh/uv/blob/main/docs/guides/tools.md)（MIT / Apache-2.0）：
   采用标准 console script 与隔离工具环境。`setup.sh` 只串联安装和已有诊断；uv 引导使用
   [官方 installer](https://docs.astral.sh/uv/reference/installer/) 的 `UV_INSTALL_DIR` / `UV_NO_MODIFY_PATH`，
-  不复制包管理逻辑。uv 引导版本与开发锁、Release 工具链一同维护。
+  不复制包管理逻辑。uv 引导版本与 `tool.uv.required-version` 一同维护，Actions 从该声明读取版本。
   `setup.sh` 复用 [uv 的目录查询接口](https://github.com/astral-sh/uv/blob/main/crates/uv/src/commands/tool/dir.rs)
   定位已安装的 `acprof`，不推测内部虚拟环境布局；查询只发生在安装后，不增加测量期开销。
 - [Hatch build hooks](https://github.com/pypa/hatch/tree/master/backend/src/hatchling/builders/hooks)

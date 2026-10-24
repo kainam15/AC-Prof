@@ -3,33 +3,33 @@
 [← 返回专题目录](testing.md)
 
 ## 辅助开发工具
-`requirements/test.in` / `test.lock` 统一固定 pytest 9、pytest-asyncio、pytest-cov。
-`dev.in` 引入这些工具，但主机和推理 runtime 的依赖声明不包含测试工具。
-开发锁还固定 `pip`，供 `check_runtime.py` 下载带哈希的容器测试工具；
-`uv venv` 本身不预装 `pip`。
+`pyproject.toml` 的 `test` / `runtime-test` 组声明 pytest、pytest-asyncio、pytest-cov，
+`uv.lock` 固定完整闭包，默认 `dev` 包含这些工具。测试工具不进入发行依赖或推理镜像。
+`runtime-tools` 组提供 pip 下载工具；`check_runtime.py` 从 `uv.lock` 导出哈希清单，
+按目标 Python/平台筛选，再下载测试 wheel 供无网络的临时容器测试环境使用。
 固定场景 SVG 回归使用仓库自有 `tests/visual/conftest.py`，基于 Textual 截图导出，
 不再依赖停更且约束 pytest＜9 的 pytest-textual-snapshot/syrupy；既有 SVG 文件不改变。
-`textual-dev` 与 Hypothesis 仍是按需工具，添加普通测试依赖前须同步开发锁和 CI。
+`textual-dev` 与 Hypothesis 仍是按需工具，添加普通测试依赖时须同步依赖组、`uv.lock` 和 CI。
 
 | 工具 | 适用场景 | 运行入口 |
 | --- | --- | --- |
-| `textual-dev` | Textual 开发日志、事件和调试界面 | `.venv/bin/textual` |
+| `textual-dev` | Textual 开发日志、事件和调试界面 | `uv run --with textual-dev textual` |
 | Hypothesis | 同步输入与状态转换的性质测试 | pytest 中的 `@given` / `strategies` |
-| 仓库的 `snap_compare` fixture | 固定场景 SVG 视觉回归及失败差异证据 | `.venv/bin/python -m pytest tests/visual` |
+| 仓库的 `snap_compare` fixture | 固定场景 SVG 视觉回归及失败差异证据 | `uv run pytest tests/visual` |
 
 ```bash
-.venv/bin/python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-.venv/bin/python -m pytest --version
-.venv/bin/python -m pip check
+uv sync --locked
+uv run pytest --version
+uv pip check
 ```
 
 交互调试时，在两个终端中分别从仓库根目录运行：
 
 ```bash
 # 终端 A：开发控制台
-.venv/bin/textual console
+uv run --with textual-dev textual console
 # 终端 B：连接控制台运行 TUI
-TEXTUAL=devtools,debug acprof tui
+TEXTUAL=devtools,debug uv run --with textual-dev acprof tui
 ```
 
 Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
@@ -51,18 +51,15 @@ WSL2 检测等待场景通过 F5 启动模拟受控任务，在 Monitor 内显�
 
 ```bash
 TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/tui-svg \
-  .venv/bin/python -m pytest tests/visual -q --junitxml=internal-testing/tui.xml
+  uv run pytest tests/visual -q --junitxml=internal-testing/tui.xml
 ```
 
-更新测试工具和开发锁（保持 `host.lock` 约束，Python 3.12+）：
+更新测试依赖后，统一刷新项目锁并重跑相关测试：
 
 ```bash
-.venv/bin/uv pip compile requirements/runtime-test.in --python-version 3.12 --universal \
-  --generate-hashes --no-annotate --no-header -o requirements/runtime-test.lock
-.venv/bin/uv pip compile requirements/test.in --python-version 3.12 --universal \
-  --generate-hashes --no-annotate --no-header -o requirements/test.lock
-.venv/bin/uv pip compile requirements/dev.in --python-version 3.12 --universal \
-  --generate-hashes --no-annotate --no-header -o requirements/dev.lock
+uv lock --upgrade-package pytest --upgrade-package pytest-asyncio --upgrade-package pytest-cov
+uv sync --locked
+uv run pytest tests/visual
 ```
 
 快照用例固定主题、语言、路径与颜色模式，规范化 SVG 行末空白以兼容仓库格式检查；
@@ -93,7 +90,7 @@ TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/tui-svg \
 若 `analyze_calls` 返回两条相同的候选标识，使用 `search_symbol(include_external=true)`
 核对是否同时找到源码和 `.venv/.../acprof/_bundle` 中的安装副本。`.venv` 的项目排除规则
 不排除 Python SDK 库索引。editable 安装不应复制这份 bundle；修复 build hook 后，执行
-`uv pip install --python .venv/bin/python --no-deps --reinstall-package acprof -e .` 更新安装，
+`uv sync --locked --reinstall-package acprof` 更新安装，
 再验证入向和出向调用。资源打包约定见[安装包说明](distribution.md#工作目录与资源)。
 
 PyCharm 2026.2.3（build `262.10968.92`）已复现一种 MCP 兼容问题：

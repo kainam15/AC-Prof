@@ -8,7 +8,7 @@
 `scripts/check_distribution.py`；standalone 用 `--binary <path>` 执行相同验收。
 该脚本核对全部公共帮助入口、参数错误、无 Docker 时的 doctor JSON、内置资源和 packet worker 的实际输出。
 日常 CI 的独立 `wheel` job 分别从当前 checkout 和 sdist 构建 wheel，
-在两个新的 venv 中按 `host.lock` 安装依赖及对应 wheel，并检查归档内容与 Docker context 暂存。
+在两个新的 venv 中按 `uv.lock` 导出的临时哈希约束安装依赖及对应 wheel，并检查归档内容与 Docker context 暂存。
 验证脚本复制到源码树外，从空目录执行，清除 `PYTHONPATH` 并使用 Python `-I`；同时核对
 `acprof.__file__` 位于安装环境内，拒绝意外使用源码或 editable 安装。公共入口从安装包 dispatcher
 读取，包含 `compare`、`load`、`model-store`；实际生成离线 HTML 并运行 packet worker，验证
@@ -28,23 +28,23 @@ standalone 和真实 `uv tool install` 保留在发布或按需流程；构建�
 
 ```bash
 # 按受影响的行为选择测试文件
-.venv/bin/python -m pytest tests/test_env_utils.py -v
+uv run pytest tests/test_env_utils.py -v
 # 符合“验证范围”中的全套回归条件时
-.venv/bin/python -m pytest -v
+uv run pytest -v
 acprof run --help
-.venv/bin/python -m compileall -q acprof scripts packaging
+uv run python -m compileall -q acprof scripts packaging
 git diff --check
 ```
 
 单测试、标记与异步测试：
 
 ```bash
-python -m pytest tests/test_env_utils.py::test_local_settings_override_env_file_but_not_explicit_process_values
-python -m pytest --collect-only
-python -m pytest -m unit
-python -m pytest -m "runtime and not hardware"
-python -m pytest -m hardware
-python -m pytest tests/test_tui_input.py
+uv run pytest tests/test_env_utils.py::test_local_settings_override_env_file_but_not_explicit_process_values
+uv run pytest --collect-only
+uv run pytest -m unit
+uv run pytest -m "runtime and not hardware"
+uv run pytest -m hardware
+uv run pytest tests/test_tui_input.py
 ```
 
 单个 node ID 以 `--collect-only -q` 的实际输出为准。`asyncio_mode="auto"` 收集

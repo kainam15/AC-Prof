@@ -10,13 +10,13 @@
 矩阵计划或 RAPL/DRAM 协议改动的定向入口：
 
 ```bash
-.venv/bin/python scripts/run_tests.py \
+uv run python scripts/run_tests.py \
   --pattern 'test_matrix_plan.py' --pattern 'test_startup_probe.py' \
   --pattern 'test_run_recovery.py' --pattern 'test_energy_cpu.py' \
   --pattern 'test_capabilities.py' --pattern 'test_client_energy_warnings.py' \
   --pattern 'test_metric_registry.py' \
   --report internal-testing/matrix-dram-tests.json
-.venv/bin/python scripts/render_metric_reference.py --check
+uv run python scripts/render_metric_reference.py --check
 ```
 
 这些用例验证同 seed 的实际计划、resume 不重排、probe 不写性能结果、异常不扩大 OOM
@@ -34,15 +34,15 @@ RAPL 的模拟 sysfs 必须包含用于识别域类型的 `name`（如 `package-
 新字段插入对应用途组，整体 `status`、`error` 保持在最后两列。列顺序调整还需验证
 旧表头的追加、case 合并、packet 回填和 profiler 补采，确保按列名保留数值及未知扩展列。
 
-Ruff、pre-commit 和锁生成工具 uv 由 [`requirements/dev.in`](../../requirements/dev.in) 声明，
-完整版本与制品哈希保存在 [`requirements/dev.lock`](../../requirements/dev.lock)。开发锁以主机锁
-为约束，避免在同一个 `.venv` 安装时引入冲突；不加入主机运行依赖或容器环境身份。
+Ruff、pre-commit 和文档解析器由 `pyproject.toml` 的 `lint` 组声明，默认 `dev` 组包含它们。
+版本及制品哈希由 `uv.lock` 管理；uv 自身版本由 `tool.uv.required-version` 声明。
+开发工具不加入发行依赖或容器环境身份。
 
 ```bash
-.venv/bin/python -m pip install --require-hashes -r requirements/dev.lock
-.venv/bin/python -m pip check
-.venv/bin/python -m pre_commit install
-.venv/bin/python -m pre_commit run --all-files --show-diff-on-failure
+uv sync --locked
+uv pip check
+uv run pre-commit install
+uv run pre-commit run --all-files --show-diff-on-failure
 ```
 
 `install` 给当前 clone 安装 `pre-commit` 和 `commit-msg` 两个 Git hooks；新 clone 需执行一次。
@@ -92,13 +92,13 @@ commitlint 需要 Node.js 22.12+，依赖安装在 pre-commit 的隔离缓存中
 或推理环境。安装 hooks 后，首次提交可能需要联网初始化依赖；可提前执行：
 
 ```bash
-.venv/bin/python -m pre_commit install --install-hooks
+uv run pre-commit install --install-hooks
 ```
 
 手动校验一个已存在的消息文件（不创建 Git commit）：
 
 ```bash
-.venv/bin/python -m pre_commit run commitlint --hook-stage commit-msg \
+uv run pre-commit run commitlint --hook-stage commit-msg \
   --commit-msg-filename /path/to/commit-message.txt
 ```
 
@@ -126,42 +126,37 @@ Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` �
 局部修改默认验证受影响范围。Git hook 不运行业务测试或硬件采集。
 
 ```bash
-.venv/bin/ruff check acprof/host/env_utils.py tests/test_env_utils.py
-.venv/bin/python -m pytest tests/test_env_utils.py \
+uv run ruff check acprof/host/env_utils.py tests/test_env_utils.py
+uv run pytest tests/test_env_utils.py \
   --report internal-testing/env-tests.json
 git diff --check
 ```
 
-更新开发工具时，修改输入并使用开发锁中的 uv 版本重新生成；Ruff 需同步修改版本约束及 hook 的
-完整 commit SHA，pre-commit 需同步最低版本。随后核对锁和 diff，重新安装开发锁并运行完整 hooks。
+更新开发依赖时使用 `uv add --dev <package>` 或 `uv add --group <group> <package>`；
+只更新已有包可运行 `uv lock --upgrade-package <package>`。Ruff 需协调组依赖和
+`tool.ruff.required-version`，pre-commit 需同步最低版本。Ruff 与测试框架 hook 直接调用
+`uv run --locked`，避免另一份 Python 工具环境。随后运行 `uv sync --locked` 和完整 hooks。
+项目锁与 Docker 锁分别通过 `uv lock --check` 和 `uv run python scripts/compile_locks.py --check`
+核验，更新步骤见[开发环境](distribution.md#本地开发环境)。
 
-```bash
-.venv/bin/uv pip compile requirements/dev.in --python-version 3.12 --universal \
-  --generate-hashes --no-annotate --no-header --output-file requirements/dev.lock
-```
-
-`scripts/compile_locks.py --check` 仍只验证既有容器锁与 profile 映射，不代替开发锁的重新解析。
-主机依赖变更还需用 Python 3.12+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
-已验证 pin 与主机 lock；重新生成方式见[运行兼容](../models/environment.md#当前配置)。CI 的 Python 3.12
-`contracts` job 统一执行主机声明与容器锁检查。
-wheel CI 同时验证两层依赖契约：锁定环境先按 `requirements/host.lock` 安装并以 `--no-deps` 核对制品；另起空环境直接安装构建出的 wheel，让解析器按 `pyproject.toml` 的公开版本范围选择当前可用依赖，再执行 `pip check`、隔离 import 与 CLI help。这个解析环境只额外固定 pytest/pytest-asyncio 测试工具版本，并从源码树外执行 `test_hf_auto_download.py`，因此 Hugging Face SDK 等运行依赖保持按公开范围解析，可在发布前暴露 API 漂移；锁定版本仍提供可复现基线。
-这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
+wheel CI 从 `uv.lock` 导出主机哈希约束，在空环境安装依赖并用 `--no-deps` 安装制品；
+另建环境直接安装 wheel，让安装器按公开依赖范围解析，再验证 `uv pip check`、隔离 import、
+CLI help 和 `test_hf_auto_download.py`。测试工具从 `runtime-test` 组导出，不约束这次公开依赖解析。
+这些工具只在编辑、提交和 CI 中执行，不进入正式测量窗口。
 
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
 分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立
-`report-browser` job 执行，Python 3.12、Playwright 和绘图依赖锁在 `requirements/browser.lock`，
-不安装到共享 `.venv` 或 runtime。锁使用现有 uv 0.13.5 生成：
+`report-browser` job 执行，Python 3.12、Playwright 和绘图依赖统一锁在 `uv.lock` 的 `browser` 组，
+环境仍与日常开发和推理 runtime 隔离：
 
 ```bash
-.venv/bin/uv pip compile requirements/browser.in --python-version 3.12 \
-  --generate-hashes --no-annotate --no-header -o requirements/browser.lock
-.venv/bin/uv venv internal-testing/browser-venv --python .venv/bin/python
-.venv/bin/uv pip install --python internal-testing/browser-venv/bin/python \
-  --require-hashes -r requirements/browser.lock
-internal-testing/browser-venv/bin/python -m playwright install chromium
+export UV_PROJECT_ENVIRONMENT="$PWD/internal-testing/browser-venv"
+uv sync --locked --only-group browser
+uv run --locked --only-group browser playwright install chromium
 ACPROF_BROWSER_TESTS=1 ACPROF_BROWSER_ARTIFACT_DIR=internal-testing/browser-evidence \
-  internal-testing/browser-venv/bin/python scripts/run_tests.py --pattern test_report_browser.py \
+  uv run --locked --only-group browser python scripts/run_tests.py --pattern test_report_browser.py \
   --report internal-testing/browser-evidence/tests.json --require-no-skips
+unset UV_PROJECT_ENVIRONMENT
 ```
 
 CI 在准备阶段用 `playwright install --with-deps chromium` 安装锁定 Playwright 对应的 Chromium。

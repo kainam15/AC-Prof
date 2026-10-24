@@ -3,7 +3,7 @@
 [← 返回专题目录](testing.md)
 
 ## 渐进类型检查与边界回归
-`requirements/dev.lock` 固定 mypy 2.3.1；类型检查唯一配置在 `pyproject.toml`。
+`uv.lock` 固定 `typing` 组的 mypy；类型检查唯一配置在 `pyproject.toml`。
 `packages = ["acprof"]` 覆盖整个 Python 源码包；新增模块自动进入类型检查，无需手工
 维护数百个路径白名单。CI、开发机和发行包继续使用同一份 `pyproject.toml` 配置。
 
@@ -30,26 +30,22 @@ TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单�
 并由静态接口检查验证最终 `AcprofTui` 满足要求。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
-GitHub Actions 的 `types` job 在代码变更时使用 Python 3.12，向同一环境安装主机锁和开发锁并运行：
+GitHub Actions 的 `types` job 在 Python 3.12 中同时安装项目依赖和 `typing` 组：
 
 ```bash
-python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
-python -m pip check
-python -m mypy
+uv sync --locked --no-default-groups --group typing
+uv pip check
+uv run --locked --no-default-groups --group typing mypy
 ```
 
-本地应使用 Python 3.12 的开发环境和与 CI 相同的主机锁、开发锁。若现有 `.venv` 不是 Python 3.12，
-可单独创建隔离环境，而不是修改项目的 `python_version`：
+日常开发使用 `uv sync`、`uv run mypy` 即可；默认 `dev` 已包含 `typing`。
+如需保留其他解释器的工作环境，可以显式隔离：
 
 ```bash
-uv venv --python 3.12 /tmp/acprof-mypy-312
-uv pip install --python /tmp/acprof-mypy-312/bin/python --require-hashes \
-  -r requirements/host.lock -r requirements/dev.lock
-/tmp/acprof-mypy-312/bin/python -m pip check
-/tmp/acprof-mypy-312/bin/python -m mypy
+UV_PROJECT_ENVIRONMENT=internal-testing/mypy-312 uv sync --locked --python 3.12 --no-default-groups --group typing
+UV_PROJECT_ENVIRONMENT=internal-testing/mypy-312 uv run --locked --python 3.12 --no-default-groups --group typing mypy
 ```
 
-开发锁以主机锁为版本约束，但 `-c host.lock` 不会安装主机依赖，不能只安装开发锁。
 仅给 mypy 指定另一解释器而未在对应环境安装相同主机依赖和开发工具不等于复现 CI：
 如果目标解释器没有安装 Textual 等主机依赖，第三方声明可能被视为未知类型，产生误报或**错误的通过结果**。
 这一环境要求遵循 [mypy 的导入与解释器说明](https://github.com/python/mypy/blob/master/docs/source/running_mypy.rst)。
@@ -103,10 +99,10 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 不能仅用重建整份 baseline 或扩大豁免消除失败。
 
 ```bash
-.venv/bin/python scripts/check_private_api.py
+uv run python scripts/check_private_api.py
 # 仅删除已不存在的条目；不会批准新增依赖。
-.venv/bin/python scripts/check_private_api.py --prune
-.venv/bin/python scripts/run_tests.py --pattern test_private_api_guard.py \
+uv run python scripts/check_private_api.py --prune
+uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
   --pattern test_architecture.py --report internal-testing/private-api.json
 ```
 
@@ -126,8 +122,8 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 CI 与 `tests/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
 
 ```bash
-.venv/bin/python scripts/check_import_boundaries.py
-.venv/bin/python -m pytest -q tests/test_import_boundaries.py
+uv run python scripts/check_import_boundaries.py
+uv run pytest -q tests/test_import_boundaries.py
 ```
 
 本阶段 mypy 增加共享硬件证据协议和纯 `client_metrics`，逐步扩大范围而非一次改成全局严格模式。

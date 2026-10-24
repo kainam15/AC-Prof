@@ -22,6 +22,8 @@ acprof tui
 如果 PyPI 返回 `No solution found` / `not found` 等未发布错误，请改用下方 GitHub Release 安装方式，**不要反复尝试同一条 PyPI 命令**。
 
 工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.12+。
+普通用户无需 clone 仓库、创建或激活 `.venv`，也无需运行开发用的 `uv sync`。
+源码开发环境与 `uv tool` 的安装环境彼此独立；切换或删除源码工作树的 `.venv` 不会卸载已安装的工具。
 若找不到命令，执行 `uv tool update-shell`，按提示刷新 PATH 或重新打开终端。
 `acprof` 不带子命令时只显示 CLI 帮助；启动 TUI 请运行 `acprof tui`，查看版本和帮助不会启动采集。
 

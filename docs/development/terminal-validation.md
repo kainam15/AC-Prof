@@ -69,12 +69,12 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 手动 `hardware.yml` 默认选择 `examples/hardware-validation.json` 的固定小模型矩阵，
 也可选择 `custom` 单模型。矩阵中的 BERT fill-mask 与 ViT image-classification 使用固定
 checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代表生产模型质量或完整模型兼容性。
-专用主机须预先准备对应 revision 和当前源码的 CPU/GPU 镜像，以及 host/test 锁环境。
+专用主机须预先准备对应 revision 和当前源码的 CPU/GPU 镜像，以及通过 `uv sync --locked --no-default-groups --group test` 准备的环境。
 脚本使用默认的镜像核验复用策略，并通过 `ACPROF_REQUIRE_PREPARED_IMAGE=1` 禁止隐式构建和下载。
 缺少匹配镜像时直接失败；运行前须在单独的受控阶段完成准备。
 
 ```bash
-.venv/bin/python scripts/check_hardware.py \
+uv run python scripts/check_hardware.py \
   --matrix examples/hardware-validation.json --gpus off,on \
   --output-dir internal-testing/hardware-matrix
 ```
@@ -93,7 +93,7 @@ workflow 先将取消、恢复、监测器清理和采样失败的离线回归�
 本地同一入口为：
 
 ```bash
-.venv/bin/python scripts/check_hardware.py --model hf-internal-testing/tiny-random-bert \
+uv run python scripts/check_hardware.py --model hf-internal-testing/tiny-random-bert \
   --task fill-mask --gpus off,on --output-dir internal-testing/hardware-smoke
 ```
 

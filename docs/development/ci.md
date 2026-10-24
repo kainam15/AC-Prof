@@ -27,16 +27,19 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `hardware.yml` 每周一 03:15 UTC 在 main 定期运行固定 CPU/GPU 矩阵，也支持主分支人工触发；fork PR 和其他工作分支不允许在专用主机运行。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
 `codeql.yml` 在指向 `main` 的 PR、`main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，启用 `security-and-quality` 查询套件覆盖安全、可靠性及维护性问题；不进入主机或容器测量路径。扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描；fork PR 的上传权限由 GitHub 平台策略控制。
-Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，固定 uv 版本协调重建 host/test/dev/browser 哈希锁与 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。
+Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，按 `tool.uv.required-version` 固定 uv，使用 `uv lock --upgrade` 统一刷新项目及全部工具组，并独立更新 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。
 
 `dependency-audit.yml` 在每周二 UTC、手动触发以及相关 lock/扫描代码 PR 上使用
 [PyPA pip-audit](https://github.com/pypa/pip-audit) 扫描 host、test、dev、runtime-test、browser
-及 audit 自身的**已锁定版本**；host、test、dev 使用支持的 Python 3.12 环境审计并在 artifact 名称中记录解释器版本。
-扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
-wheel 的 SHA256，不加入被测 host/runtime 环境；重新生成时使用仓库的固定 uv 版本：
+及 audit、build、standalone 的**已锁定版本**，host 另覆盖 Python 3.13。
+扫描器通过 `uv sync --locked --only-group audit` 单独安装；被审计依赖只从 `uv.lock` 导出哈希清单，
+不安装到审计环境。更新版本仍经过统一的依赖更新 PR：
 
 ```bash
-uv pip compile requirements/audit.in --python-version 3.12 --universal --generate-hashes --output-file requirements/audit.lock
+uv lock --upgrade-package pip-audit
+uv export --locked --no-default-groups --no-emit-project --output-file /tmp/acprof-host-audit.txt
+UV_PROJECT_ENVIRONMENT=internal-testing/audit-venv uv run --locked --only-group audit pip-audit \
+  --require-hashes --disable-pip -r /tmp/acprof-host-audit.txt
 ```
 
 扫描使用 `--require-hashes --disable-pip` 避免重新求解或安装被测依赖，JSON 报告作为
@@ -71,22 +74,20 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 
 ## CI 与环境测试
 
-独立 `lint` job 在 Python 3.12 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
-`docs-check` 同样只安装开发锁，文档解析器 `markdown-it-py` 在开发依赖中直接声明。
-独立 `types` job 在 Python 3.12 的同一环境安装 `requirements/host.lock` 和
-`requirements/dev.lock`，执行 `pip check` 后运行 `python -m mypy`，确保 Textual 等
-主机依赖的类型声明可用；pip 缓存键同时覆盖两份锁。对 `pyproject.toml`
-中的 `packages = ["acprof"]` 全包发现强制开启未注解函数体检查和导入类型追踪，
-并对已验证的协议与 TUI 模块应用模块级严格规则。新增 Python 包文件会自动纳入同一 job。
-这两类检查不安装推理依赖，也不需要 Docker/GPU。
+各 Python job 使用固定 SHA 的 `astral-sh/setup-uv`，从 `pyproject.toml` 读取 uv 版本，
+通过 `uv sync --locked` 和 `uv run --locked` 安装、执行，缓存键使用 `uv.lock`。
+`lint` 与本地 hooks 使用默认 `dev` 环境；`docs-check` 只安装 `lint` 组，包含直接声明的 `markdown-it-py`；
+`types` 安装项目依赖和 `typing` 组，确保 mypy 能读取 Textual 等主机依赖的类型声明。
+`packages = ["acprof"]` 自动发现全部源文件，并保留现有函数体、导入及模块级严格检查。
+这类检查不安装推理依赖，也不需要 Docker/GPU。
 
-`.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装哈希锁并执行主机回归；
-另设 Python 3.13 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
+`.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装同一 `uv.lock` 的项目与 `test` 组并执行主机回归；
+另设 Python 3.13 单作业 smoke（安装项目和 `test` 组、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
 所有分片都执行完整 discovery，新增测试会自动分配；不使用手写文件白名单。
-独立 Python 3.12 `contracts` job 统一执行容器锁、主机锁声明和指标文档同步检查，
+独立 Python 3.12 `contracts` job 统一执行容器锁、`uv lock --check` 和指标文档同步检查，
 不在 16 个 host shard 重复运行。CLI 帮助和 compileall 在每个 Python 版本的第 0 片执行。
 每片分别上传 `host.json` 和实时保存的 `host.log`，失败时继续执行其他分片。
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
@@ -123,13 +124,13 @@ CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
 本地入口：
 
 ```bash
-.venv/bin/python scripts/run_tests.py --report internal-testing/host-tests.json
-.venv/bin/python scripts/compile_locks.py --check
-.venv/bin/python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/audio-runtime
-.venv/bin/python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/moss-dependencies
-.venv/bin/python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
-.venv/bin/python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
-.venv/bin/python scripts/render_metric_reference.py --check
+uv run python scripts/run_tests.py --report internal-testing/host-tests.json
+uv run python scripts/compile_locks.py --check
+uv run python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/audio-runtime
+uv run python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/moss-dependencies
+uv run python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
+uv run python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
+uv run python scripts/render_metric_reference.py --check
 ```
 
 `run_tests.py` 是 pytest CLI wrapper，保留 `--directory`、重复 `--pattern`、`--report`、
@@ -159,7 +160,7 @@ fixture、依赖锁。源码树外的测试目录也按相对路径和实际文�
 但源码、测试与锁指纹必须一致。缺少身份的旧报告可以阅读，不能用于当前完整套件的成功验收。
 
 容器接口验证按 runtime platform 的 Python、Linux wheel tags 和依赖 markers，
-从 `runtime-test.lock` 生成保留原始 hashes 的 `runtime-test-target.lock`，下载对应 wheelhouse。
+从 `uv.lock` 导出 `runtime-test` 组的临时哈希清单，再生成目标平台的 `runtime-test-target.lock`，下载对应 wheelhouse。
 这避免不同目标解释器导致 wheel marker 选择错误；普通主机安装仍遵守版本条件。
 依赖条件沿用 [pytest-asyncio 的声明](https://github.com/pytest-dev/pytest-asyncio/blob/v1.2.0/pyproject.toml)，
 目标筛选复用项目锁工具，避免 [pip 按主机解释 markers](https://github.com/pypa/pip/issues/6117) 的跨版本下载问题。
@@ -188,7 +189,7 @@ CLI、IDE 和 wrapper 均受保护。生产入口仍固定使用 `/tmp` 的同�
 
 ### Host coverage baseline
 
-`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.12+。
+`test` 组声明 `coverage[toml]`，`uv.lock` 固定已验证版本，支持 Python 3.12+。
 CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 使用相同 pytest wrapper。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
@@ -199,19 +200,19 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 
 默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
 
 ```bash
-# 使用装有 host/dev lock 的 Python 3.12 环境，每个 index 执行一次。
-python -m coverage erase
+# 先运行 uv sync --locked --python 3.12，每个 index 执行一次。
+uv run python -m coverage erase
 for shard in 0 1 2 3 4 5 6 7; do
   python -m coverage run --branch --parallel-mode scripts/run_tests.py \
     --shard-index "$shard" --shard-count 8 \
     --report "internal-testing/coverage/host-3.12-$shard/host.json" || exit 1
 done
-python scripts/aggregate_test_reports.py internal-testing/coverage \
+uv run python scripts/aggregate_test_reports.py internal-testing/coverage \
   --python-versions 3.12 --shard-count 8 --report internal-testing/coverage/host-summary.json
-python -m coverage combine --keep
-python -m coverage xml
-python -m coverage json
-python -m coverage html
+uv run python -m coverage combine --keep
+uv run python -m coverage xml
+uv run python -m coverage json
+uv run python -m coverage html
 ```
 
 优先查看 schema/merge、matrix planning、run recovery、energy math、error/cleanup 的未覆盖分支。
@@ -239,7 +240,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。
 
 更新锁前后比较原完整包版本，验证目标 wheel 的 ABI/平台和全部制品 SHA256。默认锁生成保留原
-版本，显式 `--upgrade` 才更新环境包；uv 固定 0.13.5，生成 wheel 锁与只读检查统一使用 Python 3.12+。
+版本，显式 `--upgrade` 才更新环境包；uv 版本由 `tool.uv.required-version` 固定，生成 wheel 锁与只读检查统一使用 Python 3.12+。
 系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
 指定输出锁。具体命令见[当前配置](../models/environment.md#当前配置)。
 
@@ -260,7 +261,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 架构加载。它已加入默认 NLP 容器测试集，由现有 CI 的 NLP job 执行；也可单独运行：
 
 ```bash
-.venv/bin/python scripts/check_runtime.py --family nlp --variant cpu \
+uv run python scripts/check_runtime.py --family nlp --variant cpu \
   --test-pattern test_custom_pipeline_runtime.py \
   --output-dir internal-testing/custom-pipeline-runtime
 ```
@@ -269,7 +270,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 多模态共享接口的离线测试可运行：
 
 ```bash
-.venv/bin/python scripts/check_runtime.py --profile custom-multimodal-cpu \
+uv run python scripts/check_runtime.py --profile custom-multimodal-cpu \
   --test-pattern test_custom_multimodal_runtime.py \
   --output-dir internal-testing/custom-multimodal-runtime
 ```
@@ -286,9 +287,9 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 `HfApi.model_info` 时覆盖依赖 SHA 和文件列表。生成契约与通用 handler 的真实衔接使用随机小权重：
 
 ```bash
-.venv/bin/python scripts/run_tests.py --pattern test_model_contract.py \
+uv run python scripts/run_tests.py --pattern test_model_contract.py \
   --report internal-testing/model-contract-tests.json
-.venv/bin/python scripts/check_runtime.py --profile custom-multimodal-cpu \
+uv run python scripts/check_runtime.py --profile custom-multimodal-cpu \
   --test-pattern test_model_contract_runtime.py \
   --output-dir internal-testing/model-contract-runtime
 ```
@@ -322,7 +323,7 @@ TUI 的一键开始、只读字段、resolver 重新确认、同窗错误／重�
 ### 无 Torch 运行时验收
 
 ```bash
-.venv/bin/python scripts/check_runtime.py --profile onnxruntime-cpu \
+uv run python scripts/check_runtime.py --profile onnxruntime-cpu \
   --basic-e2e --output-dir internal-testing/onnx-runtime
 ```
 
@@ -352,11 +353,11 @@ cgroup CPU/内存、actual workload、输出验证和能力状态。合成图只
 以下目录需尚未存在或为空，重复检查请换新目录：
 
 ```bash
-.venv/bin/python examples/onnxruntime/real_models.py prepare mnist \
+uv run python examples/onnxruntime/real_models.py prepare mnist \
   --directory internal-testing/pretrained-mnist
-.venv/bin/python examples/onnxruntime/real_models.py prepare bert-tiny \
+uv run python examples/onnxruntime/real_models.py prepare bert-tiny \
   --directory internal-testing/pretrained-bert-tiny
-runtime_image=$(.venv/bin/python -c 'import json; print(json.load(open("internal-testing/onnx-runtime/runtime.json"))["image_id"])')
+runtime_image=$(uv run python -c 'import json; print(json.load(open("internal-testing/onnx-runtime/runtime.json"))["image_id"])')
 docker run --rm --network none --cpus 2 --memory 2g \
   -e ACPROF_RUNTIME_THREADS=1 -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$PWD:/workspace:ro" -w /workspace "$runtime_image" \
