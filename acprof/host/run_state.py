@@ -7,6 +7,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import stat
 from dataclasses import asdict
@@ -16,7 +17,7 @@ from typing import TextIO
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json, file_sha256, sync_directory
+from acprof.artifacts import atomic_write_json, file_sha256, replace_file_durably, sync_directory
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
@@ -107,6 +108,9 @@ def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
     ignored = {"resume", "rebuild_image", "output_dir", "notify"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
+    # Freeze even default policies: they affect both timing and retained evidence.
+    options.setdefault("sampling_policy", "burst")
+    options.setdefault("raw_sample_limit", 100000)
     from acprof.model_repository import model_source
     source = model_source(options.get("model_source"))
     if source == "huggingface":
@@ -241,6 +245,16 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
                 path = layout.contained(name)
                 if not path.is_file() or file_sha256(path) != record.get("sha256"):
                     raise RunStateError(message("已完成 case 的 CSV 缺失或改变：{0}", path))
+            elif record.get("measurement_status") == "complete":
+                from acprof.host.measurement_checkpoint import read_measurement_checkpoint
+                case = layout.case_from_csv(layout.contained(name))
+                cpu, mem, gpu = record["resources"]
+                try:
+                    read_measurement_checkpoint(case, record["measurement_checkpoint"],
+                                                run_id=data["run_id"], attempt_id=record["case_attempt_id"],
+                                                expected=_expected(data, cpu, mem, gpu))
+                except (OSError, ValueError, KeyError) as exc:
+                    raise RunStateError(f"已完成测量的原始证据无效：{case.case_id}: {exc}") from exc
     return phase
 
 
@@ -461,8 +475,26 @@ class RunState:
                 raise RunStateError(f"已完成 case 的 CSV 缺失或改变：{path}")
             read_result_csv(path, expected=self.expected(cpu, mem, gpu))
             return str(path)
+        if record.get("case_attempt_id") and record.get("measurement_status") != "complete":
+            from acprof.host.measurement_checkpoint import discover_measurement_checkpoint
+            try:
+                reference = discover_measurement_checkpoint(
+                    case, run_id=self.data["run_id"], attempt_id=record["case_attempt_id"],
+                    expected=self.expected(cpu, mem, gpu),
+                )
+            except (OSError, ValueError, KeyError) as exc:
+                raise RunStateError(f"已发布测量快照无法恢复：{exc}") from exc
+            if reference is not None:
+                record.update(status="measured", measurement_status="complete", processing_status="pending",
+                              measurement_checkpoint=reference, recovered_checkpoint_at=utc_now())
+                self.save()
+        if record.get("measurement_status") == "complete":
+            self.processing_checkpoint(str(path), cpu, mem, gpu)
+            return None
         candidates = [*case.temporary_files(), case.retained_requests, case.idle]
         existing = list(dict.fromkeys(candidate for candidate in candidates if candidate.exists() or candidate.is_symlink()))
+        previous_attempts = list(record.get("previous_attempts", []))
+        previous = {name: value for name, value in record.items() if name != "previous_attempts"}
         if existing:
             backup = self.layout.path("interrupted_cases") / case.case_id / uuid4().hex
             backup.mkdir(parents=True)
@@ -482,19 +514,108 @@ class RunState:
             for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
                 _sync_directory_chain(directory, self.directory)
             self.data["cases"][filename] = {"status": "archived", "backup": str(backup.relative_to(self.directory))}
+            previous["backup"] = str(backup.relative_to(self.directory))
             self.save()
             for source in existing:
                 source.unlink()
-        self.data["cases"][filename] = {"status": "running", "started_at": utc_now()}
+        if previous:
+            previous_attempts.append(previous)
+        self.data["cases"][filename] = {
+            "status": "running", "started_at": utc_now(), "case_attempt_id": uuid4().hex,
+            "measurement_status": "running", "processing_status": "pending",
+            "resources": [cpu, mem, gpu],
+            "previous_attempts": previous_attempts,
+        }
         self.save()
         path.parent.mkdir(parents=True, exist_ok=True)
         return None
+
+    def case_attempt_id(self, path: str) -> str:
+        record = self.data["cases"][str(Path(path).relative_to(self.directory))]
+        return record["case_attempt_id"]
+
+    def bind_case_container(self, path: str, container_id: str) -> None:
+        """Record cleanup ownership before acquisition, including crash recovery."""
+        if not re.fullmatch(r"[a-f0-9]{64}", container_id):
+            raise RunStateError("Case container must have an immutable Docker ID")
+        record = self.data["cases"][str(Path(path).relative_to(self.directory))]
+        record.update(cleanup_container_id=container_id, cleanup_status="pending")
+        self.save()
+
+    def checkpoint_measurement(self, path: str, cpu: int, mem: int, gpu: str, *, processing: dict,
+                               container_id: str) -> None:
+        from acprof.host.measurement_checkpoint import publish_measurement_checkpoint
+        key = str(Path(path).relative_to(self.directory))
+        record = self.data["cases"][key]
+        reference = publish_measurement_checkpoint(
+            self.layout.case_from_csv(path), run_id=self.data["run_id"],
+            attempt_id=record["case_attempt_id"], processing=processing,
+            expected=self.expected(cpu, mem, gpu),
+        )
+        record.update(status="measured", measurement_status="complete", measured_at=utc_now(),
+                      processing_status="pending", measurement_checkpoint=reference, cleanup_status="pending",
+                      cleanup_container_id=container_id)
+        self.save()
+
+    def processing_checkpoint(self, path: str, cpu: int, mem: int, gpu: str) -> dict | None:
+        from acprof.host.measurement_checkpoint import read_measurement_checkpoint
+        record = self.data["cases"].get(str(Path(path).relative_to(self.directory)), {})
+        if record.get("measurement_status") != "complete":
+            return None
+        try:
+            checkpoint = read_measurement_checkpoint(
+                self.layout.case_from_csv(path), record["measurement_checkpoint"],
+                run_id=self.data["run_id"], attempt_id=record["case_attempt_id"],
+                expected=self.expected(cpu, mem, gpu),
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            raise RunStateError(f"已完成测量的原始证据无效：{exc}") from exc
+        if record.get("cleanup_status") != "complete":
+            from acprof.host import command as host_command
+            from acprof.host.container_lifecycle import recover_cleanup_debt
+            # The existing lifecycle protocol removes only verified abandoned
+            # containers, then proves the recorded immutable ID is absent.
+            recovery = recover_cleanup_debt(
+                [{"container_id": record.get("cleanup_container_id", "")}], host_command.run_command,
+            )
+            case = self.layout.case_from_csv(path)
+            error = case.sidecar("cleanup_error")
+            if error.exists():
+                target = self.layout.contained(f"raw/cleanup/{case.case_id}/{record['case_attempt_id']}.json")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    raise RunStateError(f"Cleanup evidence already exists: {target}")
+                replace_file_durably(error, target)
+            record.update(cleanup_status="complete", cleanup_recovery=recovery)
+            self.save()
+        return checkpoint
+
+    def record_case_processing(self, path: str, status: str) -> None:
+        if status not in {"running", "failed", "complete"}:
+            raise ValueError(f"Invalid case processing status: {status}")
+        record = self.data["cases"][str(Path(path).relative_to(self.directory))]
+        record["processing_status"] = status
+        if status == "running":
+            record["processing_attempts"] = record.get("processing_attempts", 0) + 1
+        self.save()
+
+    def record_case_cleanup(self, path: str, status: str) -> None:
+        if status not in {"complete", "failed"}:
+            raise ValueError(f"Invalid case cleanup status: {status}")
+        record = self.data["cases"][str(Path(path).relative_to(self.directory))]
+        if record.get("measurement_status") == "complete":
+            record["cleanup_status"] = status
+            self.save()
 
     def finish_case(self, path: str, cpu: int, mem: int, gpu: str) -> None:
         _, rows = read_result_csv(path, expected=self.expected(cpu, mem, gpu))
         case = self.layout.case_from_csv(path)
         case.retain_requests()
-        self.data["cases"][str(Path(path).relative_to(self.directory))] = {
+        key = str(Path(path).relative_to(self.directory))
+        record = self.data["cases"].get(key, {})
+        self.data["cases"][key] = {
+            **record, "processing_status": "complete",
+            "measurement_status": "complete" if record.get("measurement_status") == "complete" else "not_measured",
             "status": "complete", "completed_at": utc_now(), "sha256": file_sha256(path),
             "row_count": len(rows), "error_rows": sum(row.get("status") == "error" for row in rows),
         }

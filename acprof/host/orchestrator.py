@@ -11,6 +11,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
@@ -23,6 +24,7 @@ from acprof.config import (
     DEFAULT_REPEAT_IN_WINDOW,
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    SERVER_PORT,
 )
 from acprof.host import command as host_command
 from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
@@ -48,7 +50,11 @@ from acprof.host.input_plan import (
     resolve_input_scales,
     serialize_input_scales,
 )
-from acprof.host.packet_capture import _packet_latency_error, _resolve_packet_latency_runtime
+from acprof.host.packet_capture import (
+    PacketLatencyRuntime,
+    _packet_latency_error,
+    _resolve_packet_latency_runtime,
+)
 from acprof.host.runtime_identity import model_token
 from acprof.host.runtime_images import ImageInfo
 from acprof.installation import module_command
@@ -146,10 +152,17 @@ def run_single_case(
     input_scale_order: Optional[List[float]] = None,
     dram_energy: str = "auto",
     cpuset_cpus: str = "",
+    sampling_policy: str = "burst",
+    raw_sample_limit: int = 100000,
+    run_state=None,
 ) -> str:
     """Run one profiling case and return result CSV path."""
     from acprof.cpu_affinity import normalize_cpu_set
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
+    from acprof.monitors.sampling import sampling_policy as require_sampling_policy
+    sampling_policy = require_sampling_policy(sampling_policy)
+    if type(raw_sample_limit) is not int or raw_sample_limit < 2:
+        raise ValueError("raw_sample_limit must be an integer of at least 2")
     require_profiling_mode(profiling_mode)
     request_timeout_seconds = float(request_timeout_seconds)
     if (
@@ -169,6 +182,12 @@ def run_single_case(
     pcap_file = str(case.pcap)
     lat_json = str(case.latency)
     client_error_path = str(case.sidecar("client_error"))
+    if run_state is not None:
+        checkpoint = run_state.processing_checkpoint(out_csv, cpu, mem, gpu)
+        if checkpoint is not None:
+            return _resume_case_processing(case, checkpoint, run_state, case_name)
+    run_id = run_state.data["run_id"] if run_state is not None else uuid4().hex
+    attempt_id = run_state.case_attempt_id(out_csv) if run_state is not None else uuid4().hex
 
     print(f"\n{'='*60}")
     print(f"[case] {case_name}")
@@ -229,6 +248,8 @@ def run_single_case(
     case_status = "error"
     require_packet_latency = require_packet_latency and measurement_requested(profiling_mode, "packet_latency")
     try:
+        if run_state is not None:
+            run_state.bind_case_container(out_csv, session.container_id)
         record_case_conditions(output_dir, case.case_id, session, cpuset_cpus=cpuset_cpus)
         sniff_runtime = _resolve_packet_latency_runtime(
             project_dir=project_dir, pcap_file=pcap_file, sniff_iface=sniff_iface,
@@ -293,6 +314,13 @@ def run_single_case(
             "DRAM_ENERGY": dram_energy,
             "INPUT_SCALE_ORDER": json.dumps(input_scale_order) if input_scale_order is not None else "",
             "SAMPLE_HZ": str(sample_hz),
+            "ACPROF_SAMPLING_POLICY": sampling_policy,
+            "ACPROF_RAW_SAMPLE_LIMIT": str(raw_sample_limit),
+            "ACPROF_RUN_ID": run_id,
+            "ACPROF_CASE_ID": case.case_id,
+            "ACPROF_CASE_ATTEMPT_ID": attempt_id,
+            "ACPROF_WINDOW_RECORDS_DIR": str(case.window_records(attempt_id)),
+            "ACPROF_TELEMETRY_DIR": str(case.telemetry(attempt_id)),
             "IDLE_SECONDS": str(idle_seconds),
             "IDLE_COOLDOWN_SECONDS": str(idle_cooldown_seconds),
             "IDLE_DEBUG": "1" if idle_debug else "0",
@@ -406,9 +434,33 @@ def run_single_case(
                 preserve_existing=False,
             )
 
-        _finalize_case(
-            tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu
-        )
+        capture_available = tcpdump_proc is not None
+        if tcpdump_proc is not None:
+            time.sleep(1.0)
+            _stop_capture(tcpdump_proc)
+            time.sleep(0.2)
+            tcpdump_proc = None
+        if run_state is not None:
+            run_state.checkpoint_measurement(
+                out_csv, cpu, mem, gpu, container_id=session.container_id,
+                processing={"capture_available": capture_available,
+                            "case_incomplete": case_incomplete,
+                            "completed_rows_before_failure": completed_rows_before_failure,
+                            "incomplete_case_reason": incomplete_case_reason,
+                            "require_packet_latency": require_packet_latency,
+                            "profiling_mode": profiling_mode, "gpu": gpu, "server_port": SERVER_PORT},
+            )
+            run_state.record_case_processing(out_csv, "running")
+        try:
+            _finalize_case(
+                capture_available, sniff_runtime, case_incomplete, completed_rows_before_failure,
+                incomplete_case_reason, pcap_file, lat_json, out_csv,
+                require_packet_latency, profiling_mode, gpu,
+            )
+        except BaseException:
+            if run_state is not None:
+                run_state.record_case_processing(out_csv, "failed")
+            raise
         case_status = "error" if case_incomplete else _case_result_status(out_csv)
     except KeyboardInterrupt:
         _LOG.debug("case cancelled: %s", case_name)
@@ -422,9 +474,13 @@ def run_single_case(
                     _stop_capture(tcpdump_proc)
             finally:
                 stop_container_session(session, log_prefix="[case]")
+                if run_state is not None:
+                    run_state.record_case_cleanup(out_csv, "complete")
         except BaseException as exc:
             _LOG.debug("case cleanup failed: case=%s error_type=%s", case_name, type(exc).__name__)
             case_status = "error"
+            if run_state is not None:
+                run_state.record_case_cleanup(out_csv, "failed")
             if isinstance(exc, ContainerCleanupError):
                 from acprof.artifacts import atomic_write_json
                 exc.run_error = run_error or exc.run_error
@@ -434,6 +490,38 @@ def run_single_case(
             emit_event("case_finished", case_name, status=case_status)
 
     print(f"[case] Done. Output: {out_csv}")
+    return out_csv
+
+
+def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -> str:
+    """Retry only derivation from a verified whole-case measurement snapshot."""
+    from acprof.host.measurement_checkpoint import restore_measurement_projection
+
+    context = checkpoint["processing"]
+    out_csv = str(case.csv)
+    status = "error"
+    emit_event("case_started", case_name, phase="postprocessing")
+    try:
+        run_state.record_case_processing(out_csv, "running")
+        restore_measurement_projection(case, checkpoint)
+        pcap = (str(case.layout.contained(checkpoint["files"]["pcap"]["path"]))
+                if "pcap" in checkpoint["files"] else str(case.pcap))
+        # Commands come from trusted code. The checkpoint supplies validated data only.
+        runtime = PacketLatencyRuntime(
+            mode="local", tcpdump_cmd=[],
+            parse_cmd=[*module_command("acprof.packet.sniff_parse_pcap"), pcap, str(context["server_port"])],
+        ) if context["capture_available"] else None
+        print(f"[resume] Retrying postprocessing from completed measurement: {case.case_id}")
+        _finalize_case(context["capture_available"], runtime, context["case_incomplete"], context["completed_rows_before_failure"],
+                       context["incomplete_case_reason"], pcap, str(case.latency), out_csv,
+                       context["require_packet_latency"], context["profiling_mode"], context["gpu"])
+        status = "error" if context["case_incomplete"] else _case_result_status(out_csv)
+    except BaseException as exc:
+        status = "cancelled" if isinstance(exc, KeyboardInterrupt) else "error"
+        run_state.record_case_processing(out_csv, "failed")
+        raise
+    finally:
+        emit_event("case_finished", case_name, status=status)
     return out_csv
 
 
@@ -475,13 +563,9 @@ def _stop_capture(process) -> None:
         process.wait(timeout=5)
 
 
-def _finalize_case(tcpdump_proc, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu) -> None:
-    """Finish capture and validate results after the client has stopped."""
-    if tcpdump_proc is not None:
-        time.sleep(1.0)
-        _stop_capture(tcpdump_proc)
-        time.sleep(0.2)
-
+def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu) -> None:
+    """Derive and validate results after acquisition is durably checkpointed."""
+    if capture_available:
         if case_incomplete and completed_rows_before_failure == 0:
             print(
                 "[sniff] No completed measurements before "
@@ -901,6 +985,8 @@ def run_matrix(
     matrix_seed: int = 0,
     dram_energy: str = "auto",
     cpuset_cpus: str = "",
+    sampling_policy: str = "burst",
+    raw_sample_limit: int = 100000,
 ) -> List[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
     from acprof.cpu_affinity import normalize_cpu_set
@@ -950,17 +1036,21 @@ def run_matrix(
     total = len(plan["cases"])
     for current, case in enumerate(plan["cases"], 1):
         cpu, mem, gpu = case["cpu_cores"], case["mem_cap_gb"], case["gpu_mode"]
+        case_name = f"case_{model_token(task_info.model_id)}_{cpu}c_{mem}g_{gpu}"
+        emit_event("case_selected", case_name, current=current, total=total, cpu=cpu, mem=mem, gpu=gpu)
         print(f"[matrix] Case {current}/{total}: CPU={cpu}, MEM={mem}GB, GPU={gpu}")
         filename = f"result_case_{model_token(task_info.model_id)}_{cpu}c_{mem}g_{gpu}.csv"
         cached_case = run_state.prepare_case(filename, cpu, mem, gpu) if run_state else None
         if cached_case:
             csv_path = cached_case
             print(f"[resume] 已完成，复用 case：{filename}")
+            emit_event("case_skipped", case_name, status="completed")
         elif case["result_origin"] == "inferred_not_measured":
             csv_path = _write_startup_oom_pruned_case_csv(
                 task_info=task_info, output_dir=output_dir, cpu=cpu, mem=mem, gpu=gpu,
                 reference_cpu=min(cpu_list), warmup=warmup, repeat=repeat,
                 repeat_in_window=repeat_in_window, input_scales=input_scales)
+            emit_event("case_skipped", case_name, status="oom_pruned")
         else:
             csv_path = run_single_case(
                 task_info=task_info, cpu=cpu, mem=mem, gpu=gpu, image_info=image_info,
@@ -971,7 +1061,8 @@ def run_matrix(
                 idle_debug=idle_debug, sniff_iface=sniff_iface, input_scales=input_scales,
                 input_scale_plan_file=input_scale_plan_file, compute_profile_plan_file=compute_profile_plan_file,
                 execution_profile_plan_file=execution_profile_plan_file, profiling_mode=profiling_mode,
-                input_scale_order=case["input_scales"], dram_energy=dram_energy, cpuset_cpus=cpuset_cpus)
+                input_scale_order=case["input_scales"], dram_energy=dram_energy, cpuset_cpus=cpuset_cpus,
+                sampling_policy=sampling_policy, raw_sample_limit=raw_sample_limit, run_state=run_state)
         if run_state is not None and csv_path and not cached_case:
             run_state.finish_case(csv_path, cpu, mem, gpu)
         if csv_path:

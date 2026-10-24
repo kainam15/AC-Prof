@@ -2285,10 +2285,6 @@ class TestDetectEnvironment:
                 "schema_version": 2,
                 "requests": {"window:0": {"latency_s": 0.25}},
             }
-            process = SimpleNamespace(
-                terminate=lambda: None,
-                wait=lambda timeout=None: 0,
-            )
             runtime = packet_capture.PacketLatencyRuntime(
                 mode="local",
                 tcpdump_cmd=["tcpdump"],
@@ -2313,7 +2309,7 @@ class TestDetectEnvironment:
             ):
                 with pytest.raises(OSError, match="disk full"):
                     orchestrator._finalize_case(
-                        process,
+                        True,
                         runtime,
                         False,
                         0,

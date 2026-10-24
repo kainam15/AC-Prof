@@ -121,6 +121,31 @@ class TestResultComparison(ComparisonFixture):
         assert (report["conditions"]["resources"]["status"]) == ("incompatible")
         assert (report["conditions"]["measurement_protocol"]["status"]) == ("incompatible")
 
+    @pytest.mark.parametrize("field,value", [("sampling_policy", "skip"), ("raw_sample_limit", 500)])
+    @pytest.mark.parametrize("purpose", ["same-hardware", "cross-hardware", "resource-scaling"])
+    def test_sampling_and_retention_protocol_changes_block_comparison(self, field, value, purpose):
+        from acprof.analysis.comparison import compare_results
+
+        self.change_json(self.right, "run_state.json", lambda state: state["options"].update({field: value}))
+        report = compare_results(self.left, self.right, purpose=purpose)
+        assert report["conditions"]["measurement_protocol"]["status"] == "incompatible"
+        assert report["status"] == "incompatible"
+        assert report["metric_comparability"]["latency_app_s"]["status"] == "not comparable"
+
+    @pytest.mark.parametrize("field", ["sampling_policy", "raw_sample_limit"])
+    @pytest.mark.parametrize("missing_on_both", [False, True])
+    def test_missing_historical_sampling_evidence_remains_unknown(self, field, missing_on_both):
+        directories = (self.left, self.right) if missing_on_both else (self.right,)
+        for directory in directories:
+            self.change_json(directory, "run_state.json", lambda state: state["options"].pop(field))
+        before = {directory: (directory / "run_state.json").read_bytes() for directory in directories}
+        report = self.compare()
+        protocol = report["conditions"]["measurement_protocol"]
+        assert protocol["right"][field] is None
+        assert protocol["status"] == "unknown"
+        assert report["status"] == "unknown"
+        assert {directory: (directory / "run_state.json").read_bytes() for directory in directories} == before
+
     def test_quality_threshold_change_is_not_hidden_by_protocol_validation(self):
         self.change_json(self.right, "input_scale_plan.json", lambda plan: plan["quality_constraints"].update(atol=0.1))
         report = self.compare()

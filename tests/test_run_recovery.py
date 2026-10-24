@@ -17,7 +17,7 @@ class TestRunRecovery(RunRecoveryFixture):
         def capture(**kwargs):
             seen.append(kwargs["cpuset_cpus"])
             return self.write_case(**kwargs)
-        with patch("acprof.cli.run.os.sched_getaffinity", return_value={0, 1, 2}):
+        with patch("acprof.application.run.os.sched_getaffinity", return_value={0, 1, 2}):
             self.invoke("--cpuset-cpus", "2,0-1", case=capture)
             assert (seen) == (["0-2", "0-2"])
             self.invoke("--cpuset-cpus", "0-2", "--resume")
@@ -55,8 +55,7 @@ class TestRunRecovery(RunRecoveryFixture):
         self.invoke(case=with_samples)
         assert ({p.name for p in self.directory.iterdir() if p.is_file()}) == (
             {"static_meta.json", "capability_report.json",
-             "result_manifest.json", "quality_checks.json", "result_layers.json",
-             "summary.csv", "performance.csv", "resources.csv", "energy.csv", "network.csv"})
+             "result_manifest.json", "quality_checks.json", "result_layers.json"})
         from acprof.result_layers import read_result_layers
         fields, rows = read_result_layers(self.directory)
         assert len(rows) == 2

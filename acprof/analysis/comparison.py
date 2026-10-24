@@ -26,7 +26,8 @@ from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
     "profiling_mode", "warmup", "repeat", "repeat_in_window", "repeat_window_seconds",
-    "request_timeout_seconds", "sample_hz", "idle_seconds", "idle_cooldown_seconds",
+    "request_timeout_seconds", "sample_hz", "sampling_policy", "raw_sample_limit",
+    "idle_seconds", "idle_cooldown_seconds",
     "compute_profile_tool", "execution_profile_tool", "prune_startup_oom",
     "matrix_order", "matrix_seed", "dram_energy",
 )

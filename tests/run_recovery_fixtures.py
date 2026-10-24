@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.cli import run
+from acprof.application import run
+from acprof.cli import run as run_cli
 from acprof.config import CSV_FIELDS
 from acprof.host.detect import TaskInfo
 from acprof.host.input_plan import PlannedInputScales
@@ -91,7 +92,7 @@ class RunRecoveryFixture:
             stack.enter_context(patch("acprof.host.orchestrator.run_single_case", side_effect=case or self.write_case))
             stack.enter_context(redirect_stdout(output if output is not None else io.StringIO()))
             stack.enter_context(redirect_stderr(io.StringIO()))
-            run.main()
+            run_cli.main()
 
     def assert_missing_required_measurements_rejected(self, mode):
         def missing_memory(**kwargs):
