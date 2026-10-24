@@ -31,13 +31,12 @@ Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不�
 
 `dependency-audit.yml` 在每周二 UTC、手动触发以及相关 lock/扫描代码 PR 上使用
 [PyPA pip-audit](https://github.com/pypa/pip-audit) 扫描 host、test、dev、runtime-test、browser
-及 audit 自身的**已锁定版本**；host、test、dev 同时审计 Python 3.10 和 3.12
-解释器分支，并用版本号区分报告 artifact，避免将 Python 3.12 上的安全结果误用到 3.10。
+及 audit 自身的**已锁定版本**；host、test、dev 使用支持的 Python 3.12 环境审计并在 artifact 名称中记录解释器版本。
 扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
 wheel 的 SHA256，不加入被测 host/runtime 环境；重新生成时使用仓库的固定 uv 版本：
 
 ```bash
-uv pip compile requirements/audit.in --python-version 3.10 --universal --generate-hashes --output-file requirements/audit.lock
+uv pip compile requirements/audit.in --python-version 3.12 --universal --generate-hashes --output-file requirements/audit.lock
 ```
 
 扫描使用 `--require-hashes --disable-pip` 避免重新求解或安装被测依赖，JSON 报告作为
@@ -56,11 +55,11 @@ PyPI 无法查询的 CUDA/CPU 特殊 wheel（常见为 `torch`、`torchaudio` �
 会在 JSON 中带 `skip_reason`，报告器将其单列为 **NOT ASSESSED / INCOMPLETE**，
 明确区分于已检查而无已知漏洞的包。结构损坏、缺少原因、所有包均跳过或扫描输出缺失会使
 CI 报告核验失败，不允许将跳过状态解释为安全。跳过的包需另行检查官方公告与制品来源。
-2026-10 安全更新中 `certifi`、`urllib3`、uv、pytest、virtualenv 和 Python 3.11+ 的
-Pillow/filelock 已升级到附哈希版本；**Python 3.10 的 Pillow 12.3.0 和 filelock 4.1.0 仍有已知报告**，
-因为上游已修复版本要求更新的 Python。它们不能通过忽略漏洞 ID 或将全局扫描标绿处理，
-下一步需基于 Docker CPU/GPU 平台锁迁移 Python 基线，并同步调整运行验证与镜像/权重身份。
-在确认新平台后，单独重锁 Docker runtime 工件，并核验真实推理及实验复现，禁止只更新 host.lock 断言安全。
+运行时平台统一迁移 Python 3.12.12（amd64 固定 OCI digest），Debian system lock 已按新的固定
+snapshot 重新生成，4 个平台锁和 27 个环境锁按目标 ABI 再解析并固定 URL/SHA256。
+所有含 Pillow/filelock 的运行时环境分别要求 Pillow 13.0.0、filelock 4.2.4。
+仍有其他已知漏洞或未能在 PyPI 审计的 PyTorch 特定 wheel，必须独立报告；
+仅锁一致性检查通过不等于新环境 CPU/GPU 硬件验收成功。
 
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
@@ -70,14 +69,14 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 
 ## CI 与环境测试
 
-独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
-独立 `types` job 同样使用 Python 3.10 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
+独立 `lint` job 在 Python 3.12 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
+独立 `types` job 同样使用 Python 3.12 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
 中的 `packages = ["acprof"]` 全包发现强制开启未注解函数体检查和导入类型追踪，
 并对已验证的协议与 TUI 模块应用模块级严格规则。新增 Python 包文件会自动纳入同一 job。
 这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
-`.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
-另设 Python 3.11 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
+`.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装哈希锁并执行主机回归；
+另设 Python 3.13 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
@@ -88,7 +87,7 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
-Python 3.10 Slim 的基础镜像固定为 Docker Hub 官方仓库的 OCI index SHA256，
+Python 3.12.12 Slim Trixie 的基础镜像固定为 Docker Hub 官方仓库的 OCI index SHA256，
 且 `runtime_profiles.py`、平台 manifest 与 system lock 必须一致。
 DaoCloud 代理曾在 GitHub runner 上对相同 digest 返回 `application/octet-stream`，
 导致 Docker BuildKit 无法解析镜像；CI 不使用该代理作为规范引用。
@@ -157,7 +156,7 @@ fixture、依赖锁。源码树外的测试目录也按相对路径和实际文�
 
 容器接口验证按 runtime platform 的 Python、Linux wheel tags 和依赖 markers，
 从 `runtime-test.lock` 生成保留原始 hashes 的 `runtime-test-target.lock`，下载对应 wheelhouse。
-这避免 Python 3.12 主机漏掉 Python 3.10 容器所需的 backport；普通主机安装仍遵守版本条件。
+这避免不同目标解释器导致 wheel marker 选择错误；普通主机安装仍遵守版本条件。
 依赖条件沿用 [pytest-asyncio 的声明](https://github.com/pytest-dev/pytest-asyncio/blob/v1.2.0/pyproject.toml)，
 目标筛选复用项目锁工具，避免 [pip 按主机解释 markers](https://github.com/pypa/pip/issues/6117) 的跨版本下载问题。
 下载后在 `--network none` 容器内
@@ -185,8 +184,8 @@ CLI、IDE 和 wrapper 均受保护。生产入口仍固定使用 `/tmp` 的同�
 
 ### Host coverage baseline
 
-`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.10+。
-CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 使用相同 pytest wrapper。
+`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.12+。
+CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 使用相同 pytest wrapper。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
@@ -236,8 +235,8 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。
 
 更新锁前后比较原完整包版本，验证目标 wheel 的 ABI/平台和全部制品 SHA256。默认锁生成保留原
-版本，显式 `--upgrade` 才更新环境包；uv 固定 0.13.5，生成 wheel 锁的脚本使用 Python 3.11+，
-只读检查兼容 Python 3.10+。系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
+版本，显式 `--upgrade` 才更新环境包；uv 固定 0.13.5，生成 wheel 锁与只读检查统一使用 Python 3.12+。
+系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
 指定输出锁。具体命令见[当前配置](../models/environment.md#当前配置)。
 
 源代码、模型权重和依赖层保持分离，CPU 容器测试不下载 Hub 模型，不代替真实 GPU/PMU/抓包实验。

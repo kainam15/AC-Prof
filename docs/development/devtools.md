@@ -52,14 +52,14 @@ TZ=UTC PYTHONHASHSEED=0 ACPROF_SNAPSHOT_OUTPUT_DIR=internal-testing/tui-svg \
   .venv/bin/python -m pytest tests/visual -q --junitxml=internal-testing/tui.xml
 ```
 
-更新测试工具和开发锁（保持 `host.lock` 约束，Python 3.10+）：
+更新测试工具和开发锁（保持 `host.lock` 约束，Python 3.12+）：
 
 ```bash
-.venv/bin/uv pip compile requirements/runtime-test.in --python-version 3.10 --universal \
+.venv/bin/uv pip compile requirements/runtime-test.in --python-version 3.12 --universal \
   --generate-hashes --no-annotate --no-header -o requirements/runtime-test.lock
-.venv/bin/uv pip compile requirements/test.in --python-version 3.10 --universal \
+.venv/bin/uv pip compile requirements/test.in --python-version 3.12 --universal \
   --generate-hashes --no-annotate --no-header -o requirements/test.lock
-.venv/bin/uv pip compile requirements/dev.in --python-version 3.10 --universal \
+.venv/bin/uv pip compile requirements/dev.in --python-version 3.12 --universal \
   --generate-hashes --no-annotate --no-header -o requirements/dev.lock
 ```
 

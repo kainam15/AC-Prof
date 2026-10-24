@@ -42,7 +42,8 @@ Host HF transport 初始化会禁用 SDK user-agent 遥测，避免 SDK 为识�
 `test_tui_auto_download.py` 验证失败正文／折叠诊断和显式切换来源（含取消、子进程退出及独立结果目录）。
 Model Store 覆盖完整命中零模型网络请求、默认 ref 与显式 revision 隔离、原始完整仓库上下文、缓存配置大小与 SHA256、空间、预算、独立 dependency refs 和活动 lease。TUI 候选与入门回归还验证切换来源时清除旧自动 revision、保留手动值，以及预设迁移到 `auto` 后保留模型来源、预算和路径。
 依赖下载测试使用本地 HTTP 服务覆盖客户端标识、重定向后的 HEAD 方法、SHA256 校验和缓存命中，
-无需外网；锁生成测试在 Python 3.10 验证明确拒绝且不修改原锁，在 Python 3.11+ 验证镜像解析及 hash 保护。
+无需外网；锁生成测试在 Python 3.12+ 验证目标 wheel 选择、镜像解析及 hash 保护，失败时保留原锁。
+锁检查同时拒绝平台或环境制品清单缺失、ABI 不兼容，以及版本、URL、SHA256、包集合与安装锁不一致。
 依赖、模型、Dockerfile 变更还需分别说明新构建、已有 runtime、小型 fixture、真实 checkpoint 的验证范围。
 
 ## Python 修改工作流

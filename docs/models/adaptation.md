@@ -109,7 +109,7 @@ Apache-2.0，Python 打包工具为 MIT；目标 wheel 约 60 MB，沿用 NumPy 
 和必要的预测输出整理属于实际请求工作，不从测量中扣除。
 
 本次增量核查了 [Optimum Benchmark 的配置与依赖](https://github.com/huggingface/optimum-benchmark/blob/main/pyproject.toml)
-（Apache-2.0、Python 3.10+）：采用后端配置与实验报告分工，不引入其 Transformers、Accelerate、
+（Apache-2.0）：采用后端配置与实验报告分工，不引入其 Transformers、Accelerate、
 Hydra、datasets 等依赖；项目自述仍为 WIP，不能据此替代本仓库实测。
 [Pluggy 注册实现](https://github.com/pytest-dev/pluggy/blob/main/src/pluggy/_manager.py)（MIT）用于参考
 重复身份与冲突诊断，继续使用本地 manifest 和标准库 registry，无插件框架依赖。

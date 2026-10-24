@@ -113,7 +113,7 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 ### Ruff 与代码检查
 
 Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
-3.10，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
+3.12，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
 `B904`（异常链）、`B905`（zip 长度语义显式声明）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
 `RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）。不启用全量 RUF/SIM、`E501` 或 formatter；
 `line-length = 100` 本身不检查行长。Ruff hook 只检查，不自动修复；空白和末尾换行 hooks
@@ -136,14 +136,14 @@ git diff --check
 完整 commit SHA，pre-commit 需同步最低版本。随后核对锁和 diff，重新安装开发锁并运行完整 hooks。
 
 ```bash
-.venv/bin/uv pip compile requirements/dev.in --python-version 3.10 --universal \
+.venv/bin/uv pip compile requirements/dev.in --python-version 3.12 --universal \
   --generate-hashes --no-annotate --no-header --output-file requirements/dev.lock
 ```
 
 `scripts/compile_locks.py --check` 仍只验证既有容器锁与 profile 映射，不代替开发锁的重新解析。
-主机依赖变更还需用 Python 3.11+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
-已验证 pin 与主机 lock；重新生成方式见[运行兼容](../models/environment.md#当前配置)。CI 的 Python 3.12 job
-运行该检查；Python 3.10 job 保留容器锁检查。
+主机依赖变更还需用 Python 3.12+ 执行 `scripts/compile_locks.py --host-only --check`，核对发行声明、
+已验证 pin 与主机 lock；重新生成方式见[运行兼容](../models/environment.md#当前配置)。CI 的 Python 3.12
+`contracts` job 统一执行主机声明与容器锁检查。
 wheel CI 同时验证两层依赖契约：锁定环境先按 `requirements/host.lock` 安装并以 `--no-deps` 核对制品；另起空环境直接安装构建出的 wheel，让解析器按 `pyproject.toml` 的公开版本范围选择当前可用依赖，再执行 `pip check`、隔离 import 与 CLI help。这个解析环境只额外固定 pytest/pytest-asyncio 测试工具版本，并从源码树外执行 `test_hf_auto_download.py`，因此 Hugging Face SDK 等运行依赖保持按公开范围解析，可在发布前暴露 API 漂移；锁定版本仍提供可复现基线。
 这些开发工具只在编辑、提交和 CI 验证时运行，不进入正式测量窗口。
 

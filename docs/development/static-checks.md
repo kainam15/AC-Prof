@@ -30,25 +30,25 @@ TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单�
 并由静态接口检查验证最终 `AcprofTui` 满足要求。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
-GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：
+GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.12 安装开发锁并运行：
 
 ```bash
 python -m mypy
 ```
 
-本地也应使用 Python 3.10 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 是 Python 3.12，
+本地应使用 Python 3.12 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 不是 Python 3.12，
 可单独创建隔离环境，而不是修改项目的 `python_version`：
 
 ```bash
-uv venv --python 3.10 /tmp/acprof-mypy-310
-uv pip install --python /tmp/acprof-mypy-310/bin/python --require-hashes -r requirements/dev.lock
-/tmp/acprof-mypy-310/bin/python -m mypy
+uv venv --python 3.12 /tmp/acprof-mypy-312
+uv pip install --python /tmp/acprof-mypy-312/bin/python --require-hashes -r requirements/dev.lock
+/tmp/acprof-mypy-312/bin/python -m mypy
 ```
 
-仅在 Python 3.12 的混合环境中给 mypy 指定 `--python-executable /usr/bin/python3.10` 不等于复现 CI：
+仅给 mypy 指定另一解释器而未在对应环境安装相同开发依赖不等于复现 CI：
 如果目标解释器没有安装 Textual 等开发依赖，第三方声明可能被视为未知类型，产生**错误的通过结果**。
-NumPy `.pyi` 中包含仅适用于 Python 3.12 的 `type` 语句时，也不应因此把目标版本改为 3.12，
-或全局关闭第三方类型检查。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
+NumPy `.pyi` 包含 Python 3.12 的 `type` 语句时，必须确保目标版本和实际环境一致，
+不能通过全局关闭第三方类型检查掩盖版本不匹配。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
 版本与实施策略参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)、
 [mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)
 和 [Pydantic 的 mypy 测试配置](https://github.com/pydantic/pydantic/blob/main/tests/mypy/configs/pyproject-default.toml)，
@@ -109,7 +109,7 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 [Pylint private import checker](https://github.com/pylint-dev/pylint/blob/main/pylint/extensions/private_import.py)
 （GPL-2.0）和 [Pyright 对测试目录的独立设置](https://github.com/microsoft/pyright/discussions/8193)
 （MIT）。Import Linter 面向模块图，Pylint 该规则主要针对外部 private import；本 gate 需要
-项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 3.10 标准库 AST 实现，
+项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 标准库 AST 实现，
 不复制这些项目的源码，也不引入额外 linter 或第二套类型工具。它仅在开发与 CI 中运行。
 
 ## 关键模块导入方向检查
