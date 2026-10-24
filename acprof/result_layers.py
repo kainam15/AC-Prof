@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
+import json
+import os
+import re
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from acprof.artifacts import atomic_write, atomic_write_json, read_json_object
+from acprof.artifacts import atomic_write, atomic_write_json, read_json_object, sync_directory
 from acprof.metric_registry import METRICS, order_csv_fields
 from acprof.result_csv import (
     KEY_FIELDS,
     ResultValidationError,
     measurement_key,
-    read_result_csv,
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
 )
@@ -23,8 +28,11 @@ def _write_csv_text(stream: TextIO, raw: bytes) -> None:
     stream.write(raw.decode("utf-8"))
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = frozenset((1, SCHEMA_VERSION))
 MANIFEST_NAME = "result_layers.json"
+GENERATIONS_DIR = "result_generations"
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 LAYER_FILES = {
     "summary": "summary.csv",
     "performance": "performance.csv",
@@ -63,7 +71,8 @@ def field_layer(name: str) -> str:
 
 def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
     """Exactly one owner for every non-key column, including unknown columns."""
-    if len(fields) != len(set(fields)) or not set(KEY_FIELDS) <= set(fields):
+    if (any(not isinstance(name, str) or not name for name in fields)
+            or len(fields) != len(set(fields)) or not set(KEY_FIELDS) <= set(fields)):
         raise ResultValidationError("invalid layered result header or measurement keys")
     mapping = {name: list(KEY_FIELDS) for name in LAYER_FILES}
     for name in fields:
@@ -85,6 +94,125 @@ def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> byte
     return stream.getvalue().encode("utf-8")
 
 
+def _result_root(root: str | Path) -> Path:
+    root = Path(root).absolute()
+    if root.is_symlink():
+        raise ResultValidationError(f"result directory must not be a symlink: {root}")
+    return root
+
+
+def _safe_path(root: Path, relative: str) -> Path:
+    """Reject symlinks in every component, including in-root directory aliases."""
+    parts = relative.split("/")
+    if (not relative or any(part in {"", ".", ".."} for part in parts)
+            or "\\" in relative or Path(relative).is_absolute()):
+        raise ResultValidationError(f"unsafe result layer path: {relative!r}")
+    path = root
+    for part in parts:
+        path /= part
+        if path.is_symlink():
+            raise ResultValidationError(f"result path must not be a symlink: {path}")
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise ResultValidationError(f"result layer escapes its directory: {path}")
+    return path
+
+
+def _generation_id(fields: Sequence[str], row_count: int, records: Mapping[str, Mapping]) -> str:
+    identity = {
+        "wide_fields": list(fields), "row_count": row_count,
+        "layers": {
+            layer: {key: record[key] for key in ("sha256", "row_count", "fields")}
+            for layer, record in records.items()
+        },
+    }
+    raw = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def result_layer_paths(root: str | Path, manifest: Mapping) -> dict[str, Path]:
+    """Validate a v1/v2 manifest and resolve only its declared, safe layer paths.
+
+    Consumers that stream/hash CSVs themselves use this same path contract.
+    The returned paths have not yet been checked against their content digests.
+    """
+    root = _result_root(root)
+    version = manifest.get("schema_version")
+    if (type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS
+            or not isinstance(manifest.get("layers"), dict)
+            or not isinstance(manifest.get("wide_fields"), list)
+            or type(manifest.get("row_count")) is not int or manifest["row_count"] < 1):
+        raise ResultValidationError("unsupported result layers manifest")
+    assigned = layer_fields(manifest["wide_fields"])
+    layers = manifest["layers"]
+    if not set(BASE_LAYERS) <= set(layers) <= set(LAYER_FILES):
+        raise ResultValidationError("missing or unknown result layer")
+    generation = manifest.get("generation")
+    if version == SCHEMA_VERSION and (
+        not isinstance(generation, str) or _SHA256.fullmatch(generation) is None
+    ):
+        raise ResultValidationError("invalid result generation identity")
+    paths = {}
+    for layer, record in layers.items():
+        relative = LAYER_FILES[layer]
+        if version == SCHEMA_VERSION:
+            relative = f"{GENERATIONS_DIR}/{generation}/{relative}"
+        if (not isinstance(record, dict) or record.get("path") != relative
+                or record.get("fields") != assigned[layer]
+                or type(record.get("row_count")) is not int or record["row_count"] < 1
+                or not isinstance(record.get("sha256"), str)
+                or _SHA256.fullmatch(record["sha256"]) is None):
+            raise ResultValidationError(f"invalid {layer} layer schema")
+        paths[layer] = _safe_path(root, relative)
+    if version == SCHEMA_VERSION and generation != _generation_id(
+        manifest["wide_fields"], manifest["row_count"], layers
+    ):
+        raise ResultValidationError("result generation identity does not match its layers")
+    return paths
+
+
+def _verify_generation(root: Path, generation: str, payloads: Mapping[str, bytes]) -> None:
+    for layer, raw in payloads.items():
+        path = _safe_path(root, f"{GENERATIONS_DIR}/{generation}/{LAYER_FILES[layer]}")
+        if not path.is_file() or path.read_bytes() != raw:
+            raise ResultValidationError(f"missing or modified immutable result layer: {path}")
+
+
+def _prepare_generation(root: Path, generation: str, payloads: Mapping[str, bytes]) -> None:
+    """Install one complete immutable directory; a racing identical writer reuses it."""
+    generations = _safe_path(root, GENERATIONS_DIR)
+    generations.mkdir(parents=True, exist_ok=True)
+    sync_directory(generations.parent)
+    destination = _safe_path(root, f"{GENERATIONS_DIR}/{generation}")
+    if destination.exists():
+        _verify_generation(root, generation, payloads)
+        return
+    stage = Path(tempfile.mkdtemp(prefix=".pending-", dir=generations))
+    try:
+        for layer, raw in payloads.items():
+            path = stage / LAYER_FILES[layer]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            def write_layer(stream: TextIO, value: bytes = raw) -> None:
+                _write_csv_text(stream, value)
+            atomic_write(path, write_layer)
+        # atomic_write syncs each file's parent; also persist newly created
+        # profiler subdirectories before publishing the whole generation.
+        sync_directory(stage)
+        try:
+            os.rename(stage, destination)
+        except OSError as exc:
+            if exc.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                raise
+            # Another publisher may have installed the same content identity.
+            # Never repair or replace an existing, damaged generation.
+            _verify_generation(root, generation, payloads)
+        sync_directory(generations)
+    finally:
+        # A real process crash may leave an unreferenced .pending directory.
+        # Only remove this invocation's staging area, never published versions.
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
 def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | None = None) -> dict:
     """Import an explicitly supplied CSV into authoritative result layers.
 
@@ -101,8 +229,14 @@ def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | Non
 
 def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]], root: str | Path,
                         *, source=None) -> dict:
-    """Publish authoritative layers, committing the integrity manifest last."""
-    root = Path(root)
+    """Publish an immutable generation, then atomically switch its manifest.
+
+    Concurrent complete publications use last-manifest-replacement-wins semantics;
+    no layer belonging to an earlier reader is overwritten. Read-modify-write
+    operations such as Posthoc still require the experiment directory lock.
+    """
+    root = _result_root(root)
+    manifest_path = _safe_path(root, MANIFEST_NAME)
     if not rows:
         raise ResultValidationError("cannot partition empty result")
     assigned = layer_fields(fields)
@@ -125,72 +259,71 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
         payloads[layer] = _csv_bytes(names, selected)
     records: dict[str, dict] = {}
     for layer, raw in payloads.items():
-        relative = LAYER_FILES[layer]
-        destination = root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.is_symlink():
-            raise ResultValidationError(f"result layer must not be a symlink: {destination}")
-        if not destination.exists() or destination.read_bytes() != raw:
-            atomic_write(destination, lambda stream: _write_csv_text(stream, raw))
         records[layer] = {
-            "path": relative, "sha256": hashlib.sha256(raw).hexdigest(),
+            "sha256": hashlib.sha256(raw).hexdigest(),
             "row_count": len(rows_by_layer[layer]), "fields": assigned[layer],
         }
-    # Remove an obsolete profiler output only once the new manifest is live.
-    # Orphans are ignored by readers; never delete another run's data here.
+    generation = _generation_id(fields, len(rows), records)
+    for layer, record in records.items():
+        record["path"] = f"{GENERATIONS_DIR}/{generation}/{LAYER_FILES[layer]}"
     manifest = {
-        "schema_version": SCHEMA_VERSION, "row_count": len(rows),
+        "schema_version": SCHEMA_VERSION, "generation": generation, "row_count": len(rows),
         "wide_fields": list(fields), "layers": records,
     }
+    _prepare_generation(root, generation, payloads)
     if source is not None:
         if not result_csv_snapshot_unchanged(source):
             raise ResultValidationError("source CSV changed before layer manifest publication")
         manifest.update(source_name=source.path.name, source_sha256=source.sha256)
-    atomic_write_json(root / MANIFEST_NAME, manifest)
+    # Check the manifest path again after staging; existing generations are
+    # retained even when this last publication fails or a later writer wins.
+    _safe_path(root, MANIFEST_NAME)
+    if manifest_path.is_file() and read_json_object(manifest_path) == manifest:
+        return manifest
+    atomic_write_json(manifest_path, manifest)
     return manifest
 
 
 def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]]]:
     """Read a full logical result from independently hashed partition CSVs."""
-    root = Path(root)
-    manifest = read_json_object(root / MANIFEST_NAME, label="result layers manifest")
-    if (manifest.get("schema_version") != SCHEMA_VERSION
-            or not isinstance(manifest.get("layers"), dict)
-            or not isinstance(manifest.get("wide_fields"), list)
-            or not isinstance(manifest.get("row_count"), int)):
-        raise ResultValidationError("unsupported result layers manifest")
+    root = _result_root(root)
+    manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest")
+    paths = result_layer_paths(root, manifest)
     wide_fields = manifest["wide_fields"]
     source_name = manifest.get("source_name")
     if source_name is not None:
         source_digest = manifest.get("source_sha256")
-        if (not isinstance(source_name, str) or Path(source_name).name != source_name
-                or not isinstance(source_digest, str) or len(source_digest) != 64):
+        if (not isinstance(source_name, str) or source_name in {"", ".", ".."}
+                or "\\" in source_name or Path(source_name).name != source_name
+                or not isinstance(source_digest, str) or _SHA256.fullmatch(source_digest) is None):
             raise ResultValidationError("invalid layered source identity")
-        source_path = root / source_name
-        if (source_path.exists() and
-                hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
-            raise ResultValidationError("source CSV has changed since layers were published")
+        # In v2 the imported CSV is provenance, not a mutable dependency of an
+        # immutable snapshot. Keep v1's existing stale-source check unchanged.
+        if manifest["schema_version"] == 1:
+            source_path = _safe_path(root, source_name)
+            if (source_path.exists() and
+                    hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
+                raise ResultValidationError("source CSV has changed since layers were published")
     assigned = layer_fields(wide_fields)
-    expected_layers = set(BASE_LAYERS)
     layers = manifest["layers"]
-    if not expected_layers <= set(layers) or set(layers) - set(LAYER_FILES):
-        raise ResultValidationError("missing or unknown result layer")
     expected_keys: list[tuple[str, ...]] | None = None
     combined: dict[tuple[str, ...], dict[str, str]] = {}
     for layer in LAYER_FILES:
         if layer not in layers:
             continue
         record = layers[layer]
-        if (not isinstance(record, dict) or record.get("path") != LAYER_FILES[layer]
-                or record.get("fields") != assigned[layer]):
-            raise ResultValidationError(f"invalid {layer} layer schema")
-        path = root / LAYER_FILES[layer]
-        if (not path.is_file() or path.is_symlink()
-                or hashlib.sha256(path.read_bytes()).hexdigest() != record.get("sha256")):
+        path = paths[layer]
+        if not path.is_file():
             raise ResultValidationError(f"missing or modified {layer} layer: {path}")
         if layer in PROFILER_LAYERS and not set(assigned[layer]) - set(KEY_FIELDS):
             raise ResultValidationError(f"empty profiler schema: {layer}")
-        columns, rows = read_result_csv(path)
+        try:
+            snapshot = read_result_csv_snapshot(path)
+        except (ValueError, csv.Error) as exc:
+            raise ResultValidationError(f"missing or modified {layer} layer: {path}: {exc}") from exc
+        if snapshot.sha256 != record["sha256"]:
+            raise ResultValidationError(f"missing or modified {layer} layer: {path}")
+        columns, rows = snapshot.fields, snapshot.rows
         if columns != assigned[layer] or len(rows) != record.get("row_count"):
             raise ResultValidationError(f"invalid {layer} layer rows or columns")
         keys = [measurement_key(row) for row in rows]
@@ -219,10 +352,12 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
 
 def export_result_layers(root: str | Path, destination: str | Path) -> int:
     """Explicit on-demand wide export; never write over a layered source file."""
-    root, destination = Path(root), Path(destination)
-    if destination.resolve() in {(root / name).resolve() for name in LAYER_FILES.values()}:
+    root, destination = _result_root(root), Path(destination)
+    resolved_destination = destination.resolve()
+    if (resolved_destination in {(root / name).resolve() for name in LAYER_FILES.values()}
+            or resolved_destination.is_relative_to((root / GENERATIONS_DIR).resolve())):
         raise ResultValidationError("cannot overwrite a result layer with a wide export")
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise ResultValidationError(f"refusing to overwrite existing CSV: {destination}")
     fields, rows = read_result_layers(root)
     raw = _csv_bytes(fields, rows)

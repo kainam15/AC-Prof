@@ -85,11 +85,11 @@ def create_backup(context: ResultContext) -> Path:
         ]
         if context.result_csv.name == "result_layers.json":
             from acprof.artifacts import read_json_object
-            from acprof.result_layers import LAYER_FILES, read_result_layers
+            from acprof.result_layers import read_result_layers, result_layer_paths
             read_result_layers(context.result_dir)  # Reject broken snapshots before backup.
             manifest = read_json_object(context.result_csv, label="result layers")
-            sources.extend((context.result_dir / LAYER_FILES[layer], LAYER_FILES[layer])
-                           for layer in manifest["layers"])
+            sources.extend((path, path.relative_to(context.result_dir.absolute()).as_posix())
+                           for path in result_layer_paths(context.result_dir, manifest).values())
         if context.collection_history_existed:
             sources.append(
                 (context.collection_history_path, context.collection_history_path.relative_to(context.result_dir).as_posix())
@@ -211,10 +211,10 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
     result manifest becomes visible only after the corresponding files exist.
     """
     from acprof.artifacts import atomic_write_json, read_json_object
-    from acprof.result_layers import LAYER_FILES, publish_result_rows, read_result_layers
+    from acprof.result_layers import publish_result_rows, read_result_layers, result_layer_paths
 
     original_manifest = read_json_object(context.result_csv, label="result layers")
-    existing_layers = {LAYER_FILES[layer] for layer in original_manifest["layers"]}
+    result_layer_paths(context.result_dir, original_manifest)
     replaced: list[Path] = []
     with tempfile.TemporaryDirectory(prefix=".posthoc-layers-", dir=context.result_dir) as temporary:
         stage = Path(temporary)
@@ -227,28 +227,17 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
         atomic_write_json(history_stage, collection_history)
         _load_json_object(meta_stage, "staged static metadata")
         normalize_collection_history(_load_json_object(history_stage, "staged collection history"))
-        staged_manifest = read_json_object(stage / RESULT_CSV_NAME, label="staged result layers")
         try:
-            for layer in staged_manifest["layers"]:
-                relative = LAYER_FILES[layer]
-                destination = context.result_dir / relative
-                candidate = stage / relative
-                if destination.is_symlink():
-                    raise PosthocError(f"result layer is a symlink: {destination}")
-                if destination.exists() and destination.read_bytes() == candidate.read_bytes():
-                    continue
-                replaced.append(destination)
-                data = candidate.read_bytes().decode("utf-8")
-                atomic_write(destination, lambda stream: _write_csv_text(stream, data))
             # Publish metadata before the result manifest; rollback restores both.
             for candidate, destination in (
                 (meta_stage, context.static_meta_path),
                 (history_stage, context.collection_history_path),
-                (stage / RESULT_CSV_NAME, context.result_csv),
             ):
                 replaced.append(destination)
                 data = candidate.read_bytes().decode("utf-8")
                 atomic_write(destination, lambda stream: _write_csv_text(stream, data))
+            replaced.append(context.result_csv)
+            publish_result_rows(fieldnames, rows, context.result_dir)
             _fsync_parent_directories(*replaced)
             read_result_layers(context.result_dir)
         except BaseException as primary_error:
@@ -260,7 +249,7 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
                 try:
                     if backup.is_file():
                         _restore_from_backup(destination, backup)
-                    elif (relative in existing_layers or destination == context.result_csv
+                    elif (destination == context.result_csv
                           or destination == context.static_meta_path
                           or (destination == context.collection_history_path and context.collection_history_existed)):
                         raise PosthocError(f"missing required recovery backup: {backup}")

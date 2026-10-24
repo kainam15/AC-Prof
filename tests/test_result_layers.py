@@ -16,6 +16,11 @@ from acprof.result_layers import (
 )
 
 
+def _layer_path(root, layer):
+    manifest = json.loads((root / "result_layers.json").read_text())
+    return root / manifest["layers"][layer]["path"]
+
+
 @pytest.fixture
 def wide_csv(tmp_path):
     source = tmp_path / "result_all.csv"
@@ -63,9 +68,10 @@ def test_split_roundtrip_and_sparse_profiler_rows(wide_csv, tmp_path):
     manifest = publish_result_layers(source)
     assert set(manifest["layers"]) == {
         "summary", "performance", "resources", "energy", "network", "torch", "ncu"}
-    assert not (tmp_path / LAYER_FILES["massif"]).exists()
-    assert not (tmp_path / LAYER_FILES["nsys"]).exists()
-    with (tmp_path / LAYER_FILES["ncu"]).open(newline="") as f:
+    generation = (tmp_path / manifest["layers"]["summary"]["path"]).parent
+    assert not (generation / LAYER_FILES["massif"]).exists()
+    assert not (generation / LAYER_FILES["nsys"]).exists()
+    with _layer_path(tmp_path, "ncu").open(newline="") as f:
         assert len(list(csv.DictReader(f))) == 1
     full_fields, full_rows = read_result_layers(tmp_path)
     assert set(full_fields) == set(fields)
@@ -79,7 +85,7 @@ def test_split_roundtrip_and_sparse_profiler_rows(wide_csv, tmp_path):
 
 def test_manifest_hash_detects_modified_layer(wide_csv, tmp_path):
     publish_result_layers(wide_csv[0])
-    (tmp_path / LAYER_FILES["energy"]).write_text("malicious\n")
+    _layer_path(tmp_path, "energy").write_text("malicious\n")
     with pytest.raises(ResultValidationError, match="modified energy"):
         read_result_layers(tmp_path)
 
@@ -149,19 +155,21 @@ def _posthoc_context(wide_csv, tmp_path):
     return context, changes
 
 
-def test_posthoc_updates_only_changed_layer(wide_csv, tmp_path):
+def test_posthoc_preserves_prior_generation_and_unchanged_values(wide_csv, tmp_path):
     from acprof.host.posthoc.storage import commit_result_files
 
     publish_result_layers(wide_csv[0])
-    before = {name: (tmp_path / relative).read_bytes()
-              for name, relative in LAYER_FILES.items() if (tmp_path / relative).is_file()}
+    manifest = json.loads((tmp_path / "result_layers.json").read_text())
+    before = {name: _layer_path(tmp_path, name).read_bytes() for name in manifest["layers"]}
     context, changes = _posthoc_context(wide_csv, tmp_path)
     commit_result_files(context, **changes)
     _, rows = read_result_layers(tmp_path)
     assert rows[0]["gpu_kernel_launch_count_per_request_ncu"] == "84"
-    assert (tmp_path / LAYER_FILES["ncu"]).read_bytes() != before["ncu"]
+    assert _layer_path(tmp_path, "ncu").read_bytes() != before["ncu"]
     for name in ("summary", "performance", "resources", "energy", "network", "torch"):
-        assert (tmp_path / LAYER_FILES[name]).read_bytes() == before[name]
+        assert _layer_path(tmp_path, name).read_bytes() == before[name]
+    for name, record in manifest["layers"].items():
+        assert (tmp_path / record["path"]).read_bytes() == before[name]
 
 
 def test_posthoc_layer_publish_failure_restores_wide_and_layers(wide_csv, tmp_path, monkeypatch):
@@ -174,10 +182,8 @@ def test_posthoc_layer_publish_failure_restores_wide_and_layers(wide_csv, tmp_pa
     original_layers = read_result_layers(tmp_path)
     context, changes = _posthoc_context(wide_csv, tmp_path)
     original_atomic_write = layer_module.atomic_write
-    failing_path = tmp_path / LAYER_FILES["ncu"]
-
     def fail_ncu(destination, write, **kwargs):
-        if destination == failing_path:
+        if destination.name == "ncu.csv":
             raise OSError("simulated layer storage failure")
         return original_atomic_write(destination, write, **kwargs)
 
@@ -204,12 +210,12 @@ def test_cli_verifies_layers_and_exports_only_explicitly(wide_csv, tmp_path):
     assert not (tmp_path / "result_all.csv").exists()
 
 
-def test_verify_rejects_stale_source_hash(wide_csv, tmp_path):
+def test_immutable_import_survives_later_source_changes(wide_csv, tmp_path):
     publish_result_layers(wide_csv[0])
+    original = read_result_layers(tmp_path)
     with wide_csv[0].open("a") as f:
         f.write("\n")
-    with pytest.raises(ResultValidationError, match="source CSV has changed"):
-        read_result_layers(tmp_path)
+    assert read_result_layers(tmp_path) == original
 
 
 def test_audit_reports_corrupt_layer(wide_csv, tmp_path):
@@ -218,7 +224,7 @@ def test_audit_reports_corrupt_layer(wide_csv, tmp_path):
     publish_result_layers(wide_csv[0])
     report = audit_result(tmp_path)
     assert "invalid_layers" not in {item["code"] for item in report["issues"]}
-    (tmp_path / LAYER_FILES["network"]).write_text("broken\n")
+    _layer_path(tmp_path, "network").write_text("broken\n")
     report = audit_result(tmp_path)
     assert "invalid_csv" in {item["code"] for item in report["issues"]}
     assert not report["valid"]

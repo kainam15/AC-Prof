@@ -115,6 +115,43 @@ class TestPosthocProfile:
             assert (path.read_bytes()) == (before)
             assert ("environment_id") not in (context.static_meta["runtime_environment"])
 
+    @pytest.mark.parametrize("changed", ["result", "metadata"])
+    def test_rechecks_snapshot_after_acquiring_posthoc_lock(self, tmp_path, monkeypatch, changed):
+        import acprof.host.posthoc.service as service
+        from acprof.result_layers import publish_result_rows, read_result_layers
+
+        self._write_fixture(tmp_path)
+        original_lock = service.PosthocLock
+        published = {}
+
+        def concurrent_publication_before_lock(directory):
+            # Deterministically place a complete second publisher between the
+            # first context read and acquiring the real experiment locks.
+            if changed == "result":
+                fields, rows = read_result_layers(directory)
+                rows[0]["marker"] = "concurrent-publication"
+                publish_result_rows(fields, rows, directory)
+            else:
+                path = directory / "static_meta.json"
+                metadata = json.loads(path.read_text())
+                metadata["concurrent_note"] = "new metadata"
+                path.write_text(json.dumps(metadata))
+            published.update({name: (directory / name).read_bytes()
+                              for name in ("result_layers.json", "static_meta.json")})
+            return original_lock(directory)
+
+        monkeypatch.setattr(service, "PosthocLock", concurrent_publication_before_lock)
+        monkeypatch.setattr(service, "find_active_processes", lambda *args, **kwargs: [])
+        with patch.object(service, "_validate_profiler_runtime") as validate, patch.object(
+            service, "create_backup"
+        ) as backup, pytest.raises(host_posthoc_context.PosthocError, match="result changed"):
+            posthoc.run_posthoc(tmp_path, tools="ncu", force_reprofile=True)
+        validate.assert_not_called()
+        backup.assert_not_called()
+        assert {name: (tmp_path / name).read_bytes() for name in published} == published
+        if changed == "result":
+            assert read_result_layers(tmp_path)[1][0]["marker"] == "concurrent-publication"
+
     def test_parser_defaults_to_reduced_execution_sampling(self):
         defaults = posthoc._build_parser().parse_args(["results/example"])
         explicit = posthoc._build_parser().parse_args(

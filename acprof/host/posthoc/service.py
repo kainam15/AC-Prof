@@ -163,6 +163,15 @@ def run_posthoc(
     runtime_validated = False
 
     with PosthocLock(context.result_dir):
+        # The preview above is read before the directory lock is acquired.
+        # Another completed publication in that gap must not be overwritten
+        # by backfilling its predecessor's rows or metadata.
+        locked_context = load_result_context(directory)
+        if locked_context != context:
+            raise PosthocError(
+                "result changed before the Posthoc lock was acquired; run the command again"
+            )
+        context = locked_context
         for tool in needed:
             reusable: Optional[Dict[str, Any]] = None
             if not force_reprofile:

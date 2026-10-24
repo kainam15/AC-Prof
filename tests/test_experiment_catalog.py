@@ -151,7 +151,8 @@ def test_duplicate_run_detects_tampered_layer_even_when_manifest_unchanged(tmp_p
     original = fixture.record("original")
     clone = tmp_path / "clone" / original.name
     shutil.copytree(original, clone)
-    (clone / "summary.csv").write_text("corrupted\n")
+    manifest = json.loads((clone / "result_layers.json").read_text())
+    (clone / manifest["layers"]["summary"]["path"]).write_text("corrupted\n")
     report = scan_experiments([tmp_path])
     assert len(report.records) == 1
     assert "duplicate_evidence_unverified" in report.records[0].issues
