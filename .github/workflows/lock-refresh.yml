@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           python scripts/compile_locks.py --host-only --upgrade
           for name in runtime-test test dev; do
-            uv pip compile "requirements/${name}.in" --python-version 3.10 --universal \
+            uv pip compile "requirements/${name}.in" --python-version 3.12 --universal \
               --generate-hashes --no-annotate --no-header --upgrade \
               --output-file "requirements/${name}.lock"
           done

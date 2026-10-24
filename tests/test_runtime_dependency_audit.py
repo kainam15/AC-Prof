@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_export_matches_all_registered_target_locks_without_artifact_downloads(tmp_path):
     target = tmp_path / "requirements"
-    counts = export_runtime_locks(target, root=ROOT, python_version="3.10")
+    counts = export_runtime_locks(target, root=ROOT, python_version="3.12")
     registered = {
         Path(spec.requirements_lock).name
         for spec in (*PLATFORMS.values(), *ENVIRONMENTS.values())
@@ -29,7 +29,7 @@ def test_export_matches_all_registered_target_locks_without_artifact_downloads(t
 def test_runtime_audit_fails_for_wrong_python_baseline_and_stale_outputs(tmp_path):
     target = tmp_path / "requirements"
     with pytest.raises(ValueError, match="target Python version"):
-        export_runtime_locks(target, root=ROOT, python_version="3.12")
-    export_runtime_locks(target, root=ROOT, python_version="3.10")
-    with pytest.raises(ValueError, match="must be empty"):
         export_runtime_locks(target, root=ROOT, python_version="3.10")
+    export_runtime_locks(target, root=ROOT, python_version="3.12")
+    with pytest.raises(ValueError, match="must be empty"):
+        export_runtime_locks(target, root=ROOT, python_version="3.12")

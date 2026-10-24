@@ -12,11 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_dependency_audit.py"
 
 
-def test_workflow_covers_both_host_lock_interpreter_branches_without_artifact_collisions():
+def test_workflow_scans_supported_host_python_and_tracks_artifact_identity():
     workflow = (ROOT / '.github/workflows/dependency-audit.yml').read_text()
     rows = re.findall(r"\{lock: ([a-z-]+), python: '([0-9.]+)'\}", workflow)
     assert len(rows) == len(set(rows))
-    assert {('host', '3.10'), ('host', '3.12'), ('test', '3.12'), ('dev', '3.12')} <= set(rows)
+    assert {('host', '3.12'), ('test', '3.12'), ('dev', '3.12')} <= set(rows)
+    assert all(python != '3.10' for _, python in rows)
     assert 'name: dependency-audit-${{ matrix.lock }}-${{ matrix.python }}' in workflow
 
 

@@ -17,7 +17,7 @@ from acprof.runtime_profiles import PROFILES
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
-@pytest.mark.parametrize('python_version', ('3.10.21', '3.12.3'))
+@pytest.mark.parametrize('python_version', ('3.12.12', '3.13.0'))
 def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tmp_path, monkeypatch, python_version):
     profile = PROFILES['onnxruntime-cpu']
     platform = replace(profile.environment.platform, python_version=python_version)
@@ -55,9 +55,7 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
     assert 'colorama' not in requirements
     assert {'pytest', 'pytest-asyncio'} <= requirements.keys()
     for package in ('backports-asyncio-runner', 'exceptiongroup', 'tomli'):
-        assert (package in requirements) == python_version.startswith('3.10.')
-    if 'backports-asyncio-runner' in requirements:
-        assert 'sha256:0da0a936a8aeb554eccb426dc55af3ba63bcdc69fa1a600b5bb305413a4477b5' in requirements['backports-asyncio-runner']
+        assert package not in requirements
 
 
 class TestRuntimeCheckSelection:

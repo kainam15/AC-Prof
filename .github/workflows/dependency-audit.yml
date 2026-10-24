@@ -30,15 +30,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {lock: host, python: '3.10'}
           - {lock: host, python: '3.12'}
-          - {lock: test, python: '3.10'}
-          - {lock: dev, python: '3.10'}
           - {lock: test, python: '3.12'}
           - {lock: dev, python: '3.12'}
-          - {lock: runtime-test, python: '3.10'}
+          - {lock: runtime-test, python: '3.12'}
           - {lock: browser, python: '3.12'}
-          - {lock: audit, python: '3.10'}
+          - {lock: audit, python: '3.12'}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
@@ -70,14 +67,14 @@ jobs:
           retention-days: 30
 
   runtime-locks:
-    name: Docker runtime wheel locks (Python 3.10)
+    name: Docker runtime wheel locks (Python 3.12)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.10'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements/audit.lock
       - name: Install hash-locked auditing tool
@@ -85,7 +82,7 @@ jobs:
       - name: Export every registered runtime wheel lock
         run: |
           python scripts/export_runtime_audit_requirements.py \
-            --output-dir runtime-audit/requirements --python-version 3.10
+            --output-dir runtime-audit/requirements --python-version 3.12
       - name: Audit runtime package versions without installing runtime wheels
         shell: bash
         run: |

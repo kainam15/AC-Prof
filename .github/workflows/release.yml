@@ -42,7 +42,7 @@ jobs:
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.13.5'
-          python-version: '3.10'
+          python-version: '3.12'
       # uv first builds the sdist, then builds the release wheel from that sdist.
       - run: uv build
       - name: 固定待发布制品的 SHA256
@@ -70,10 +70,10 @@ jobs:
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.13.5'
-          python-version: '3.10'
+          python-version: '3.12'
       - name: uv pip 安装发布 wheel 并验证完整 CLI 与资源
         run: |
-          uv venv .release-venv --python 3.10
+          uv venv .release-venv --python 3.12
           uv pip install --python .release-venv/bin/python dist/*.whl
           uv pip check --python .release-venv/bin/python
           .release-venv/bin/python -I scripts/check_distribution.py \
@@ -83,7 +83,7 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           uv build --wheel "$GITHUB_WORKSPACE"/dist/*.tar.gz --out-dir "$RUNNER_TEMP/rebuilt-dist"
-          uv venv "$RUNNER_TEMP/sdist-venv" --python 3.10 --seed
+          uv venv "$RUNNER_TEMP/sdist-venv" --python 3.12 --seed
           "$RUNNER_TEMP/sdist-venv/bin/python" -m pip install "$RUNNER_TEMP"/rebuilt-dist/*.whl
           "$RUNNER_TEMP/sdist-venv/bin/python" -m pip check
           "$RUNNER_TEMP/sdist-venv/bin/python" -I "$GITHUB_WORKSPACE/scripts/check_distribution.py" \
@@ -95,7 +95,7 @@ jobs:
           UV_TOOL_DIR: ${{ runner.temp }}/acprof-tools
           UV_TOOL_BIN_DIR: ${{ runner.temp }}/acprof-bin
         run: |
-          uv tool install --python 3.10 "$GITHUB_WORKSPACE"/dist/*.whl
+          uv tool install --python 3.12 "$GITHUB_WORKSPACE"/dist/*.whl
           export PATH="$UV_TOOL_BIN_DIR:$PATH"
           test "$(acprof --version)" = "AC-Prof $RELEASE_VERSION"
           acprof --help
@@ -129,10 +129,10 @@ jobs:
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.13.5'
-          python-version: '3.10'
+          python-version: '3.12'
       - name: 从同一 wheel 准备锁定的 standalone 环境
         run: |
-          uv venv .release-venv --python 3.10
+          uv venv .release-venv --python 3.12
           uv pip install --python .release-venv/bin/python --require-hashes -r requirements/host.lock
           uv pip install --python .release-venv/bin/python --no-deps dist/*.whl
       - name: 构建并验证 standalone
@@ -312,7 +312,7 @@ jobs:
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version: '0.13.5'
-          python-version: '3.10'
+          python-version: '3.12'
       - name: 等待 PyPI 可见并核对安装和制品哈希
         working-directory: ${{ runner.temp }}
         env:
@@ -339,7 +339,7 @@ jobs:
           }
           export PATH="$UV_TOOL_BIN_DIR:$PATH"
           for attempt in 1 2 3 4 5; do
-            if check_pypi_hashes && uv tool install --python 3.10 --refresh \
+            if check_pypi_hashes && uv tool install --python 3.12 --refresh \
               --index-url https://pypi.org/simple "acprof==$RELEASE_VERSION"; then
               test "$(acprof --version)" = "AC-Prof $RELEASE_VERSION"
               acprof --help

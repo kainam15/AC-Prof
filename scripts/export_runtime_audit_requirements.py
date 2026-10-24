@@ -53,7 +53,7 @@ def export_runtime_locks(output_dir: Path, *, root: Path = ROOT,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--python-version", required=True, help="Major.minor runtime lock target (e.g. 3.10)")
+    parser.add_argument("--python-version", required=True, help="Major.minor runtime lock target (e.g. 3.12)")
     args = parser.parse_args(argv)
     counts = export_runtime_locks(args.output_dir, python_version=args.python_version)
     print(f"Runtime audit inputs: {len(counts)} registered locks, "
