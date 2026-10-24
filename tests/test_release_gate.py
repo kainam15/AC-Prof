@@ -35,6 +35,15 @@ def test_regression_workflow_exposes_reusable_entrypoint():
     assert ({'lint', 'host', 'onnx-cpu', 'runtime'} <= ci['jobs'].keys())
 
 
+def test_release_reusable_ci_caller_grants_nested_job_permissions():
+    release = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+    ci = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
+    verify = release['jobs']['verify']
+    assert verify['uses'] == './.github/workflows/ci.yml'
+    assert ci['jobs']['changes']['permissions']['pull-requests'] == 'read'
+    assert verify.get('permissions') == {'contents': 'read', 'pull-requests': 'read'}
+
+
 def test_wheel_ci_resolves_declared_runtime_dependencies_without_host_lock():
     ci = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
     steps = ci['jobs']['wheel']['steps']
