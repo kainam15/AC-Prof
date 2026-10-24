@@ -537,6 +537,7 @@ def _run_ncu_for_entry(
         payload_file=payload_file,
         profile_root=profile_root,
         tool_mount_roots=tool_mount_roots,
+        requires_gpu_counters=True,
     ) as base_cmd:
         result = run_command([*base_cmd, *collect_cmd], check=False)
     if result.returncode != 0:
