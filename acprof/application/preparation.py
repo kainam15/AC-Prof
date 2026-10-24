@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from acprof.application.errors import CollectionFailed
+from acprof.application.notifications import RunNotifications
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.capabilities import (
@@ -17,7 +19,6 @@ from acprof.capabilities import (
     apply_runtime_validation,
     measurement_report,
 )
-from acprof.cli import run_notifications as notices
 from acprof.config import SCALING_DIMENSIONS
 from acprof.host.collection_history import (
     COLLECTION_HISTORY_NAME,
@@ -60,7 +61,7 @@ def apply_profiler_plan_file(
 def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_list,
                      gpu_list, run_command, cgroup_version, cgroup_collection_mode,
                      rapl_topology, preflight_measurements, latency_slo,
-                     workflow=None, project_dir: str) -> PreparedRuntime:
+                     workflow=None, project_dir: str, notices: RunNotifications) -> PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
@@ -111,7 +112,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             )
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
+            raise CollectionFailed(str(exc)) from exc
 
         os.makedirs(output_dir, exist_ok=True)
         if task_info.model_resolution:
@@ -168,7 +169,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             )
         except Exception as exc:
             print(f"\n[scale][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
+            raise CollectionFailed(str(exc)) from exc
 
         workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
 
@@ -211,7 +212,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             write_static_meta_json(static_meta, static_meta_json)
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"[runtime-check][ERROR] {exc}", file=sys.stderr)
-            sys.exit(1)
+            raise CollectionFailed(str(exc)) from exc
         total_cases = len(cpu_list) * len(mem_list) * len(gpu_list)
         notices.update_plan(
             model_id=task_info.model_id,
@@ -222,6 +223,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             reason = "--compute-profile-tool none"
             print(f"[compute] Compute profiling disabled by {reason}")
         else:
+            workflow.emit("compute_profile", "running")
             try:
                 from acprof.host.compute_profile import collect_compute_profile_plan
 
@@ -253,7 +255,9 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                     compute_profile_plan_file,
                 )
                 write_static_meta_json(static_meta, static_meta_json)
+                workflow.emit("compute_profile", "passed")
             except Exception as exc:
+                workflow.emit("compute_profile", "failed", detail=str(exc))
                 print(f"[compute][WARN] Compute profiling unavailable: {exc}")
 
         execution_profile_plan_file = ""
@@ -263,6 +267,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                 "(enable with --execution-profile-tool)"
             )
         else:
+            workflow.emit("execution_profile", "running")
             try:
                 from acprof.host.execution_profile import (
                     collect_execution_profile_plan,
@@ -299,7 +304,9 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                     execution_profile_plan_file,
                 )
                 write_static_meta_json(static_meta, static_meta_json)
+                workflow.emit("execution_profile", "passed")
             except Exception as exc:
+                workflow.emit("execution_profile", "failed", detail=str(exc))
                 print(
                     "[execution-profile][WARN] Execution profiling unavailable: "
                     f"{exc}"

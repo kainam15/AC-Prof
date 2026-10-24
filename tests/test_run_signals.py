@@ -10,21 +10,26 @@ def test_sigterm_unwinds_case_and_run_cleanup_and_restores_handler():
             import signal
             from unittest.mock import patch
             from acprof.cli import run
+            from acprof.application.run import RunApplication
+            import sys
 
             previous = signal.getsignal(signal.SIGTERM)
             class State:
                 def close(self, status):
                     print('state closed', flush=True)
 
-            def measure():
-                run._ACTIVE_RUN_STATE = State()
+            application = RunApplication()
+            def measure(*args, **kwargs):
+                application.run_state = State()
                 try:
                     os.kill(os.getpid(), signal.SIGTERM)
                 finally:
                     print('case cleaned', flush=True)
 
-            with patch.object(run, '_run_main', side_effect=measure), patch.object(
-                run.notices, 'record_termination', side_effect=lambda *args: print(args[0], flush=True)
+            with patch.object(application, '_execute', side_effect=measure), patch.object(
+                application.notifications, 'record_termination', side_effect=lambda *args: print(args[0], flush=True)
+            ), patch.object(run, 'RunApplication', return_value=application), patch.object(
+                sys, 'argv', ['acprof run', '--model', 'fixture/model']
             ):
                 try:
                     run.main()

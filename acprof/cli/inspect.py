@@ -24,7 +24,7 @@ def main(argv=None) -> int:
     parser.add_argument("--mems", type=int, default=4, help="Probe memory limit in GiB")
     parser.add_argument("--timeout-seconds", type=float, default=300)
     args = parser.parse_args(argv)
-    from acprof.cli.download_args import apply_download_arguments
+    from acprof.application.download import apply_download_arguments
     from acprof.host.detect import detect_task
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.interface_probe import probe_interface

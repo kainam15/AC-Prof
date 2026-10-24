@@ -106,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    from acprof.cli.download_args import apply_download_arguments
+    from acprof.application.download import apply_download_arguments
     apply_download_arguments(args)
     if args.batch_size <= 0:
         parser.error("--batch-size must be > 0")
@@ -122,6 +122,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
 
     command_started = time.perf_counter()
+    from acprof.preparation_events import emit_progress
+    emit_progress("preflight")
     bootstrap_project_env(Path.cwd())
     require_collection_host()
     require_native_docker()
@@ -129,6 +131,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     from acprof.host.detect import detect_task
 
+    emit_progress("resolution")
     task_info = detect_task(
         model_id=args.model, revision=args.revision,
         override_tag=args.task,
@@ -160,9 +163,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     task_info.model_download_policy = args.model_download_policy
     try:
+        emit_progress("image")
         image_info = prepare_image(
             task_info, str(PROJECT_DIR), reuse_existing=not args.rebuild_image,
         )
+        emit_progress("input")
         planned = plan_input_scales(
             task_info=task_info,
             image_info=image_info,
@@ -177,6 +182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if getattr(image_info, "runtime_environment", {}):
             from acprof.host.runtime_validation import validate_runtime
 
+            emit_progress("runtime")
             validate_runtime(
                 task_info=task_info, image_info=image_info, planned=planned,
                 cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=str(output_dir),

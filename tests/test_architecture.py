@@ -72,7 +72,7 @@ def test_shared_preflight_does_not_depend_on_run_cli(name):
     assert ("acprof.cli.run") not in (dependencies)
 
 def implementation_paths():
-    paths = [path for package in ("host", "container", "workloads", "monitors", "packet",
+    paths = [path for package in ("application", "host", "container", "workloads", "monitors", "packet",
                                   "analysis", "plotting", "tui")
              for path in (PROJECT_DIR / "acprof" / package).rglob("*.py")]
     paths.extend(PROJECT_DIR / "acprof" / name for name in ("experiment.py", "run_args.py"))

@@ -12,7 +12,7 @@ def main(argv=None) -> int:
     from acprof.run_args import build_parser
     parser = build_parser(automatic=True)
     args = parser.parse_args(argv)
-    from acprof.cli.download_args import apply_download_arguments
+    from acprof.application.download import apply_download_arguments
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
     automatic = None

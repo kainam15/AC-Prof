@@ -129,7 +129,7 @@ class TestCapability:
 
     @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
     def test_run_profiler_plan_reader_rejects_invalid_json_artifacts(self, case):
-        from acprof.cli.run_preparation import apply_profiler_plan_file
+        from acprof.application.preparation import apply_profiler_plan_file
 
         caps = self.capabilities()
         report = caps.measurement_report("full", gpu_modes=["on"], compute_tool="ncu")

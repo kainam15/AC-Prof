@@ -66,7 +66,7 @@ class TestDistribution:
             assert ("--profiling-mode") in (result.stdout)
 
     def test_recorded_command_uses_the_public_cli_and_preserves_quoting(self):
-        from acprof.cli.run import format_run_command
+        from acprof.application.terminal_log import format_run_command
         arguments = ["--model", "example/model", "--output-dir", "/a path/results;literal"]
         assert (shlex.split(format_run_command(["acprof run", *arguments]))) == (["acprof", "run", *arguments])
         assert (format_run_command([])) == ("acprof run")

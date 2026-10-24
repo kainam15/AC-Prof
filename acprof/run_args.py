@@ -120,6 +120,10 @@ Examples:
         help="Latency SLO (repeatable): task:TAG=SECONDS, profile:ID=SECONDS or default=SECONDS; no implicit threshold",
     )
     parser.add_argument("--sample-hz", type=float, default=20.0, help="GPU energy sampling rate")
+    parser.add_argument("--sampling-policy", choices=("burst", "skip"), default="burst",
+                        help="Late sampling policy: preserve absolute-phase catch-up or skip missed ticks")
+    parser.add_argument("--raw-sample-limit", type=int, default=100000,
+                        help="Maximum retained raw samples per collector (integer of at least 2)")
     parser.add_argument(
         "--idle-seconds",
         type=float,

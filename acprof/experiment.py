@@ -125,6 +125,8 @@ class RunConfig:
     repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
     sample_hz: float = 20.0
+    sampling_policy: str = "burst"
+    raw_sample_limit: int = 100000
     idle_seconds: float = DEFAULT_IDLE_SECONDS
     idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
     compute_profile_tool: str = DEFAULT_COMPUTE_PROFILE_TOOL
@@ -156,10 +158,33 @@ class RunConfig:
 
     @classmethod
     def from_namespace(cls, args) -> "RunConfig":
+        from acprof.run_args import build_parser
+
         defaults = cls()
-        return cls(**{field.name: getattr(args, field.name, getattr(defaults, field.name))
+        names = {item.name for item in fields(cls)}
+        public = {action.dest for action in build_parser()._actions} - {"help"}
+        extra = dict(getattr(args, "extra_options", {}))
+        extra.update({name: value for name, value in vars(args).items()
+                      if name in public and name not in names})
+        values = {field.name: getattr(args, field.name, getattr(defaults, field.name))
                       if getattr(args, field.name, None) is not None else getattr(defaults, field.name)
-                      for field in fields(cls)})
+                      for field in fields(cls)}
+        values["extra_options"] = extra
+        return cls(**values)
+
+    def to_namespace(self):
+        """Adapt the shared configuration to existing host APIs, without a second schema."""
+        from acprof.run_args import arguments_from_options, build_parser
+
+        names = {item.name for item in fields(self)} - {"extra_options"}
+        if names.intersection(self.extra_options):
+            raise ValueError("extra_options must not override RunConfig fields")
+        parser = build_parser()
+        options = parser.parse_args(["--model", self.model,
+                                     *arguments_from_options(self.extra_options)])
+        for name in names:
+            setattr(options, name, getattr(self, name))
+        return options
 
     @classmethod
     def smoke(cls, model: str = "") -> "RunConfig":
@@ -268,6 +293,7 @@ class RunConfig:
             ("repeat_window_seconds", '自动窗口秒数', False, True, '自动窗口秒数必须大于 0'),
             ("request_timeout_seconds", '单请求超时秒数', False, True, '单请求超时秒数必须是大于 0 的有限数字'),
             ("sample_hz", '采样频率', False, True, '采样频率必须大于 0'),
+            ("raw_sample_limit", 'Raw sample limit', True, True, 'Raw sample limit must be positive'),
             ("idle_seconds", 'Idle 秒数', False, False, 'Idle 秒数不能小于 0'),
             ("idle_cooldown_seconds", 'Idle cooldown 秒数', False, False, 'Idle cooldown 秒数不能小于 0'),
         )
@@ -290,6 +316,12 @@ class RunConfig:
             errors.append(ConfigIssue("compute_profile_tool", message('无效的计算分析器')))
         if self.profiling_mode not in {"full", "basic"}:
             errors.append(ConfigIssue("profiling_mode", message('无效的画像模式')))
+        if self.sampling_policy not in {"burst", "skip"}:
+            errors.append(ConfigIssue("sampling_policy", "sampling_policy must be burst or skip"))
+        if ("raw_sample_limit" in numbers and numbers["raw_sample_limit"] < 2
+                or isinstance(self.raw_sample_limit, bool)
+                or isinstance(self.raw_sample_limit, float) and not self.raw_sample_limit.is_integer()):
+            errors.append(ConfigIssue("raw_sample_limit", "raw_sample_limit must be an integer of at least 2"))
         if self.execution_profile_tool not in EXECUTION_PROFILE_TOOLS:
             errors.append(ConfigIssue("execution_profile_tool", message('无效的执行分析器')))
         if self.notify not in NOTIFY_MODES:
@@ -342,6 +374,7 @@ class RunConfig:
             repeat_window_seconds=float(numbers["repeat_window_seconds"]),
             request_timeout_seconds=float(numbers["request_timeout_seconds"]),
             sample_hz=float(numbers["sample_hz"]),
+            raw_sample_limit=int(numbers["raw_sample_limit"]),
             idle_seconds=float(numbers["idle_seconds"]),
             idle_cooldown_seconds=float(numbers["idle_cooldown_seconds"]),
             sniff_iface=self.sniff_iface.strip(),
@@ -390,6 +423,10 @@ def build_run_command(
         _format_number(config.request_timeout_seconds),
         "--sample-hz",
         _format_number(config.sample_hz),
+        "--sampling-policy",
+        config.sampling_policy,
+        "--raw-sample-limit",
+        str(config.raw_sample_limit),
         "--idle-seconds",
         _format_number(config.idle_seconds),
         "--idle-cooldown-seconds",

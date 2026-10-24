@@ -1,4 +1,4 @@
-"""tmux pane capture and atomic terminal-log publication, owned by the CLI."""
+"""tmux pane capture and atomic terminal-log publication, owned by the application."""
 from __future__ import annotations
 
 import os
@@ -21,7 +21,7 @@ def format_run_command(argv: list[str]) -> str:
 
 def start_terminal_log(
     output_dir: str,
-    argv: list[str],
+    command: str,
 ) -> tuple[str, str, str] | None:
     """Pipe all future output from the current tmux pane to a temporary log."""
     pane_id = os.environ.get("TMUX_PANE", "").strip()
@@ -62,7 +62,7 @@ def start_terminal_log(
     try:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         with open(partial_path, "w", encoding="utf-8") as f:
-            f.write(f"$ {format_run_command(argv)}\n")
+            f.write(f"$ {command}\n")
     except OSError as exc:
         print(f'[terminal-log][WARN] Cannot initialize {partial_path}: {exc}', file=sys.stderr)
         return None

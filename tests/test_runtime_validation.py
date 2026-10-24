@@ -398,7 +398,7 @@ class TestRuntimeValidation:
     def test_cli_stops_before_matrix_when_runtime_validation_fails(self):
         import sys
 
-        from acprof.cli import run
+        from acprof.cli import run as run_cli
         from acprof.host.input_plan import PlannedInputScales
 
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
@@ -411,8 +411,8 @@ class TestRuntimeValidation:
                 'require_packet_latency_prerequisites', 'require_cpu_energy_prerequisites',
                 'require_mips_prerequisites',
             ):
-                stack.enter_context(patch('acprof.cli.run.' + name))
-            stack.enter_context(patch('acprof.cli.run.require_cgroup_prerequisites', return_value='v2'))
+                stack.enter_context(patch('acprof.application.run.' + name))
+            stack.enter_context(patch('acprof.application.run.require_cgroup_prerequisites', return_value='v2'))
             stack.enter_context(patch('acprof.host.detect.detect_task', return_value=self.task()))
             stack.enter_context(patch('acprof.host.interface_probe.probe_interface', return_value={'status': 'ok'}))
             stack.enter_context(patch('acprof.host.runtime_images.configure_runtime_profile'))
@@ -433,7 +433,7 @@ class TestRuntimeValidation:
             compute = stack.enter_context(patch('acprof.host.compute_profile.collect_compute_profile_plan'))
             execution = stack.enter_context(patch('acprof.host.execution_profile.collect_execution_profile_plan'))
             with pytest.raises(SystemExit) as exited:
-                run.main()
+                run_cli.main()
             assert (exited.value.code) == (1)
             validation.assert_called_once()
             matrix.assert_not_called()

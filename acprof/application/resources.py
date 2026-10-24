@@ -25,19 +25,19 @@ def format_elapsed(seconds: float) -> str:
 
 
 
-def resource_matrix(args, parser):
+def resource_matrix(args):
     """Validate resource selection before building the runtime."""
     cpu_list = _parse_int_list(args.cpus)
     mem_list = _parse_int_list(args.mems)
     gpu_list = [mode.lower() for mode in _parse_str_list(args.gpus)]
     if args.warmup < 0 or args.repeat <= 0:
-        parser.error("--warmup must be >= 0 and --repeat must be > 0")
+        raise ValueError("--warmup must be >= 0 and --repeat must be > 0")
     if (not cpu_list or not mem_list or not gpu_list
             or any(value <= 0 for value in cpu_list + mem_list)
             or any(mode not in ("off", "on") for mode in gpu_list)):
-        parser.error("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
+        raise ValueError("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
     if any(len(values) != len(set(values)) for values in (cpu_list, mem_list, gpu_list)):
-        parser.error("resource lists must not contain duplicate cases")
+        raise ValueError("resource lists must not contain duplicate cases")
     massif_selected = args.execution_profile_tool in {"massif", "both"}
     nsys_selected = args.execution_profile_tool in {"nsys", "both"}
     reference_checks = []
@@ -58,7 +58,7 @@ def resource_matrix(args, parser):
         )
     for option, value, resources in reference_checks:
         if value is not None and value not in resources:
-            parser.error(
+            raise ValueError(
                 f"{option}={value} must be present in the selected resource "
                 f"matrix {resources}"
             )

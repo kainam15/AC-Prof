@@ -7,7 +7,7 @@ import os
 
 PREFIX = "ACPROF_PREPARATION "
 MAX_MESSAGE = 256 * 1024
-STAGES = frozenset({"resolution", "interface", "dependencies", "preflight", "image", "environment", "model", "input", "runtime"})
+STAGES = frozenset({"resolution", "interface", "dependencies", "preflight", "image", "environment", "model", "input", "runtime", "compute_profile", "execution_profile"})
 STATUSES = frozenset({"not_started", "running", "passed", "failed", "waiting"})
 
 
@@ -20,7 +20,7 @@ def _finite_json_number(value: str) -> float:
 
 def emit_progress(stage: str) -> None:
     """Called at actual preparation boundaries, never from measurement."""
-    if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1":
+    if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1" or os.environ.get("ACPROF_TUI") == "1":
         print(encode_event(stage, "running"), flush=True)
 
 

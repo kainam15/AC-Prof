@@ -117,7 +117,8 @@ class TestProfilingMode:
         assert (events) == (["resource_start", "resource_stop", "resource_close"])
 
     def test_basic_cli_does_not_probe_packet_rapl_or_perf(self):
-        from acprof.cli import run
+        from acprof.application import run
+        from acprof.cli import run as run_cli
         with ExitStack() as stack:
             stack.enter_context(patch.object(run.sys, "argv", ["acprof run", "--model", "test", "--profiling-mode", "basic", "--notify", "none"]))
             for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker"):
@@ -128,4 +129,4 @@ class TestProfilingMode:
             stack.enter_context(patch("acprof.host.detect.detect_task", side_effect=RuntimeError("reached task detection")))
             stack.enter_context(redirect_stdout(io.StringIO()))
             with pytest.raises(RuntimeError, match="reached task detection"):
-                run._run_main()
+                run_cli.main()

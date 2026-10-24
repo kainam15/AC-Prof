@@ -3,12 +3,7 @@ from argparse import Namespace
 
 import pytest
 
-from acprof.cli.run_matrix import format_elapsed, resource_matrix
-
-
-class Parser:
-    def error(self, message):
-        raise ValueError(message)
+from acprof.application.resources import format_elapsed, resource_matrix
 
 
 def options(**kwargs):
@@ -21,7 +16,7 @@ def options(**kwargs):
 
 
 def test_matrix_canonical_values_and_elapsed():
-    assert resource_matrix(options(gpus=" OFF , ON "), Parser()) == ([1, 2], [2, 4], ["off", "on"])
+    assert resource_matrix(options(gpus=" OFF , ON ")) == ([1, 2], [2, 4], ["off", "on"])
     assert format_elapsed(1) == "1s"
     assert format_elapsed(61) == "1m 1s"
     assert format_elapsed(3661) == "1h 1m 1s"
@@ -35,4 +30,4 @@ def test_matrix_canonical_values_and_elapsed():
 ])
 def test_invalid_matrix_aborts_before_runtime_preparation(override):
     with pytest.raises(ValueError):
-        resource_matrix(options(**override), Parser())
+        resource_matrix(options(**override))

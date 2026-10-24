@@ -11,20 +11,21 @@ from unittest.mock import Mock, patch
 import pytest
 
 import acprof.host.preflight as host_preflight
-from acprof.cli import run
+from acprof.application import run
+from acprof.cli import run as run_cli
 from acprof.host import input_plan, orchestrator, runtime_images
 from acprof.host.detect import TaskInfo
 
 
 def test_terminal_log_is_not_started_outside_tmux() -> None:
     with patch.dict(
-        "acprof.cli.run.os.environ",
+        "acprof.application.run.os.environ",
         {},
         clear=True,
-    ), patch("acprof.cli.terminal_log.run_command") as mock_run:
+    ), patch("acprof.application.terminal_log.run_command") as mock_run:
         terminal_log = run.start_terminal_log(
             "/tmp/acprof-results",
-            ["acprof run", "--model", "dummy-model"],
+            "acprof run --model dummy-model",
         )
 
     assert (terminal_log) is None
@@ -42,20 +43,20 @@ def test_terminal_log_records_and_atomically_finalizes_tmux_output() -> None:
         return completed
 
     with tempfile.TemporaryDirectory() as tmp, patch.dict(
-        "acprof.cli.run.os.environ",
+        "acprof.application.run.os.environ",
         {
             "TMUX": "/tmp/tmux-1000/default,123,0",
             "TMUX_PANE": "%7",
         },
         clear=True,
     ), patch(
-        "acprof.cli.terminal_log.run_command",
+        "acprof.application.terminal_log.run_command",
         side_effect=fake_run,
     ):
         output_dir = os.path.join(tmp, "results", "org--model")
         terminal_log = run.start_terminal_log(
             output_dir,
-            ["acprof run", "--model", "org/model"],
+            "acprof run --model org/model",
         )
         assert (terminal_log) is not None
         pane_id, partial_path, log_path = terminal_log
@@ -90,7 +91,7 @@ def test_terminal_log_finalization_syncs_file_and_directory() -> None:
             stream.write("completed output\n")
 
         with patch(
-            "acprof.cli.terminal_log.run_command",
+            "acprof.application.terminal_log.run_command",
             return_value=completed,
         ), patch("acprof.artifacts.os.fsync", wraps=os.fsync) as fsync:
             finalized = run.stop_terminal_log(("%7", partial_path, log_path))
@@ -100,25 +101,22 @@ def test_terminal_log_finalization_syncs_file_and_directory() -> None:
         assert not os.path.exists(partial_path)
         assert fsync.call_count >= 2
 
-def test_main_finalizes_tmux_log_when_profiling_raises() -> None:
+def test_application_finalizes_tmux_log_when_profiling_raises() -> None:
+    from acprof.experiment import RunConfig
     terminal_log = ("%3", "/tmp/tmux_all.log.part", "/tmp/tmux_all.log")
+    stop_log = Mock(return_value=True)
+    application = run.RunApplication(terminal_stop=stop_log)
 
-    def fail_after_starting_log():
-        run._ACTIVE_TMUX_TERMINAL_LOG = terminal_log
+    def fail_after_starting_log(*args, **kwargs):
+        application.terminal_log = terminal_log
         raise RuntimeError("profiling failed")
 
-    with patch(
-        "acprof.cli.run._run_main",
-        side_effect=fail_after_starting_log,
-    ), patch(
-        "acprof.cli.run.stop_terminal_log",
-        return_value=True,
-    ) as stop_log:
+    with patch.object(application, "_execute", side_effect=fail_after_starting_log):
         with pytest.raises(RuntimeError, match="profiling failed"):
-            run.main()
+            application.run(RunConfig.smoke("fixture/model"))
 
     stop_log.assert_called_once_with(terminal_log)
-    assert (run._ACTIVE_TMUX_TERMINAL_LOG) is None
+    assert application.terminal_log is None
 
 
 class TestNativeDockerGuard:
@@ -145,7 +143,7 @@ class TestNativeDockerGuard:
         self._request.addfinalizer(partial(selection.stop))
         # Local developer credentials must never make CLI tests send messages.
         notification_env = patch.dict(
-            "acprof.cli.run.os.environ",
+            "acprof.application.run.os.environ",
             {"ACPROF_WECOM_WEBHOOK_URL": ""},
         )
         notification_env.start()
@@ -314,21 +312,21 @@ class TestNativeDockerGuard:
             "argv",
             ["acprof run", "--model", "dummy-model", "--allow-cgroup-v1"],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_collection_host",
+            "acprof.application.run.require_collection_host",
         ), patch(
-            "acprof.cli.run.require_native_docker",
+            "acprof.application.run.require_native_docker",
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             side_effect=SystemExit(7),
         ) as preflight, patch(
             "acprof.host.detect.detect_task",
             side_effect=AssertionError("task detection must follow cgroup preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
-                run.main()
+                run_cli.main()
 
         assert (raised.value.code) == (2)
         preflight.assert_not_called()
@@ -363,29 +361,29 @@ class TestNativeDockerGuard:
             "argv",
             ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_collection_host"), patch(
-            "acprof.cli.run.require_native_docker"
+        ), patch("acprof.application.run.require_collection_host"), patch(
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites",
+            "acprof.application.run.require_packet_latency_prerequisites",
         ), patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites",
+            "acprof.application.run.require_cpu_energy_prerequisites",
             side_effect=SystemExit(3),
         ) as preflight, patch(
-            "acprof.cli.run.require_mips_prerequisites",
+            "acprof.application.run.require_mips_prerequisites",
         ), patch(
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run.prepare_runtime",
+            "acprof.application.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before CPU energy preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
-                run.main()
+                run_cli.main()
 
         assert (raised.value.code) == (3)
         detect.assert_called_once()
@@ -397,29 +395,29 @@ class TestNativeDockerGuard:
             "argv",
             ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_collection_host"), patch(
-            "acprof.cli.run.require_native_docker"
+        ), patch("acprof.application.run.require_collection_host"), patch(
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites",
+            "acprof.application.run.require_packet_latency_prerequisites",
         ), patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites",
+            "acprof.application.run.require_cpu_energy_prerequisites",
         ), patch(
-            "acprof.cli.run.require_mips_prerequisites",
+            "acprof.application.run.require_mips_prerequisites",
             side_effect=SystemExit(4),
         ) as preflight, patch(
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run.prepare_runtime",
+            "acprof.application.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before MIPS preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
-                run.main()
+                run_cli.main()
 
         assert (raised.value.code) == (4)
         detect.assert_called_once()
@@ -542,16 +540,16 @@ class TestNativeDockerGuard:
             "argv",
             ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.require_collection_host",
+            "acprof.application.run.require_collection_host",
             side_effect=RuntimeError("host guard called"),
         ), patch(
-            "acprof.cli.run.require_native_docker",
+            "acprof.application.run.require_native_docker",
             side_effect=AssertionError("Docker guard must run after host guard"),
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
-        ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
+        ) as detect, patch("acprof.application.run.bootstrap_project_env"):
             with pytest.raises(RuntimeError, match="host guard called"):
-                run.main()
+                run_cli.main()
         detect.assert_not_called()
 
     def test_main_invokes_native_docker_guard_after_host_guard(self) -> None:
@@ -560,40 +558,40 @@ class TestNativeDockerGuard:
             "argv",
             ["acprof run", "--model", "dummy-model", "--notify", "none"],
         ), patch(
-            "acprof.cli.run.require_collection_host",
+            "acprof.application.run.require_collection_host",
         ), patch(
-            "acprof.cli.run.require_native_docker",
+            "acprof.application.run.require_native_docker",
             side_effect=RuntimeError("guard called"),
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
-        ) as detect, patch("acprof.cli.run.bootstrap_project_env"):
+        ) as detect, patch("acprof.application.run.bootstrap_project_env"):
             with pytest.raises(RuntimeError, match="guard called"):
-                run.main()
+                run_cli.main()
         detect.assert_called_once()
 
     def test_main_runs_packet_latency_preflight_before_runtime_preparation(self) -> None:
         with patch.object(sys, "argv", ["acprof run", "--model", "dummy-model"]), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
-        ), patch("acprof.cli.run.require_collection_host"), patch(
-            "acprof.cli.run.require_native_docker"
+        ), patch("acprof.application.run.require_collection_host"), patch(
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites",
+            "acprof.application.run.require_packet_latency_prerequisites",
             side_effect=SystemExit(2),
         ) as preflight, patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites",
+            "acprof.application.run.require_cpu_energy_prerequisites",
         ), patch(
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run.prepare_runtime",
+            "acprof.application.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before packet latency preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
-                run.main()
+                run_cli.main()
 
         assert (raised.value.code) == (2)
         detect.assert_called_once()
@@ -634,21 +632,21 @@ class TestNativeDockerGuard:
                 tmp_dir,
             ],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_collection_host"
+            "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.cli.run.require_native_docker"
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites"
+            "acprof.application.run.require_packet_latency_prerequisites"
         ), patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites"
+            "acprof.application.run.require_cpu_energy_prerequisites"
         ), patch(
-            "acprof.cli.run.require_mips_prerequisites"
+            "acprof.application.run.require_mips_prerequisites"
         ), patch(
             "acprof.host.detect.detect_task",
             return_value=task_info,
@@ -680,7 +678,7 @@ class TestNativeDockerGuard:
             "acprof.host.orchestrator.run_matrix",
             side_effect=orchestrator.EnergyProfilingError("gpu_idle_power_w unstable"),
         ) as run_matrix, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
-            run.main()
+            run_cli.main()
 
         assert (raised.value.code) == (1)
         assert ("[energy][ERROR] gpu_idle_power_w unstable") in (stderr.getvalue())
@@ -728,21 +726,21 @@ class TestNativeDockerGuard:
                 tmp_dir,
             ],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_collection_host"
+            "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.cli.run.require_native_docker"
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites"
+            "acprof.application.run.require_packet_latency_prerequisites"
         ), patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites"
+            "acprof.application.run.require_cpu_energy_prerequisites"
         ), patch(
-            "acprof.cli.run.require_mips_prerequisites"
+            "acprof.application.run.require_mips_prerequisites"
         ), patch(
             "acprof.host.detect.detect_task",
             return_value=task_info,
@@ -774,7 +772,7 @@ class TestNativeDockerGuard:
             "acprof.host.orchestrator.run_matrix",
             return_value=[],
         ) as run_matrix:
-            run.main()
+            run_cli.main()
 
         _, kwargs = collect_compute_profile_plan.call_args
         assert (kwargs["compute_profile_tool"]) == ("both")
@@ -796,10 +794,10 @@ class TestNativeDockerGuard:
                 "0",
             ],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), pytest.raises(SystemExit) as raised:
-            run.main()
+            run_cli.main()
 
         assert (raised.value.code) == (2)
 
@@ -832,21 +830,21 @@ class TestNativeDockerGuard:
                 tmp_dir,
             ],
         ), patch(
-            "acprof.cli.run.bootstrap_project_env",
+            "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch(
-            "acprof.cli.run.require_collection_host"
+            "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.cli.run.require_native_docker"
+            "acprof.application.run.require_native_docker"
         ), patch(
-            "acprof.cli.run.require_cgroup_prerequisites",
+            "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
         ), patch(
-            "acprof.cli.run.require_packet_latency_prerequisites"
+            "acprof.application.run.require_packet_latency_prerequisites"
         ), patch(
-            "acprof.cli.run.require_cpu_energy_prerequisites"
+            "acprof.application.run.require_cpu_energy_prerequisites"
         ), patch(
-            "acprof.cli.run.require_mips_prerequisites"
+            "acprof.application.run.require_mips_prerequisites"
         ), patch(
             "acprof.host.detect.detect_task",
             return_value=task_info,
@@ -865,7 +863,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json"
         ) as write_static_meta_json, patch(
-            "acprof.cli.run_preparation.write_collection_history_json"
+            "acprof.application.preparation.write_collection_history_json"
         ) as write_collection_history_json, patch(
             "acprof.host.input_plan.plan_input_scales",
             return_value=input_plan.PlannedInputScales(
@@ -877,7 +875,7 @@ class TestNativeDockerGuard:
             "acprof.host.orchestrator.run_matrix",
             return_value=[],
         ):
-            run.main()
+            run_cli.main()
 
         _, kwargs = collect_static_meta.call_args
         assert (kwargs["run_command"]) == ("acprof run --model dummy-model --compute-profile-tool none "
