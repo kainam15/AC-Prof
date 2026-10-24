@@ -52,6 +52,10 @@ lock 文件仍通过现有协调更新 PR 由维护者审核，不自动升级�
 缺失环境或切换 Python 基线未同步 CI 会直接失败。每个环境独立产生 JSON 证据并归档，
 已知漏洞仍为警告。此工作只能发现已知 Python 包漏洞，不代替 Debian、Torch CUDA 运行验证
 或 OCI 制品漏洞扫描。
+PyPI 无法查询的 CUDA/CPU 特殊 wheel（常见为 `torch`、`torchaudio` 和 `torchvision`）
+会在 JSON 中带 `skip_reason`，报告器将其单列为 **NOT ASSESSED / INCOMPLETE**，
+明确区分于已检查而无已知漏洞的包。结构损坏、缺少原因、所有包均跳过或扫描输出缺失会使
+CI 报告核验失败，不允许将跳过状态解释为安全。跳过的包需另行检查官方公告与制品来源。
 2026-10 安全更新中 `certifi`、`urllib3`、uv、pytest、virtualenv 和 Python 3.11+ 的
 Pillow/filelock 已升级到附哈希版本；**Python 3.10 的 Pillow 12.3.0 和 filelock 4.1.0 仍有已知报告**，
 因为上游已修复版本要求更新的 Python。它们不能通过忽略漏洞 ID 或将全局扫描标绿处理，

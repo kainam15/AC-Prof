@@ -40,7 +40,7 @@ def test_valid_empty_vulnerability_list_is_reported_as_clean(tmp_path):
         "fixes": [],
     })
     assert result.returncode == 0
-    assert "audited 1 locked packages; 0" in result.stdout
+    assert "audited 1 packages, skipped 0 packages; 0" in result.stdout
     assert "::warning::" not in result.stdout
     assert "No known vulnerabilities" in (tmp_path / "summary.md").read_text()
 
@@ -55,15 +55,49 @@ def test_known_vulnerabilities_are_reported_without_blocking(tmp_path):
         "fixes": [],
     })
     assert result.returncode == 0
-    assert "audited 2 locked packages; 1 known vulnerability" in result.stdout
+    assert "audited 2 packages, skipped 0 packages; 1 known vulnerability" in result.stdout
     assert "::warning::" in result.stdout
     assert "example: 1" in (tmp_path / "summary.md").read_text()
+
+
+def test_cuda_wheels_skipped_explicitly_without_claiming_clean(tmp_path):
+    result = run_check(tmp_path, {
+        "dependencies": [
+            {"name": "torch", "skip_reason": "Not found on PyPI: 2.11.0+cu128"},
+            {"name": "flask", "version": "3.1", "vulns": []},
+        ],
+    })
+    assert result.returncode == 0
+    assert "audited 1 packages, skipped 1 packages" in result.stdout
+    assert "NOT ASSESSED: torch:" in result.stdout
+    assert "INCOMPLETE" in result.stdout
+    assert "No known vulnerabilities in **assessed** dependencies." in (tmp_path / "summary.md").read_text()
+    assert "**NOT ASSESSED**: torch" in (tmp_path / "summary.md").read_text()
+
+
+def test_known_findings_and_unassessed_packages_are_both_visible(tmp_path):
+    result = run_check(tmp_path, {
+        "dependencies": [
+            {"name": "torch", "skip_reason": "Local CUDA wheel"},
+            {"name": "flask", "version": "3.1", "vulns": [{"id": "CVE-fixture"}]},
+        ],
+    })
+    assert result.returncode == 0
+    assert "1 known vulnerability records" in result.stdout
+    assert "INCOMPLETE" in result.stdout
 
 
 @pytest.mark.parametrize("data", [
     None, "", "{", "[]", "{}", {"dependencies": []},
     {"dependencies": [{"name": "example"}]},
     {"dependencies": [{"name": "example", "vulns": ["bad"]}]},
+    {"dependencies": [{"name": "torch", "skip_reason": "unknown"}]},
+    {"dependencies": [{"name": "torch", "skip_reason": ""},
+                      {"name": "flask", "vulns": []}]},
+    {"dependencies": [{"name": "torch", "skip_reason": "unknown", "vulns": []},
+                      {"name": "flask", "vulns": []}]},
+    {"dependencies": [{"name": "flask", "vulns": []},
+                      {"name": "flask", "vulns": []}]},
 ])
 def test_missing_or_invalid_evidence_fails_closed(tmp_path, data):
     result = run_check(tmp_path, data)
