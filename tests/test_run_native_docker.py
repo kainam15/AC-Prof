@@ -381,7 +381,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run._prepare_runtime",
+            "acprof.cli.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before CPU energy preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
@@ -415,7 +415,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run._prepare_runtime",
+            "acprof.cli.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before MIPS preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
@@ -589,7 +589,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=self.resolved_task,
         ) as detect, patch(
-            "acprof.cli.run._prepare_runtime",
+            "acprof.cli.run.prepare_runtime",
             side_effect=AssertionError("runtime preparation must not run before packet latency preflight"),
         ):
             with pytest.raises(SystemExit) as raised:
@@ -865,7 +865,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.host.static_metadata.write_static_meta_json"
         ) as write_static_meta_json, patch(
-            "acprof.cli.run.write_collection_history_json"
+            "acprof.cli.run_preparation.write_collection_history_json"
         ) as write_collection_history_json, patch(
             "acprof.host.input_plan.plan_input_scales",
             return_value=input_plan.PlannedInputScales(
