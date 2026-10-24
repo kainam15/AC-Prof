@@ -52,7 +52,8 @@ TUI 的“高级参数 → 镜像高级操作 → 重新构建镜像（仅本次
 立即报错，不回退到 Hub/cache 加载；未知 backend 不会自动选择同任务族的其他 handler。
 
 在正式资源矩阵之前，使用输入计划的最小尺度、最大已选 CPU／内存，为每个请求的设备模式
-启动独立验证容器，执行完整的加载、预处理、推理和输出序列化。容器无网络，退出后清理。
+启动独立验证容器，执行完整的加载、预处理、推理和输出序列化。模型加载与推理禁用 Hub 在线访问，
+但为保留本机 HTTP 测量协议，默认 Docker bridge 并不封锁所有出站流量；退出后清理。
 验证错误和超时保留日志并退出；Docker 明确报告的 cgroup OOM 记为资源限制，允许矩阵继续。
 验证不会写测量 CSV、计算能耗或充当正式 warmup。
 报告按 execution、load、preprocess、predict、completion、postprocess、validate_output、metadata
