@@ -19,8 +19,8 @@ from acprof.extensions import CATALOG, select_extension
 from acprof.extensions.schema import validate_precision_policy
 
 PYTHON_BASE_IMAGE = (
-    "docker.io/library/python:3.10-slim@sha256:"
-    "fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2"
+    "docker.io/library/python:3.12.12-slim-trixie@sha256:"
+    "42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48"
 )
 @dataclass(frozen=True)
 class PlatformSpec:
@@ -30,7 +30,7 @@ class PlatformSpec:
     torch_index_url: str | None = None
     requirements_lock: str = ""
     python_base_image: str = PYTHON_BASE_IMAGE
-    python_version: str = "3.10.21"
+    python_version: str = "3.12.12"
     architecture: str = "linux/amd64"
     python_target: str = "x86_64-manylinux_2_28"
     system_lock: str = "dockerfiles/locks/system-trixie-amd64.json"

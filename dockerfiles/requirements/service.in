@@ -1,7 +1,8 @@
 # 服务环境依赖；Torch 和基础安装工具由平台锁约束。
 Flask==3.0.2
 numpy==2.2.6
-Pillow==12.3.0
+Pillow==13.0.0
+filelock>=4.2.4
 torch
 torchvision
 torchaudio

@@ -58,7 +58,10 @@ def dependency_preflight(task, profile, *, read_source=None) -> dict:
                     if name not in task.repository_sources:
                         task.repository_sources[name] = read_model_source(task.model_id, name, task.model_revision)
                     return task.repository_sources[name]
-            environment = {**default_environment(), "python_version": "3.10", "python_full_version": profile.environment.platform.python_version,
+            environment = {**default_environment(),
+                           "python_version": ".".join(profile.environment.platform.python_version.split(".")[:2]),
+                           "python_full_version": profile.environment.platform.python_version,
+                           "implementation_version": profile.environment.platform.python_version,
                            "sys_platform": "linux", "platform_system": "Linux", "platform_machine": "x86_64", "extra": ""}
             for name in sorted(files):
                 if name not in RUNTIME_REQUIREMENTS:

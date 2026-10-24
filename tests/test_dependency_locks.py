@@ -48,7 +48,7 @@ class TestDependencyLock:
     def test_upstream_python_digest_is_identical_in_all_platform_locks(self):
         # CI must resolve the original OCI index, not a registry proxy which
         # may serve the pinned digest with an unsupported media type.
-        assert PYTHON_BASE_IMAGE.startswith("docker.io/library/python:3.10-slim@sha256:")
+        assert PYTHON_BASE_IMAGE.startswith("docker.io/library/python:3.12.12-slim-trixie@sha256:")
         assert len(PYTHON_BASE_IMAGE.partition("@sha256:")[2]) == 64
         system = json.loads((ROOT / "dockerfiles/locks/system-trixie-amd64.json").read_text())
         assert system["base_image"] == PYTHON_BASE_IMAGE
@@ -70,6 +70,6 @@ class TestDependencyLock:
             root = Path(directory)
             copy_dependency_tree(root)
             common = root / environment.platform.requirements_lock
-            common.write_text(common.read_text().replace('filelock-3.32.6-', 'filelock-3.32.7-'))
+            common.write_text(common.read_text().replace('filelock-4.2.4-', 'filelock-4.2.5-'))
             with pytest.raises(ValueError, match='父层'):
                 runtime_fingerprint(environment, root)

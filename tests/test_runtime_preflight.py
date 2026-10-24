@@ -182,6 +182,27 @@ def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected():
             assert (caught.value.failure.reason_code) == ("precision_mismatch")
             pipeline.assert_not_called()
 
+def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
+    from packaging.markers import default_environment
+
+    from acprof.runtime_dependencies import dependency_preflight
+    from acprof.runtime_profiles import PROFILES
+
+    host = {**default_environment(), "python_version": "3.13",
+            "python_full_version": "3.13.0", "implementation_version": "3.13.0"}
+    monkeypatch.setattr("packaging.markers.default_environment", lambda: host)
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    requirements = (
+        'missing-old-python; python_version < "3.12"\n'
+        'missing-host-python; implementation_version >= "3.13"\n'
+        'typing; python_version == "3.12" and implementation_version == "3.12.12"\n'
+    )
+    report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: requirements)
+    assert [(item["distribution"], item["status"]) for item in report["dependencies"]] == [
+        ("typing", "stdlib")
+    ]
+
+
 def test_unversioned_typing_backport_uses_target_python_stdlib():
     from acprof.runtime_dependencies import dependency_preflight
     from acprof.runtime_profiles import PROFILES
@@ -190,7 +211,7 @@ def test_unversioned_typing_backport_uses_target_python_stdlib():
     typing = next(item for item in report["dependencies"] if item["distribution"] == "typing")
     assert (typing["status"]) == ("stdlib")
     assert (typing["source"]) == ("requirements.txt")
-    assert (typing["python_version"]) == ("3.10")
+    assert (typing["python_version"]) == ("3.12")
     with pytest.raises(ValueError):
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing==3.7.4.3")
 

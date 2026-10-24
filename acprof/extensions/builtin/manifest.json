@@ -2863,8 +2863,8 @@
       "torch_version": "2.11.0+cpu",
       "torch_index_url": "https://download.pytorch.org/whl/cpu",
       "requirements_lock": "dockerfiles/locks/platform-cpu.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48",
+      "python_version": "3.12.12",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2874,8 +2874,8 @@
       "torch_version": "2.6.0+cu124",
       "torch_index_url": "https://download.pytorch.org/whl/cu124",
       "requirements_lock": "dockerfiles/locks/platform-cu124.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48",
+      "python_version": "3.12.12",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2885,8 +2885,8 @@
       "torch_version": "2.11.0+cu128",
       "torch_index_url": "https://download.pytorch.org/whl/cu128",
       "requirements_lock": "dockerfiles/locks/platform-cu128.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48",
+      "python_version": "3.12.12",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2896,8 +2896,8 @@
       "torch_version": null,
       "torch_index_url": null,
       "requirements_lock": "dockerfiles/locks/platform-python-cpu.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.12-slim-trixie@sha256:42f1689d6d6b906c7e829f9d9ec38491550344ac9adc01e464ff9a08df1ffb48",
+      "python_version": "3.12.12",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"

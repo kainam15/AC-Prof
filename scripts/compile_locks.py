@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -29,11 +30,7 @@ UV_VERSION = "0.13.5"
 
 
 def check_host_lock(root):
-    """Check direct requirements and tested pins for both host marker branches offline."""
-    try:
-        import tomllib
-    except ImportError as error:
-        raise RuntimeError("主机元数据检查需要 Python 3.11+；容器 --check 仍支持 Python 3.10+") from error
+    """Check direct requirements and tested pins for supported host marker branches offline."""
     from packaging.markers import default_environment
     from packaging.requirements import Requirement
 
@@ -48,7 +45,7 @@ def check_host_lock(root):
 
     pins = list(requirements(root / "requirements/host.in"))
     locked = list(requirements(root / "requirements/host.lock"))
-    branches = ("3.10", "3.11", "3.12", "3.13", "3.14")
+    branches = ("3.12", "3.13", "3.14")
     for python in branches:
         markers = {**default_environment(), "python_version": python,
                    "python_full_version": python + ".0", "extra": ""}
@@ -138,19 +135,53 @@ def check_sources(paths, packages, root, visited=None):
                 raise ValueError(f"依赖输入与 lock 不符：{path}: {line}")
 
 
-def check_catalog(root=ROOT, variants=None):
+def check_runtime_lock(path, platform):
+    """Check wheel compatibility and the generated inventory without network access."""
     from packaging.utils import parse_wheel_filename
+
+    records = read_python_lock(path)
+    compatible = set(target_tags(platform))
+    for record in records:
+        filename = unquote(urlsplit(record["url"]).path.rsplit("/", 1)[-1])
+        if not compatible.intersection(parse_wheel_filename(filename)[3]):
+            raise ValueError(f"wheel 与目标平台不兼容：{path}: {filename}")
+    inventory_path = path.with_suffix(".artifacts.json")
+    try:
+        inventory = json.loads(inventory_path.read_text())
+    except (OSError, ValueError) as error:
+        raise ValueError(f"无法读取 artifact 清单：{inventory_path}") from error
+    if (not isinstance(inventory, dict)
+            or type(inventory.get("schema_version")) is not int
+            or inventory["schema_version"] != 1
+            or inventory.get("python_version") != platform.python_version
+            or inventory.get("python_target") != platform.python_target):
+        raise ValueError(f"artifact 清单平台或 schema 不符：{inventory_path}")
+    artifacts = inventory.get("artifacts")
+    if not isinstance(artifacts, list) or not all(isinstance(item, dict) for item in artifacts):
+        raise ValueError(f"无效 artifact 条目：{inventory_path}")
+    fields = ("name", "version", "url", "sha256")
+    if any(not all(isinstance(item.get(key), str) for key in fields) for item in artifacts):
+        raise ValueError(f"artifact 清单缺少制品身份：{inventory_path}")
+    actual = sorted(({key: item[key] for key in fields} for item in artifacts),
+                    key=lambda item: item["name"])
+    if actual != records or any(
+        "size" in item and (type(item["size"]) is not int or item["size"] <= 0)
+        for item in artifacts
+    ):
+        raise ValueError(f"artifact 清单与依赖锁不符：{inventory_path}")
+
+
+def check_catalog(root=ROOT, variants=None):
     environments = {}
     selected = set(variants or PLATFORMS)
+    for key in sorted(selected):
+        platform = PLATFORMS[key]
+        check_runtime_lock(root / platform.requirements_lock, platform)
     for key, environment in ENVIRONMENTS.items():
         if environment.platform.platform_id not in selected:
             continue
         identity = environment_identity(environment, root)
-        compatible = set(target_tags(environment.platform))
-        for record in identity["packages"]:
-            filename = unquote(urlsplit(record["url"]).path.rsplit("/", 1)[-1])
-            if not compatible.intersection(parse_wheel_filename(filename)[3]):
-                raise ValueError(f"wheel 与目标平台不兼容：{key}: {filename}")
+        check_runtime_lock(root / environment.requirements_lock, environment.platform)
         check_sources(environment.requirements_inputs, package_versions(identity["packages"]), root)
         identifier = environment_id(environment, root)
         if identifier in environments:
@@ -168,10 +199,6 @@ def check_catalog(root=ROOT, variants=None):
 
 
 def resolve(uv, inputs, output, platform, pins, *, index_url=None, torch_index_url=None):
-    try:
-        import tomllib
-    except ImportError as error:
-        raise RuntimeError("重新生成 wheel 锁需要 Python 3.11+；只读 --check 支持 Python 3.10+") from error
     with tempfile.TemporaryDirectory(prefix="acprof-resolve-") as directory:
         directory = Path(directory)
         constraint = directory / "constraints.txt"
@@ -217,7 +244,7 @@ def main(argv=None):
     parser.add_argument("--host-only", action="store_true")
     parser.add_argument("--runtime-only", action="store_true")
     parser.add_argument("--variant", action="append", choices=PLATFORMS)
-    parser.add_argument("--check", action="store_true", help="不访问 Docker/网络、不写文件；默认核验容器锁，--host-only 核验主机声明（Python 3.11+）")
+    parser.add_argument("--check", action="store_true", help="不访问 Docker/网络、不写文件；默认核验容器锁，--host-only 核验主机声明")
     parser.add_argument("--upgrade", action="store_true", help="显式更新环境包；平台 Torch 和安装工具仍保持锁定")
     parser.add_argument("--index-url", help="Resolve artifacts from this PEP 503 index; never rewrite lock URLs")
     parser.add_argument("--torch-index-url", help="Explicit target Torch wheel index; exact versions/platform/hashes remain checked")
@@ -239,7 +266,7 @@ def main(argv=None):
     if version[:2] != ["uv", UV_VERSION]:
         parser.error(f"锁生成工具必须是 uv {UV_VERSION}")
     if not args.runtime_only:
-        command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements/host.in", "--python-version", "3.10",
+        command = [args.uv, "pip", "compile", "pyproject.toml", "--constraint", "requirements/host.in", "--python-version", "3.12",
                    "--universal", "--generate-hashes", "--no-annotate", "--no-header", "-o", "requirements/host.lock"]
         if args.index_url:
             command += ["--default-index", args.index_url]
@@ -254,9 +281,19 @@ def main(argv=None):
             base_packages = ("pip", "wheel", "packaging", "setuptools")
             if platform.torch_version:
                 base_packages = ("torch", *base_packages)
-            source.write_text("".join(f"{name}=={platform_pins[name]}\n" for name in base_packages))
-            resolve(args.uv, [source], ROOT / platform.requirements_lock, platform, platform_pins,
+            declarations = [f"{name}=={platform_pins[name]}" for name in base_packages]
+            if args.upgrade and platform.torch_version:
+                declarations.append("filelock>=4.2.4")
+            source.write_text("\n".join(declarations) + "\n")
+            # Upgrades retain only the intentionally fixed platform packages;
+            # transitive dependencies must be allowed to receive security fixes.
+            protected = ({name: platform_pins[name] for name in base_packages}
+                         if args.upgrade else platform_pins)
+            resolve(args.uv, [source], ROOT / platform.requirements_lock, platform, protected,
                     index_url=args.index_url, torch_index_url=args.torch_index_url)
+        # A refreshed platform may have updated transitive packages; use its
+        # *new* lock for all child environments, never stale pre-upgrade pins.
+        platform_pins = package_versions(read_python_lock(ROOT / platform.requirements_lock))
         for environment in ENVIRONMENTS.values():
             if environment.platform.platform_id != key:
                 continue
