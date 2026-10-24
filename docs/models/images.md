@@ -18,6 +18,9 @@ Docker build context 忽略 `tests/`、`docs/`、pytest/mypy/Ruff 缓存、覆�
 这些基础 smoke **不能替代** 当前源码指纹对应的 CPU/GPU 完整采集与正式测量窗口验收。
 Docker bridge 保留本机回环地址端口映射；直接改成 `--network none` 或 internal network 会破坏
 现有 HTTP 测量链路。模型离线加载不等于 Docker 层级的出站网络封锁。
+标准推理容器还使用 `--cap-drop=ALL` 和 `no-new-privileges`，不赋予额外 Linux capabilities；
+CPU/GPU 正式推理所需的具体能力由运行时验证核对。独立的 profiler 工具容器
+（如 NCU/nsys）有自己的权限与能力限制，不能将普通推理成功当作 GPU profiler 的验证通过。
 
 `environment_id` 是规范化平台声明、系统锁及全部 Python 包版本、来源 URL、制品 SHA256 的摘要。
 锁的文件名、注释、顺序、profile、adapter、模型和业务代码不参与该身份。平台镜像的指纹另计

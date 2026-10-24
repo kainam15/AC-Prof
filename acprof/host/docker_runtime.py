@@ -205,6 +205,8 @@ def start_container_session(
         docker_cmd = [
             "docker", "run", "-d",
             "--name", container_name,
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
             *labels,
             f"--cpus={cpu}",
             *([f"--cpuset-cpus={cpuset_cpus}"] if cpuset_cpus else []),

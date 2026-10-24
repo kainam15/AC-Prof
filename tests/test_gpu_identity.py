@@ -61,6 +61,9 @@ def test_container_exposes_only_the_selected_uuid_and_records_identity():
             task, 1, 2, "on", runtime_images.ImageInfo("fixture"), "fixture", "[test]"
         )
     command = next(cmd for cmd in commands if cmd[:3] == ["docker", "run", "-d"])
+    assert '--cap-drop=ALL' in command
+    assert '--security-opt=no-new-privileges' in command
+    assert '--privileged' not in command
     assert (command[command.index("--gpus") + 1]) == ("device=GPU-second")
     assert ("CUDA_VISIBLE_DEVICES=0") in (command)
     assert (session.gpu_device) == (DEVICE)
