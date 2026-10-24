@@ -37,8 +37,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
     if exc.name == "textual":
         raise SystemExit(
             "AC-Prof TUI 需要 Textual。请运行：\n"
-            "  .venv/bin/python -m pip install --require-hashes -r requirements/host.lock\n"
-            "发行安装请重新运行项目的 setup.sh。"
+            "  uv sync\n"
+            "发行安装请运行 uv tool install --reinstall acprof。"
         ) from None
     raise
 

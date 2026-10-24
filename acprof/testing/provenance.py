@@ -32,9 +32,11 @@ def capture_provenance(test_paths: Iterable[Path], *, root: Path = ROOT) -> dict
     root = root.resolve()
     sources = [path for name in ("acprof", "scripts", "packaging", "dockerfiles", "assets",
                                  "docs", "examples", ".github/workflows") for path in _files(root / name)]
-    sources.extend(path for name in ("pyproject.toml", "README.md", "setup.sh", ".gitignore")
+    sources.extend(path for name in ("pyproject.toml", ".python-version", "README.md", "setup.sh", ".gitignore")
                    if (path := root / name).is_file())
     locks = _files(root / "requirements")
+    if (root / "uv.lock").is_file():
+        locks.append(root / "uv.lock")
     tests = _files(root / "tests")
     external = sorted({path.resolve().parent for path in test_paths
                        if not path.resolve().is_relative_to(root)})

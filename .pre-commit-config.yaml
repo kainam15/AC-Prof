@@ -9,10 +9,16 @@ repos:
     hooks:
       - id: pytest-framework
         name: Require pytest tests and runner
-        entry: python scripts/check_test_framework.py
-        language: python
+        entry: uv run --locked python scripts/check_test_framework.py
+        language: system
         types: [python]
         pass_filenames: false
+      - id: ruff-check
+        name: Ruff from uv.lock
+        entry: uv run --locked ruff check --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
@@ -28,11 +34,6 @@ repos:
       - id: check-added-large-files
         # 固定 30 秒音频输入约 938 KiB；统一检查所有文件，限制为 1 MiB。
         args: [--enforce-all, --maxkb=1024]
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 2eeb5678de71a00c0902cbda7105d328432f72cb # v0.16.8
-    hooks:
-      - id: ruff-check
 
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
     rev: 1f1ac45c93d1c2ce36b71330252c489a5f4f2724 # v9.27.0

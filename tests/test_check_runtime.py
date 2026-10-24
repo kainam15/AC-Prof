@@ -26,8 +26,17 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
     image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                             platform_image_id='sha256:' + 'b' * 64, manifest={})
     downloads = []
+    exports = []
 
     def execute(command, **kwargs):
+        if command[:2] == ['uv', 'export']:
+            exports.append(command)
+            Path(command[command.index('--output-file') + 1]).write_text(
+                'pytest==9.0.3 --hash=sha256:' + 'a' * 64 + '\n'
+                'pytest-asyncio==1.4.0 --hash=sha256:' + 'b' * 64 + '\n'
+                'colorama==0.4.6 ; sys_platform == "win32" --hash=sha256:' + 'c' * 64 + '\n'
+                'typing-extensions==4.16.0 ; python_version < "3.13" --hash=sha256:' + 'd' * 64 + '\n'
+            )
         if 'download' in command:
             downloads.append((command, Path(command[command.index('-r') + 1]).read_text()))
         return subprocess.CompletedProcess(command, 0)
@@ -38,6 +47,9 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
         assert main(['--profile', profile.profile_id, '--output-dir', str(tmp_path)]) == 0
 
     (command, lock), = downloads
+    export, = exports
+    assert '--locked' in export
+    assert export[export.index('--only-group') + 1] == 'runtime-test'
     assert '--python-version' in command
     assert command[command.index('--python-version') + 1] == python_version
     assert '--no-deps' in command
@@ -54,8 +66,20 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
         requirements[parsed.name] = hashes
     assert 'colorama' not in requirements
     assert {'pytest', 'pytest-asyncio'} <= requirements.keys()
+    assert ('typing-extensions' in requirements) == python_version.startswith('3.12.')
     for package in ('backports-asyncio-runner', 'exceptiongroup', 'tomli'):
         assert package not in requirements
+
+
+def test_test_tools_export_failure_prevents_download(tmp_path):
+    from scripts.check_runtime import prepare_test_wheels
+
+    error = subprocess.CalledProcessError(1, ['uv', 'export', '--locked'])
+    with patch('scripts.check_runtime.subprocess.run', side_effect=error) as run:
+        with pytest.raises(subprocess.CalledProcessError):
+            prepare_test_wheels(tmp_path, 10, PROFILES['onnxruntime-cpu'].environment.platform)
+    assert run.call_count == 1
+    assert run.call_args.args[0][:2] == ['uv', 'export']
 
 
 class TestRuntimeCheckSelection:
@@ -74,7 +98,9 @@ class TestRuntimeCheckSelection:
         command = next(call.args[0] for call in run.call_args_list
                        if 'scripts/run_tests.py' in call.args[0])
         assert '/tmp/acprof-tests/bin/python' in command
-        assert any('--no-index' in argument and '--require-hashes' in argument for argument in command)
+        assert any('--no-index' in argument and '--require-hashes' in argument
+                   and '/evidence/runtime-test-target.lock' in argument for argument in command)
+        assert not any('requirements/runtime-test.lock' in argument for argument in command)
         assert command[command.index('--network') + 1] == 'none'
 
     @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers5104-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))

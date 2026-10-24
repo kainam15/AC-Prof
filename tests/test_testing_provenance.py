@@ -17,7 +17,7 @@ def test_unreadable_source_directory_cannot_produce_complete_identity(tmp_path):
 def test_input_hashes_are_relocatable_and_separate_sources_tests_and_locks(tmp_path):
     root = tmp_path / 'first'
     for name, content in {'acprof/example.py': 'VALUE = 1\n', 'tests/test_example.py': 'def test_ok(): pass\n',
-                          'requirements/host.lock': 'example==1\n'}.items():
+                          'uv.lock': 'version = 1\n', '.python-version': '3.12\n'}.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
@@ -26,7 +26,7 @@ def test_input_hashes_are_relocatable_and_separate_sources_tests_and_locks(tmp_p
     shutil.copytree(root, moved)
     assert capture_provenance([moved / 'tests/test_example.py'], root=moved) == original
     for name, field in [('acprof/example.py', 'source_sha256'), ('tests/test_example.py', 'tests_sha256'),
-                        ('requirements/host.lock', 'locks_sha256')]:
+                        ('uv.lock', 'locks_sha256'), ('.python-version', 'source_sha256')]:
         path = moved / name
         old = path.read_text()
         path.write_text(old + '# changed\n')

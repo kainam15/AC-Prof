@@ -49,22 +49,12 @@ def test_mirror_resolution_keeps_versions_hashes_and_target_platform():
                                   torch_index_url="https://mirror.example/cu124")
         assert (output.read_bytes()) == (original)
 
-def test_host_check_rejects_metadata_drift_in_each_python_branch_without_resolving():
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        (root / 'pyproject.toml').write_text('[project]\ndependencies = ["numpy>=2,<3"]\n')
-        (root / 'requirements').mkdir()
-        (root / 'requirements/host.in').write_text('numpy==2.4.4\n')
-        lock = root / 'requirements/host.lock'
-        lock.write_text('numpy==2.4.4\n')
-        with patch.object(compile_locks, 'ROOT', root), patch('subprocess.run', side_effect=AssertionError('resolver used')):
-            assert (compile_locks.main(['--host-only', '--check'])) == (0)
-            lock.write_text('numpy==1.26.4\n')
-            with pytest.raises(ValueError, match='numpy'):
-                compile_locks.main(['--host-only', '--check'])
-            lock.write_text('numpy==2.3.0 ; python_version < "3.12"\n')
-            with pytest.raises(ValueError, match='numpy'):
-                compile_locks.main(['--host-only', '--check'])
+@pytest.mark.parametrize("option", ["--host-only", "--runtime-only"])
+def test_compiler_rejects_retired_modes_before_resolving(option):
+    with patch("subprocess.run", side_effect=AssertionError("resolver used")):
+        with pytest.raises(SystemExit) as failure:
+            compile_locks.main([option])
+    assert failure.value.code == 2
 
 def test_check_is_read_only_and_does_not_use_docker_or_resolver():
     with tempfile.TemporaryDirectory() as directory:

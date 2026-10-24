@@ -32,7 +32,9 @@ fail() {
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd -- "$project_dir"
-[[ -f pyproject.toml && -f requirements/host.lock ]] || fail "请从完整 AC-Prof 源码目录运行 setup.sh。"
+[[ -f pyproject.toml && -f uv.lock ]] || fail "请从完整 AC-Prof 源码目录运行 setup.sh。"
+setup_temp_dir="$(mktemp -d)"
+trap 'rm -rf -- "$setup_temp_dir"' EXIT
 
 printf '[1/3] 检查主机与 Docker\n'
 [[ "$(uname -s)" == Linux ]] || fail "采集需要原生 Linux；Windows/macOS 不支持。"
@@ -48,34 +50,30 @@ df -h .
 printf '[2/3] 安装当前 checkout 的 AC-Prof\n'
 uv_install_dir="${UV_INSTALL_DIR:-${HOME}/.local/bin}"
 uv_command="$(command -v uv || true)"
-if [[ -z "$uv_command" ]]; then
-    for candidate in "$uv_install_dir/uv" "$project_dir/.venv/bin/uv"; do
-        if [[ -x "$candidate" ]]; then
-            uv_command="$candidate"
-            break
-        fi
-    done
+if [[ -z "$uv_command" && -x "$uv_install_dir/uv" ]]; then
+    uv_command="$uv_install_dir/uv"
 fi
 if [[ -z "$uv_command" ]]; then
     # Match the development/Release toolchain and use the upstream installer.
     installer_url='https://astral.sh/uv/0.13.5/install.sh'
-    installer_dir="$(mktemp -d)"
-    trap 'rm -rf -- "$installer_dir"' EXIT
     printf '[setup] 下载 uv 0.13.5 到 %s\n' "$uv_install_dir"
     if command -v curl >/dev/null 2>&1; then
         curl --fail --location --retry 2 --connect-timeout 15 --max-time 120 \
-            --output "$installer_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"
+            --output "$setup_temp_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"
     elif command -v wget >/dev/null 2>&1; then
-        wget --timeout=120 --tries=3 -O "$installer_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"
+        wget --timeout=120 --tries=3 -O "$setup_temp_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"
     else
         fail "下载 uv 需要 curl 或 wget；也可先自行安装 uv 后重试。"
     fi
-    UV_INSTALL_DIR="$uv_install_dir" UV_NO_MODIFY_PATH=1 sh "$installer_dir/install.sh" || fail "uv 安装失败；检查下载与目录权限后重试。"
+    UV_INSTALL_DIR="$uv_install_dir" UV_NO_MODIFY_PATH=1 sh "$setup_temp_dir/install.sh" || fail "uv 安装失败；检查下载与目录权限后重试。"
     uv_command="$uv_install_dir/uv"
 fi
 
 # Reinstall this checkout even when its version is unchanged; uv reuses dependency caches.
-"$uv_command" tool install --python 3.12 --constraint "$project_dir/requirements/host.lock" \
+# Exporting validates the lock without creating or changing the development .venv.
+"$uv_command" export --locked --no-default-groups --no-emit-project --no-header --no-annotate \
+    --output-file "$setup_temp_dir/host.txt" >/dev/null || fail "依赖锁校验失败；请使用项目要求的 uv 版本，并由开发者运行 uv lock 更新声明后重试。"
+"$uv_command" tool install --python 3.12 --constraint "$setup_temp_dir/host.txt" \
     --reinstall-package acprof "$project_dir" || fail "AC-Prof 安装失败；检查上方错误，修复网络或依赖问题后重新运行 setup.sh。"
 tool_bin_dir="$("$uv_command" tool dir --bin)"
 acprof_command="$tool_bin_dir/acprof"

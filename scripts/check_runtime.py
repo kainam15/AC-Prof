@@ -53,11 +53,18 @@ def prepare_test_wheels(output, timeout, platform):
     """Download the hashed test tools before entering the network-isolated container."""
     wheels = output / "test-wheels"
     wheels.mkdir()
+    exported = output / "runtime-test-export.txt"
+    with (output / "test-tools.log").open("w") as log:
+        subprocess.run([
+            "uv", "export", "--locked", "--only-group", "runtime-test",
+            "--no-emit-project", "--no-header", "--no-annotate",
+            "--output-file", str(exported),
+        ], cwd=ROOT, check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
     # pip's target flags select wheels, but requirement markers still use the host.
     # Select the complete locked closure for the runtime, retaining every hash.
     markers = target_markers(platform)
     selected = []
-    source = (ROOT / "requirements/runtime-test.lock").read_text(encoding="utf-8")
+    source = exported.read_text(encoding="utf-8")
     for line in source.replace("\\\n", "").splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
@@ -79,7 +86,7 @@ def prepare_test_wheels(output, timeout, platform):
         command += ["--platform", value]
     for value in dict.fromkeys(tag.abi for tag in tags):
         command += ["--abi", value]
-    with (output / "test-tools.log").open("w") as log:
+    with (output / "test-tools.log").open("a") as log:
         subprocess.run(command, check=True, timeout=timeout, stdout=log, stderr=subprocess.STDOUT)
 
 
@@ -155,7 +162,7 @@ def main(argv=None):
                 "python -m venv --system-site-packages /tmp/acprof-tests && "
                 "/tmp/acprof-tests/bin/python -m pip install --no-index "
                 "--find-links=/evidence/test-wheels --require-hashes "
-                "-r requirements/runtime-test.lock && exec \"$@\""
+                "-r /evidence/runtime-test-target.lock && exec \"$@\""
             )
             run_command = [*command, image_id, "sh", "-c", bootstrap, "acprof-runtime-tests",
                            "/tmp/acprof-tests/bin/python", "scripts/run_tests.py",

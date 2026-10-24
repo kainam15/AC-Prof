@@ -33,7 +33,11 @@ elif name == "curl":
     destination = Path(args[args.index("--output") + 1])
     destination.write_text('#!/bin/sh\nmkdir -p "$UV_INSTALL_DIR"\ncp "$SETUP_TEST_UV" "$UV_INSTALL_DIR/uv"\n')
 elif name == "uv":
-    if args[:2] == ["tool", "install"]:
+    if args[0] == "export":
+        if os.environ.get("SETUP_TEST_EXPORT_FAIL"):
+            sys.exit(8)
+        Path(args[args.index("--output-file") + 1]).write_text("example==1.0 --hash=sha256:fixture\n")
+    elif args[:2] == ["tool", "install"]:
         if os.environ.get("SETUP_TEST_INSTALL_FAIL"):
             sys.exit(9)
         destination = Path(os.environ["UV_TOOL_BIN_DIR"]) / "acprof"
@@ -91,8 +95,8 @@ class TestSetup:
         shutil.copyfile(self.bin / "uv", self.root / "uv")
         (self.root / "uv").chmod(0o755)
         shutil.copyfile(ROOT / "pyproject.toml", self.checkout / "pyproject.toml")
-        (self.checkout / "requirements").mkdir()
-        shutil.copyfile(ROOT / "requirements/host.lock", self.checkout / "requirements/host.lock")
+        shutil.copyfile(ROOT / "uv.lock", self.checkout / "uv.lock")
+        shutil.copyfile(ROOT / ".python-version", self.checkout / ".python-version")
         self.config = self.checkout / ".env.local"
         self.config.write_text("KEEP_EXISTING_CONFIG=yes\n")
 
@@ -134,12 +138,23 @@ class TestSetup:
         assert (result.returncode) == (0), result.stdout + result.stderr
         install = next(call for call in self.calls("uv") if call["args"][:2] == ["tool", "install"])
         assert (str(self.checkout)) in (install["args"])
-        assert (str(self.checkout / "requirements/host.lock")) in (install["args"])
+        export = next(call for call in self.calls("uv") if call["args"][0] == "export")
+        assert {"--locked", "--no-default-groups", "--no-emit-project"} <= set(export["args"])
+        constraints = export["args"][export["args"].index("--output-file") + 1]
+        assert install["args"][install["args"].index("--constraint") + 1] == constraints
+        assert not Path(constraints).exists(), "temporary exported constraints must be cleaned up"
         calls = self.calls("acprof")
         assert ([call["args"] for call in calls]) == ([["doctor", "--profiling-mode", "basic", "--gpus", "off"]])
         assert (calls[0]["cwd"]) == (str(self.checkout))
         assert ("tui") in (result.stdout)
         assert not (any(call["args"] == ["tool", "update-shell"] for call in self.calls("uv")))
+
+    def test_stale_lock_stops_before_install_and_preserves_checkout(self):
+        before = (self.checkout / "uv.lock").read_bytes()
+        result = self.invoke("--no-tui", SETUP_TEST_EXPORT_FAIL="1")
+        assert result.returncode != 0
+        assert not any(call["args"][:2] == ["tool", "install"] for call in self.calls("uv"))
+        assert (self.checkout / "uv.lock").read_bytes() == before
 
     def test_interactive_install_launches_smoke_with_a_fresh_output_directory(self):
         for _ in range(2):

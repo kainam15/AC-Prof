@@ -38,6 +38,44 @@ dependencies = [
     "nvidia-ml-py>=13.610.43",
 ]
 
+[dependency-groups]
+# `uv sync` prepares the complete everyday development environment.
+dev = [
+    {include-group = "test"},
+    {include-group = "lint"},
+    {include-group = "typing"},
+    {include-group = "runtime-tools"},
+]
+test = [
+    {include-group = "runtime-test"},
+    "pytest-cov>=7.0.0,<8",
+    "coverage[toml]>=7.15.2,<8",
+    "pyyaml>=6.0.3,<7",
+]
+lint = [
+    # Keep the Ruff configuration and pre-commit hook on the same release.
+    "ruff==0.16.8",
+    "pre-commit>=4.6.2,<5",
+    "markdown-it-py>=4.2.0,<5",
+]
+typing = ["mypy>=2.3.1,<3"]
+browser = [
+    {include-group = "runtime-test"},
+    "plotly>=7.1.0,<8",
+    "playwright>=1.63.0,<2",
+]
+# Exported with hashes and installed only into the temporary container test venv.
+runtime-test = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.4.0,<2"]
+# pip supplies cross-platform wheel downloads; uv owns this tool's environment.
+runtime-tools = ["pip>=26.2.2,<27"]
+audit = ["pip-audit>=2.10.1,<3"]
+build = ["hatchling>=1.27,<2"]
+standalone = ["pyinstaller>=6.22.3,<7"]
+
+[tool.uv]
+required-version = "==0.13.5"
+default-groups = ["dev"]
+
 [project.scripts]
 acprof = "acprof.cli.main:main"
 
@@ -65,7 +103,7 @@ path = "packaging/hatch_build.py"
 include = [
     "/acprof", "/assets", "/dockerfiles", "/examples", "/scripts", "/tests",
     "/packaging", "/docs", "/README.md", "/pyproject.toml",
-    "/requirements", "/.dockerignore", "/setup.sh",
+    "/requirements", "/uv.lock", "/.python-version", "/.dockerignore", "/setup.sh",
     "/LICENSE", "/NOTICE", "/licenses",
 ]
 exclude = ["**/AGENTS.md", "**/__pycache__", "**/*.pyc"]
