@@ -16,6 +16,17 @@ from flask import Flask, jsonify, request  # noqa: E402 -- 先记录进程启动
 
 app = Flask(__name__)
 
+# Bound untrusted JSON before preprocessing allocates memory. This is not a
+# per-request model input-scale limit; full inputs remain governed by workloads.
+MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BODY_BYTES
+
+
+@app.errorhandler(413)
+def request_body_too_large(_error):
+    return jsonify({"error": f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes",
+                    "limit_bytes": MAX_REQUEST_BODY_BYTES}), 413
+
 # ─────────────────────────────────────────────
 # Environment-driven configuration
 # ─────────────────────────────────────────────
