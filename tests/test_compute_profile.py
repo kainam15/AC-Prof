@@ -809,7 +809,7 @@ class TestComputeProfile:
                 "all",
             ])
 
-    def test_gpu_metric_query_does_not_request_counter_privileges(self) -> None:
+    def test_gpu_metric_query_requests_only_counter_privileges(self) -> None:
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",
             pipeline_tag="fill-mask",
@@ -858,9 +858,10 @@ class TestComputeProfile:
         container_base_cmd = query["container_base_cmd"]
         assert ("--gpus") in (container_base_cmd)
         assert "--cap-drop=ALL" in container_base_cmd
-        assert f"--user={os.getuid()}:{os.getgid()}" in container_base_cmd
-        assert not any(arg.startswith("--cap-add") or "unconfined" in arg for arg in container_base_cmd)
-        assert (container_base_cmd[-1]) == ("acprof-test:latest")
+        assert f"--user=0:{os.getgid()}" in container_base_cmd
+        assert [arg for arg in container_base_cmd if arg.startswith("--cap-add")] == ["--cap-add=SYS_ADMIN"]
+        assert not any("unconfined" in arg for arg in container_base_cmd)
+        assert container_base_cmd[-5:] == ["acprof-test:latest", "sh", "-c", 'umask 0002; exec "$@"', "acprof-profiler"]
 
     def test_ncu_resume_reuses_csv_recovers_report_and_collects_only_missing(self) -> None:
         task_info = TaskInfo(

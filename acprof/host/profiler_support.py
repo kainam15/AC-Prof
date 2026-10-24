@@ -141,7 +141,7 @@ def profiler_container_command(
                 "NCU output directory must be owned by the invoking user with an accessible group"
             )
         # Docker drops effective capabilities for a non-root image USER.
-        # Only counter collection needs UID 0. Keep its reports accessible to
+        # Counter access needs UID 0. Keep its reports accessible to
         # the host through the existing output group, without world write access.
         uid, gid = 0, directory.st_gid
         os.chmod(profile_root, stat.S_IMODE(directory.st_mode) | stat.S_IRWXG)

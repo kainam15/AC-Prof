@@ -611,6 +611,7 @@ def _profile_gpu_entries(
             payload_file=payload_file,
             profile_root=profile_root,
             tool_mount_roots=mount_roots,
+            requires_gpu_counters=True,
         ) as metric_query_base_cmd:
             ncu_metrics, metric_error = _resolve_ncu_metrics(
                 ncu_bin,
