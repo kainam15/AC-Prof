@@ -37,7 +37,7 @@ from acprof.capabilities import (
     missing_required_measurements,
 )
 from acprof.cli import run_notifications as notices
-from acprof.cli.run_matrix import _format_elapsed, _resource_matrix
+from acprof.cli.run_matrix import format_elapsed, resource_matrix
 from acprof.cli.terminal_log import format_run_command, start_terminal_log, stop_terminal_log
 from acprof.config import SCALING_DIMENSIONS
 from acprof.host.collection_history import (
@@ -534,7 +534,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
     from acprof.host.input_plan import serialize_input_scales
     from acprof.host.orchestrator import merge_all_csvs, run_matrix
 
-    cpu_list, mem_list, gpu_list = _resource_matrix(args, parser)
+    cpu_list, mem_list, gpu_list = resource_matrix(args, parser)
     prepared = None
     while prepared is None:
         try:
@@ -660,7 +660,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
             sys.exit(1)
         run_state.finish(final_csv)
         cleanup_intermediate_results(csv_paths, output_dir, final_csv)
-        elapsed = _format_elapsed(time.perf_counter() - start_time)
+        elapsed = format_elapsed(time.perf_counter() - start_time)
         print(f"\n{'='*60}")
         print("Profiling complete!")
         print(f"  Profiling mode:   {args.profiling_mode}")
@@ -683,7 +683,7 @@ def _run_main(*, args=None, prepared_task=None, preparation_artifacts=None):
             completed_cases=len(csv_paths),
         )
     else:
-        elapsed = _format_elapsed(time.perf_counter() - start_time)
+        elapsed = format_elapsed(time.perf_counter() - start_time)
         print(f"\n[WARN] No results produced after {elapsed}. Static meta is still available: {static_meta_json}")
         notices.record_completion(final_csv=None, completed_cases=0)
 

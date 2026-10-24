@@ -10,7 +10,7 @@ def _parse_str_list(s: str) -> list:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
-def _format_elapsed(seconds: float) -> str:
+def format_elapsed(seconds: float) -> str:
     total_seconds = max(0, int(round(seconds)))
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
@@ -25,7 +25,7 @@ def _format_elapsed(seconds: float) -> str:
 
 
 
-def _resource_matrix(args, parser):
+def resource_matrix(args, parser):
     """Validate resource selection before building the runtime."""
     cpu_list = _parse_int_list(args.cpus)
     mem_list = _parse_int_list(args.mems)
