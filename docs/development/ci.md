@@ -45,6 +45,13 @@ GitHub Actions artifact 保留 30 天；每个报告还要经 `scripts/check_dep
 核对结构及非空依赖集合。**已知漏洞只发出告警，不阻断普通开发合并**；缺失或损坏的扫描证据
 属于 CI 故障并应失败。此检查不能检测未公开漏洞、源码逻辑漏洞，也不能取代 OCI/base OS 安全扫描。
 lock 文件仍通过现有协调更新 PR 由维护者审核，不自动升级、合并或发布。
+独立 `runtime-locks` job 还扫描 `dockerfiles/locks/*.txt` 中的所有注册平台和完整环境锁。
+`export_runtime_audit_requirements.py` 先逐个核验固定 wheel URL/SHA256，将版本与哈希转换成
+仅供 `pip-audit` 识别的 `name==version --hash` 清单，不下载 wheel、不执行镜像构建或改写锁。
+校验目录内容必须恰好匹配 `PLATFORMS`/`ENVIRONMENTS`，且审计解释器与平台声明版本一致；
+缺失环境或切换 Python 基线未同步 CI 会直接失败。每个环境独立产生 JSON 证据并归档，
+已知漏洞仍为警告。此工作只能发现已知 Python 包漏洞，不代替 Debian、Torch CUDA 运行验证
+或 OCI 制品漏洞扫描。
 2026-10 安全更新中 `certifi`、`urllib3`、uv、pytest、virtualenv 和 Python 3.11+ 的
 Pillow/filelock 已升级到附哈希版本；**Python 3.10 的 Pillow 12.3.0 和 filelock 4.1.0 仍有已知报告**，
 因为上游已修复版本要求更新的 Python。它们不能通过忽略漏洞 ID 或将全局扫描标绿处理，

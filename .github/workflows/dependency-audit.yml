@@ -7,6 +7,10 @@ on:
   pull_request:
     paths:
       - 'requirements/**'
+      - 'dockerfiles/locks/**'
+      - 'acprof/extensions/builtin/manifest.json'
+      - 'acprof/dependency_locks.py'
+      - 'scripts/export_runtime_audit_requirements.py'
       - '.github/workflows/dependency-audit.yml'
       - 'scripts/check_dependency_audit.py'
 
@@ -62,5 +66,50 @@ jobs:
         with:
           name: dependency-audit-${{ matrix.lock }}-${{ matrix.python }}
           path: audit-${{ matrix.lock }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  runtime-locks:
+    name: Docker runtime wheel locks (Python 3.10)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: requirements/audit.lock
+      - name: Install hash-locked auditing tool
+        run: python -m pip install --require-hashes -r requirements/audit.lock
+      - name: Export every registered runtime wheel lock
+        run: |
+          python scripts/export_runtime_audit_requirements.py \
+            --output-dir runtime-audit/requirements --python-version 3.10
+      - name: Audit runtime package versions without installing runtime wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-audit/reports
+          for requirements in runtime-audit/requirements/*.txt; do
+            lock="${requirements##*/}"
+            result=0
+            python -m pip_audit --require-hashes --disable-pip \
+              --progress-spinner off --format json \
+              --output "runtime-audit/reports/${lock%.txt}.json" \
+              -r "${requirements}" || result=$?
+            if (( result > 1 )); then
+              echo "Runtime lock audit could not complete: ${lock} (exit ${result})" >&2
+              exit "${result}"
+            fi
+            python scripts/check_dependency_audit.py \
+              "runtime-audit/reports/${lock%.txt}.json" "${lock}"
+          done
+      - name: Publish runtime lock audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-audit-docker-runtime-locks
+          path: runtime-audit/reports/*.json
           if-no-files-found: error
           retention-days: 30
