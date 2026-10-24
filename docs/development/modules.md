@@ -34,7 +34,7 @@
 
 | 位置 | 职责 |
 | --- | --- |
-| `acprof/cli/` | 命令参数、入口调度和退出处理 |
+| `acprof/cli/` | 命令参数、入口调度和退出处理；`run_matrix.py` 独立校验 CPU/内存/GPU 矩阵及 profiler 参考点，不参与镜像准备和测量 |
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
