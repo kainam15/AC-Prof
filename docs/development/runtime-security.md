@@ -33,7 +33,7 @@ CPU / 无 Torch 平台采用 setuptools 84.1.0。上述版本在本次 pip-audit
 | Transformers 4.57.6 | CVE-2026-1839 | Trainer RNG 恢复路径；本项目不训练，现有 Torch 均不低于 2.6，但不能据此删除整个依赖的漏洞记录。 |
 | Transformers 4.57.6 | CVE-2026-4372、CVE-2026-5241 | 模型配置和嵌套加载可绕过代码信任检查；属于需要继续处理的加载风险，离线设置不等于恶意配置审计。 |
 | Transformers 4.57.6 | CVE-2026-9856、CVE-2026-80047 | `save_pretrained` 路径穿越、custom generation 代码下载顺序；不向未受信任模型开放这些能力，保留风险记录。 |
-| GPU setuptools 81.0.0 | CVE-2026-59890 / GHSA-h35f-9h28-mq5c、GHSA-xmj3-9gf7-h52w | 公告涉及 macOS sdist 名称和 Windows legacy egg 安装路径。Linux 推理镜像仅安装校验哈希的 wheel；Torch 2.11 要求 `<82`，不能强行改锁到 84.1。 |
+| GPU setuptools 81.0.0 | CVE-2026-59890 / GHSA-h35f-9h28-mq5c、GHSA-xmj3-9gf7-h52w | 公告涉及 macOS sdist 名称和 Windows legacy egg 安装路径。Linux 推理镜像仅安装校验哈希的 wheel；cu128 的 Torch 2.11 要求 `<82`，不能强行改锁到 84.1。cu124 的 Torch 2.6 没有这项上限，但升级兼容验证随该平台正式验收暂缓，保留未修复记录。 |
 
 4.57.6 是本次检查可用的最后一个 4.x 版本；5.x 已移除 image-to-image、image-to-text、
 question-answering、summarization、text2text-generation、translation、visual-question-answering
