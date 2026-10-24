@@ -99,9 +99,11 @@ class TestAudioGenerationRuntime:
             WhisperFeatureExtractor,
         )
 
+        # Voxtral folds four encoder frames into one audio token (50 / 12.5 Hz).
+        # Keep the projector input width consistent when shrinking the encoder.
         config = VoxtralConfig(
             audio_config={'model_type': 'voxtral_encoder', 'hidden_size': 32, 'num_hidden_layers': 1,
-                          'num_attention_heads': 4, 'num_key_value_heads': 4, 'head_dim': 8, 'intermediate_size': 64,
+                          'num_attention_heads': 4, 'num_key_value_heads': 4, 'head_dim': 8, 'intermediate_size': 128,
                           'num_mel_bins': 128, 'max_source_positions': 1500},
             text_config={'model_type': 'llama', 'vocab_size': 320, 'hidden_size': 32, 'intermediate_size': 64,
                          'num_hidden_layers': 1, 'num_attention_heads': 4, 'num_key_value_heads': 2,
@@ -135,12 +137,12 @@ class TestAudioGenerationRuntime:
     def test_composite_omni_snapshot_loads_only_registered_multimodal_text_head(self, device):
         import transformers
 
-        from acprof.model_resolution import audio_text_loader
+        from acprof.model_support import audio_text_loader
 
         if not audio_text_loader(transformers.__version__, {'model_type': 'qwen2_5_omni_thinker'}):
             # The default version cannot expose this head through Auto. Host
             # preflight must select the newer environment instead of direct classes.
-            from acprof.model_resolution import supports_transformers_task
+            from acprof.model_support import supports_transformers_task
             assert not (supports_transformers_task(transformers.__version__, 'audio-text-to-text', 'qwen2_5_omni'))
             return
         from safetensors.torch import save_file

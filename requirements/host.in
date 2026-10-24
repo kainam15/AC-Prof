@@ -7,7 +7,5 @@ packaging==26.3
 requests==2.33.1
 matplotlib==3.10.9
 plotly==7.1.0
-numpy==2.2.6 ; python_version < '3.11'
-numpy==2.4.4 ; python_version >= '3.11'
-pandas==2.3.3 ; python_version < '3.11'
-pandas==3.0.2 ; python_version >= '3.11'
+numpy==2.4.4
+pandas==3.0.2

@@ -30,9 +30,9 @@ class TestEnvironmentIdentity:
         assert (len({environment_id(p.environment, ROOT) for p in PROFILES.values()})) == (27)
         for variant in ('cpu', 'cu124', 'cu128'):
             assert (PROFILES[f'custom-multimodal-{variant}'].environment) is (ENVIRONMENTS[f'custom-multimodal-{variant}'])
-            assert (environment_id(PROFILES[f'custom-multimodal-{variant}'].environment, ROOT)) != (environment_id(PROFILES[f'multimodal-transformers560-{variant}'].environment, ROOT))
+            assert (environment_id(PROFILES[f'custom-multimodal-{variant}'].environment, ROOT)) != (environment_id(PROFILES[f'multimodal-transformers5104-{variant}'].environment, ROOT))
             for family in ('nlp', 'cv', 'audio', 'multimodal'):
-                assert (PROFILES[f'{family}-transformers560-{variant}'].environment) is (ENVIRONMENTS[f'transformers560-{variant}'])
+                assert (PROFILES[f'{family}-transformers5104-{variant}'].environment) is (ENVIRONMENTS[f'transformers5104-{variant}'])
         for profile in ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'):
             assert (PROFILES[profile].environment) is (ENVIRONMENTS['onnxruntime-cpu'])
         for variant in ('cpu', 'cu124'):
@@ -109,7 +109,8 @@ class TestEnvironmentIdentity:
         path = self.root / self.env.requirements_lock
         source = path.read_text()
         entry = next(line for line in source.splitlines() if line.startswith('torch @'))
-        for replacement in ('', entry.replace('torch-2.11.0', 'torch-2.11.1')):
+        current_version = self.env.platform.torch_version.split('+')[0]
+        for replacement in ('', entry.replace(f'torch-{current_version}', 'torch-0.0.0')):
             path.write_text(source.replace(entry, replacement))
             with pytest.raises(ValueError, match='父层'):
                 environment_id(self.env, self.root)

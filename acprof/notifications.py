@@ -234,7 +234,7 @@ class WeComWebhookNotifier:
         )
 
     def send(self, event: NotificationEvent) -> None:
-        payload = {
+        payload: dict[str, str | dict[str, str]] = {
             "msgtype": "text",
             "text": {"content": render_notification_text(event)},
         }

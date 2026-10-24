@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-import pytest_textual_snapshot
 from textual.widgets import Button, Static, TabbedContent
 
 from acprof.experiment import RunConfig
@@ -16,6 +15,7 @@ from acprof.tui.preparation import PreparationScreen
 from acprof.tui.process import StopResult
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.reports import ReportRow, ReportView
+from acprof.tui.stages import Stage
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import ConfirmActionScreen
 
@@ -36,11 +36,6 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "wsl-review"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
-    normalize = pytest_textual_snapshot.normalize_svg
-    # Rich emits whitespace-only CSS lines. Keep baseline serialization stable
-    # under the repository's whitespace hooks without changing rendered text.
-    monkeypatch.setattr(pytest_textual_snapshot, "normalize_svg",
-                        lambda svg: "\n".join(line.rstrip() for line in normalize(svg).splitlines()) + "\n")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))
@@ -140,7 +135,7 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app._active_command = ("acprof", "run")
             app._pending_launch = None
             snapshot = ProgressSnapshot(
-                stage="正式测量", detail="Fixed measurement window",
+                stage=Stage.MEASURING, detail="Fixed measurement window",
                 current_case=1, total_cases=4, cpu="2", mem="4", gpu="off", measurement_active=True,
                 interface_status="passed", runtime_status="passed", measurement_status="running",
             )

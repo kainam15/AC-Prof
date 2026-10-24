@@ -58,10 +58,10 @@ if [[ -z "$uv_command" ]]; then
 fi
 if [[ -z "$uv_command" ]]; then
     # Match the development/Release toolchain and use the upstream installer.
-    installer_url='https://astral.sh/uv/0.12.13/install.sh'
+    installer_url='https://astral.sh/uv/0.13.5/install.sh'
     installer_dir="$(mktemp -d)"
     trap 'rm -rf -- "$installer_dir"' EXIT
-    printf '[setup] 下载 uv 0.12.13 到 %s\n' "$uv_install_dir"
+    printf '[setup] 下载 uv 0.13.5 到 %s\n' "$uv_install_dir"
     if command -v curl >/dev/null 2>&1; then
         curl --fail --location --retry 2 --connect-timeout 15 --max-time 120 \
             --output "$installer_dir/install.sh" "$installer_url" || fail "uv 下载失败；检查网络后重新运行 setup.sh。"
@@ -75,7 +75,7 @@ if [[ -z "$uv_command" ]]; then
 fi
 
 # Reinstall this checkout even when its version is unchanged; uv reuses dependency caches.
-"$uv_command" tool install --python 3.10 --constraint "$project_dir/requirements/host.lock" \
+"$uv_command" tool install --python 3.12 --constraint "$project_dir/requirements/host.lock" \
     --reinstall-package acprof "$project_dir" || fail "AC-Prof 安装失败；检查上方错误，修复网络或依赖问题后重新运行 setup.sh。"
 tool_bin_dir="$("$uv_command" tool dir --bin)"
 acprof_command="$tool_bin_dir/acprof"

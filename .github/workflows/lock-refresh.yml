@@ -39,7 +39,7 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.12'
       - name: Refresh Python host and test locks with hashes
         if: env.REFRESH_SCOPE == 'all' || env.REFRESH_SCOPE == 'host'
@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           python scripts/compile_locks.py --host-only --upgrade
           for name in runtime-test test dev; do
-            uv pip compile "requirements/${name}.in" --python-version 3.10 --universal \
+            uv pip compile "requirements/${name}.in" --python-version 3.12 --universal \
               --generate-hashes --no-annotate --no-header --upgrade \
               --output-file "requirements/${name}.lock"
           done

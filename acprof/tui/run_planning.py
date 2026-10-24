@@ -9,6 +9,7 @@ from acprof.config import SCALING_DIMENSIONS
 from acprof.experiment import RunConfig
 from acprof.extensions import CATALOG
 from acprof.messages import join_messages, message
+from acprof.tui.i18n import message_id
 
 
 @dataclass(frozen=True)
@@ -40,9 +41,9 @@ def input_unit(config: RunConfig, planned: dict | None = None) -> str:
         if family in {"nlp", "cv", "timeseries"} and config.task != "table-question-answering":
             axis = SCALING_DIMENSIONS[family].param_name
     units = {"seq_length": "tokens", "duration_s": "s", "resolution_scale": "×224px",
-             "resolution_px": "px", "context_length": message("时间步"), "table_rows": message("行"),
-             "denoising_steps": message("步"), "frame_count": message("帧")}
-    return units.get(axis, axis or message("单位待解析"))
+             "resolution_px": "px", "context_length": message_id('ui.0631'), "table_rows": message_id('ui.0632'),
+             "denoising_steps": message_id('ui.0633'), "frame_count": message_id('ui.0634')}
+    return units.get(axis, axis or message_id('ui.0629'))
 
 
 def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
@@ -61,13 +62,13 @@ def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
 
 def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
     estimate = estimate_run(config, planned)
-    unknown = message("待解析")
-    counts = message("{0} 配置 · 输入 {1} 档 ({2}) · 预热 {3} / 正式 {4} 窗口",
+    unknown = message_id('ui.0630')
+    counts = message_id('ui.0635',
         estimate.cases, estimate.scales if estimate.scales is not None else unknown, input_unit(config, planned),
         estimate.warmup_windows if estimate.warmup_windows is not None else unknown,
         estimate.formal_windows if estimate.formal_windows is not None else unknown)
     evidence = message("不足 3 个：仅验证流程，无置信区间" if config.repeat < 3 else "有效数以结果为准")
-    per_condition = message("每条件计划 {0} 个正式窗口 · {1}", config.repeat, evidence)
+    per_condition = message_id('ui.0636', config.repeat, evidence)
     duration: str
     if estimate.estimated_seconds is None:
         duration = unknown
@@ -77,20 +78,20 @@ def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
         duration = f"{estimate.estimated_seconds / 60:.1f} min"
     else:
         duration = f"{estimate.estimated_seconds:g} s"
-    assumption = message("假设每请求 1s") if config.repeat_in_window else message("按自动窗口 {0:g}s 估算", config.repeat_window_seconds)
-    budget = config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", "") or message("不设上限")
+    assumption = message_id('ui.0639') if config.repeat_in_window else message_id('ui.0640', config.repeat_window_seconds)
+    budget = config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", "") or message_id('ui.0642')
     return join_messages("\n", (counts, per_condition,
-                               message("时间约 {0} · {1}，不含准备、校准和 profiler", duration, assumption),
-                               message("下载预算：{0}", budget)))
+                               message_id('ui.0641', duration, assumption),
+                               message_id('ui.0643', budget)))
 
 
 def preparation_details(config: RunConfig, planned: dict | None = None) -> str:
     cache = config.model_store or os.environ.get("ACPROF_MODEL_STORE", "") or str(Path.home() / ".cache/acprof/model-store")
-    scales = ", ".join(f"{value:g}" for value in planned["scales"]) if planned else config.input_scales or message("待解析")
+    scales = ", ".join(f"{value:g}" for value in planned["scales"]) if planned else config.input_scales or message_id('ui.0630')
     return join_messages("\n", (plan_summary(config, planned),
-        message("输入：{0} {1}", scales, input_unit(config, planned)),
-        message("预计下载：待解析；权重传输前显示实际计划与有效预算。"),
-        message("缓存：{0} · 模型来源：{1}", cache, config.model_source),
-        message("下载策略：自动。使用系统网络环境。"),
-        message("时间为假设估计；不包含下载、构建、服务启动和额外验证。"),
-        message("续跑只接受原实验参数；更改参数需要新的输出目录。") if config.resume else ""))
+        message_id('ui.0648', scales, input_unit(config, planned)),
+        message_id('ui.0644'),
+        message_id('ui.0007', cache, config.model_source),
+        message_id('ui.0004'),
+        message_id('ui.0646'),
+        message_id('ui.0647') if config.resume else ""))

@@ -17,7 +17,7 @@ from acprof.runtime_profiles import PROFILES
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
-@pytest.mark.parametrize('python_version', ('3.10.21', '3.12.3'))
+@pytest.mark.parametrize('python_version', ('3.12.12', '3.13.0'))
 def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tmp_path, monkeypatch, python_version):
     profile = PROFILES['onnxruntime-cpu']
     platform = replace(profile.environment.platform, python_version=python_version)
@@ -55,9 +55,7 @@ def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tm
     assert 'colorama' not in requirements
     assert {'pytest', 'pytest-asyncio'} <= requirements.keys()
     for package in ('backports-asyncio-runner', 'exceptiongroup', 'tomli'):
-        assert (package in requirements) == python_version.startswith('3.10.')
-    if 'backports-asyncio-runner' in requirements:
-        assert 'sha256:0da0a936a8aeb554eccb426dc55af3ba63bcdc69fa1a600b5bb305413a4477b5' in requirements['backports-asyncio-runner']
+        assert package not in requirements
 
 
 class TestRuntimeCheckSelection:
@@ -72,14 +70,14 @@ class TestRuntimeCheckSelection:
             'scripts.check_runtime.prepare_environment_image', return_value=image,
         ), patch('scripts.check_runtime.subprocess.run',
                  return_value=subprocess.CompletedProcess([], 0)) as run:
-            assert main(['--profile', 'nlp-transformers560-cpu', '--output-dir', directory]) == 0
+            assert main(['--profile', 'nlp-transformers5104-cpu', '--output-dir', directory]) == 0
         command = next(call.args[0] for call in run.call_args_list
                        if 'scripts/run_tests.py' in call.args[0])
         assert '/tmp/acprof-tests/bin/python' in command
         assert any('--no-index' in argument and '--require-hashes' in argument for argument in command)
         assert command[command.index('--network') + 1] == 'none'
 
-    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers560-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
+    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers5104-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
     def test_container_uses_selected_profile_and_adapter_loading_policy(self, profile_id, task, trust):
         from acprof.container.load_policy import registered_policy
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',

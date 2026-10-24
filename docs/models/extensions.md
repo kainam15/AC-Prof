@@ -82,7 +82,7 @@ adapter 或任务参数，不再在 `get_generator` 增加任务名判断。未�
 任务为 `tabular-classification`／`tabular-regression`。可使用 snapshot 中唯一的 `*.onnx`，
 或 `acprof_model.json` 指定 `schema_version=1`、`format=onnxruntime`、`task`、`model_file` 和可选 `feature_dim`。
 表格适配仍拒绝多个输入／输出、非 float32 输入及不匹配的固定 batch，不逐行拆开请求冒充模型 batch。
-ORT 固定为 1.23.2 以匹配 Python 3.10，运行环境不安装 Torch。完整 wheel 与系统制品仍用现有锁和严格包集校验。
+ORT 固定为 1.23.2，使用 Python 3.12 的目标 wheel，运行环境不安装 Torch。完整 wheel 与系统制品仍用现有锁和严格包集校验。
 
 `container.onnx_session` 共用 Session 配置、具名输入输出、dtype/shape 与 Provider 检查；
 业务语义在各 Handler。新图像／文本适配要求 `acprof_model.json` 显式声明预处理与所选输出：

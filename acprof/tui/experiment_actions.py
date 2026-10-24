@@ -13,10 +13,10 @@ from textual.message_pump import MessagePump
 from textual.widgets import Button, Select, Static
 
 from acprof.experiment import RunConfigError, build_run_command
-from acprof.messages import join_messages, message
+from acprof.messages import join_messages
 from acprof.platform import collection_policy_error
 from acprof.tui.commands import PendingLaunch, build_probe_command, format_command
-from acprof.tui.i18n import error_message
+from acprof.tui.i18n import error_message, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.settings import TuiSettings
 from acprof.tui.views import ConfirmActionScreen
@@ -84,7 +84,7 @@ class ExperimentActions(MessagePump):
             if config.input_scales
             else None
         )
-        scale_text = f"{largest_scale:g}" if largest_scale is not None else message("自动规划后的最大值")
+        scale_text = f"{largest_scale:g}" if largest_scale is not None else message_id('ui.0756')
         memory_text = ",".join(
             f"{value}GB" for value in memory_candidates
         )
@@ -94,12 +94,8 @@ class ExperimentActions(MessagePump):
             ConfirmActionScreen(
                 "探测最低配置的最大输入？",
                 join_messages("", (
-                    message(
-                        "资源：CPU={0}、GPU={1}\n内存候选：{2}（从小到大）\n输入规模：{3}\n\n"
-                        "每档使用全新容器并最多执行一次最大输入请求；OOM 时自动尝试下一档，"
-                        "第一个成功值就是最低可用内存。结果单独写入 "
-                        "probes/，不会写入或修改正式实验 CSV。最大输入请求不设超时，"
-                        "可用 /stop 手动终止。\n\n",
+                    message_id(
+                        'ui.0758',
                         cpu, gpu, memory_text, scale_text,
                     ),
                     preview,

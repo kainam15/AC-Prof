@@ -375,10 +375,10 @@ class TestCollectionWorkflow:
         assert (self.run.calls) == ([1, 2])
 
     def test_native_task_conflict_asks_only_task_and_preserves_choice(self):
-        from acprof.model_resolution import discover_model_candidates
+        from acprof.model_candidates import apply_model_candidate, discover_model_candidates
         task = copy.deepcopy(self.run.task)
         task.hub_metadata = {"pipeline_tag": "fill-mask", "transformers_info": {"pipeline_tag": "text-classification"}}
-        task.model_resolution = discover_model_candidates(task)
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
         assert (task.model_resolution["status"]) == ("ambiguous")
         workflow = PreparationWorkflow(interactive=True)
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(

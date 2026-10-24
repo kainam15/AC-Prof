@@ -11,6 +11,7 @@ from acprof.messages import message
 from acprof.preparation_events import encode_reply
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.downloads import download_fields, download_summary
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
@@ -26,7 +27,7 @@ STAGE_LABELS = {
 def phase_summary(snapshot):
     names = {"not_started": "未开始", "running": "进行中", "waiting": "待确认",
              "passed": "通过", "failed": "失败", "cancelled": "已取消"}
-    return message("接口解析：{0}　运行验证：{1}　测量：{2}",
+    return message_id('ui.0241',
                    *(message(names[value]) for value in (snapshot.interface_status, snapshot.runtime_status,
                                                          snapshot.measurement_status)))
 
@@ -39,8 +40,8 @@ def failure_text(request, stage, tr):
     if failure := download_failure(request):
         last = failure["attempts"][-1]
         return "\n".join((tr("无法获取 Hugging Face 模型"),
-            tr(message("失败阶段：{0} / {1}", last["stage"], last["reason"])),
-            tr(message("最终失败 host：{0}", last["host"])),
+            tr(message_id('ui.0009', last["stage"], last["reason"])),
+            tr(message_id('ui.0010', last["host"])),
             tr("请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。")))
     if request.get("model_error"):
         failure = ModelLookupError(**request["model_error"])

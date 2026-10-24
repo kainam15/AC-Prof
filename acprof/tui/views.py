@@ -22,7 +22,7 @@ from textual.widgets.button import ButtonVariant
 
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.field_validation import ConfigField
-from acprof.tui.i18n import LANGUAGE_OPTIONS
+from acprof.tui.i18n import LANGUAGE_OPTIONS, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.model_input import ModelInput
@@ -397,7 +397,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         classes="config-control",
                     )), field_id="workload-spec")
 
-                with Collapsible(title=app.tr("下载与 Model Store"), collapsed=True):
+                with Collapsible(title=app.tr(message_id('ui.0223')), collapsed=True):
                     with Grid(classes="form-grid"):
                         for key, label, placeholder in (
                             ("max-download", "下载预算", "5GB；留空不设上限"),
@@ -409,7 +409,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         yield app._localized_widget(Label("预计下载大小"))
                         yield app._localized_widget(Static("待解析", id="download-estimate", markup=False))
                     yield app._localized_widget(Static("下载策略：自动。使用系统网络环境。", markup=False))
-                    with Collapsible(title=app.tr("高级详情"), collapsed=True):
+                    with Collapsible(title=app.tr(message_id('ui.0063')), collapsed=True):
                         yield app._localized_widget(Label("Model Store 容量上限"))
                         yield ConfigField(app._localized_widget(Input(value=app.initial_config.model_store_max,
                             placeholder="100GB；留空不设上限", id="model-store-max", classes="config-control")), field_id="model-store-max")
@@ -431,7 +431,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                     ))
                 with Horizontal(classes="button-row"):
                     yield app._localized_widget(Button("记住实验配置", id="save-run-default"))
-                with Collapsible(title=app.tr("镜像高级操作"), collapsed=True, id="image-build-options"):
+                with Collapsible(title=app.tr(message_id('ui.0680')), collapsed=True, id="image-build-options"):
                     yield app._localized_widget(StatusCheckbox(
                         "重新构建镜像（仅本次）",
                         value=app.initial_config.rebuild_image,

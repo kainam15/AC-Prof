@@ -8,6 +8,19 @@
 构建链路为 `platform.Dockerfile` → `runtime.Dockerfile` → `runtime-model.Dockerfile` →
 `runtime-final.Dockerfile`，分别缓存平台、完整环境、模型计划清单和服务代码。
 模型权重由主机 [Model Store](model-store.md#下载网络与-model-store) 管理并只读挂载，不写入新镜像。
+Docker build context 忽略 `tests/`、`docs/`、pytest/mypy/Ruff 缓存、覆盖率和本地运行证据；
+服务镜像构建仍由 `source_identity.service_context_files` 按白名单独立暂存源文件，
+不会将开发凭据、实验结果或测试目录复制进推理镜像。
+最终服务镜像先以 root 完成固定的源码清单生成，再创建 UID/GID 65532 的 `acprof`
+账户并切换为非 root 运行，`HOME` 和 Torch 缓存指向容器临时目录；主机 Model Store 始终只读。
+可缓存的 Python 镜像仍在 root 构建阶段安装已锁定依赖，不需要运行时安装权限。
+非 root 运行须分别验收 CPU 模型 `/ready`、`/predict`、CUDA 设备和 GPU profiler；
+这些基础 smoke **不能替代** 当前源码指纹对应的 CPU/GPU 完整采集与正式测量窗口验收。
+Docker bridge 保留本机回环地址端口映射；直接改成 `--network none` 或 internal network 会破坏
+现有 HTTP 测量链路。模型离线加载不等于 Docker 层级的出站网络封锁。
+标准推理容器还使用 `--cap-drop=ALL` 和 `no-new-privileges`，不赋予额外 Linux capabilities；
+CPU/GPU 正式推理所需的具体能力由运行时验证核对。独立的 profiler 工具容器
+（如 NCU/nsys）有自己的权限与能力限制，不能将普通推理成功当作 GPU profiler 的验证通过。
 
 `environment_id` 是规范化平台声明、系统锁及全部 Python 包版本、来源 URL、制品 SHA256 的摘要。
 锁的文件名、注释、顺序、profile、adapter、模型和业务代码不参与该身份。平台镜像的指纹另计
@@ -32,6 +45,10 @@ TUI 的“高级参数 → 镜像高级操作 → 重新构建镜像（仅本次
 专用硬件验收例外：设置 `ACPROF_REQUIRE_PREPARED_IMAGE=1` 后，只有精确指纹复用路径被允许，缺镜像或要求重建均直接失败，不触发隐式下载。构建期间代码变动会使构建失败，避免
 用旧指纹标记新代码。旧 `:latest` 镜像可留存供历史实验使用，但不直接用于新环境的采集。
 
+模型解析身份将未设置的 task/backend 统一为空值；CLI、TUI 和 `probe` 传入的空字符串
+与 `None` 不会造成不同的镜像指纹。显式指定的非空选项仍参与身份计算。已有实验保存的
+provenance 在 resume 和补采时保持冻结，不用新的默认值重新计算或覆盖历史证据。
+
 主机构建统一经 `build_image` → `build_runtime_image` → `prepare_environment_image`；环境验证脚本
 和 CI 复用最后一个入口。所有 profile 必须引用已锁定环境。构建前拒绝父层包缺失、版本或制品
 冲突；环境安装仅安装平台之外的差量。安装后执行 `pip check` 并严格核对完整 Python 和系统包
@@ -42,7 +59,8 @@ TUI 的“高级参数 → 镜像高级操作 → 重新构建镜像（仅本次
 立即报错，不回退到 Hub/cache 加载；未知 backend 不会自动选择同任务族的其他 handler。
 
 在正式资源矩阵之前，使用输入计划的最小尺度、最大已选 CPU／内存，为每个请求的设备模式
-启动独立验证容器，执行完整的加载、预处理、推理和输出序列化。容器无网络，退出后清理。
+启动独立验证容器，执行完整的加载、预处理、推理和输出序列化。模型加载与推理禁用 Hub 在线访问，
+但为保留本机 HTTP 测量协议，默认 Docker bridge 并不封锁所有出站流量；退出后清理。
 验证错误和超时保留日志并退出；Docker 明确报告的 cgroup OOM 记为资源限制，允许矩阵继续。
 验证不会写测量 CSV、计算能耗或充当正式 warmup。
 报告按 execution、load、preprocess、predict、completion、postprocess、validate_output、metadata
@@ -203,8 +221,8 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 焦点移到搜索或详情区域后仍保留该路径，高亮与复选框勾选状态独立。
 平台节点统一显示 `Python CPU`、`PyTorch CPU`、`PyTorch CUDA 12.4`、`PyTorch CUDA 12.8`；`Python CPU` 对应不预装 Torch 的 `python-cpu` 平台，其余平台预装相应 CPU/CUDA 版 Torch。父节点已说明同一平台时，运行依赖子节点省略与平台 ID 完全匹配的后缀，如 `nlp-cu124` 显示为 `nlp`。
 列表、层引用和缺少同平台父节点的依赖镜像保留可读的平台说明，例如 `nlp · PyTorch CUDA 12.4`。已有平台筛选项使用相同名称。
-已知环境别名显示为 `moss-transformers5.6.0`、`multimodal-transformers4.57.6`，其它名称中已有的小数点原样保留。
-搜索同时支持完整显示名称（如 `PyTorch CUDA 12.8`）、名称片段（如 `CUDA 12.8`、`5.6.0`）与原始标签、profile 名称。
+已知环境别名显示为 `moss-transformers5.10.4`、`multimodal-transformers4.57.6`，其它名称中已有的小数点原样保留。
+搜索同时支持完整显示名称（如 `PyTorch CUDA 12.8`）、名称片段（如 `CUDA 12.8`、`5.10.4`）与原始标签、profile 名称。
 `acprof-runtime-env:<hash>` 的逻辑名称通过 `org.acprof.environment` 与当前完整依赖锁身份精确匹配，
 相同环境的多个名称并列显示；旧环境无法匹配时显示环境摘要与平台，不凭标签猜任务族。原始 repository/tag 和 Docker 镜像保持原样。
 
@@ -213,7 +231,7 @@ TUI“镜像管理”页（`/images`）打开时自动读取当前 Docker 环境
 不是“层共享”视图中的每条物理 Diff ID：
 
 - 公共基础：显示平台 Python 锁中的完整包集合（包含上游 Python 基础镜像已有包），以及系统锁中本层安装的 `.deb` 制品；不将完整系统包表中的上游包算成本层安装。
-- 运行依赖：用完整环境锁减去其平台锁，显示本层新增 Python 包；系统包继承平台。例如 MOSS 层显示 `transformers==5.6.0`，平台已有的 `torch` 不重复列入。
+- 运行依赖：用完整环境锁减去其平台锁，显示本层新增 Python 包；系统包继承平台。例如 MOSS 层显示 `transformers==5.10.4`，平台已有的 `torch` 不重复列入。
 - 模型文件与推理服务：最近构建步骤、父镜像关系和环境身份均可核对时显示“无新增包”，分别说明本层添加模型文件或服务代码与运行清单。
 - 当前依赖锁无法匹配历史镜像时，不据当前 profile 猜测旧版本；只在展开某镜像的依赖分组后后台读取该镜像内的 `platform-manifest.json` 或 `environment-manifest.json`。原始清单保存的是构建时核验过的完整 Python / Debian 安装集合；同时校验清单中的构建身份与不可变镜像标签。
 - 若镜像不存在有效构建清单，仅对 AC-Prof 管理且可识别构建步骤的基础/运行依赖镜像，在禁网、只读、去 capability、禁提权、CPU/内存/PID 限制的临时容器内查询实际 Python 发行包及 dpkg 系统包；结束即删除容器，不加载模型。构建记录不可核验或 Python/dpkg 不可用时保留“未知”及具体原因，不对任意第三方镜像执行代码。

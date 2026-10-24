@@ -45,7 +45,7 @@ To contribute or work on the latest source code, clone the repository and instal
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
 cd AC-Prof
-uv venv --python 3.10
+uv venv --python 3.12
 uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
 uv pip install --no-deps -e .
 .venv/bin/acprof tui

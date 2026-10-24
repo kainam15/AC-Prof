@@ -11,6 +11,13 @@
 主机只读取同一完整 commit SHA 下的 JSON、README 和 Python 文本。config fallback 必须取得
 Hub cache 的固定 snapshot 后才分析内容。AST 沿声明文件和相对 import 读取，最多 32 个源文件、
 总计 2 MiB、单文件 256 KiB、单个 AST 20,000 个节点；不会 import、eval 或执行模型代码。
+依赖分析内部进一步分为抽象值与预算（`model_dependency_domain`）、调用／分支表达式求值
+（`model_dependency_eval`）、源码图索引及证据汇总（`model_dependency_flow`）。
+递归深度 12、调用上下文 256、候选 512、求值步骤 100,000 的保守上限保持不变；
+动态表达式继续记录为 unknown，不推断为 false，也不因模块拆分改变原结果协议。
+参考 [Pyan3 静态调用图](https://github.com/Technologicat/pyan) 和
+[Astroid 推断上下文](https://pylint.pycqa.org/projects/astroid/en/stable/api/context/astroid.context.InferenceContext.html)，
+只借鉴受限静态解释与重复访问上限的设计，不复制源码或引入第三方分析框架。
 结构化 JSON 的读取上限为 1 MiB；依赖索引保留 4 MiB 上限。已经固定完整 SHA 的静态文件
 先通过 Hub `hf_hub_download(dry_run=True)` 查询大小和 commit，未知或超限大小、SHA 不一致
 直接拒绝，不请求文件正文；实际下载和镜像回退继续使用同一 SHA。缓存命中也检查大小，

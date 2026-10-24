@@ -10,7 +10,9 @@ from typing import Any
 from acprof.messages import message
 from acprof.preparation_events import parse_event as parse_preparation_event
 from acprof.progress_events import parse_event
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN
+from acprof.tui.stages import Stage
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 CASE_RE = re.compile(
@@ -70,8 +72,8 @@ def _format_probe_duration(raw: str) -> str:
 
 @dataclass(frozen=True)
 class ProgressSnapshot:
-    stage: str = message('等待')
-    detail: str = message('尚未启动')
+    stage: Stage = Stage.WAITING
+    detail: str = message_id('ui.0697')
     current_case: int = 0
     completed_cases: int = 0
     total_cases: int = 0
@@ -107,7 +109,7 @@ class RunProgressTracker:
             except (ValueError, TypeError):
                 return self.snapshot
             self.snapshot = replace(self.snapshot,
-                stage=message("任务不支持") if failure.stage in {"preflight", "dependency_preflight", "precision_preflight"} else message("运行验证"),
+                stage=Stage.TASK_UNSUPPORTED if failure.stage in {"preflight", "dependency_preflight", "precision_preflight"} else Stage.RUNTIME_VALIDATION,
                 detail=f"{failure.reason_code}: {failure.detail}", measurement_active=False,
                 errors=max(1, self.snapshot.errors), failure=failure.to_dict())
             return self.snapshot
@@ -116,10 +118,10 @@ class RunProgressTracker:
             if self.snapshot.measurement_active:
                 raise ValueError("preparation request inside measurement window")
             stage, status = preparation["stage"], preparation["status"]
-            labels = {"resolution": "接口解析", "dependencies": "解析依赖", "preflight": "环境预检", "image": "准备镜像",
-                      "input": "准备输入", "runtime": "运行验证", "interface": "正在确认模型接口…",
-                      "environment": "正在准备运行环境…", "model": "正在准备模型…"}
-            preparation_updates = {"stage": message(labels[stage]), "detail": preparation.get("request", {}).get("detail", "")}
+            labels = {"resolution": Stage.INTERFACE_RESOLUTION, "dependencies": Stage.DEPENDENCY_RESOLUTION, "preflight": Stage.ENVIRONMENT_PREFLIGHT, "image": Stage.PREPARING_IMAGE,
+                      "input": Stage.PREPARING_INPUT, "runtime": Stage.RUNTIME_VALIDATION, "interface": Stage.CONFIRMING_INTERFACE,
+                      "environment": Stage.PREPARING_ENVIRONMENT, "model": Stage.PREPARING_MODEL}
+            preparation_updates = {"stage": labels[stage], "detail": preparation.get("request", {}).get("detail", "")}
             if status == "failed":
                 preparation_updates["errors"] = self.snapshot.errors + 1
             if stage in {"resolution", "interface"}:
@@ -144,9 +146,9 @@ class RunProgressTracker:
         task_support_error = TASK_SUPPORT_ERROR_RE.match(line)
         if task_support_error:
             updates.update(
-                stage=message('任务不支持'),
-                detail=message(
-                    '解决办法见日志（F8）；任务：{0}',
+                stage=Stage.TASK_UNSUPPORTED,
+                detail=message_id(
+                    'ui.0586',
                     task_support_error.group("task"),
                 ),
                 measurement_active=False,
@@ -155,9 +157,9 @@ class RunProgressTracker:
         probe_start = LARGEST_PROBE_START_RE.search(line)
         if probe_start:
             updates.update(
-                stage=message('启动探测容器'),
+                stage=Stage.STARTING_PROBE_CONTAINER,
                 detail=(
-                    message('最低配置 · 最大尺度 {0}', probe_start.group('scale'))
+                    message_id('ui.0864', probe_start.group('scale'))
                 ),
                 current_case=1,
                 completed_cases=0,
@@ -172,9 +174,9 @@ class RunProgressTracker:
         if probe_scan:
             candidates = probe_scan.group("candidates").split(",")
             updates.update(
-                stage=message('准备内存探测'),
+                stage=Stage.PREPARING_MEMORY_PROBE,
                 detail=(
-                    message('候选内存 {0}GB · 最大尺度 {1}', probe_scan.group('candidates'), probe_scan.group('scale'))
+                    message_id('ui.0866', probe_scan.group('candidates'), probe_scan.group('scale'))
                 ),
                 current_case=0,
                 completed_cases=0,
@@ -189,9 +191,9 @@ class RunProgressTracker:
         if memory_try:
             current = int(memory_try.group("current"))
             updates.update(
-                stage=message('探测最低可用内存'),
+                stage=Stage.SCANNING_MEMORY,
                 detail=(
-                    message('正在尝试 {0}GB · 最大尺度 {1}', memory_try.group('mem'), memory_try.group('scale'))
+                    message_id('ui.0868', memory_try.group('mem'), memory_try.group('scale'))
                 ),
                 current_case=current,
                 completed_cases=max(state.completed_cases, current - 1),
@@ -206,18 +208,18 @@ class RunProgressTracker:
         if memory_result:
             memory_status = memory_result.group("status")
             status_labels = {
-                "ok": message('可运行，已找到最低内存'),
-                "startup_oom": message('启动 OOM，继续下一档'),
-                "runtime_oom": message('推理 OOM，继续下一档'),
-                "cuda_oom": message('CUDA 显存 OOM，停止探测'),
-                "timeout": message('请求超时'),
-                "error": message('探测失败'),
+                "ok": message_id('ui.0869'),
+                "startup_oom": message_id('ui.0870'),
+                "runtime_oom": message_id('ui.0871'),
+                "cuda_oom": message_id('ui.0872'),
+                "timeout": message_id('ui.0873'),
+                "error": message_id('ui.0772'),
             }
             updates.update(
                 stage=(
-                    message('找到最低可用内存')
+                    Stage.MEMORY_FOUND
                     if memory_status == "ok"
-                    else message('内存可行性探测')
+                    else Stage.MEMORY_FEASIBILITY
                 ),
                 detail=(
                     message("{0}GB · {1}", memory_result.group("mem"),
@@ -232,8 +234,8 @@ class RunProgressTracker:
             status = probe_result.group("status")
             completed = max(1, state.current_case)
             if status == "ok":
-                result_detail = message(
-                    "最低可用内存 {0}GB · 最大尺度 {1} · 单次请求 {2} · 冷启动 {3} · 就绪+请求 {4}",
+                result_detail = message_id(
+                    'ui.0875',
                     probe_result.group("mem"), probe_result.group("scale"),
                     _format_probe_duration(probe_result.group("request")),
                     _format_probe_duration(probe_result.group("cold")),
@@ -241,10 +243,10 @@ class RunProgressTracker:
                 )
             else:
                 result_detail = (
-                    message('未找到最低可用内存 · 最后尝试 {0}GB · 状态 {1}', probe_result.group('mem'), status)
+                    message_id('ui.0876', probe_result.group('mem'), status)
                 )
             updates.update(
-                stage=message('探测完成') if status == "ok" else message('探测失败'),
+                stage=Stage.PROBE_COMPLETED if status == "ok" else Stage.PROBE_FAILED,
                 detail=result_detail,
                 current_case=completed,
                 completed_cases=completed,
@@ -262,8 +264,8 @@ class RunProgressTracker:
         match = MATRIX_RE.search(line)
         if match:
             updates.update(
-                stage=message('准备矩阵'),
-                detail=message('资源矩阵与输入规模已确定'),
+                stage=Stage.PREPARING_MATRIX,
+                detail=message_id('ui.0878'),
                 total_cases=int(match.group("total")),
             )
 
@@ -271,8 +273,8 @@ class RunProgressTracker:
         if match:
             current = int(match.group("current"))
             updates.update(
-                stage=message('启动容器'),
-                detail=message('正在准备 case {0}/{1}', current, match.group('total')),
+                stage=Stage.STARTING_CONTAINER,
+                detail=message_id('ui.0879', current, match.group('total')),
                 current_case=current,
                 completed_cases=max(state.completed_cases, current - 1),
                 total_cases=int(match.group("total")),
@@ -283,58 +285,58 @@ class RunProgressTracker:
             )
         elif line.startswith("[largest-probe] Running one largest-scale request"):
             updates.update(
-                stage=message('最大尺度探测'),
-                detail=message('正在用 {0}GB 执行一次 /predict 请求', state.mem),
+                stage=Stage.MAX_SCALE_PROBE,
+                detail=message_id('ui.0880', state.mem),
                 measurement_active=True,
             )
         elif line.startswith("[largest-probe][ERROR]"):
             updates.update(
-                stage=message('探测失败'),
+                stage=Stage.PROBE_FAILED,
                 detail=line.partition("] ")[2] or line,
                 measurement_active=False,
             )
         elif line.startswith("[build]"):
-            updates.update(stage=message('构建镜像'), detail=line)
+            updates.update(stage=Stage.BUILDING_IMAGE, detail=line)
         elif line.startswith("[scale]") or line.startswith("[probe]"):
-            updates.update(stage=message('规划输入'), detail=line)
+            updates.update(stage=Stage.PLANNING_INPUT, detail=line)
         elif line.startswith("[compute-profile]"):
-            updates.update(stage=message('计算分析'), detail=line)
+            updates.update(stage=Stage.COMPUTE_PROFILING, detail=line)
         elif line.startswith("[execution-profile]"):
-            updates.update(stage=message('执行分析'), detail=line)
+            updates.update(stage=Stage.EXECUTION_PROFILING, detail=line)
         elif "[case] Server ready" in line:
-            updates.update(stage=message('服务就绪'), detail=line)
+            updates.update(stage=Stage.SERVER_READY, detail=line)
         elif "[case] Running workload" in line:
             updates.update(
-                stage=message('正式测量'),
-                detail=message('采集窗口进行中；TUI 已停止常规重绘'),
+                stage=Stage.MEASURING,
+                detail=message_id('ui.0883'),
                 measurement_active=True,
             )
         elif "[case] Stopping container" in line:
             updates.update(
-                stage=message('清理 case'),
+                stage=Stage.CLEANING_CASE,
                 detail=line,
                 measurement_active=False,
             )
         elif "[case] Done." in line:
             updates.update(
-                stage=message('case 完成'),
+                stage=Stage.CASE_COMPLETED,
                 detail=line,
                 completed_cases=max(state.completed_cases, state.current_case),
                 measurement_active=False,
             )
         elif "[oom-prune] Skipping" in line:
             updates.update(
-                stage=message('OOM 剪枝'),
+                stage=Stage.OOM_PRUNED,
                 detail=line,
                 completed_cases=max(state.completed_cases, state.current_case),
                 measurement_active=False,
             )
         elif line.startswith("[merge]"):
-            updates.update(stage=message('合并结果'), detail=line, measurement_active=False)
+            updates.update(stage=Stage.MERGING_RESULTS, detail=line, measurement_active=False)
         elif "Profiling complete!" in line:
             updates.update(
-                stage=message('已完成'),
-                detail=message('采集与合并已完成'),
+                stage=Stage.COMPLETED,
+                detail=message_id('ui.0885'),
                 completed_cases=state.total_cases or state.completed_cases,
                 measurement_active=False,
                 measurement_status="passed",
@@ -361,16 +363,16 @@ class RunProgressTracker:
             if self.snapshot.measurement_active:
                 raise ValueError("case_started while measurement is still active")
             self._case_id = case_id
-            self.snapshot = replace(self.snapshot, stage=message('启动容器'), measurement_active=False)
+            self.snapshot = replace(self.snapshot, stage=Stage.STARTING_CONTAINER, measurement_active=False)
         elif case_id == self._case_id:
             if name == "measurement_started":
-                self.snapshot = replace(self.snapshot, stage=message('正式测量'),
-                    detail=message('采集窗口进行中；TUI 已停止常规重绘'), measurement_active=True, measurement_status="running")
+                self.snapshot = replace(self.snapshot, stage=Stage.MEASURING,
+                    detail=message_id('ui.0883'), measurement_active=True, measurement_status="running")
             elif name == "measurement_stopped":
-                self.snapshot = replace(self.snapshot, stage=message('清理 case'), measurement_active=False)
+                self.snapshot = replace(self.snapshot, stage=Stage.CLEANING_CASE, measurement_active=False)
             elif name == "case_finished":
                 self.snapshot = replace(self.snapshot,
-                    stage=message('case 完成') if event["status"] == "ok" else message('失败'),
+                    stage=Stage.CASE_COMPLETED if event["status"] == "ok" else Stage.FAILED,
                     completed_cases=max(self.snapshot.completed_cases, self.snapshot.current_case),
                     measurement_active=False)
                 self._case_id = ""

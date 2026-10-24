@@ -86,7 +86,7 @@ def test_model_architecture_selects_adapter_for_another_checkpoint():
     from acprof.extensions import select_extension
     task = TaskInfo("someone/checkpoint", "audio-text-to-text", "multimodal", "transformers_model", "transformers", "fixed", "manual", model_config={"model_type": "moss_transcribe_diarize"})
     assert (select_extension(task).adapter) == ("moss-transcribe-diarize")
-    assert (select_extension(replace(task, model_id="another/checkpoint")).profile) == ("moss-transformers560")
+    assert (select_extension(replace(task, model_id="another/checkpoint")).profile) == ("moss-transformers5104")
 
 def test_new_manifest_adds_backend_without_importing_handler():
     from acprof.extensions import load_catalog

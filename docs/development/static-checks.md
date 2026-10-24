@@ -4,22 +4,20 @@
 
 ## 渐进类型检查与边界回归
 `requirements/dev.lock` 固定 mypy 2.3.1；类型检查唯一配置在 `pyproject.toml`。
-显式白名单覆盖实验与结果协议、资源/能耗与窗口边界、比较统计、容器运行清单、
-模型契约、主机 Orchestrator、模型来源/元数据辅助模块、多模态容器 Handler、
-TUI App 与页面布局、实验恢复及部分交互控制器，以及 CLI 入口。
-完整检查范围以 `files` 为准，不在文档中重复维护文件清单。
+`packages = ["acprof"]` 覆盖整个 Python 源码包；新增模块自动进入类型检查，无需手工
+维护数百个路径白名单。CI、开发机和发行包继续使用同一份 `pyproject.toml` 配置。
 
-`check_untyped_defs = true` 让已纳入模块中**尚未完整注解的函数体**也受检查；
-这不等于参数和返回值都已有类型。`follow_imports = "silent"` 追踪依赖以改进类型推断，
-但不把未列入白名单的导入模块当作显式检查目标，也不报告那些模块内部的错误。
+`check_untyped_defs = true` 让尚未完整注解的函数体也受检查；这不等于参数和返回值
+都已有类型。`follow_imports = "silent"` 仍用于依赖类型推断，但不能排除 `acprof` 包中的模块；
+包内所有源文件均被显式检查。
 缺失的第三方 stubs 仍暂时允许；不通过 `ignore_errors`、新增全局排除或强行改为全局 `strict`
 掩盖未解决的问题。对一批已验证全注解的模块，`[[tool.mypy.overrides]]` 局部启用
 `disallow_any_generics`、`disallow_untyped_defs` 和 `warn_return_any`。
 这些规则只约束对应模块，不能代表整个项目没有隐式 `Any`；保留外部 JSON / 动态框架更新等必要的动态边界。
 
-测量主控 `host/client.py`、Model Store、NCU profiling 以及延迟模型已在保持原有运行语义的修正后加入检查；结果 CSV、分析数据模型、RAPL 拓扑与新拆分的窗口请求进度模块均已纳入，容器启动、接口 Probe、模型依赖预检及 Workload 注册也已纳入，ModelScope 下载计划元数据校验也已纳入，此外包含输出协议校验、依赖网络预检、通知、TUI 配置与绘图，模型声明冲突解析和 Pipeline 源码结构分析也纳入检查，NLP Handler 与容器内 Compute Profile Runner 也纳入，扩展注册路由与动态 Textual Driver 也已纳入，只读报告和环境诊断也已纳入，负载协议与模型覆盖采样、恢复状态也纳入，扩展到 Diffusion/Multimodal 工作负载，容器 Diffusers Handler 也已纳入，目前全部 265 个 Python 源文件均纳入 mypy；Textual 框架动态事件和 subclass 关键字的两处窄范围类型例外均在源码旁说明，未启用全局错误忽略。大型 TUI App 与内置多模态 Handler 已加入检查；其余较复杂的模型下载与依赖流、
-部分 TUI 报表、diffusion Handler、运行环境组合模块仍需先修复真实类型冲突，再分批纳入。
-不通过跳过函数体来提高覆盖率。
+已经完成整包类型覆盖，后续新增的模型解析、容器运行、TUI 和 CLI 源文件默认参加检查。
+Textual 框架动态事件和 subclass 关键字的局部类型例外仍保留在对应实现旁，未启用
+全局 `ignore_errors`；未来逐模块收紧 `Any` 和未注解函数，不通过跳过函数体提高覆盖率。
 
 TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单个 Mixin
 无法直接看到其他 Mixin 与最终 App 的方法/状态。只在确实访问组合控制器的函数体内使用
@@ -32,25 +30,25 @@ TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单�
 并由静态接口检查验证最终 `AcprofTui` 满足要求。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
-GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.10 安装开发锁并运行：
+GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.12 安装开发锁并运行：
 
 ```bash
 python -m mypy
 ```
 
-本地也应使用 Python 3.10 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 是 Python 3.12，
+本地应使用 Python 3.12 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 不是 Python 3.12，
 可单独创建隔离环境，而不是修改项目的 `python_version`：
 
 ```bash
-uv venv --python 3.10 /tmp/acprof-mypy-310
-uv pip install --python /tmp/acprof-mypy-310/bin/python --require-hashes -r requirements/dev.lock
-/tmp/acprof-mypy-310/bin/python -m mypy
+uv venv --python 3.12 /tmp/acprof-mypy-312
+uv pip install --python /tmp/acprof-mypy-312/bin/python --require-hashes -r requirements/dev.lock
+/tmp/acprof-mypy-312/bin/python -m mypy
 ```
 
-仅在 Python 3.12 的混合环境中给 mypy 指定 `--python-executable /usr/bin/python3.10` 不等于复现 CI：
+仅给 mypy 指定另一解释器而未在对应环境安装相同开发依赖不等于复现 CI：
 如果目标解释器没有安装 Textual 等开发依赖，第三方声明可能被视为未知类型，产生**错误的通过结果**。
-NumPy `.pyi` 中包含仅适用于 Python 3.12 的 `type` 语句时，也不应因此把目标版本改为 3.12，
-或全局关闭第三方类型检查。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
+NumPy `.pyi` 包含 Python 3.12 的 `type` 语句时，必须确保目标版本和实际环境一致，
+不能通过全局关闭第三方类型检查掩盖版本不匹配。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
 版本与实施策略参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)、
 [mypy 的 Python 支持范围](https://github.com/python/mypy/blob/master/mypy/defaults.py)
 和 [Pydantic 的 mypy 测试配置](https://github.com/pydantic/pydantic/blob/main/tests/mypy/configs/pyproject-default.toml)，
@@ -111,7 +109,7 @@ Ruff 的 `combine-as-imports` 保留显式重导出分组；脚本先设置路�
 [Pylint private import checker](https://github.com/pylint-dev/pylint/blob/main/pylint/extensions/private_import.py)
 （GPL-2.0）和 [Pyright 对测试目录的独立设置](https://github.com/microsoft/pyright/discussions/8193)
 （MIT）。Import Linter 面向模块图，Pylint 该规则主要针对外部 private import；本 gate 需要
-项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 3.10 标准库 AST 实现，
+项目内 symbol tuple 和只减不增的历史基线，因此独立使用 Python 标准库 AST 实现，
 不复制这些项目的源码，也不引入额外 linter 或第二套类型工具。它仅在开发与 CI 中运行。
 
 ## 关键模块导入方向检查

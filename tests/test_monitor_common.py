@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
 from acprof.monitors.common import docker_container_pid, sample_periodically
 from acprof.monitors.perf_mips import MIPSProfilingError
 
@@ -18,6 +19,23 @@ def test_pid_lookup_preserves_error_type_and_rejects_invalid_or_stopped_pid(erro
         return_value=subprocess.CompletedProcess([], code, output, error),
     ), pytest.raises(error_type):
         docker_container_pid('owned-container', error_type=error_type)
+
+
+def test_pid_lookup_uses_bounded_docker_inspect_timeout():
+    with patch(
+        'acprof.monitors.common.run_command',
+        return_value=subprocess.CompletedProcess([], 0, '1234', ''),
+    ) as run:
+        assert docker_container_pid('owned-container') == 1234
+    assert run.call_args.kwargs['timeout'] == DOCKER_INSPECT_TIMEOUT_S
+
+
+def test_pid_lookup_propagates_timeout_without_fabricating_a_pid():
+    with patch(
+        'acprof.monitors.common.run_command',
+        side_effect=subprocess.TimeoutExpired(['docker', 'inspect'], DOCKER_INSPECT_TIMEOUT_S),
+    ), pytest.raises(subprocess.TimeoutExpired):
+        docker_container_pid('owned-container')
 
 def test_sampling_uses_absolute_deadlines_and_does_not_drift_with_callback_cost():
     stop = threading.Event()

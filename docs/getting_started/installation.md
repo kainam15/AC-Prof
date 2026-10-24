@@ -21,7 +21,7 @@ acprof tui
 
 如果 PyPI 返回 `No solution found` / `not found` 等未发布错误，请改用下方 GitHub Release 安装方式，**不要反复尝试同一条 PyPI 命令**。
 
-工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.10+。
+工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.12+。
 若找不到命令，执行 `uv tool update-shell`，按提示刷新 PATH 或重新打开终端。
 `acprof` 不带子命令时只显示 CLI 帮助；启动 TUI 请运行 `acprof tui`，查看版本和帮助不会启动采集。
 
@@ -50,7 +50,7 @@ uv tool install ./acprof-0.2.0-py3-none-any.whl
 已有虚拟环境时激活后直接安装；新环境可使用：
 
 ```bash
-uv venv --python 3.10
+uv venv --python 3.12
 source .venv/bin/activate
 uv pip install acprof
 acprof --version
@@ -84,7 +84,7 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采�
 
 必需条件：
 
-- Python 3.10+；uv 可按需准备，standalone 已内置。
+- Python 3.12+；uv 可按需准备，standalone 已内置。
 - 当前用户可以直接访问 `unix:///var/run/docker.sock`，无需使用 `sudo docker`。
 - Host 使用统一 cgroup v2；`/sys/fs/cgroup/cgroup.controllers` 必须存在。
 - Hugging Face Hub 可访问；私有或 gated 模型还需要 `HF_TOKEN`。

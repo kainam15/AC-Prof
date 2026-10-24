@@ -22,6 +22,7 @@ from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment
 from acprof.result_csv import KEY_FIELDS, require_current_fields
 from acprof.tui.commands import _csv_values
+from acprof.tui.i18n import message_id
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ def collection_preview(config: RunConfig):
     partial = [name for name in selected if matrix[name] == "partial"]
     missing = [name for name in matrix if matrix[name] == "unsupported"]
     missing.extend(name for name in selected if matrix[name] == "requires_native_validation")
-    return message("环境：{0}\n会采（需预检）：{1}\n会降级（环境内有效）：{2}\n会缺失：{3}\n\n",
+    return message_id('ui.0214',
                    environment.label, ", ".join(collected) or "—", ", ".join(partial) or "—",
                    ", ".join(missing) or "—")
 
@@ -92,7 +93,7 @@ def quick_preflight(
                                           execution_tool=config.execution_profile_tool)
     checks.append(
         PreflightCheck(
-            message('采集环境'),
+            message_id('ui.0213'),
             "fail" if policy_error else "ok",
             policy_error or environment.label,
         )
@@ -103,13 +104,13 @@ def quick_preflight(
         PreflightCheck(
             "cgroup v2",
             "ok" if cgroup_v2 else "fail",
-            message('统一层级可用') if cgroup_v2 else message('未找到 cgroup.controllers'),
+            message_id('ui.0888') if cgroup_v2 else message_id('ui.0889'),
         )
     )
 
     docker_cli = shutil.which("docker")
     if not docker_cli:
-        checks.append(PreflightCheck("Docker", "fail", message('未找到 docker CLI')))
+        checks.append(PreflightCheck("Docker", "fail", message_id('ui.0890')))
     else:
         endpoint = "unknown"
         try:
@@ -149,17 +150,17 @@ def quick_preflight(
             detail = (
                 f"{endpoint} · {info.stdout.strip()}"
                 if info.returncode == 0
-                else ((info.stderr or info.stdout).strip() or message('docker info 失败'))
+                else ((info.stderr or info.stdout).strip() or message_id('ui.0891'))
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             status = "fail"
-            detail = message('Docker 检查失败：{0}', exc)
-        checks.append(PreflightCheck(message('本机 Docker'), status, detail))
+            detail = message_id('ui.0892', exc)
+        checks.append(PreflightCheck(message_id('ui.0893'), status, detail))
 
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
         checks.append(
-            PreflightCheck(tool, "ok" if path else "fail", path or message('未安装'))
+            PreflightCheck(tool, "ok" if path else "fail", path or message_id('ui.0894'))
         )
         if tool == 'tcpdump' and path:
             allowed = os.geteuid() == 0
@@ -171,9 +172,9 @@ def quick_preflight(
                         result = command_runner((getcap, str(Path(path).resolve())), timeout=5.0)
                         allowed = result.returncode == 0 and tcpdump_capability_available(result.stdout)
                 if not allowed:
-                    detail = message('缺少抓包权限；请在设置 → 连接与权限中配置 CAP_NET_RAW。')
+                    detail = message_id('ui.0261')
             except (OSError, subprocess.TimeoutExpired):
-                detail = message('无法检查抓包权限；请确认 getcap 可用。')
+                detail = message_id('ui.0262')
             checks.append(PreflightCheck('tcpdump permissions', 'ok' if allowed else 'fail', detail,
                                          'available' if allowed else 'permission_denied'))
 
@@ -186,17 +187,17 @@ def quick_preflight(
             )
             checks.append(
                 PreflightCheck(
-                    message('抓包网卡'),
+                    message_id('ui.0667'),
                     "ok" if iface.returncode == 0 else "fail",
                     config.sniff_iface,
                 )
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            checks.append(PreflightCheck(message('抓包网卡'), "fail", str(exc)))
+            checks.append(PreflightCheck(message_id('ui.0667'), "fail", str(exc)))
     elif measurement_requested(config.profiling_mode, "packet_latency"):
-        checks.append(PreflightCheck(message('抓包网卡'), "fail", message('未找到 ip 命令')))
+        checks.append(PreflightCheck(message_id('ui.0667'), "fail", message_id('ui.0895')))
     else:
-        checks.append(PreflightCheck(message('抓包网卡'), "not_requested", message("本次不采集"), "not_requested"))
+        checks.append(PreflightCheck(message_id('ui.0667'), "not_requested", message_id('ui.0188'), "not_requested"))
 
     rapl = probe_cpu_energy() if measurement_requested(config.profiling_mode, "cpu_energy") else Capability("not_requested", "basic", "profiling_mode")
     rapl_status = CapabilityStatus(rapl.status).value
@@ -221,7 +222,7 @@ def quick_preflight(
             perf = probe_perf_instructions(env=probe_environ)
     perf_status = CapabilityStatus(perf.status).value
     if perf_status == "available":
-        detail = message('普通用户 perf 可用，已读到 instructions 计数并通过跨用户 PID 附加检查')
+        detail = message_id('ui.0294')
         checks.append(PreflightCheck("perf instructions", "ok", detail, perf_status))
     else:
         checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
@@ -234,12 +235,12 @@ def quick_preflight(
                     (nvidia_smi, "--query-gpu=name", "--format=csv,noheader"),
                     timeout=10.0,
                 )
-                detail = gpu.stdout.strip() or gpu.stderr.strip() or message('GPU 查询失败')
+                detail = gpu.stdout.strip() or gpu.stderr.strip() or message_id('ui.0898')
                 status = "ok" if gpu.returncode == 0 else "fail"
             except (OSError, subprocess.TimeoutExpired) as exc:
                 status, detail = "fail", str(exc)
         else:
-            status, detail = "fail", message('未找到 nvidia-smi')
+            status, detail = "fail", message_id('ui.0899')
         checks.append(PreflightCheck("NVIDIA GPU", status, detail))
 
     return checks
@@ -271,21 +272,21 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
         reader = csv.DictReader(handle, strict=True)
         fields = reader.fieldnames or []
         if not fields or len(fields) != len(set(fields)) or "status" not in fields:
-            raise ValueError(message("结果 CSV 缺少有效表头"))
+            raise ValueError(message_id('ui.0200'))
         require_current_fields(fields)
         rows = []
         for row in reader:
             if cancelled():
                 raise CancelledError()
             if None in row or any(value is None for value in row.values()):
-                raise ValueError(message("结果 CSV 包含不完整的行"))
+                raise ValueError(message_id('ui.0201'))
             rows.append(row)
     missing = set(KEY_FIELDS) - set(fields)
     metrics = [name for name in SUMMARY_METRICS if name in fields]
     groups: tuple[dict, ...] = ()
     detail = ""
     if missing:
-        detail = message("缺少配置身份字段，无法分组比较：{0}", ", ".join(sorted(missing)))
+        detail = message_id('ui.0202', ", ".join(sorted(missing)))
     elif metrics:
         groups = tuple(summarize_windows(rows, metrics, include_intervals=False, cancelled=cancelled)["groups"])
         # Unselected/inapplicable energy and device metrics stay out of the summary.
@@ -293,7 +294,7 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
             key=lambda group: (group["cpu_cores"], group["mem_cap_gb"], group["gpu_mode"],
                                group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
     else:
-        detail = message("没有可统计的正式成功窗口。")
+        detail = message_id('ui.0579')
     from acprof.analysis.audit import audit_result
     from acprof.quality import QUALITY_FIELDS
     audit = audit_result(path)
@@ -309,10 +310,10 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
 
 def result_summary_text(summary: ResultSummary, path: Path) -> str:
     from acprof.tui.reports import render_quality_summary
-    lines: list[str] = [message("当前选择：{0}", path), message(
-        "结果已读取\n行数：{0}（成功 {1} / 错误 {2}）\n资源 case：{3}\nWarmup 行：{4}（统计排除）",
+    lines: list[str] = [message_id('ui.0203', path), message_id(
+        'ui.0204',
         summary.rows, summary.ok_rows, summary.error_rows, summary.cases, summary.warmup_rows),
-        message("按 CPU / 内存上限 / GPU / 输入规模 / 环境分组；仅统计正式成功窗口。")]
+        message_id('ui.0205')]
     lines.append(render_quality_summary(summary.quality))
     if summary.grouping_detail:
         lines.append(summary.grouping_detail)
@@ -327,13 +328,13 @@ def result_summary_text(summary: ResultSummary, path: Path) -> str:
         if key != previous:
             configurations += 1
             if configurations > 30:
-                lines.append(message("摘要仅展示前 30 个配置；完整结果请使用统计报告。"))
+                lines.append(message_id('ui.0206'))
                 break
-            lines.append(message("\nCPU={0:g} · MEM={1:g}GB · GPU={2} · 输入={3:g} · {4}", *key))
+            lines.append(message_id('ui.0207', *key))
             previous = key
         unit = group["unit"]
         factor, unit = (1000, "ms") if unit == "s" else (1 / 1048576, "MiB") if unit == "byte" else (1, unit)
         value = "—" if group["mean"] is None else f"{group['mean'] * factor:.6g} {unit}"
-        lines.append(message("{0}：{1} · 有效窗口 {2} · {3}", message(labels[group["metric"]]), value,
+        lines.append(message_id('ui.0208', message(labels[group["metric"]]), value,
                              group["n_windows"], message("窗口不足" if group["reason"] == "insufficient_windows" else "窗口均值")))
     return join_messages("\n", lines)

@@ -115,8 +115,8 @@ def aggregate_reports(reports, *, python_versions, shard_count):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="downloaded artifact directories containing host.json")
-    parser.add_argument("--python-versions", default="3.10,3.12")
-    parser.add_argument("--shard-count", type=int, default=4)
+    parser.add_argument("--python-versions", default="3.12,3.13")
+    parser.add_argument("--shard-count", type=int, default=8)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
     reports, errors = [], []

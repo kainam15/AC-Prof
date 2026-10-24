@@ -15,8 +15,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from acprof.host.image_management import STORAGE_KINDS, DockerStorage
-from acprof.messages import message
 from acprof.tui.app_contracts import translated_app
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN, format_bytes
 from acprof.tui.rendering import CjkCompositor
 
@@ -128,13 +128,13 @@ class StorageSpaceScreen(ModalScreen[None]):
         if not self.selected_count:
             notes.append(tr("尚未勾选镜像。"))
         if error:
-            notes.append(tr(message("存储空间读取未完成：{0}", error)))
+            notes.append(tr(message_id('ui.0322', error)))
         self.query_one("#storage-status", Static).update("\n".join(notes))
         self.query_one("#storage-refresh", Button).disabled = False
 
     def show_loading(self) -> None:
         self.query_one("#storage-refresh", Button).disabled = True
-        self.query_one("#storage-status", Static).update(translated_app(self.app).tr("正在读取存储空间……"))
+        self.query_one("#storage-status", Static).update(translated_app(self.app).tr(message_id('ui.0320')))
 
     @on(Button.Pressed, "#storage-refresh")
     def request_refresh(self, event: Button.Pressed) -> None:

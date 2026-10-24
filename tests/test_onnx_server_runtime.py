@@ -69,6 +69,7 @@ class TestONNXServerCompletion:
             'USE_GPU': '0', 'ACPROF_MODEL_ADAPTER': 'family-default', 'ACPROF_REQUEST_TIMEOUT_S': '0.2',
         }))
         namespace = runpy.run_module('acprof.container.server', run_name='acprof_test_http_server')
+        self.server_app = namespace['app']
         server = make_server('127.0.0.1', 0, namespace['app'], threaded=True)
         thread = Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
         thread.start()
@@ -95,6 +96,19 @@ class TestONNXServerCompletion:
         except HTTPError as error:
             with error:
                 return error.code, json.load(error)
+
+    def test_oversized_json_is_rejected_before_preprocess_or_inference(self):
+        _base, events, _entered = self.start_server(Future())
+        limit = self.server_app.config['MAX_CONTENT_LENGTH']
+        assert limit == 32 * 1024 * 1024
+        with self.server_app.test_client() as client:
+            response = client.post('/predict', data=b'{' + b' ' * limit + b'}',
+                                   content_type='application/json')
+        assert response.status_code == 413
+        assert response.is_json
+        assert response.json['limit_bytes'] == limit
+        assert 'exceeds' in response.json['error']
+        assert events == []
 
     def test_http_waits_for_completion_and_does_not_validate_inside_request(self):
         future = Future()

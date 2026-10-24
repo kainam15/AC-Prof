@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal, overload
 
 from acprof.messages import join_messages, message
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN
 
 
@@ -56,13 +57,13 @@ def _number(value: Any, *, nullable: bool = False) -> float | None:
     if value is None and nullable:
         return None
     if type(value) not in (int, float) or not math.isfinite(value):
-        raise ValueError(message("报告包含无效数值"))
+        raise ValueError(message_id('ui.0518'))
     return float(value)
 
 
 def _count(value) -> int:
     if type(value) is not int or value < 0:
-        raise ValueError(message("报告包含无效样本数"))
+        raise ValueError(message_id('ui.0519'))
     return value
 
 
@@ -70,13 +71,13 @@ def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, flo
     low = _number(row.get(low_key), nullable=True)
     high = _number(row.get(high_key), nullable=True)
     if (low is None) != (high is None) or (low is not None and high is not None and low > high):
-        raise ValueError(message("报告置信区间无效"))
+        raise ValueError(message_id('ui.0520'))
     return low, high
 
 
 def _objects(value) -> list[dict]:
     if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
-        raise ValueError(message("报告缺少有效的数据行"))
+        raise ValueError(message_id('ui.0521'))
     return value
 
 
@@ -84,7 +85,7 @@ def _text(value, fallback: str = "") -> str:
     if value is None:
         return fallback
     if not isinstance(value, str):
-        raise ValueError(message("报告包含无效文本"))
+        raise ValueError(message_id('ui.0522'))
     return value
 
 
@@ -96,12 +97,12 @@ def render_quality_summary(payload: dict) -> str:
         if payload.get("quality_status") == "unknown":
             quality = combine_quality([quality, summarize_quality(None)])
         payload = {**payload, **quality}
-    lines = [message("运行：{0} · 测量完整性：{1} · 质量：{2}", payload.get("run_status", "unknown"),
+    lines = [message_id('ui.0133', payload.get("run_status", "unknown"),
                      payload.get("measurement_status", "unknown"), payload.get("quality_status", "unknown")),
-             message("自动优选：{0} · 原因：{1}", message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
+             message_id('ui.0134', message("可参与" if payload.get("auto_selection_eligible") is True else "暂停"),
                      ", ".join(payload.get("quality_reasons", ["quality_evidence_missing"])) or "—")]
     for check in payload.get("quality_checks", []):
-        lines.append(message("质量证据：{0} · {1} · 来源：{2}", check.get("code", "unknown"),
+        lines.append(message_id('ui.0137', check.get("code", "unknown"),
                              check.get("detail", ""), json.dumps(check.get("evidence", {}), ensure_ascii=False)))
     return join_messages("\n", lines)
 
@@ -109,12 +110,12 @@ def render_quality_summary(payload: dict) -> str:
 def _windows(source: Path, data: dict) -> ReportView:
     confidence = _number(data.get("confidence"))
     if not 0 < confidence < 1 or data.get("filter") != "status=ok and warmup=0":
-        raise ValueError(message("报告的置信水平或窗口筛选口径不受支持"))
+        raise ValueError(message_id('ui.0523'))
     rows = []
     for group in _objects(data.get("groups")):
         name = _text(group.get("metric"))
         if not name:
-            raise ValueError(message("报告缺少指标名称"))
+            raise ValueError(message_id('ui.0524'))
         unit = _text(group.get("unit"))
         multiplier, display_unit = (1000, "ms") if unit == "s" else (1, unit)
         count = _count(group.get("n_windows"))
@@ -123,10 +124,10 @@ def _windows(source: Path, data: dict) -> ReportView:
         std = _number(group.get("std"), nullable=True)
         low, high = _interval(group, "ci_low", "ci_high")
         if (count == 0) != (mean is None) or (low is not None and count < 3):
-            raise ValueError(message("报告的样本数与统计值不一致"))
+            raise ValueError(message_id('ui.0525'))
         mode = group.get("gpu_mode")
         if mode not in {"on", "off"}:
-            raise ValueError(message("报告包含无效设备配置"))
+            raise ValueError(message_id('ui.0526'))
         config = "/".join((f"{_number(group.get('cpu_cores')):g}c",
                            f"{_number(group.get('mem_cap_gb')):g}G",
                            "GPU" if mode == "on" else "CPU",
@@ -141,18 +142,18 @@ def _windows(source: Path, data: dict) -> ReportView:
         rows.append(ReportRow(
             (config, message(_METRIC_LABELS.get(name, name)), mean_text, interval,
              f"{count}/{missing}", message(state)),
-            message("字段：{0} · 标准差：{1} · 有效窗口：{2} · 缺失：{3}",
+            message_id('ui.0527',
                     name, missing_value if std is None else f"{std * multiplier:.6g} {display_unit}", count, missing),
         ))
     origin = _text(data.get("result_csv"), str(source))
     note = join_messages("\n", (
         STATUS_LEGEND,
-        message("仅统计正式成功窗口；少量窗口的区间可能不稳定。"),
-        message("数据来源：{0}", origin),
+        message_id('ui.0528'),
+        message_id('ui.0529', origin),
         render_quality_summary(data),
     ))
-    return ReportView(source, message("窗口统计 · {0:g}% 置信区间 · {1} 项", confidence * 100, len(rows)),
-                      ("资源/输入", "指标", "均值", message("{0:g}% 区间", confidence * 100),
+    return ReportView(source, message_id('ui.0530', confidence * 100, len(rows)),
+                      ("资源/输入", "指标", "均值", message_id('ui.0534', confidence * 100),
                        "有效/缺失", "说明"), tuple(rows), note)
 
 
@@ -160,37 +161,37 @@ def _comparison_row(label: str, row: dict, count: int, detail: str) -> ReportRow
     change = _number(row.get("paired_mean_change_pct"))
     low, high = _interval(row, "ci_low_pct", "ci_high_pct")
     if count < 3 or low is None or high is None:
-        raise ValueError(message("对照报告缺少足够的配对轮次或区间"))
+        raise ValueError(message_id('ui.0537'))
     state = "方向不确定" if low <= 0 <= high else "延迟增加" if low > 0 else "本次延迟降低"
     return ReportRow((label, str(count), f"{change:+.6g}%", f"[{low:.6g}%, {high:.6g}%]", message(state)), detail)
 
 
 def _comparisons(source: Path, data: dict) -> ReportView:
     if data.get("successful") is not True:
-        raise ValueError(message("对照实验未完成或失败：{0}", _text(data.get("error")) or UNKNOWN))
+        raise ValueError(message_id('ui.0541', _text(data.get("error")) or UNKNOWN))
     rows = []
     if data["kind"] == "monitor_overhead_diagnostic":
         mode = data.get("gpu_mode")
         if mode not in {"on", "off"}:
-            raise ValueError(message("报告包含无效设备配置"))
+            raise ValueError(message_id('ui.0526'))
         for row in _objects(data.get("comparisons")):
             label = _text(row.get("scenario"))
             if label.startswith("monitors-"):
                 label = label.removeprefix("monitors-") + " Hz"
             rows.append(_comparison_row(label, row, _count(row.get("paired_rounds")),
-                                        message("监测线程与关闭监测的基线对比；不包含抓包、perf 或 TUI。")))
-        title = message("{0} 监测开销 · 95% 置信区间", "GPU" if mode == "on" else "CPU")
+                                        message_id('ui.0542')))
+        title = message_id('ui.0543', "GPU" if mode == "on" else "CPU")
     else:
         pairs = _objects(data.get("pairs"))
         ui = data.get("ui")
         if ui not in {"terminal", "headless"}:
-            raise ValueError(message("报告包含无效界面对照模式"))
-        detail = message("包含终端绘制；具体终端环境以原实验记录为准。") if ui == "terminal" else message("仅 TUI 调度和日志路径，不包含终端绘制。")
+            raise ValueError(message_id('ui.0544'))
+        detail = message_id('ui.0545') if ui == "terminal" else message_id('ui.0546')
         rows.append(_comparison_row("TUI / CLI", data, len(pairs), detail))
-        title = message("CLI/TUI 对照 · 95% 置信区间")
+        title = message_id('ui.0547')
     if not rows:
-        raise ValueError(message("报告缺少有效的数据行"))
-    note = message("正值表示更慢；跨零时方向不确定，负值不证明普遍加速。仅限本次对照。")
+        raise ValueError(message_id('ui.0521'))
+    note = message_id('ui.0548')
     return ReportView(source, title, ("对照", "配对轮数", "延迟变化", "95% 区间", "判断"), tuple(rows), note)
 
 
@@ -199,7 +200,7 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
     if (not 0 < confidence < 1 or data.get("resampling_unit") != "independent_run_mean"
             or data.get("direction") != "right_minus_left_and_right_divided_by_left"
             or data.get("status") not in {"compatible", "incompatible", "unknown"}):
-        raise ValueError(message("独立实验比较的方向、可比性或统计口径无效"))
+        raise ValueError(message_id('ui.0489'))
     rows = []
     for group in _objects(data.get("groups")):
         metric, unit = _text(group.get("metric")), _text(group.get("unit"))
@@ -214,17 +215,17 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             if bounds is None:
                 return UNKNOWN
             if not isinstance(bounds, list) or len(bounds) != 2:
-                raise ValueError(message("报告置信区间无效"))
+                raise ValueError(message_id('ui.0520'))
             low, high = (_number(item) for item in bounds)
             if low > high:
-                raise ValueError(message("报告置信区间无效"))
+                raise ValueError(message_id('ui.0520'))
             factor = 1 if ratio else multiplier
             suffix = "" if ratio else f" {display_unit}"
             return f"[{low * factor:.6g}, {high * factor:.6g}]{suffix}".strip()
 
         left, right = group.get("left"), group.get("right")
         if not isinstance(left, dict) or not isinstance(right, dict):
-            raise ValueError(message("报告缺少有效的数据行"))
+            raise ValueError(message_id('ui.0521'))
         ratio = _number(group.get("ratio"), nullable=True)
         reason = _text(group.get("reason")) or _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
@@ -243,12 +244,12 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
             value(group.get("difference")), interval("difference_ci"), interval("ratio_ci", ratio=True),
             f"{_count(left.get('n_runs'))}/{_count(right.get('n_runs'))}"), detail))
     note = join_messages("\n", (
-        message("左组为基线；变化为右组相对左组。区间重采样单位是独立实验，单次实验的窗口不能替代独立重复。"),
-        message("可比性：{0} · {1:g}% 置信区间", data["status"], confidence * 100),
+        message_id('ui.0490'),
+        message_id('ui.0491', data["status"], confidence * 100),
         json.dumps({key: data.get(key) for key in ("condition_checks", "experiments", "quality", "limitations", "source_sha256", "allowed_resource_dimensions")},
                    ensure_ascii=False, indent=2),
     ))
-    return ReportView(source, message("独立实验比较 · {0} · {1} 项", data["status"], len(rows)),
+    return ReportView(source, message_id('ui.0492', data["status"], len(rows)),
         ("说明", "资源/输入", "指标", "基线均值", "对比均值", "变化", "差值", "差值区间", "比值区间", "独立实验数"),
         tuple(rows), note)
 
@@ -267,19 +268,19 @@ def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: Fal
                 break
             content.extend(chunk)
     if len(content) > _MAX_REPORT_BYTES:
-        raise ValueError(message("报告超过 32 MiB，请先缩小报告范围"))
+        raise ValueError(message_id('ui.0554'))
     if cancelled():
         raise CancelledError()
     try:
         data = json.loads(content)
     except (ValueError, UnicodeError) as exc:
-        raise ValueError(message("JSON 报告损坏或编码无效")) from exc
+        raise ValueError(message_id('ui.0555')) from exc
     coverage_v2 = (isinstance(data, dict) and data.get("schema_version") == 2
                    and data.get("scope") == "selected_sample_only; no_formal_measurement"
                    and not data.get("kind") and not data.get("resampling_unit"))
     if (not isinstance(data, dict) or type(data.get("schema_version")) is not int
             or data["schema_version"] != 1 and not coverage_v2):
-        raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))
+        raise ValueError(message_id('ui.0569'))
     if data.get("resampling_unit") == "csv_request_window":
         return _windows(source, data)
     if data.get("kind") in {"monitor_overhead_diagnostic", "ui_overhead"}:
@@ -296,6 +297,6 @@ def read_report(path: str | Path, *, cancelled: Callable[[], bool] = lambda: Fal
                     json.dumps({"failure": failure, "quality_checks": row.get("quality_checks", []),
                         "cleanup_status": row.get("cleanup_status"), "cleanup_errors": row.get("cleanup_errors", []),
                         "attempt_id": row.get("attempt_id"), "attempts": data.get("attempts", [])}, ensure_ascii=False, indent=2)))))
-        note = message("读取已有结果，不重新执行模型。") if data["scope"] == "recorded_results; no_reexecution" else message("仅覆盖所选样本的独立验证，不代表正式采集完成。")
-        return ReportView(source, message("兼容性报告"), ("模型", "状态", "reason_code"), tuple(rows), note)
-    raise ValueError(message("不支持的报告类型或版本；请选择 stats、兼容性或开销对照报告"))
+        note = message_id('ui.0181') if data["scope"] == "recorded_results; no_reexecution" else message_id('ui.0182')
+        return ReportView(source, message_id('ui.0179'), ("模型", "状态", "reason_code"), tuple(rows), note)
+    raise ValueError(message_id('ui.0569'))

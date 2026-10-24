@@ -73,7 +73,8 @@ preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜�
 runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
 返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。
 默认捕获输出、`check=False`；调用方原有的 check、capture 和 timeout 选择保持原义，未设置 timeout
-仍为无限等待。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
+仍为无限等待；与 Docker daemon 交互的生产路径应显式使用有界 timeout，启动和 inspect
+预算由 `host.command` 集中定义。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
 非零退出按 check 决定是否抛出 `CalledProcessError`；timeout、OSError 和取消继续传播原异常。
 timeout 的部分输出保留标准库的 bytes 语义。runner 不增加 retry、进程组或 Docker 容器清理策略。
 长期进程继续由 `ProcessLifecycle`、`PerfMIPSMonitor`、orchestrator/load 的 tcpdump owner 管理。
@@ -126,7 +127,10 @@ machine events 继续由 `RunProgressTracker` 解析。
 界面刷新、绘图、通知与额外文件操作继续位于正式测量窗口之外。
 
 `cli.run` 将资源校验、运行准备和矩阵调度分开；准备阶段返回 `_PreparedRuntime`，汇总镜像、
-输入计划、profiler 计划与能力报告。client 的 CSV 格式化、像素指标和 profiler 关联集中于
+输入计划、profiler 计划与能力报告。`cli.run_notifications` 单独保存本次通知上下文，
+在预检前、每个 profiler/case 正式窗口结束后及终态完成时创建通知事件，
+并负责 CSV 摘要、保密错误回显与尽力发送；CLI 调度只调用它的明确入口。
+终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。client 的 CSV 格式化、像素指标和 profiler 关联集中于
 `ClientRunner._build_result_row`；`ClientConfig.from_env()` 仅在入口读取并验证配置，
 导入 client 不修改代理环境、不读取实验参数、不创建 workload。每次执行持有独立状态；
 `_execute_window` 复用 `MonitorGroup` 保持采样顺序，`main` 负责窗口调度与结果发布。
@@ -149,12 +153,14 @@ machine events 继续由 `RunProgressTracker` 解析。
 供 server、输入规划和 profiler 共用。`extensions/*/manifest.json` 同时提供 config 映射、任务支持、
 profile 和延迟入口，读取声明不导入推理框架；声明文件参与服务镜像指纹。
 `extensions/schema.py` 按类型注解校验声明，family 默认值与 task/backend 覆盖统一由 catalog 合并。
-`detect` 与 `model_resolution` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
+`detect` 与 `model_candidates` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
 `model_schema`、`input_plan` 和 handler 消费选中声明。`config` 的尺度/任务参数与 TUI 的任务族列表由 catalog 派生。
 旧 `DEFAULT_BACKEND`、三个路由镜像字典、`default_backend()`、MOSS 常量及旧 architecture/profile 镜像导出均已移除，
 旧 extension schema v1 直接拒绝；完整字段与优先级见[扩展声明](../models/extensions.md#扩展声明与按需加载)。
-`model_resolution` 按固定 commit 的仓库布局和原生接口解析候选，`extensions/transformers` 保存
-固定版本的 Auto 注册数据；profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
+`model_candidates` 只根据固定 commit 的仓库布局、Hub/作者声明和注册表推导候选；
+`model_support` 读取 `extensions/transformers` 的已审查 Auto 注册及本地 loader 能力。
+`model_resolution` 校验最终选定的执行接口，不重算候选，不加载模型权重；
+profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
 标准库模块 `model_spec` 共用本地／仓库模型声明及代码引用检查；候选记录保留证据和歧义，
 有效声明参与服务镜像与恢复身份，并传入容器 loader。自定义 pipeline 复用标准任务 Handler，
 不在采集器增加模型分支；是否可运行由独立验证的各阶段结果判断。

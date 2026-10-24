@@ -24,7 +24,6 @@ def test_isolated_environment_preserves_harness_not_application_settings():
     parent = {
         "PYTEST_CURRENT_TEST": "test_isolation (call)",
         "PYTEST_XDIST_WORKER": "gw0",
-        "TEXTUAL_SNAPSHOT_TEMPDIR": "/snapshot-fixture",
         "ACPROF_MODEL_SOURCE": "modelscope",
         "HTTP_PROXY": "http://proxy.invalid",
         "HF_TOKEN": "fixture-only-not-a-credential",
@@ -36,8 +35,7 @@ def test_isolated_environment_preserves_harness_not_application_settings():
         assert actual == {
             "PYTEST_CURRENT_TEST": "test_isolation (call)",
             "PYTEST_XDIST_WORKER": "gw0",
-            "TEXTUAL_SNAPSHOT_TEMPDIR": "/snapshot-fixture",
-            "PATH": "/fixture-bin",
+                "PATH": "/fixture-bin",
         }
         assert dict(os.environ) == parent
     assert overrides == {"PATH": "/fixture-bin"}
@@ -54,7 +52,7 @@ def test_real_fixture_keeps_snapshot_session_teardown_usable(tmp_path, module_na
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     test_file = tmp_path / "test_fixture.py"
     ending = ('        raise KeyboardInterrupt("intentional fixture interruption")\n'
-              if interrupted else '        assert os.environ["TEXTUAL_SNAPSHOT_TEMPDIR"]\n')
+              if interrupted else '        assert os.environ["PYTEST_CURRENT_TEST"]\n')
     test_file.write_text(
         f"import os\nfrom {module_name} import {class_name} as _Harness\n"
         "class TestFixture:\n"
@@ -73,10 +71,9 @@ def test_real_fixture_keeps_snapshot_session_teardown_usable(tmp_path, module_na
     )
     environment.pop("PYTEST_ADDOPTS", None)
     environment.pop("PYTEST_XDIST_WORKER", None)
-    environment.pop("TEXTUAL_SNAPSHOT_TEMPDIR", None)
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "acprof.testing.plugin",
-         "-p", "pytest_textual_snapshot", "-p", "no:cacheprovider",
+         "-p", "no:cacheprovider",
          str(test_file), "--report", str(report)],
         cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=30,
     )

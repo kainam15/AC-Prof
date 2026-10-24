@@ -1,8 +1,9 @@
 # CPU ONNX 环境独立声明；不继承含 Torch 的 service.in。
-Flask==3.0.2
+Flask==3.1.3
 numpy==2.2.6
 onnxruntime==1.23.2
-onnx==1.20.1
+onnx==1.22.0
 huggingface-hub==1.32.0
-Pillow==12.3.0
+Pillow==13.0.0
+filelock>=4.2.4
 tokenizers==0.22.2

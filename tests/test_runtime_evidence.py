@@ -44,7 +44,7 @@ def test_actual_dtype_reports_mixed_parameters_instead_of_primary_property():
 def test_all_consumers_preserve_the_same_reason_code():
     from acprof.analysis.compatibility import write_compatibility_report
     from acprof.tui.reports import read_report
-    failure = Failure("preflight", "runtime_task_unsupported", "本地化说明", runtime_profile="cv-transformers560-cpu")
+    failure = Failure("preflight", "runtime_task_unsupported", "本地化说明", runtime_profile="cv-transformers5104-cpu")
     row = {"model_id": "fixture/model", "failure": failure.to_dict()}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

@@ -52,7 +52,7 @@ Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境�
 ```bash
 git clone https://github.com/kainam15/AC-Prof.git
 cd AC-Prof
-uv venv --python 3.10
+uv venv --python 3.12
 uv pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
 uv pip install --no-deps -e .
 source .venv/bin/activate
@@ -80,9 +80,9 @@ cd AC-Prof
 ./setup.sh
 ```
 
-`setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.12.13，
-默认安装到 `~/.local/bin`（可用 `UV_INSTALL_DIR` 指定）。随后用 Python 3.10 和
-`requirements/host.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.10 时由 uv 下载。
+`setup.sh` 先检查主机和 Docker，再使用已有 uv；找不到时通过官方安装脚本准备 uv 0.13.5，
+默认安装到 `~/.local/bin`（可用 `UV_INSTALL_DIR` 指定）。随后用 Python 3.12 和
+`requirements/host.lock` 的版本约束隔离安装当前 checkout；缺少 Python 3.12 时由 uv 下载。
 重复执行会更新当前源码包、复用依赖缓存，保留项目 `.venv`、认证文件、TUI 设置和旧结果。
 脚本不自动安装系统包、修改 Docker 权限或 GPU 驱动；错误修复后重试原命令即可。
 
@@ -162,7 +162,7 @@ service context 指纹。editable 的安装路径应回到 checkout，且不生�
 
 ## Linux standalone
 
-[`release.yml`](../../.github/workflows/release.yml) 在 Ubuntu 22.04、Python 3.10 上构建
+[`release.yml`](../../.github/workflows/release.yml) 在 Ubuntu 22.04、Python 3.12 上构建
 `acprof-linux-x86_64`，目标为 glibc 2.35+ 的原生 Linux x86_64。
 它包含 Python 解释器、主机依赖和构建资源；目标机无需先安装 Python 或 uv。
 Docker、RAPL、perf、抓包及 NVIDIA 的要求仍按所选模式检查。
@@ -185,7 +185,7 @@ PyInstaller 单文件模式启动时会解压到临时目录，该目录需要�
 
 ```bash
 uv build --out-dir internal-testing/distribution/dist
-uv venv internal-testing/distribution/venv --python 3.10
+uv venv internal-testing/distribution/venv --python 3.12
 uv pip install --python internal-testing/distribution/venv/bin/python -r requirements/host.lock
 uv pip install --python internal-testing/distribution/venv/bin/python --no-deps internal-testing/distribution/dist/*.whl
 uv pip install --python internal-testing/distribution/venv/bin/python 'pyinstaller==6.22.3'

@@ -12,6 +12,7 @@ from acprof.experiment import RunConfig
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.scrollbar import SolidScrollBarRender
+from acprof.tui.stages import Stage
 from acprof.tui.views import LogPanel
 
 
@@ -43,7 +44,7 @@ class TestTuiLogView:
             await pilot.pause()
             app._activate_tab("monitor-tab")
             app._render_snapshot(ProgressSnapshot(
-                stage="正式测量", current_case=1, total_cases=32,
+                stage=Stage.MEASURING, current_case=1, total_cases=32,
                 measurement_active=True,
                 interface_status="passed", runtime_status="passed", measurement_status="running",
             ))
@@ -92,7 +93,7 @@ class TestTuiLogView:
             # no collection command or external process may start in this test.
             process = Mock()
             process.poll.return_value = None
-            with patch("acprof.tui.app.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
+            with patch("acprof.tui.process.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
                 app._lifecycle, "process", process
             ):
                 app._process_started(12345, "test")

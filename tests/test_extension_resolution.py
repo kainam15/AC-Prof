@@ -106,32 +106,32 @@ def test_invalid_io_template_is_rejected_when_loading_manifest():
             load_catalog([path])
 
 def test_candidate_discovery_records_unknown_library_without_fallback():
-    from acprof.model_resolution import discover_model_candidates
+    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
     task = TaskInfo("fixture/model", "text-generation", "nlp", "transformers_pipeline", "undeclared", "fixed", "manual")
-    result = discover_model_candidates(task)
+    result = apply_model_candidate(task, discover_model_candidates(task))
     assert (result["status"]) == ("needs_configuration")
     assert (task.runtime_backend) == ("unknown")
     assert ("undeclared") in (" ".join(result["missing"]))
-    explicit = discover_model_candidates(task, override_backend="transformers_model")
+    explicit = apply_model_candidate(task, discover_model_candidates(task, override_backend="transformers_model"))
     assert (explicit["status"]) == ("candidate")
     assert (task.runtime_backend) == ("transformers_model")
     task = TaskInfo("fixture/multiple-heads", "text-classification", "nlp", "onnxruntime", "onnx", "fixed", "manual",
                     model_config={"auto_map": {"AutoModelForSequenceClassification": "model.Classifier",
                                                "AutoModelForCausalLM": "model.Generator"}},
                     repository_files=("model.onnx",))
-    explicit = discover_model_candidates(task, override_tag="text-classification", override_backend="onnxruntime")
+    explicit = apply_model_candidate(task, discover_model_candidates(task, override_tag="text-classification", override_backend="onnxruntime"))
     assert (explicit["status"]) == ("candidate")
     rejected = next(candidate for candidate in explicit["candidates"] if candidate["task"] == "text-generation")
     assert ("onnxruntime") in (rejected["unsupported_reason"])
 
 def test_catalog_inference_does_not_become_author_declared_hub_task():
     from acprof.host.detect import _detect_from_hub
-    from acprof.model_resolution import discover_model_candidates
+    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
     hub = SimpleNamespace(pipeline_tag=None, library_name="transformers", sha="a" * 40,
                           config={"architectures": ["BertForMaskedLM"], "model_type": "bert"})
     with patch("huggingface_hub.HfApi.model_info", return_value=hub):
         task = _detect_from_hub("fixture/model")
-    result = discover_model_candidates(task)
+    result = apply_model_candidate(task, discover_model_candidates(task))
     assert (task.pipeline_tag) == ("fill-mask")
     assert (result["semantics"]["status"]) == ("inferred")
     assert ("hub_metadata") not in (result["candidates"][0]["evidence"])

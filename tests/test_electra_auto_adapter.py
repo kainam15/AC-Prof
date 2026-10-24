@@ -14,8 +14,8 @@ from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import _detect_from_hub
 from acprof.host.task_support import require_task_support
+from acprof.model_candidates import apply_model_candidate, discover_model_candidates
 from acprof.model_evidence import content_digest
-from acprof.model_resolution import discover_model_candidates
 
 
 def _hub(architecture, tag="pretraining", transformer_tag=None):
@@ -34,7 +34,7 @@ def _detect(hub):
 
 def test_known_head_becomes_runnable_without_model_id_special_case():
     task = _detect(_hub("ElectraForPreTraining"))
-    result = discover_model_candidates(task)
+    result = apply_model_candidate(task, discover_model_candidates(task))
     assert (task.pipeline_tag, task.task_family, task.runtime_backend) == (
         "replaced-token-detection", "nlp", "transformers_model")
     assert task.hub_metadata["pipeline_tag"] == "pretraining"

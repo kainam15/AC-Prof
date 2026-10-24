@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.cli import run
+from acprof.cli import run, run_notifications as notices
 from acprof.host import input_plan, orchestrator, runtime_images
 from acprof.host.detect import TaskInfo
 from acprof.host.profiler_progress import ProfilerProgress
@@ -29,12 +29,12 @@ class TestRunNotificationLifecycle:
         selection.start()
         self._request.addfinalizer(partial(selection.stop))
         yield
-        run._ACTIVE_RUN_NOTIFICATION = None
+        notices._ACTIVE_RUN_NOTIFICATION = None
         run._ACTIVE_TMUX_TERMINAL_LOG = None
 
     @staticmethod
     def _context(notifier, *, total_cases=2):
-        return run._RunNotificationContext(
+        return notices._RunNotificationContext(
             notifier=notifier,
             model_id="org/model",
             output_dir="/tmp/results/org--model",
@@ -63,10 +63,10 @@ class TestRunNotificationLifecycle:
         assert (run.DEFAULT_NOTIFY_PROVIDER) == ("auto")
 
         with patch(
-            "acprof.cli.run.WeComWebhookNotifier.from_env",
+            "acprof.cli.run_notifications.WeComWebhookNotifier.from_env",
             return_value=notifier,
         ) as from_env:
-            run._activate_run_notification(
+            notices.activate(
                 provider=run.DEFAULT_NOTIFY_PROVIDER,
                 model_id="org/model",
                 output_dir="/tmp/results/org--model",
@@ -75,16 +75,16 @@ class TestRunNotificationLifecycle:
             )
 
         from_env.assert_called_once_with()
-        assert (run._ACTIVE_RUN_NOTIFICATION) is not None
-        assert (run._ACTIVE_RUN_NOTIFICATION.notifier) is (notifier)
+        assert (notices._ACTIVE_RUN_NOTIFICATION) is not None
+        assert (notices._ACTIVE_RUN_NOTIFICATION.notifier) is (notifier)
 
     def test_default_mode_stays_silent_without_wecom_config(self) -> None:
         stderr = io.StringIO()
         with patch(
-            "acprof.cli.run.WeComWebhookNotifier.from_env",
+            "acprof.cli.run_notifications.WeComWebhookNotifier.from_env",
             side_effect=NotificationConfigError("missing"),
         ), redirect_stderr(stderr):
-            run._activate_run_notification(
+            notices.activate(
                 provider=run.DEFAULT_NOTIFY_PROVIDER,
                 model_id="org/model",
                 output_dir="/tmp/results/org--model",
@@ -92,7 +92,7 @@ class TestRunNotificationLifecycle:
                 run_command="acprof run --model org/model",
             )
 
-        assert (run._ACTIVE_RUN_NOTIFICATION) is None
+        assert (notices._ACTIVE_RUN_NOTIFICATION) is None
         assert (stderr.getvalue()) == ("")
 
     def test_start_notification_contains_current_command(self) -> None:
@@ -102,8 +102,8 @@ class TestRunNotificationLifecycle:
             def send(self, event):
                 captured.append(event)
 
-        run._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
-        run._notify_run_started()
+        notices._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
+        notices.notify_started()
 
         assert (len(captured)) == (1)
         event = captured[0]
@@ -111,7 +111,7 @@ class TestRunNotificationLifecycle:
         assert (event.run_command) == ("acprof run --model org/model")
         assert ("环境预检") in (event.detail)
         assert (event.elapsed_seconds) >= (0.0)
-        assert (run._ACTIVE_RUN_NOTIFICATION.event) is None
+        assert (notices._ACTIVE_RUN_NOTIFICATION.event) is None
 
     @pytest.mark.parametrize('allowed', (False, True))
     def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self, allowed) -> None:
@@ -150,13 +150,13 @@ class TestRunNotificationLifecycle:
         with patch.object(sys, "argv", argv), patch(
             "acprof.cli.run.bootstrap_project_env"
         ), patch(
-            "acprof.cli.run._activate_run_notification",
+            "acprof.cli.run_notifications.activate",
             side_effect=activate,
         ), patch(
             "acprof.cli.run.start_terminal_log",
             side_effect=lambda *_args: order.append(("tmux", None)),
         ), patch(
-            "acprof.cli.run._notify_run_started",
+            "acprof.cli.run_notifications.notify_started",
             side_effect=lambda: order.append(("started", None)),
         ), patch(
             "acprof.host.detect.detect_task",
@@ -188,13 +188,13 @@ class TestRunNotificationLifecycle:
                 writer.writerow({"status": "ok", "error": ""})
                 writer.writerow({"status": "error", "error": "timeout"})
 
-            run._ACTIVE_RUN_NOTIFICATION = self._context(notifier)
-            run._record_run_completion(
+            notices._ACTIVE_RUN_NOTIFICATION = self._context(notifier)
+            notices.record_completion(
                 final_csv=result_csv,
                 completed_cases=2,
             )
 
-        event = run._ACTIVE_RUN_NOTIFICATION.event
+        event = notices._ACTIVE_RUN_NOTIFICATION.event
         assert (event) is not None
         assert (event.status) == ("partial")
         assert (event.result_rows) == (2)
@@ -215,8 +215,8 @@ class TestRunNotificationLifecycle:
                 writer.writeheader()
                 writer.writerow({"status": "ok", "error": ""})
 
-            run._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
-            run._notify_case_progress(
+            notices._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
+            notices.notify_case(
                 orchestrator.MatrixProgress(
                     completed_cases=1,
                     total_cases=2,
@@ -249,9 +249,9 @@ class TestRunNotificationLifecycle:
         context = self._context(notifier)
         final_event = self._success_event()
         context.event = final_event
-        run._ACTIVE_RUN_NOTIFICATION = context
+        notices._ACTIVE_RUN_NOTIFICATION = context
 
-        run._notify_profiler_completion(
+        notices.notify_profiler(
             ProfilerProgress(
                 profiler="CPU Torch",
                 status=status,
@@ -276,9 +276,9 @@ class TestRunNotificationLifecycle:
         assert (context.event) is (final_event)
 
     def test_profiler_completion_is_silent_without_active_notifier(self) -> None:
-        run._ACTIVE_RUN_NOTIFICATION = None
-        with patch("acprof.cli.run._send_notification_event") as send:
-            run._notify_profiler_completion(
+        notices._ACTIVE_RUN_NOTIFICATION = None
+        with patch("acprof.cli.run_notifications._send_notification_event") as send:
+            notices.notify_profiler(
                 ProfilerProgress("NCU", "success", 2.0, 1, 0)
             )
 
@@ -294,11 +294,11 @@ class TestRunNotificationLifecycle:
         context = self._context(notifier)
         final_event = self._success_event()
         context.event = final_event
-        run._ACTIVE_RUN_NOTIFICATION = context
+        notices._ACTIVE_RUN_NOTIFICATION = context
         stderr = io.StringIO()
 
         with redirect_stderr(stderr):
-            run._notify_profiler_completion(
+            notices.notify_profiler(
                 ProfilerProgress("Nsys", "success", 2.0, 1, 0)
             )
 
@@ -364,7 +364,7 @@ class TestRunNotificationLifecycle:
             require_mips_prerequisites=Mock(),
             start_terminal_log=Mock(return_value=None),
         ), patch(
-            "acprof.cli.run.WeComWebhookNotifier.from_env", return_value=notifier,
+            "acprof.cli.run_notifications.WeComWebhookNotifier.from_env", return_value=notifier,
         ) as from_env, patch(
             "acprof.host.detect.detect_task", return_value=task_info,
         ), patch(
@@ -403,7 +403,7 @@ class TestRunNotificationLifecycle:
         compute.assert_called_once()
         execution.assert_called_once()
         expected_callback = (
-            None if provider == "none" else run._notify_profiler_completion
+            None if provider == "none" else notices.notify_profiler
         )
         for collector in (compute, execution):
             assert (collector.call_args.kwargs["progress_callback"]) is (expected_callback)
@@ -496,7 +496,7 @@ class TestRunNotificationLifecycle:
         def finish_run():
             context = self._context(CapturingNotifier())
             context.event = self._success_event()
-            run._ACTIVE_RUN_NOTIFICATION = context
+            notices._ACTIVE_RUN_NOTIFICATION = context
             run._ACTIVE_TMUX_TERMINAL_LOG = terminal_log
 
         def stop_log(value):
@@ -521,7 +521,7 @@ class TestRunNotificationLifecycle:
                 captured.append(event)
 
         def fail_run():
-            run._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
+            notices._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
             raise RuntimeError("profiling failed")
 
         with patch("acprof.cli.run._run_main", side_effect=fail_run):
@@ -540,7 +540,7 @@ class TestRunNotificationLifecycle:
                 captured.append(event)
 
         def fail_run():
-            run._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
+            notices._ACTIVE_RUN_NOTIFICATION = self._context(CapturingNotifier())
             raise SystemExit(7)
 
         with patch("acprof.cli.run._run_main", side_effect=fail_run):
@@ -564,7 +564,7 @@ class TestRunNotificationLifecycle:
         def finish_run():
             context = self._context(FailingNotifier())
             context.event = self._success_event()
-            run._ACTIVE_RUN_NOTIFICATION = context
+            notices._ACTIVE_RUN_NOTIFICATION = context
             return 23
 
         stderr = io.StringIO()

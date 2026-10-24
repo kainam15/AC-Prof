@@ -73,7 +73,7 @@ class TestPrepareImage:
         identity = environment_identity(environment, self.project_dir)
         self.manifest.update({
             'schema_version': 1, 'environment_id': content_digest(identity), 'platform_id': 'cu128',
-            'python_version': '3.10.21', 'packages': package_versions(identity['packages']),
+            'python_version': environment.platform.python_version, 'packages': package_versions(identity['packages']),
             'system_packages': identity['platform']['system']['packages'],
             'system_lock_sha256': content_digest(system_lock_identity(identity['platform']['system'])),
             'platform_image_id': 'sha256:' + 'c' * 64, 'environment_image_id': 'sha256:' + 'd' * 64,
@@ -220,6 +220,15 @@ class TestPrepareImage:
             side_effect=AssertionError("an invalid image revision must not trigger a build"),
         ) as build, pytest.raises(RuntimeError, match='revision'):
             runtime_images.prepare_image(self.task, self.project_dir)
+        build.assert_not_called()
+
+    def test_python310_manifest_cannot_reuse_python312_identity(self):
+        self.manifest["python_version"] = "3.10.21"
+        with patch("acprof.host.command.run_command", side_effect=self.existing_image), patch(
+            "acprof.host.runtime_images.build_runtime_image",
+            side_effect=AssertionError("an old Python ABI must not be silently rebuilt"),
+        ) as build, pytest.raises(RuntimeError, match="不匹配"):
+            runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
         build.assert_not_called()
 
     def test_actual_snapshot_must_match_declared_revision(self):

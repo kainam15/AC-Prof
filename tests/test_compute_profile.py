@@ -207,6 +207,71 @@ class TestComputeProfile:
         mount.close.assert_called_once_with()
         retain.assert_not_called()
 
+    @pytest.mark.parametrize("use_gpu", (False, True))
+    def test_regular_profilers_use_host_identity_without_capabilities(self, tmp_path, use_gpu):
+        task = SimpleNamespace(model_id="fixture", model_revision="fixed", task_family="nlp",
+                               pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+                               runtime_profile_id="nlp-cu128", model_store={})
+        mount = SimpleNamespace(args=[], close=Mock())
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount):
+            with profiler_support.profiler_container_command(
+                task_info=task, image_tag="fixture", cpu=1, mem=2, use_gpu=use_gpu,
+                payload_file=str(tmp_path / "input.json"), profile_root=str(tmp_path), tool_mount_roots=(),
+            ) as command:
+                assert f"--user={os.getuid()}:{os.getgid()}" in command
+                assert "--cap-drop=ALL" in command
+                assert "--network=none" in command
+                assert "--security-opt=no-new-privileges" in command
+                assert not any(arg.startswith("--cap-add") or "unconfined" in arg for arg in command)
+                assert command[-1] == "fixture"
+
+    def test_ncu_counter_permission_keeps_reports_writable_by_host(self, tmp_path):
+        task = SimpleNamespace(model_id="fixture", model_revision="fixed", task_family="nlp",
+                               pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
+                               runtime_profile_id="nlp-cu128", model_store={})
+        mount = SimpleNamespace(args=[], close=Mock())
+        tmp_path.chmod(0o700)
+        with patch("acprof.host.model_store.acquire_mount", return_value=mount):
+            with profiler_support.profiler_container_command(
+                task_info=task, image_tag="fixture", cpu=1, mem=2, use_gpu=True,
+                payload_file=str(tmp_path / "input.json"), profile_root=str(tmp_path), tool_mount_roots=(),
+                requires_gpu_counters=True,
+            ) as command:
+                assert f"--user=0:{os.getgid()}" in command
+                assert "--cap-drop=ALL" in command
+                assert [arg for arg in command if arg.startswith("--cap-add")] == ["--cap-add=SYS_ADMIN"]
+                assert not any("unconfined" in arg for arg in command)
+                assert command[-4:] == ["sh", "-c", 'umask 0002; exec "$@"', "acprof-profiler"]
+                assert tmp_path.stat().st_mode & 0o777 == 0o770
+        mount.close.assert_called_once_with()
+
+    @pytest.mark.parametrize("invalid", ("cpu", "file", "owner", "group"))
+    def test_ncu_rejects_invalid_output_access_before_acquiring_model_mount(self, tmp_path, invalid):
+        profile_root = tmp_path / "profiles"
+        if invalid == "file":
+            profile_root.write_text("preserve")
+        else:
+            profile_root.mkdir(mode=0o700)
+        uid = os.getuid() + 1 if invalid == "owner" else os.getuid()
+        gid = os.getgid() + 1 if invalid == "group" else os.getgid()
+        with patch("acprof.host.model_store.acquire_mount") as acquire, patch(
+            "acprof.host.profiler_support.os.getuid", return_value=uid,
+        ), patch("acprof.host.profiler_support.os.getgid", return_value=gid), patch(
+            "acprof.host.profiler_support.os.getgroups", return_value=[gid],
+        ):
+            with pytest.raises(ValueError, match="GPU profiler|output directory"):
+                with profiler_support.profiler_container_command(
+                    task_info=SimpleNamespace(), image_tag="fixture", cpu=1, mem=2,
+                    use_gpu=invalid != "cpu", payload_file=str(tmp_path / "input.json"),
+                    profile_root=str(profile_root), tool_mount_roots=(), requires_gpu_counters=True,
+                ):
+                    pytest.fail("invalid profiler configuration was accepted")
+        acquire.assert_not_called()
+        if invalid == "file":
+            assert profile_root.read_text() == "preserve"
+        else:
+            assert profile_root.stat().st_mode & 0o777 == 0o700
+
     def test_profiler_container_command_retains_mount_if_execution_is_interrupted(self) -> None:
         task_info = SimpleNamespace(
             model_id="fixture",
@@ -744,7 +809,7 @@ class TestComputeProfile:
                 "all",
             ])
 
-    def test_gpu_profile_builds_privileged_container_for_metric_query(self) -> None:
+    def test_gpu_metric_query_requests_only_counter_privileges(self) -> None:
         task_info = TaskInfo(
             model_id="google-bert/bert-base-uncased",
             pipeline_tag="fill-mask",
@@ -792,10 +857,11 @@ class TestComputeProfile:
         assert (query["ncu_bin"]) == ("/opt/nvidia/nsight-compute/2025.1.0/ncu")
         container_base_cmd = query["container_base_cmd"]
         assert ("--gpus") in (container_base_cmd)
-        assert ("--cap-add=SYS_ADMIN") in (container_base_cmd)
-        assert ("--cap-add=SYS_PTRACE") in (container_base_cmd)
-        assert ("--security-opt=seccomp=unconfined") in (container_base_cmd)
-        assert (container_base_cmd[-1]) == ("acprof-test:latest")
+        assert "--cap-drop=ALL" in container_base_cmd
+        assert f"--user=0:{os.getgid()}" in container_base_cmd
+        assert [arg for arg in container_base_cmd if arg.startswith("--cap-add")] == ["--cap-add=SYS_ADMIN"]
+        assert not any("unconfined" in arg for arg in container_base_cmd)
+        assert container_base_cmd[-5:] == ["acprof-test:latest", "sh", "-c", 'umask 0002; exec "$@"', "acprof-profiler"]
 
     def test_ncu_resume_reuses_csv_recovers_report_and_collects_only_missing(self) -> None:
         task_info = TaskInfo(

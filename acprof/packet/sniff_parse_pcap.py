@@ -71,17 +71,22 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     pcap = args[0]
     port = args[1] if len(args) > 1 else "8002"
-    server_port = _parse_int_field(port)
-    if server_port is None:
+    # CLI inputs are a single TCP port, never a tshark filter expression.
+    # Packet field parsing accepts comma-separated values; CLI inputs cannot.
+    if not port.isascii() or not port.isdigit():
         raise SystemExit(f"invalid TCP port: {port!r}")
+    server_port = int(port)
+    if not 1 <= server_port <= 65535:
+        raise SystemExit(f"invalid TCP port: {port!r}")
+    normalized_port = str(server_port)
 
     # 1) request: /predict 的 request frame -> time + group_id
     req_cmd = [
         "tshark", "-r", pcap,
         "-o", "tcp.desegment_tcp_streams:TRUE",
         "-o", "http.desegment_body:TRUE",
-        "-d", f"tcp.port=={port},http",
-        "-Y", f"tcp.port=={port} && http.request && http.request.uri==\"/predict\"",
+        "-d", f"tcp.port=={normalized_port},http",
+        "-Y", f"tcp.port=={normalized_port} && http.request && http.request.uri==\"/predict\"",
         "-T", "fields", "-E", "separator=\t",
         "-e", "frame.number",
         "-e", "frame.time_epoch",
@@ -125,8 +130,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "tshark", "-r", pcap,
         "-o", "tcp.desegment_tcp_streams:TRUE",
         "-o", "http.desegment_body:TRUE",
-        "-d", f"tcp.port=={port},http",
-        "-Y", f"tcp.port=={port} && http.response",
+        "-d", f"tcp.port=={normalized_port},http",
+        "-Y", f"tcp.port=={normalized_port} && http.response",
         "-T", "fields", "-E", "separator=\t",
         "-e", "http.request_in",
         "-e", "frame.time_epoch",
@@ -158,7 +163,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     # Ethernet/IP/TCP headers. Retransmissions are intentionally retained.
     stream_cmd = [
         "tshark", "-r", pcap,
-        "-Y", f"tcp.port=={port}",
+        "-Y", f"tcp.port=={normalized_port}",
         "-T", "fields", "-E", "separator=\t",
         "-e", "tcp.stream",
         "-e", "tcp.srcport",

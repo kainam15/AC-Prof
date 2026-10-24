@@ -564,8 +564,8 @@
       "model_ids": [
         "OpenMOSS-Team/MOSS-Transcribe-Diarize"
       ],
-      "profile": "moss-transformers560",
-      "environment": "moss-transformers560",
+      "profile": "moss-transformers5104",
+      "environment": "moss-transformers5104",
       "backend_handler_options": {
         "transformers_pipeline": {
           "model_spec_format": "transformers-pipeline"
@@ -594,9 +594,9 @@
       },
       "dependency_environment": {
         "platform": "cu128",
-        "requirements_lock": "dockerfiles/locks/moss-transformers560.txt",
+        "requirements_lock": "dockerfiles/locks/moss-transformers5104.txt",
         "requirements_inputs": [
-          "dockerfiles/requirements/moss-transformers560.in"
+          "dockerfiles/requirements/moss-transformers5104.in"
         ]
       }
     },
@@ -2860,11 +2860,11 @@
   "platforms": {
     "cpu": {
       "platform_id": "cpu",
-      "torch_version": "2.11.0+cpu",
+      "torch_version": "2.14.1+cpu",
       "torch_index_url": "https://download.pytorch.org/whl/cpu",
       "requirements_lock": "dockerfiles/locks/platform-cpu.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.15-slim-trixie@sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c",
+      "python_version": "3.12.15",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2874,8 +2874,8 @@
       "torch_version": "2.6.0+cu124",
       "torch_index_url": "https://download.pytorch.org/whl/cu124",
       "requirements_lock": "dockerfiles/locks/platform-cu124.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.15-slim-trixie@sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c",
+      "python_version": "3.12.15",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2885,8 +2885,8 @@
       "torch_version": "2.11.0+cu128",
       "torch_index_url": "https://download.pytorch.org/whl/cu128",
       "requirements_lock": "dockerfiles/locks/platform-cu128.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.15-slim-trixie@sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c",
+      "python_version": "3.12.15",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -2896,8 +2896,8 @@
       "torch_version": null,
       "torch_index_url": null,
       "requirements_lock": "dockerfiles/locks/platform-python-cpu.txt",
-      "python_base_image": "docker.io/library/python:3.10-slim@sha256:fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2",
-      "python_version": "3.10.21",
+      "python_base_image": "docker.io/library/python:3.12.15-slim-trixie@sha256:e8a38829209aea82774882e5157e1f7c3e8c8393ff53a697b3580896e57f345c",
+      "python_version": "3.12.15",
       "architecture": "linux/amd64",
       "python_target": "x86_64-manylinux_2_28",
       "system_lock": "dockerfiles/locks/system-trixie-amd64.json"
@@ -3042,25 +3042,25 @@
         "dockerfiles/requirements/multimodal-transformers4576.in"
       ]
     },
-    "transformers560-cpu": {
+    "transformers5104-cpu": {
       "platform": "cpu",
-      "requirements_lock": "dockerfiles/locks/transformers560-cpu.txt",
+      "requirements_lock": "dockerfiles/locks/transformers5104-cpu.txt",
       "requirements_inputs": [
-        "dockerfiles/requirements/transformers560.in"
+        "dockerfiles/requirements/transformers5104.in"
       ]
     },
-    "transformers560-cu124": {
+    "transformers5104-cu124": {
       "platform": "cu124",
-      "requirements_lock": "dockerfiles/locks/transformers560-cu124.txt",
+      "requirements_lock": "dockerfiles/locks/transformers5104-cu124.txt",
       "requirements_inputs": [
-        "dockerfiles/requirements/transformers560.in"
+        "dockerfiles/requirements/transformers5104.in"
       ]
     },
-    "transformers560-cu128": {
+    "transformers5104-cu128": {
       "platform": "cu128",
-      "requirements_lock": "dockerfiles/locks/transformers560-cu128.txt",
+      "requirements_lock": "dockerfiles/locks/transformers5104-cu128.txt",
       "requirements_inputs": [
-        "dockerfiles/requirements/transformers560.in"
+        "dockerfiles/requirements/transformers5104.in"
       ]
     },
     "custom-multimodal-cpu": {
@@ -3380,10 +3380,10 @@
       ],
       "runtime_line": "default"
     },
-    "nlp-transformers560-cpu": {
-      "profile_id": "nlp-transformers560-cpu",
+    "nlp-transformers5104-cpu": {
+      "profile_id": "nlp-transformers5104-cpu",
       "family": "nlp",
-      "environment": "transformers560-cpu",
+      "environment": "transformers5104-cpu",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3392,12 +3392,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "nlp-transformers560-cu124": {
-      "profile_id": "nlp-transformers560-cu124",
+    "nlp-transformers5104-cu124": {
+      "profile_id": "nlp-transformers5104-cu124",
       "family": "nlp",
-      "environment": "transformers560-cu124",
+      "environment": "transformers5104-cu124",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3406,12 +3406,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "nlp-transformers560-cu128": {
-      "profile_id": "nlp-transformers560-cu128",
+    "nlp-transformers5104-cu128": {
+      "profile_id": "nlp-transformers5104-cu128",
       "family": "nlp",
-      "environment": "transformers560-cu128",
+      "environment": "transformers5104-cu128",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3420,12 +3420,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "cv-transformers560-cpu": {
-      "profile_id": "cv-transformers560-cpu",
+    "cv-transformers5104-cpu": {
+      "profile_id": "cv-transformers5104-cpu",
       "family": "cv",
-      "environment": "transformers560-cpu",
+      "environment": "transformers5104-cpu",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3434,12 +3434,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "cv-transformers560-cu124": {
-      "profile_id": "cv-transformers560-cu124",
+    "cv-transformers5104-cu124": {
+      "profile_id": "cv-transformers5104-cu124",
       "family": "cv",
-      "environment": "transformers560-cu124",
+      "environment": "transformers5104-cu124",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3448,12 +3448,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "cv-transformers560-cu128": {
-      "profile_id": "cv-transformers560-cu128",
+    "cv-transformers5104-cu128": {
+      "profile_id": "cv-transformers5104-cu128",
       "family": "cv",
-      "environment": "transformers560-cu128",
+      "environment": "transformers5104-cu128",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3462,12 +3462,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "audio-transformers560-cpu": {
-      "profile_id": "audio-transformers560-cpu",
+    "audio-transformers5104-cpu": {
+      "profile_id": "audio-transformers5104-cpu",
       "family": "audio",
-      "environment": "transformers560-cpu",
+      "environment": "transformers5104-cpu",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3476,12 +3476,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "audio-transformers560-cu124": {
-      "profile_id": "audio-transformers560-cu124",
+    "audio-transformers5104-cu124": {
+      "profile_id": "audio-transformers5104-cu124",
       "family": "audio",
-      "environment": "transformers560-cu124",
+      "environment": "transformers5104-cu124",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3490,12 +3490,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "audio-transformers560-cu128": {
-      "profile_id": "audio-transformers560-cu128",
+    "audio-transformers5104-cu128": {
+      "profile_id": "audio-transformers5104-cu128",
       "family": "audio",
-      "environment": "transformers560-cu128",
+      "environment": "transformers5104-cu128",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3504,12 +3504,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "multimodal-transformers560-cpu": {
-      "profile_id": "multimodal-transformers560-cpu",
+    "multimodal-transformers5104-cpu": {
+      "profile_id": "multimodal-transformers5104-cpu",
       "family": "multimodal",
-      "environment": "transformers560-cpu",
+      "environment": "transformers5104-cpu",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3518,12 +3518,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "multimodal-transformers560-cu124": {
-      "profile_id": "multimodal-transformers560-cu124",
+    "multimodal-transformers5104-cu124": {
+      "profile_id": "multimodal-transformers5104-cu124",
       "family": "multimodal",
-      "environment": "transformers560-cu124",
+      "environment": "transformers5104-cu124",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3532,12 +3532,12 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
-    "multimodal-transformers560-cu128": {
-      "profile_id": "multimodal-transformers560-cu128",
+    "multimodal-transformers5104-cu128": {
+      "profile_id": "multimodal-transformers5104-cu128",
       "family": "multimodal",
-      "environment": "transformers560-cu128",
+      "environment": "transformers5104-cu128",
       "adapter": "family-default",
       "trust_remote_code": false,
       "task_types": [],
@@ -3546,7 +3546,7 @@
         "transformers_model",
         "transformers_pipeline"
       ],
-      "runtime_line": "transformers560"
+      "runtime_line": "transformers5104"
     },
     "custom-multimodal-cpu": {
       "profile_id": "custom-multimodal-cpu",

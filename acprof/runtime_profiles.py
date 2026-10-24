@@ -18,10 +18,7 @@ from acprof.dependency_locks import (
 from acprof.extensions import CATALOG, select_extension
 from acprof.extensions.schema import validate_precision_policy
 
-PYTHON_BASE_IMAGE = (
-    "docker.io/library/python:3.10-slim@sha256:"
-    "fd76ade0c607f27677bc04be3c60749f400eedc941d9e72967e19a4cedff80c2"
-)
+PYTHON_BASE_IMAGE = CATALOG.platforms["python-cpu"]["python_base_image"]
 @dataclass(frozen=True)
 class PlatformSpec:
     platform_id: str
@@ -30,7 +27,7 @@ class PlatformSpec:
     torch_index_url: str | None = None
     requirements_lock: str = ""
     python_base_image: str = PYTHON_BASE_IMAGE
-    python_version: str = "3.10.21"
+    python_version: str = CATALOG.platforms["python-cpu"]["python_version"]
     architecture: str = "linux/amd64"
     python_target: str = "x86_64-manylinux_2_28"
     system_lock: str = "dockerfiles/locks/system-trixie-amd64.json"
@@ -147,7 +144,7 @@ def locked_transformers_version(environment: DependencyEnvironment, *, lock_path
 
 
 def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:
-    from acprof.model_resolution import supports_transformers_task
+    from acprof.model_support import supports_transformers_task
     if task_info.runtime_backend not in {"transformers_model", "transformers_pipeline"}:
         return None
     config = getattr(task_info, "model_config", {}) or {}

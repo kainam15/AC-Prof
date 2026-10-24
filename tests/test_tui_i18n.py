@@ -1,3 +1,4 @@
+import ast
 import re
 import tempfile
 from dataclasses import replace
@@ -23,10 +24,30 @@ from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import message
 from acprof.tui.app import PROJECT_DIR
 from acprof.tui.diagnostics import PreflightCheck, ResultSummary
-from acprof.tui.i18n import ENGLISH, error_message, translate
+from acprof.tui.i18n import ENGLISH, CatalogMessage, error_message, message_id, translate
 from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
+from acprof.tui.stages import Stage
+from acprof.tui.translation_catalog import ENGLISH_BY_ID, SOURCE_BY_ID, SOURCE_TO_ID
+
+
+def test_tui_catalog_literals_use_stable_message_ids():
+    """New UI display call sites cannot regress to Chinese string keys."""
+    root = Path(__file__).resolve().parents[1] / 'acprof' / 'tui'
+    failures = []
+    for path in root.rglob('*.py'):
+        if path.name in {'i18n.py', 'translation_catalog.py'}:
+            continue
+        for call in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if not (isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant)
+                    and isinstance(call.args[0].value, str) and call.args[0].value in SOURCE_TO_ID):
+                continue
+            if isinstance(call.func, ast.Name) and call.func.id == 'message':
+                failures.append(f'{path.name}:{call.lineno}: message')
+            if isinstance(call.func, ast.Attribute) and call.func.attr == 'tr':
+                failures.append(f'{path.name}:{call.lineno}: tr')
+    assert failures == []
 
 
 def test_templates_translate_nested_ui_text_and_preserve_user_values():
@@ -49,13 +70,13 @@ def test_validation_keeps_translatable_errors_without_changing_config_contract(c
 def test_probe_progress_is_language_independent_and_keeps_duration_semantics():
     tracker = RunProgressTracker()
     snapshot = tracker.feed("[largest-probe] MEMORY_RESULT mem=4 status=startup_oom")
-    assert (snapshot.stage) == ("内存可行性探测")
+    assert (snapshot.stage) == (Stage.MEMORY_FEASIBILITY)
     assert (translate(snapshot.detail, "en")) == ("4GB · Startup OOM; trying next candidate")
     snapshot = tracker.feed(
         "[largest-probe] RESULT status=ok input_scale=512 cpu=1 mem=8 gpu=off "
         "cold_start_s=nan request_s=1.25 ready_plus_request_s=3.5"
     )
-    assert (snapshot.stage) == ("探测完成")
+    assert (snapshot.stage) == (Stage.PROBE_COMPLETED)
     assert ("Single request 1.250s · Cold start Unknown · Ready + request 3.500s") in (translate(snapshot.detail, "en"))
     assert not (snapshot.measurement_active)
 
@@ -67,6 +88,40 @@ def test_catalog_preserves_interpolation_fields_and_numeric_formats(source, tran
         return sorted((name, spec, conversion or "") for _, name, spec, conversion in Formatter().parse(text) if name is not None)
     assert (fields(source)) == (fields(translated))
     assert (translated.strip())
+
+
+@pytest.mark.parametrize('stage', list(Stage), ids=lambda stage: stage.value)
+def test_stage_identity_is_stable_and_translations_are_presentation_only(stage):
+    assert stage.value.isascii()
+    assert stage.label.template in ENGLISH
+    assert translate(stage.label, 'zh') == stage.label.template
+    assert translate(stage.label, 'en') == ENGLISH[stage.label.template]
+
+
+def test_stage_control_flow_ignores_translation_changes():
+    with patch.dict(ENGLISH_BY_ID, {Stage.COMPLETED.label.msgid: 'Succeeded with new wording'}):
+        assert Stage.COMPLETED is Stage.COMPLETED
+        assert translate(Stage.COMPLETED.label, 'en') == 'Succeeded with new wording'
+        assert Stage.COMPLETED.value == 'completed'
+
+
+def test_stable_message_id_is_not_a_source_string():
+    key = SOURCE_TO_ID['保存位置：{0}']
+    value = message_id(key, '等待/{模型}')
+    assert isinstance(value, CatalogMessage)
+    assert value.msgid == key
+    assert value.template == SOURCE_BY_ID[key]
+    assert translate(value, 'en') == 'Settings file: 等待/{模型}'
+    assert translate(value, 'zh') == '保存位置：等待/{模型}'
+    with pytest.raises(KeyError):
+        message_id('ui.nonexistent')
+
+
+def test_message_catalog_has_bijective_stable_ids():
+    assert len(SOURCE_BY_ID) == len(SOURCE_TO_ID) == len(ENGLISH_BY_ID) == len(ENGLISH)
+    assert set(SOURCE_BY_ID) == set(ENGLISH_BY_ID)
+    assert all(key.startswith('ui.') and key[3:].isdigit() for key in SOURCE_BY_ID)
+    assert all(SOURCE_BY_ID[key] in ENGLISH for key in SOURCE_BY_ID)
 
 
 class TestTuiLanguage:
@@ -138,7 +193,7 @@ class TestTuiLanguage:
             old_text, old_selection, old_scroll = log.text, log.selection, log.scroll_y
             assert not (log.following)
             snapshot = ProgressSnapshot(
-                stage="case 完成", current_case=1, completed_cases=1, total_cases=2,
+                stage=Stage.CASE_COMPLETED, current_case=1, completed_cases=1, total_cases=2,
                 cpu="1", mem="4", gpu="on", detail=message("正在准备 case {0}/{1}", 1, 2),
             )
             app._latest_snapshot = snapshot

@@ -13,6 +13,7 @@ from tui_fixtures import AcprofTui
 from acprof.experiment import RunConfig
 from acprof.quality import loading_quality
 from acprof.tui.reports import read_report
+from acprof.tui.stages import Stage
 
 
 class TestIndependentReport:
@@ -158,5 +159,5 @@ class TestIndependentComparisonUi:
             assert (payload["status"]) == ("incompatible")
             assert ("not comparable") in (str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
             assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == ("已完成")
+            assert (app._latest_snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")

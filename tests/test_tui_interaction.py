@@ -11,6 +11,7 @@ from acprof.experiment import RunConfig
 from acprof.installation import cli_command
 from acprof.tui.commands import format_command
 from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.stages import Stage
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -136,7 +137,7 @@ class TestTuiInteraction:
             app._elapsed_timer = timer
             with patch.object(app, "_render_snapshot"):
                 app._consume_process_line(
-                    "", ProgressSnapshot(stage="正式测量", measurement_active=True), True
+                    "", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True
                 )
                 timer.pause.assert_called_once_with()
                 timer.resume.assert_not_called()
@@ -144,7 +145,7 @@ class TestTuiInteraction:
                     app._tick_elapsed()
                     update.assert_not_called()
                 app._consume_process_line(
-                    "", ProgressSnapshot(stage="清理 case", measurement_active=False), True
+                    "", ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), True
                 )
                 timer.resume.assert_called_once_with()
             app._elapsed_timer = None

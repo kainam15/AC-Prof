@@ -10,7 +10,6 @@ from textual import on
 from textual.message_pump import MessagePump
 from textual.widgets import Button, Static
 
-from acprof.messages import message
 from acprof.tui.commands import PendingLaunch, resolve_result_path
 from acprof.tui.experiment_catalog import (
     ExperimentRecord,
@@ -18,6 +17,7 @@ from acprof.tui.experiment_catalog import (
     scan_experiments,
 )
 from acprof.tui.experiment_picker import SearchPickerScreen, experiment_choice
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ class CatalogActions(MessagePump):
             self._update_result_summary(str(csv_path), notify=False)
         else:
             self._set_text(self.query_one('#result-summary', Static),
-                message('尚无结果 CSV；保留的实验状态与失败证据：\n{0}', experiment_choice(record).detail))
+                message_id('ui.0172', experiment_choice(record).detail))
 
     def _resume_experiment(self, record: ExperimentRecord) -> None:
         if TYPE_CHECKING:

@@ -8,6 +8,10 @@ AC-Prof 按模型选择逻辑 profile 和 adapter，profile 引用完整依赖�
 新增模型适配或调整镜像依赖时按下列专题查阅。任务支持范围由[本文的任务目录](supported-tasks.md#任务支持范围)维护，
 环境元数据的字段定义见 [采集协议](../profiling/metadata.md#static_metajson-字段)，模块依赖见[代码架构](../development/orchestration.md#主机编排与测量)。
 
+推理容器内的 `/predict`、`/probe`、`/scale_meta` 等 JSON HTTP 请求由 Flask 在读取正文时
+限制为 **32 MiB**；超出返回结构化 JSON 和 HTTP 413，在进入模型预处理或正式测量前失败，
+不静默截断或改写输入尺度。该上限不是模型权重或响应大小限制，也不替代任务级输入长度校验。
+
 ```mermaid
 flowchart LR
     model[模型 ID 和 config 元数据] --> route[运行环境及 adapter 注册表]

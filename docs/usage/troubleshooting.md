@@ -186,7 +186,7 @@ cat /proc/sys/kernel/perf_event_paranoid
 - **确实是识别错误：** 核对模型页的 `pipeline_tag`，通过 `--task`、`--task-family`、`--backend`（TUI 高级配置中的“识别覆盖”）纠正。仅在模型实际支持目标任务时使用；把图像描述模型改填成图像分类不会获得分类能力。
 
 `image-to-text` 已有图像描述输出适配，要求 `--batch-size 1`，且最终 runtime profile 必须同时支持模型架构和 pipeline task。
-默认 CV profile 使用 Transformers 4.57.6；需要 5.6.0 架构的 GLM-OCR 会因该版本缺少 `image-to-text` registry
+默认 CV profile 使用 Transformers 4.57.6；需要 5.10.4 架构的 GLM-OCR 会因该版本缺少 `image-to-text` registry
 在预检返回 `runtime_task_unsupported`，重建相同环境不能消除这个接口缺口。
 镜像实际版本与选定 lock 不符则返回 `runtime_dependency_incompatible`，应按选定环境重建；
 只修改主机 `.venv` 不会改变镜像内依赖。历史日志中的 `Unknown task image-to-text` 也应先核对这两类证据。

@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.10'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements/dev.lock
       - run: python -m pip install --require-hashes -r requirements/dev.lock
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.10'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements/dev.lock
       - run: python -m pip install --require-hashes -r requirements/dev.lock
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.10'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements/dev.lock
       - run: python -m pip install --require-hashes -r requirements/dev.lock
@@ -148,7 +148,7 @@ jobs:
       - name: 校验指标文档编码与同步状态
         run: python scripts/render_metric_reference.py --check
 
-  python311-smoke:
+  python313-smoke:
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: pip
           cache-dependency-path: |
             requirements/host.lock
@@ -166,7 +166,7 @@ jobs:
       - run: python -m pip install --no-deps -e .
       - run: python -m pip install --require-hashes -r requirements/test.lock
       - run: python -m pip check
-      - name: Python 3.11 host and measurement-contract smoke
+      - name: Python 3.13 host and measurement-contract smoke
         run: |
           python -m pytest -q \
             tests/test_architecture.py \
@@ -188,7 +188,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.12']
+        python: ['3.12', '3.13']
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -303,7 +303,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          version: '0.12.13'
+          version: '0.13.5'
           python-version: '3.12'
       - name: 构建并隔离安装当前提交的 wheel
         run: |
@@ -322,7 +322,7 @@ jobs:
         run: |
           uv venv "$RUNNER_TEMP/acprof-resolved" --python 3.12
           uv pip install --python "$RUNNER_TEMP/acprof-resolved/bin/python" "$RUNNER_TEMP"/wheel-dist/*.whl \
-            'pytest==8.4.2' 'pytest-asyncio==1.2.0'
+            'pytest==9.0.3' 'pytest-asyncio==1.4.0'
           uv pip check --python "$RUNNER_TEMP/acprof-resolved/bin/python"
           cd "$RUNNER_TEMP"
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-resolved/bin/python" -I -c 'import acprof; print(acprof.__version__)'
@@ -402,11 +402,12 @@ jobs:
       - name: 固定场景 SVG 回归（统一 pytest 配置）
         run: |
           mkdir -p evidence
-          python -m pytest tests/visual -q --snapshot-report evidence/ui.html --junitxml=evidence/ui.xml
+          python -m pytest tests/visual -q --junitxml=evidence/ui.xml
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
           TZ: UTC
           PYTHONHASHSEED: '0'
+          ACPROF_SNAPSHOT_OUTPUT_DIR: evidence/svg
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -449,7 +450,7 @@ jobs:
           - families: structured
           - families: timeseries
           - families: ''
-            profile: nlp-transformers560-cpu
+            profile: nlp-transformers5104-cpu
           - families: ''
             profile: custom-multimodal-cpu
     steps:
@@ -467,7 +468,7 @@ jobs:
             python scripts/check_runtime.py --profile custom-multimodal-cpu --test-pattern test_custom_multimodal_runtime.py --output-dir evidence/custom-multimodal || runtime_check_status=1
           elif [ -n "${{ matrix.profile }}" ]; then
             python scripts/check_runtime.py --profile "${{ matrix.profile }}" --test-pattern test_transformers5_runtime.py --output-dir evidence/transformers5 || runtime_check_status=1
-            python scripts/check_runtime.py --profile multimodal-transformers560-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
+            python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
           fi
           exit "$runtime_check_status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

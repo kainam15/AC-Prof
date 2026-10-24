@@ -14,9 +14,9 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Static
 
-from acprof.messages import message
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.experiment_catalog import ExperimentRecord
+from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
 
@@ -179,9 +179,9 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
                 if path.is_dir():
                     roots.append(path)
                 else:
-                    skipped.append(message('目录不存在或不是目录：{0}', str(path)))
+                    skipped.append(message_id('ui.0156', str(path)))
             except (OSError, RuntimeError, ValueError) as exc:
-                skipped.append(message('无法检查目录 {0}：{1}', str(path), str(exc)))
+                skipped.append(message_id('ui.0157', str(path), str(exc)))
         return tuple(roots), tuple(skipped)
 
     def show_scope(self, roots: tuple[Path, ...], skipped: tuple[str, ...]) -> None:
@@ -199,7 +199,7 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         scope.tooltip = Text('\n'.join(details))
         note = self.query_one('#picker-scope-note', Static)
         note.display = bool(skipped)
-        note.update(tr(message('已跳过 {0} 个不可用目录；悬停查看详情。', len(skipped))))
+        note.update(tr(message_id('ui.0158', len(skipped))))
         note.tooltip = scope.tooltip
 
     def loaded(self, choices, warnings, roots, skipped):
@@ -247,11 +247,11 @@ class SearchPickerScreen(ModalScreen[tuple[str, object] | None]):
         if choice:
             detail = choice.detail
         elif self._choices_loading:
-            detail = translated_app(self.app).tr('正在读取已知目录内的实验……')
+            detail = translated_app(self.app).tr(message_id('ui.0166'))
         elif self.choices:
-            detail = translated_app(self.app).tr('没有匹配项，请修改搜索词。')
+            detail = translated_app(self.app).tr(message_id('ui.0167'))
         elif self.warnings:
-            detail = translated_app(self.app).tr('未读取到本地记录，请查看上方提示。')
+            detail = translated_app(self.app).tr(message_id('ui.0170'))
         else:
             detail = translated_app(self.app).tr(self.empty_message)
         self.query_one('#picker-detail', Static).update(detail)

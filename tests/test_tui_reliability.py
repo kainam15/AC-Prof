@@ -22,6 +22,7 @@ from acprof.tui.i18n import translate
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.run_form import infer_preset, matches_preset
 from acprof.tui.run_results import RunArtifacts, inspect_run_result
+from acprof.tui.stages import Stage
 
 
 def write_csv(path, latencies=(0.01, 0.2)):
@@ -92,17 +93,17 @@ class TestRunAttribution:
 
     def test_complete_requires_matching_attempt_and_audited_coverage(self):
         result = inspect_run_result(self.before, 123)
-        assert (result.stage(0, False, "")) == ("已完成")
+        assert (result.stage(0, False, "")) == (Stage.COMPLETED)
         assert (result.result_csv) == (str(self.layout.result_csv))
         assert ((result.completed_cases, result.total_cases, result.new_cases)) == ((1, 1, 1))
-        assert (inspect_run_result(self.before, 999).stage(0, False, "")) == ("失败")
+        assert (inspect_run_result(self.before, 999).stage(0, False, "")) == (Stage.FAILED)
         self.state["runtime"]["planned"]["scales"].append(256)
         self.save_state()
-        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == ("部分完成")
+        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == (Stage.PARTIAL)
 
     def test_zero_exit_with_missing_requested_metrics_is_partial(self):
         self.layout.path("capability_report.json").write_text(json.dumps({"requested_measurements_complete": False}))
-        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == ("部分完成")
+        assert (inspect_run_result(self.before, 123).stage(0, False, "")) == (Stage.PARTIAL)
 
     @pytest.mark.parametrize(("content", "reason", "english"), [
         ("{", "JSON 格式无效", "Invalid JSON"),
@@ -117,7 +118,7 @@ class TestRunAttribution:
 
         assert result.belongs_to_attempt
         assert (result.result_csv) == (str(self.layout.result_csv))
-        assert (result.stage(0, False, "")) == ("部分完成")
+        assert (result.stage(0, False, "")) == (Stage.PARTIAL)
         assert reason in result.detail
         assert english in translate(result.detail, "en")
 
@@ -132,7 +133,7 @@ class TestRunAttribution:
 
         assert result.belongs_to_attempt
         assert (result.result_csv) == (str(self.layout.result_csv))
-        assert (result.stage(0, False, "")) == ("部分完成")
+        assert (result.stage(0, False, "")) == (Stage.PARTIAL)
         assert "超过 4 MiB 读取上限" in result.detail
         assert "Exceeds the 4 MiB read limit" in translate(result.detail, "en")
 
@@ -151,8 +152,8 @@ class TestRunAttribution:
         self.state["status"] = "interrupted"
         self.save_state()
         result = inspect_run_result(self.before, 123)
-        assert (result.stage(0, True, "")) == ("已停止")
-        assert (result.stage(1, False, "")) == ("部分完成")
+        assert (result.stage(0, True, "")) == (Stage.STOPPED)
+        assert (result.stage(1, False, "")) == (Stage.PARTIAL)
         assert (result.new_cases) == (1)
         assert (result.result_csv) == ("")
 
@@ -164,7 +165,7 @@ class TestRunAttribution:
 
         assert not result.belongs_to_attempt
         assert (result.result_csv) == ("")
-        assert (result.stage(0, False, "")) == ("失败")
+        assert (result.stage(0, False, "")) == (Stage.FAILED)
         assert "无法核验本次运行状态" in result.detail
         assert str(self.layout.result_csv) in result.detail
         assert "Could not verify this attempt's run state" in translate(result.detail, "en")
@@ -263,7 +264,7 @@ class TestTuiReliability:
             with patch.object(app, "notify") as notify:
                 app._process_finished("run", 0, None, "")
             assert ("任务已完成") not in ([str(call.args[0]) for call in notify.call_args_list])
-            assert (app._latest_snapshot.stage) == ("失败")
+            assert (app._latest_snapshot.stage) == (Stage.FAILED)
 
     async def test_final_result_audit_does_not_offer_a_stop_action(self):
         app = self.make_app()
@@ -276,8 +277,8 @@ class TestTuiReliability:
             app.action_request_stop()
             assert (len(app.screen_stack)) == (1)
             assert not (app._stop_requested)
-            app._consume_process_line("Profiling complete!", ProgressSnapshot(stage="已完成"), True)
-            assert (app._latest_snapshot.stage) == ("核验产物")
+            app._consume_process_line("Profiling complete!", ProgressSnapshot(stage=Stage.COMPLETED), True)
+            assert (app._latest_snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
 
     async def test_background_summary_keeps_ui_responsive_and_only_shows_latest_selection(self):
         app = self.make_app()
@@ -397,7 +398,7 @@ print("Profiling complete!", flush=True)
             for _ in range(3):
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert (app._latest_snapshot.stage) == ("已完成")
+            assert (app._latest_snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_layers.json"))
             assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
             assert not (app._is_busy())

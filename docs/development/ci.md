@@ -26,8 +26,42 @@ PR 对比目标分支，Push 对比本次推送前的分支状态。混合代码
 `host-summary` 同步跳过，不尝试读取不存在的分片和 coverage 产物。
 完整 CI 原有 pytest evidence、Python 版本矩阵、报告汇总和容器验证保持不变。
 `hardware.yml` 每周一 03:15 UTC 在 main 定期运行固定 CPU/GPU 矩阵，也支持主分支人工触发；fork PR 和其他工作分支不允许在专用主机运行。正式版本发布（GitHub Release 与 PyPI）必须先通过 `hardware-gate`：从成功的同提交主分支硬件工作流下载留存证据，验收 Native Linux 身份、固定模型 revision、两种 GPU 模式和 RAPL/perf/NVML 正式测量指标。缺失、过期、跳过或不完整均阻止发布，而不是标记为 `not_verified` 后继续发布。发布前需先在 main 上完成硬件验收，再为同一提交打 tag。
-`codeql.yml` 在 `main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，不进入主机或容器测量路径；扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描。
+`codeql.yml` 在指向 `main` 的 PR、`main` 推送、每周及手动触发时独立执行 Python CodeQL 分析，启用 `security-and-quality` 查询套件覆盖安全、可靠性及维护性问题；不进入主机或容器测量路径。扫描结果需在 GitHub Security 中确认，工作流文件存在不等于已完成扫描；fork PR 的上传权限由 GitHub 平台策略控制。
 Dependabot 仍只更新固定 SHA 的 GitHub Actions，避免其直接修改不完整的 Python/Docker 锁文件集合。新增 `lock-refresh.yml` 每月 1 日 UTC 在 main 上运行，按需手动选择 `all/host/runtime`，固定 uv 版本协调重建 host/test/dev/browser 哈希锁与 Docker runtime Python artifact 锁，检查依赖声明、哈希、平台与运行时关系、相关单元测试，仅在有变化时创建待审核 PR，随后显式 `workflow_dispatch` 该分支的完整 CI；**不自动合并、推送生产镜像或发布版本**。GitHub 仓库需要允许 Actions 创建 PR；如果权限受限，工作流会失败并留日志，不静默跳过。Docker 基础 OCI digest 与 apt system 锁仍须单独人工批准升级，不能把 Python runtime 锁刷新等同于完整 Docker 基础镜像更新。定期重锁可能下载大量 Python/CUDA wheel，运行在 GitHub-hosted runner，不在 dor-server 进行。
+
+`dependency-audit.yml` 在每周二 UTC、手动触发以及相关 lock/扫描代码 PR 上使用
+[PyPA pip-audit](https://github.com/pypa/pip-audit) 扫描 host、test、dev、runtime-test、browser
+及 audit 自身的**已锁定版本**；host、test、dev 使用支持的 Python 3.12 环境审计并在 artifact 名称中记录解释器版本。
+扫描器独立采用 `requirements/audit.in` / `audit.lock` 固定版本与每个
+wheel 的 SHA256，不加入被测 host/runtime 环境；重新生成时使用仓库的固定 uv 版本：
+
+```bash
+uv pip compile requirements/audit.in --python-version 3.12 --universal --generate-hashes --output-file requirements/audit.lock
+```
+
+扫描使用 `--require-hashes --disable-pip` 避免重新求解或安装被测依赖，JSON 报告作为
+GitHub Actions artifact 保留 30 天；每个报告还要经 `scripts/check_dependency_audit.py`
+核对结构及非空依赖集合。**已知漏洞只发出告警，不阻断普通开发合并**；缺失或损坏的扫描证据
+属于 CI 故障并应失败。此检查不能检测未公开漏洞、源码逻辑漏洞，也不能取代 OCI/base OS 安全扫描。
+lock 文件仍通过现有协调更新 PR 由维护者审核，不自动升级、合并或发布。
+独立 `runtime-locks` job 还扫描 `dockerfiles/locks/*.txt` 中的所有注册平台和完整环境锁。
+`export_runtime_audit_requirements.py` 先逐个核验固定 wheel URL/SHA256，将版本与哈希转换成
+仅供 `pip-audit` 识别的 `name==version --hash` 清单，不下载 wheel、不执行镜像构建或改写锁。
+校验目录内容必须恰好匹配 `PLATFORMS`/`ENVIRONMENTS`，且审计解释器与平台声明版本一致；
+缺失环境或切换 Python 基线未同步 CI 会直接失败。每个环境独立产生 JSON 证据并归档，
+已知漏洞仍为警告。此工作只能发现已知 Python 包漏洞，不代替 Debian、Torch CUDA 运行验证
+或 OCI 制品漏洞扫描。
+PyPI 无法查询的 CUDA/CPU 特殊 wheel（常见为 `torch`、`torchaudio` 和 `torchvision`）
+会在 JSON 中带 `skip_reason`，报告器将其单列为 **NOT ASSESSED / INCOMPLETE**，
+明确区分于已检查而无已知漏洞的包。结构损坏、缺少原因、所有包均跳过或扫描输出缺失会使
+CI 报告核验失败，不允许将跳过状态解释为安全。跳过的包需另行检查官方公告与制品来源。
+报告器按 advisory ID 和 aliases 的传递关系去重，避免同一漏洞的 PYSEC/GHSA/CVE 重复计数。
+当前版本修复和剩余风险见[运行时安全基线](runtime-security.md)。
+运行时平台统一迁移 Python 3.12.15（amd64 固定 OCI digest），Debian system lock 已按新的固定
+snapshot 重新生成，4 个平台锁和 27 个环境锁按目标 ABI 再解析并固定 URL/SHA256。
+所有含 Pillow/filelock 的运行时环境分别要求 Pillow 13.0.0、filelock 4.2.4。
+仍有其他已知漏洞或未能在 PyPI 审计的 PyTorch 特定 wheel，必须独立报告；
+仅锁一致性检查通过不等于新环境 CPU/GPU 硬件验收成功。
 
 GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)
 与 [被跳过的依赖作业传播](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)
@@ -37,15 +71,14 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 
 ## CI 与环境测试
 
-独立 `lint` job 在 Python 3.10 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
-独立 `types` job 同样使用 Python 3.10 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
-中的渐进式白名单强制开启未注解函数体检查和导入类型追踪，并对已验证的协议与 TUI 模块
-应用模块级严格规则；新纳入的 Orchestrator、多模态 Handler、TUI App、
-运行结果与主机辅助模块由同一 job 自动检查。
+独立 `lint` job 在 Python 3.12 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
+独立 `types` job 同样使用 Python 3.12 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
+中的 `packages = ["acprof"]` 全包发现强制开启未注解函数体检查和导入类型追踪，
+并对已验证的协议与 TUI 模块应用模块级严格规则。新增 Python 包文件会自动纳入同一 job。
 这两类检查不安装推理依赖，也不需要 Docker/GPU。
 
-`.github/workflows/ci.yml` 在 Python 3.10 / 3.12 上安装哈希锁并执行主机回归；
-另设 Python 3.11 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
+`.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装哈希锁并执行主机回归；
+另设 Python 3.13 单作业 smoke（安装主机和测试哈希锁、运行私有 API、架构、资源监控与 GPU 元数据等关键契约回归），不复制完整八分片矩阵。
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
@@ -56,25 +89,24 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 七个任务族分别执行 CPU 接口测试，以随机小模型或明确导出的
 样例验证真实加载与推理；audio 和 multimodal 在同一作业共享一个 CPU 依赖环境，仍分别执行测试。
 网络在容器测试期间关闭。CI Actions 固定为已核验的 commit SHA，作业只授予仓库读取权限。
-Python 3.10 Slim 的基础镜像固定为 Docker Hub 官方仓库的 OCI index SHA256，
+Python 3.12.15 Slim Trixie 的基础镜像固定为 Docker Hub 官方仓库的 amd64 OCI manifest SHA256，
 且 `runtime_profiles.py`、平台 manifest 与 system lock 必须一致。
 DaoCloud 代理曾在 GitHub runner 上对相同 digest 返回 `application/octet-stream`，
 导致 Docker BuildKit 无法解析镜像；CI 不使用该代理作为规范引用。
-这仅变更仓库位置，不变更固定的 OCI digest、镜像层或系统包锁。
 其他网络环境如需使用镜像加速，应在不改变镜像身份与 digest 校验的前提下独立配置。
-另有 `nlp-transformers560-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
+另有 `nlp-transformers5104-cpu` 矩阵项运行新版原生架构与图像 processor 测试，避免主机缺少推理依赖的 skip 掩盖环境回归。
 `custom-multimodal-cpu` 矩阵项运行 `test_custom_multimodal_runtime.py`：未知 `auto_map` 架构的
 随机小模型经音频、图像、视频输入映射执行，比较共享四阶段与上游 pipeline 结果，并检查
 重复推理、真实 Torch profiler 算子及独立 runtime validation；容器禁止网络和跳过。
 两个 Transformers 版本线均执行 `test_audio_generation_runtime.py`：保存小型原生模型 snapshot，
 再经过共享 Auto 加载、原生音频消息、真实 `generate` 和输出验证；逐参数核对加载权重，防止
-组合模型的前缀处理丢失权重。4.57.6 验证 Voxtral/Qwen2 Audio；5.6.0 另验证 Omni 文本子模型。
+组合模型的前缀处理丢失权重。4.57.6 验证 Voxtral/Qwen2 Audio；5.10.4 另验证 Omni 文本子模型。
 这些随机权重验证接口，不证明完整 checkpoint 的容量、质量或正式 profiling 指标。
 
 `check_runtime.py` 将所选 `ACPROF_RUNTIME_PROFILE` 与 `ACPROF_MODEL_ADAPTER` 显式传入容器，
 让版本核对、adapter、精度和 remote-code 策略都绑定该 profile。共享同一依赖环境的不同任务仍
-各用合法 profile：5.6.0 的 NLP 与音频生成分别为 `nlp-transformers560-cpu` 和
-`multimodal-transformers560-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
+各用合法 profile：5.10.4 的 NLP 与音频生成分别为 `nlp-transformers5104-cpu` 和
+`multimodal-transformers5104-cpu`，输出目录独立。生成的 NLP custom-code fixture 只在测试
 进程注册允许/拒绝 profile，生产信任策略不放宽；basic probe fixture 显式设置 backend、profile 和 adapter，
 避免继承主机环境或在导入测试前因缺少配置而失败。
 容器测试继续保留版本检查、禁网和 `--require-no-skips`。
@@ -91,9 +123,9 @@ CUDA 专项须在已安装 CV 依赖且可访问 GPU 的环境中单独执行
 .venv/bin/python scripts/run_tests.py --report internal-testing/host-tests.json
 .venv/bin/python scripts/compile_locks.py --check
 .venv/bin/python scripts/check_runtime.py --family audio --variant cpu --output-dir internal-testing/audio-runtime
-.venv/bin/python scripts/check_runtime.py --profile moss-transformers560 --build-only --output-dir internal-testing/moss-dependencies
-.venv/bin/python scripts/check_runtime.py --profile nlp-transformers560-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
-.venv/bin/python scripts/check_runtime.py --profile multimodal-transformers560-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
+.venv/bin/python scripts/check_runtime.py --profile moss-transformers5104 --build-only --output-dir internal-testing/moss-dependencies
+.venv/bin/python scripts/check_runtime.py --profile nlp-transformers5104-cpu --test-pattern test_transformers5_runtime.py --output-dir internal-testing/transformers5-runtime
+.venv/bin/python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir internal-testing/audio-generation-runtime
 .venv/bin/python scripts/render_metric_reference.py --check
 ```
 
@@ -125,7 +157,7 @@ fixture、依赖锁。源码树外的测试目录也按相对路径和实际文�
 
 容器接口验证按 runtime platform 的 Python、Linux wheel tags 和依赖 markers，
 从 `runtime-test.lock` 生成保留原始 hashes 的 `runtime-test-target.lock`，下载对应 wheelhouse。
-这避免 Python 3.12 主机漏掉 Python 3.10 容器所需的 backport；普通主机安装仍遵守版本条件。
+这避免不同目标解释器导致 wheel marker 选择错误；普通主机安装仍遵守版本条件。
 依赖条件沿用 [pytest-asyncio 的声明](https://github.com/pytest-dev/pytest-asyncio/blob/v1.2.0/pyproject.toml)，
 目标筛选复用项目锁工具，避免 [pip 按主机解释 markers](https://github.com/pypa/pip/issues/6117) 的跨版本下载问题。
 下载后在 `--network none` 容器内
@@ -153,8 +185,8 @@ CLI、IDE 和 wrapper 均受保护。生产入口仍固定使用 `/tmp` 的同�
 
 ### Host coverage baseline
 
-`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.10+。
-CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.10 使用相同 pytest wrapper。
+`requirements/dev.in` 与带 hash 的开发锁固定 `coverage[toml]==7.15.2`，支持 Python 3.12+。
+CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 使用相同 pytest wrapper。
 每片单独上传 `.coverage.*`，显式开启 hidden files；`host-summary` 先验收测试证据，
 再确认八个 coverage 目录齐全，执行 `coverage combine --keep`、`xml`、`json`、`html`，
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
@@ -204,8 +236,8 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 独立 `runtime_validation` 验证。依赖迁移需逐一构建全部唯一环境，再分别验证共享环境的各 profile。
 
 更新锁前后比较原完整包版本，验证目标 wheel 的 ABI/平台和全部制品 SHA256。默认锁生成保留原
-版本，显式 `--upgrade` 才更新环境包；uv 固定 0.12.13，生成 wheel 锁的脚本使用 Python 3.11+，
-只读检查兼容 Python 3.10+。系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
+版本，显式 `--upgrade` 才更新环境包；uv 固定 0.13.5，生成 wheel 锁与只读检查统一使用 Python 3.12+。
+系统锁可指定同一 snapshot 再生成并比较，过程只修改一次性容器和
 指定输出锁。具体命令见[当前配置](../models/environment.md#当前配置)。
 
 源代码、模型权重和依赖层保持分离，CPU 容器测试不下载 Hub 模型，不代替真实 GPU/PMU/抓包实验。
@@ -216,7 +248,7 @@ hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-
 比较 Chronos-Bolt／Chronos-2 的多序列预测；`test_nlp_runtime.py` 比较完整句向量模块图、默认 prompt
 和归一化数值。`test_transformers5_runtime.py` 用旧环境没有的 Qwen3.5 原生小配置验证共享 NLP 入口，
 并验证新版图像 processor 的输入形状、检测框及依赖 OpenCV 的多边形输出。该测试需在
-`nlp-transformers560-cpu` 共享环境显式运行；随机小配置不是热门 checkpoint 的采集或准确率证据。
+`nlp-transformers5104-cpu` 共享环境显式运行；随机小配置不是热门 checkpoint 的采集或准确率证据。
 
 候选发现、冲突处理、本地模型声明、镜像／恢复身份和输入宽度回归见
 `test_model_discovery.py`；`test_validation_stages.py` 检查成功步骤、失败位置及原异常保留。

@@ -15,7 +15,7 @@ from textual.message_pump import MessagePump
 from textual.widgets import Button, DataTable, Static
 
 from acprof.experiment import RunConfigError
-from acprof.messages import join_messages, message
+from acprof.messages import join_messages
 from acprof.tui.commands import (
     PendingLaunch,
     prepare_comparison,
@@ -24,7 +24,7 @@ from acprof.tui.commands import (
     resolve_result_path,
 )
 from acprof.tui.experiment_catalog import ExperimentRecord
-from acprof.tui.i18n import error_message
+from acprof.tui.i18n import error_message, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import CALCULATING
@@ -87,7 +87,7 @@ class ResultActions(MessagePump):
         token = self._summary_request = Event()
         self._summary_path = path
         self._read_jobs.add(token)
-        self._set_text(self.query_one("#result-summary", Static), message("{0} 正在读取结果摘要", CALCULATING))
+        self._set_text(self.query_one("#result-summary", Static), message_id('ui.0199', CALCULATING))
         self._set_busy(True)
         self._execute_summary_read(path, token, notify)
 
@@ -112,7 +112,7 @@ class ResultActions(MessagePump):
                 resolve_result_path(self._input("result-csv"), self._project_dir) != path):
             return
         if summary is None:
-            self._set_text(self.query_one("#result-summary", Static), message("无法读取结果：{0}", error))
+            self._set_text(self.query_one("#result-summary", Static), message_id('ui.0811', error))
             if notify:
                 self.notify(error, severity="error")
             return
@@ -198,7 +198,7 @@ class ResultActions(MessagePump):
             return
         with self.prevent(Input.Changed):
             self.query_one("#report-source", Input).value = str(report_path)
-        self._clear_report(message("{0} 正在读取报告", CALCULATING))
+        self._clear_report(message_id('ui.0577', CALCULATING))
         self.screen.set_focus(self.query_one("#report-table"), scroll_visible=False)
         if self._report_request is not None:
             self._report_request.set()
@@ -230,7 +230,7 @@ class ResultActions(MessagePump):
             return
         self._set_busy(self._is_busy())
         if view is None:
-            self._clear_report(message("报告读取失败：{0}", error))
+            self._clear_report(message_id('ui.0578', error))
             return
         self._report_view = view
         self._render_report_view()
@@ -263,7 +263,7 @@ class ResultActions(MessagePump):
         view = self._report_view
         if view is None:
             return
-        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message("没有可统计的正式成功窗口。")
+        detail = view.rows[index].detail if 0 <= index < len(view.rows) else message_id('ui.0579')
         self._set_text(self.query_one("#report-detail", Static), join_messages("\n", (detail, view.note)))
 
     @on(Button.Pressed, "#report-calculate")
@@ -302,5 +302,5 @@ class ResultActions(MessagePump):
             return
         self._stats_report_path = None
         self._stats_report_reused = False
-        self._clear_report(message("{0} 正在计算窗口统计，完成后自动显示报告。", CALCULATING))
+        self._clear_report(message_id('ui.0582', CALCULATING))
         self._launch(pending)

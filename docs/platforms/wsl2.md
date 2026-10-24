@@ -33,7 +33,7 @@ GPU utilization 不支持时，GPU memory 可以独立成功；真实数值 `0` 
 ## 开发、运行与测试
 
 在 WSL 的 Linux 文件系统中维护独立 `.venv`，不要复用 Windows 的 `.venv/Scripts/python.exe`。
-使用项目已有 Python 3.10+ 安装与依赖流程，参见[安装说明](../getting_started/installation.md)。
+使用项目已有 Python 3.12+ 安装与依赖流程，参见[安装说明](../getting_started/installation.md)。
 第一阶段使用如下明确选择，不自动将用户请求的 full 改为 basic：
 
 ```bash

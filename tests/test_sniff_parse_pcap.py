@@ -83,6 +83,31 @@ def test_nonfinite_response_timestamp_is_not_emitted() -> None:
     assert json.loads(stdout.getvalue())["requests"] == {}
 
 
+@pytest.mark.parametrize('port', [
+    '0', '65536', '-1', '8002 && ip.addr==1.2.3.4', '8002,8080',
+    '8002 || true', 'abc', '８００２', '8002\n',
+])
+def test_rejects_invalid_port_before_launching_tshark(port):
+    with patch.object(sniff_parse_pcap, 'run') as run, pytest.raises(SystemExit, match='invalid TCP port'):
+        sniff_parse_pcap.main(['capture.pcap', port])
+    run.assert_not_called()
+
+
+def test_port_is_canonicalized_before_constructing_tshark_filter():
+    commands = []
+
+    def run(command):
+        commands.append(command)
+        return ''
+
+    with patch.object(sniff_parse_pcap, 'run', side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+        sniff_parse_pcap.main(['capture.pcap', '08002'])
+    assert len(commands) == 3
+    for command in commands:
+        assert 'tcp.port==08002' not in ' '.join(command)
+        assert 'tcp.port==8002' in ' '.join(command)
+
+
 def test_request_parser_surfaces_unexpected_header_errors() -> None:
     def fake_run(command):
         if "http.request.line" in command:

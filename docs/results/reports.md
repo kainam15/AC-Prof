@@ -104,7 +104,7 @@ HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置�
 [renderer 设计讨论 #1459](https://github.com/plotly/plotly.py/issues/1459)；Pareto 借鉴
 [Optuna 的方向归一化与非支配判断](https://github.com/optuna/optuna/blob/master/optuna/study/_multi_objective.py)
 及[可行性可视化讨论 #2397](https://github.com/optuna/optuna/issues/2397)，没有复制优化器或引入 Optuna。
-两者使用 MIT；Plotly/Optuna 的公开仓库仍在维护。主机锁固定 Plotly 7.1.0（支持本项目 Python 3.10+），
+两者使用 MIT；Plotly/Optuna 的公开仓库仍在维护。主机锁固定 Plotly 7.1.0（支持本项目 Python 3.12+），
 增加 Plotly 和 narwhals，复用已有 packaging；无 Web 服务、前端构建链或优化框架依赖。
 报告保留 bundle 许可注释并内嵌 [Plotly.js v4.1.1 MIT](https://github.com/plotly/plotly.js/blob/v4.1.1/LICENSE)。
 Plotly 只在写报告时导入，所有处理均在采集窗口外进行，不改变 collector 的测量成本。

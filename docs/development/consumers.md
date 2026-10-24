@@ -43,7 +43,12 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`app` 保留顶层 UI 状态、子进程启动/回收、测量窗口状态和退出清理；`process.ProcessLifecycle` 统一拥有子进程及停止策略。`views` 使用页面构建函数输出 TabPane 子树。
+`app` 保留顶层 UI 状态、采集启动决策、最终结果、测量窗口呈现、终止及退出清理；
+`process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_actions.ProcessWorkerActions`
+独立负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
+worker 通过 App 的 `_project_dir` 读取当前工作根目录，不额外缓存路径或覆盖子进程所有权；
+正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
+`views` 使用页面构建函数输出 TabPane 子树。
 `localization_actions.LocalizationActions` 只处理 UI 文案登记、翻译和语言切换，
 通过现有 Textual MRO 提供 `tr/notify` 等操作；`app` 仍拥有首屏、业务状态和页面生命周期，
 不把日志原文、命令参数或实验事件交给翻译模块。
@@ -84,8 +89,18 @@ CLI 参数、TUI 表单和硬件验证使用同一契约；该模块不导入 TU
 字段错误元数据与候选控件参考 [Textual validation](https://github.com/Textualize/textual/blob/main/src/textual/validation.py)
 和 [Input 文档](https://github.com/Textualize/textual/blob/main/docs/widgets/input.md)（MIT）。
 沿用现有 Textual 与标准库；共享校验不引入 UI 依赖，界面校验只在编辑或提交阶段执行，不进入正式测量窗口。
-`acprof.messages` 保存可翻译的结构化消息，翻译表仍属于 `tui.i18n`。
+`acprof.messages` 保存可翻译的结构化消息；`tui.translation_catalog` 为 927 条已审校显示文案
+固定 `ui.NNNN` 标识及中文源文案、英文翻译，键只追加不重新编号。
+`tui.i18n.message_id(key, *values)` 构造保留 msgid 的消息。TUI 内静态 catalog `message(...)` 和直接 `tr(...)` 文案必须通过稳定 ID 引用；`test_tui_i18n.py` 以 AST 约束防止退化为中文键。
+`translate` 在展示边界按标识查找，
+允许文本变化而不影响身份；已有 `message(中文源文本)` 及少量直接字符串调用仍可从同一目录生成
+`ENGLISH` 源文案索引逐步迁移，避免改变验证错误文本、CLI 与结果协议。
+缺失 ID 直接抛出 `KeyError`，参数位置／格式必须与两种语言模板一致，禁止回退成任意字符串。
 `commands` 保留 probe／统计／绘图等界面命令，`progress` 解析运行日志，
+`stages.Stage` 是进度与最终进程状态的稳定机器标识；其中文源标签通过 `Stage.label`
+在 `app`、命令回显等展示边界翻译，状态判断、状态样式和测试只比较枚举身份。
+修改标签或英语翻译不会改变事件解析与状态转移。该状态不写入实验 CSV、resume、progress event
+等持久化协议，不为此引入兼容映射。
 `diagnostics` 负责提示性预检和结果摘要。TUI 提示性检查与 CLI 权威检查保留各自用途。
 启动检查直接复用 `diagnostics.quick_preflight` 及其 host 探测，不新增环境检测器。`app` 在首屏
 刷新后调用现有 thread worker，以测量锁隔离诊断，保存请求身份、检查配置和结果；UI 回调只接受

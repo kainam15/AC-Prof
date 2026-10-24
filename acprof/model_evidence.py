@@ -38,7 +38,8 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
         "repository_config": (task_info.model_config or {}, "repository_metadata", ["repository_snapshot"]),
         "repository_spec": ((task_info.repository_metadata or {}).get("acprof_model.json", {}), "declaration", ["repository_snapshot"]),
         "local_spec": (getattr(task_info, "model_spec", {}), "user", []),
-        "explicit": ({"task": explicit_task, "backend": explicit_backend}, "user", []),
+        # CLI, TUI and probe use both None and "" for an absent override.
+        "explicit": ({"task": explicit_task or None, "backend": explicit_backend or None}, "user", []),
         "generated_contract": (task_model_spec(task_info), "derived", ["repository_config"]),
     }
     for name, (value, family, parents) in values.items():

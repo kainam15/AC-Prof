@@ -9,7 +9,7 @@ import os
 import pytest
 import test_custom_multimodal_runtime as fixtures
 
-from acprof.model_resolution import transformers_capabilities
+from acprof.model_support import transformers_capabilities
 
 pytestmark = pytest.mark.runtime
 

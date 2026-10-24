@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 import sys
 import time
@@ -12,6 +11,8 @@ from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Literal
+
+from acprof.tui.i18n import message_id
 
 try:
     from rich.console import Console
@@ -73,19 +74,21 @@ from acprof.tui.preflight_actions import PreflightActions
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
+from acprof.tui.process_actions import ProcessWorkerActions
 from acprof.tui.profile_actions import ProfileActions
-from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
+from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.recovery_actions import RecoveryActions
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.reports import ReportView, read_report
 from acprof.tui.result_actions import ResultActions
-from acprof.tui.run_results import RunArtifacts, RunResult, inspect_run_result
+from acprof.tui.run_results import RunResult
 from acprof.tui.settings import (
     default_settings_path,
     load_settings,
     save_settings,
 )
 from acprof.tui.slash_actions import SlashCommandActions
+from acprof.tui.stages import Stage
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.themes import THEME_CATALOG
 from acprof.tui.views import (
@@ -117,6 +120,7 @@ class AcprofTui(
     ProfileActions,
     SlashCommandActions,
     ExperimentActions,
+    ProcessWorkerActions,
     BarCursorApp,
 ):
     """Full-screen controller for AC-Prof collection and diagnostics."""
@@ -294,7 +298,7 @@ class AcprofTui(
         self._configure_scrollbars()
         self._capture_language_text()
         self._apply_ui_preferences()
-        self._set_text(self.query_one('#settings-location', Static), message('保存位置：{0}', self.settings_path))
+        self._set_text(self.query_one('#settings-location', Static), message_id('ui.0729', self.settings_path))
         self._update_responsive_layout()
         self._selected_preset = self._select("run-preset")
         self._form_ready = True
@@ -432,7 +436,7 @@ class AcprofTui(
         self._started_monotonic = time.monotonic()
         self._stop_requested = False
         self._preparation_cancelled = False
-        self._latest_snapshot = ProgressSnapshot(stage="启动中", detail="正在创建子进程")
+        self._latest_snapshot = ProgressSnapshot(stage=Stage.STARTING, detail="正在创建子进程")
         self._set_busy(True)
         self._activate_tab("monitor-tab")
         # Moving focus away from inputs stops the native cursor's blink timer.
@@ -444,7 +448,7 @@ class AcprofTui(
         self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         log = self.query_one("#run-log", SelectableLog)
         log.write(f"$ {format_command(pending.command)}")
-        log.write(self.tr("[TUI] 子进程输出通过管道读取；tmux pane 捕获已对该子进程禁用。"))
+        log.write(self.tr(message_id('ui.0766')))
         self._render_snapshot(self._latest_snapshot)
         self._execute_command(list(pending.command), pending.kind)
 
@@ -461,203 +465,30 @@ class AcprofTui(
         self._set_text(self.query_one('#status-elapsed', Static), elapsed)
 
     _STAGE_CSS_CLASS = {
-        "等待": "stage-idle",
-        "服务就绪": "stage-success",
-        "已完成": "stage-success",
-        "探测完成": "stage-success",
-        "找到最低可用内存": "stage-success",
-        "case 完成": "stage-success",
-        "失败": "stage-error",
-        "清理未完成": "stage-error",
-        "探测失败": "stage-error",
-        "任务不支持": "stage-error",
-        "已终止": "stage-error",
-        "已停止": "stage-error",
-        "部分完成": "stage-running",
-        "正式测量": "stage-measuring",
-        "最大尺度探测": "stage-measuring",
+        Stage.WAITING: "stage-idle",
+        Stage.SERVER_READY: "stage-success",
+        Stage.COMPLETED: "stage-success",
+        Stage.PROBE_COMPLETED: "stage-success",
+        Stage.MEMORY_FOUND: "stage-success",
+        Stage.CASE_COMPLETED: "stage-success",
+        Stage.FAILED: "stage-error",
+        Stage.CLEANUP_INCOMPLETE: "stage-error",
+        Stage.PROBE_FAILED: "stage-error",
+        Stage.TASK_UNSUPPORTED: "stage-error",
+        Stage.TERMINATED: "stage-error",
+        Stage.STOPPED: "stage-error",
+        Stage.PARTIAL: "stage-running",
+        Stage.MEASURING: "stage-measuring",
+        Stage.MAX_SCALE_PROBE: "stage-measuring",
     }
     _STAGE_CLASSES = frozenset({
         "stage-idle", "stage-running", "stage-measuring",
         "stage-success", "stage-error",
     })
 
-    @work(thread=True, group="process", exclusive=True, exit_on_error=False)
-    def _execute_command(self, command: list[str], kind: str) -> None:
-        token = self._process_token
-        def deliver(callback, *args):
-            self.call_from_thread(self._deliver_process_callback, token, callback, *args)
-        run_before = None
-        if kind == "run" and self._active_run_config is not None:
-            try:
-                run_before = RunArtifacts.read(self._active_run_config.result_dir(PROJECT_DIR))
-            except (OSError, ValueError, RuntimeError):
-                pass  # CLI reports invalid history; it cannot become current results.
-        from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
-        tracker = RunProgressTracker(structured=(kind == "run")) if kind in {"run", "probe"} else None
-        suppressed_lines = 0
-        deferred_important_lines: list[str] = []
-        process: subprocess.Popen[str] | None = None
-        launch_error = ""
-        returncode = 1
-        diagnostic_continuation = False
-        try:
-            child_env = os.environ.copy()
-            child_env["PYTHONUNBUFFERED"] = "1"
-            child_env["MPLBACKEND"] = "Agg"
-            child_env["ACPROF_TUI"] = "1"
-            child_env.pop("ACPROF_INTERACTIVE_PREPARATION", None)
-            if kind == "run":
-                child_env["ACPROF_INTERACTIVE_PREPARATION"] = "1"
-            # acprof run otherwise captures the entire full-screen pane, including
-            # ANSI redraws, when the TUI itself is launched inside tmux.
-            child_env.pop("TMUX", None)
-            child_env.pop("TMUX_PANE", None)
-            process = self._lifecycle.start(command, cwd=PROJECT_DIR, env=child_env)
-            if self._stop_requested:
-                self._lifecycle.stop()
-            deliver(self._process_started, process.pid, kind)
-            assert process.stdout is not None
-            for raw_line in process.stdout:
-                line = raw_line.rstrip("\r\n")
-                before = tracker.snapshot if tracker is not None else None
-                snapshot = tracker.feed(line) if tracker is not None else None
-                state_changed = snapshot != before if snapshot is not None else False
-                important = (
-                    "[ERROR]" in line
-                    or "[WARN]" in line
-                    or line.startswith("Traceback")
-                )
-                # perf and tracebacks emit untagged continuation lines. Retain
-                # the complete diagnostic until the next structured log entry.
-                if line.startswith("["):
-                    diagnostic_continuation = important
-                elif important:
-                    diagnostic_continuation = True
-                important = important or diagnostic_continuation
-                if (
-                    before is not None
-                    and before.measurement_active
-                    and snapshot is not None
-                    and snapshot.measurement_active
-                ):
-                    if important:
-                        deferred_important_lines.append(line)
-                    else:
-                        suppressed_lines += 1
-                    continue
-                if (
-                    before is not None
-                    and before.measurement_active
-                    and snapshot is not None
-                    and not snapshot.measurement_active
-                ):
-                    if deferred_important_lines:
-                        deliver(
-                            self._show_deferred_lines,
-                            tuple(deferred_important_lines),
-                        )
-                        deferred_important_lines.clear()
-                    if suppressed_lines:
-                        deliver(
-                            self._show_suppressed_count,
-                            suppressed_lines,
-                        )
-                        suppressed_lines = 0
-                deliver(
-                    self._consume_process_line,
-                    "" if line.startswith(("ACPROF_EVENT ", PREFIX)) else line,
-                    snapshot,
-                    state_changed,
-                )
-                preparation = parse_preparation_event(line)
-                if line.startswith("[network-preflight] "):
-                    deliver(self._network_preflight_report, line)
-                elif line.startswith("[network-download] "):
-                    deliver(self._network_download_report, line)
-                if preparation is not None:
-                    deliver(self._preparation_event, preparation)
-            returncode = process.wait()
-            process.stdout.close()
-        except Exception as exc:  # process errors must become visible in the UI
-            launch_error = f"{type(exc).__name__}: {exc}"
-            if process is not None:
-                result = self._lifecycle.stop()
-                if not result.complete:
-                    self._safe_process_callback(self._process_cleanup_incomplete, result)
-        finally:
-            final_snapshot = tracker.snapshot if tracker is not None else None
-            if process is not None and process.poll() is None:
-                # Keep both ownership and the output reader until exit. A failed
-                # UI callback must not orphan a collector or block its pipe.
-                self._watch_failed_process(process, kind, final_snapshot, launch_error, run_before, token)
-            else:
-                if process is not None:
-                    if process.stdout is not None:
-                        process.stdout.close()
-                    self._lifecycle.release(process)
-                    returncode = process.returncode
-                if kind == "run" and process is not None and run_before is not None:
-                    self._inspect_finished_run(run_before, process.pid, token)
-                if suppressed_lines:
-                    self._safe_process_callback(self._show_suppressed_count, suppressed_lines)
-                if deferred_important_lines:
-                    self._safe_process_callback(self._show_deferred_lines, tuple(deferred_important_lines))
-                self._safe_process_callback(
-                    self._process_finished, kind, returncode, final_snapshot, launch_error,
-                )
-
-    def _deliver_process_callback(self, token, callback, *args) -> None:
-        if self.is_running and self._form_ready and not self._ui_closing and token is self._process_token:
-            callback(*args)
-
-    def _accept_run_result(self, token, result: RunResult) -> None:
-        if token is self._process_token:
-            self._run_result = result
-
-    def _inspect_finished_run(self, before: RunArtifacts, pid: int, token: object) -> None:
-        self._safe_process_callback(self._deliver_process_callback, token, self._set_busy, True)
-        try:
-            result = inspect_run_result(before, pid)
-        except Exception as exc:
-            result = RunResult(detail=f"{type(exc).__name__}: {exc}")
-        self._safe_process_callback(self._accept_run_result, token, result)
-
-    def _safe_process_callback(self, callback, *args) -> None:
-        if self._ui_closing or not self.is_running:
-            return
-        try:
-            self.call_from_thread(self._deliver_ui_callback, callback, *args)
-        except Exception as exc:
-            # Widgets may already have been pruned during shutdown. Process
-            # cleanup and ownership must not depend on their availability.
-            print(f"[TUI] callback failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-
-    def _deliver_ui_callback(self, callback, *args) -> None:
-        if self.is_running and self._form_ready and not self._ui_closing:
-            callback(*args)
-
-    @work(thread=True, group="process-reap", exit_on_error=False)
-    def _watch_failed_process(self, process, kind, snapshot, error, before, token) -> None:
-        try:
-            if process.stdout is not None:
-                for _ in process.stdout:
-                    pass
-        except (OSError, ValueError):
-            pass
-        process.wait()
-        if process.stdout is not None:
-            process.stdout.close()
-        if self._lifecycle.release(process):
-            if kind == "run" and before is not None:
-                self._inspect_finished_run(before, process.pid, token)
-            self._safe_process_callback(
-                self._process_finished, kind, process.returncode, snapshot, error,
-            )
-
     def _process_cleanup_incomplete(self, result: StopResult) -> None:
-        detail = message('PID {0} 仍未确认退出：{1}；可再次停止。', result.pid, result.error)
-        self._latest_snapshot = replace(self._latest_snapshot, stage="清理未完成", detail=detail)
+        detail = message_id('ui.0259', result.pid, result.error)
+        self._latest_snapshot = replace(self._latest_snapshot, stage=Stage.CLEANUP_INCOMPLETE, detail=detail)
         self._render_snapshot(self._latest_snapshot)
         self._write_log(detail)
         self._set_busy(True)
@@ -666,17 +497,17 @@ class AcprofTui(
     def _process_started(self, pid: int, kind: str) -> None:
         self._set_busy(True)
         self.query_one("#run-log", SelectableLog).write(
-            self.tr(message('[TUI] {0} 进程已启动，PID={1}', kind, pid))
+            self.tr(message_id('ui.0782', kind, pid))
         )
 
     def _show_suppressed_count(self, count: int) -> None:
         self.query_one("#run-log", SelectableLog).write(
-            self.tr(message('[TUI] 为降低测量干扰，本窗口隐藏了 {0} 行常规输出。', count))
+            self.tr(message_id('ui.0783', count))
         )
 
     def _show_deferred_lines(self, lines: tuple[str, ...]) -> None:
         log = self.query_one("#run-log", SelectableLog)
-        log.write(self.tr("[TUI] 测量窗口结束，显示期间延迟刷新的重要消息："))
+        log.write(self.tr(message_id('ui.0784')))
         for line in lines:
             log.write(line)
 
@@ -703,8 +534,8 @@ class AcprofTui(
         if line:
             self.query_one("#run-log", SelectableLog).write(line)
         if snapshot is not None:
-            if self._process_kind == "run" and snapshot.stage == "已完成":
-                snapshot = replace(snapshot, stage="核验产物", detail="进程已报告完成，等待本次产物核验。")
+            if self._process_kind == "run" and snapshot.stage is Stage.COMPLETED:
+                snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
             was_measuring = self._latest_snapshot.measurement_active
             self._latest_snapshot = snapshot
             self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
@@ -734,13 +565,13 @@ class AcprofTui(
         )
         # Stage text with visual category coloring.
         stage_widget = self.query_one("#status-stage", Static)
-        self._set_text(stage_widget, snapshot.stage)
+        self._set_text(stage_widget, snapshot.stage.label)
         stage_widget.set_classes(
             self._STAGE_CSS_CLASS.get(snapshot.stage, "stage-running")
         )
         self._set_text(self.query_one('#status-elapsed', Static), elapsed)
-        self._set_text(self.query_one("#status-case", Static), message(
-            "当前 {0} · 已完成 {1}/{2}", snapshot.current_case or NOT_APPLICABLE,
+        self._set_text(self.query_one("#status-case", Static), message_id(
+            'ui.0785', snapshot.current_case or NOT_APPLICABLE,
             snapshot.completed_cases, snapshot.total_cases,
         ))
         missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
@@ -785,33 +616,33 @@ class AcprofTui(
             self._activate_tab("reports-tab")
         log = self.query_one("#run-log", SelectableLog)
         unsupported_task = (
-            snapshot is not None and snapshot.stage == "任务不支持"
+            snapshot is not None and snapshot.stage is Stage.TASK_UNSUPPORTED
             and returncode != 0 and not self._stop_requested and not launch_error
         )
         if launch_error:
-            log.write(self.tr(message('[TUI][ERROR] 无法运行命令：{0}', launch_error)))
+            log.write(self.tr(message_id('ui.0786', launch_error)))
             self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
         elif comparison_ready:
-            notice: str = message("比较报告已生成；请查看可比性、质量和证据不足的原因。")
+            notice: str = message_id('ui.0488')
             log.write(self.tr(notice))
             self.notify(notice, severity="information", timeout=8)
         elif returncode == 0 and kind != "run" and not self._stop_requested:
-            log.write(self.tr(message('[TUI] {0} 任务完成，退出码 0', kind)))
-            notice = (message("已有相同报告：{0}", self._stats_report_path)
+            log.write(self.tr(message_id('ui.0788', kind)))
+            notice = (message_id('ui.0571', self._stats_report_path)
                       if kind == "stats" and self._stats_report_reused else "任务已完成")
             self.notify(notice, severity="information", timeout=8 if self._stats_report_reused else 5)
         elif self._stop_requested:
-            log.write(self.tr(message('[TUI] 任务已由用户终止，退出码 {0}', returncode)))
+            log.write(self.tr(message_id('ui.0790', returncode)))
             self.notify("任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
         elif unsupported_task and snapshot is not None:
             log.write(self.tr(snapshot.detail))
-            log.write(self.tr(message(
-                '处理办法：换用已适配任务的模型；识别有误时修正配置；需要该任务时等待或开发适配。'
+            log.write(self.tr(message_id(
+                'ui.0587'
             )))
             self.notify(snapshot.detail, title="任务不支持", severity="error", timeout=12)
         elif kind != "run":
-            log.write(self.tr(message('[TUI][ERROR] {0} 任务失败，退出码 {1}', kind, returncode)))
-            self.notify(message('任务失败，退出码 {0}', returncode), severity="error", timeout=8)
+            log.write(self.tr(message_id('ui.0792', kind, returncode)))
+            self.notify(message_id('ui.0793', returncode), severity="error", timeout=8)
 
         current_csv = ""
         if unsupported_task and snapshot is not None:
@@ -821,56 +652,56 @@ class AcprofTui(
             result = self._run_result
             stage = result.stage(returncode, self._stop_requested, launch_error)
             final_state = snapshot or self._latest_snapshot
-            detail: str = message("已完成 {0}/{1} 个资源 case；{2}", result.completed_cases,
+            detail: str = message_id('ui.0191', result.completed_cases,
                              result.total_cases or final_state.total_cases,
-                             message("可查看结果，或检查恢复与重试选项") if stage != "已完成" else message("可查看结果与计算统计"))
-            self.query_one("#run-recovery-actions").display = stage != "已完成"
+                             message_id('ui.0048') if stage is not Stage.COMPLETED else message_id('ui.0192'))
+            self.query_one("#run-recovery-actions").display = stage is not Stage.COMPLETED
             if result.detail:
                 detail = join_messages("\n", (detail, result.detail))
             if result.new_cases and result.retained_dir:
-                detail = join_messages("\n", (detail, message("已保留的实验目录：{0}", result.retained_dir)))
+                detail = join_messages("\n", (detail, message_id('ui.0184', result.retained_dir)))
             if result.complete and not result.result_csv and not result.new_cases:
-                detail = join_messages("\n", (detail, message("已有实验已完成；本次未重新采集。")))
+                detail = join_messages("\n", (detail, message_id('ui.0185')))
             self._latest_snapshot = replace(final_state, stage=stage, detail=detail,
                 completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
-                measurement_active=False, measurement_status=("passed" if stage == "已完成" else
+                measurement_active=False, measurement_status=("passed" if stage is Stage.COMPLETED else
                     "cancelled" if self._stop_requested else "failed"))
             self._render_snapshot(self._latest_snapshot)
             current_csv = result.result_csv
             if current_csv:
                 self._remember_last_used(result_csv=current_csv, result_dir=str(Path(current_csv).parent))
             else:
-                summary_text = (message("无法确认本次结果：{0}；历史结果可通过原路径查看。", result.detail)
+                summary_text = (message_id('ui.0183', result.detail)
                                 if result.detail and not result.belongs_to_attempt else
-                                message("本次未产生结果 CSV；已保留 {0} 个本次完成的 case。历史结果可通过原路径查看。", result.new_cases))
+                                message_id('ui.0190', result.new_cases))
                 self._set_text(self.query_one("#result-summary", Static), summary_text)
-            self.notify(message("实验{0} · {1}", message(stage), detail),
-                        severity="information" if stage == "已完成" else "warning" if stage in {"部分完成", "已停止"} else "error")
+            self.notify(message_id('ui.0193', stage.label, detail),
+                        severity="information" if stage is Stage.COMPLETED else "warning" if stage in {Stage.PARTIAL, Stage.STOPPED} else "error")
         elif kind == "probe":
             final_state = snapshot or self._latest_snapshot
             if launch_error or (returncode != 0 and not self._stop_requested):
                 detail = launch_error or (
                     final_state.detail
-                    if final_state.stage == "探测失败"
-                    else message('探测进程退出码 {0}', returncode)
+                    if final_state.stage is Stage.PROBE_FAILED
+                    else message_id('ui.0796', returncode)
                 )
                 final_state = replace(
                     final_state,
-                    stage="探测失败",
+                    stage=Stage.PROBE_FAILED,
                     detail=detail,
                     measurement_active=False,
                 )
             elif self._stop_requested:
                 final_state = replace(
                     final_state,
-                    stage="已终止",
+                    stage=Stage.TERMINATED,
                     detail="用户终止了最大尺度探测",
                     measurement_active=False,
                 )
-            elif final_state.stage != "探测完成":
+            elif final_state.stage is not Stage.PROBE_COMPLETED:
                 final_state = replace(
                     final_state,
-                    stage="探测完成",
+                    stage=Stage.PROBE_COMPLETED,
                     detail="最大尺度单次请求已完成",
                     measurement_active=False,
                 )
@@ -878,14 +709,14 @@ class AcprofTui(
             self._render_snapshot(final_state)
         else:
             if launch_error or (returncode != 0 and not self._stop_requested and not comparison_ready):
-                stage = "失败"
-                detail = launch_error or message('{0} 进程退出码 {1}', kind, returncode)
+                stage = Stage.FAILED
+                detail = launch_error or message_id('ui.0799', kind, returncode)
             elif self._stop_requested:
-                stage = "已终止"
-                detail = message('用户终止了 {0} 任务', kind)
+                stage = Stage.TERMINATED
+                detail = message_id('ui.0800', kind)
             else:
-                stage = "已完成"
-                detail = message('{0} 任务已完成', kind)
+                stage = Stage.COMPLETED
+                detail = message_id('ui.0801', kind)
             self._latest_snapshot = ProgressSnapshot(stage=stage, detail=detail)
             self._render_snapshot(self._latest_snapshot)
 
@@ -914,7 +745,7 @@ class AcprofTui(
                 self._open_report(str(report_path))
             else:
                 self._activate_tab("reports-tab")
-                self._clear_report(message("统计未完成，请查看“运行监控”中的错误或终止日志。"))
+                self._clear_report(message_id('ui.0570'))
         elif kind == "compare":
             report_path, self._comparison_report_path = self._comparison_report_path, None
             # The comparison CLI uses exit 1 for a valid incompatible/unknown
@@ -923,7 +754,7 @@ class AcprofTui(
                 self._open_report(str(report_path))
             else:
                 self._activate_tab("reports-tab")
-                self._clear_report(message("比较未完成，请查看“运行监控”中的错误或终止日志。"))
+                self._clear_report(message_id('ui.0486'))
 
     @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:

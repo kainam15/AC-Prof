@@ -60,11 +60,11 @@ def test_pinned_python_upstream_is_named_only_with_matching_repository_digest():
 
     upstream = ManagedImage(
         "sha256:" + "e" * 64, (), 20, "", "untagged",
-        repo_digests=(PYTHON_BASE_IMAGE.replace(":3.10-slim@", "@"),),
+        repo_digests=(PYTHON_BASE_IMAGE.replace(":3.12.15-slim-trixie@", "@"),),
     )
     name = image_display_name(upstream)
-    assert name == "Python 3.10 Slim（上游基础）"
-    assert translate(name, "en") == "Python 3.10 Slim (upstream base)"
+    assert name == "Python 3.12 Slim（上游基础）"
+    assert translate(name, "en") == "Python 3.12 Slim (upstream base)"
     for other in (replace(upstream, repo_digests=()),
                   replace(upstream, repo_digests=("another.example/python@" + PYTHON_BASE_IMAGE.split("@")[1],)),
                   replace(upstream, repo_digests=("docker.m.daocloud.io/library/python@sha256:" + "0" * 64,)),
@@ -528,7 +528,7 @@ class TestTuiImages:
             await pilot.pause()
             detail = str(app.query_one("#image-dependency-detail", Static).content)
             assert ("transformers==4.57.6") in (detail)
-            assert ("sentence-transformers==5.1.2") in (detail)
+            assert ("sentence-transformers==5.6.0") in (detail)
             assert ("torch==") not in (detail)
             assert ("sha256:") not in (detail)
             assert ("依赖来源") not in (detail)
@@ -964,7 +964,7 @@ class TestTuiImages:
     async def test_default_image_tree_hides_external_parent_but_all_scope_shows_full_lineage(self):
         upstream = "sha256:" + "e" * 64
         self.docker.images[upstream] = image(
-            upstream, ["docker.io/library/python:3.10-slim"], 20, ["os"])
+            upstream, ["docker.io/library/python:3.12.15-slim-trixie"], 20, ["os"])
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot, view="tree", expand_tree=True)
@@ -1001,7 +1001,7 @@ class TestTuiImages:
         from acprof.tui.images import image_diagnostics
 
         upstream = "sha256:" + "e" * 64
-        digest = PYTHON_BASE_IMAGE.replace(":3.10-slim@", "@")
+        digest = PYTHON_BASE_IMAGE.replace(":3.12.15-slim-trixie@", "@")
         upstream_image = image(upstream, [], 20, ["os"])
         upstream_image["RepoDigests"] = [digest]
         self.docker.images[upstream] = upstream_image
@@ -1016,22 +1016,22 @@ class TestTuiImages:
             await pilot.pause()
             root = tree.root.children[0]
             assert root.data.image_id == upstream
-            assert "Python 3.10 Slim（上游基础）" in root.label.plain
+            assert "Python 3.12 Slim（上游基础）" in root.label.plain
             assert root.children[0].data.image_id == RUNTIME
             inventory = app._image_inventory
             assert digest in str(image_diagnostics(root.data, inventory))
             assert upstream in str(image_diagnostics(root.data, inventory))
-            assert "Python 3.10 Slim（上游基础）" in str(image_metadata(root.data, inventory))
+            assert "Python 3.12 Slim（上游基础）" in str(image_metadata(root.data, inventory))
 
             app.ui_preferences = replace(app.ui_preferences, language="en")
             app._apply_ui_preferences()
             await pilot.pause()
-            assert "Python 3.10 Slim (upstream base)" in tree.root.children[0].label.plain
+            assert "Python 3.12 Slim (upstream base)" in tree.root.children[0].label.plain
             await pilot.click("#image-view-list")
             await pilot.pause()
             table = app.query_one("#image-table", DataTable)
-            assert "Python 3.10 Slim (upstream base)" in table.get_cell(upstream, "name").plain
-            assert "Python 3.10 Slim (upstream base)" in table.get_cell(RUNTIME, "parent").plain
+            assert "Python 3.12 Slim (upstream base)" in table.get_cell(upstream, "name").plain
+            assert "Python 3.12 Slim (upstream base)" in table.get_cell(RUNTIME, "parent").plain
             assert len(self.docker.commands) == before, "命名及筛选不能额外调用 Docker"
 
 
@@ -1067,7 +1067,7 @@ class TestTuiImages:
         self.docker.images[RUNTIME] = image(
             RUNTIME, ["acprof-platform-cu128:base"], 100, ["os", "deps"],
             labels={"org.acprof.image-kind": "platform", "org.acprof.platform": "cu128"})
-        for image_id, profile, layer in ((WEIGHTS, "moss-transformers560", "weights"),
+        for image_id, profile, layer in ((WEIGHTS, "moss-transformers5104", "weights"),
                                          (FINAL, "multimodal-transformers4576", "code")):
             self.docker.images[image_id] = image(
                 image_id, ["acprof-runtime-env:" + profile], 400, ["os", "deps", layer],
@@ -1085,7 +1085,7 @@ class TestTuiImages:
             platform = tree.root.children[0]
             assert (platform.label.plain.split("  ")[1]) == ("PyTorch CUDA 12.8")
             children = {node.data.image_id: node for node in platform.children}
-            for image_id, expected in ((WEIGHTS, "moss-transformers5.6.0"),
+            for image_id, expected in ((WEIGHTS, "moss-transformers5.10.4"),
                                        (FINAL, "multimodal-transformers4.57.6")):
                 node = children[image_id]
                 assert (expected) in (node.label.plain)
@@ -1097,17 +1097,17 @@ class TestTuiImages:
                 assert (expected) in (tree.render_line(row).text)
             inventory = app._image_inventory
             runtime = next(item for item in inventory.images if item.image_id == WEIGHTS)
-            assert ("PyTorch CUDA 12.8 › moss-transformers5.6.0") in (str(image_metadata(runtime, inventory)))
-            assert ("moss-transformers5.6.0 · PyTorch CUDA 12.8") in (str(layer_image_detail(inventory.layers[0], inventory)))
+            assert ("PyTorch CUDA 12.8 › moss-transformers5.10.4") in (str(image_metadata(runtime, inventory)))
+            assert ("moss-transformers5.10.4 · PyTorch CUDA 12.8") in (str(layer_image_detail(inventory.layers[0], inventory)))
             assert ({item.image_id for item in filtered_images(inventory, "CUDA 12.8", "all")}) == ({RUNTIME, WEIGHTS, FINAL})
-            assert ([item.image_id for item in filtered_images(inventory, "5.6.0", "all")]) == ([WEIGHTS])
-            assert ([item.image_id for item in filtered_images(inventory, "moss-transformers560", "all")]) == ([WEIGHTS])
+            assert ([item.image_id for item in filtered_images(inventory, "5.10.4", "all")]) == ([WEIGHTS])
+            assert ([item.image_id for item in filtered_images(inventory, "moss-transformers5104", "all")]) == ([WEIGHTS])
             await pilot.click("#image-view-list")
             await pilot.pause()
             table = app.query_one("#image-table", DataTable)
-            assert ("moss-transformers5.6.0 · PyTorch CUDA 12.8") in (table.get_cell(WEIGHTS, "name").plain)
+            assert ("moss-transformers5.10.4 · PyTorch CUDA 12.8") in (table.get_cell(WEIGHTS, "name").plain)
             assert (table.get_cell(WEIGHTS, "parent").plain) == ("PyTorch CUDA 12.8")
-            assert (table.get_cell(WEIGHTS, "tag").plain) == ("moss-transformers560")
+            assert (table.get_cell(WEIGHTS, "tag").plain) == ("moss-transformers5104")
             assert (len(self.docker.commands)) == (before)
 
     async def test_list_header_sorts_numeric_bytes_and_preserves_selection(self):

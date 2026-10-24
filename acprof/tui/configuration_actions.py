@@ -19,7 +19,7 @@ from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.messages import join_messages, message
 from acprof.tui import run_form, run_planning
 from acprof.tui.commands import format_command
-from acprof.tui.i18n import error_message
+from acprof.tui.i18n import error_message, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.scrollbar import SolidScrollBarRender
@@ -142,7 +142,7 @@ class ConfigurationActions(MessagePump):
                 self._project_dir, self.settings_path.parent, sniff_iface=self._input("sniff-iface"),
             )
         except (OSError, ValueError) as read_error:
-            self.notify(message('无法读取连接配置：{0}', type(read_error).__name__), severity="error")
+            self.notify(message_id('ui.0293', type(read_error).__name__), severity="error")
             return
         self._environment_open = True
         self._set_busy(True)
@@ -179,7 +179,7 @@ class ConfigurationActions(MessagePump):
             assert isinstance(self, AcprofTui)
         options = [("仅 CPU", "off"), ("仅 GPU", "on"), ("CPU + GPU", "off,on")]
         if self.initial_config.gpus not in {value for _, value in options}:
-            options.append((message('自定义：{0}', self.initial_config.gpus), self.initial_config.gpus))
+            options.append((message_id('ui.0740', self.initial_config.gpus), self.initial_config.gpus))
         return options
 
 
@@ -386,11 +386,11 @@ class ConfigurationActions(MessagePump):
                 self._update_field_errors(exc.issues)
             self._set_text(
                 self.query_one("#config-summary", Static),
-                message("配置待完善 · {0}", join_messages("; ", (item.reason for item in exc.issues[:2]))),
+                message_id('ui.0744', join_messages("; ", (item.reason for item in exc.issues[:2]))),
             )
             self._set_text(
                 self.query_one("#command-preview", Static),
-                message("配置尚未完成：{0}", join_messages("; ", (item.reason for item in exc.issues))),
+                message_id('ui.0745', join_messages("; ", (item.reason for item in exc.issues))),
             )
             if notify:
                 self._show_config_error(exc)
@@ -400,7 +400,7 @@ class ConfigurationActions(MessagePump):
                 selected_preset = self._select("run-preset")
                 if selected_preset != "custom":
                     adjusted = not run_form.matches_preset(config, selected_preset)
-                    options = tuple((message("{0} · 已调整", message(label)) if key == selected_preset and adjusted else label, key)
+                    options = tuple((message_id('ui.0187', message(label)) if key == selected_preset and adjusted else label, key)
                         for label, key in run_form.PRESET_OPTIONS)
                     widget = self.query_one("#run-preset", Select)
                     self._localized_selects[widget] = options
@@ -415,20 +415,20 @@ class ConfigurationActions(MessagePump):
             * len(config.gpus.split(","))
         )
         scale_summary = (
-            message('{0} 档', len(config.input_scales.split(',')))
+            message_id('ui.0746', len(config.input_scales.split(',')))
             if config.input_scales
             else message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动规划")
         )
         profiler_summary = (
-            message("分析器关闭")
+            message_id('ui.0748')
             if config.compute_profile_tool == "none"
             and config.execution_profile_tool == "none"
             else (
-                message('计算={0} · 执行={1}', config.compute_profile_tool, config.execution_profile_tool)
+                message_id('ui.0749', config.compute_profile_tool, config.execution_profile_tool)
             )
         )
-        self._set_text(self.query_one("#config-summary", Static), message(
-            "{0} 个资源 case · 输入规模 {1} · 单请求超时 {2:g}s · {3} · 输出 {4}",
+        self._set_text(self.query_one("#config-summary", Static), message_id(
+            'ui.0750',
             case_count, scale_summary, config.request_timeout_seconds,
             profiler_summary, config.output_dir,
         ))
@@ -445,9 +445,9 @@ class ConfigurationActions(MessagePump):
         self._set_text(summary, run_planning.plan_summary(config, planned))
         self._set_text(summary, run_planning.preparation_details(config, planned), "tooltip")
         unit = run_planning.input_unit(config, planned)
-        self._set_text(self.query_one("#input-scales-label", Label), message("输入规模 ({0})", unit))
+        self._set_text(self.query_one("#input-scales-label", Label), message_id('ui.0627', unit))
         if planned and planned.get("scales"):
             placeholder = ",".join(f"{value:g}" for value in planned["scales"]) + f" {unit}"
         else:
-            placeholder = message("留空：{0} · {1}", message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
+            placeholder = message_id('ui.0628', message("最小单一尺度" if config.input_scale_policy == "minimal" else "自动范围"), unit)
         self._set_text(self.query_one("#input-scales", Input), placeholder, "placeholder")

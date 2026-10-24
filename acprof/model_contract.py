@@ -188,9 +188,10 @@ def apply_model_contract(task_info, read_text: Callable[[str], str], *, override
     task_info.model_resolution["contract"] = report
     if report["status"] == "resolved":
         if not task_model_spec(task_info):
-            from acprof.model_resolution import discover_model_candidates
+            from acprof.model_candidates import apply_model_candidate, discover_model_candidates
             task_info.model_resolution["generated_spec"] = report["draft_spec"]
-            selection = discover_model_candidates(task_info, override_tag=override_tag, override_backend=override_backend)
+            selection = apply_model_candidate(task_info, discover_model_candidates(
+                task_info, override_tag=override_tag, override_backend=override_backend))
             task_info.model_resolution.update(selection)
     else:
         resolution = task_info.model_resolution

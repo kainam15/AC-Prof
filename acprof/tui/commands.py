@@ -12,6 +12,7 @@ from typing import Sequence
 from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
 from acprof.messages import message
+from acprof.tui.i18n import message_id
 
 
 @dataclass(frozen=True)
@@ -91,13 +92,13 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
     """Reuse the public comparison command and preserve its baseline direction."""
     from acprof.artifact_layout import ArtifactLayout
     if baseline not in {"left", "right"} or purpose not in {"same-hardware", "cross-hardware", "resource-scaling"}:
-        raise RunConfigError([ConfigIssue(None, message("请选择有效的比较基线和用途。"))])
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0484'))])
     groups = []
     for text in (left, right):
         paths = [resolve_result_path(value.strip(), project_dir).resolve()
                  for value in next(csv.reader([text], delimiter=";", skipinitialspace=True)) if value.strip()]
         if not paths:
-            raise RunConfigError([ConfigIssue(None, message("请选择左右两组实验目录。"))])
+            raise RunConfigError([ConfigIssue(None, message_id('ui.0485'))])
         for path in paths:
             source = path / "result_layers.json" if path.is_dir() else path
             if not source.is_file() or (source.name != "result_layers.json" and source.suffix.lower() != ".csv"):
@@ -120,7 +121,7 @@ def prepare_profile(source: str, *, tools: str, dry_run: bool,
                     project_dir: Path, python_executable: Path) -> PendingLaunch:
     path = resolve_result_path(source, project_dir)
     if not path.is_dir():
-        raise FileNotFoundError(message("结果目录不存在：{0}", path))
+        raise FileNotFoundError(message_id('ui.0815', path))
     command = build_profile_command(path, tools=tools, dry_run=dry_run,
                                     project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "profile-dry-run" if dry_run else "profile", result_dir=str(path))
@@ -203,7 +204,7 @@ def build_profile_command(
 ) -> list[str]:
     normalized_tools = ",".join(_csv_values(tools))
     if not normalized_tools:
-        raise RunConfigError([ConfigIssue(None, message('补采工具不能为空'))])
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0862'))])
     command = [
         *cli_command("profile", python_executable=python_executable),
         str(Path(result_dir).expanduser()),
@@ -231,7 +232,7 @@ def parse_slash_command(value: str) -> tuple[str, list[str]]:
     try:
         parts = shlex.split(value.strip())
     except ValueError as exc:
-        raise RunConfigError([ConfigIssue(None, message('命令格式错误：{0}', exc))]) from exc
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0900', exc))]) from exc
     if not parts or not parts[0].startswith("/"):
-        raise RunConfigError([ConfigIssue(None, message('快捷命令必须以 / 开头'))])
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0901'))])
     return parts[0][1:].lower(), parts[1:]

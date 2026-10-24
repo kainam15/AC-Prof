@@ -10,9 +10,12 @@
 | `local_dynamic_transitive_imports` | 空缓存、离线时递归准备 `A → B → C` 的本地相对依赖 |
 | `local_dynamic_symlink_safe` | snapshot 文件指向 Hub blobs 时，仍按 snapshot 名称发现和加载相对依赖 |
 
-4.57.6 和 5.6.0 的两项声明目前均为 `false`，继续使用
-[`compat/transformers_dynamic.py`](../../acprof/container/compat/transformers_dynamic.py)。该 shim 保留已有行为：
-复用 Transformers 的依赖发现、缓存路径和类导入，只补齐递归缓存文件，不修改 snapshot 或 blobs；
+4.57.6 的两项声明均为 `false`；5.10.4 的递归依赖验收通过，但原生 loader 仍会在
+snapshot→blobs 软链接场景错误地查找 blobs 目录中的相对文件，因此 symlink capability 为 `false`。
+两个版本继续使用 [`compat/transformers_dynamic.py`](../../acprof/container/compat/transformers_dynamic.py)：
+复用 Transformers 的依赖发现、缓存路径和类导入，补齐递归缓存文件。存在代码软链接时，
+先在临时目录按原 snapshot 文件名展开代码依赖，待上游完成缓存复制后清理临时文件；
+不复制权重，不修改 snapshot 或 blobs。该准备过程仅在模型加载阶段执行；
 缺失源文件在执行入口前报告原 snapshot 路径，实际导入异常继续上传。
 `false` 表示当前不能依靠完整的原生加载路径通过该项验收，不表示每个 symlink 场景均会失败。
 

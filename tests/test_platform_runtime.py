@@ -30,8 +30,8 @@ class TestPlatformRuntime:
 
     def test_existing_torch_platform_and_environment_identity_is_stable(self):
         # Changing the pinned base-image registry changes both provenance identities.
-        assert (content_digest(profiles.platform_identity(profiles.PLATFORMS['cpu'], ROOT))) == ('3ad85005ae6dfaedbea80af055adbcb9b3a863d85ab938e0d312987527e0c19b')
-        assert (profiles.environment_id(profiles.ENVIRONMENTS['nlp-cpu'], ROOT)) == ('674493848d2921020917131519c05f5e086f0ecabbb4f9670fd42afe149f5eb2')
+        assert (content_digest(profiles.platform_identity(profiles.PLATFORMS['cpu'], ROOT))) == ('e2b7f22941d1895b2d7dc0c5342c1c216f7cd65388ec042f4f2d6292c0c53be8')
+        assert (profiles.environment_id(profiles.ENVIRONMENTS['nlp-cpu'], ROOT)) == ('2d1b4f7f8422233502c657ea6dedfbaef9aab06d22d76946c2f62d8642569b18')
 
     def test_runtime_version_is_validated_without_torch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -63,7 +63,7 @@ class TestPlatformRuntime:
 
     def test_same_locked_environment_identity_is_independent_of_runtime_role(self):
         environment = profiles.ENVIRONMENTS['nlp-cpu']
-        declared = dataclasses.replace(environment, runtime=profiles.RuntimeSpec('torch', '2.11.0+cpu'))
+        declared = dataclasses.replace(environment, runtime=profiles.RuntimeSpec('torch', environment.platform.torch_version))
         assert (profiles.environment_id(environment, ROOT)) == (profiles.environment_id(declared, ROOT))
 
     def test_partial_legacy_torch_declaration_is_rejected(self):

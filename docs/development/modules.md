@@ -34,7 +34,7 @@
 
 | 位置 | 职责 |
 | --- | --- |
-| `acprof/cli/` | 命令参数、入口调度和退出处理 |
+| `acprof/cli/` | `run.py` 负责 CLI 参数、采集调度、退出与信号清理；`run_matrix.py` 纯校验 CPU/内存/GPU 矩阵；`run_preparation.py` 构建／恢复不可变镜像与输入、运行验证及 profiler 计划，在正式测量窗口前写入证据；`run_notifications.py` 独立负责通知 |
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
@@ -49,8 +49,11 @@
 | `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
-| `acprof/model_resolution.py`、`acprof/model_spec.py` | 静态接口候选、schema 校验与执行契约；本地／作者声明优先于自动生成 |
+| `acprof/model_support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
+| `acprof/model_candidates.py` | 不修改输入 `TaskInfo` 的静态候选发现、证据与歧义决策；`apply_model_candidate` 仅在调用方明确选择时写入 task/family/backend，保留原 provenance；不加载权重 |
+| `acprof/model_resolution.py`、`acprof/model_spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
 | `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
+| `acprof/model_dependency_domain.py`、`acprof/model_dependency_eval.py`、`acprof/model_dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
 | `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
 | `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
@@ -129,7 +132,9 @@ Massif/Nsys 使用原模型镜像预装的运行库，缺少能力标记时要�
 子进程采用 Python 3.10+ 标准库（PSF License），遵循 [CPython 等待/超时语义](https://github.com/python/cpython/blob/3.10/Lib/subprocess.py)；
 硬件观测借鉴 [pyperf 元数据采集](https://github.com/psf/pyperf/blob/main/pyperf/_collect_metadata.py)（MIT），
 不引入 benchmark 调度依赖。Requests（Apache-2.0）的超时边界依据 [overall timeout Issue](https://github.com/psf/requests/issues/3099)，
-保留既有 Requests 和串行短连接协议。视觉回归复用 [Textual 官方插件](https://github.com/Textualize/pytest-textual-snapshot)（MIT），
-依赖与运行入口统一见[辅助开发工具](devtools.md#辅助开发工具)；不将其依赖或事件轮询带入测量窗口。
+保留既有 Requests 和串行短连接协议。视觉回归通过 Textual 的 `App.run` 与
+`export_screenshot(simplify=True)` 捕获基线 SVG，由自有 pytest fixture 标准化 Rich 临时 ID 并严格比对；
+不再依赖绑定旧 pytest/syrupy 的外部快照插件。
+依赖与运行入口统一见[辅助开发工具](devtools.md#辅助开发工具)；不将其事件轮询带入测量窗口。
 依赖升级通过锁文件和独立回归验收；硬件查询仅在 case 开始边界执行，不增加窗口内采样器。
 这些改动复用当前架构中的 `MonitorGroup`、artifact layout 与 evidence runner，不复制第三方框架。

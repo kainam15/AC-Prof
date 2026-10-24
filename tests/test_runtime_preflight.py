@@ -44,11 +44,11 @@ def test_precision_intersects_adapter_support_and_scopes_sam_evidence():
     extension = CATALOG.get_extension("cv", "transformers_pipeline", "family-default", "mask-generation")
     args = dict(task="mask-generation", model_type="sam2")
     assert (resolve_precision(PROFILES["cv-cpu"], extension, device="cpu", version="4.57.6", **args)["dtype"]) == ("FP32")
-    assert (resolve_precision(PROFILES["cv-cu128"], extension, device="gpu", version="5.6.0", **args)["dtype"]) == ("FP16")
+    assert (resolve_precision(PROFILES["cv-cu128"], extension, device="gpu", version="5.10.4", **args)["dtype"]) == ("FP16")
     scoped = replace(extension, precision_policy={"model_type_overrides": {"sam2": {"preferred_dtype": "FP32"}}})
-    assert (resolve_precision(PROFILES["cv-cu128"], scoped, device="gpu", version="5.6.0", **args)["dtype"]) == ("FP32")
+    assert (resolve_precision(PROFILES["cv-cu128"], scoped, device="gpu", version="5.10.4", **args)["dtype"]) == ("FP32")
     with pytest.raises(ValueError) as caught:
-        resolve_precision(PROFILES["cv-cu128"], replace(extension, dtypes=("FP32",)), device="gpu", version="5.6.0", **args)
+        resolve_precision(PROFILES["cv-cu128"], replace(extension, dtypes=("FP32",)), device="gpu", version="5.10.4", **args)
     assert (caught.value.failure.reason_code) == ("precision_mismatch")
 
 @pytest.mark.parametrize('sources_case', range(3))
@@ -158,7 +158,7 @@ def test_cv_profile_false_reaches_pipeline_as_false():
 def test_installed_transformers_must_match_the_selected_lock():
     from acprof.container.handlers.cv import CVHandler
     pipeline = Mock()
-    with patch.dict(sys.modules, {"torch": SimpleNamespace(), "transformers": SimpleNamespace(pipeline=pipeline, __version__="5.6.0")}), patch.dict(
+    with patch.dict(sys.modules, {"torch": SimpleNamespace(), "transformers": SimpleNamespace(pipeline=pipeline, __version__="5.10.4")}), patch.dict(
         os.environ, {"ACPROF_RUNTIME_PROFILE": "cv-cpu"}):
         with pytest.raises(ValueError) as caught:
             CVHandler().load("fixture/model", "image-classification", "transformers_pipeline", "cpu")
@@ -182,6 +182,27 @@ def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected():
             assert (caught.value.failure.reason_code) == ("precision_mismatch")
             pipeline.assert_not_called()
 
+def test_dependency_markers_use_target_python_instead_of_host(monkeypatch):
+    from packaging.markers import default_environment
+
+    from acprof.runtime_dependencies import dependency_preflight
+    from acprof.runtime_profiles import PROFILES
+
+    host = {**default_environment(), "python_version": "3.13",
+            "python_full_version": "3.13.0", "implementation_version": "3.13.0"}
+    monkeypatch.setattr("packaging.markers.default_environment", lambda: host)
+    task = model("image-classification", "cv", "vit", repository_files=("requirements.txt",))
+    requirements = (
+        'missing-old-python; python_version < "3.12"\n'
+        'missing-host-python; implementation_version >= "3.13"\n'
+        f'typing; python_version == "3.12" and implementation_version == "{PROFILES["cv-cpu"].environment.platform.python_version}"\n'
+    )
+    report = dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: requirements)
+    assert [(item["distribution"], item["status"]) for item in report["dependencies"]] == [
+        ("typing", "stdlib")
+    ]
+
+
 def test_unversioned_typing_backport_uses_target_python_stdlib():
     from acprof.runtime_dependencies import dependency_preflight
     from acprof.runtime_profiles import PROFILES
@@ -190,7 +211,7 @@ def test_unversioned_typing_backport_uses_target_python_stdlib():
     typing = next(item for item in report["dependencies"] if item["distribution"] == "typing")
     assert (typing["status"]) == ("stdlib")
     assert (typing["source"]) == ("requirements.txt")
-    assert (typing["python_version"]) == ("3.10")
+    assert (typing["python_version"]) == ("3.12")
     with pytest.raises(ValueError):
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing==3.7.4.3")
 
@@ -218,11 +239,11 @@ def test_glm_ocr_task_is_checked_in_selected_runtime():
         require_task_support(task)
     assert (caught.value.failure.reason_code) == ("runtime_task_unsupported")
     assert (caught.value.failure.stage) == ("preflight")
-    assert (caught.value.failure.runtime_profile) == ("cv-transformers560-cu128")
-    assert (caught.value.failure.evidence["transformers_version"]) == ("5.6.0")
+    assert (caught.value.failure.runtime_profile) == ("cv-transformers5104-cu128")
+    assert (caught.value.failure.evidence["transformers_version"]) == ("5.10.4")
 
 def test_explicit_transformers5_cannot_borrow_old_pipeline_registry():
-    task = model("image-to-text", "cv", "blip", runtime_profile_id="cv-transformers560-cpu")
+    task = model("image-to-text", "cv", "blip", runtime_profile_id="cv-transformers5104-cpu")
     with pytest.raises(TaskSupportError) as caught:
         require_task_support(task)
     assert (caught.value.failure.reason_code) == ("runtime_task_unsupported")

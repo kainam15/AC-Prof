@@ -129,7 +129,7 @@ class TestCapability:
 
     @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
     def test_run_profiler_plan_reader_rejects_invalid_json_artifacts(self, case):
-        from acprof.cli import run
+        from acprof.cli.run_preparation import apply_profiler_plan_file
 
         caps = self.capabilities()
         report = caps.measurement_report("full", gpu_modes=["on"], compute_tool="ncu")
@@ -148,7 +148,7 @@ class TestCapability:
             if case == "oversized":
                 assert path.stat().st_size > MAX_JSON_ARTIFACT_BYTES
             with pytest.raises(ValueError, match="non-finite|4 MiB read limit"):
-                run._apply_profiler_plan_file(
+                apply_profiler_plan_file(
                     report,
                     str(path),
                     source="compute_profile_plan",

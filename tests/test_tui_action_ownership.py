@@ -7,6 +7,7 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.configuration_actions import ConfigurationActions
 from acprof.tui.experiment_actions import ExperimentActions
 from acprof.tui.preflight_actions import PreflightActions
+from acprof.tui.process_actions import ProcessWorkerActions
 from acprof.tui.profile_actions import ProfileActions
 from acprof.tui.result_actions import ResultActions
 from acprof.tui.slash_actions import SlashCommandActions
@@ -19,6 +20,9 @@ OWNER_METHODS = (
     (ExperimentActions, "action_request_probe"),
     (PreflightActions, "action_quick_check"),
     (PreflightActions, "_preparation_event"),
+    (ProcessWorkerActions, "_execute_command"),
+    (ProcessWorkerActions, "_watch_failed_process"),
+    (ProcessWorkerActions, "_safe_process_callback"),
     (ResultActions, "_execute_summary_read"),
     (ResultActions, "_execute_report_read"),
     (ProfileActions, "profile_run_button"),
@@ -33,7 +37,7 @@ def test_action_has_exact_single_owner(owner, name):
 
 
 def test_app_retains_process_and_measurement_lifecycle():
-    for name in ("_launch", "_execute_command", "_process_finished", "_stop_process_gracefully", "on_unmount"):
+    for name in ("_launch", "_process_finished", "_stop_process_gracefully", "on_unmount"):
         assert name in AcprofTui.__dict__
 
 

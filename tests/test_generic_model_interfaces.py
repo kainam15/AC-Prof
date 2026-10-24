@@ -237,7 +237,7 @@ class TestModelResolution:
     def test_native_new_architecture_selects_compatible_environment_without_id_rule(self):
         task = self.task()
         profile = select_runtime_profile(task)
-        assert (profile.environment.environment_key) == ("transformers560-cu128")
+        assert (profile.environment.environment_key) == ("transformers5104-cu128")
         assert (profile.adapter) == ("family-default")
 
     def test_hardware_selection_preserves_compatible_transformers_version(self):
@@ -247,10 +247,10 @@ class TestModelResolution:
         with patch("acprof.host.runtime_images.select_nlp_torch_index_url",
                    return_value="https://download.pytorch.org/whl/cpu"):
             profile = configure_runtime_profile(task)
-        assert (profile.environment.environment_key) == ("transformers560-cpu")
+        assert (profile.environment.environment_key) == ("transformers5104-cpu")
 
     def test_saved_version_does_not_force_upgrade_for_an_already_supported_architecture(self):
-        task = self.task(model_config={"model_type": "qwen2_vl", "transformers_version": "5.6.0"})
+        task = self.task(model_config={"model_type": "qwen2_vl", "transformers_version": "5.10.4"})
         assert (select_runtime_profile(task).profile_id) == ("multimodal-transformers4576")
 
     def test_explicit_incompatible_profile_cannot_bypass_architecture_check(self):

@@ -3,6 +3,7 @@ import json
 import pytest
 
 from acprof.tui.progress import RunProgressTracker
+from acprof.tui.stages import Stage
 
 
 def event(name, case="case-a", **fields):
@@ -16,7 +17,7 @@ def test_events_control_measurement_even_when_log_wording_changes():
     assert (tracker.feed("[case] Done. (third party output)").measurement_active)
     assert (tracker.feed(event("measurement_stopped", case="stale-case")).measurement_active)
     assert not (tracker.feed(event("measurement_stopped")).measurement_active)
-    assert (tracker.feed(event("case_finished", status="error")).stage) == ("失败")
+    assert (tracker.feed(event("case_finished", status="error")).stage) is Stage.FAILED
 
 def test_unknown_event_version_is_rejected():
     tracker = RunProgressTracker()

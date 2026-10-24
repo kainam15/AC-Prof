@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Sequence
@@ -121,12 +122,34 @@ def profiler_container_command(
     payload_file: str,
     profile_root: str,
     tool_mount_roots: Sequence[str],
+    requires_gpu_counters: bool = False,
 ) -> Iterator[List[str]]:
     from acprof.host.model_store import acquire_mount
     from acprof.installation import resource_root
+
+    if requires_gpu_counters and not use_gpu:
+        raise ValueError("GPU counter access requires a GPU profiler")
+    uid, gid = os.getuid(), os.getgid()
+    if requires_gpu_counters:
+        directory = os.stat(profile_root)
+        if (
+            not stat.S_ISDIR(directory.st_mode)
+            or directory.st_uid != uid
+            or directory.st_gid not in {gid, *os.getgroups()}
+        ):
+            raise ValueError(
+                "NCU output directory must be owned by the invoking user with an accessible group"
+            )
+        # Docker drops effective capabilities for a non-root image USER.
+        # Counter access needs UID 0. Keep its reports accessible to
+        # the host through the existing output group, without world write access.
+        uid, gid = 0, directory.st_gid
+        os.chmod(profile_root, stat.S_IMODE(directory.st_mode) | stat.S_IRWXG)
     package_root = str(resource_root() / "acprof")
     cmd = [
         "docker", "run", "--rm",
+        "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+        f"--user={uid}:{gid}",
         f"--cpus={cpu}",
         f"--memory={mem}g",
         "-v", f"{os.path.abspath(payload_file)}:{CONTAINER_INPUT_SCALE_PLAN_FILE}:ro",
@@ -154,18 +177,17 @@ def profiler_container_command(
         abs_root = os.path.abspath(tool_mount_root)
         cmd.extend(["-v", f"{abs_root}:{abs_root}:ro"])
     if use_gpu:
-        cmd.extend([
-            *gpu_docker_args(),
-            "--cap-add=SYS_ADMIN",
-            "--cap-add=SYS_PTRACE",
-            "--security-opt=seccomp=unconfined",
-        ])
+        cmd.extend(gpu_docker_args())
+    if requires_gpu_counters:
+        cmd.append("--cap-add=SYS_ADMIN")
     mount_index = cmd.index("HOME=/tmp") - 1
     model_store_mount = acquire_mount({
         "model_store": getattr(task_info, "model_store", {}),
     })
     cmd[mount_index:mount_index] = model_store_mount.args
     cmd.append(image_tag)
+    if requires_gpu_counters:
+        cmd.extend(["sh", "-c", 'umask 0002; exec "$@"', "acprof-profiler"])
     with _ProfilerMountScope(model_store_mount):
         yield cmd
 

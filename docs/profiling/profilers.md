@@ -22,6 +22,14 @@ FLOP profiling 和主 latency / energy workload 相互独立：
 Torch probe 会强制并验证 eager attention，正式请求仍使用正常运行时的 attention 实现。
 NCU 需要主机上的 `ncu` 和可用的 GPU 性能计数器，可用 `--ncu-root` 指定工具位置。
 
+独立 profiler 容器使用宿主调用者的 UID/GID，关闭网络、清空 capabilities，并启用
+`no-new-privileges`；模型目录保持只读。NCU 的设备指标查询和计数器采集单独使用容器 UID 0 和
+`SYS_ADMIN`，遵循 [NVIDIA 的计数器访问要求](https://developer.nvidia.com/nvidia-development-tools-solutions-err_nvgpuctrperm-permission-issue-performance-counters)。
+已有报告的导出不需要这项权限。所有路径均保留 Docker 默认 seccomp，不使用
+`--privileged`，也不更改宿主驱动的全局权限。NCU 输出目录必须属于调用者；采集时为
+该目录的现有组增加读写和进入权限，并使用组可写的报告，使调用者可以读取、清理产物。
+这些权限仅用于独立 profiler，不进入正式 latency / energy 测量窗口。
+
 ### 执行分析器：`--execution-profile-tool`
 
 Execution profiling 用于分析内存峰值与执行时间线，默认关闭，与 FLOP profiling 独立选择。

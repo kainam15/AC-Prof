@@ -24,4 +24,11 @@ COPY acprof/ /app/acprof/
 COPY LICENSE NOTICE /usr/share/licenses/acprof/
 COPY licenses/ /usr/share/licenses/acprof/third-party/
 RUN python -m acprof.container.runtime_manifest
+# Runtime requests and model imports never need UID 0. Fixed IDs make
+# container ownership deterministic; /models is a read-only host mount.
+RUN groupadd --gid 65532 acprof \
+    && useradd --no-log-init --uid 65532 --gid 65532 --home-dir /tmp \
+       --no-create-home --shell /usr/sbin/nologin acprof
+ENV HOME=/tmp TORCHINDUCTOR_CACHE_DIR=/tmp/acprof-torch
+USER acprof:acprof
 CMD ["python", "-m", "acprof.container.server"]

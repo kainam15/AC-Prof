@@ -10,6 +10,7 @@ from textual.widgets import Button, Static
 
 from acprof.host.model_store import ModelStoreCancelled, disk_report, prune_store
 from acprof.tui.app_contracts import translated_app
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import format_byte_fields
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.views import ConfirmActionScreen
@@ -41,11 +42,11 @@ class ModelStoreScreen(ModalScreen):
             yield Static("Model Store", markup=False)
             with VerticalScroll(id="store-scroll"):
                 yield Static("", id="store-report", markup=False)
-            yield Static(translated_app(self.app).tr("正在读取存储空间……"), id="store-status", markup=False)
+            yield Static(translated_app(self.app).tr(message_id('ui.0320')), id="store-status", markup=False)
             with Horizontal(id="store-actions", classes="action-bar"):
-                yield Button(translated_app(self.app).tr("关闭"), id="store-close")
-                yield Button(translated_app(self.app).tr("刷新"), id="store-refresh", disabled=True)
-                yield Button(translated_app(self.app).tr("清理未使用模型"), id="store-prune", disabled=True)
+                yield Button(translated_app(self.app).tr(message_id('ui.0666')), id="store-close")
+                yield Button(translated_app(self.app).tr(message_id('ui.0316')), id="store-refresh", disabled=True)
+                yield Button(translated_app(self.app).tr(message_id('ui.0215')), id="store-prune", disabled=True)
 
     def on_mount(self):
         self.refresh_report()
@@ -70,7 +71,7 @@ class ModelStoreScreen(ModalScreen):
             preview = prune_store(root=self.root, target_bytes=self.target, cancel=self._cancel,
                                   on_wait=lambda: self._post(self._show_waiting))
         except ModelStoreCancelled:
-            self._post(self._complete, translated_app(self.app).tr("已取消"))
+            self._post(self._complete, translated_app(self.app).tr(message_id('ui.0245')))
         except (ValueError, OSError) as exc:
             self._post(self._complete, str(exc))
         else:
@@ -83,11 +84,11 @@ class ModelStoreScreen(ModalScreen):
         self.query_one("#store-report", Static).update(json.dumps(
             format_byte_fields(report, translated_app(self.app).tr), ensure_ascii=False, indent=2))
         if not self._close_requested:
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr("正在计算清理预览……"))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0218')))
 
     def _show_waiting(self):
         if self.is_mounted and not self._close_requested:
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr("缓存正在由另一任务处理；可以关闭窗口取消等待。"))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0217')))
 
     def _complete(self, error="", preview=None):
         if not self.is_mounted:
@@ -124,7 +125,7 @@ class ModelStoreScreen(ModalScreen):
     def prune_clicked(self):
         if self._working or not self.preview:
             return
-        self.app.push_screen(ConfirmActionScreen(translated_app(self.app).tr("清理未使用模型"),
+        self.app.push_screen(ConfirmActionScreen(translated_app(self.app).tr(message_id('ui.0215')),
             json.dumps(format_byte_fields(self.preview, translated_app(self.app).tr), ensure_ascii=False, indent=2),
             translated_app(self.app).tr("清理")), self._confirmed)
 
@@ -140,7 +141,7 @@ class ModelStoreScreen(ModalScreen):
             prune_store(root=self.root, apply=True, approved_entries=approved, cancel=self._cancel,
                         on_wait=lambda: self._post(self._show_waiting))
         except ModelStoreCancelled:
-            self._post(self._complete, translated_app(self.app).tr("已取消"))
+            self._post(self._complete, translated_app(self.app).tr(message_id('ui.0245')))
         except (ValueError, OSError) as exc:
             self._post(self._complete, str(exc))
         else:
@@ -160,6 +161,6 @@ class ModelStoreScreen(ModalScreen):
         if self._working:
             self._close_requested = True
             self._cancel.set()
-            self.query_one("#store-status", Static).update(translated_app(self.app).tr("正在取消；等待后台任务释放资源。"))
+            self.query_one("#store-status", Static).update(translated_app(self.app).tr(message_id('ui.0220')))
         else:
             self.dismiss()

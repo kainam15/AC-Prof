@@ -28,6 +28,7 @@ from acprof.host.image_management import (
 from acprof.messages import join_messages, message
 from acprof.runtime_profiles import PYTHON_BASE_IMAGE
 from acprof.tui.app_contracts import image_detail_app, translated_app
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import NOT_APPLICABLE, STATUS_LEGEND, UNKNOWN, format_bytes
 from acprof.tui.table import ResizableDataTable
 from acprof.tui.views import COLLAPSED_SYMBOL, EXPANDED_SYMBOL, ConfirmActionScreen
@@ -44,7 +45,7 @@ IMAGE_PLATFORMS = {
 }
 # 已知环境别名对应的版本来自依赖锁；不猜测其它名称中的数字含义。
 IMAGE_RUNTIME_NAMES = {
-    "moss-transformers560": "moss-transformers5.6.0",
+    "moss-transformers5104": "moss-transformers5.10.4",
     "multimodal-transformers4576": "multimodal-transformers4.57.6",
 }
 
@@ -371,7 +372,7 @@ class ImageDetailPanel(VerticalScroll):
         created_label = self.query_one("#image-detail-created", Static)
         created_label.display = created is not None
         if created is not None:
-            app._set_text(created_label, message("创建日期：{0}", image_created_text(created)))
+            app._set_text(created_label, message_id('ui.0346', image_created_text(created)))
         app._set_text(self.query_one("#image-detail", Static), summary)
         for group in self.query(Collapsible):
             section_title, content = sections.get(group.id or "", ("", ""))
@@ -388,20 +389,20 @@ class ImageDetailPanel(VerticalScroll):
         self._show(None, "", text, {})
 
     def show_image(self, item: ManagedImage, inventory: ImageInventory) -> None:
-        self._show(("image", item.image_id), message("镜像摘要 · {0} · {1}", message(IMAGE_KINDS[item.kind]), image_display_name(item)),
+        self._show(("image", item.image_id), message_id('ui.0345', message(IMAGE_KINDS[item.kind]), image_display_name(item)),
                    image_summary(item, inventory), {
                        "image-dependencies": (dependency_title(item), dependency_detail(item)),
-                       "image-metadata": (message("镜像信息 · 标签 {0} · 容器 {1}", len(item.tags), len(item.containers)),
+                       "image-metadata": (message_id('ui.0367', len(item.tags), len(item.containers)),
                                           image_metadata(item, inventory)),
                        "image-diagnostics": (message("诊断信息 · 有警告" if inventory.warnings else "诊断信息"),
                                              image_diagnostics(item, inventory)),
                    }, created=item.created)
 
     def show_layer(self, layer: ImageLayer, inventory: ImageInventory) -> None:
-        self._show(("layer", layer.chain_id), message("层摘要"),
-                   message("层大小：{0} · 引用镜像：{1}", format_bytes(layer.size_bytes), len(layer.image_ids)), {
-                       "image-metadata": (message("引用镜像 · {0}", len(layer.image_ids)), layer_image_detail(layer, inventory)),
-                       "image-diagnostics": (message("诊断信息"), layer_diagnostics(layer)),
+        self._show(("layer", layer.chain_id), message_id('ui.0347'),
+                   message_id('ui.0412', format_bytes(layer.size_bytes), len(layer.image_ids)), {
+                       "image-metadata": (message_id('ui.0368', len(layer.image_ids)), layer_image_detail(layer, inventory)),
+                       "image-diagnostics": (message_id('ui.0369'), layer_diagnostics(layer)),
                    })
 
 
@@ -423,7 +424,7 @@ class ImageDeleteScreen(ConfirmActionScreen):
 
     def __init__(self, inventory: ImageInventory, image_ids: tuple[str, ...], *, hidden_count: int = 0) -> None:
         super().__init__("删除所选镜像？", deletion_message(inventory, image_ids, hidden_count=hidden_count), "删除镜像")
-        self.estimate = message("预计可释放：{0}", reclaimable_text(inventory, image_ids))
+        self.estimate = message_id('ui.0400', reclaimable_text(inventory, image_ids))
 
     def compose(self) -> ComposeResult:
         tr = translated_app(self.app).tr
@@ -449,9 +450,9 @@ def image_display_name(item: ManagedImage, parent: ManagedImage | None = None) -
     pinned_ref, separator, pinned_digest = PYTHON_BASE_IMAGE.partition("@")
     repository, tag_separator, version = pinned_ref.rpartition(":")
     if (not item.tags and not item.acprof and separator and tag_separator
-            and re.fullmatch(r"\d+\.\d+-slim", version)
+            and (match := re.fullmatch(r"(\d+\.\d+)(?:\.\d+)?-slim(?:-[a-z0-9]+)?", version))
             and f"{repository}@{pinned_digest}" in item.repo_digests):
-        return message("Python {0} Slim（上游基础）", version.removesuffix("-slim"))
+        return message_id('ui.0330', match.group(1))
     platform = IMAGE_PLATFORMS.get(item.platform_id, item.platform_id)
     if item.kind == "base" and item.platform_id in IMAGE_PLATFORMS:
         return platform
@@ -477,23 +478,23 @@ def dependency_packages(item: ManagedImage) -> list[str]:
 
 def dependency_title(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
-        return message("依赖清单 · 未知")
+        return message_id('ui.0350')
     if item.dependency_source in {"inherited", "inherited-historical"}:
-        return message("依赖清单 · 无新增包")
+        return message_id('ui.0351')
     if item.dependency_source in {"historical-manifest", "actual-scan"}:
         title = "历史构建" if item.dependency_source == "historical-manifest" else "实际扫描"
-        return message("依赖清单 · {0} · Python {1} · 系统 {2}",
+        return message_id('ui.0353',
                        message(title), len(item.python_dependencies), len(item.system_dependencies))
-    return message("依赖清单 · Python {0} · 系统 {1}", len(item.python_dependencies), len(item.system_dependencies))
+    return message_id('ui.0352', len(item.python_dependencies), len(item.system_dependencies))
 
 
 def dependency_detail(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
-        return join_messages("\n", (message("本层依赖：未知（镜像身份、依赖锁或构建记录无法核验）。"),
+        return join_messages("\n", (message_id('ui.0377'),
                                    item.dependency_note))
     if item.dependency_source in {"inherited", "inherited-historical"}:
         return join_messages("\n", (
-            message("本层依赖：无新增包，继承父镜像。"),
+            message_id('ui.0378'),
             message("本层添加模型文件；包依赖由运行环境提供。" if item.kind == "weights" else
                     "本层仅保存模型清单；权重通过只读 Model Store 挂载。" if item.kind == "model-plan" else
                     "本层添加推理服务代码与运行清单；包依赖由运行环境提供。"),
@@ -504,13 +505,13 @@ def dependency_detail(item: ManagedImage) -> str:
     python_label = ("镜像已安装 Python 包（{0}，含继承）：\n{1}" if full else
                     "平台 Python 依赖（{0}，含基础镜像已有包）：\n{1}" if item.dependency_source == "platform-lock" else
                     "本层新增 Python 依赖（{0}）：\n{1}")
-    parts = [message(python_label, len(packages), "\n".join(packages) or message("无新增包"))]
+    parts = [message(python_label, len(packages), "\n".join(packages) or message_id('ui.0376'))]
     if item.system_dependencies:
         system_label = "镜像已安装系统包（{0}，含继承）：\n{1}" if full else "本层系统安装制品（{0}）：\n{1}"
         parts.append(message(system_label, len(item.system_dependencies),
                              "\n".join(f"{name}={version}" for name, version in item.system_dependencies)))
     else:
-        parts.append(message("系统包继承平台，本层无新增。"))
+        parts.append(message_id('ui.0385'))
     if historical:
         parts.append(message("{0}", dependency_source_detail(item)))
     if item.dependency_note:
@@ -520,14 +521,14 @@ def dependency_detail(item: ManagedImage) -> str:
 
 def dependency_source_detail(item: ManagedImage) -> str:
     if item.dependency_source == "unknown":
-        return message("本层依赖：未知（镜像身份、依赖锁或构建记录无法核验）。")
+        return message_id('ui.0377')
     if item.dependency_source == "historical-manifest":
-        return message("依赖来源：镜像原始构建清单；构建时已核验，未重新实测。")
+        return message_id('ui.0361')
     if item.dependency_source == "actual-scan":
-        return message("依赖来源：隔离容器实际扫描；结果已按镜像 ID 缓存。")
+        return message_id('ui.0362')
     if item.dependency_source in {"inherited", "inherited-historical"}:
-        return message("依赖来源：已核对的构建步骤与父镜像身份。")
-    return message("依赖来源：与镜像身份匹配的锁文件；未执行实时包扫描。")
+        return message_id('ui.0381')
+    return message_id('ui.0386')
 
 
 def filtered_images(inventory: ImageInventory, query: str, scope: str) -> tuple[ManagedImage, ...]:
@@ -563,9 +564,9 @@ def image_path(item: ManagedImage, inventory: ImageInventory) -> str:
         return join_messages("", (name, " ≈" if image.parent_source == "layer-prefix" else ""))
     path = [path_name(indexed[key]) for key in item.ancestor_ids if key in indexed]
     if item.parent_source == "missing":
-        path.append(message("父镜像不在本地"))
+        path.append(message_id('ui.0393'))
     path.append(path_name(item))
-    return message("继承路径：{0}", join_messages(" › ", path))
+    return message_id('ui.0388', join_messages(" › ", path))
 
 
 def image_created_text(created: str) -> str:
@@ -583,20 +584,20 @@ def image_created_text(created: str) -> str:
 
 def image_summary(item: ManagedImage, inventory: ImageInventory) -> str:
     return join_messages("\n", (
-        message("完整大小：{0} · 继承：{1} · 本镜像新增：{2}", format_bytes(item.size_bytes),
+        message_id('ui.0397', format_bytes(item.size_bytes),
                 format_bytes(item.inherited_bytes), format_bytes(item.added_bytes)),
-        message("预计可释放：{0} · 容器引用：{1}", reclaimable_text(inventory, (item.image_id,)), len(item.containers)),
+        message_id('ui.0348', reclaimable_text(inventory, (item.image_id,)), len(item.containers)),
     ))
 
 
 def image_metadata(item: ManagedImage, inventory: ImageInventory) -> str:
     return join_messages("\n\n", (
         image_path(item, inventory),
-        message("其它镜像共享：{0} · 仅当前镜像使用：{1}", format_bytes(item.shared_bytes), format_bytes(item.unique_bytes)),
-        message("模型：{0} · 创建时间：{1}",
+        message_id('ui.0399', format_bytes(item.shared_bytes), format_bytes(item.unique_bytes)),
+        message_id('ui.0444',
                 item.model_id or (NOT_APPLICABLE if item.kind in {"base", "runtime"} else UNKNOWN), item.created or UNKNOWN),
-        message("容器引用：{0}", ", ".join(item.containers) if item.containers else message("无")),
-        message("全部标签：\n{0}", "\n".join(item.tags) if item.tags else message("无标签")),
+        message_id('ui.0445', ", ".join(item.containers) if item.containers else message_id('ui.0446')),
+        message_id('ui.0447', "\n".join(item.tags) if item.tags else message_id('ui.0427')),
     ))
 
 
@@ -604,24 +605,24 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
     sources = {"recorded": "构建记录", "metadata": "构建指纹与层前缀核验", "layer-prefix": "层前缀推断，未确认 FROM",
                "missing": "父镜像不在本地", "ambiguous": "存在多个候选父镜像", "conflict": "父镜像记录与层链冲突",
                "unknown": "本地父镜像未知"}
-    identity = [message("镜像 ID：{0}", item.image_id)]
+    identity = [message_id('ui.0443', item.image_id)]
     if item.repo_digests:
-        identity.append(message("仓库摘要：{0}", ", ".join(item.repo_digests)))
+        identity.append(message_id('ui.0331', ", ".join(item.repo_digests)))
     if item.parent_id:
-        identity.append(message("父镜像 ID：{0}", item.parent_id))
+        identity.append(message_id('ui.0374', item.parent_id))
     evidence = (
         dependency_source_detail(item),
-        message("父镜像依据：{0} · 后代：{1}", message(sources[item.parent_source]), len(item.descendant_ids)),
-        message("空间来源：{0}", message({"layers": "层链与已核验 history 字节数", "docker-df": "Docker df 近似值",
+        message_id('ui.0389', message(sources[item.parent_source]), len(item.descendant_ids)),
+        message_id('ui.0402', message({"layers": "层链与已核验 history 字节数", "docker-df": "Docker df 近似值",
                                          "": "未知"}[item.space_source])),
     )
-    space = [message("完整大小：{0}", format_bytes(item.size_bytes))]
+    space = [message_id('ui.0375', format_bytes(item.size_bytes))]
     if item.inherited_bytes is not None and item.size_bytes:
         inherited_cells = min(30, round(30 * item.inherited_bytes / item.size_bytes))
-        space.append(message("空间构成：{0}  █ 继承 / ░ 新增", "█" * inherited_cells + "░" * (30 - inherited_cells)))
+        space.append(message_id('ui.0398', "█" * inherited_cells + "░" * (30 - inherited_cells)))
     space.extend((
         STATUS_LEGEND,
-        message("释放范围受构建缓存与存储驱动影响。"),
+        message_id('ui.0408'),
     ))
     parts = [join_messages("\n", identity), join_messages("\n", evidence), join_messages("\n", space)]
     parts.extend(message(warning) for warning in inventory.warnings)
@@ -630,20 +631,20 @@ def image_diagnostics(item: ManagedImage, inventory: ImageInventory) -> str:
 
 def reclaimable_text(inventory: ImageInventory, image_ids: tuple[str, ...]) -> str:
     value = reclaimable_image_bytes(inventory, image_ids)
-    return UNKNOWN if value is None else "0 B" if value == 0 else message("约 {0}", format_bytes(value))
+    return UNKNOWN if value is None else "0 B" if value == 0 else message_id('ui.0409', format_bytes(value))
 
 
 def layer_image_detail(layer: ImageLayer, inventory: ImageInventory) -> str:
     indexed = {item.image_id: item for item in inventory.images}
-    return message("使用此层的镜像：\n{0}", "\n\n".join(
+    return message_id('ui.0416', "\n\n".join(
         f"{image_display_name(indexed[key])} · {key[7:19]}\n  {indexed[key].name}" for key in layer.image_ids))
 
 
 def layer_diagnostics(layer: ImageLayer) -> str:
     return join_messages("\n", (
-        message("层内容 Diff ID：{0}", layer.diff_id),
-        message("层链 Chain ID：{0}", layer.chain_id),
-        message("相同 Diff ID 的不同父层链分开统计；引用包含筛选外镜像，按 image ID 去重。"),
+        message_id('ui.0410', layer.diff_id),
+        message_id('ui.0411', layer.chain_id),
+        message_id('ui.0415'),
     ))
 
 
@@ -717,16 +718,16 @@ def render_image_tree(tree: ImageTree, inventory: ImageInventory | None, visible
 def deletion_message(inventory: ImageInventory, image_ids: tuple[str, ...], *, hidden_count: int = 0) -> str:
     items = [item for item in inventory.images if item.image_id in image_ids]
     parts = [
-        message("Docker 环境：{0} · 共 {1} 个镜像", inventory.connection.name, len(items)),
+        message_id('ui.0449', inventory.connection.name, len(items)),
     ]
     if hidden_count:
-        parts.append(message("其中筛选外 {0} 个镜像；仍包含在本次删除清单中。", hidden_count))
+        parts.append(message_id('ui.0338', hidden_count))
     for item in items:
-        parts.append(message("{0}\n镜像 ID：{1}\n完整大小：{2}",
-                             "\n".join(item.tags) if item.tags else message("无标签"),
+        parts.append(message_id('ui.0450',
+                             "\n".join(item.tags) if item.tags else message_id('ui.0427'),
                              item.image_id, format_bytes(item.size_bytes)))
         if item.parent_source == "layer-prefix":
-            parts.append(message("≈ 父镜像：{0}；层前缀推断，未确认 FROM。", item.parent_id))
+            parts.append(message_id('ui.0339', item.parent_id))
     return join_messages("\n\n", parts)
 
 

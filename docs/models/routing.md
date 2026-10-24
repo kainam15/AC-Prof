@@ -12,7 +12,11 @@ Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按�
 `--task`／`--backend` 不能与有效模型声明矛盾。
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。
 
-`model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
+`model_candidates` 先基于已审查的 `model_support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
+`model_resolution` 再对选中候选执行无权重的接口约束检查。候选发现是无副作用查询，
+只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend`；
+两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。
+持久化的 `model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
 `model_type`、元数据文件名与所选 profile。`status=candidate` 只表示通过静态检查，成功加载、
 输入 dtype/shape 和真实输出仍由独立 `runtime_validation` 判断。元数据读取失败单独报告，
 不能归因为任务不支持。
@@ -51,7 +55,7 @@ Auto 中存在类不保证 processor、pipeline、dtype 或所有 profiler 兼�
 
 解析器读取 Hub `transformers_info` 的任务、Auto class 与 processor 提示。Hub 字段共享同一
 source，Hub 与仓库配置保留共同 snapshot 的派生关系，不按字段数量投票，也不输出未经校准的
-数值置信度。缺少已有架构匹配时，反查固定 4.57.6 / 5.6.0 Auto 注册表；多个任务仍保持歧义。
+数值置信度。缺少已有架构匹配时，反查固定 4.57.6 / 5.10.4 Auto 注册表；多个任务仍保持歧义。
 裸 `AutoModel` 不证明应执行哪一种任务。共享同一 Auto loader 的 translation/summarization
 等任务不会仅因名称不同被判为结构冲突。
 
@@ -99,7 +103,7 @@ Optimum 或主机端推理依赖，也不在正式测量窗口执行来源分析
 Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`。对于组合模型，
 可选择 config 中唯一已注册的多模态文本子模型；不会抽取普通语言模型而丢失音频编码器。
 例如 Voxtral、Qwen2 Audio 使用 4.57.6 的共享 Seq2Seq Auto 接口；Qwen2.5 Omni 的文本子模型
-通过 5.6.0 的 Auto 接口加载，不实例化 Talker。没有匹配或子模型选择有歧义时拒绝，
+通过 5.10.4 的 Auto 接口加载，不实例化 Talker。没有匹配或子模型选择有歧义时拒绝，
 不轮流尝试加载模型类。原生架构的候选资格不再由音频模型名称名单决定。
 
 更新版本时，用 [`export_transformers_support.py`](../../scripts/export_transformers_support.py) 对固定 tag 的
@@ -111,9 +115,9 @@ Auto 注册表选择 `AutoModelForSeq2SeqLM` 或 `AutoModelForImageTextToText`�
 
 ```bash
 .venv/bin/python scripts/export_transformers_support.py \
-  --source /path/to/modeling_auto.py --version 5.6.0 \
+  --source /path/to/modeling_auto.py --version 5.10.4 \
   --pipeline-source /path/to/pipelines/__init__.py \
-  --output acprof/extensions/transformers/5.6.0.json
+  --output acprof/extensions/transformers/5.10.4.json
 ```
 
 必须联动精确依赖锁和实际容器验证；注册表也参与服务构建指纹。未匹配到已登记环境的原生架构
@@ -124,7 +128,7 @@ Hub task 标签当作 Transformers 模型加载。
 ## Runtime 预检与失败证据
 预检先确定逻辑 `runtime_profile`，再使用该 profile 的精确 Transformers lock 检查 Auto 和
 pipeline registry。硬件选择 CPU/CUDA 平台后，会对最终 lock 再检查一次；一个版本支持不能
-替另一个版本提供支持证据。GLM-OCR 的 `image-to-text` 在所选 5.6.0 registry 中不存在，
+替另一个版本提供支持证据。GLM-OCR 的 `image-to-text` 在所选 5.10.4 registry 中不存在，
 因此在下载权重、构建镜像、启动容器前返回 `runtime_task_unsupported`。
 容器加载时还核对实际安装的 Transformers 版本与 profile lock，版本不一致返回
 `runtime_dependency_incompatible`。宿主机预检从项目资源目录读取 profile lock；推理镜像则读取
@@ -186,10 +190,10 @@ HTTP 响应为 401/403 的失败在原阶段记录 `access_denied` 和 `http_sta
 gated 配置读取；不会因已有缓存配置可通过静态检查而宣称获得权重权限，也不将 429 当作权限失败。
 
 实现参考锁定的 [Transformers 4.57.6 pipeline registry](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
-和 [5.6.0 registry](https://github.com/huggingface/transformers/blob/v5.6.0/src/transformers/pipelines/__init__.py)，
+和 [5.10.4 registry](https://github.com/huggingface/transformers/blob/v5.10.4/src/transformers/pipelines/__init__.py)，
 并使用两版本 `PreTrainedModel.from_pretrained(output_loading_info=True)` 的结构化 loading info
 捕捉权重初始化与未使用权重（[4.57.6 源码](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/modeling_utils.py)、
-[5.6.0 源码](https://github.com/huggingface/transformers/blob/v5.6.0/src/transformers/modeling_utils.py)）。
+[5.10.4 源码](https://github.com/huggingface/transformers/blob/v5.10.4/src/transformers/modeling_utils.py)）。
 Chronos 沿用其 [`from_pretrained` 参数协议](https://github.com/amazon-science/chronos-forecasting/blob/main/src/chronos/chronos.py)。
 这些上游采用 Apache-2.0；AC-Prof 复用现有库与静态快照，不新增推理依赖。
 依赖比较使用已有 lock 中的 `packaging==26.3`，现将其列为直接主机依赖；安装包集合不变。

@@ -1,6 +1,5 @@
 """锁检查保持只读，并拒绝与目标解释器不兼容的制品。"""
 import hashlib
-import sys
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -24,15 +23,6 @@ def test_mirror_resolution_keeps_versions_hashes_and_target_platform():
         output = root / "requirements.txt"
         output.write_text(python_lock_text([{"name": "example", "version": "1.0",
             "url": "https://files.pythonhosted.org/example-1.0-py3-none-any.whl", "sha256": digest}]))
-        original = output.read_bytes()
-        if sys.version_info < (3, 11):
-            with patch("subprocess.run") as run, pytest.raises(RuntimeError, match=r"Python 3\.11\+"):
-                compile_locks.resolve("uv", [root / "input.in"], output, PLATFORMS["cu124"], {"example": "1.0"},
-                                      index_url="https://mirror.example/simple")
-            run.assert_not_called()
-            assert (output.read_bytes()) == (original)
-            assert not (output.with_suffix(".artifacts.json").exists())
-            return
 
         def resolve(command, **kwargs):
             destination = Path(command[command.index("--output-file") + 1])
@@ -59,23 +49,20 @@ def test_mirror_resolution_keeps_versions_hashes_and_target_platform():
                                   torch_index_url="https://mirror.example/cu124")
         assert (output.read_bytes()) == (original)
 
-@pytest.mark.skipif(sys.version_info < (3, 11), reason='Host metadata checks require Python 3.11+')
 def test_host_check_rejects_metadata_drift_in_each_python_branch_without_resolving():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / 'pyproject.toml').write_text('[project]\ndependencies = ["numpy>=2,<3"]\n')
         (root / 'requirements').mkdir()
-        (root / 'requirements/host.in').write_text('numpy==2.2.6 ; python_version < "3.11"\n')
+        (root / 'requirements/host.in').write_text('numpy==2.4.4\n')
         lock = root / 'requirements/host.lock'
-        lock.write_text('numpy==2.2.6 ; python_version < "3.11"\n'
-                        'numpy==2.4.4 ; python_version >= "3.11"\n')
+        lock.write_text('numpy==2.4.4\n')
         with patch.object(compile_locks, 'ROOT', root), patch('subprocess.run', side_effect=AssertionError('resolver used')):
             assert (compile_locks.main(['--host-only', '--check'])) == (0)
-            lock.write_text('numpy==1.26.4 ; python_version < "3.11"\n'
-                            'numpy==2.4.4 ; python_version >= "3.11"\n')
+            lock.write_text('numpy==1.26.4\n')
             with pytest.raises(ValueError, match='numpy'):
                 compile_locks.main(['--host-only', '--check'])
-            lock.write_text('numpy==2.2.6 ; python_version < "3.11"\n')
+            lock.write_text('numpy==2.3.0 ; python_version < "3.12"\n')
             with pytest.raises(ValueError, match='numpy'):
                 compile_locks.main(['--host-only', '--check'])
 
@@ -105,8 +92,8 @@ def test_check_rejects_wheel_for_wrong_python():
         copy_dependency_tree(root)
         path = root / "dockerfiles/locks/nlp-cpu.txt"
         text = path.read_text()
-        assert ("cp310-cp310") in (text)
-        path.write_text("\n".join(line.replace("cp310-cp310", "cp311-cp311")
+        assert ("cp312-cp312") in (text)
+        path.write_text("\n".join(line.replace("cp312-cp312", "cp311-cp311")
                                   if line.startswith("numpy @") else line for line in text.splitlines()) + "\n")
         with pytest.raises(ValueError, match="wheel.*平台|平台.*wheel"):
             check_catalog(root)

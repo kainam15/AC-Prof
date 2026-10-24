@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 
 from acprof.messages import message
+from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN, format_byte_fields, format_bytes
 
 
@@ -19,29 +20,29 @@ def download_fields(report: dict) -> dict[str, str]:
 def download_summary(report: dict, translate: Callable[[str], str]) -> str:
     model, disk = report.get("model", {}), report.get("disk", {})
     docker = report.get("docker_storage", {})
-    budget = (UNKNOWN if "max_download_bytes" not in report else message("不限")
+    budget = (UNKNOWN if "max_download_bytes" not in report else message_id('ui.0071')
               if report["max_download_bytes"] is None else format_bytes(report["max_download_bytes"]))
     docker_details = {key: value for key, value in docker.items()
                       if key not in {"docker_storage_total_bytes", "docker_storage_available_bytes_at_start"}}
     lines: list[str] = [
-        message("预计下载：{0}", format_bytes(report.get("expected_download_bytes"))),
-        message("有效下载预算：{0}", budget),
-        message("Model Store 路径：{0}", report.get("model_store_path", UNKNOWN)),
-        message("使用系统网络环境"),
-        message("模型总量：{0} | 已缓存：{1}", format_bytes(model.get("total_bytes")),
+        message_id('ui.0069', format_bytes(report.get("expected_download_bytes"))),
+        message_id('ui.0070', budget),
+        message_id('ui.0072', report.get("model_store_path", UNKNOWN)),
+        message_id('ui.0003'),
+        message_id('ui.0073', format_bytes(model.get("total_bytes")),
                 format_bytes(model.get("cached_bytes"))),
-        message("下载源：{0}", model.get("endpoint", UNKNOWN)),
+        message_id('ui.0074', model.get("endpoint", UNKNOWN)),
         message("Runtime: {0}", json.dumps(format_byte_fields(report.get("runtime", {}), translate), ensure_ascii=False)),
-        message("Model Store: {0} | 可用：{1}", format_bytes(disk.get("total_bytes")),
+        message_id('ui.0075', format_bytes(disk.get("total_bytes")),
                 format_bytes(disk.get("free_bytes"))),
-        message("可回收：{0} | 下载后剩余：{1}", format_bytes(disk.get("reclaimable_bytes")),
+        message_id('ui.0076', format_bytes(disk.get("reclaimable_bytes")),
                 format_bytes(disk.get("remaining_bytes"))),
-        message("Docker 占用：{0}", format_bytes(docker.get("docker_storage_total_bytes"))),
-        message("Docker 可用空间：{0}", format_bytes(docker.get("docker_storage_available_bytes_at_start"))),
+        message_id('ui.0077', format_bytes(docker.get("docker_storage_total_bytes"))),
+        message_id('ui.0078', format_bytes(docker.get("docker_storage_available_bytes_at_start"))),
     ]
     if docker_details:
-        lines.append(message("Docker 存储详情：{0}", json.dumps(format_byte_fields(docker_details, translate), ensure_ascii=False)))
-    lines.append(message("公网出口由系统或上游网络管理，AC-Prof 不判断 VPN。"))
+        lines.append(message_id('ui.0079', json.dumps(format_byte_fields(docker_details, translate), ensure_ascii=False)))
+    lines.append(message_id('ui.0006'))
     if report.get("sources"):
         lines.append(json.dumps(report["sources"], ensure_ascii=False, indent=2))
     if report.get("network_probe"):
@@ -50,6 +51,6 @@ def download_summary(report: dict, translate: Callable[[str], str]) -> str:
 
 
 def download_result_summary(report: dict) -> str:
-    return message("{0}: 已校验新增：{1} | 缓存节省：{2} | 传输流量：{3}", report["category"],
+    return message_id('ui.0081', report["category"],
                    format_bytes(report["verified_new_payload_bytes"]), format_bytes(report["cache_savings_bytes"]),
                    format_bytes(report.get("wire_bytes")))
