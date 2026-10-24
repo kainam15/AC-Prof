@@ -2,6 +2,24 @@
 import subprocess
 import sys
 
+import pytest
+
+
+@pytest.mark.parametrize("task,backend", [(None, None), ("fill-mask", None), (None, "transformers_pipeline")])
+def test_absent_cli_overrides_have_one_resolution_identity(task, backend):
+    from acprof.host.detect import TaskInfo
+    from acprof.model_candidates import discover_model_candidates
+
+    info = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline", "transformers",
+                    "a" * 40, "hub_api", model_config={"model_type": "bert"},
+                    hub_metadata={"pipeline_tag": "fill-mask"})
+    omitted = discover_model_candidates(info, override_tag=task, override_backend=backend)
+    empty = discover_model_candidates(info, override_tag=task or "", override_backend=backend or "")
+    assert empty["selection"] == omitted["selection"]
+    assert empty["provenance"] == omitted["provenance"]
+    explicit = discover_model_candidates(info, override_tag="fill-mask", override_backend="transformers_pipeline")
+    assert explicit["provenance"]["identity_sha256"] != omitted["provenance"]["identity_sha256"]
+
 
 def test_resolution_layers_are_importable_without_model_runtimes():
     script = """
