@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import os
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional, Set, Tuple
 
 from acprof.artifacts import read_json_object
@@ -349,8 +350,142 @@ def _apply_entry(
     result[error_field] = error
 
 
+@dataclass(frozen=True)
+class _ResolvedProfileEntry:
+    scale: float
+    metrics: tuple[float, ...]
+    error: str
+
+
+@dataclass(frozen=True)
+class _ResolvedToolProfile:
+    enabled: bool
+    entries: tuple[_ResolvedProfileEntry, ...] | None
+    error: str = ""
+
+
+def _snapshot_tool_profile(value: Any, tool_key: str) -> _ResolvedToolProfile | None:
+    if not isinstance(value, Mapping):
+        return None
+    if not _tool_profile_enabled(value):
+        return _ResolvedToolProfile(False, None)
+    error_field = NSYS_ERROR_FIELD if tool_key == NSYS_TOOL_KEY else MASSIF_ERROR_FIELD
+    metric_fields = NSYS_METRIC_FIELDS if tool_key == NSYS_TOOL_KEY else MASSIF_METRIC_FIELDS
+    profile_error = _profile_error(value, error_field)
+    entries = value.get("entries")
+    if not isinstance(entries, list):
+        return _ResolvedToolProfile(
+            True, None, profile_error or f"execution_profile_missing_entries:{tool_key}"
+        )
+    resolved = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        scale = _finite_float_or_nan(entry.get("input_scale"))
+        if not math.isfinite(scale):
+            continue
+        if error_field in entry:
+            error = str(entry.get(error_field) or "")
+        elif "error" in entry:
+            error = str(entry.get("error") or "")
+        else:
+            error = profile_error
+        resolved.append(_ResolvedProfileEntry(
+            scale,
+            tuple(_finite_float_or_nan(entry.get(field)) for field in metric_fields),
+            error,
+        ))
+    return _ResolvedToolProfile(True, tuple(resolved))
+
+
+class ExecutionProfileResolver:
+    """Resolve many result rows from one compact, immutable plan snapshot.
+
+    Only the selected tools' scalar result fields are retained; large reports,
+    provenance payloads and unrelated metadata are not copied. Rebuild after
+    resume/backfill merges a new plan. Each query returns its own result dict.
+    """
+
+    def __init__(self, plan: Any) -> None:
+        self._disabled = False
+        self._load_error = ""
+        self._enabled: frozenset[str] = frozenset()
+        self._cases: dict[tuple[int, int, str], _ResolvedToolProfile | None] = {}
+        if not isinstance(plan, Mapping):
+            self._load_error = "execution_profile_plan_invalid:not_dict"
+            return
+        self._disabled = bool(plan.get("_disabled"))
+        if self._disabled:
+            return
+        self._load_error = str(plan.get("_load_error") or "")
+        if self._load_error:
+            return
+        self._enabled = frozenset(_enabled_tools(plan))
+        profiles = plan.get("profiles")
+        if not isinstance(profiles, list):
+            return
+        for profile in profiles:
+            if not isinstance(profile, Mapping):
+                continue
+            cpu = _integer_value(profile.get("cpu_cores"))
+            memory = _integer_value(profile.get("mem_cap_gb"))
+            if cpu is None or memory is None:
+                continue
+            mode = _normalize_gpu_mode(profile.get("gpu_mode"))
+            tool_key = NSYS_TOOL_KEY if mode == "on" else MASSIF_TOOL_KEY
+            tools = profile.get("tools")
+            if not isinstance(tools, Mapping) or tool_key not in tools:
+                continue
+            key = (cpu, memory, mode)
+            # Presence wins even when the first matching tool is invalid or disabled.
+            if key not in self._cases:
+                self._cases[key] = _snapshot_tool_profile(tools[tool_key], tool_key)
+
+    def resolve(
+        self,
+        cpu_cores: int | str,
+        mem_cap_gb: int | str,
+        gpu_mode: str,
+        input_scale: float,
+    ) -> Dict[str, Any]:
+        result = _empty_result()
+        mode = _normalize_gpu_mode(gpu_mode)
+        tool_key = NSYS_TOOL_KEY if mode == "on" else MASSIF_TOOL_KEY
+        error_field = NSYS_ERROR_FIELD if tool_key == NSYS_TOOL_KEY else MASSIF_ERROR_FIELD
+        metric_fields = NSYS_METRIC_FIELDS if tool_key == NSYS_TOOL_KEY else MASSIF_METRIC_FIELDS
+        if self._disabled:
+            return result
+        if self._load_error:
+            result[error_field] = self._load_error
+            return result
+        if tool_key not in self._enabled:
+            return result
+        cpu = _integer_value(cpu_cores)
+        memory = _integer_value(mem_cap_gb)
+        profile = self._cases.get((cpu, memory, mode)) if cpu is not None and memory is not None else None
+        if profile is None:
+            result[error_field] = _missing_case_error(
+                tool_key=tool_key, cpu_cores=cpu_cores, mem_cap_gb=mem_cap_gb, gpu_mode=mode
+            )
+            return result
+        if not profile.enabled:
+            return result
+        if profile.entries is None:
+            result[error_field] = profile.error
+            return result
+        target_scale = _finite_float_or_nan(input_scale)
+        if math.isfinite(target_scale):
+            for entry in profile.entries:
+                if math.isclose(entry.scale, target_scale, rel_tol=0.0, abs_tol=INPUT_SCALE_ABS_TOLERANCE):
+                    result.update(zip(metric_fields, entry.metrics, strict=True))
+                    result[error_field] = entry.error
+                    return result
+        result[error_field] = f"execution_profile_missing_scale:{tool_key}:{_scale_label(input_scale)}"
+        return result
+
+
 def find_execution_profile_entry(
-    plan: Dict[str, Any],
+    plan: Dict[str, Any] | ExecutionProfileResolver,
     cpu_cores: int | str,
     mem_cap_gb: int | str,
     gpu_mode: str,
@@ -360,8 +495,11 @@ def find_execution_profile_entry(
 
     A CPU-only row (``gpu_mode="off"``) applies only Massif.  A GPU row
     (``gpu_mode="on"``) applies only Nsight Systems.  A tool that is absent
-    from the whole plan is treated as intentionally disabled.
+    from the whole plan is treated as intentionally disabled. Reuse an
+    ExecutionProfileResolver when resolving multiple rows from the same plan.
     """
+    if isinstance(plan, ExecutionProfileResolver):
+        return plan.resolve(cpu_cores, mem_cap_gb, gpu_mode, input_scale)
     result = _empty_result()
     normalized_gpu_mode = _normalize_gpu_mode(gpu_mode)
     tool_key = (

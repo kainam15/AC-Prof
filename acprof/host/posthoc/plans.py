@@ -21,7 +21,7 @@ from acprof.host.compute_profile_plan import (
     TORCH_PROFILE_KEY,
     find_compute_profile_entry,
 )
-from acprof.host.execution_profile_plan import find_execution_profile_entry
+from acprof.host.execution_profile_plan import ExecutionProfileResolver
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
@@ -109,11 +109,10 @@ def execution_plan_covers_tool(
     scales = context.scales_by_mode.get(mode, [])
     if not cases or not scales:
         return False
+    profiles = ExecutionProfileResolver(plan)
     for cpu, mem, gpu_mode in cases:
         for scale in scales:
-            profile = find_execution_profile_entry(
-                dict(plan), cpu, mem, gpu_mode, scale
-            )
+            profile = profiles.resolve(cpu, mem, gpu_mode, scale)
             if not all(
                 math.isfinite(_finite_float(profile.get(field)))
                 for field in TOOL_METRIC_FIELDS[tool]

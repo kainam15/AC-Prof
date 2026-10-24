@@ -34,7 +34,7 @@ from acprof.host.compute_profile_plan import (
 from acprof.host.execution_profile_plan import (
     MASSIF_METRIC_FIELDS,
     NSYS_METRIC_FIELDS,
-    find_execution_profile_entry,
+    ExecutionProfileResolver,
 )
 from acprof.host.posthoc.context import (
     NCU_DERIVED_APP_FIELD,
@@ -132,11 +132,10 @@ def _backfill_ncu_row(
 
 def _backfill_execution_row(
     row: Dict[str, str],
-    plan: Mapping[str, Any],
+    profiles: ExecutionProfileResolver,
     tool: str,
 ) -> None:
-    profile = find_execution_profile_entry(
-        dict(plan),
+    profile = profiles.resolve(
         _integer(row.get("cpu_cores"), "cpu_cores"),
         _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
         str(row.get("gpu_mode") or "").strip().lower(),
@@ -166,6 +165,7 @@ def backfill_rows(
 
     rows = [dict(row) for row in context.rows]
     updated = {tool: 0 for tool in selected}
+    execution_profiles: ExecutionProfileResolver | None = None
     for row in rows:
         mode = str(row.get("gpu_mode") or "").strip().lower()
         for tool in selected:
@@ -187,7 +187,9 @@ def backfill_rows(
                     raise PosthocError(
                         f"execution plan is required for {tool} backfill"
                     )
-                _backfill_execution_row(row, execution_plan, tool)
+                if execution_profiles is None:
+                    execution_profiles = ExecutionProfileResolver(execution_plan)
+                _backfill_execution_row(row, execution_profiles, tool)
             updated[tool] += 1
     return order_csv_fields(fieldnames), rows, updated
 
