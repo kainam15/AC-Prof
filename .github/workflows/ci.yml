@@ -125,8 +125,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements/dev.lock
-      - run: python -m pip install --require-hashes -r requirements/dev.lock
+          cache-dependency-path: |
+            requirements/host.lock
+            requirements/dev.lock
+      - run: python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+      - run: python -m pip check
       - run: python -m mypy
 
   contracts:

@@ -30,23 +30,29 @@ TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单�
 并由静态接口检查验证最终 `AcprofTui` 满足要求。
 未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
 
-GitHub Actions 的 `types` job 已在代码变更时使用 Python 3.12 安装开发锁并运行：
+GitHub Actions 的 `types` job 在代码变更时使用 Python 3.12，向同一环境安装主机锁和开发锁并运行：
 
 ```bash
+python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
+python -m pip check
 python -m mypy
 ```
 
-本地应使用 Python 3.12 的开发环境和与 CI 相同的 `requirements/dev.lock`。若现有 `.venv` 不是 Python 3.12，
+本地应使用 Python 3.12 的开发环境和与 CI 相同的主机锁、开发锁。若现有 `.venv` 不是 Python 3.12，
 可单独创建隔离环境，而不是修改项目的 `python_version`：
 
 ```bash
 uv venv --python 3.12 /tmp/acprof-mypy-312
-uv pip install --python /tmp/acprof-mypy-312/bin/python --require-hashes -r requirements/dev.lock
+uv pip install --python /tmp/acprof-mypy-312/bin/python --require-hashes \
+  -r requirements/host.lock -r requirements/dev.lock
+/tmp/acprof-mypy-312/bin/python -m pip check
 /tmp/acprof-mypy-312/bin/python -m mypy
 ```
 
-仅给 mypy 指定另一解释器而未在对应环境安装相同开发依赖不等于复现 CI：
-如果目标解释器没有安装 Textual 等开发依赖，第三方声明可能被视为未知类型，产生**错误的通过结果**。
+开发锁以主机锁为版本约束，但 `-c host.lock` 不会安装主机依赖，不能只安装开发锁。
+仅给 mypy 指定另一解释器而未在对应环境安装相同主机依赖和开发工具不等于复现 CI：
+如果目标解释器没有安装 Textual 等主机依赖，第三方声明可能被视为未知类型，产生误报或**错误的通过结果**。
+这一环境要求遵循 [mypy 的导入与解释器说明](https://github.com/python/mypy/blob/master/docs/source/running_mypy.rst)。
 NumPy `.pyi` 包含 Python 3.12 的 `type` 语句时，必须确保目标版本和实际环境一致，
 不能通过全局关闭第三方类型检查掩盖版本不匹配。类型工具只进入开发锁，不增加 host/runtime 依赖与测量期开销。
 版本与实施策略参考 [mypy 官方渐进式检查指南](https://mypy.readthedocs.io/en/stable/existing_code.html)、

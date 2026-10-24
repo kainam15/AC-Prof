@@ -72,7 +72,10 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 ## CI 与环境测试
 
 独立 `lint` job 在 Python 3.12 上只安装开发锁，执行 `pip check` 和完整 pre-commit hooks；
-独立 `types` job 同样使用 Python 3.12 开发锁，执行 `python -m mypy`，对 `pyproject.toml`
+`docs-check` 同样只安装开发锁，文档解析器 `markdown-it-py` 在开发依赖中直接声明。
+独立 `types` job 在 Python 3.12 的同一环境安装 `requirements/host.lock` 和
+`requirements/dev.lock`，执行 `pip check` 后运行 `python -m mypy`，确保 Textual 等
+主机依赖的类型声明可用；pip 缓存键同时覆盖两份锁。对 `pyproject.toml`
 中的 `packages = ["acprof"]` 全包发现强制开启未注解函数体检查和导入类型追踪，
 并对已验证的协议与 TUI 模块应用模块级严格规则。新增 Python 包文件会自动纳入同一 job。
 这两类检查不安装推理依赖，也不需要 Docker/GPU。

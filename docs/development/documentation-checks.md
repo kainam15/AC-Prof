@@ -88,6 +88,8 @@ TUI 回归核对重复计算时打开已有文件、显示中英文提示及控�
 ## 文档与 Skill 检查
 
 修改文档后，可在仓库根目录执行 `.venv/bin/python scripts/check_docs.py`。
+检查所需的 `markdown-it-py` 由 `requirements/dev.in` 直接声明，并与 PyYAML 一起锁定在
+`requirements/dev.lock`；只安装开发锁即可运行，不依赖主机环境间接安装 Markdown 解析器。
 该检查扫描 Git 跟踪的 `docs/`、根 README、`AGENTS.md` 和 Skill 文档/YAML，
 核对本地相对链接、Markdown 标题锚点、图片路径、UTF-8、行尾和 YAML/frontmatter；
 不访问外部链接，也不声称远程链接依然可用。GitHub CI 的 `docs-check` 始终运行此检查。
