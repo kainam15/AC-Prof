@@ -129,9 +129,9 @@ async def test_confirmation_rechecks_source_before_launch(saved_preparation, tmp
             assert app.screen.query_one("#recovery-resume", Button).disabled
 
 
-@pytest.mark.parametrize("changed_config", [False, True])
-async def test_recovery_preflight_failure_or_edited_config_never_launches(
-        saved_preparation, tmp_path, changed_config):
+@pytest.mark.parametrize("outcome", ["success", "failed", "edited"])
+async def test_recovery_launch_requires_successful_preflight_and_unchanged_form(
+        saved_preparation, tmp_path, outcome):
     config, directory = saved_preparation
     # Restoring a different profiling mode requires fresh environment checks.
     app = AcprofTui(replace(config, profiling_mode="full"), settings_path=tmp_path / "settings.json")
@@ -148,14 +148,21 @@ async def test_recovery_preflight_failure_or_edited_config_never_launches(
                 check.assert_called_once()
                 assert app._recovery_after_check is not None
                 launch.assert_not_called()
-                if changed_config:
+                if outcome == "edited":
                     app.query_one("#repeat", Input).value = str(config.repeat + 1)
                     await pilot.pause()
                 token = check.call_args.args[1]
-                app._show_quick_check([], "" if changed_config else "preflight failed", token)
+                app._show_quick_check([], "preflight failed" if outcome == "failed" else "", token)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-                launch.assert_not_called()
+                if outcome == "success":
+                    launch.assert_called_once()
+                    pending = launch.call_args.args[0]
+                    assert pending.config.resume
+                    assert "--resume" in pending.command
+                    assert pending.config.result_dir(Path.cwd()) == directory
+                else:
+                    launch.assert_not_called()
                 assert app._recovery_after_check is None
 
 

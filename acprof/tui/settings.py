@@ -68,7 +68,7 @@ class TuiSettings:
             if not isinstance(config, RunConfig):
                 raise ValueError(message('实验默认配置必须是 RunConfig'))
             _validate_field_types(asdict(config), RunConfig, message('实验默认配置'))
-            config = replace(config, rebuild_image=False)
+            config = replace(config, rebuild_image=False, resume=False)
             # A reusable default need not select a model, but must otherwise
             # meet the same requirements as the live experiment form.
             model = config.model.strip()
@@ -189,7 +189,8 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
         "last_result_dir": normalized.last_result_dir,
         "last_result_csv": normalized.last_result_csv,
         "run_defaults": (
-            {key: value for key, value in asdict(normalized.run_defaults).items() if key != "rebuild_image"}
+            {key: value for key, value in asdict(normalized.run_defaults).items()
+             if key not in {"rebuild_image", "resume"}}
             if normalized.run_defaults is not None
             else None
         ),

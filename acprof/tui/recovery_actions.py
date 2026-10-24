@@ -138,7 +138,8 @@ class RecoveryActions(MessagePump):
             return
         launch, record = pending
         try:
-            if self._collect_config() != launch.config:
+            # Resume belongs to the confirmed launch, not the editable form.
+            if launch.config is None or self._collect_config() != replace(launch.config, resume=False):
                 self.notify("配置已变化；已取消本次恢复启动。", severity="warning")
                 return
         except ValueError:

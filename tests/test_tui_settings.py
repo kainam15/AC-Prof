@@ -50,6 +50,25 @@ class TestTuiSettings:
         assert not warning
         assert not settings.run_defaults.rebuild_image
 
+    def test_resume_is_never_saved_as_an_experiment_default(self):
+        settings = TuiSettings(run_defaults=RunConfig(model="demo/model", resume=True))
+        save_settings(self.path, settings, self.project)
+        assert "resume" not in json.loads(self.path.read_text())["run_defaults"]
+        restored, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert restored.run_defaults is not None
+        assert not restored.run_defaults.resume
+
+    def test_loading_old_resume_preference_keeps_parameters_without_enabling_resume(self):
+        self.write_payload({"version": SETTINGS_VERSION, "run_defaults": {
+            "model": "demo/model", "resume": True, "cpus": "2", "output_dir": "results/original",
+        }})
+        original = self.path.read_bytes()
+        settings, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert settings.run_defaults == RunConfig(model="demo/model", cpus="2", output_dir="results/original")
+        assert self.path.read_bytes() == original
+
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request

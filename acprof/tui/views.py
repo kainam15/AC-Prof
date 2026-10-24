@@ -429,14 +429,6 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                         id="idle-debug",
                         classes="config-control option-checkbox",
                     ))
-                with Horizontal(classes="checkbox-row"):
-                    yield app._localized_widget(StatusCheckbox(
-                        "恢复未完成实验",
-                        value=app.initial_config.resume,
-                        id="resume-run",
-                        classes="config-control option-checkbox",
-                        tooltip="使用相同参数与输出目录，保留已完成 case，重新测量中断的 case。",
-                    ))
                 with Horizontal(classes="button-row"):
                     yield app._localized_widget(Button("记住实验配置", id="save-run-default"))
                 with Collapsible(title=app.tr("镜像高级操作"), collapsed=True, id="image-build-options"):

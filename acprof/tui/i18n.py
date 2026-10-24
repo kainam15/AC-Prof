@@ -622,8 +622,6 @@ ENGLISH: dict[str, str] = {
     "请填写实验目录或结果 CSV 路径。": "Enter a result directory or CSV path.",
     "请选择包含 result_layers.json 的实验目录或其结果清单。": "Choose an experiment directory containing result_layers.json, or its manifest.",
     "{0} 正在计算窗口统计，完成后自动显示报告。": "{0} Calculating window statistics; the report will open when ready.",
-    "恢复未完成实验": "Resume unfinished experiment",
-    "使用相同参数与输出目录，保留已完成 case，重新测量中断的 case。": "Use the same parameters and output directory; keep completed cases and rerun interrupted cases.",
     "任务不支持": "Unsupported task",
     "解决办法见日志（F8）；任务：{0}": "See log (F8) for remedies; task: {0}",
     "处理办法：换用已适配任务的模型；识别有误时修正配置；需要该任务时等待或开发适配。": "Remedies: choose a model with an adapted task; correct misidentified settings; or wait for or implement task support.",

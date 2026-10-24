@@ -45,7 +45,6 @@ SELECT_FIELDS = {
 CHECKED_FIELDS = {
     "prune-startup-oom": "prune_startup_oom",
     "rebuild-image": "rebuild_image",
-    "resume-run": "resume",
     "idle-debug": "idle_debug",
 }
 
@@ -79,6 +78,7 @@ def collect_config(inputs: Mapping[str, str], selects: Mapping[str, str],
               **{field: checks[key] for key, field in CHECKED_FIELDS.items()},
               "compute_profile_tool": compute_tool,
               "execution_profile_tool": execution_tool}
+    # Recovery selects resume for a specific launch; it is not an editable default.
     config = RunConfig(**values, extra_options=dict(extra_options or {}))
     if allow_empty_model and not config.model:
         validated = replace(config, model="settings/default-model").validate(project_dir=project_dir)
