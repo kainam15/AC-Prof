@@ -22,6 +22,7 @@ DIRECTORIES = {
     "analysis": "plots/analysis",
 }
 _CASE_ID = re.compile(r"[1-9][0-9]*c_[1-9][0-9]*g_(?:on|off)\Z")
+_ATTEMPT_ID = re.compile(r"[a-f0-9]{32}\Z")
 
 
 def _manifest() -> dict:
@@ -200,6 +201,20 @@ class CaseArtifacts:
 
     def sidecar(self, kind: str) -> Path:
         return case_sidecar(self.csv, kind)
+
+    def attempt_directory(self, kind: str, attempt_id: str) -> Path:
+        """Keep immutable evidence from each execution attempt in its own namespace."""
+        if kind not in {"measurements", "windows", "telemetry"}:
+            raise ValueError(f"Invalid case evidence kind: {kind}")
+        if not _ATTEMPT_ID.fullmatch(attempt_id):
+            raise ValueError(f"Invalid case attempt ID: {attempt_id!r}")
+        return self.layout.contained(f"raw/{kind}/{self.case_id}/{attempt_id}")
+
+    def window_records(self, attempt_id: str) -> Path:
+        return self.attempt_directory("windows", attempt_id)
+
+    def telemetry(self, attempt_id: str) -> Path:
+        return self.attempt_directory("telemetry", attempt_id)
 
     @property
     def requests(self) -> Path:

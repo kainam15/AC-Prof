@@ -64,7 +64,7 @@ def test_full_mode_propagates_energy_monitor_errors_to_csv(tmp_path, request, ki
 
         def stop(self):
             if kind == "gpu":
-                return energy_nvml._nan_result(), "Test GPU", "NVML sampler failed", []
+                return energy_nvml.unavailable_gpu_result(), "Test GPU", "NVML sampler failed", []
             return energy_cpu._nan_result(), "RAPL sampler failed", []
 
         def apply_control_baseline(self, result, samples, trace=False):

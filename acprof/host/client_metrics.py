@@ -29,6 +29,10 @@ if TYPE_CHECKING:
     from acprof.host.execution_profile_plan import ExecutionProfileResolver
     from acprof.host.window_requests import WindowRequestProgress
     from acprof.host.window_types import WindowObservations
+    from acprof.monitors.energy_cpu import CPUEnergyResult, DRAMEnergyResult
+    from acprof.monitors.gpu_metrics import EnergyResult
+    from acprof.monitors.perf_mips import MIPSResult
+    from acprof.monitors.resource_metrics import ResourceUsageResult
 
 
 def to_float_or_nan(x: Any) -> float:
@@ -488,7 +492,7 @@ def _divide_if_number(value: float, divisor: float) -> float:
     return value
 
 
-def gpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
+def gpu_metrics_from_result(result: EnergyResult, repeat_in_window: int) -> Dict[str, float]:
     return {
         "gpu_idle_power_w": to_float_or_nan(result.idle_power_w),
         "gpu_energy_iters": float(result.energy_iters),
@@ -501,7 +505,7 @@ def gpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, flo
     }
 
 
-def cpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, float]:
+def cpu_metrics_from_result(result: CPUEnergyResult, repeat_in_window: int) -> Dict[str, float]:
     return {
         "cpu_idle_power_w": to_float_or_nan(result.cpu_idle_power_w),
         "cpu_energy_iters": float(result.cpu_energy_iters),
@@ -523,7 +527,7 @@ def cpu_metrics_from_result(result: Any, repeat_in_window: int) -> Dict[str, flo
     }
 
 
-def _dram_metrics_from_result(result: Any, count: int) -> Dict[str, float]:
+def _dram_metrics_from_result(result: DRAMEnergyResult | None, count: int) -> Dict[str, float]:
     metrics = {name: to_float_or_nan(getattr(result, name.removeprefix("dram_"), None))
                for name in DRAM_METRIC_FIELDS}
     metrics["dram_energy_per_request_j"] = _per_positive_denominator(metrics["dram_window_energy_j"], count)
@@ -602,7 +606,7 @@ def _derived_efficiency_metrics(
 
 
 def resource_usage_metrics_from_result(
-    result: Any,
+    result: ResourceUsageResult,
     repeat_in_window: int,
 ) -> Dict[str, float]:
     io_read_bytes = to_float_or_nan(
@@ -772,7 +776,7 @@ def resource_usage_metrics_from_result(
     }
 
 
-def _gpu_runtime_metrics_from_result(resource_usage_result: Any) -> Dict[str, Any]:
+def _gpu_runtime_metrics_from_result(resource_usage_result: ResourceUsageResult | None) -> Dict[str, Any]:
     pstate = str(
         getattr(resource_usage_result, "gpu_pstate", "nan")
         if resource_usage_result is not None
@@ -804,7 +808,7 @@ def _gpu_runtime_metrics_from_result(resource_usage_result: Any) -> Dict[str, An
     }
 
 
-def _mips_metrics_from_result(result: Any) -> Dict[str, float]:
+def _mips_metrics_from_result(result: MIPSResult) -> Dict[str, float]:
     return {
         "cpu_cycles_per_request": to_float_or_nan(getattr(result, "cycles_per_request", float("nan"))),
         "cpu_ref_cycles_per_request": to_float_or_nan(getattr(result, "ref_cycles_per_request", float("nan"))),

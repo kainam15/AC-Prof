@@ -52,7 +52,7 @@ def test_dram_uses_adjacent_wraps_and_explicit_request_denominator():
                energy_cpu.CPUSample(1, [2000], 0, None, [10, 20]),
                energy_cpu.CPUSample(2, [3000], 0, None, [90, 180]),
                energy_cpu.CPUSample(3, [4000], 0, None, [10, 20])]
-    result = energy_cpu._dram_result_from_samples(samples, domains, 10e-6)
+    result = energy_cpu.reduce_dram_samples(samples, domains, 10e-6)
     # Domain 0: 20 + 80 + 20 uJ; domain 1: 40 + 160 + 40 uJ.
     assert (result.window_energy_j) == (360e-6) or round(abs((result.window_energy_j) - (360e-6)), 7) == 0
     assert (result.window_effective_energy_j) == (330e-6) or round(abs((result.window_effective_energy_j) - (330e-6)), 7) == 0
@@ -69,7 +69,7 @@ def test_dram_missing_mid_window_and_unknown_wrap_never_become_zero():
     for end in (None, [10]):
         samples = [energy_cpu.CPUSample(0, [1], 0, None, [90]),
                    energy_cpu.CPUSample(1, [2], 0, None, end)]
-        result = energy_cpu._dram_result_from_samples(samples, [domain], 0)
+        result = energy_cpu.reduce_dram_samples(samples, [domain], 0)
         assert (result.status) == ('error')
         assert (math.isnan(result.window_energy_j))
 
@@ -145,17 +145,18 @@ def test_sysfs_alias_is_not_counted_twice():
         domains = energy_cpu._discover_rapl_domains(tmp)
         assert (len(domains)) == (1)
 
-def test_apply_control_baseline_uses_control_average_and_records_method() -> None:
+def test_apply_control_baseline_uses_control_average_and_records_method(monkeypatch) -> None:
     monitor = object.__new__(energy_cpu.CPUEnergyMonitor)
     monitor.idle_power_w = float("nan")
     monitor.idle_trace = {}
     monitor.dt = 0.5
     monitor.domains = [energy_cpu.RaplDomain("intel-rapl:0", "", 0)]
+    monkeypatch.setattr(monitor, "telemetry_snapshot", lambda **kwargs: {})
     samples = [
         energy_cpu.CPUSample(0.0, [0], 0.0, 0.0),
         energy_cpu.CPUSample(1.0, [4_000_000], 0.2, 0.01),
     ]
-    result = energy_cpu._result_from_samples(
+    result = energy_cpu.reduce_cpu_samples(
         samples,
         idle_power_w=float("nan"),
         domains=monitor.domains,
@@ -186,7 +187,7 @@ def test_result_integrates_rapl_energy_and_handles_wrap() -> None:
         energy_cpu.CPUSample(2.0, [40], 16.0, 3.0),
     ]
 
-    result = energy_cpu._result_from_samples(samples, idle_power_w=5e-6, domains=[domain])
+    result = energy_cpu.reduce_cpu_samples(samples, idle_power_w=5e-6, domains=[domain])
 
     assert (result.cpu_energy_iters) == (3)
     assert (result.cpu_energy_total_j) == (50e-6) or round(abs((result.cpu_energy_total_j) - (50e-6)), 7) == 0
@@ -206,7 +207,7 @@ def test_peak_power_ignores_too_short_intervals() -> None:
         energy_cpu.CPUSample(0.201, [700_000], 0.201, 0.201),
     ]
 
-    result = energy_cpu._result_from_samples(
+    result = energy_cpu.reduce_cpu_samples(
         samples,
         idle_power_w=0.0,
         domains=[domain],
@@ -276,7 +277,7 @@ def test_missing_cgroup_keeps_raw_cpu_and_sets_vcpu_nan() -> None:
         energy_cpu.CPUSample(1.0, [20_000], 11.0, None),
     ]
 
-    result = energy_cpu._result_from_samples(samples, idle_power_w=0.0, domains=[domain])
+    result = energy_cpu.reduce_cpu_samples(samples, idle_power_w=0.0, domains=[domain])
 
     assert (result.cpu_energy_total_j) == (0.02) or round(abs((result.cpu_energy_total_j) - (0.02)), 7) == 0
     assert (math.isnan(result.vcpu_energy_total_j))

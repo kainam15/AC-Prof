@@ -289,27 +289,12 @@
     {
       "source": "acprof.monitors.resource_usage",
       "target": "acprof.monitors.resource_metrics",
-      "symbol": "_WindowCounterSnapshots"
-    },
-    {
-      "source": "acprof.monitors.resource_usage",
-      "target": "acprof.monitors.resource_metrics",
-      "symbol": "_apply_window_counter_metrics"
-    },
-    {
-      "source": "acprof.monitors.resource_usage",
-      "target": "acprof.monitors.resource_metrics",
       "symbol": "_nan_result"
     },
     {
       "source": "acprof.monitors.resource_usage",
       "target": "acprof.monitors.resource_metrics",
       "symbol": "_normalize_pstate"
-    },
-    {
-      "source": "acprof.monitors.resource_usage",
-      "target": "acprof.monitors.resource_metrics",
-      "symbol": "_result_from_samples"
     },
     {
       "source": "acprof.monitors.resource_usage",

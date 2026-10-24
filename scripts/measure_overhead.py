@@ -14,7 +14,7 @@ from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,10 +33,24 @@ from acprof.host.measurement_window import (  # noqa: E402 -- 脚本先设置仓
 from acprof.host.window_boundary_diagnostics import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     WindowBoundaryDiagnostics,
 )
+from acprof.monitors.interfaces import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    CPUStopResult,
+    GPUStopResult,
+    ResourceStopResult,
+)
+from acprof.monitors.sampling import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    SAMPLING_PROTOCOL_VERSION,
+    SamplingDiagnostics,
+    SamplingPolicy,
+    sampling_policy,
+)
+
+if TYPE_CHECKING:
+    from acprof.monitors.perf_mips import MIPSResult
 
 
 def summarize_overhead(rows, *, seed=0):
-    groups = defaultdict(dict)
+    groups: defaultdict[str, dict[int, float]] = defaultdict(dict)
     for row in rows:
         round_index, scenario = row["round"], row["scenario"]
         value = row["latency_app_s"]
@@ -89,7 +103,7 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
 
     lifecycle = time.perf_counter()
     timings = []
-    contracts = defaultdict(int)
+    contracts: defaultdict[str, int] = defaultdict(int)
     diagnostics = monitors.diagnostics
     primary_error = None
     try:
@@ -132,15 +146,28 @@ def measure_window(url, payload, *, count, monitors: MonitorGroup, token,
             finally:
                 _write_window_boundaries(monitors, boundary_output, token=token,
                                          active_error=sys.exc_info()[1])
-    stopped = [{"monitor": type(monitors.monitors[name]).__name__, "samples": len(value[-1]), "error": value[-2]}
-               for name, value in monitors.results.items() if name != "mips" and value is not None]
+    stopped: list[dict[str, Any]] = []
+    for name, value in monitors.results.items():
+        if name == "mips" or value is None:
+            continue
+        if not isinstance(value, (CPUStopResult, GPUStopResult, ResourceStopResult)):
+            raise TypeError(f"{name} returned an invalid typed collector result")
+        monitor = monitors.monitors[name]
+        sampling = getattr(monitor, "sampling_diagnostics", None)
+        stopped.append({
+            "collector": name, "monitor": type(monitor).__name__,
+            "samples": len(value.samples), "error": value.error,
+            "sampling": sampling.snapshot() if isinstance(sampling, SamplingDiagnostics) else None,
+        })
     if any(item["error"] or item["samples"] < 2 for item in stopped):
         raise RuntimeError(f"监测器未取得有效窗口：{stopped}")
-    perf_result = asdict(monitors.results["mips"]) if monitors.results.get("mips") is not None else None
+    perf = cast("MIPSResult | None", monitors.results.get("mips"))
+    perf_result = asdict(perf) if perf is not None else None
     if perf_result is not None and not (math.isfinite(perf_result["instructions_total"]) and perf_result["instructions_total"] > 0):
         raise RuntimeError("perf 未取得有效 instructions")
     result = {"latency_app_s": statistics.fmean(timings), "request_count": count,
             "host_process_cpu_s": cpu_time, "request_loop_wall_s": wall_time,
+            "host_process_cpu_pct": 100.0 * cpu_time / wall_time if wall_time > 0.0 else None,
             "lifecycle_wall_s": time.perf_counter() - lifecycle, "monitors": stopped,
             "perf": perf_result, "workload_contracts": [
                 {"count": n, "contract": json.loads(contract)} for contract, n in contracts.items()]}
@@ -179,7 +206,8 @@ def validate_capture(command, pcap, *, token, count):
 
 
 def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, mem, gpu,
-                           token, output, options, window_boundaries: bool = False) -> dict[str, Any]:
+                           token, output, options, window_boundaries: bool = False,
+                           sampling_policy: SamplingPolicy = "burst") -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
     from acprof.host.packet_capture import _resolve_packet_latency_runtime
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
@@ -215,14 +243,17 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                     raise RuntimeError("tcpdump 在请求前退出")
                 if gpu == "on":
                     monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
-                                 device_index=device["index"], device_uuid=device["uuid"]))
+                                 device_index=device["index"], device_uuid=device["uuid"],
+                                 sampling_policy=sampling_policy))
                 monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, idle_seconds=idle,
-                             container_name=name, dram_energy=options.get("dram_energy", "auto")))
+                             container_name=name, dram_energy=options.get("dram_energy", "auto"),
+                             sampling_policy=sampling_policy))
                 monitors.add("mips", PerfMIPSMonitor(name))
             if scenario in {"basic", "full"}:
                 monitors.add("resource", ResourceUsageMonitor(sample_hz=rate, container_name=name,
                              cpu_cores=cpu, mem_cap_gb=mem, use_gpu=gpu == "on",
-                             device_index=device.get("index", 0), device_uuid=device.get("uuid", "")))
+                             device_index=device.get("index", 0), device_uuid=device.get("uuid", ""),
+                             sampling_policy=sampling_policy))
             time.sleep(float(options["idle_cooldown_seconds"]))
             if scenario == "full":
                 def control():
@@ -253,6 +284,7 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
         if capture.returncode != 0 or pcap.stat().st_size <= 24:
             raise RuntimeError("full 对照未取得有效 PCAP")
         result["pcap"] = str(pcap)
+        assert runtime is not None
         result["packet_request_count"] = validate_capture(runtime.parse_cmd, pcap, token=token, count=count)
     return result
 
@@ -294,15 +326,23 @@ def main(argv=None):
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--requests", type=int, default=100)
     parser.add_argument("--sample-hz", default="5,20,100")
+    parser.add_argument("--sampling-policies", default="burst",
+                        help="逗号分隔的 burst,skip；每轮随机比较 policy × rate 与同轮 none 基线")
     parser.add_argument("--modes", help="内部对照场景，如 none,basic,full；此时 --sample-hz 必须为单值")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    rates = [float(value) for value in args.sample_hz.split(",")]
+    try:
+        rates = [float(value) for value in args.sample_hz.split(",")]
+        policies = [sampling_policy(value.strip()) for value in args.sampling_policies.split(",")]
+    except ValueError as error:
+        parser.error(str(error))
+    if len(set(policies)) != len(policies):
+        parser.error("--sampling-policies 不允许重复")
     modes: list[str] | None = args.modes.split(",") if args.modes else None
     if modes is not None and ("none" not in modes or len(modes) < 2 or len(set(modes)) != len(modes)
-                              or set(modes) - {"none", "basic", "full"} or len(rates) != 1):
-        parser.error("--modes 要求 none 与 basic/full，不允许重复；采样频率须为单值")
+                              or set(modes) - {"none", "basic", "full"} or len(rates) != 1 or len(policies) != 1):
+        parser.error("--modes 要求 none 与 basic/full，不允许重复；采样频率与调度策略须为单值")
     if args.rounds < 3 or args.requests < 1 or len(set(rates)) != len(rates) or not rates or any(not math.isfinite(rate) or rate <= 0 for rate in rates):
         parser.error("要求至少 3 轮、正请求数及不重复的正采样频率")
     output = args.output_dir.resolve()
@@ -340,13 +380,16 @@ def main(argv=None):
     name = "acprof-overhead-" + uuid4().hex[:12]
     conditions = ExecutionConditions.from_options(state["options"], gpu=args.gpu)
     recorded_environment = conditions.environment
-    report: dict[str, Any] = {"schema_version": 1, "kind": "collection_overhead_diagnostic" if modes else "monitor_overhead_diagnostic", "successful": False,
+    report: dict[str, Any] = {"schema_version": 2, "kind": "collection_overhead_diagnostic" if modes else "monitor_overhead_diagnostic", "successful": False,
               "source_run_id": state["run_id"], "image_id": image.tag, "model_revision": task.model_revision,
               "gpu_mode": args.gpu, "cpu_cores": cpu, "mem_cap_gb": mem, "input_scale": entry["input_scale"],
               "input_scale_plan_sha256": expected_hash, "seed": args.seed, "rounds": [],
               "payload_sha256": hashlib.sha256(json.dumps(entry["payload"], sort_keys=True).encode()).hexdigest(),
               "measurement_environment": recorded_environment, "cpuset_cpus": conditions.cpuset_cpus,
               "gpu_device_uuid": conditions.gpu_uuid, "request_timeout_seconds": conditions.request_timeout_seconds,
+              "sampling_policies": policies, "sample_hz": rates,
+              "sampling_protocol_version": SAMPLING_PROTOCOL_VERSION,
+              "host_process_cpu_scope": "time.process_time during request loop; all threads in this host Python process; excludes container CPU and collector start/stop; percent uses one CPU core as 100%",
               "host_identity": host_identity(ROOT),
               "command": [sys.executable, *sys.argv],
               "scope": ("同一常驻模型、固定输入与线程的串行 /predict；none/basic/full 仅为内部采集器对照，"
@@ -373,36 +416,45 @@ def main(argv=None):
                                timeout=conditions.request_timeout_seconds)
                 rng = random.Random(args.seed)
                 for round_index in range(args.rounds):
-                    scenarios = list(modes) if modes else [0.0, *rates]
+                    scenarios: list[tuple[str, float, SamplingPolicy | None]] = (
+                        [(mode, rates[0], policies[0] if mode != "none" else None) for mode in modes]
+                        if modes else [("none", 0.0, None), *(
+                            (f"monitors-{policy}-{rate:g}", rate, policy)
+                            for policy in policies for rate in rates
+                        )]
+                    )
                     rng.shuffle(scenarios)
-                    for rate in scenarios:
+                    for scenario, rate, policy in scenarios:
                         if modes:
-                            scenario = rate
                             result = measure_profile_window(
-                                session, entry, scenario=scenario, rate=rates[0], count=args.requests,
+                                session, entry, scenario=scenario, rate=rate, count=args.requests,
                                 name=name, cpu=cpu, mem=mem, gpu=args.gpu,
                                 token=f"overhead-{round_index}-{scenario}", output=output,
-                                options=state["options"], window_boundaries=args.window_boundaries)
-                            report["rounds"].append({"round": round_index, "scenario": scenario, **result})
+                                options=state["options"], window_boundaries=args.window_boundaries,
+                                sampling_policy=policy or policies[0])
+                            report["rounds"].append({"round": round_index, "scenario": scenario,
+                                                     "sampling_policy": policy,
+                                                     "sample_hz": rate if policy else None, **result})
                             atomic_write_json(output / "overhead.json", report)
                             print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                             continue
                         # 监测器初始化与文件输出均不计入请求计时。
                         monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics() if args.window_boundaries else None)
-                        scenario = f"monitors-{rate:g}" if rate else "none"
                         token = f"overhead-{round_index}-{scenario}"
                         boundary_output = output / f"{token}.boundaries.json" if args.window_boundaries else None
                         try:
-                            if rate:
-                                monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, container_name=name))
+                            if policy is not None:
+                                monitors.add("cpu", CPUEnergyMonitor(sample_hz=rate, container_name=name,
+                                             sampling_policy=policy))
                                 monitors.add("resource", ResourceUsageMonitor(
                                     sample_hz=rate, container_name=name, cpu_cores=cpu,
                                     mem_cap_gb=mem, use_gpu=args.gpu == "on",
                                     device_index=session.gpu_device.get("index", 0),
-                                    device_uuid=session.gpu_device.get("uuid", "")))
+                                    device_uuid=session.gpu_device.get("uuid", ""), sampling_policy=policy))
                                 if args.gpu == "on":
                                     monitors.add("gpu", GPUEnergyMonitor(sample_hz=rate,
-                                        device_index=session.gpu_device["index"], device_uuid=session.gpu_device["uuid"]))
+                                        device_index=session.gpu_device["index"], device_uuid=session.gpu_device["uuid"],
+                                        sampling_policy=policy))
                         except BaseException as error:
                             try:
                                 if monitors.diagnostics is not None:
@@ -417,7 +469,9 @@ def main(argv=None):
                         result = measure_window(session.base_url, entry["payload"], count=args.requests,
                                                 monitors=monitors, token=token, boundary_output=boundary_output,
                                                 timeout=conditions.request_timeout_seconds)
-                        report["rounds"].append({"round": round_index, "scenario": scenario, **result})
+                        report["rounds"].append({"round": round_index, "scenario": scenario,
+                                                 "sampling_policy": policy,
+                                                 "sample_hz": rate if policy else None, **result})
                         atomic_write_json(output / "overhead.json", report)
                         print(f"[overhead] round={round_index + 1} {scenario}: {result['latency_app_s']:.6f}s/request", flush=True)
                 report["comparisons"] = summarize_overhead(report["rounds"], seed=args.seed)

@@ -14,6 +14,7 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
+from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, sampling_policy
 
 
 @dataclass
@@ -55,6 +56,13 @@ class ClientConfig:
     profiling_mode: str = 'full'
     dram_energy: str = 'auto'
     sample_hz: float = 20.0
+    sampling_policy: SamplingPolicy = "burst"
+    raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT
+    run_id: str = ""
+    case_id: str = ""
+    case_attempt_id: str = ""
+    window_records_dir: str = ""
+    telemetry_dir: str = ""
     idle_seconds: float = 20.0
     device_index: int = 0
     gpu_device_uuid: str = ''
@@ -162,6 +170,13 @@ class ClientConfig:
             profiling_mode=profiling_mode,
             dram_energy=dram_energy,
             sample_hz=sample_hz,
+            sampling_policy=sampling_policy(env.get("ACPROF_SAMPLING_POLICY", "burst")),
+            raw_sample_limit=int(env.get("ACPROF_RAW_SAMPLE_LIMIT", str(DEFAULT_RAW_SAMPLE_LIMIT))),
+            run_id=env.get("ACPROF_RUN_ID", ""),
+            case_id=env.get("ACPROF_CASE_ID", ""),
+            case_attempt_id=env.get("ACPROF_CASE_ATTEMPT_ID", ""),
+            window_records_dir=env.get("ACPROF_WINDOW_RECORDS_DIR", ""),
+            telemetry_dir=env.get("ACPROF_TELEMETRY_DIR", ""),
             idle_seconds=idle_seconds,
             device_index=device_index,
             gpu_device_uuid=gpu_device_uuid,
@@ -177,6 +192,12 @@ class ClientConfig:
 
     def validate(self) -> None:
         require_profiling_mode(self.profiling_mode)
+        sampling_policy(self.sampling_policy)
+        if isinstance(self.raw_sample_limit, bool) or not isinstance(self.raw_sample_limit, int) or self.raw_sample_limit < 2:
+            raise ValueError("raw_sample_limit must be an integer of at least 2")
+        evidence_config = (self.run_id, self.case_id, self.case_attempt_id, self.window_records_dir, self.telemetry_dir)
+        if any(evidence_config) and not all(evidence_config):
+            raise ValueError("window evidence requires run_id, case_id, case_attempt_id and both evidence directories")
         for name in ("request_timeout_seconds", "sample_hz", "repeat_window_seconds"):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0:

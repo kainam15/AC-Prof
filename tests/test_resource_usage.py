@@ -69,7 +69,7 @@ class TestResourceUsageMonitor:
             ),
         ]
 
-        result = resource_metrics._result_from_samples(
+        result = resource_metrics.reduce_resource_samples(
             samples,
             cpu_cores=2.0,
             mem_limit_bytes=1000,
@@ -120,7 +120,7 @@ class TestResourceUsageMonitor:
             ),
         ]
 
-        result = resource_metrics._result_from_samples(
+        result = resource_metrics.reduce_resource_samples(
             samples,
             cpu_cores=1.0,
             mem_limit_bytes=0.0,
@@ -165,7 +165,7 @@ class TestResourceUsageMonitor:
             resource_metrics.ResourceUsageSample(0.201, 0.22, None, None, None, None),
         ]
 
-        result = resource_metrics._result_from_samples(
+        result = resource_metrics.reduce_resource_samples(
             samples,
             cpu_cores=1.0,
             mem_limit_bytes=0.0,
@@ -428,7 +428,7 @@ class TestResourceUsageMonitor:
 
     def test_window_counter_metrics_calculate_deltas_and_psi_stalls(self) -> None:
         result = resource_metrics._nan_result(2)
-        start = resource_metrics._WindowCounterSnapshots(
+        start = resource_metrics.WindowCounterSnapshots(
             cpu_throttle={
                 "nr_periods": 100.0,
                 "nr_throttled": 10.0,
@@ -455,7 +455,7 @@ class TestResourceUsageMonitor:
             io_operations={"read_ops": 20.0, "write_ops": 30.0},
             pids={"current": 5.0, "peak": 6.0, "max_events": 0.0},
         )
-        end = resource_metrics._WindowCounterSnapshots(
+        end = resource_metrics.WindowCounterSnapshots(
             cpu_throttle={
                 "nr_periods": 110.0,
                 "nr_throttled": 12.0,
@@ -483,7 +483,7 @@ class TestResourceUsageMonitor:
             pids={"current": 7.0, "peak": 9.0, "max_events": 1.0},
         )
 
-        resource_metrics._apply_window_counter_metrics(
+        resource_metrics.apply_window_counter_metrics(
             result,
             start,
             end,

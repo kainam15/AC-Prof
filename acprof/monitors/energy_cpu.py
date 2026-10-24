@@ -12,11 +12,13 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 from acprof.config import DEFAULT_IDLE_SECONDS
 from acprof.monitors.common import docker_container_pid, sample_periodically
+from acprof.monitors.interfaces import CPUStopResult
 from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
+from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingDiagnostics, SamplingPolicy
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 
@@ -285,7 +287,7 @@ def _energy_delta_j(prev: CPUSample, curr: CPUSample, domains: List[RaplDomain])
     return float(total_uj) / 1_000_000.0
 
 
-def _result_from_samples(
+def reduce_cpu_samples(
     samples: List[CPUSample],
     idle_power_w: float,
     domains: List[RaplDomain],
@@ -404,7 +406,7 @@ def _result_from_samples(
     )
 
 
-def _dram_result_from_samples(samples, domains, idle_power_w, status="available", error="",
+def reduce_dram_samples(samples, domains, idle_power_w, status="available", error="",
                               min_power_interval_s=0.0) -> DRAMEnergyResult:
     result = DRAMEnergyResult(idle_power_w=idle_power_w, status=status, error=error)
     if status != "available":
@@ -456,6 +458,8 @@ class CPUEnergyMonitor:
         cgroup_root: str = "/sys/fs/cgroup",
         proc_root: str = "/proc",
         dram_energy: str = "auto",
+        sampling_policy: SamplingPolicy = "burst",
+        raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT,
     ) -> None:
         self.sample_hz = float(sample_hz)
         self.idle_seconds = float(idle_seconds)
@@ -464,6 +468,10 @@ class CPUEnergyMonitor:
         self.cgroup_root = cgroup_root
         self.proc_root = proc_root
         self.dt = 1.0 / self.sample_hz
+        self.sampling_policy = sampling_policy
+        self.raw_sample_limit = raw_sample_limit
+        self.sampling_diagnostics = SamplingDiagnostics(sampling_policy, self.dt)
+        self.control_evidence: dict[str, Any] | None = None
 
         dram_policy("full", dram_energy)
         self.topology = discover_rapl_topology(powercap_root)
@@ -515,6 +523,7 @@ class CPUEnergyMonitor:
         """Use a monitor-matched blank window as the workload baseline."""
         self.idle_power_w = float(result.cpu_avg_power_total_w)
         self.dram_idle_power_w = getattr(getattr(result, "dram", None), "avg_power_w", float("nan"))
+        self.control_evidence = self.telemetry_snapshot(include_control=False)
         self.idle_trace = {}
         if trace and len(samples) >= 2:
             self.idle_trace = _build_idle_trace(
@@ -540,6 +549,7 @@ class CPUEnergyMonitor:
             raise RuntimeError("CPU energy monitor is already running")
 
         self.samples = []
+        self.sampling_diagnostics = SamplingDiagnostics(self.sampling_policy, self.dt)
         self._dram_runtime_error = ""
         self._stop_event = threading.Event()
         self._t_start = time.perf_counter()
@@ -548,16 +558,17 @@ class CPUEnergyMonitor:
         self._thread = threading.Thread(
             target=sample_periodically,
             args=(self._stop_event, self._t_start, self.dt, self._append_sample),
+            kwargs={"policy": self.sampling_policy, "diagnostics": self.sampling_diagnostics},
             daemon=True,
         )
         self._thread.start()
 
-    def stop(self) -> Tuple[CPUEnergyResult, str, List[CPUSample]]:
+    def stop(self) -> CPUStopResult:
         if not self.available:
-            return _nan_result(), self._init_error, []
+            return CPUStopResult(_nan_result(), self._init_error, [])
 
         if self._t_start is None:
-            return _nan_result(0, self.idle_power_w), self._runtime_error, []
+            return CPUStopResult(_nan_result(0, self.idle_power_w), self._runtime_error, [])
 
         self._t_end = time.perf_counter()
         self._stop_event.set()
@@ -578,12 +589,34 @@ class CPUEnergyMonitor:
         ]
         samples.sort(key=lambda item: item.timestamp)
         self.samples = samples
-        result = _result_from_samples(samples, self.idle_power_w, self.domains,
+        result = reduce_cpu_samples(samples, self.idle_power_w, self.domains,
                                       min_power_interval_s=0.5 * self.dt)
-        result.dram = _dram_result_from_samples(
+        result.dram = reduce_dram_samples(
             samples, self.dram_domains, self.dram_idle_power_w, self.dram_status,
             self._dram_runtime_error, min_power_interval_s=0.5 * self.dt)
-        return result, self._runtime_error, samples
+        return CPUStopResult(result, self._runtime_error, samples)
+
+    def telemetry_snapshot(self, *, include_control: bool = True) -> dict[str, Any]:
+        """Serialize retained evidence only after the sampling thread has stopped."""
+        from dataclasses import asdict
+
+        from acprof.telemetry import capture_samples, finite_json
+        return finite_json({
+            "status": "recorded" if self._t_start is not None and self.samples else "unavailable",
+            "error": self._init_error or self._runtime_error,
+            **capture_samples(self.samples, self.raw_sample_limit),
+            "units": {"timestamp": "s_monotonic", "energy_uj": "microjoules",
+                      "dram_energy_uj": "microjoules", "host_active_s": "cpu_seconds",
+                      "container_cpu_s": "cpu_seconds"},
+            "sampling": self.sampling_diagnostics.snapshot(),
+            "boundaries": self.sampling_boundary_snapshot(),
+            "context": {"domains": [asdict(domain) for domain in self.domains],
+                        "dram_domains": [asdict(domain) for domain in self.dram_domains],
+                        "topology": self.topology, "idle_power_w": self.idle_power_w,
+                        "dram_idle_power_w": self.dram_idle_power_w, "dram_status": self.dram_status,
+                        "dram_error": self._dram_runtime_error, "min_power_interval_s": 0.5 * self.dt},
+            "control": self.control_evidence if include_control else None,
+        })
 
 
     def sampling_boundary_snapshot(self) -> dict:

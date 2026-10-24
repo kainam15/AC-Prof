@@ -4,6 +4,14 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.monitors import energy_nvml
+from acprof.monitors.interfaces import GPUStopResult
+from acprof.telemetry import (
+    raw_capability,
+    read_window_evidence,
+    recompute_window,
+    window_evidence,
+    write_window_evidence,
+)
 
 
 class FakeThread:
@@ -89,7 +97,7 @@ def test_counter_rejection_recomputes_matched_idle_from_samples():
         energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
     ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
         monitor = energy_nvml.GPUEnergyMonitor()
-        control = energy_nvml._result_from_samples(control_samples, float('nan'))
+        control = energy_nvml.reduce_gpu_samples(control_samples, float('nan'))
         control.avg_power_total_w = 20.0  # Recorded cumulative control is biased.
         control.energy_source = 'nvml_total_energy'
         monitor.apply_control_baseline(control, control_samples, trace=True)
@@ -120,7 +128,7 @@ def test_workload_matches_fallback_control_source():
         energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
     ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
         monitor = energy_nvml.GPUEnergyMonitor()
-        control = energy_nvml._result_from_samples(control_samples, float('nan'))
+        control = energy_nvml.reduce_gpu_samples(control_samples, float('nan'))
         monitor.apply_control_baseline(control, control_samples)
         monitor.start()
         monitor._append_sample(1.0)
@@ -140,7 +148,7 @@ def test_missing_control_samples_never_silently_mixes_sources():
         energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
     ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
         monitor = energy_nvml.GPUEnergyMonitor()
-        baseline = energy_nvml._result_from_samples([(0.0, 20.0), (2.0, 20.0)], float('nan'))
+        baseline = energy_nvml.reduce_gpu_samples([(0.0, 20.0), (2.0, 20.0)], float('nan'))
         baseline.energy_source = 'nvml_total_energy'
         monitor.apply_control_baseline(baseline, [])
         monitor.start()
@@ -158,7 +166,7 @@ def test_missing_workload_samples_never_silently_mixes_sources():
         energy_nvml.time, 'perf_counter', side_effect=[0.0, 2.0]
     ), patch.object(energy_nvml.threading, 'Thread', FakeThread):
         monitor = energy_nvml.GPUEnergyMonitor()
-        baseline = energy_nvml._result_from_samples([(0.0, 10.0), (2.0, 10.0)], float('nan'))
+        baseline = energy_nvml.reduce_gpu_samples([(0.0, 10.0), (2.0, 10.0)], float('nan'))
         monitor.apply_control_baseline(baseline, [(0.0, 10.0), (2.0, 10.0)])
         monitor.start()
         with pytest.raises(RuntimeError, match='workload power samples unavailable'):
@@ -181,23 +189,51 @@ def test_reset_or_unsupported_counter_uses_power_integral_with_reason(readings_c
     assert (getattr(result, "energy_source", None)) == ("power_integration")
     assert (result.energy_fallback_reason)
 
-def test_cumulative_energy_survives_unsupported_power_sampling():
+@pytest.mark.parametrize("end_mj,expected_energy,expected_average", [(20_000, 10.0, 5.0), (10_000, 0.0, 0.0)])
+def test_cumulative_energy_survives_unsupported_power_sampling(tmp_path, end_mj, expected_energy, expected_average):
     with patch.object(energy_nvml.pynvml, "nvmlInit"), patch.object(
         energy_nvml.pynvml, "nvmlDeviceGetHandleByIndex", return_value="handle"
     ), patch.object(energy_nvml.pynvml, "nvmlDeviceGetName", return_value="GPU"), patch.object(
-        energy_nvml.pynvml, "nvmlDeviceGetTotalEnergyConsumption", side_effect=[10_000, 20_000]
+        energy_nvml.pynvml, "nvmlDeviceGetTotalEnergyConsumption", side_effect=[10_000, end_mj]
     ), patch.object(energy_nvml.pynvml, "nvmlDeviceGetPowerUsage", side_effect=RuntimeError("power unsupported")), patch.object(
         energy_nvml.time, "perf_counter", side_effect=[0.0, 2.0]
     ), patch.object(energy_nvml.threading, "Thread", FakeThread):
         monitor = energy_nvml.GPUEnergyMonitor()
         monitor.start()
-        result, _, error, samples = monitor.stop()
-    assert (result.energy_total_j) == (10.0)
-    assert (result.avg_power_total_w) == (5.0)
+        stopped = monitor.stop()
+        assert isinstance(stopped, GPUStopResult)
+        result, _, error, samples = stopped
+    assert result.energy_total_j == expected_energy
+    assert result.avg_power_total_w == expected_average
     assert (result.energy_source) == ("nvml_total_energy")
     assert (math.isnan(result.peak_power_total_w))
     assert (samples) == ([])
     assert ("power unsupported") in (error)
+    raw = monitor.telemetry_snapshot()
+    assert raw["status"] == "recorded"
+    assert raw["capabilities"] == {
+        "energy_totals": {"status": "recorded", "source": "nvml_total_energy"},
+        "power_samples": {"status": "unavailable", "sample_count": 0},
+        "peak_power": {"status": "unavailable", "source": "power_samples"},
+    }
+    assert raw["samples"] == []
+    assert raw["retention"]["complete"] is True
+    document = window_evidence(
+        identity={"run_id": "run", "case_id": "case", "case_attempt_id": "a1", "window_id": "w0"},
+        context={}, collectors={"gpu": raw},
+    )
+    path = tmp_path / "counter-only.json"
+    reference = write_window_evidence(path, document)
+    retained = read_window_evidence(path, expected_sha256=reference["sha256"])
+    assert raw_capability(retained)["can_recompute"] is True
+    replayed = recompute_window(retained)["gpu"]
+    assert replayed["energy_source"] == "nvml_total_energy"
+    assert replayed["energy_total_j"] == expected_energy
+    assert replayed["avg_power_total_w"] == expected_average
+    assert replayed["energy_iters"] == 0
+    assert replayed["peak_power_total_w"] is None
+    assert replayed["peak_power_eff_w"] is None
+    assert replayed["energy_eff_j"] is None  # No idle baseline was measured.
 
 def test_apply_control_baseline_uses_integrated_average_and_records_method() -> None:
     with patch("acprof.monitors.energy_nvml.pynvml.nvmlInit"), patch(
@@ -210,7 +246,7 @@ def test_apply_control_baseline_uses_integrated_average_and_records_method() -> 
         monitor = energy_nvml.GPUEnergyMonitor(sample_hz=10.0, idle_seconds=2.0)
 
     samples = [(0.0, 10.0), (1.0, 30.0), (3.0, 30.0)]
-    result = energy_nvml._result_from_samples(samples, idle_power_w=float("nan"))
+    result = energy_nvml.reduce_gpu_samples(samples, idle_power_w=float("nan"))
     idle_power_w = monitor.apply_control_baseline(result, samples, trace=True)
 
     assert (idle_power_w) == (80.0 / 3.0) or round(abs((idle_power_w) - (80.0 / 3.0)), 7) == 0

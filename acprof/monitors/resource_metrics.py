@@ -82,7 +82,7 @@ class ResourceUsageResult:
 
 
 @dataclass
-class _WindowCounterSnapshots:
+class WindowCounterSnapshots:
     cpu_throttle: Optional[Dict[str, float]] = None
     memory_events: Optional[Dict[str, float]] = None
     cpu_pressure: Optional[Dict[str, float]] = None
@@ -195,10 +195,10 @@ def _pressure_stall_pct(
     return (delta_usec / (elapsed_s * 1_000_000.0)) * 100.0
 
 
-def _apply_window_counter_metrics(
+def apply_window_counter_metrics(
     result: ResourceUsageResult,
-    start: _WindowCounterSnapshots,
-    end: _WindowCounterSnapshots,
+    start: WindowCounterSnapshots,
+    end: WindowCounterSnapshots,
     elapsed_s: float,
 ) -> None:
     nr_periods = counter_delta(
@@ -327,7 +327,7 @@ def _apply_window_counter_metrics(
     )
 
 
-def _result_from_samples(
+def reduce_resource_samples(
     samples: List[ResourceUsageSample],
     cpu_cores: float,
     mem_limit_bytes: float,

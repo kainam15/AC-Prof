@@ -44,6 +44,7 @@ from acprof.host.window_errors import EnergyAbort, MIPSAbort, RequestTimeoutAbor
 from acprof.host.window_execution import WindowExecutor
 from acprof.host.window_requests import canonical_task_param
 from acprof.host.window_types import MonitorDependencies, WindowSpec
+from acprof.window_records import WindowPublicationContext
 
 
 def _local_proxy_options(url: str) -> dict:
@@ -356,8 +357,10 @@ class ClientRunner:
         windows = WindowExecutor(
             self.config,
             MonitorDependencies(
-                self.energy_mod, self.cpu_energy_mod,
-                self.resource_usage_mod, self.perf_mips_mod,
+                gpu=self.energy_mod.GPUEnergyMonitor if self.energy_mod is not None else None,
+                cpu=self.cpu_energy_mod.CPUEnergyMonitor if self.cpu_energy_mod is not None else None,
+                resource=self.resource_usage_mod.ResourceUsageMonitor if self.resource_usage_mod is not None else None,
+                instructions=self.perf_mips_mod.PerfMIPSMonitor if self.perf_mips_mod is not None else None,
             ),
             one_request=self._one_request,
             cold_start_metrics=self._cold_start_row_metrics,
@@ -369,6 +372,11 @@ class ClientRunner:
             slow_latency_threshold_s=slow_latency_threshold_s,
         )
         need_header = _is_file_empty(self.config.out_csv)
+        publication = WindowPublicationContext(
+            run_id=self.config.run_id, case_id=self.config.case_id,
+            case_attempt_id=self.config.case_attempt_id,
+            records_dir=self.config.window_records_dir, telemetry_dir=self.config.telemetry_dir,
+        ) if self.config.window_records_dir else None
         fieldnames = CSV_FIELDS
         if not need_header:
             with open(self.config.out_csv, "r", newline="", encoding="utf-8-sig") as existing:
@@ -455,6 +463,9 @@ class ClientRunner:
                         result.sniff_group_id,
                         diag_f=diag_f,
                         idle_diag_record=result.idle_diag_record,
+                        publication=publication,
+                        telemetry_evidence=result.telemetry_evidence,
+                        request_record=result.request_record,
                     )
 
     def run_cli(self) -> None:

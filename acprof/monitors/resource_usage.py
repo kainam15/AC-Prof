@@ -7,6 +7,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically
+from acprof.monitors.interfaces import ResourceStopResult
+from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingDiagnostics, SamplingPolicy
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 
@@ -30,6 +32,8 @@ class ResourceUsageMonitor:
         cpu_sysfs_root: str = "/sys/devices/system/cpu",
         proc_cpuinfo_path: str = "/proc/cpuinfo",
         device_uuid: str = "",
+        sampling_policy: SamplingPolicy = "burst",
+        raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT,
     ) -> None:
         self.sample_hz = float(sample_hz)
         self.container_name = container_name
@@ -39,6 +43,9 @@ class ResourceUsageMonitor:
         self.device_index = int(device_index)
         self.device_uuid = device_uuid
         self.dt = 1.0 / self.sample_hz
+        self.sampling_policy = sampling_policy
+        self.raw_sample_limit = raw_sample_limit
+        self.sampling_diagnostics = SamplingDiagnostics(sampling_policy, self.dt)
         self.cpu_sysfs_root = cpu_sysfs_root
         self.proc_cpuinfo_path = proc_cpuinfo_path
         from acprof.platform import detect_environment
@@ -84,7 +91,8 @@ class ResourceUsageMonitor:
         self._swap_limit_bytes: Optional[int] = None
         self._io_start: Optional[Tuple[int, int]] = None
         self._io_end: Optional[Tuple[int, int]] = None
-        self._window_counters_start = resource_metrics._WindowCounterSnapshots()
+        self._window_counters_start = resource_metrics.WindowCounterSnapshots()
+        self._window_counters_end = resource_metrics.WindowCounterSnapshots()
         self._gpu_handle = None
         self._gpu_initialized = False
         self._thread: Optional[threading.Thread] = None
@@ -162,11 +170,12 @@ class ResourceUsageMonitor:
             raise RuntimeError("Resource usage monitor is already running")
 
         self.samples = []
+        self.sampling_diagnostics = SamplingDiagnostics(self.sampling_policy, self.dt)
         self._stop_event = threading.Event()
         self._swap_limit_bytes = None
         self._io_start = None
         self._io_end = None
-        self._window_counters_start = resource_metrics._WindowCounterSnapshots()
+        self._window_counters_start = resource_metrics.WindowCounterSnapshots()
         if self._swap_limit_reader is not None:
             try:
                 self._swap_limit_bytes = self._swap_limit_reader()
@@ -184,19 +193,21 @@ class ResourceUsageMonitor:
         self._thread = threading.Thread(
             target=sample_periodically,
             args=(self._stop_event, self._t_start, self.dt, self._append_sample),
+            kwargs={"policy": self.sampling_policy, "diagnostics": self.sampling_diagnostics},
             daemon=True,
         )
         self._thread.start()
 
-    def stop(self) -> Tuple[resource_metrics.ResourceUsageResult, str, List[resource_metrics.ResourceUsageSample]]:
+    def stop(self) -> ResourceStopResult:
         if not self.available:
-            return resource_metrics._nan_result(), self._error_message(), []
+            return ResourceStopResult(resource_metrics._nan_result(), self._error_message(), [])
 
         if self._t_start is None:
-            return resource_metrics._nan_result(0), self._error_message(), []
+            return ResourceStopResult(resource_metrics._nan_result(0), self._error_message(), [])
 
         self._t_end = time.perf_counter()
         window_counters_end = self._read_window_counter_snapshots()
+        self._window_counters_end = window_counters_end
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=SAMPLER_STOP_TIMEOUT_S)
@@ -220,7 +231,7 @@ class ResourceUsageMonitor:
         ]
         samples.sort(key=lambda item: item.timestamp)
         self.samples = samples
-        result = resource_metrics._result_from_samples(
+        result = resource_metrics.reduce_resource_samples(
             samples,
             self.cpu_cores,
             self.mem_limit_bytes,
@@ -239,17 +250,54 @@ class ResourceUsageMonitor:
                         f"container_io_{direction}_bytes counter reset: {before} -> {after}"
                     )
                 setattr(result, f"container_io_{direction}_bytes", delta)
-        resource_metrics._apply_window_counter_metrics(
+        resource_metrics.apply_window_counter_metrics(
             result,
             self._window_counters_start,
             window_counters_end,
             max(0.0, self._t_end - self._t_start),
         )
-        return (
+        return ResourceStopResult(
             result,
             self._error_message(),
             samples,
         )
+
+    def telemetry_snapshot(self) -> dict:
+        from dataclasses import asdict
+
+        from acprof.telemetry import capture_samples, finite_json
+        return finite_json({
+            "status": "recorded" if self._t_start is not None and self.samples else "unavailable",
+            "error": self._error_message(),
+            **capture_samples(self.samples, self.raw_sample_limit),
+            "units": {"timestamp": "s_monotonic", "container_cpu_s": "cpu_seconds",
+                      "*_bytes": "bytes", "*_pct": "percent", "*_hz": "hertz",
+                      "*_mhz": "megahertz", "gpu_temp_c": "celsius",
+                      "gpu_pstate": "NVML_P0_to_P15"},
+            "sampling": self.sampling_diagnostics.snapshot(),
+            "boundaries": self.sampling_boundary_snapshot(),
+            "context": {"cpu_cores": self.cpu_cores, "mem_limit_bytes": self.mem_limit_bytes,
+                        "min_cpu_interval_s": 0.5 * self.dt, "swap_limit_bytes": self._swap_limit_bytes,
+                        "io_start": self._io_start, "io_end": self._io_end,
+                        "counters_start": asdict(self._window_counters_start),
+                        "counters_end": asdict(self._window_counters_end),
+                        "counter_units": {"cpu_throttle.nr_periods": "count",
+                                          "cpu_throttle.nr_throttled": "count",
+                                          "cpu_throttle.throttled_usec": "microseconds",
+                                          "cpu_pressure.*": "microseconds",
+                                          "memory_pressure.*": "microseconds",
+                                          "io_pressure.*": "microseconds",
+                                          "memory_events.*": "count",
+                                          "memory_peak.peak": "bytes",
+                                          "memory_stat.anon/file/slab": "bytes",
+                                          "memory_stat.pgfault/pgmajfault/workingset_refault": "count",
+                                          "io_operations.*": "count", "pids.*": "count",
+                                          "io_start/io_end": "bytes"},
+                        "window_duration_s": max(0.0, self._t_end - self._t_start)
+                        if self._t_start is not None and self._t_end is not None else 0.0,
+                        "device_uuid": self.device_uuid, "device_index": self.device_index,
+                        "gpu_query_errors": self.gpu_query_errors},
+        })
 
     def sampling_boundary_snapshot(self) -> dict:
         """Read existing timestamps only; no cgroup, proc, sysfs or NVML query."""
@@ -288,8 +336,8 @@ class ResourceUsageMonitor:
         errors.extend(f"gpu[{query}]: {error}" for query, error in self.gpu_query_errors.items())
         return "; ".join(errors)
 
-    def _read_window_counter_snapshots(self) -> resource_metrics._WindowCounterSnapshots:
-        snapshots = resource_metrics._WindowCounterSnapshots()
+    def _read_window_counter_snapshots(self) -> resource_metrics.WindowCounterSnapshots:
+        snapshots = resource_metrics.WindowCounterSnapshots()
         readers = (
             ("cpu_throttle", self._cpu_throttle_reader),
             ("memory_events", self._memory_events_reader),

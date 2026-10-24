@@ -8,6 +8,7 @@ import pytest
 from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
 from acprof.monitors.common import docker_container_pid, sample_periodically
 from acprof.monitors.perf_mips import MIPSProfilingError
+from acprof.monitors.sampling import SamplingDiagnostics
 
 
 @pytest.mark.parametrize('error_type_case', range(2), ids=['RuntimeError', 'MIPSProfilingError'])
@@ -80,6 +81,59 @@ def test_sampling_preserves_first_interval_and_absolute_phase(sampling_clock):
 
     assert samples == pytest.approx([0.05, 0.10, 0.15, 0.20])
     assert clock.waits == pytest.approx([0.05, 0.03, 0.03, 0.03])
+
+
+def test_skip_preserves_phase_and_records_expired_deadlines(sampling_clock):
+    clock, stop = sampling_clock
+    samples = []
+    diagnostics = SamplingDiagnostics("skip", 0.05)
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(0.12 if len(samples) == 1 else 0.005)
+        if len(samples) == 3:
+            stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, sample, policy="skip", diagnostics=diagnostics)
+    assert samples == pytest.approx([0.05, 0.20, 0.25])
+    assert diagnostics.callback_count == 3
+    assert diagnostics.skipped_deadlines == 2
+    assert diagnostics.overrun_count == 1
+    assert diagnostics.total_callback_s == pytest.approx(0.13)
+    assert diagnostics.max_callback_s == pytest.approx(0.12)
+    assert diagnostics.snapshot()["protocol_version"] == "periodic-v1"
+
+
+def test_burst_diagnostics_preserve_catchup_and_measure_lateness(sampling_clock):
+    clock, stop = sampling_clock
+    diagnostics = SamplingDiagnostics("burst", 0.05)
+    samples = []
+
+    def sample(timestamp):
+        samples.append(timestamp - 10.0)
+        clock.advance(0.12 if len(samples) == 1 else 0.005)
+        if len(samples) == 3:
+            stop.set()
+
+    sample_periodically(stop, 10.0, 0.05, sample, diagnostics=diagnostics)
+    assert samples == pytest.approx([0.05, 0.17, 0.175])
+    assert diagnostics.skipped_deadlines == 0
+    assert diagnostics.max_lateness_s == pytest.approx(0.07)
+    assert diagnostics.total_lateness_s == pytest.approx(0.095)
+
+
+def test_diagnostics_retain_callback_failure_and_propagate_it(sampling_clock):
+    clock, stop = sampling_clock
+    diagnostics = SamplingDiagnostics("skip", 0.05)
+
+    def sample(timestamp):
+        clock.advance(0.02)
+        raise LookupError("sensor failed")
+
+    with pytest.raises(LookupError, match="sensor failed"):
+        sample_periodically(stop, 10.0, 0.05, sample, policy="skip", diagnostics=diagnostics)
+    assert diagnostics.callback_errors == 1
+    assert diagnostics.total_callback_s == pytest.approx(0.02)
 
 
 @pytest.mark.parametrize(

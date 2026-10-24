@@ -4,12 +4,20 @@ from __future__ import annotations
 import math
 import time
 from contextlib import ExitStack
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
-from acprof.monitors.interfaces import MonitorLifecycle
+from acprof.monitors.interfaces import (
+    CPUStopResult,
+    GPUStopResult,
+    MonitorLifecycle,
+    ResourceStopResult,
+)
 
 if TYPE_CHECKING:
     from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from acprof.monitors.perf_mips import MIPSResult
+
+Result = TypeVar("Result")
 
 
 class MonitorCleanupError(RuntimeError):
@@ -25,7 +33,7 @@ class MonitorGroup:
     def __init__(self, *, close: bool = True, diagnostics: WindowBoundaryDiagnostics | None = None):
         self.diagnostics = diagnostics
         self.monitors: dict[str, MonitorLifecycle] = {}
-        self.results: dict[str, Any] = {}
+        self.results: dict[str, CPUStopResult | GPUStopResult | ResourceStopResult | MIPSResult | None] = {}
         self.failures: list[tuple[str, BaseException]] = []
         self.started: set[str] = set()
         self._closers = ExitStack()
@@ -42,7 +50,7 @@ class MonitorGroup:
         if self._owns_monitors:
             self._closers.callback(self._attempt, f"{name}.close", monitor.close)
 
-    def _attempt(self, operation, callback, *args):
+    def _attempt(self, operation: str, callback: Callable[..., Result], *args: Any) -> Result | None:
         try:
             if self.diagnostics is not None:
                 return self.diagnostics.observe(operation, callback, *args)
@@ -129,6 +137,6 @@ def run_matched_control_window(monitors: MonitorGroup, *, idle_seconds: float,
         if primary_error is None or isinstance(primary_error, Exception):
             group.raise_if_failed()
     for name in ("gpu", "cpu"):
-        values = group.results.get(name)
+        values = cast(CPUStopResult | GPUStopResult | None, group.results.get(name))
         if values is not None:
             getattr(group.monitors[name], "apply_control_baseline")(values[0], values[-1], trace=trace)

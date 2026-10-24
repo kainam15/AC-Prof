@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.host.measurement_window import MonitorGroup
+from acprof.monitors.interfaces import CPUStopResult
 
 
 def group(*monitors, perf=None):
@@ -66,7 +67,7 @@ def test_request_failure_stops_and_closes_every_started_monitor():
     from scripts.measure_overhead import measure_window
     monitors = [Mock(), Mock()]
     for monitor in monitors:
-        monitor.stop.return_value = (None, "", [1, 2])
+        monitor.stop.return_value = CPUStopResult(None, "", [1, 2])
     with patch("requests.post", side_effect=RuntimeError("request failed")):
         with pytest.raises(RuntimeError, match="request failed"):
             measure_window("http://example.invalid", {}, count=1, monitors=group(*monitors), token="test")
@@ -77,7 +78,7 @@ def test_request_failure_stops_and_closes_every_started_monitor():
 def test_perf_failure_still_stops_sampling_threads():
     from scripts.measure_overhead import measure_window
     monitor, perf = Mock(), Mock()
-    monitor.stop.return_value = (None, "", [1, 2])
+    monitor.stop.return_value = CPUStopResult(None, "", [1, 2])
     perf.stop.side_effect = RuntimeError("instructions unavailable")
     response = Mock(status_code=200)
     response.json.return_value = {"workload_contract": {"input": {"actual_scale": 5}}}
@@ -122,7 +123,7 @@ def test_truncated_capture_cannot_pass_full_comparison():
 def test_monitor_stop_failure_does_not_leave_other_threads_running():
     from scripts.measure_overhead import measure_window
     monitors = [Mock(), Mock()]
-    monitors[0].stop.return_value = (None, "", [1, 2])
+    monitors[0].stop.return_value = CPUStopResult(None, "", [1, 2])
     monitors[1].stop.side_effect = RuntimeError("stop failed")
     response = Mock(status_code=200)
     response.json.return_value = {}
@@ -154,7 +155,7 @@ def test_opt_in_boundary_report_is_written_after_cleanup(tmp_path, failure):
         events.append("stop")
         if failure == "stop":
             raise RuntimeError("stop failed")
-        return (None, "", [1, 2])
+        return CPUStopResult(None, "", [1, 2])
 
     def close():
         assert not path.exists()

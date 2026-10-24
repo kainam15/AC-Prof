@@ -1,118 +1,33 @@
 import math
 import threading
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pynvml
 
 from acprof.config import DEFAULT_IDLE_SECONDS
+from acprof.monitors.gpu_metrics import (
+    EnergyResult,
+    apply_gpu_energy_counter,
+    median_power,
+    reduce_gpu_samples,
+    time_weighted_average_power,
+    unavailable_gpu_result,
+)
+from acprof.monitors.interfaces import GPUStopResult
+from acprof.monitors.sampling import (
+    DEFAULT_RAW_SAMPLE_LIMIT,
+    SamplingDiagnostics,
+    SamplingPolicy,
+    next_deadline,
+)
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 COUNTER_SAMPLE_POWER_TOLERANCE = 0.25
 
 
-@dataclass
-class EnergyResult:
-    energy_iters: int
-    idle_power_w: float
-    avg_power_total_w: float
-    peak_power_total_w: float
-    energy_total_j: float
-    avg_power_eff_w: float
-    peak_power_eff_w: float
-    energy_eff_j: float
-    energy_source: str = "unavailable"
-    energy_fallback_reason: str = ""
-    counter_start_mj: Optional[int] = None
-    counter_end_mj: Optional[int] = None
-    measurement_duration_s: float = float("nan")
-
-
 def _get_total_power_w(handle):
     return pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-
-
-def _median(xs):
-    if not xs:
-        return float("nan")
-    s = sorted(xs)
-    n = len(s)
-    return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
-
-
-def _time_weighted_average_power(samples: List[Tuple[float, float]]) -> float:
-    if not samples:
-        return float("nan")
-    if len(samples) == 1:
-        return float(samples[0][1])
-
-    energy_j = 0.0
-    for idx in range(1, len(samples)):
-        t0, p0 = samples[idx - 1]
-        t1, p1 = samples[idx]
-        dt = t1 - t0
-        if dt > 0.0:
-            energy_j += 0.5 * (p0 + p1) * dt
-
-    duration_s = samples[-1][0] - samples[0][0]
-    return energy_j / duration_s if duration_s > 0.0 else float("nan")
-
-
-def _nan_result(energy_iters: int = 0, idle_power_w: float = float("nan")) -> EnergyResult:
-    return EnergyResult(
-        energy_iters,
-        idle_power_w,
-        float("nan"),
-        float("nan"),
-        float("nan"),
-        float("nan"),
-        float("nan"),
-        float("nan"),
-    )
-
-
-def _result_from_samples(
-    samples: List[Tuple[float, float]],
-    idle_power_w: float,
-) -> EnergyResult:
-    if len(samples) < 2:
-        return _nan_result(len(samples), idle_power_w)
-
-    powers = [p for _, p in samples]
-    peak_power_total = max(powers)
-
-    energy_total = 0.0
-    for i in range(1, len(samples)):
-        t0, p0 = samples[i - 1]
-        t1, p1 = samples[i]
-        energy_total += 0.5 * (p0 + p1) * (t1 - t0)
-    duration_s = samples[-1][0] - samples[0][0]
-    if duration_s <= 0.0:
-        return _nan_result(len(samples), idle_power_w)
-    avg_power_total = energy_total / duration_s
-
-    powers_eff = [p - idle_power_w for p in powers]
-    peak_power_eff = max(powers_eff)
-
-    energy_eff = 0.0
-    for i in range(1, len(samples)):
-        t0, _ = samples[i - 1]
-        t1, _ = samples[i]
-        energy_eff += 0.5 * (powers_eff[i - 1] + powers_eff[i]) * (t1 - t0)
-    avg_power_eff = energy_eff / duration_s
-
-    return EnergyResult(
-        len(samples),
-        idle_power_w,
-        avg_power_total,
-        peak_power_total,
-        energy_total,
-        avg_power_eff,
-        peak_power_eff,
-        energy_eff,
-        "power_integration",
-    )
 
 
 class GPUEnergyMonitor:
@@ -122,12 +37,20 @@ class GPUEnergyMonitor:
         idle_seconds: float = DEFAULT_IDLE_SECONDS,
         device_index: int = 0,
         device_uuid: str = "",
+        sampling_policy: SamplingPolicy = "burst",
+        raw_sample_limit: int = DEFAULT_RAW_SAMPLE_LIMIT,
     ) -> None:
         self.sample_hz = float(sample_hz)
         self.idle_seconds = float(idle_seconds)
         self.device_index = int(device_index)
         self.device_uuid = device_uuid
         self.dt = 1.0 / self.sample_hz
+        self.sampling_policy = sampling_policy
+        self.raw_sample_limit = raw_sample_limit
+        self.sampling_diagnostics = SamplingDiagnostics(sampling_policy, self.dt)
+        self.control_evidence: dict[str, Any] | None = None
+        self._last_result: EnergyResult | None = None
+        self._control_source_reselected = False
 
         self.handle = None
         self.gpu_name = "unknown"
@@ -191,9 +114,9 @@ class GPUEnergyMonitor:
                 "gpu_idle_power_max_w": max(powers),
                 "gpu_idle_power_mean_w": sum(powers) / len(powers),
                 "gpu_idle_power_time_weighted_mean_w": (
-                    _time_weighted_average_power(idle_samples)
+                    time_weighted_average_power(idle_samples)
                 ),
-                "gpu_idle_power_p50_w": _median(powers),
+                "gpu_idle_power_p50_w": median_power(powers),
             })
         else:
             trace.update({
@@ -217,7 +140,8 @@ class GPUEnergyMonitor:
         """Use a monitor-matched blank window as the workload baseline."""
         self.idle_power_w = float(result.avg_power_total_w)
         self.idle_energy_source = result.energy_source
-        self._idle_sample_avg_w = _time_weighted_average_power(samples)
+        self._idle_sample_avg_w = time_weighted_average_power(samples)
+        self.control_evidence = self.telemetry_snapshot(include_control=False)
         self.idle_trace = {}
         if trace and samples:
             self.idle_trace = self._build_idle_trace(
@@ -245,6 +169,9 @@ class GPUEnergyMonitor:
             raise RuntimeError("GPU energy monitor is already running")
 
         self.samples = []
+        self.sampling_diagnostics = SamplingDiagnostics(self.sampling_policy, self.dt)
+        self._last_result = None
+        self._control_source_reselected = False
         self._runtime_error = ""
         self._stop_event = threading.Event()
         self._t_start = time.perf_counter()
@@ -256,12 +183,12 @@ class GPUEnergyMonitor:
         self._thread = threading.Thread(target=self._sample_loop, daemon=True)
         self._thread.start()
 
-    def stop(self) -> Tuple[EnergyResult, str, str, List[Tuple[float, float]]]:
+    def stop(self) -> GPUStopResult:
         if self._init_error or self.handle is None:
-            return _nan_result(), self.gpu_name, self._init_error, []
+            return GPUStopResult(unavailable_gpu_result(), self.gpu_name, self._init_error, [])
 
         if self._t_start is None:
-            return _nan_result(0, self.idle_power_w), self.gpu_name, self._runtime_error, []
+            return GPUStopResult(unavailable_gpu_result(0, self.idle_power_w), self.gpu_name, self._runtime_error, [])
 
         self._t_end = time.perf_counter()
         energy_end_mj = self._read_energy_mj() if self._energy_start_mj is not None else None
@@ -284,7 +211,7 @@ class GPUEnergyMonitor:
         samples.sort(key=lambda item: item[0])
         self.samples = samples
 
-        result = _result_from_samples(samples, self.idle_power_w)
+        result = reduce_gpu_samples(samples, self.idle_power_w)
         duration_s = self._t_end - self._t_start
         result.counter_start_mj = self._energy_start_mj
         result.counter_end_mj = energy_end_mj
@@ -310,11 +237,7 @@ class GPUEnergyMonitor:
                         "using time-integrated power samples"
                     )
                 else:
-                    result.energy_total_j = delta_mj / 1000.0
-                    result.avg_power_total_w = counter_avg_w
-                    result.energy_eff_j = result.energy_total_j - self.idle_power_w * duration_s
-                    result.avg_power_eff_w = result.avg_power_total_w - self.idle_power_w
-                    result.energy_source = "nvml_total_energy"
+                    apply_gpu_energy_counter(result)
             else:
                 self._energy_error = "cumulative energy counter decreased or window duration is invalid"
         # A cumulative workload measurement cannot be corrected with an
@@ -323,7 +246,7 @@ class GPUEnergyMonitor:
         # If either side distrusts the counter, prefer matched power integrals
         # on both sides and retain raw counters in diagnostic provenance.
         if self.idle_energy_source == "power_integration" and result.energy_source == "nvml_total_energy":
-            sample_result = _result_from_samples(samples, self.idle_power_w)
+            sample_result = reduce_gpu_samples(samples, self.idle_power_w)
             if not math.isfinite(sample_result.energy_total_j):
                 raise RuntimeError(
                     "GPU counter/control source mismatch: workload power samples unavailable"
@@ -337,6 +260,7 @@ class GPUEnergyMonitor:
                 (self._energy_error + "; ") if self._energy_error else ""
             ) + "matched control source is power_integration; workload uses the same source"
         elif self.idle_energy_source == "nvml_total_energy" and result.energy_source == "power_integration":
+            self._control_source_reselected = True
             if not math.isfinite(self._idle_sample_avg_w):
                 raise RuntimeError(
                     "GPU counter/control source mismatch: idle power samples unavailable"
@@ -358,13 +282,50 @@ class GPUEnergyMonitor:
                 (self._energy_error + "; ") if self._energy_error else ""
             ) + "paired control baseline recomputed from time-integrated power samples"
         result.energy_fallback_reason = self._energy_error
+        self._last_result = result
 
-        return (
+        return GPUStopResult(
             result,
             self.gpu_name,
             self._runtime_error,
             samples,
         )
+
+    def telemetry_snapshot(self, *, include_control: bool = True) -> dict[str, Any]:
+        from acprof.telemetry import capture_samples, finite_json
+        result = self._last_result or unavailable_gpu_result()
+        energy_recorded = (result.energy_source != "unavailable"
+                           and math.isfinite(result.energy_total_j)
+                           and math.isfinite(result.avg_power_total_w))
+        return finite_json({
+            "status": "recorded" if self._t_start is not None and (self.samples or energy_recorded) else "unavailable",
+            "error": self._init_error or self._runtime_error,
+            "capabilities": {
+                "energy_totals": {"status": "recorded" if energy_recorded else "unavailable",
+                                  "source": result.energy_source},
+                "power_samples": {"status": "recorded" if self.samples else "unavailable",
+                                  "sample_count": len(self.samples)},
+                "peak_power": {"status": "recorded" if math.isfinite(result.peak_power_total_w) else "unavailable",
+                               "source": "power_samples"},
+            },
+            **capture_samples(self.samples, self.raw_sample_limit,
+                              lambda sample: {"timestamp": sample[0], "power_w": sample[1]}),
+            "units": {"timestamp": "s_monotonic", "power_w": "watts", "counter_*_mj": "millijoules"},
+            "sampling": self.sampling_diagnostics.snapshot(),
+            "boundaries": self.sampling_boundary_snapshot(),
+            "context": {"device_uuid": self.device_uuid, "device_index": self.device_index,
+                        "device_name": self.gpu_name, "idle_power_w": self.idle_power_w,
+                        "idle_energy_source": self.idle_energy_source,
+                        "idle_sample_avg_w": self._idle_sample_avg_w,
+                        "counter_start_mj": result.counter_start_mj,
+                        "counter_end_mj": result.counter_end_mj,
+                        "measurement_duration_s": result.measurement_duration_s,
+                        "energy_source": result.energy_source,
+                        "energy_fallback_reason": result.energy_fallback_reason,
+                        "counter_sample_power_tolerance": COUNTER_SAMPLE_POWER_TOLERANCE,
+                        "control_source_reselected": self._control_source_reselected},
+            "control": self.control_evidence if include_control else None,
+        })
 
     def sampling_boundary_snapshot(self) -> dict:
         """Read existing timestamps only; no additional NVML query."""
@@ -384,12 +345,19 @@ class GPUEnergyMonitor:
         self._closed = True
 
     def _sample_loop(self) -> None:
+        # Keep NVML's existing immediate first callback and thread-local phase;
+        # CPU/resource collectors deliberately wait for their first interval.
         next_t = time.perf_counter()
         while not self._stop_event.is_set():
             t = time.perf_counter()
             if self._t_start is not None and t >= self._t_start:
                 self._append_sample(t)
-            next_t += self.dt
+                finished = time.perf_counter()
+                self.sampling_diagnostics.observe(next_t, t, finished)
+            else:
+                finished = time.perf_counter()
+            next_t, skipped = next_deadline(next_t, finished, self.dt, self.sampling_policy)
+            self.sampling_diagnostics.skipped_deadlines += skipped
             sleep_s = next_t - time.perf_counter()
             if sleep_s > 0:
                 self._stop_event.wait(sleep_s)

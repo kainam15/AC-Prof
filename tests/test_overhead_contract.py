@@ -10,6 +10,8 @@ from unittest.mock import Mock, patch
 import pytest
 from test_overhead import group
 
+from acprof.monitors.interfaces import CPUStopResult, GPUStopResult, ResourceStopResult
+from acprof.monitors.sampling import SamplingDiagnostics
 from scripts import measure_overhead as overhead
 
 
@@ -25,6 +27,7 @@ class TestOverheadContract:
 
         def collector(name):
             monitor = Mock()
+            monitor.sampling_diagnostics = SamplingDiagnostics("skip", 0.05)
             monitors[name] = monitor
             monitor.start.side_effect = lambda: events.append(name + ".start")
 
@@ -34,7 +37,10 @@ class TestOverheadContract:
                     raise RuntimeError("control collector failed")
                 if name == "mips":
                     return PerfValue()
-                return (object(), "GPU", "", [1, 2]) if name == "gpu" else (object(), "", [1, 2])
+                if name == "gpu":
+                    return GPUStopResult(object(), "GPU", "", [1, 2])
+                result_type = CPUStopResult if name == "cpu" else ResourceStopResult
+                return result_type(object(), "", [1, 2])
 
             monitor.stop.side_effect = stop
             monitor.close.side_effect = lambda: events.append(name + ".close")
@@ -66,18 +72,21 @@ class TestOverheadContract:
                 returncode=0, stdout=json.dumps(parsed), stderr="")))
             stack.enter_context(patch("time.sleep"))
             stack.enter_context(patch("requests.post", side_effect=post))
+            factories = {}
             for module, kind, name in (("energy_cpu", "CPUEnergyMonitor", "cpu"),
                                        ("energy_nvml", "GPUEnergyMonitor", "gpu"),
                                        ("resource_usage", "ResourceUsageMonitor", "resource"),
                                        ("perf_mips", "PerfMIPSMonitor", "mips")):
-                stack.enter_context(patch(f"acprof.monitors.{module}.{kind}", return_value=collector(name)))
+                factories[name] = stack.enter_context(patch(
+                    f"acprof.monitors.{module}.{kind}", return_value=collector(name)))
             options = {"idle_seconds": 0.1, "idle_cooldown_seconds": 0,
                        "request_timeout_seconds": 17, "sniff_iface": "docker0"}
             def call():
                 return overhead.measure_profile_window(
                     SimpleNamespace(base_url="http://fixture.invalid", gpu_device={"uuid": "GPU-recorded", "index": 2}),
                     {"payload": {}}, scenario="full", rate=20, count=1, name="owned-container",
-                    cpu=2, mem=4, gpu="on", token="full", output=output, options=options)
+                    cpu=2, mem=4, gpu="on", token="full", output=output, options=options,
+                    sampling_policy="skip")
             if failure:
                 with pytest.raises(RuntimeError, match="control collector failed" if failure == "control" else "request failed"):
                     call()
@@ -86,6 +95,9 @@ class TestOverheadContract:
                 assert (result["packet_request_count"]) == (1)
                 assert (result["request_count"]) == (1)
                 assert (pcap.with_suffix(".packets.json").exists())
+                assert all(item["sampling"]["policy"] == "skip" for item in result["monitors"])
+            for name in ("cpu", "gpu", "resource"):
+                assert factories[name].call_args.kwargs["sampling_policy"] == "skip"
             for name, monitor in monitors.items():
                 monitor.close.assert_called_once()
                 expected_starts = (1 if name in {"gpu", "cpu"} else 0)
@@ -110,7 +122,8 @@ class TestOverheadContract:
 
     def test_partial_start_is_stopped_even_when_start_raises(self):
         cpu, resource = Mock(), Mock()
-        cpu.stop.return_value = resource.stop.return_value = (None, "", [1, 2])
+        cpu.stop.return_value = CPUStopResult(None, "", [1, 2])
+        resource.stop.return_value = ResourceStopResult(None, "", [1, 2])
         resource.start.side_effect = RuntimeError("partial start")
         with pytest.raises(RuntimeError, match="partial start"):
             overhead.measure_window("http://fixture.invalid", {}, count=1,

@@ -85,7 +85,7 @@ def executor(collector, request, *, config=None, dependencies=None):
     return WindowExecutor(
         config,
         dependencies or MonitorDependencies(
-            resource_usage_mod=SimpleNamespace(ResourceUsageMonitor=lambda **kw: collector),
+            resource=lambda **kw: collector,
         ),
         one_request=request,
         cold_start_metrics=lambda: {"cold_start_first_predict_app_s": "0.100000"},
@@ -215,8 +215,8 @@ def test_later_constructor_failure_closes_already_owned_collector(tmp_path):
         raise RuntimeError("CPU collector construction failed")
 
     dependencies = MonitorDependencies(
-        energy_mod=SimpleNamespace(GPUEnergyMonitor=lambda **kwargs: gpu),
-        cpu_energy_mod=SimpleNamespace(CPUEnergyMonitor=fail_cpu),
+        gpu=lambda **kwargs: gpu,
+        cpu=fail_cpu,
     )
     window = executor(None, lambda *args, **kwargs: pytest.fail("request was sent"),
                       config=ClientConfig(case_name="case", gpu_mode="on", repeat_in_window=2),

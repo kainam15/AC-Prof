@@ -2,7 +2,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from acprof.monitors.interfaces import (
+    CPUCollectorFactory,
+    GPUCollectorFactory,
+    InstructionCollectorFactory,
+    ResourceCollectorFactory,
+)
+
+if TYPE_CHECKING:
+    from acprof.monitors.energy_cpu import CPUEnergyMonitor, CPUEnergyResult, CPUSample
+    from acprof.monitors.energy_nvml import GPUEnergyMonitor
+    from acprof.monitors.gpu_metrics import EnergyResult
+    from acprof.monitors.perf_mips import MIPSResult
+    from acprof.monitors.resource_metrics import ResourceUsageResult, ResourceUsageSample
 
 
 @dataclass(frozen=True)
@@ -25,26 +39,30 @@ class WindowSpec:
 class MonitorDependencies:
     """Collector factories are the replaceable hardware adapter boundary."""
 
-    energy_mod: Any = None
-    cpu_energy_mod: Any = None
-    resource_usage_mod: Any = None
-    perf_mips_mod: Any = None
+    gpu: GPUCollectorFactory | None = None
+    cpu: CPUCollectorFactory | None = None
+    resource: ResourceCollectorFactory | None = None
+    instructions: InstructionCollectorFactory | None = None
 
 
 @dataclass
 class WindowObservations:
     """Keep partial observations available when startup, cleanup or publication fails."""
 
-    gpu_monitor: Any = None
-    cpu_monitor: Any = None
-    resource_result: Any = None
-    gpu_result: Any = None
-    cpu_result: Any = None
-    mips_result: Any = None
+    gpu_monitor: GPUEnergyMonitor | None = None
+    cpu_monitor: CPUEnergyMonitor | None = None
+    resource_result: ResourceUsageResult | None = None
+    gpu_result: EnergyResult | None = None
+    cpu_result: CPUEnergyResult | None = None
+    mips_result: MIPSResult | None = None
     resource_error: str = ""
     gpu_error: str = ""
     cpu_error: str = ""
     gpu_samples: list[tuple[float, float]] = field(default_factory=list)
+    cpu_samples: list[CPUSample] = field(default_factory=list)
+    resource_samples: list[ResourceUsageSample] = field(default_factory=list)
+    collector_evidence: dict[str, Any] = field(default_factory=dict)
+    request_record: dict[str, Any] | None = None
     gpu_idle_measured_at: str = "nan"
     cpu_idle_measured_at: str = "nan"
     gpu_idle_trace: dict[str, Any] = field(default_factory=dict)
@@ -60,3 +78,5 @@ class WindowResult:
     row: dict[str, Any]
     idle_diag_record: dict[str, Any] | None
     sniff_group_id: str
+    telemetry_evidence: dict[str, Any] | None = None
+    request_record: dict[str, Any] | None = None

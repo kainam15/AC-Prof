@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import datetime
 import time
-from typing import Any, Callable, TextIO
+from dataclasses import asdict, is_dataclass
+from typing import TYPE_CHECKING, Any, Callable, TextIO, cast
 
 from acprof.capabilities import measurement_requested
 from acprof.failures import RuntimeFailure
@@ -33,6 +34,11 @@ from acprof.host.window_types import (
     WindowResult,
     WindowSpec,
 )
+from acprof.monitors.interfaces import CPUStopResult, GPUStopResult, ResourceStopResult
+from acprof.telemetry import window_evidence
+
+if TYPE_CHECKING:
+    from acprof.monitors.perf_mips import MIPSResult
 
 
 def _now_iso() -> str:
@@ -80,18 +86,24 @@ class WindowExecutor:
         try:
             self._sample(spec, group_id, progress, observations, requests_stream)
             metrics.reduce(progress, observations)
-        except (RequestTimeoutAbort, EnergyAbort, MIPSAbort):
+        except (RequestTimeoutAbort, EnergyAbort, MIPSAbort) as exc:
+            self._preserve_uncommitted(spec, group_id, progress, observations, exc)
             raise
         except MonitorCleanupError as exc:
+            self._preserve_uncommitted(spec, group_id, progress, observations, exc)
             if self._is_mips_error(exc):
                 raise MIPSAbort(str(exc)) from exc
             raise
         except Exception as exc:
             if self._is_mips_error(exc):
+                self._preserve_uncommitted(spec, group_id, progress, observations, exc)
                 raise MIPSAbort(str(exc)) from None
             if isinstance(exc, RuntimeFailure):
                 self.runtime_failures.append(exc.failure.to_dict())
             metrics.fail(exc)
+        except BaseException as exc:
+            self._preserve_uncommitted(spec, group_id, progress, observations, exc)
+            raise
 
         row = metrics.build_row(
             progress, observations,
@@ -105,7 +117,41 @@ class WindowExecutor:
             gpu_idle_history=self.gpu_idle_history,
         )
         diagnostic = self._idle_diagnostic(row, group_id, observations, metrics) if self.config.idle_debug else None
-        return WindowResult(row, diagnostic, group_id)
+        evidence = self._evidence(spec, group_id, progress, observations)
+        return WindowResult(row, diagnostic, group_id, evidence, observations.request_record)
+
+    def _preserve_uncommitted(self, spec: WindowSpec, group_id: str, progress: WindowRequestProgress,
+                              observations: WindowObservations, error: BaseException) -> None:
+        if not self.config.telemetry_dir:
+            return
+        from pathlib import Path
+
+        from acprof.telemetry import write_window_evidence
+        from acprof.window_records import window_filename
+        evidence = self._evidence(spec, group_id, progress, observations)
+        evidence["context"]["uncommitted_error"] = f"{type(error).__name__}: {error}"
+        try:
+            write_window_evidence(Path(self.config.telemetry_dir) / window_filename(group_id), evidence)
+        except Exception as storage_error:
+            # Preserve cancellation/timeout priority, but retain a visible second
+            # failure instead of claiming that partial raw evidence was saved.
+            error.add_note(f"could not preserve uncommitted telemetry: {storage_error}")
+
+    def _evidence(self, spec: WindowSpec, group_id: str, progress: WindowRequestProgress,
+                  observations: WindowObservations) -> dict[str, Any]:
+        return window_evidence(
+            identity={"run_id": self.config.run_id or None, "case_id": self.config.case_id or self.config.case_name,
+                      "case_attempt_id": self.config.case_attempt_id or None, "window_id": group_id},
+            context={"input_scale": spec.scale, "scale_label": spec.scale_entry["scale_label"],
+                     "warmup": spec.warmup, "repeat_idx": spec.repeat_idx,
+                     "completed_requests": progress.count, "cpu_cores": self.config.cpu_cores,
+                     "mem_cap_gb": self.config.mem_cap_gb, "gpu_mode": self.config.gpu_mode,
+                     "profiling_mode": self.config.profiling_mode,
+                     "model_revision": self.config.model_revision, "image_tag": self.config.image_tag,
+                     "sampling_policy": self.config.sampling_policy, "sample_hz": self.config.sample_hz,
+                     "environment_class": self.environment_class},
+            collectors=observations.collector_evidence,
+        )
 
     def _sample(
         self, spec: WindowSpec, group_id: str, progress: WindowRequestProgress,
@@ -153,14 +199,35 @@ class WindowExecutor:
                 progress.elapsed_s / progress.count if progress.count else float("nan"),
             )
             if monitors.results.get("resource") is not None:
-                observations.resource_result, observations.resource_error, _ = monitors.results["resource"]
+                observations.resource_result, observations.resource_error, observations.resource_samples = cast(
+                    ResourceStopResult, monitors.results["resource"])
             if monitors.results.get("gpu") is not None:
-                observations.gpu_result, _, observations.gpu_error, observations.gpu_samples = monitors.results["gpu"]
+                observations.gpu_result, _, observations.gpu_error, observations.gpu_samples = cast(
+                    GPUStopResult, monitors.results["gpu"])
             if monitors.results.get("cpu") is not None:
-                observations.cpu_result, observations.cpu_error, _ = monitors.results["cpu"]
-            observations.mips_result = monitors.results.get("mips")
+                observations.cpu_result, observations.cpu_error, observations.cpu_samples = cast(
+                    CPUStopResult, monitors.results["cpu"])
+            observations.mips_result = cast("MIPSResult | None", monitors.results.get("mips"))
+            # Serialization is outside every measurement window and reuses the
+            # collectors' finalized buffers; unsupported test/adaptor collectors
+            # explicitly report absent raw evidence rather than inventing it.
+            for name, monitor in monitors.monitors.items():
+                snapshot = getattr(monitor, "telemetry_snapshot", None)
+                if any(operation.startswith(f"{name}.") for operation, _ in monitors.failures):
+                    observations.collector_evidence[name] = {
+                        "status": "unavailable", "reason": "collector_cleanup_failed", "error": monitors.error,
+                    }
+                    continue
+                observations.collector_evidence[name] = snapshot() if snapshot is not None else {
+                    "status": "unavailable", "reason": "collector_has_no_raw_evidence_protocol",
+                }
+            if observations.mips_result is not None:
+                observations.collector_evidence["mips"] = {
+                    "status": "aggregate_only", "reason": "perf_window_counters",
+                    "result": asdict(observations.mips_result) if is_dataclass(observations.mips_result) else None,
+                }
             window_error = f"{type(primary_error).__name__}: {primary_error}" if primary_error is not None else ""
-            client_publication.append_request_window(
+            observations.request_record = client_publication.append_request_window(
                 requests_stream, sniff_group_id=group_id,
                 input_scale=progress.effective_input_scale if progress.effective_input_scale is not None else spec.scale,
                 warmup=spec.warmup, repeat_idx=spec.repeat_idx,
@@ -189,28 +256,30 @@ class WindowExecutor:
         """
         gpu_monitor = None
         cpu_monitor = None
-        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.dependencies.energy_mod is not None:
-            gpu_monitor = self.dependencies.energy_mod.GPUEnergyMonitor(
+        if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.dependencies.gpu is not None:
+            gpu_monitor = self.dependencies.gpu(
                 sample_hz=self.config.sample_hz,
                 idle_seconds=self.config.idle_seconds,
                 device_index=self.config.device_index,
                 device_uuid=self.config.gpu_device_uuid,
+                sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit,
             )
             monitors.add("gpu", gpu_monitor)
 
-        if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.dependencies.cpu_energy_mod is not None:
+        if measurement_requested(self.config.profiling_mode, "cpu_energy") and self.dependencies.cpu is not None:
             try:
-                cpu_monitor = self.dependencies.cpu_energy_mod.CPUEnergyMonitor(
+                cpu_monitor = self.dependencies.cpu(
                     sample_hz=self.config.sample_hz, idle_seconds=self.config.idle_seconds,
-                    container_name=self.config.container_name, dram_energy=self.config.dram_energy)
+                    container_name=self.config.container_name, dram_energy=self.config.dram_energy,
+                    sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit)
                 monitors.add("cpu", cpu_monitor)
             except RuntimeError as exc:
                 if self.config.dram_energy == "required":
                     raise EnergyAbort(str(exc)) from exc
                 raise
 
-        if self.dependencies.resource_usage_mod is not None:
-            resource_usage_monitor = self.dependencies.resource_usage_mod.ResourceUsageMonitor(
+        if self.dependencies.resource is not None:
+            resource_usage_monitor = self.dependencies.resource(
                 sample_hz=self.config.sample_hz,
                 container_name=self.config.container_name,
                 cpu_cores=to_float_or_nan(self.config.cpu_cores),
@@ -218,11 +287,14 @@ class WindowExecutor:
                 use_gpu=self.use_energy,
                 device_index=self.config.device_index,
                 device_uuid=self.config.gpu_device_uuid,
+                sampling_policy=self.config.sampling_policy, raw_sample_limit=self.config.raw_sample_limit,
             )
             monitors.add("resource", resource_usage_monitor)
 
         if measurement_requested(self.config.profiling_mode, "cpu_instructions") and self.config.use_mips:
-            mips_monitor = self.dependencies.perf_mips_mod.PerfMIPSMonitor(self.config.container_name)
+            if self.dependencies.instructions is None:
+                raise MIPSAbort("required instruction collector factory is unavailable")
+            mips_monitor = self.dependencies.instructions(self.config.container_name)
             monitors.add("mips", mips_monitor)
         return gpu_monitor, cpu_monitor
 
@@ -267,12 +339,8 @@ class WindowExecutor:
                 idle_trace, gpu_idle_debug_snapshot, idle_debug_snapshot)
 
     def _is_mips_error(self, exc: Exception) -> bool:
-        if isinstance(exc, MIPSAbort):
-            return True
-        if self.dependencies.perf_mips_mod is None:
-            return False
-        mips_error_cls = getattr(self.dependencies.perf_mips_mod, "MIPSProfilingError", None)
-        return bool(mips_error_cls is not None and isinstance(exc, mips_error_cls))
+        from acprof.monitors.perf_mips import MIPSProfilingError
+        return isinstance(exc, (MIPSAbort, MIPSProfilingError))
 
     def _should_send_request(self,
         completed_requests: int,

@@ -10,12 +10,15 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from acprof.monitors.interfaces import CPUStopResult, GPUStopResult, ResourceStopResult
+from acprof.monitors.sampling import SamplingDiagnostics
 from scripts import measure_overhead
 
 
 class TestOverheadEntrypoint:
     def run_case(self, fail=False, *, extra_args=(), expected_cpu=2, expected_mem=4,
-                 expected_scale=2, invalid=False, window_failure=False, publication_failure=False):
+                 expected_scale=2, invalid=False, window_failure=False, publication_failure=False,
+                 rate_comparison=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             root = Path(temporary)
             source, output = root / "source", root / "output"
@@ -54,10 +57,22 @@ class TestOverheadEntrypoint:
             stop = stack.enter_context(patch("acprof.host.docker_runtime.stop_container_session"))
             stack.enter_context(patch("acprof.host.hardware_conditions.observe_conditions",
                                       return_value={"cpu_affinity": ["1-2"], "errors": []}))
-            monitor = Mock()
-            monitor.stop.return_value = (None, "", [1, 2])
-            monitor.sampling_boundary_snapshot.return_value = None
-            stack.enter_context(patch("acprof.monitors.resource_usage.ResourceUsageMonitor", return_value=monitor))
+            def collector(result_type):
+                def create(*, sample_hz, sampling_policy, **_kwargs):
+                    monitor = Mock()
+                    monitor.stop.return_value = (GPUStopResult(None, "GPU", "", [1, 2])
+                                                 if result_type is GPUStopResult else result_type(None, "", [1, 2]))
+                    monitor.sampling_boundary_snapshot.return_value = None
+                    monitor.sampling_diagnostics = SamplingDiagnostics(sampling_policy, 1.0 / sample_hz)
+                    return monitor
+                return create
+
+            for module, kind, result_type in (
+                ("energy_cpu", "CPUEnergyMonitor", CPUStopResult),
+                ("energy_nvml", "GPUEnergyMonitor", GPUStopResult),
+                ("resource_usage", "ResourceUsageMonitor", ResourceStopResult),
+            ):
+                stack.enter_context(patch(f"acprof.monitors.{module}.{kind}", side_effect=collector(result_type)))
             response = Mock(status_code=200)
             response.json.return_value = {}
             failures = [*[response] * 5, RuntimeError("fixture request failure")] if window_failure else (
@@ -66,7 +81,8 @@ class TestOverheadEntrypoint:
             if publication_failure:
                 stack.enter_context(patch("scripts.measure_overhead.atomic_write_json",
                                           side_effect=OSError("fixture disk full")))
-            arguments = [str(source), "--gpu", "on", "--rounds", "3", "--requests", "2", "--modes", "none,basic",
+            arguments = [str(source), "--gpu", "on", "--rounds", "3", "--requests", "2",
+                         *([] if rate_comparison else ["--modes", "none,basic"]),
                          "--sample-hz", "20", "--output-dir", str(output), *extra_args]
             if invalid:
                 with pytest.raises(SystemExit) as failure:
@@ -100,15 +116,16 @@ class TestOverheadEntrypoint:
             assert post.call_args.kwargs["json"] == {"scale": expected_scale}
             assert report["payload_sha256"] == hashlib.sha256(
                 json.dumps({"scale": expected_scale}, sort_keys=True).encode()).hexdigest()
+            expected_windows = 3 * (1 + len(report["sampling_policies"]) * len(report["sample_hz"])) if rate_comparison else 6
             if not fail and not window_failure:
-                assert (len(report["rounds"])) == (6)
+                assert (len(report["rounds"])) == expected_windows
             sidecars = sorted(output.glob("*.boundaries.json"))
             if "--window-boundaries" not in extra_args:
                 assert sidecars == []
                 assert "window_boundaries" not in report
             else:
                 assert report["window_boundaries"]["enabled"] is True
-                assert len(sidecars) == (1 if window_failure else 6)
+                assert len(sidecars) == (1 if window_failure else expected_windows)
                 for path in sidecars:
                     diagnostic = json.loads(path.read_text())
                     assert path.name == diagnostic["window_id"] + ".boundaries.json"
@@ -117,12 +134,50 @@ class TestOverheadEntrypoint:
                 if not window_failure:
                     assert {row["window_boundary_file"] for row in report["rounds"]} == {
                         path.name for path in sidecars}
+            return report
 
     def test_entrypoint_restores_constraints_and_saves_successful_report(self):
         self.run_case()
 
     def test_entrypoint_request_failure_cleans_container_and_saves_failure(self):
         self.run_case(fail=True)
+
+    def test_policy_rate_comparison_uses_one_paired_baseline_and_reports_each_sampler(self):
+        report = self.run_case(rate_comparison=True,
+                               extra_args=("--sample-hz", "20,100", "--sampling-policies", "burst,skip"))
+        assert report["schema_version"] == 2
+        assert report["sampling_protocol_version"] == "periodic-v1"
+        assert "excludes container CPU" in report["host_process_cpu_scope"]
+        expected = {"none", "monitors-burst-20", "monitors-burst-100", "monitors-skip-20", "monitors-skip-100"}
+        orders = []
+        for round_index in range(3):
+            rows = [row for row in report["rounds"] if row["round"] == round_index]
+            assert {row["scenario"] for row in rows} == expected
+            assert len(rows) == 5
+            orders.append(tuple(row["scenario"] for row in rows))
+            for row in rows:
+                assert row["host_process_cpu_s"] >= 0
+                assert row["host_process_cpu_pct"] >= 0
+                if row["scenario"] == "none":
+                    assert row["sampling_policy"] is None
+                    assert row["sample_hz"] is None
+                    assert row["monitors"] == []
+                else:
+                    policy, rate = row["scenario"].removeprefix("monitors-").split("-")
+                    assert row["sampling_policy"] == policy
+                    assert row["sample_hz"] == float(rate)
+                    assert {item["collector"] for item in row["monitors"]} == {"cpu", "gpu", "resource"}
+                    for item in row["monitors"]:
+                        assert item["sampling"]["policy"] == policy
+                        assert item["sampling"]["interval_s"] == 1.0 / float(rate)
+        assert len(set(orders)) > 1
+        assert {item["scenario"] for item in report["comparisons"]} == expected - {"none"}
+        assert all(item["paired_rounds"] == 3 for item in report["comparisons"])
+
+    def test_default_rate_comparison_uses_burst(self):
+        report = self.run_case(rate_comparison=True)
+        assert report["sampling_policies"] == ["burst"]
+        assert {row["scenario"] for row in report["rounds"]} == {"none", "monitors-burst-20"}
 
     def test_boundary_flag_writes_one_sidecar_per_comparison_window(self):
         self.run_case(extra_args=("--window-boundaries",))
@@ -148,6 +203,8 @@ class TestOverheadEntrypoint:
     @pytest.mark.parametrize("arguments", [
         ("--cpu", "0"), ("--cpu", "3"), ("--mem", "0"), ("--mem", "8"),
         ("--input-scale", "3"), ("--input-scale", "nan"), ("--input-scale", "inf"),
+        ("--sampling-policies", "delay"), ("--sampling-policies", "burst,burst"),
+        ("--sampling-policies", ""), ("--sampling-policies", "burst,skip"), ("--sample-hz", "invalid"),
     ])
     def test_invalid_source_coordinates_fail_before_runtime(self, arguments):
         self.run_case(extra_args=arguments, invalid=True)

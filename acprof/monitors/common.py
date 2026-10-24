@@ -6,6 +6,12 @@ import time
 from typing import Callable
 
 from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, run_command
+from acprof.monitors.sampling import (
+    SamplingDiagnostics,
+    SamplingPolicy,
+    next_deadline,
+    sampling_policy,
+)
 
 
 def docker_container_pid(container_name: str, *, error_type: type[RuntimeError] = RuntimeError) -> int:
@@ -26,8 +32,11 @@ def docker_container_pid(container_name: str, *, error_type: type[RuntimeError] 
 
 
 def sample_periodically(stop: threading.Event, started_at: float | None, interval: float,
-                        append_sample: Callable[[float], None]) -> None:
-    """Keep absolute deadlines, including the existing first-interval and stop semantics."""
+                        append_sample: Callable[[float], None], *,
+                        policy: SamplingPolicy = "burst",
+                        diagnostics: SamplingDiagnostics | None = None) -> None:
+    """Keep the first-interval/stop semantics and select missed-tick handling."""
+    sampling_policy(policy)
     next_t = (started_at if started_at is not None else time.perf_counter()) + interval
     while not stop.is_set():
         sleep_s = next_t - time.perf_counter()
@@ -37,5 +46,18 @@ def sample_periodically(stop: threading.Event, started_at: float | None, interva
             break
         timestamp = time.perf_counter()
         if started_at is not None and timestamp >= started_at:
-            append_sample(timestamp)
-        next_t += interval
+            failed = False
+            try:
+                append_sample(timestamp)
+            except BaseException:
+                failed = True
+                raise
+            finally:
+                finished = time.perf_counter() if diagnostics is not None or policy == "skip" else timestamp
+                if diagnostics is not None:
+                    diagnostics.observe(next_t, timestamp, finished, failed=failed)
+        else:
+            finished = timestamp
+        next_t, skipped = next_deadline(next_t, finished, interval, policy)
+        if diagnostics is not None:
+            diagnostics.skipped_deadlines += skipped

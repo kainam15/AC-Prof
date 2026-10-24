@@ -20,7 +20,7 @@ def test_resource_reference_baseline_preserves_units_and_denominators():
         resource_metrics.ResourceUsageSample(1.0, 0.2, 200, None, None, None),
         resource_metrics.ResourceUsageSample(2.0, 1.0, 300, None, None, None),
     ]
-    result = resource_metrics._result_from_samples(
+    result = resource_metrics.reduce_resource_samples(
         samples, cpu_cores=2.0, mem_limit_bytes=400.0, min_cpu_interval_s=0.05,
     )
     assert result.resource_usage_iters == 3
@@ -42,7 +42,7 @@ def test_rapl_wrap_and_control_reference_baseline_preserve_joules():
         energy_cpu.CPUSample(1.0, [100_000], 2.0, 0.5),
         energy_cpu.CPUSample(2.0, [500_000], 4.0, 1.0),
     ]
-    result = energy_cpu._result_from_samples(samples, idle_power_w=0.1, domains=[domain])
+    result = energy_cpu.reduce_cpu_samples(samples, idle_power_w=0.1, domains=[domain])
     assert result.cpu_energy_total_j == pytest.approx(0.6)
     assert result.cpu_avg_power_total_w == pytest.approx(0.3)
     assert result.cpu_peak_power_total_w == pytest.approx(0.4)
