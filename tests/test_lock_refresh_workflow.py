@@ -38,6 +38,23 @@ def test_lock_refresh_generates_and_verifies_coordinated_artifacts():
     assert "gh workflow run ci.yml" in scripts
 
 
+def test_refresh_installs_locked_python_deps_before_runtime_compilation():
+    steps = workflow()["jobs"]["refresh"]["steps"]
+    positions = {step["name"]: i for i, step in enumerate(steps) if "name" in step}
+    host = positions["Refresh Python host and test locks with hashes"]
+    install = positions["Install lock compiler and test dependencies"]
+    runtime = positions["Refresh Docker runtime Python artifact locks"]
+    verify = positions["Check regenerated hashes, profiles and metadata"]
+
+    assert host < install < runtime < verify
+    assert "if" not in steps[install]  # Also required for runtime-only refreshes.
+    assert (
+        "python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock"
+        in steps[install]["run"]
+    )
+    assert "python -m pip install" not in steps[verify]["run"]
+
+
 def test_refresh_scripts_restrict_publication_and_supply_input_defaults():
     data = workflow()
     steps = data["jobs"]["refresh"]["steps"]

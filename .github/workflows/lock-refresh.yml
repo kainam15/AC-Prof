@@ -55,6 +55,13 @@ jobs:
           uv pip compile requirements/browser.in --python-version 3.12 \
             --generate-hashes --no-annotate --no-header --upgrade \
             --output-file requirements/browser.lock
+      # The lock compiler imports packaging to select target wheel artifacts.
+      # Install refreshed hash-locked host/dev dependencies before running it.
+      - name: Install lock compiler and test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
       - name: Refresh Docker runtime Python artifact locks
         if: env.REFRESH_SCOPE == 'all' || env.REFRESH_SCOPE == 'runtime'
         shell: bash
@@ -67,7 +74,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --require-hashes -r requirements/host.lock -r requirements/dev.lock
           python scripts/compile_locks.py --host-only --check
           python scripts/compile_locks.py --check
           python -m pytest -q tests/test_lock_compiler.py tests/test_dependency_locks.py \
