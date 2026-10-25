@@ -53,7 +53,11 @@ def parse_event(line: str) -> dict | None:
     if name == "matrix_planned" and not _positive_int(payload.get("total_cases")):
         raise ValueError("invalid AC-Prof matrix size")
     if name in {"case_selected", "probe_memory_started"}:
-        if (not all(_positive_int(payload.get(key)) for key in ("current", "total", "cpu", "mem"))
+        inherited = name == "case_selected" and payload.get("runtime_kind") == "process"
+        valid_resources = all(key in payload and (_positive_int(payload[key]) or inherited and payload[key] is None)
+                              for key in ("cpu", "mem"))
+        if (not valid_resources or not all(_positive_int(payload.get(key)) for key in ("current", "total"))
+                or payload.get("runtime_kind", "docker") not in {"docker", "process"}
                 or payload["current"] > payload["total"] or payload.get("gpu") not in {"off", "on"}):
             raise ValueError("invalid AC-Prof resource progress")
     if name in {"probe_started", "probe_finished"}:

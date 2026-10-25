@@ -39,6 +39,17 @@ def descendants(pid):
     return sorted(found)
 
 
+def verify_supervision():
+    """Exercise ownership syscalls in this helper, never in the UI/controller."""
+    descriptor = os.pidfd_open(os.getpid())
+    try:
+        signal.pidfd_send_signal(descriptor, 0)
+    finally:
+        os.close(descriptor)
+    if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "cannot establish descendant ownership")
+
+
 def main():
     control, status_file, log_file, cpuset, cgroup, *command = sys.argv[1:]
     status_path = Path(status_file)
@@ -53,14 +64,7 @@ def main():
     try:
         # Verify safe signalling before taking ownership of any model process.
         # Old kernels or seccomp restrictions must fail before launch.
-        descriptor = os.pidfd_open(os.getpid())
-        try:
-            signal.pidfd_send_signal(descriptor, 0)
-        finally:
-            os.close(descriptor)
-        # PR_SET_CHILD_SUBREAPER is unprivileged on Linux.
-        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
-            raise OSError(ctypes.get_errno(), "cannot establish descendant ownership")
+        verify_supervision()
         with open(log_file, "ab", buffering=0) as log:
             # Resource controls are installed in a tiny launch process before exec.
             launcher = str(Path(__file__).with_name("launch.py"))
@@ -117,4 +121,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--probe"]:
+        verify_supervision()
+        print("pidfd and child-subreaper available")
+    else:
+        main()

@@ -63,7 +63,7 @@ _DECLARATIONS = (
     Metric('cpu_cores', 'core', 'protocol', 'case'),
     Metric('mem_cap_gb', 'GiB', 'protocol', 'case'),
     Metric('gpu_mode', 'text', 'protocol', 'case', applicability='gpu', kind='text'),
-    Metric('gpu_device_uuid', 'text', 'docker_device_request', 'case', applicability='gpu', kind='text'),
+    Metric('gpu_device_uuid', 'text', 'selected_device_identity', 'case', applicability='gpu', kind='text'),
     Metric('input_scale', 'input_scale_type', 'protocol', 'row'),
     Metric('input_units_per_request', 'input_unit/request', 'input_plan', 'materialized_request'),
     Metric('input_num_samples', 'sample/request', 'input_plan', 'materialized_request', applicability='audio'),

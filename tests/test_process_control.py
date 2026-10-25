@@ -73,3 +73,8 @@ def test_supervisor_holds_model_lease_until_cleanup(tmp_path):
         child.close()
     with path.open('a+b') as probe:
         fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_supervision_prerequisites_run_in_a_separate_bounded_helper():
+    from acprof.host.runtimes.process_control import require_process_supervision
+    assert require_process_supervision() == 'pidfd and child-subreaper available'

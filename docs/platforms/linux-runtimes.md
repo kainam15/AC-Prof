@@ -15,6 +15,7 @@ Native Linux 的 Docker `full` 仍是完整测量基准；Process 当前提供 `
 
 Process 要求 Linux x86_64、可用的 `uv`、procfs，以及允许 pidfd 和 child-subreaper 的内核接口
 （pidfd 通常需要 Linux 5.3+；seccomp 策略也可能禁止）。无需 Docker CLI、socket、root 或 systemd。
+CLI、doctor 和 TUI 在依赖准备前通过短生命周期 helper 验证进程所有权接口，失败时明确阻止启动。
 当前依赖锁尚未覆盖 ARM。系统动态库由主机提供，AC-Prof 不自动使用 apt 或 sudo 安装系统依赖。
 
 准备阶段按现有 runtime profile 的完整 wheel 哈希锁创建独立 Python 环境，复制服务代码，
@@ -30,6 +31,8 @@ acprof tui
 
 在 TUI 选择 Smoke/basic，再到高级参数选择 Process，点击“使用 Process 继承限制”。
 环境检查展示可用采集器及缺失状态；最小内存探测仍为 Docker 工具，Process 使用输入规模扫描。
+Process 的结构化 `case_selected` 进度携带 `runtime_kind=process`，允许 CPU/内存为 null，界面显示“继承限制”；
+Docker 与最小内存 probe 的进度仍要求正数资源轴。
 CLI 的小型 ONNX 示例（从仓库根目录运行）：
 
 ```bash
@@ -57,6 +60,9 @@ uv run acprof run --runtime process --profiling-mode basic \
 | GPU | 尊重 `CUDA_VISIBLE_DEVICES`；`--gpu-device` 数字为可见序号。保存 CUDA UUID、原始可见设备与 NVML 查询证据 |
 | GPU 利用率 / 显存 | 分别查询；任一失败不抹掉另一项。整卡指标标记 `device`、共享状态 `unknown`，不声称模型独占 |
 | 启动 | `process_startup_s` 记录启动到通过带随机 token 的 `/ready`；Docker `cold_start_*` 保持缺失，两个口径不能替换 |
+
+`gpu_device_uuid` 仍表示选定设备的身份：Docker 使用现有 device request 选择，Process 使用 CUDA 可见序号解析，
+具体来源保存在 `gpu_device` 元数据中；共享字段的登记来源为 `selected_device_identity`，数值与归属范围没有替换。
 
 数值矩阵使用当前 cgroup 下的委托，或显式 `ACPROF_CGROUP_ROOT` 指向的 cgroup v2 委托。
 AC-Prof 不自动修改上级 controller 或主机服务权限。只有输入规模扫描不需要额外资源控制权限。

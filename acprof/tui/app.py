@@ -491,8 +491,8 @@ class AcprofTui(BarCursorApp):
             snapshot.completed_cases, snapshot.total_cases,
         ))
         missing = UNKNOWN if snapshot.current_case else NOT_APPLICABLE
-        cpu = snapshot.cpu if snapshot.cpu != "-" else missing
-        mem = f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
+        cpu = message_id('ui.2009') if snapshot.cpu == "inherited" else snapshot.cpu if snapshot.cpu != "-" else missing
+        mem = message_id('ui.2009') if snapshot.mem == "inherited" else f"{snapshot.mem}GB" if snapshot.mem != "-" else missing
         gpu = snapshot.gpu if snapshot.gpu != "-" else missing
         self.localization.set_text(self.query_one("#status-resource", Static), message("CPU={0}  MEM={1}  GPU={2}", cpu, mem, gpu))
         self.localization.set_text(self.query_one('#status-errors', Static), f'{snapshot.warnings} / {snapshot.errors}')

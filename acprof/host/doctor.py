@@ -118,8 +118,11 @@ def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus:
         if runtime_check.runtime_kind == "process":
             from acprof.host.runtimes.capabilities import probe_collection_plan
             from acprof.host.runtimes.gpu import process_gpu_device
+            from acprof.host.runtimes.process_control import require_process_supervision
             checks = [runtime_check, _check("architecture", _architecture, "请使用 Linux x86_64。"),
                       _check("resources", _resources, "重新安装完整 AC-Prof。"),
+                      _check("process_supervision", require_process_supervision,
+                             "Process 需要可用的 pidfd 与 child-subreaper 内核接口。"),
                       DoctorCheck("uv", "available" if shutil.which("uv") else "unavailable",
                                   "Process 使用 uv 创建隔离环境", "安装 uv 并加入 PATH。")]
             gpu = process_gpu_device() if gpus == "on" else {}

@@ -29,7 +29,7 @@
 | `cpu_cores` | `core` | `protocol` | `case` | `all` | `number` |
 | `mem_cap_gb` | `GiB` | `protocol` | `case` | `all` | `number` |
 | `gpu_mode` | `text` | `protocol` | `case` | `gpu` | `text` |
-| `gpu_device_uuid` | `text` | `docker_device_request` | `case` | `gpu` | `text` |
+| `gpu_device_uuid` | `text` | `selected_device_identity` | `case` | `gpu` | `text` |
 | `input_scale` | `input_scale_type` | `protocol` | `row` | `all` | `number` |
 | `input_units_per_request` | `input_unit/request` | `input_plan` | `materialized_request` | `all` | `number` |
 | `input_num_samples` | `sample/request` | `input_plan` | `materialized_request` | `audio` | `number` |

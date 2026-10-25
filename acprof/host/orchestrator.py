@@ -1085,7 +1085,8 @@ def run_matrix(
     for current, case in enumerate(plan["cases"], 1):
         cpu, mem, gpu = case["cpu_cores"], case["mem_cap_gb"], case["gpu_mode"]
         case_name = f"case_{model_token(task_info.model_id)}_{resource_case_id(cpu, mem, gpu)}"
-        emit_event("case_selected", case_name, current=current, total=total, cpu=cpu, mem=mem, gpu=gpu)
+        emit_event("case_selected", case_name, current=current, total=total, cpu=cpu, mem=mem, gpu=gpu,
+                   **({"runtime_kind": "process"} if runtime_kind(image_info) == "process" else {}))
         print(f"[matrix] Case {current}/{total}: {resource_case_id(cpu, mem, gpu)}")
         filename = f"result_case_{model_token(task_info.model_id)}_{layout.case(task_info.model_id, cpu, mem, gpu).case_id}.csv"
         cached_case = run_state.prepare_case(filename, cpu, mem, gpu) if run_state else None

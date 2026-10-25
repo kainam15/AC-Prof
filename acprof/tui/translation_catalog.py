@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    'ui.2009': '继承限制',
     'ui.2008': '环境能力',
     'ui.2007': '运行方式：{0}',
     'ui.2005': '使用 Process 继承限制',
@@ -785,7 +786,7 @@ SOURCE_BY_ID: dict[str, str] = {
     "ui.0773": '已终止',
     "ui.0774": '正式测量',
     "ui.0775": '最大尺度探测',
-    "ui.0776": '启动容器',
+    "ui.0776": '启动服务',
     "ui.0777": '构建镜像',
     "ui.0778": '规划输入',
     "ui.0779": '服务就绪',
@@ -999,6 +1000,7 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    'ui.2009': 'Inherited limits',
     'ui.2008': 'Environment capabilities',
     'ui.2007': 'Runtime: {0}',
     'ui.2005': 'Use Process with inherited limits',
@@ -1782,7 +1784,7 @@ ENGLISH_BY_ID: dict[str, str] = {
     "ui.0773": 'Stopped',
     "ui.0774": 'Measuring',
     "ui.0775": 'Probing largest input',
-    "ui.0776": 'Starting container',
+    "ui.0776": 'Starting service',
     "ui.0777": 'Building image',
     "ui.0778": 'Planning inputs',
     "ui.0779": 'Server ready',

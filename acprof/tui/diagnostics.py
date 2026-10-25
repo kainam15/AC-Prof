@@ -260,13 +260,15 @@ def _process_checks(config):
     from dataclasses import replace
 
     from acprof.application.resources import resource_matrix
+    from acprof.host.runtimes.process_control import require_process_supervision
     from acprof.host.runtimes.resources import preflight_resources
     checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process")]
     try:
         replace(config, runtime="process").validate()
+        require_process_supervision()
         cpus, mems, _ = resource_matrix(replace(config, runtime="process").to_namespace())
         preflight_resources(cpus, mems, config.cpuset_cpus)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         checks.append(PreflightCheck("Process resources", "fail", str(exc)))
     else:
         checks.append(PreflightCheck("Process resources", "ok",
@@ -277,7 +279,8 @@ def _process_checks(config):
     plan = probe_collection_plan("process", gpu=gpu)
     for name, item in plan["probes"].items():
         requested = name in {"process_cpu", "process_memory", "gpu_memory", "gpu_utilization"}
-        status = "ok" if item["status"] == "available" else "warn" if requested else "not_requested"
+        status = ("not_requested" if not requested or item["status"] == "not_requested" else
+                  "ok" if item["status"] == "available" else "warn")
         checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status']))
     if shutil.which("uv") is None:
         checks.append(PreflightCheck("uv", "fail", "Process environment preparation requires uv"))

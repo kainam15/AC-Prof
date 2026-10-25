@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -13,6 +14,15 @@ from acprof.process_identity import same_process
 
 class ProcessCleanupError(RuntimeCleanupError):
     pass
+
+
+def require_process_supervision() -> str:
+    from acprof.host.command import run_command
+    result = run_command([sys.executable, "-I", str(Path(__file__).with_name("supervisor.py")), "--probe"],
+                         check=False, timeout=10)
+    if result.returncode:
+        raise RuntimeError("Process ownership prerequisites unavailable: " + result.stderr.strip())
+    return result.stdout.strip()
 
 
 class ManagedProcess:

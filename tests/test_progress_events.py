@@ -147,6 +147,23 @@ def test_run_success_event_requires_persisted_result_verification():
     assert state.measurement_status != "passed"
 
 
+def test_process_progress_retains_inherited_resource_axes():
+    from acprof.progress_events import encode_event
+    tracker = RunProgressTracker()
+    line = encode_event('case_selected', 'process-case', current=1, total=1,
+                        cpu=None, mem=None, gpu='off', runtime_kind='process')
+    state = tracker.feed(line)
+    assert state.cpu == state.mem == 'inherited'
+    assert state.current_case == 1
+    for kind in ('docker', 'unknown'):
+        with pytest.raises(ValueError, match='resource progress'):
+            encode_event('case_selected', 'process-case', current=1, total=1,
+                         cpu=None, mem=None, gpu='off', runtime_kind=kind)
+    with pytest.raises(ValueError, match='resource progress'):
+        encode_event('case_selected', 'process-case', current=1, total=1,
+                     cpu=0, mem=None, gpu='off', runtime_kind='process')
+
+
 @pytest.mark.parametrize("fields", [
     {"current": 0, "total": 2, "cpu": 1, "mem": 4, "gpu": "off"},
     {"current": 3, "total": 2, "cpu": 1, "mem": 4, "gpu": "off"},

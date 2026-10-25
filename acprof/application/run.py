@@ -251,10 +251,12 @@ class RunApplication:
             if args.runtime == "process":
                 from acprof.host.run_state import MeasurementLock
                 from acprof.host.runtimes.gpu import process_gpu_device
+                from acprof.host.runtimes.process_control import require_process_supervision
                 from acprof.host.runtimes.resources import preflight_resources
                 # CUDA driver discovery can create a context. Serialize this
                 # preflight too; it must not overlap another formal experiment.
                 with MeasurementLock():
+                    require_process_supervision()
                     cpus, mems, gpus = resource_matrix(args)
                     preflight_resources(cpus, mems, args.cpuset_cpus)
                     args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}

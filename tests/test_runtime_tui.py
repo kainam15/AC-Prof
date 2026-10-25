@@ -40,10 +40,12 @@ async def test_process_inherited_button_builds_runnable_basic_command(tmp_path, 
 def test_process_preflight_keeps_optional_permission_failures_nonfatal(tmp_path, monkeypatch):
     from acprof.host.runtimes import capabilities, resources
     monkeypatch.setattr(resources, 'preflight_resources', lambda *args: None)
+    monkeypatch.setattr('acprof.host.runtimes.process_control.require_process_supervision', lambda: 'available')
     monkeypatch.setattr(capabilities, 'probe_collection_plan', lambda *a, **kw: {'probes': {
         'process_cpu': {'status': 'permission_denied', 'detail': 'fixture procfs denied'},
         'process_memory': {'status': 'available', 'detail': 'fixture RSS'},
         'cpu_energy': {'status': 'unsupported', 'detail': 'no RAPL'},
+        'gpu_memory': {'status': 'not_requested', 'detail': 'CPU-only experiment'},
     }})
     def which(name):
         assert name != 'docker'
@@ -54,6 +56,7 @@ def test_process_preflight_keeps_optional_permission_failures_nonfatal(tmp_path,
                              command_runner=lambda *a, **kw: pytest.fail('Process preflight must not invoke Docker'))
     assert not any(check.status == 'fail' for check in checks)
     assert next(check for check in checks if check.label == 'process_cpu').capability_status == 'permission_denied'
+    assert next(check for check in checks if check.label == 'gpu_memory').status == 'not_requested'
 
 
 def test_process_doctor_never_claims_native_benchmark():
@@ -62,3 +65,15 @@ def test_process_doctor_never_claims_native_benchmark():
                          profiling_mode='basic', gpus='off')
     assert report['ready']
     assert not report['native_benchmark']
+
+
+def test_unavailable_process_ownership_blocks_preflight_before_resource_checks(tmp_path, monkeypatch):
+    from acprof.host.runtimes import capabilities, process_control, resources
+    monkeypatch.setattr(capabilities, 'probe_collection_plan', lambda *a, **kw: {'probes': {}})
+    def denied():
+        raise RuntimeError('pidfd denied by seccomp')
+    monkeypatch.setattr(process_control, 'require_process_supervision', denied)
+    monkeypatch.setattr(resources, 'preflight_resources', lambda *a: pytest.fail('ownership must be checked first'))
+    config = replace(RunConfig.smoke('fixture/model'), runtime='process', cpus='auto', mems='auto')
+    checks = quick_preflight(config, project_dir=tmp_path)
+    assert any(check.status == 'fail' and 'pidfd denied' in str(check.detail) for check in checks)

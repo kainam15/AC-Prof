@@ -113,7 +113,8 @@ class RunProgressTracker:
                 detail=message_id('ui.0879', event["current"], event["total"]),
                 current_case=event["current"], total_cases=event["total"],
                 completed_cases=max(state.completed_cases, event["current"] - 1),
-                cpu=str(event["cpu"]), mem=str(event["mem"]), gpu=event["gpu"])
+                cpu="inherited" if event["cpu"] is None else str(event["cpu"]),
+                mem="inherited" if event["mem"] is None else str(event["mem"]), gpu=event["gpu"])
         elif name == "case_started":
             if state.measurement_active:
                 raise ValueError("case_started while measurement is still active")

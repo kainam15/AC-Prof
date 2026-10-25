@@ -41,10 +41,11 @@ class SlashController:
             self.app.action_request_stop()
         elif command == "status":
             snapshot = self.app.latest_snapshot
+            memory = snapshot.mem if snapshot.mem in {"-", "inherited"} else f"{snapshot.mem}GB"
             self.app.query_one("#run-log", SelectableLog).write(
                 f"[TUI] status={self.app.localization.tr(snapshot.stage.label)}; "
                 f"case={snapshot.completed_cases}/{snapshot.total_cases}; "
-                f"resource=CPU {snapshot.cpu}, MEM {snapshot.mem}GB, GPU {snapshot.gpu}; "
+                f"resource=CPU {snapshot.cpu}, MEM {memory}, GPU {snapshot.gpu}; "
                 f"warnings={snapshot.warnings}; errors={snapshot.errors}"
             )
             self.app.activate_tab("monitor-tab")
