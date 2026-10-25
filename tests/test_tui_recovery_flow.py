@@ -213,8 +213,9 @@ async def test_cancel_or_close_discards_delayed_review(saved_preparation, tmp_pa
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
     def slow_review(*args, **kwargs):
         started.set()
-        if not release.wait(5):
-            raise TimeoutError("test did not release recovery read")
+        # The test owns completion, including release in its outer finally.
+        # Rendering a click may outlast a wall-clock fixture deadline under load.
+        release.wait()
         try:
             return review_recovery(*args, **kwargs)
         finally:
