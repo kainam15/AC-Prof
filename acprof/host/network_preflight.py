@@ -14,7 +14,7 @@ from typing import Any
 from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
 from acprof.host import command as host_command
-from acprof.host.dependency_images import (
+from acprof.host.images.environment import (
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
     registry_reference,
@@ -112,7 +112,7 @@ def _recorded_artifact_sizes(path: Path) -> dict[tuple[str, str], int | None]:
 
 def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=artifact_size,
                     manifest_probe=registry_manifest) -> tuple[list[DownloadSource], dict]:
-    from acprof.host.runtime_images import inspect_identity
+    from acprof.host.images.runtime import inspect_identity
     inspect = inspect or inspect_identity
     identity = environment_identity(profile.environment, project_dir)
     policy = os.environ.get("ACPROF_RUNTIME_IMAGE_SOURCE", "auto")

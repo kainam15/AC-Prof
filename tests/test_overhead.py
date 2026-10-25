@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.host.measurement_window import MonitorGroup
+from acprof.host.measurement.monitors import MonitorGroup
 from acprof.monitors.interfaces import CPUStopResult
 
 
@@ -60,7 +60,7 @@ def test_missing_baseline_duplicate_and_bad_values_are_rejected():
         [{"round": 0, "scenario": "none", "latency_app_s": 0}],
     ]
     for rows in samples:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="无效数值或重复轮次|缺少未启用 monitors 的基线"):
             summarize_overhead(rows)
 
 def test_request_failure_stops_and_closes_every_started_monitor():
@@ -137,7 +137,7 @@ def test_monitor_stop_failure_does_not_leave_other_threads_running():
 
 @pytest.mark.parametrize("failure", [None, "request", "stop", "start", "cancel"])
 def test_opt_in_boundary_report_is_written_after_cleanup(tmp_path, failure):
-    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from acprof.host.measurement.boundary import WindowBoundaryDiagnostics
     from scripts.measure_overhead import measure_window
 
     path = tmp_path / "window.boundaries.json"
@@ -203,7 +203,7 @@ def test_opt_in_boundary_report_is_written_after_cleanup(tmp_path, failure):
 
 @pytest.mark.parametrize("request_fails", [False, True])
 def test_boundary_write_failure_preserves_active_request_error(tmp_path, capsys, request_fails):
-    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from acprof.host.measurement.boundary import WindowBoundaryDiagnostics
     from scripts.measure_overhead import measure_window
 
     monitors = MonitorGroup(diagnostics=WindowBoundaryDiagnostics())

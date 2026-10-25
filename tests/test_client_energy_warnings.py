@@ -19,9 +19,10 @@ from acprof.config import (
     STATIC_META_FIELDS,
     STATIC_META_SCHEMA_VERSION,
 )
-from acprof.host import client, client_metrics, window_requests
+from acprof.host import client
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
+from acprof.host.measurement import metrics as client_metrics, requests as window_requests
+from acprof.host.measurement.config import ClientConfig
 from acprof.monitors import energy_cpu
 
 REMOVED_LEGACY_COMPUTE_FIELDS = (
@@ -242,7 +243,7 @@ class TestEffectiveEnergyWarning:
             "sleep",
             side_effect=lambda seconds: events.append(f"sleep:{seconds}"),
         ):
-            from acprof.host.measurement_window import MonitorGroup, run_matched_control_window
+            from acprof.host.measurement.monitors import MonitorGroup, run_matched_control_window
             monitors = MonitorGroup(close=False)
             for name, monitor in (("gpu", gpu_monitor), ("cpu", cpu_monitor),
                                   ("resource", FakeResourceMonitor()), ("mips", FakeMIPSMonitor())):

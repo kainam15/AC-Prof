@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import detect, input_plan, model_schema, runtime_images
+from acprof.host import detect, input_plan, model_schema
+from acprof.host.images import runtime as runtime_images
 from acprof.host.task_support import TaskSupportError, require_task_support
 
 

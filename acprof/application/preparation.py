@@ -29,8 +29,8 @@ from acprof.host.gpu_device import selected_gpu_device
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
+    from acprof.host.images.runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
-    from acprof.host.runtime_images import ImageInfo
 
 
 @dataclass
@@ -64,8 +64,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                      workflow=None, project_dir: str, notices: RunNotifications) -> PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
+    from acprof.host.images.runtime import prepare_image
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
-    from acprof.host.runtime_images import prepare_image
     workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
         collect_static_meta,
@@ -101,8 +101,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                                + "; start a new experiment to validate without changing frozen resume evidence")
     else:
         task_info.model_download_policy = args.model_download_policy
+        from acprof.host.images.runtime import configure_runtime_profile
         from acprof.host.interface_probe import probe_interface
-        from acprof.host.runtime_images import configure_runtime_profile
         workflow.run("interface", configure_runtime_profile, task_info)
         workflow.run("interface", probe_interface, task_info, output_dir,
                      timeout_seconds=args.request_timeout_seconds)
@@ -225,7 +225,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         else:
             workflow.emit("compute_profile", "running")
             try:
-                from acprof.host.compute_profile import collect_compute_profile_plan
+                from acprof.host.profiling.compute import collect_compute_profile_plan
 
                 compute_profile_plan_file = collect_compute_profile_plan(
                     task_info=task_info,
@@ -269,7 +269,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         else:
             workflow.emit("execution_profile", "running")
             try:
-                from acprof.host.execution_profile import (
+                from acprof.host.profiling.execution import (
                     ExecutionProfileOptions,
                     ExecutionProfileRequest,
                     ProfilerSampling,

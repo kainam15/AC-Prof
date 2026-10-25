@@ -26,12 +26,12 @@ from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置�
 from acprof.host.execution_conditions import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     ExecutionConditions,
 )
-from acprof.host.measurement_window import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.host.measurement.boundary import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    WindowBoundaryDiagnostics,
+)
+from acprof.host.measurement.monitors import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     MonitorGroup,
     run_matched_control_window,
-)
-from acprof.host.window_boundary_diagnostics import (  # noqa: E402 -- 脚本先设置仓库导入路径。
-    WindowBoundaryDiagnostics,
 )
 from acprof.monitors.interfaces import (  # noqa: E402 -- 脚本先设置仓库导入路径。
     CPUStopResult,
@@ -209,7 +209,7 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
                            token, output, options, window_boundaries: bool = False,
                            sampling_policy: SamplingPolicy = "burst") -> dict[str, Any]:
     """Internal comparison; reuse collectors and the production idle lifecycle."""
-    from acprof.host.packet_capture import _resolve_packet_latency_runtime
+    from acprof.host.measurement.capture import _resolve_packet_latency_runtime
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.perf_mips import PerfMIPSMonitor
@@ -227,7 +227,7 @@ def measure_profile_window(session, entry, *, scenario, rate, count, name, cpu, 
             if scenario == "full":
                 import shutil
 
-                from acprof.host.packet_capture import _tcpdump_can_capture_without_sudo
+                from acprof.host.measurement.capture import _tcpdump_can_capture_without_sudo
                 tcpdump = shutil.which("tcpdump")
                 if not tcpdump or not _tcpdump_can_capture_without_sudo(tcpdump):
                     raise RuntimeError("full 对照缺少现有 tcpdump capability；不会修改系统权限")
@@ -352,8 +352,8 @@ def main(argv=None):
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import start_container_session, stop_container_session
     from acprof.host.env_utils import bootstrap_project_env
+    from acprof.host.images.runtime import ImageInfo, require_image_identity
     from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
-    from acprof.host.runtime_images import ImageInfo, require_image_identity
     from acprof.monitors.energy_cpu import CPUEnergyMonitor
     from acprof.monitors.energy_nvml import GPUEnergyMonitor
     from acprof.monitors.resource_usage import ResourceUsageMonitor

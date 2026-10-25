@@ -15,7 +15,8 @@ from typing import Any, Dict, Optional, Tuple
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
 from acprof.host import command as host_command
-from acprof.host.dependency_images import (
+from acprof.host.detect import TaskInfo
+from acprof.host.images.environment import (
     platform_fingerprint,
     prepare_environment_image,
     require_image_source,
@@ -23,8 +24,7 @@ from acprof.host.dependency_images import (
     verify_labels,
     verify_manifest,
 )
-from acprof.host.detect import TaskInfo
-from acprof.host.runtime_identity import model_token
+from acprof.host.images.identity import model_token
 from acprof.host.runtime_settings import runtime_build_overrides
 from acprof.installation import resource_root
 from acprof.model_spec import encode_model_dependencies, encode_model_spec, task_model_spec

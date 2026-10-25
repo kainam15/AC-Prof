@@ -14,7 +14,7 @@ from client_fixtures import patch_client
 
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
+from acprof.host.measurement.config import ClientConfig
 from acprof.host.run_state import RunState
 
 
@@ -172,6 +172,7 @@ class TestArtifactLayout:
 
     def test_startup_error_is_written_directly_into_case_work_directory(self):
         from acprof.host.detect import TaskInfo
+        from acprof.host.images.runtime import ImageInfo
         from acprof.host.orchestrator import (
             CaseMeasurement,
             CasePlans,
@@ -179,7 +180,6 @@ class TestArtifactLayout:
             CaseWorkload,
             run_single_case,
         )
-        from acprof.host.runtime_images import ImageInfo
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
@@ -239,7 +239,7 @@ class TestArtifactLayout:
             assert (case_sidecar(case.csv, "requests")) == (case.requests)
 
     def test_ncu_report_reference_is_relative_to_the_experiment_root(self):
-        from acprof.host.profilers.ncu import _ncu_report_reference
+        from acprof.host.profiling.tools.ncu import _ncu_report_reference
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()

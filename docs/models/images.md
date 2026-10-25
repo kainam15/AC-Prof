@@ -165,7 +165,7 @@ TUI 根据镜像标签和 AC-Prof 元数据判定类型。下表列出常见名�
 历史标签和名称识别。常规模型的继承关系是 **平台 → 运行依赖 → 模型清单 → 推理服务**，权重从主机 Model Store 只读挂载。
 `acprof-build-source:<image ID>` 是构建时给已有镜像添加的别名，
 不另存一份镜像内容；TUI 按 image ID 合并这些标签。分类与构建实现分别见
-[`image_management.py`](../../acprof/host/image_management.py) 和 [`runtime_images.py`](../../acprof/host/runtime_images.py)。
+[`image_management.py`](../../acprof/host/images/inventory.py) 和 [`runtime_images.py`](../../acprof/host/images/runtime.py)。
 
 | 构建情况 | 镜像复用与新增 |
 | --- | --- |

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
-from acprof.host.profilers import ncu, torch
+from acprof.host.profiling.tools import ncu, torch
 from acprof.platform import Environment
 from acprof.run_args import build_parser
 
@@ -104,7 +104,7 @@ class TestCapability:
                 bool(item)
         payload = json.loads(json.dumps(report.to_dict()))
         assert ([payload["measurement"][state]["status"] for state in states]) == (list(states))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="not a valid CapabilityStatus"):
             caps.Capability(False)
 
     def test_ncu_permissions_are_distinct_from_unsupported_missing_and_error(self):
@@ -351,8 +351,8 @@ class TestCapability:
         assert not (report.collection_complete)
 
     def test_unsupported_profiler_writes_missing_values_without_running_tool(self):
-        from acprof.host import compute_profile
         from acprof.host.detect import TaskInfo
+        from acprof.host.profiling import compute as compute_profile
         task = TaskInfo("test/onnx", "tabular-regression", "structured", "onnxruntime", "onnxruntime", "main", "unit")
         with tempfile.TemporaryDirectory() as root:
             plan = Path(root) / "input.json"

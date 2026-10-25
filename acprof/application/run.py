@@ -28,13 +28,13 @@ from acprof.host.collection_history import (
 )
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
+from acprof.host.measurement.capture import (
+    PacketLatencyError,
+    require_packet_latency_prerequisites,
+)
 from acprof.host.orchestrator import (
     EnergyProfilingError,
     MIPSProfilingError,
-)
-from acprof.host.packet_capture import (
-    PacketLatencyError,
-    require_packet_latency_prerequisites,
 )
 from acprof.host.preflight import (
     require_cgroup_prerequisites,

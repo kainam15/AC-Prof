@@ -14,6 +14,7 @@ from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import (
     PlannedInputScales,
 )
@@ -21,7 +22,6 @@ from acprof.host.model_schema import (
     _inference_precision_by_device,
     _model_io_formats,
 )
-from acprof.host.runtime_images import ImageInfo
 from acprof.monitors.rapl_topology import discover_rapl_topology
 from acprof.platform import detect_environment
 

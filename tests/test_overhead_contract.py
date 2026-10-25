@@ -63,8 +63,8 @@ class TestOverheadContract:
             capture = Mock(returncode=0)
             capture.poll.return_value = None
             capture.terminate.side_effect = lambda: events.append("capture.stop")
-            stack.enter_context(patch("acprof.host.packet_capture._resolve_packet_latency_runtime", return_value=runtime))
-            stack.enter_context(patch("acprof.host.packet_capture._tcpdump_can_capture_without_sudo", return_value=True))
+            stack.enter_context(patch("acprof.host.measurement.capture._resolve_packet_latency_runtime", return_value=runtime))
+            stack.enter_context(patch("acprof.host.measurement.capture._tcpdump_can_capture_without_sudo", return_value=True))
             stack.enter_context(patch("shutil.which", return_value="/fixture/tcpdump"))
             stack.enter_context(patch("subprocess.Popen", return_value=capture))
             parsed = {"requests": {"full:0": {"latency_s": 0.1}}}

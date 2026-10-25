@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from hashlib import sha256
 
-from acprof.host.image_management import ImageInventory, ImageLayer, ManagedImage
+from acprof.host.images.inventory import ImageInventory, ImageLayer, ManagedImage
 from acprof.installation import resource_root
 
 

@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, Optional
 
 from acprof.host.command import run_command
-from acprof.host.profilers.tool_discovery import find_nsys_importer
+from acprof.host.profiling.tools.tool_discovery import find_nsys_importer
 
 MASSIF_TOOL = "massif"
 NSYS_TOOL = "nsys"

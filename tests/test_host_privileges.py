@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import env_utils, packet_capture
+from acprof.host import env_utils
+from acprof.host.measurement import capture as packet_capture
 from acprof.monitors import perf_mips
 
 

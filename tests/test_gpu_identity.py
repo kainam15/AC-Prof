@@ -3,8 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import docker_runtime, gpu_device, runtime_images
+from acprof.host import docker_runtime, gpu_device
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 
 DEVICE = {"uuid": "GPU-second", "index": 1, "pci_bus_id": "00000000:02:00.0",
           "name": "Second GPU", "memory_total_bytes": 8 * 1024 ** 3}
@@ -23,7 +24,7 @@ def test_resolves_index_to_uuid_and_pins_it_only_for_one_run():
 @pytest.mark.parametrize('selector', ('all', '0,1', 'MIG-GPU-abc/0/1', '-1', 'GPU-one\nsecond'))
 def test_rejects_ambiguous_and_mig_device_selection(selector):
     with patch.object(gpu_device, "run_command") as run:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="GPU selector must be one physical GPU index or UUID"):
             gpu_device.resolve_gpu_device(selector)
         run.assert_not_called()
     with patch.object(gpu_device, "run_command", return_value=SimpleNamespace(

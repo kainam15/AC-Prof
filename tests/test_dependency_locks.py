@@ -7,8 +7,8 @@ from unittest.mock import patch
 import pytest
 from runtime_fixture import ROOT, copy_dependency_tree
 
-from acprof.host.dependency_images import runtime_fingerprint
 from acprof.host.detect import TaskInfo
+from acprof.host.images.environment import runtime_fingerprint
 from acprof.runtime_profiles import PLATFORMS, PYTHON_BASE_IMAGE, select_runtime_profile
 
 
@@ -55,9 +55,9 @@ class TestDependencyLock:
         assert {p.python_base_image for p in PLATFORMS.values()} == {PYTHON_BASE_IMAGE}
 
     def test_driver_selection_preserves_cuda124_with_pinned_wheel(self):
-        from acprof.host.runtime_images import configure_runtime_profile
+        from acprof.host.images.runtime import configure_runtime_profile
         task = self.task()
-        with patch('acprof.host.runtime_images.select_nlp_torch_index_url',
+        with patch('acprof.host.images.runtime.select_nlp_torch_index_url',
                    return_value='https://download.pytorch.org/whl/cu124'):
             profile = configure_runtime_profile(task)
         assert (profile.profile_id) == ('nlp-cu124')

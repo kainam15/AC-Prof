@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import dependency_images
+from acprof.host.images import environment as dependency_images
 
 
 def test_required_prepared_platform_does_not_pull_or_build(tmp_path: Path) -> None:

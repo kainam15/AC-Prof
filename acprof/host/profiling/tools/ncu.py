@@ -9,14 +9,14 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from acprof.artifacts import atomic_write, read_json_object
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     format_scale_value,
     parse_last_json_line,
     profile_runner_args,
     profiler_container_command,
     write_profile_json,
 )
-from acprof.host.profilers.compute_parsers import (
+from acprof.host.profiling.tools.compute_parsers import (
     NCU_DURATION_METRIC,
     NCU_SASS_FLOP_WEIGHTS,
     NCU_TENSOR_METRIC_RE,
@@ -25,7 +25,7 @@ from acprof.host.profilers.compute_parsers import (
     _to_float,
     parse_ncu_profile_csv,
 )
-from acprof.host.profilers.tool_discovery import tool_mount_roots
+from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
 
 NCU_TOOL = "ncu"
 

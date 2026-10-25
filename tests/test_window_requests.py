@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from acprof.host.window_requests import WindowRequestProgress, execute_requests
+from acprof.host.measurement.requests import WindowRequestProgress, execute_requests
 
 
 def _collect(progress, requester, *, limit=3):

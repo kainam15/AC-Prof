@@ -284,8 +284,8 @@ def list_images(connection: DockerConnection | None = None, *, include_space: bo
     if not include_space:
         return inventory
     # 仅手动刷新需要完整空间信息；删除前的身份核验不重复扫描 history。
-    from acprof.host.image_dependencies import describe_dependencies
-    from acprof.host.image_graph import describe_inventory
+    from acprof.host.images.dependencies import describe_dependencies
+    from acprof.host.images.graph import describe_inventory
     inventory = _read_space(inventory)
     return describe_dependencies(describe_inventory(inventory))
 
@@ -354,7 +354,7 @@ def read_storage(connection: DockerConnection | None = None, *, daemon_id: str =
 
 
 def _read_space(inventory: ImageInventory) -> ImageInventory:
-    from acprof.host.image_dependencies import dependency_stage
+    from acprof.host.images.dependencies import dependency_stage
 
     usage = {}
     warnings = []
@@ -401,7 +401,7 @@ def _read_space(inventory: ImageInventory) -> ImageInventory:
 
 def delete_images(inventory: ImageInventory, image_ids: tuple[str, ...]) -> tuple[ImageRemoval, ...]:
     """复核整个清单后删除全部选定标签；不强制、不 prune 未选择的父镜像。"""
-    from acprof.host.image_graph import describe_inventory
+    from acprof.host.images.graph import describe_inventory
 
     previous = {item.image_id: item for item in inventory.images}
     selected = set(image_ids)

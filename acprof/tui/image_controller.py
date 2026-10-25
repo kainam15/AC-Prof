@@ -18,8 +18,8 @@ from textual.widgets import (
 )
 from textual.worker import Worker
 
-from acprof.host.image_graph import reclaimable_image_bytes, retain_complete_image_selection
-from acprof.host.image_management import (
+from acprof.host.images.graph import reclaimable_image_bytes, retain_complete_image_selection
+from acprof.host.images.inventory import (
     DockerStorage,
     ImageInventory,
     ImageLayer,
@@ -282,7 +282,7 @@ class ImageController:
         )
 
     def _execute_image_dependency_resolution_worker(self, inventory: ImageInventory, image_id: str) -> None:
-        from acprof.host.image_dependencies import resolve_image_dependencies
+        from acprof.host.images.dependencies import resolve_image_dependencies
 
         try:
             resolved = resolve_image_dependencies(inventory, image_id)

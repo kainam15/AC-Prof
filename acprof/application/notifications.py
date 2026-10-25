@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, replace
 
 from acprof.host.orchestrator import MatrixProgress
-from acprof.host.profiler_progress import ProfilerProgress
+from acprof.host.profiling.progress import ProfilerProgress
 from acprof.notifications import (
     NotificationConfigError,
     NotificationError,
@@ -34,7 +34,7 @@ class RunNotificationContext:
 def _result_status_counts(result_csv: str) -> tuple[int, int]:
     result_rows = 0
     error_rows = 0
-    with open(result_csv, "r", encoding="utf-8", newline="") as f:
+    with open(result_csv, encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
             result_rows += 1
             if str(row.get("status") or "").strip().lower() == "error":

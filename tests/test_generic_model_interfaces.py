@@ -241,10 +241,10 @@ class TestModelResolution:
         assert (profile.adapter) == ("family-default")
 
     def test_hardware_selection_preserves_compatible_transformers_version(self):
-        from acprof.host.runtime_images import configure_runtime_profile
+        from acprof.host.images.runtime import configure_runtime_profile
         task = self.task()
         require_task_support(task)
-        with patch("acprof.host.runtime_images.select_nlp_torch_index_url",
+        with patch("acprof.host.images.runtime.select_nlp_torch_index_url",
                    return_value="https://download.pytorch.org/whl/cpu"):
             profile = configure_runtime_profile(task)
         assert (profile.environment.environment_key) == ("transformers5104-cpu")

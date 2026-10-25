@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import image_management
-from acprof.host.image_management import DockerConnection, ImageManagementError
+from acprof.host.images import inventory as image_management
+from acprof.host.images.inventory import DockerConnection, ImageManagementError
 
 
 class TestDockerStorage:
@@ -27,7 +27,7 @@ class TestDockerStorage:
         ]
         self.fail_df = False
         self.commands = []
-        patcher = patch("acprof.host.image_management.run_command", side_effect=self.run_docker)
+        patcher = patch("acprof.host.images.inventory.run_command", side_effect=self.run_docker)
         patcher.start()
         self._request.addfinalizer(partial(patcher.stop))
         patcher = patch("os.uname", return_value=SimpleNamespace(nodename="local-machine"))

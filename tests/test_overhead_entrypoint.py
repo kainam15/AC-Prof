@@ -44,7 +44,7 @@ class TestOverheadEntrypoint:
                                                return_value={"uuid": "GPU-recorded", "index": 3}))
             stack.enter_context(patch("acprof.host.env_utils.bootstrap_project_env"))
             stack.enter_context(patch("acprof.host.run_state.host_identity", return_value={}))
-            stack.enter_context(patch("acprof.host.runtime_images.require_image_identity"))
+            stack.enter_context(patch("acprof.host.images.runtime.require_image_identity"))
             session = SimpleNamespace(name="owned", base_url="http://fixture.invalid",
                                       gpu_device={"uuid": "GPU-recorded", "index": 3})
             def launch(*_args, **kwargs):

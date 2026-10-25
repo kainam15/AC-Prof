@@ -34,7 +34,7 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
             report = {"status": "ok", "stages": [{"stage": name, "status": "verified"} for name in ("import", "signature")]}
             return SimpleNamespace(returncode=0, stdout="ACPROF_INTERFACE_VALIDATION=" + json.dumps(report), stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
-    with patch("acprof.host.runtime_images.prepare_image", side_effect=AssertionError("weights path entered")), patch(
+    with patch("acprof.host.images.runtime.prepare_image", side_effect=AssertionError("weights path entered")), patch(
         "acprof.host.model_store.prepare_model", side_effect=AssertionError("model store entered")), patch(
         "acprof.host.model_store.plan_model", side_effect=AssertionError("model planning entered")), patch(
         "acprof.host.interface_probe.prepare_environment_image", return_value=SimpleNamespace(image_id="sha256:" + "b" * 64)), patch(
@@ -108,7 +108,7 @@ def test_bundle_reuses_exact_cached_sources_and_cleans_up():
 def test_bundle_rejects_non_source_and_unsafe_paths_before_fetch(filename):
     task = contracts.TestModelContract().discover()
     task.model_resolution["contract"]["fields"]["custom_code"]["value"]["files"].append(filename)
-    with patch("acprof.host.detect.read_model_source") as fetch, pytest.raises(ValueError):
+    with patch("acprof.host.detect.read_model_source") as fetch, pytest.raises(ValueError, match="source graph incomplete or unsafe"):
         with bundle_module().source_bundle(task):
             pass
     fetch.assert_not_called()
@@ -152,11 +152,9 @@ def test_explicit_declaration_keeps_a_complete_source_graph():
 def test_bundle_cancellation_removes_temporary_directory():
     task = contracts.TestModelContract().discover()
     task.repository_sources = {"pipeline.py": contracts.SOURCE}
-    with pytest.raises(KeyboardInterrupt):
-        with bundle_module().source_bundle(task) as bundle:
-            root = bundle.root
-            raise KeyboardInterrupt()
-    assert not root.exists()
+    with pytest.raises(KeyboardInterrupt), bundle_module().source_bundle(task) as bundle:
+        raise KeyboardInterrupt()
+    assert not bundle.root.exists()
 
 
 def test_static_graph_includes_package_initializers_and_imported_submodules():

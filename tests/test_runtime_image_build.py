@@ -18,8 +18,8 @@ from acprof.dependency_locks import (
     read_python_lock,
     system_lock_identity,
 )
-from acprof.host import runtime_images
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 from acprof.runtime_profiles import RuntimeProfile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +75,7 @@ class TestRuntimeImageBuild:
             patch("acprof.host.model_store.plan_model", return_value={}),
             patch("acprof.host.network_preflight.preflight", return_value={"sources": []}),
             patch("acprof.host.model_store.prepare_model", return_value={"plan_sha256": "d" * 64}),
-            patch("acprof.host.runtime_images.select_nlp_torch_index_url",
+            patch("acprof.host.images.runtime.select_nlp_torch_index_url",
                          return_value="https://download.pytorch.org/whl/cu124"),
         ):
             mocked.start()
@@ -190,7 +190,7 @@ class TestRuntimeImageBuild:
                     assert name not in cmd
 
     def test_dependency_build_host_network_is_explicit_and_scoped(self):
-        from acprof.host.dependency_images import platform_fingerprint
+        from acprof.host.images.environment import platform_fingerprint
         from acprof.runtime_profiles import PLATFORMS
         original = platform_fingerprint(PLATFORMS["cu124"], PROJECT_ROOT)
         with patch.dict(os.environ, {"ACPROF_DEPENDENCY_BUILD_NETWORK": "host"}):
@@ -245,7 +245,7 @@ class TestRuntimeImageBuild:
         assert not any("HF_ENDPOINT=" in item or "HF_FALLBACK_ENDPOINTS=" in item for cmd in builds for item in cmd)
 
     def test_prebuilt_images_are_verified_and_used_without_dependency_builds(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
         environment = ENVIRONMENTS["onnxruntime-cpu"]
         prepared = prepare_environment_image(environment)
@@ -271,7 +271,7 @@ class TestRuntimeImageBuild:
         assert (len(pulls)) == (2)
 
     def test_pull_only_failure_never_builds_locally(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
         with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.host.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
         ) as command:
@@ -280,7 +280,7 @@ class TestRuntimeImageBuild:
         assert (all(call.args[0][:2] == ["docker", "pull"] for call in command.call_args_list))
 
     def test_auto_pull_failure_builds_the_locked_dependencies(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
 
         def unavailable_registry(command, **kwargs):
@@ -294,7 +294,7 @@ class TestRuntimeImageBuild:
         assert (len(self.build_commands())) == (2)
 
     def test_successful_pull_with_wrong_identity_does_not_fall_back_to_build(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
 
         def corrupted_registry(command, **kwargs):
@@ -390,7 +390,7 @@ class TestRuntimeImageBuild:
             runtime_images.build_runtime_image(self.task, str(PROJECT_ROOT))
 
     def test_retagged_parent_during_build_does_not_publish_environment_cache(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
         def changed(command, **kwargs):
             result = self.fake_run(command, **kwargs)
@@ -403,7 +403,7 @@ class TestRuntimeImageBuild:
         assert not (any(name.startswith("acprof-runtime-env:") for name in self.images))
 
     def test_changed_build_input_does_not_publish_dependency_cache(self):
-        from acprof.host.dependency_images import prepare_environment_image
+        from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -419,7 +419,7 @@ class TestRuntimeImageBuild:
             assert not (any(name.startswith("acprof-platform-") for name in self.images))
 
     def test_input_change_between_declaration_read_and_fingerprinting_is_rejected(self):
-        from acprof.host import dependency_images
+        from acprof.host.images import environment as dependency_images
         from acprof.runtime_profiles import ENVIRONMENTS, environment_identity
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

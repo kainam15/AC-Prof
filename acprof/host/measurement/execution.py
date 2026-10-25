@@ -13,27 +13,30 @@ from typing import TYPE_CHECKING, Any, Callable, TextIO, cast
 
 from acprof.capabilities import measurement_requested
 from acprof.failures import RuntimeFailure
-from acprof.host import client_diagnostics, client_publication
-from acprof.host.client_config import ClientConfig
-from acprof.host.client_metrics import WindowMetrics, to_float_or_nan
-from acprof.host.execution_profile_plan import ExecutionProfileResolver
-from acprof.host.measurement_window import (
+from acprof.host.measurement import (
+    diagnostics as client_diagnostics,
+    publication as client_publication,
+)
+from acprof.host.measurement.config import ClientConfig
+from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
+from acprof.host.measurement.metrics import WindowMetrics, to_float_or_nan
+from acprof.host.measurement.monitors import (
     MonitorCleanupError,
     MonitorGroup,
     run_matched_control_window,
 )
-from acprof.host.window_errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
-from acprof.host.window_requests import (
+from acprof.host.measurement.requests import (
     WindowRequestProgress,
     execute_requests,
     merge_effective_input_scale,
 )
-from acprof.host.window_types import (
+from acprof.host.measurement.types import (
     MonitorDependencies,
     WindowObservations,
     WindowResult,
     WindowSpec,
 )
+from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 from acprof.monitors.interfaces import CPUStopResult, GPUStopResult, ResourceStopResult
 from acprof.telemetry import window_evidence
 

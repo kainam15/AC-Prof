@@ -11,13 +11,13 @@ from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_progress import (
+from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
 )
-from acprof.host.profiler_support import load_input_scale_plan_entries, write_profile_json
-from acprof.host.profilers import advisor, ncu, torch
-from acprof.host.profilers.tool_discovery import find_executable
+from acprof.host.profiling.support import load_input_scale_plan_entries, write_profile_json
+from acprof.host.profiling.tools import advisor, ncu, torch
+from acprof.host.profiling.tools.tool_discovery import find_executable
 
 _LOG = logging.getLogger(__name__)
 

@@ -16,16 +16,10 @@ from acprof.config import (
     STATIC_META_FIELDS,
     STATIC_META_SCHEMA_VERSION,
 )
-from acprof.host import (
-    docker_runtime,
-    input_plan,
-    model_schema,
-    orchestrator,
-    packet_capture,
-    runtime_images,
-    static_metadata,
-)
+from acprof.host import docker_runtime, input_plan, model_schema, orchestrator, static_metadata
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
+from acprof.host.measurement import capture as packet_capture
 
 
 def _write_gpu_case_csv(
@@ -208,7 +202,7 @@ class TestDetectEnvironment:
         assert (metadata["docker_storage_type"]) == ("unknown")
 
     def test_select_nlp_torch_index_url_uses_cu124_for_cuda_12_4_driver(self) -> None:
-        with patch("acprof.host.runtime_images.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
+        with patch("acprof.host.images.runtime.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
             "acprof.host.command.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
@@ -2291,7 +2285,7 @@ class TestDetectEnvironment:
         assert ("host background processes") in (message)
 
     def test_resolve_packet_latency_runtime_requires_local_linux_tools(self) -> None:
-        with patch("acprof.host.packet_capture.shutil.which", return_value=None):
+        with patch("acprof.host.measurement.capture.shutil.which", return_value=None):
             runtime = packet_capture._resolve_packet_latency_runtime(
                 project_dir="/repo",
                 pcap_file="/repo/results/sniff_case.pcap",
@@ -2316,7 +2310,7 @@ class TestDetectEnvironment:
                 )
             return SimpleNamespace(returncode=1, stdout="", stderr="")
 
-        with patch("acprof.host.packet_capture.shutil.which", side_effect=fake_which), patch(
+        with patch("acprof.host.measurement.capture.shutil.which", side_effect=fake_which), patch(
             "acprof.host.command.run_command",
             side_effect=fake_run,
         ):
@@ -2333,8 +2327,8 @@ class TestDetectEnvironment:
         assert ("sudo") not in (runtime.tcpdump_cmd)
 
     def test_resolve_packet_latency_runtime_requires_administrator_setup(self):
-        with patch('acprof.host.packet_capture.shutil.which', side_effect=lambda name: '/usr/bin/' + name), patch(
-            'acprof.host.packet_capture.os.geteuid', return_value=1000,
+        with patch('acprof.host.measurement.capture.shutil.which', side_effect=lambda name: '/usr/bin/' + name), patch(
+            'acprof.host.measurement.capture.os.geteuid', return_value=1000,
         ), patch('acprof.host.command.run_command', return_value=SimpleNamespace(
             returncode=0, stdout='', stderr='',
         )) as run:

@@ -7,7 +7,7 @@ import pytest
 
 from acprof.host import orchestrator
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.runtime import ImageInfo
 
 
 class TestMatrixPlan:

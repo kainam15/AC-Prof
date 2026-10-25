@@ -31,7 +31,7 @@ def test_new_grouped_metric_is_initialized_by_row_consumer():
             **metric_registry.METRICS, new_metric.name: new_metric,
         })
 
-        from acprof.host.client_metrics import WindowMetrics
+        from acprof.host.measurement.metrics import WindowMetrics
 
         window = WindowMetrics(
             SimpleNamespace(batch_size=1), {"input_scale": 1}, use_energy=False,

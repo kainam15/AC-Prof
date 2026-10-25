@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 from acprof.host.env_utils import bootstrap_project_env
+from acprof.host.images.runtime import prepare_image
 from acprof.host.input_plan import plan_input_scales
 from acprof.host.largest_scale_probe import (
     create_probe_output_dir,
@@ -21,7 +22,6 @@ from acprof.host.preflight import (
     require_collection_host,
     require_native_docker,
 )
-from acprof.host.runtime_images import prepare_image
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
 from acprof.run_options import add_option_arguments

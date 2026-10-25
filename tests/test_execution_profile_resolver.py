@@ -8,7 +8,7 @@ import weakref
 
 import pytest
 
-from acprof.host import execution_profile_plan as plans
+from acprof.host.profiling import execution_plan as plans
 
 
 def _tool(value=123.0, **overrides):

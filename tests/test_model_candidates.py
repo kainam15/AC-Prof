@@ -100,7 +100,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from unittest.mock import patch
 
         from acprof.experiment import RunConfig
-        from acprof.host.runtime_images import select_nlp_torch_index_url
+        from acprof.host.images.runtime import select_nlp_torch_index_url
         from acprof.tui.model_candidates import current_conditions, current_context
         record = self.recorded()
         task = {'model_id': record.model_id, 'pipeline_tag': 'fill-mask', 'task_family': 'nlp',
@@ -109,7 +109,7 @@ class TestModelCandidate(ModelCandidateFixture):
                 'model_config': {'model_type': 'bert'}, 'model_resolution': {'runtime_profile': 'historical', 'requested_devices': ['cpu']}}
         record = replace(record, state={**record.state, 'runtime': {'task': task}})
         config = RunConfig.smoke(record.model_id)
-        with patch.dict('os.environ', {}, clear=True), patch('acprof.host.runtime_images.shutil.which', return_value='/usr/bin/nvidia-smi'), patch(
+        with patch.dict('os.environ', {}, clear=True), patch('acprof.host.images.runtime.shutil.which', return_value='/usr/bin/nvidia-smi'), patch(
                 'acprof.host.command.run_command', return_value=SimpleNamespace(returncode=0, stdout='CUDA Version: 12.4')) as command:
             assert (select_nlp_torch_index_url().endswith('/cu124'))
             assert (command.call_args.kwargs['timeout']) == (10)
@@ -146,7 +146,7 @@ class TestModelCandidate(ModelCandidateFixture):
         from acprof.tui.model_candidates import current_context
         config = RunConfig.smoke('demo/model')
         with patch('acprof.host.run_state.host_identity', return_value={'machine_id_sha256': 'host-a'}), \
-             patch('acprof.host.runtime_images.select_nlp_torch_index_url', side_effect=TimeoutExpired('nvidia-smi', 10)) as select, \
+             patch('acprof.host.images.runtime.select_nlp_torch_index_url', side_effect=TimeoutExpired('nvidia-smi', 10)) as select, \
              patch('acprof.host.gpu_device.resolve_gpu_device') as gpu:
             timed_out = current_context(config, Path.cwd())
             assert (timed_out['torch_index_url']) is None

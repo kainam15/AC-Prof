@@ -25,7 +25,7 @@ def test_interface_timeout_is_reported_as_a_failed_cli_command(tmp_path):
     task = fixture.TestModelContract().discover()
     with patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.env_utils.bootstrap_project_env"), patch("acprof.host.preflight.require_collection_host"), patch(
-        "acprof.host.preflight.require_native_docker"), patch("acprof.host.runtime_images.configure_runtime_profile"), patch(
+        "acprof.host.preflight.require_native_docker"), patch("acprof.host.images.runtime.configure_runtime_profile"), patch(
         "acprof.host.run_state.MeasurementLock"), patch(
         "acprof.host.interface_probe.probe_interface", side_effect=subprocess.TimeoutExpired("docker", 1)):
         assert main(["inspect", task.model_id, "--probe-interface", "--output-dir", str(tmp_path)]) == 1
@@ -39,7 +39,7 @@ def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales
     from acprof.host.model_inspection import validate_model_runtime
     task = TaskInfo("example/native", tag, family, "transformers_pipeline", "transformers", "a" * 40, "hub")
     with tempfile.TemporaryDirectory() as directory, patch(
-            "acprof.host.runtime_images.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
+            "acprof.host.images.runtime.prepare_image", return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
             "acprof.host.preflight.require_collection_host"), patch(
             "acprof.host.preflight.require_native_docker"), patch(
             "acprof.host.run_state.MeasurementLock"), patch(
@@ -60,7 +60,7 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
                     "onnx", "a" * 40, "manual")
     task.model_spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                        "model_file": "iris.onnx", "feature_dim": 4}
-    with tempfile.TemporaryDirectory() as directory, patch("acprof.host.runtime_images.prepare_image",
+    with tempfile.TemporaryDirectory() as directory, patch("acprof.host.images.runtime.prepare_image",
             return_value=SimpleNamespace(tag="sha256:" + "b" * 64)), patch(
             "acprof.host.preflight.require_collection_host"), patch(
             "acprof.host.preflight.require_native_docker"), patch(
@@ -123,7 +123,7 @@ def test_changed_revision_refuses_probe_and_preserves_previous_report():
     task = fixture.TestModelContract().discover()
     with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.env_utils.bootstrap_project_env",
-    ), patch("acprof.host.runtime_images.prepare_image") as build:
+    ), patch("acprof.host.images.runtime.prepare_image") as build:
         path = Path(directory, "model_resolution.json")
         path.write_text('{"preserve":true}')
         assert (main(["inspect", task.model_id, "--expected-revision", "b" * 40,
@@ -135,7 +135,7 @@ def test_inspect_explains_and_exports_the_static_contract():
     task = fixture.TestModelContract().discover(transformers_info=fixture.GENERIC_LOADER)
     with tempfile.TemporaryDirectory() as directory, patch("acprof.host.detect.detect_task", return_value=task), patch(
         "acprof.host.env_utils.bootstrap_project_env",
-    ), patch("acprof.host.runtime_images.prepare_image") as build, contextlib.redirect_stdout(io.StringIO()) as output:
+    ), patch("acprof.host.images.runtime.prepare_image") as build, contextlib.redirect_stdout(io.StringIO()) as output:
         code = main(["inspect", task.model_id, "--explain", "--output-dir", directory])
         assert (code) == (0)
         report = json.loads(Path(directory, "model_resolution.json").read_text())

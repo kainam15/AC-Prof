@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.config import STATIC_META_SCHEMA_VERSION
-from acprof.host import client_metrics
+from acprof.host.measurement import metrics as client_metrics
 from acprof.packet import merge_packet_latency
 from acprof.run_args import build_parser
 

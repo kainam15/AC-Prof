@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from acprof.host.image_management import DockerConnection, ManagedImage, run_docker_command
+from acprof.host.images.inventory import DockerConnection, ManagedImage, run_docker_command
 
 SCAN_VERSION = 1
 MAX_RECORD_BYTES = 2 * 1024 * 1024

@@ -20,8 +20,8 @@ from acprof.host.docker_runtime import (
     stop_container_session,
 )
 from acprof.host.gpu_device import normalize_gpu_mode
-from acprof.host.runtime_identity import model_token
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.identity import model_token
+from acprof.host.images.runtime import ImageInfo
 
 
 @dataclass

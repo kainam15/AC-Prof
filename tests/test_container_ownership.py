@@ -10,8 +10,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.host import container_state, docker_runtime, runtime_images
+from acprof.host import container_state, docker_runtime
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 
 
 class TestContainerOwnership:

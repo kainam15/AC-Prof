@@ -13,7 +13,7 @@ def baseline():
 
 def test_all_critical_paths_are_present_and_pass():
     assert {"acprof/host/client.py", "acprof/monitors/energy_cpu.py",
-            "acprof/host/window_execution.py", "acprof/host/client_metrics.py",
+            "acprof/host/measurement/execution.py", "acprof/host/measurement/metrics.py",
             "acprof/result_layers.py"} <= set(BRANCH_FLOORS)
     assert check_report(baseline()) == []
 

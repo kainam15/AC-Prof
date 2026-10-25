@@ -5,12 +5,12 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host.measurement_window import (
+from acprof.host.measurement.boundary import WindowBoundaryDiagnostics
+from acprof.host.measurement.monitors import (
     MonitorCleanupError,
     MonitorGroup,
     run_matched_control_window,
 )
-from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
 
 
 class Clock:
@@ -87,7 +87,7 @@ def test_disabled_diagnostics_does_not_read_clock_or_boundary_snapshots():
     monitor = Monitor("cpu", clock, events)
     group = MonitorGroup()
     group.add("cpu", monitor)
-    with patch("acprof.host.measurement_window.time.perf_counter", side_effect=AssertionError("extra clock read")):
+    with patch("acprof.host.measurement.monitors.time.perf_counter", side_effect=AssertionError("extra clock read")):
         group.start()
         group.finish(1, 1.0)
     assert monitor.snapshot_calls == 0
@@ -142,12 +142,12 @@ def test_failed_preparation_does_not_invent_request_or_sampling_boundaries():
         raise RuntimeError("prepare failed")
     monitor.prepare = fail
     group.add("cpu", monitor)
-    with pytest.raises(RuntimeError, match="prepare failed"):
-        try:
+    try:
+        with pytest.raises(RuntimeError, match="prepare failed"):
             group.start()
-        finally:
-            recorder.requests_finished(0, error=RuntimeError("prepare failed"))
-            group.finish(0, math.nan)
+    finally:
+        recorder.requests_finished(0, error=RuntimeError("prepare failed"))
+        group.finish(0, math.nan)
     report = recorder.report()
     assert report["request_window"]["start_s"] is None
     assert report["request_window"]["end_s"] is None

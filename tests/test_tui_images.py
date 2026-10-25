@@ -28,7 +28,7 @@ from textual.widgets import (
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.host.image_management import ImageManagementError, ManagedImage, list_images
+from acprof.host.images.inventory import ImageManagementError, ManagedImage, list_images
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.image_controller import ImageController
 from acprof.tui.images import (
@@ -104,7 +104,7 @@ class TestTuiImages:
         temporary = tmp_path
         self.directory = Path(str(temporary))
         self.docker = DockerFixture()
-        docker_patch = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
+        docker_patch = patch("acprof.host.images.inventory.run_command", side_effect=self.docker.run)
         docker_patch.start()
         self._request.addfinalizer(partial(docker_patch.stop))
         environment = patch.dict(os.environ, isolated_environment(), clear=True)
@@ -571,7 +571,7 @@ class TestTuiImages:
                                if item.image_id == image_id else item for item in inventory.images)
                 return replace(inventory, images=images)
 
-            with patch("acprof.host.image_dependencies.resolve_image_dependencies",
+            with patch("acprof.host.images.dependencies.resolve_image_dependencies",
                        side_effect=resolved) as resolver:
                 assert resolver.call_count == 0
                 assert "未知" in str(details.query_one("CollapsibleTitle").render())

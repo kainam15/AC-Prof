@@ -12,7 +12,7 @@ from test_multimodal_handler import audio_payload
 
 from acprof.container.handlers.multimodal import MultimodalHandler
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import model_fingerprint, request_fingerprint
+from acprof.host.images.runtime import model_fingerprint, request_fingerprint
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.model_spec import validate_model_spec
 

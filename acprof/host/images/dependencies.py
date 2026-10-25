@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from acprof.host.image_management import ImageInventory, ManagedImage
+from acprof.host.images.inventory import ImageInventory, ManagedImage
 
 
 def dependency_stage(rows: list[dict]) -> str:
@@ -42,7 +42,7 @@ def dependency_stage(rows: list[dict]) -> str:
 
 def describe_dependencies(inventory: ImageInventory) -> ImageInventory:
     from acprof.dependency_locks import content_digest, package_versions
-    from acprof.host.dependency_images import _platform_fingerprint
+    from acprof.host.images.environment import _platform_fingerprint
     from acprof.installation import resource_root
     from acprof.runtime_profiles import (
         ENVIRONMENTS,
@@ -108,7 +108,7 @@ def resolve_image_dependencies(inventory: ImageInventory, image_id: str, *, cach
     A historical snapshot is evidence of the *whole* image. Only call a list
     'new in this layer' when a verified parent snapshot is available.
     """
-    from acprof.host.image_dependency_scan import DependencySnapshot, cached_snapshot, read_snapshot
+    from acprof.host.images.scan import DependencySnapshot, cached_snapshot, read_snapshot
 
     original = {item.image_id: item for item in inventory.images}
     target = original.get(image_id)

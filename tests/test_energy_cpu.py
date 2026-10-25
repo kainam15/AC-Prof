@@ -46,7 +46,7 @@ def test_topology_retains_subdomains_aliases_and_unreadable_domains():
         assert not (by_id['intel-rapl:0:1']['selected'])
 
 def test_dram_uses_adjacent_wraps_and_explicit_request_denominator():
-    from acprof.host.client_metrics import _dram_metrics_from_result
+    from acprof.host.measurement.metrics import _dram_metrics_from_result
     domains = [energy_cpu.RaplDomain('dram-0', '', 100), energy_cpu.RaplDomain('dram-1', '', 200)]
     samples = [energy_cpu.CPUSample(0, [1000], 0, None, [90, 180]),
                energy_cpu.CPUSample(1, [2000], 0, None, [10, 20]),

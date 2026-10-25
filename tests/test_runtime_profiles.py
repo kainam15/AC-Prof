@@ -8,9 +8,10 @@ import pytest
 from runtime_fixture import copy_dependency_tree
 
 from acprof.container.handlers import HandlerRegistry
-from acprof.host import docker_runtime, runtime_images
+from acprof.host import docker_runtime
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import request_fingerprint
+from acprof.host.images import runtime as runtime_images
+from acprof.host.images.runtime import request_fingerprint
 from acprof.runtime_profiles import (
     PROFILES,
     RuntimeProfile,
@@ -125,21 +126,21 @@ def test_manifest_only_change_invalidates_service_but_not_environment_identity()
         assert (locked) == (environment_id(environment, root))
 
 def test_posthoc_rejects_image_from_another_build():
-    from acprof.host.runtime_images import FINGERPRINT_LABEL
+    from acprof.host.images.runtime import FINGERPRINT_LABEL
 
     image = "sha256:" + "a" * 64
-    with patch("acprof.host.runtime_images.inspect_identity", return_value={
+    with patch("acprof.host.images.runtime.inspect_identity", return_value={
         "image_id": image, "labels": {FINGERPRINT_LABEL: "other-build"},
     }), pytest.raises(RuntimeError, match="运行环境"):
         runtime_images.require_image_identity(image, {"build_fingerprint": "original-build"})
 
 def test_historical_image_identity_does_not_require_new_environment_fields():
-    from acprof.host.runtime_images import FINGERPRINT_LABEL
+    from acprof.host.images.runtime import FINGERPRINT_LABEL
     image = "sha256:" + "a" * 64
     original = {"schema_version": 1, "profile_id": "legacy-nlp", "build_fingerprint": "original-build"}
-    with patch("acprof.host.runtime_images.inspect_identity", return_value={
+    with patch("acprof.host.images.runtime.inspect_identity", return_value={
         "image_id": image, "labels": {FINGERPRINT_LABEL: "original-build"},
-    }), patch("acprof.host.runtime_images.prepare_environment_image", side_effect=AssertionError("rebuilt history")):
+    }), patch("acprof.host.images.runtime.prepare_environment_image", side_effect=AssertionError("rebuilt history")):
         runtime_images.require_image_identity(image, original)
     assert ("environment_id") not in (original)
     assert ("platform_id") not in (original)

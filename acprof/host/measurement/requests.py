@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from acprof.host.client_metrics import to_float_or_nan
+from acprof.host.measurement.metrics import to_float_or_nan
 
 
 def canonical_task_param(payload: dict[str, Any] | None) -> str:

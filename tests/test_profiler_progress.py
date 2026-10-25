@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from acprof.host.profiler_progress import report_profiler_completion
+from acprof.host.profiling.progress import report_profiler_completion
 
 
 def test_counts_source_samples_once_regardless_of_repeat() -> None:

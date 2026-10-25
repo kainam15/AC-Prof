@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from runtime_fixture import copy_dependency_tree
 
-from acprof.host.dependency_images import runtime_fingerprint
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import model_fingerprint, request_fingerprint
+from acprof.host.images.environment import runtime_fingerprint
+from acprof.host.images.runtime import model_fingerprint, request_fingerprint
 from acprof.runtime_profiles import select_runtime_profile
 
 

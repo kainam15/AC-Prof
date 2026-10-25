@@ -8,8 +8,8 @@ from runtime_fixture import copy_dependency_tree
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.dependency_locks import read_python_lock
+from acprof.host.images.runtime import PROJECT_ROOT
 from acprof.host.network_preflight import preflight, registry_manifest, runtime_sources
-from acprof.host.runtime_images import PROJECT_ROOT
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,

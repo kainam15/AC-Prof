@@ -55,7 +55,7 @@ def test_case_cleanup_failure_cannot_emit_success():
     from acprof.host import orchestrator
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import RunningContainer
-    from acprof.host.runtime_images import ImageInfo
+    from acprof.host.images.runtime import ImageInfo
     task = TaskInfo("fixture/model", "tabular-classification", "structured", "onnxruntime", "onnx", "abc", "manual")
     session = RunningContainer("fixture", "http://127.0.0.1:8002", 8002, 1, container_id="a" * 64)
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -95,7 +95,7 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
     from acprof.host import orchestrator
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import RunningContainer
-    from acprof.host.runtime_images import ImageInfo
+    from acprof.host.images.runtime import ImageInfo
     task = TaskInfo("fixture/model", "tabular-classification", "structured", "onnxruntime", "onnx", "abc", "manual")
     session = RunningContainer("fixture", "http://127.0.0.1:8002", 8002, 1, container_id="a" * 64)
     def failed_client(*args, **kwargs):

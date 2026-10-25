@@ -449,11 +449,11 @@ def test_all_memory_candidates_oom_without_claiming_a_minimum(
 def test_cli_delegates_planning_and_probe_with_requested_matrix(
     run_probe: Mock,
     plan_scales: Mock,
-    _detect_task: Mock,
-    _bootstrap: Mock,
-    _native_linux: Mock,
-    _native_docker: Mock,
-    _cgroup: Mock,
+    detect_task_mock: Mock,
+    bootstrap_mock: Mock,
+    native_linux_mock: Mock,
+    native_docker_mock: Mock,
+    cgroup_mock: Mock,
 ) -> None:
     def fake_run(**kwargs):
         summary_path = Path(kwargs["output_dir"]) / PROBE_SUMMARY_NAME
@@ -467,7 +467,7 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
 
     built_image = ImageInfo(tag="acprof-nlp-demo--model:latest")
     with tempfile.TemporaryDirectory() as temporary_dir, patch("acprof.host.command.run_command", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
-    ), patch("acprof.host.runtime_images.build_runtime_image", return_value=built_image,
+    ), patch("acprof.host.images.runtime.build_runtime_image", return_value=built_image,
     ) as build_image:
         plan_path = Path(temporary_dir) / "planned.json"
         plan_scales.return_value = PlannedInputScales(
@@ -495,7 +495,7 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
                 temporary_dir,
             ]
         )
-        assert (_detect_task.call_args.kwargs["revision"]) == ("a" * 40)
+        assert (detect_task_mock.call_args.kwargs["revision"]) == ("a" * 40)
         summary_path = Path(run_probe.call_args.kwargs["output_dir"]) / PROBE_SUMMARY_NAME
         saved = json.loads(summary_path.read_text(encoding="utf-8"))
 

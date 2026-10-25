@@ -20,9 +20,9 @@ from acprof.host.docker_runtime import (
     start_container_session,
     stop_container_session,
 )
+from acprof.host.images.identity import model_token
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
-from acprof.host.runtime_identity import model_token
-from acprof.host.runtime_images import ImageInfo
 
 PROBE_SUMMARY_NAME = "largest_scale_probe.json"
 PROBE_SUMMARY_SCHEMA_VERSION = 3

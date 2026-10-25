@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from acprof.artifacts import read_json_object
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     execution_thread_environment,
     format_scale_value,
     profile_runner_args,
@@ -17,10 +17,10 @@ from acprof.host.profiler_support import (
     safe_filename_token,
     write_profile_json,
 )
-from acprof.host.profilers.execution_environment import (
+from acprof.host.profiling.tools.execution_environment import (
     command_detail,
 )
-from acprof.host.profilers.execution_parsers import (
+from acprof.host.profiling.tools.execution_parsers import (
     finite_float,
     parse_massif_output,
 )

@@ -27,7 +27,6 @@ from acprof.config import (
     SERVER_PORT,
 )
 from acprof.host import command as host_command
-from acprof.host.compute_profile_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
 from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.container_state import container_runtime_oom_error
 from acprof.host.detect import TaskInfo
@@ -37,26 +36,27 @@ from acprof.host.docker_runtime import (
     start_container_session,
     stop_container_session,
 )
-from acprof.host.energy_validation import (
-    EnergyProfilingError,
-    check_case_cpu_idle_power_stable,
-    check_case_gpu_idle_power_stable,
-    row_has_error_status,
-)
 from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.hardware_conditions import record_case_conditions
+from acprof.host.images.identity import model_token
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import (
     _format_scale_value,
     resolve_input_scales,
     serialize_input_scales,
 )
-from acprof.host.packet_capture import (
+from acprof.host.measurement.capture import (
     PacketLatencyRuntime,
     _packet_latency_error,
     _resolve_packet_latency_runtime,
 )
-from acprof.host.runtime_identity import model_token
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.measurement.energy_validation import (
+    EnergyProfilingError,
+    check_case_cpu_idle_power_stable,
+    check_case_gpu_idle_power_stable,
+    row_has_error_status,
+)
+from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
 from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
@@ -531,7 +531,7 @@ class _CaseExecution:
 
 def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -> str:
     """Retry only derivation from a verified whole-case measurement snapshot."""
-    from acprof.host.measurement_checkpoint import restore_measurement_projection
+    from acprof.host.measurement.checkpoint import restore_measurement_projection
 
     context = checkpoint["processing"]
     out_csv = str(case.csv)
@@ -819,7 +819,7 @@ def _write_case_error_csv(
 
     if preserve_existing:
         from acprof.artifact_layout import case_sidecar
-        from acprof.host.client_publication import reconcile_sniff_group_sidecar
+        from acprof.host.measurement.publication import reconcile_sniff_group_sidecar
 
         sidecar = case_sidecar(out_csv, "sniff_groups")
         if sidecar.exists():

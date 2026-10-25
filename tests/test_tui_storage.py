@@ -17,7 +17,7 @@ from textual.widgets import Button, DataTable, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.host.image_management import (
+from acprof.host.images.inventory import (
     DiskSpace,
     DockerStorage,
     ImageManagementError,
@@ -33,7 +33,7 @@ class TestTuiStorage:
         temporary = tmp_path
         self.directory = Path(str(temporary))
         self.docker = DockerFixture()
-        for patcher in (patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
+        for patcher in (patch("acprof.host.images.inventory.run_command", side_effect=self.docker.run),
                         patch.dict(os.environ, isolated_environment(), clear=True),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             patcher.start()

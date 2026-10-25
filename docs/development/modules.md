@@ -40,6 +40,9 @@
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
 | `acprof/host/` | 模型检测、环境预检、输入计划、容器与采集编排、profiler |
+| `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
+| `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
+| `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
 | `acprof/host/posthoc/` | 已有结果的 profiler 补采、回填、备份与回滚 |
 | `acprof/container/` | 容器内模型下载、HTTP server、推理处理器和 profiler runner |
 | `acprof/workloads/` | 各任务族的确定性输入与素材准备 |
@@ -94,7 +97,7 @@ monitor 使用共享 `host.command` 的两条现有边精确豁免，待命令�
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，
 也拒绝已经失效但仍留在 baseline 中的条目；具体范围与维护命令见
 [private API 检查](static-checks.md#跨模块-private-api-检查)。
-`client_metrics` 与 client/diagnostics、`resource_metrics` 与资源采样器属于现有内部协作边界，
+`measurement.metrics` 与 client/diagnostics、`resource_metrics` 与资源采样器属于现有内部协作边界，
 继续逐条登记，不给予整个子系统无限制豁免。`latency_model` 的 analysis/plotting 边界同样保留
 现有条目，后续按职责处理，不以消除下划线数量为目标。
 

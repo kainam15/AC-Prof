@@ -10,57 +10,57 @@
 | `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
 | `docker_runtime` | 推理服务容器的所有权、启停、ready 检查及原有冷启动分段 |
 | `container_state` | Docker inspect 状态证据、启动失败与运行期 OOM 解释；不拥有容器生命周期 |
-| `runtime_identity` / `gpu_device` | 镜像、容器、payload 共用的模型名称 token；GPU mode 归一化及选定设备身份 |
-| `dependency_images` | 平台与依赖环境的内容缓存、安装配方指纹、完整清单和标签核验；主构建及容器 CI 共用 |
-| `runtime_images` | `ImageInfo`、镜像准备、profile/平台选择、模型层与代码层构建、父镜像绑定、运行清单及不可变 image ID 核验 |
-| `image_management` | Docker 镜像清单、标签合并、容器引用检查及按确认清单删除；不参与采集 |
-| `image_graph` | 从镜像元数据、依赖锁身份与层链解析父子关系、逻辑名称、共享层和按选择集合去重的释放估算；不访问 Docker |
-| `image_dependencies` | 匹配镜像身份与本地锁，核对构建阶段并生成本层依赖增量；不启动容器或扫描包 |
+| `images.identity` / `gpu_device` | 镜像、容器、payload 共用的模型名称 token；GPU mode 归一化及选定设备身份 |
+| `images.environment` | 平台与依赖环境的内容缓存、安装配方指纹、完整清单和标签核验；主构建及容器 CI 共用 |
+| `images.runtime` | `ImageInfo`、镜像准备、profile/平台选择、模型层与代码层构建、父镜像绑定、运行清单及不可变 image ID 核验 |
+| `images.inventory` | Docker 镜像清单、标签合并、容器引用检查及按确认清单删除；不参与采集 |
+| `images.graph` | 从镜像元数据、依赖锁身份与层链解析父子关系、逻辑名称、共享层和按选择集合去重的释放估算；不访问 Docker |
+| `images.dependencies` | 匹配镜像身份与本地锁，核对构建阶段并生成本层依赖增量；不启动容器或扫描包 |
 | `runtime_validation` | 矩阵前的独立 CPU／GPU 完整推理验证及报告，不生成测量行 |
 | `input_plan` | 手动和自动尺度规划、规划用 probe、payload 物化与输入计划写入 |
 | `startup_probe` | 独立 readiness-only 启动探测、Docker OOM 证据与保守连续前缀，不采集性能 |
 | `matrix_plan` | 资源 case 与 input scale 的独立确定性排序、冻结计划、hash 与恢复校验，不采样硬件 |
 | `model_schema` | 从 catalog 读取任务 IO 模板与推理精度，返回独立副本供元数据补充 |
 | `static_metadata` | 主机、镜像、模型和 profiler 计划的静态元数据 |
-| `packet_capture` | tcpdump 前置检查及 capture/parser 命令构造 |
+| `measurement.capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 
 | `run_state` | 目录锁、实验身份、已完成 case 校验、中断备份和恢复；仅在测量窗口外运行 |
-| `measurement_window` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
+| `measurement.monitors` | `MonitorGroup` 所有权、固定启停顺序及共享 `run_matched_control_window`；不导入硬件或 workload |
 | `execution_conditions` | 保存／恢复线程环境、固定 GPU UUID、CPU affinity 和请求超时；开销诊断与负载重放共用 |
-| `load_protocol` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
+| `measurement.load` | 独立非流式 HTTP 调度与连接生命周期；结果不进入正式能耗 CSV |
 | `client` | 环境与 workload 初始化、短连接 HTTP 请求适配、窗口调度和完成结果发布 |
-| `client_metrics` | 已完成采样结果的纯计算与格式化；`WindowMetrics` 保留部分计算结果、判定指标状态并组装完整结果行 |
-| `window_execution` | `WindowExecutor.execute` 拥有单窗口 collector 构造、对照采集、请求、停止、请求证据发布和异常优先级 |
-| `window_types` / `window_errors` | `WindowSpec`、`WindowObservations`、`WindowResult` 与共享的致命测量异常；不访问硬件 |
-| `window_requests` | 串行请求进度、实际参数和有效输入尺度一致性；不拥有 collector 或文件 |
+| `measurement.metrics` | 已完成采样结果的纯计算与格式化；`WindowMetrics` 保留部分计算结果、判定指标状态并组装完整结果行 |
+| `measurement.execution` | `WindowExecutor.execute` 拥有单窗口 collector 构造、对照采集、请求、停止、请求证据发布和异常优先级 |
+| `measurement.types` / `measurement.errors` | `WindowSpec`、`WindowObservations`、`WindowResult` 与共享的致命测量异常；不访问硬件 |
+| `measurement.requests` | 串行请求进度、实际参数和有效输入尺度一致性；不拥有 collector 或文件 |
 | `monitors/rapl_topology` | powercap 完整域发现、alias 去重、package/DRAM 来源选择与可用性；独立于矩阵计划 |
 | `monitors/common` | Docker PID 查询与 CPU/资源采样的绝对时刻调度；保留各监控器的异常类型 |
 | `host/container_lifecycle` | 按主机与进程身份确认废弃服务容器，在冷启动计时前回收 |
-| `compute_profile` / `execution_profile` | profiler 计划编排及汇总；工具执行实现统一放在 `profilers/` 下 |
+| `profiling.compute` / `profiling.execution` | profiler 计划编排及汇总；工具执行实现统一放在 `profilers/` 下 |
 | `profilers/ncu` / `profilers/torch` / `profilers/advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
 | `profilers/massif` / `profilers/nsys` | 隔离执行、错误条目与产物处理；Massif 拥有 checkpoint/resume，Nsys 拥有 stats、SQLite 与 raw stream 清理 |
-| `client_diagnostics` / `client_publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
+| `measurement.diagnostics` / `measurement.publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
 | `monitors/resource_readers` / `monitors/resource_metrics` | cgroup/proc/sysfs discovery 和 raw reader；纯 sample reduction 与 counter 派生计算 |
 | `profilers/compute_parsers` / `profilers/execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
 | `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |
 | `profilers/execution_environment` | 原始模型镜像的 profiler 能力核验、工具版本查询 |
-| `profiler_support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
+| `profiling.support` | 两类 profiler 的容器命令、runner 参数、输入计划与产物路径；复用 `artifacts.atomic_write` 发布原有 profiler JSON |
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
-`host.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
+`host.measurement.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
 继续保留原来的错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
 `host.result_cleanup` 只有在合并结果存在且非空时才回收逐 case 临时文件，
 `cli.run` 不再直接拥有文件清理实现，保留既有 v2/flat 路由与请求证据保留策略。
 
-`client_metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
+`measurement.metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
 `gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
 不为降低 private API 计数机械公开所有助手函数。
 
 `docker_runtime` 是输入规划的下层；`static_metadata` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
-两类 profiler 单向依赖 `profiler_support`，TaskInfo 只在类型检查时导入；
-解析与工具查找使用 `profilers/` 下的实现。`execution_profile` 通过 Massif/Nsys 的
+两类 profiler 单向依赖 `profiling.support`，TaskInfo 只在类型检查时导入；
+解析与工具查找使用 `profilers/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的
 `profile` 与 `error_entry` 调度各工具，不再重导出其私有采集、恢复或解析入口。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
@@ -209,7 +209,7 @@ Workload 使用同一声明的可选 `workload_entrypoint`，按 family 延迟�
 `from_config` 中处理。`container.execution.complete_prediction` 调用所选运行时的可选请求完成
 hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_settings` 统一可选线程/Provider
 请求的读取和传递，不负责资源调度。`analysis.comparison` 只读比较已有结果条件，不参与恢复身份。
-`host.dependency_images` 构建固定 Python/系统平台及其依赖环境分支；旧 Torch 平台保持原锁和身份；`host.runtime_images`
+`host.images.environment` 构建固定 Python/系统平台及其依赖环境分支；旧 Torch 平台保持原锁和身份；`host.images.runtime`
 绑定模型与最终服务代码的构建身份。镜像是按需缓存，不为每个 profile 强制保留一个镜像。
 `scripts/compile_locks.py` 复用固定 uv 解析目标 wheel；`scripts/compile_system_lock.py` 在隔离基础容器
 中解析 Debian Snapshot。普通构建仅消费锁，`--check` 只读校验锁及映射。

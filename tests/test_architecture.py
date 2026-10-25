@@ -112,7 +112,7 @@ def test_metrics_import_does_not_initialize_measurement():
     result = subprocess.run(
         [sys.executable, "-c", (
             "import sys; "
-            "import acprof.host.client_metrics; "
+            "import acprof.host.measurement.metrics; "
             "assert 'acprof.host.client' not in sys.modules; "
             "assert not any(name.startswith('acprof.monitors') "
             "for name in sys.modules)"

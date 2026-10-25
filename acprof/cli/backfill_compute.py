@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
-from acprof.host.compute_profile_plan import (
+from acprof.host.profiling.compute_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,

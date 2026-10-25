@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import input_plan, runtime_images
+from acprof.host import input_plan
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 
 RESAMPLING_POLICY = "scipy.signal.resample_poly_if_required_in_preprocess"
 

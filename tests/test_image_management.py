@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 from environment_fixtures import isolated_environment
 
-from acprof.host.image_graph import reclaimable_image_bytes
-from acprof.host.image_management import ImageManagementError, delete_images, list_images
+from acprof.host.images.graph import reclaimable_image_bytes
+from acprof.host.images.inventory import ImageManagementError, delete_images, list_images
 
 RUNTIME = "sha256:" + "a" * 64
 WEIGHTS = "sha256:" + "b" * 64
@@ -114,7 +114,7 @@ class DockerFixture:
 def dependency_images(docker, profile="moss-transformers5104"):
     from pathlib import Path
 
-    from acprof.host.dependency_images import platform_fingerprint
+    from acprof.host.images.environment import platform_fingerprint
     from acprof.runtime_profiles import ENVIRONMENTS, PLATFORMS, environment_id
 
     root = Path(__file__).resolve().parents[1]
@@ -153,7 +153,7 @@ class TestImageManagement:
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request
         self.docker = DockerFixture()
-        patcher = patch("acprof.host.image_management.run_command", side_effect=self.docker.run)
+        patcher = patch("acprof.host.images.inventory.run_command", side_effect=self.docker.run)
         patcher.start()
         self._request.addfinalizer(partial(patcher.stop))
         environment = patch.dict(os.environ, isolated_environment(), clear=True)
@@ -423,7 +423,7 @@ class TestImageManagement:
                 return subprocess.CompletedProcess(command, 0, "Untagged: service", "")
             return original(command, **kwargs)
 
-        with patch("acprof.host.image_management.run_command", side_effect=untag_only):
+        with patch("acprof.host.images.inventory.run_command", side_effect=untag_only):
             outcomes = delete_images(inventory, (WEIGHTS, FINAL))
         assert not any(item.success for item in outcomes)
         assert set(self.docker.images) == {RUNTIME, WEIGHTS, FINAL}
@@ -438,7 +438,7 @@ class TestImageManagement:
                 return subprocess.CompletedProcess(command, 0, "invalid-image-id", "")
             return original(command, **kwargs)
 
-        with patch("acprof.host.image_management.run_command", side_effect=invalid_after_delete):
+        with patch("acprof.host.images.inventory.run_command", side_effect=invalid_after_delete):
             outcomes = delete_images(inventory, (WEIGHTS, FINAL))
         assert not any(item.success for item in outcomes)
         assert set(self.docker.images) == {RUNTIME, WEIGHTS}
@@ -447,9 +447,9 @@ class TestImageManagement:
     @pytest.mark.parametrize('effect_case', range(2), ids=["subprocess.TimeoutExpired('docker', 30)", "FileNotFoundError('docker')"])
     def test_timeout_and_bad_docker_output_are_errors_not_empty_inventory(self, effect_case):
         effect = tuple((subprocess.TimeoutExpired('docker', 30), FileNotFoundError('docker')))[effect_case]
-        with patch("acprof.host.image_management.run_command", side_effect=effect):
+        with patch("acprof.host.images.inventory.run_command", side_effect=effect):
             with pytest.raises(ImageManagementError):
                 list_images()
-        with patch("acprof.host.image_management.run_command", return_value=subprocess.CompletedProcess([], 0, "bad-json", "")):
+        with patch("acprof.host.images.inventory.run_command", return_value=subprocess.CompletedProcess([], 0, "bad-json", "")):
             with pytest.raises(ImageManagementError):
                 list_images()

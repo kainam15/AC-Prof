@@ -164,7 +164,7 @@ class TestContainerCleanup:
         from acprof.host import orchestrator
         from acprof.host.detect import TaskInfo
         from acprof.host.docker_runtime import RunningContainer
-        from acprof.host.runtime_images import ImageInfo
+        from acprof.host.images.runtime import ImageInfo
         session = RunningContainer('owned', 'http://localhost', 8002, 0, container_id='a' * 64)
         task = TaskInfo('fixture/model', 'tabular-classification', 'structured', 'onnxruntime', 'onnx', 'a' * 40, 'manual')
         with tempfile.TemporaryDirectory() as directory, patch.object(

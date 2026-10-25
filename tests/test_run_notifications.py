@@ -14,9 +14,10 @@ import pytest
 from acprof.application import notifications as notices, run
 from acprof.cli import run as run_cli
 from acprof.experiment import RunConfig
-from acprof.host import input_plan, orchestrator, runtime_images
+from acprof.host import input_plan, orchestrator
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_progress import ProfilerProgress
+from acprof.host.images import runtime as runtime_images
+from acprof.host.profiling.progress import ProfilerProgress
 from acprof.notifications import NotificationConfigError, NotificationEvent
 
 
@@ -372,9 +373,9 @@ class TestRunNotificationLifecycle:
         ), patch(
             "acprof.host.interface_probe.probe_interface", return_value={"status": "ok"},
         ), patch(
-            "acprof.host.runtime_images.configure_runtime_profile",
+            "acprof.host.images.runtime.configure_runtime_profile",
         ), patch(
-            "acprof.host.runtime_images.prepare_image",
+            "acprof.host.images.runtime.prepare_image",
             return_value=runtime_images.ImageInfo(tag="acprof-nlp-org--resolved-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta", return_value=SimpleNamespace(),
@@ -392,10 +393,10 @@ class TestRunNotificationLifecycle:
                 scales=[1.0], source="unit", plan_file=None,
             ),
         ), patch(
-            "acprof.host.compute_profile.collect_compute_profile_plan",
+            "acprof.host.profiling.compute.collect_compute_profile_plan",
             side_effect=lambda **kwargs: collect(("CPU Torch", "GPU Torch", "NCU"), **kwargs),
         ) as compute, patch(
-            "acprof.host.execution_profile.collect_execution_profile_plan",
+            "acprof.host.profiling.execution.collect_execution_profile_plan",
             side_effect=lambda request, options, **kwargs: collect(
                 ("Massif", "Nsys"), output_dir=request.output_dir, **kwargs,
             ),

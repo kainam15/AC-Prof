@@ -11,10 +11,11 @@ from unittest.mock import Mock, patch
 import pytest
 from client_fixtures import patch_client
 
-from acprof.host import client, client_publication, window_execution
+from acprof.host import client
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
-from acprof.host.measurement_window import MonitorGroup
+from acprof.host.measurement import execution as window_execution, publication as client_publication
+from acprof.host.measurement.config import ClientConfig
+from acprof.host.measurement.monitors import MonitorGroup
 from acprof.monitors import energy_cpu, resource_metrics
 
 
@@ -218,11 +219,11 @@ class TestMonitorCleanup:
         cpu.start.side_effect = RuntimeError("partial start")
         group.add("cpu", cpu)
         group.add("resource", resource)
-        with pytest.raises(RuntimeError, match="partial start"):
-            try:
+        try:
+            with pytest.raises(RuntimeError, match="partial start"):
                 group.start()
-            finally:
-                group.finish(0, float("nan"))
+        finally:
+            group.finish(0, float("nan"))
         cpu.stop.assert_called_once()
         resource.stop.assert_not_called()
         cpu.close.assert_called_once()

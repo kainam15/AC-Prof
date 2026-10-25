@@ -10,12 +10,12 @@ import pytest
 
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, CSV_FIELDS, SERVER_PORT
 from acprof.host import orchestrator, run_state
-from acprof.host.client_publication import _append_row, append_request_window
 from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
-from acprof.host.packet_capture import PacketLatencyRuntime
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.runtime import ImageInfo
+from acprof.host.measurement.capture import PacketLatencyRuntime
+from acprof.host.measurement.publication import _append_row, append_request_window
 from acprof.telemetry import window_evidence
 from acprof.window_records import WindowPublicationContext
 

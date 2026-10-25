@@ -16,12 +16,6 @@ from typing import (
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.command import run_command
-from acprof.host.compute_profile_plan import (
-    NCU_PROFILE_KEY,
-    TORCH_PROFILE_KEY,
-    find_compute_profile_entry,
-)
-from acprof.host.execution_profile_plan import ExecutionProfileResolver
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
@@ -35,6 +29,12 @@ from acprof.host.posthoc.context import (
     _finite_float,
     _read_plan,
 )
+from acprof.host.profiling.compute_plan import (
+    NCU_PROFILE_KEY,
+    TORCH_PROFILE_KEY,
+    find_compute_profile_entry,
+)
+from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 
 
 def parse_tools(value: str | Iterable[str]) -> Tuple[str, ...]:
@@ -208,12 +208,12 @@ def _validate_profiler_runtime(
 ) -> None:
     # Validate outputs in a separate container before any profiler starts;
     # whole-process profilers must not include validation allocations.
+    from acprof.host.images.runtime import ImageInfo
     from acprof.host.preflight import (
         require_native_docker,
         require_native_linux_host,
         require_result_environment,
     )
-    from acprof.host.runtime_images import ImageInfo
     from acprof.host.runtime_validation import validate_runtime
 
     require_native_linux_host()
@@ -223,7 +223,7 @@ def _validate_profiler_runtime(
         raise PosthocError(str(exc)) from exc
     require_native_docker()
     if context.static_meta.get("image_id"):
-        from acprof.host.runtime_images import require_image_identity
+        from acprof.host.images.runtime import require_image_identity
 
         try:
             require_image_identity(context.image_tag, context.static_meta.get("runtime_environment") or {})
@@ -285,7 +285,7 @@ def _collect_compute_plan(
     compute_profile_mem: Optional[int],
     resume_existing_ncu_profiles: bool = True,
 ) -> Dict[str, Any]:
-    from acprof.host.compute_profile import collect_compute_profile_plan
+    from acprof.host.profiling.compute import collect_compute_profile_plan
 
     modes: list[str] = [
         mode
@@ -417,7 +417,7 @@ def _collect_execution_plan(
     nsys_root: Optional[str],
     resume_existing_profiles: bool = True,
 ) -> Dict[str, Any]:
-    from acprof.host.execution_profile import (
+    from acprof.host.profiling.execution import (
         ExecutionProfileOptions,
         ExecutionProfileRequest,
         ProfilerSampling,

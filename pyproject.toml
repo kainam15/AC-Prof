@@ -136,9 +136,9 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "acprof.analysis.precision",
-    "acprof.host.client_metrics",
+    "acprof.host.measurement.metrics",
     "acprof.host.command",
-    "acprof.host.runtime_identity",
+    "acprof.host.images.identity",
     "acprof.monitors.interfaces",
     "acprof.pixel_metrics",
     "acprof.source_identity",

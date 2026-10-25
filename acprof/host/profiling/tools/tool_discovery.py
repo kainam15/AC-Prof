@@ -38,8 +38,7 @@ def _candidate_executable_paths(root: str, names: Sequence[str]) -> Iterable[str
                 os.path.join("advisor", "latest", "bin64", name),
                 os.path.join("target", "linux-desktop-glibc_2_11_3-x64", name),
             ):
-                for candidate in glob.glob(os.path.join(expanded_root, suffix)):
-                    yield candidate
+                yield from glob.glob(os.path.join(expanded_root, suffix))
 
 
 def _executable_version_key(path: str, names: Sequence[str]) -> Tuple[Tuple[int, ...], int, str]:

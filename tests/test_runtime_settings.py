@@ -54,7 +54,7 @@ class TestRuntimeSettings:
         assert (requested) == ({**original, 'ACPROF_RUNTIME_THREADS': '3'})
 
     def test_execution_probe_preserves_explicit_legacy_request_not_quota_default(self):
-        from acprof.host.profiler_support import execution_thread_environment
+        from acprof.host.profiling.support import execution_thread_environment
         command = ['docker', 'run', '--cpus=2', '-e', 'TORCH_NUM_THREADS=2', 'image']
         with patch.dict(os.environ, {}, clear=True):
             assert (execution_thread_environment(command)) == (['docker', 'run', '--cpus=2', 'image'])
@@ -73,7 +73,7 @@ class TestRuntimeSettings:
     @pytest.mark.parametrize('override,expected', ((None, None), ('600', 600.0)))
     def test_profiler_keeps_unlimited_completion_unless_explicitly_requested(self, override, expected):
         from acprof.container.execution import complete_prediction
-        from acprof.host.profiler_support import profiler_container_command
+        from acprof.host.profiling.support import profiler_container_command
         task = SimpleNamespace(model_id='fixture', model_revision='main', task_family='structured',
                                pipeline_tag='tabular-regression', runtime_backend='onnxruntime',
                                runtime_profile_id='onnxruntime-cpu')
@@ -99,7 +99,7 @@ class TestRuntimeSettings:
     @pytest.mark.parametrize('timeout,override,expected', ((600, None, '600'), (None, None, 'none'), (600, '120', '120')))
     def test_service_inherits_requested_deadline_with_explicit_override_priority(self, timeout, override, expected):
         from acprof.host.docker_runtime import start_container_session
-        from acprof.host.runtime_images import ImageInfo
+        from acprof.host.images.runtime import ImageInfo
         task = SimpleNamespace(model_id='fixture', model_revision='main', task_family='structured',
                                pipeline_tag='tabular-regression', runtime_backend='onnxruntime')
         commands = []

@@ -12,9 +12,9 @@ import pytest
 
 from acprof.artifacts import read_static_metadata
 from acprof.container.handlers import HandlerRegistry, resolve_model_source
-from acprof.host.dependency_images import runtime_fingerprint
-from acprof.host.profiler_support import load_input_scale_plan_entries
-from acprof.host.profilers.ncu import _resolve_ncu_metrics, _select_ncu_flop_metrics
+from acprof.host.images.environment import runtime_fingerprint
+from acprof.host.profiling.support import load_input_scale_plan_entries
+from acprof.host.profiling.tools.ncu import _resolve_ncu_metrics, _select_ncu_flop_metrics
 from acprof.host.runtime_validation import validate_runtime
 from acprof.host.static_metadata import enrich_static_meta_from_input_plan
 from acprof.packet.merge_packet_latency import _request_records
@@ -61,7 +61,7 @@ def test_old_ncu_counters_are_not_selected():
 
 def test_failed_ncu_query_does_not_guess_a_metric_list():
     failed = SimpleNamespace(returncode=1, stdout="", stderr="query unavailable")
-    with patch("acprof.host.profilers.ncu.run_command", return_value=failed):
+    with patch("acprof.host.profiling.tools.ncu.run_command", return_value=failed):
         metrics, error = _resolve_ncu_metrics("ncu")
     assert (metrics) == ([])
     assert ("query unavailable") in (error)

@@ -8,7 +8,7 @@ import shutil
 import pytest
 
 from acprof.config import CSV_FIELDS
-from acprof.host import client_publication
+from acprof.host.measurement import publication as client_publication
 from acprof.telemetry import window_evidence
 from acprof.window_records import (
     WindowPublicationContext,

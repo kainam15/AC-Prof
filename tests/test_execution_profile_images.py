@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host.profilers import execution_environment as environment
+from acprof.host.profiling.tools import execution_environment as environment
 
 IMAGE_ID = "sha256:" + "a" * 64
 MODEL_TAG = "acprof-test:latest"

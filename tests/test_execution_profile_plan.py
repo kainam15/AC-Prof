@@ -6,7 +6,7 @@ import tempfile
 import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
-from acprof.host.execution_profile_plan import (
+from acprof.host.profiling.execution_plan import (
     EXECUTION_PROFILE_FIELDS,
     MASSIF_ERROR_FIELD,
     MASSIF_HEAP_EXTRA_PEAK_FIELD,

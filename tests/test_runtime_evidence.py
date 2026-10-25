@@ -193,7 +193,7 @@ def test_quality_does_not_revoke_verified_capability():
 
 def test_server_failure_survives_client_and_is_written_after_request():
     from acprof.host.client import ClientRunner
-    from acprof.host.client_config import ClientConfig
+    from acprof.host.measurement.config import ClientConfig
     failure = Failure("predict", "inference_failed", "arbitrary detail", evidence={"model_loaded": True})
     runner = ClientRunner.__new__(ClientRunner)
     runner.runtime_failures = []

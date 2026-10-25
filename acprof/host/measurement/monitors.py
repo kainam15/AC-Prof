@@ -14,7 +14,7 @@ from acprof.monitors.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from acprof.host.window_boundary_diagnostics import WindowBoundaryDiagnostics
+    from acprof.host.measurement.boundary import WindowBoundaryDiagnostics
     from acprof.monitors.perf_mips import MIPSResult
 
 Result = TypeVar("Result")

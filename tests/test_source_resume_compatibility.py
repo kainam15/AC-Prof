@@ -10,8 +10,8 @@ import pytest
 from acprof.host.automation import AutomaticRun
 from acprof.host.detect import TaskInfo
 from acprof.host.doctor import DoctorCheck
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
-from acprof.host.runtime_images import ImageInfo
 
 REVISION = "a" * 40
 IMAGE_ID = "sha256:" + "b" * 64

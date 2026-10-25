@@ -79,7 +79,7 @@ class TestPlatformRuntime:
 
     @pytest.mark.parametrize('runtime_type', ('example', 'torch'))
     def test_non_torch_profile_does_not_probe_torch_driver_or_read_overrides(self, runtime_type):
-        from acprof.host.runtime_images import configure_runtime_profile
+        from acprof.host.images.runtime import configure_runtime_profile
         platform = profiles.PlatformSpec('python-only', requirements_lock='unused')
         task = TaskInfo(model_id='example/model', model_revision='a' * 40,
                         pipeline_tag='tabular-regression', task_family='structured',
@@ -88,7 +88,7 @@ class TestPlatformRuntime:
                                                      runtime=profiles.RuntimeSpec(runtime_type, '1.0'))
         profile = profiles.RuntimeProfile('example', 'structured', environment)
         with patch(
-            'acprof.host.runtime_images.select_runtime_profile', return_value=profile,
-        ), patch('acprof.host.runtime_images.select_nlp_torch_index_url',
+            'acprof.host.images.runtime.select_runtime_profile', return_value=profile,
+        ), patch('acprof.host.images.runtime.select_nlp_torch_index_url',
                  side_effect=AssertionError('generic platform must not select a legacy Torch index')):
             assert (configure_runtime_profile(task)) is (profile)

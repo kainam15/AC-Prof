@@ -16,7 +16,7 @@ from acprof.capabilities import Capability, CapabilityStatus, measurement_reques
 from acprof.experiment import RunConfig
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
-from acprof.host.packet_capture import tcpdump_capability_available
+from acprof.host.measurement.capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from acprof.dependency_locks import read_python_lock, read_system_lock, require_exact_packages
-from acprof.host.dependency_images import runtime_fingerprint
+from acprof.host.images.environment import runtime_fingerprint
 from acprof.runtime_profiles import ENVIRONMENTS, PROFILES, environment_id
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,7 +119,7 @@ class TestEnvironmentIdentity:
     def test_unhashed_or_unpinned_input_is_rejected(self, content):
         path = self.root / 'bad-lock.txt'
         path.write_text(content)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="依赖 lock 不能为空|无效或未锁定的依赖 lock"):
             read_python_lock(path)
 
     @pytest.mark.parametrize('actual', ({}, {'torch': '2.11', 'hidden': '1'}, {'torch': '2.12'}))

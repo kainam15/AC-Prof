@@ -5,8 +5,9 @@ import time
 from datetime import datetime, timezone
 
 from acprof.artifacts import atomic_write_json, read_json_object
-from acprof.host import container_state, docker_runtime, runtime_identity
+from acprof.host import container_state, docker_runtime
 from acprof.host.container_lifecycle import ContainerCleanupError
+from acprof.host.images import identity as runtime_identity
 
 PROBE_NAME = "startup_oom_pruning.json"
 

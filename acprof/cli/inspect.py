@@ -79,9 +79,9 @@ def main(argv=None) -> int:
         return 2
     if args.probe_interface:
         try:
+            from acprof.host.images.runtime import configure_runtime_profile
             from acprof.host.preflight import require_collection_host, require_native_docker
             from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
-            from acprof.host.runtime_images import configure_runtime_profile
             require_collection_host()
             require_native_docker()
             with MeasurementLock(), ResultDirectoryLock(output):

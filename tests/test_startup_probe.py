@@ -6,14 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import (
-    container_state,
-    docker_runtime as docker,
-    orchestrator,
-    runtime_images,
-    startup_probe,
-)
+from acprof.host import container_state, docker_runtime as docker, orchestrator, startup_probe
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
 
 

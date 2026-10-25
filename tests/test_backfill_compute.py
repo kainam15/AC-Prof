@@ -11,7 +11,7 @@ from acprof.cli.backfill_compute import (
     COMPUTE_PROFILE_FIELDS,
     backfill_compute_profile_csv,
 )
-from acprof.host.compute_profile_plan import find_compute_profile_entry
+from acprof.host.profiling.compute_plan import find_compute_profile_entry
 
 REMOVED_LEGACY_COMPUTE_FIELDS = (
     "compute_profile_tool",

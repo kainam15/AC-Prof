@@ -6,7 +6,8 @@ import math
 from typing import TYPE_CHECKING, Any, Dict, List
 
 from acprof.capabilities import measurement_requested
-from acprof.host.compute_profile_plan import (
+from acprof.host.measurement.errors import EnergyAbort
+from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
     NCU_KERNEL_TIME_FIELD,
@@ -19,16 +20,15 @@ from acprof.host.compute_profile_plan import (
     compute_mflops as _compute_mflops,
     find_compute_profile_entry,
 )
-from acprof.host.window_errors import EnergyAbort
 from acprof.metric_registry import GPU_RUNTIME_STATE_FIELDS, METRICS, row_group_fields, tool_fields
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
 from acprof.workloads.contract import summarize_workload_contracts
 
 if TYPE_CHECKING:
-    from acprof.host.client_config import ClientConfig
-    from acprof.host.execution_profile_plan import ExecutionProfileResolver
-    from acprof.host.window_requests import WindowRequestProgress
-    from acprof.host.window_types import WindowObservations
+    from acprof.host.measurement.config import ClientConfig
+    from acprof.host.measurement.requests import WindowRequestProgress
+    from acprof.host.measurement.types import WindowObservations
+    from acprof.host.profiling.execution_plan import ExecutionProfileResolver
     from acprof.monitors.energy_cpu import CPUEnergyResult, DRAMEnergyResult
     from acprof.monitors.gpu_metrics import EnergyResult
     from acprof.monitors.perf_mips import MIPSResult
@@ -862,7 +862,7 @@ class WindowMetrics:
         cpu_idle_history: list[float], gpu_idle_history: list[float],
     ) -> dict[str, Any]:
         """Join formatting and profile metadata only after the sampling window."""
-        from acprof.host.window_requests import canonical_task_param
+        from acprof.host.measurement.requests import canonical_task_param
 
         self.gpu_idle_stats = _idle_power_debug_stats(gpu_idle_history, "gpu")
         if self.config.idle_debug and _finite_positive(self.gpu["gpu_idle_power_w"]):

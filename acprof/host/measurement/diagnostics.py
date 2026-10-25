@@ -6,10 +6,10 @@ import math
 import os
 from typing import Any, Dict, List, Optional
 
-from acprof.host.client_metrics import (
+from acprof.host.command import run_command
+from acprof.host.measurement.metrics import (
     to_float_or_nan as _to_float_or_nan,
 )
-from acprof.host.command import run_command
 
 
 def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]]:

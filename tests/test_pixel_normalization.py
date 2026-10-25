@@ -18,7 +18,7 @@ import acprof.plotting.metrics as plotting_metrics
 from acprof.config import CSV_FIELDS
 from acprof.host import client
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
+from acprof.host.measurement.config import ClientConfig
 from acprof.host.orchestrator import _write_case_error_csv
 from acprof.packet import merge_packet_latency
 from acprof.pixel_metrics import pixel_counts_from_metadata

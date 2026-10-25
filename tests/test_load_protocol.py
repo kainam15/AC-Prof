@@ -124,7 +124,7 @@ def test_packet_capture_keeps_reap_after_kill_bounded(tmp_path, monkeypatch):
 
     capture = HungCapture()
     monkeypatch.setattr(
-        "acprof.host.packet_capture.require_packet_latency_prerequisites",
+        "acprof.host.measurement.capture.require_packet_latency_prerequisites",
         lambda _interface: None,
     )
     monkeypatch.setattr(load_cli.subprocess, "Popen", lambda *_args, **_kwargs: capture)
@@ -141,11 +141,11 @@ def test_packet_capture_keeps_reap_after_kill_bounded(tmp_path, monkeypatch):
 
 class TestLoadProtocol:
     def run_load(self, url, **options):
-        from acprof.host.load_protocol import LoadConfig, run_load
+        from acprof.host.measurement.load import LoadConfig, run_load
         return run_load(url, {}, LoadConfig(requests=8, timeout_seconds=2, **options), token="fixture")
 
     def test_serial_close_and_reuse_have_distinct_protocol_identity_and_real_sockets(self):
-        from acprof.host.load_protocol import LoadConfig
+        from acprof.host.measurement.load import LoadConfig
         with server() as (url, ports, _):
             report = self.run_load(url, connections="reuse")
             assert (len(set(ports))) == (1)
@@ -192,9 +192,9 @@ class TestLoadProtocol:
 
     @pytest.mark.parametrize('options', ({'concurrency': 2}, {'scenario': 'arrival-rate'}, {'rate': 2}, {'requests': 0}))
     def test_poisson_plan_is_seeded_and_invalid_combinations_are_rejected(self, options):
-        from acprof.host.load_protocol import LoadConfig
+        from acprof.host.measurement.load import LoadConfig
         config = LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=7)
         assert (config.schedule()) == (config.schedule())
         assert (config.schedule()) != (LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=8).schedule())
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="arrival-rate|requests must be a positive integer|serial requires concurrency=1"):
             LoadConfig(**options).validate()

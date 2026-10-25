@@ -26,7 +26,7 @@ class TestAllTables:
         self.directory = Path(str(temporary))
         self.docker = DockerFixture()
         for context in (patch.dict(os.environ, isolated_environment(), clear=True),
-                        patch("acprof.host.image_management.run_command", side_effect=self.docker.run),
+                        patch("acprof.host.images.inventory.run_command", side_effect=self.docker.run),
                         patch.object(AcprofTui, "IMAGE_REFRESH_INTERVAL", 3600)):
             context.start()
             self._request.addfinalizer(partial(context.stop))

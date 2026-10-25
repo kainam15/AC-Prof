@@ -2,7 +2,12 @@
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
-from acprof.host import client, client_diagnostics, client_publication, window_execution
+from acprof.host import client
+from acprof.host.measurement import (
+    diagnostics as client_diagnostics,
+    execution as window_execution,
+    publication as client_publication,
+)
 
 
 def patch_client(runner, name, *args, **kwargs):

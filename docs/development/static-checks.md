@@ -127,7 +127,7 @@ uv run python scripts/check_import_boundaries.py
 uv run pytest -q tests/test_import_boundaries.py
 ```
 
-本阶段 mypy 增加共享硬件证据协议和纯 `client_metrics`，逐步扩大范围而非一次改成全局严格模式。
+本阶段 mypy 增加共享硬件证据协议和纯 `measurement.metrics`，逐步扩大范围而非一次改成全局严格模式。
 
 ## TUI 控制器拆分回归
 `tests/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。

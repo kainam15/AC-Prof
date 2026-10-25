@@ -12,10 +12,10 @@ from client_fixtures import patch_client
 
 from acprof.host import client, orchestrator
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.runtime import ImageInfo
+from acprof.host.measurement.config import ClientConfig
 
 
 class TestProfilingMode:

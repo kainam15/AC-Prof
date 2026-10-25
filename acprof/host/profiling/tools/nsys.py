@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     docker_env,
     execution_thread_environment,
     format_scale_value,
@@ -16,10 +16,10 @@ from acprof.host.profiler_support import (
     relative_artifact,
     safe_filename_token,
 )
-from acprof.host.profilers.execution_environment import (
+from acprof.host.profiling.tools.execution_environment import (
     command_detail,
 )
-from acprof.host.profilers.execution_parsers import (
+from acprof.host.profiling.tools.execution_parsers import (
     NSYS_REPORTS,
     finite_float,
     parse_nsys_stats_reports,

@@ -8,10 +8,11 @@ import pytest
 
 from acprof.artifact_layout import case_sidecar
 from acprof.config import CSV_FIELDS
-from acprof.host import client, docker_runtime, orchestrator, runtime_images
+from acprof.host import client, docker_runtime, orchestrator
 from acprof.host.client import ClientRunner
-from acprof.host.client_config import ClientConfig
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
+from acprof.host.measurement.config import ClientConfig
 from acprof.monitors import energy_cpu, energy_nvml, resource_readers, resource_usage
 
 

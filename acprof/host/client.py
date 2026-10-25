@@ -25,25 +25,25 @@ from acprof.config import (
     CSV_FIELDS,
     IDLE_DIAG_DIRNAME,
 )
-from acprof.host import client_publication
-from acprof.host.client_config import ClientConfig
-from acprof.host.client_metrics import (
+from acprof.host.measurement import publication as client_publication
+from acprof.host.measurement.config import ClientConfig
+from acprof.host.measurement.errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
+from acprof.host.measurement.execution import WindowExecutor
+from acprof.host.measurement.metrics import (
     _fmt_float,
     _prepared_body_size_bytes,
     to_float_or_nan as _to_float_or_nan,
 )
-from acprof.host.compute_profile_plan import (
+from acprof.host.measurement.monitors import MonitorCleanupError
+from acprof.host.measurement.requests import canonical_task_param
+from acprof.host.measurement.types import MonitorDependencies, WindowSpec
+from acprof.host.profiling.compute_plan import (
     load_compute_profile_plan as _load_compute_profile_plan,
 )
-from acprof.host.execution_profile_plan import (
+from acprof.host.profiling.execution_plan import (
     ExecutionProfileResolver,
     load_execution_profile_plan as _load_execution_profile_plan,
 )
-from acprof.host.measurement_window import MonitorCleanupError
-from acprof.host.window_errors import EnergyAbort, MIPSAbort, RequestTimeoutAbort
-from acprof.host.window_execution import WindowExecutor
-from acprof.host.window_requests import canonical_task_param
-from acprof.host.window_types import MonitorDependencies, WindowSpec
 from acprof.window_records import WindowPublicationContext
 
 

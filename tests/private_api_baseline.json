@@ -103,57 +103,27 @@
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
+      "target": "acprof.host.measurement.metrics",
       "symbol": "_fmt_float"
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.client_metrics",
+      "target": "acprof.host.measurement.metrics",
       "symbol": "_prepared_body_size_bytes"
     },
     {
       "source": "acprof.host.client",
-      "target": "acprof.host.client_publication",
+      "target": "acprof.host.measurement.publication",
       "symbol": "_append_row"
     },
     {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.advisor",
-      "symbol": "_profile_cpu_entries"
-    },
-    {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.advisor",
-      "symbol": "_tool_error_entries"
-    },
-    {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.ncu",
-      "symbol": "_ncu_error_entries"
-    },
-    {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.ncu",
-      "symbol": "_profile_gpu_entries"
-    },
-    {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.torch",
-      "symbol": "_profile_torch_entries"
-    },
-    {
-      "source": "acprof.host.compute_profile",
-      "target": "acprof.host.profilers.torch",
-      "symbol": "_torch_error_entries"
-    },
-    {
       "source": "acprof.host.doctor",
-      "target": "acprof.host.packet_capture",
+      "target": "acprof.host.measurement.capture",
       "symbol": "_tcpdump_can_capture_without_sudo"
     },
     {
-      "source": "acprof.host.image_dependencies",
-      "target": "acprof.host.dependency_images",
+      "source": "acprof.host.images.dependencies",
+      "target": "acprof.host.images.environment",
       "symbol": "_platform_fingerprint"
     },
     {
@@ -178,12 +148,12 @@
     },
     {
       "source": "acprof.host.orchestrator",
-      "target": "acprof.host.packet_capture",
+      "target": "acprof.host.measurement.capture",
       "symbol": "_packet_latency_error"
     },
     {
       "source": "acprof.host.orchestrator",
-      "target": "acprof.host.packet_capture",
+      "target": "acprof.host.measurement.capture",
       "symbol": "_resolve_packet_latency_runtime"
     },
     {
@@ -257,23 +227,53 @@
       "symbol": "_friendly_mips_error"
     },
     {
-      "source": "acprof.host.profilers.ncu",
-      "target": "acprof.host.profilers.compute_parsers",
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.advisor",
+      "symbol": "_profile_cpu_entries"
+    },
+    {
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.advisor",
+      "symbol": "_tool_error_entries"
+    },
+    {
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.ncu",
+      "symbol": "_ncu_error_entries"
+    },
+    {
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.ncu",
+      "symbol": "_profile_gpu_entries"
+    },
+    {
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.torch",
+      "symbol": "_profile_torch_entries"
+    },
+    {
+      "source": "acprof.host.profiling.compute",
+      "target": "acprof.host.profiling.tools.torch",
+      "symbol": "_torch_error_entries"
+    },
+    {
+      "source": "acprof.host.profiling.tools.ncu",
+      "target": "acprof.host.profiling.tools.compute_parsers",
       "symbol": "_finite_or_none"
     },
     {
-      "source": "acprof.host.profilers.ncu",
-      "target": "acprof.host.profilers.compute_parsers",
+      "source": "acprof.host.profiling.tools.ncu",
+      "target": "acprof.host.profiling.tools.compute_parsers",
       "symbol": "_is_ncu_flop_metric"
     },
     {
-      "source": "acprof.host.profilers.ncu",
-      "target": "acprof.host.profilers.compute_parsers",
+      "source": "acprof.host.profiling.tools.ncu",
+      "target": "acprof.host.profiling.tools.compute_parsers",
       "symbol": "_to_float"
     },
     {
-      "source": "acprof.host.profilers.torch",
-      "target": "acprof.host.profilers.compute_parsers",
+      "source": "acprof.host.profiling.tools.torch",
+      "target": "acprof.host.profiling.tools.compute_parsers",
       "symbol": "_to_float"
     },
     {

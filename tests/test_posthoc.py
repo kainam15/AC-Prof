@@ -11,14 +11,14 @@ from unittest.mock import patch
 import pytest
 
 import acprof.host.collection_history as host_collection_history
-import acprof.host.compute_profile_plan as host_compute_profile_plan
-import acprof.host.execution_profile_plan as host_execution_profile_plan
 import acprof.host.posthoc.backfill as host_posthoc_backfill
 import acprof.host.posthoc.context as host_posthoc_context
 import acprof.host.posthoc.plans as host_posthoc_plans
 import acprof.host.posthoc.storage as host_posthoc_storage
+import acprof.host.profiling.compute_plan as host_compute_profile_plan
+import acprof.host.profiling.execution_plan as host_execution_profile_plan
 from acprof.cli import posthoc
-from acprof.host.compute_profile_plan import TORCH_LOGICAL_MFLOP_FIELD
+from acprof.host.profiling.compute_plan import TORCH_LOGICAL_MFLOP_FIELD
 from acprof.platform import Environment
 
 
@@ -63,7 +63,7 @@ class TestPosthocProfile:
             context.static_meta['runtime_environment'] = {'build_fingerprint': 'fixed'}
             with patch('acprof.host.preflight.require_native_linux_host'), patch(
                 'acprof.host.preflight.require_native_docker',
-            ), patch('acprof.host.runtime_images.require_image_identity'), patch(
+            ), patch('acprof.host.images.runtime.require_image_identity'), patch(
                 'acprof.host.runtime_validation.validate_runtime', return_value={'status': 'ok'},
             ) as validate:
                 host_posthoc_plans._validate_profiler_runtime(context, gpu_modes=['off'])
@@ -87,7 +87,7 @@ class TestPosthocProfile:
             with patch('acprof.host.posthoc.service.find_active_processes', return_value=[]), patch(
                 'acprof.host.preflight.require_native_linux_host',
             ), patch('acprof.host.preflight.require_native_docker'), patch(
-                'acprof.host.runtime_images.require_image_identity',
+                'acprof.host.images.runtime.require_image_identity',
             ), patch('acprof.host.runtime_validation.validate_runtime',
                      side_effect=validation_result if isinstance(validation_result, Exception) else None,
                      return_value=validation_result) as validate, patch(
@@ -694,7 +694,7 @@ class TestPosthocProfile:
                 return str(plan_path)
 
             with patch(
-                "acprof.host.compute_profile.collect_compute_profile_plan",
+                "acprof.host.profiling.compute.collect_compute_profile_plan",
                 side_effect=fake_collect,
             ) as collect:
                 plan = host_posthoc_plans._collect_compute_plan(
@@ -838,11 +838,10 @@ class TestPosthocProfile:
             path.write_bytes(original)
             payload = {"schema_version": 1, "metric": float("nan")}
 
+            write = (host_posthoc_storage._atomic_write_json if writer == "atomic"
+                     else host_posthoc_storage._write_json_temporary)
             with pytest.raises(ValueError, match="Out of range float values"):
-                if writer == "atomic":
-                    host_posthoc_storage._atomic_write_json(path, payload)
-                else:
-                    host_posthoc_storage._write_json_temporary(path, payload)
+                write(path, payload)
 
             assert path.read_bytes() == original
             assert list(path.parent.glob(f".{path.name}.*.tmp")) == []

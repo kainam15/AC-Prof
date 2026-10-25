@@ -50,7 +50,7 @@ description: 用于审计 AC-Prof 实验目录、CSV、日志或错误截图，�
 
 能耗解释区分 CPU package、估算 vCPU 和 GPU；检查 idle baseline 波动、采样间隔和归因假设。不要将估算写成独立实测，也不要由一个样本声称有稳定的尾延迟统计。
 
-按指标搜索相关入口：[host/client.py](../../../acprof/host/client.py)、[client_metrics.py](../../../acprof/host/client_metrics.py)、[monitors/](../../../acprof/monitors)、[packet/](../../../acprof/packet)、[plotting/data.py](../../../acprof/plotting/data.py)、[host/posthoc/](../../../acprof/host/posthoc)。
+按指标搜索相关入口：[host/client.py](../../../acprof/host/client.py)、[client_metrics.py](../../../acprof/host/measurement/metrics.py)、[monitors/](../../../acprof/monitors)、[packet/](../../../acprof/packet)、[plotting/data.py](../../../acprof/plotting/data.py)、[host/posthoc/](../../../acprof/host/posthoc)。
 
 ## 报告方式
 

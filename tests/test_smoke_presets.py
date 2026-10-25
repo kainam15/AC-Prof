@@ -12,7 +12,7 @@ import pytest
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.host import input_plan
 from acprof.host.detect import TaskInfo
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.runtime import ImageInfo
 from acprof.run_args import build_parser
 
 
@@ -54,7 +54,7 @@ def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metad
     image = ImageInfo("sha256:" + "a" * 64)
     with tempfile.TemporaryDirectory() as temporary, patch.object(run_state, "MEASUREMENT_LOCK_ROOT", Path(temporary)), patch.object(
         run_state, "host_identity", return_value={"test": "isolated"}
-    ), patch("acprof.host.runtime_images.require_image_identity"):
+    ), patch("acprof.host.images.runtime.require_image_identity"):
         directory = Path(temporary) / "result"
         options = {"input_scale_policy": "minimal"}
         state = run_state.RunState(directory, options, resume=False, project_dir=str(Path.cwd()))

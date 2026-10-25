@@ -30,8 +30,8 @@ from acprof.runtime_settings import runtime_docker_env_args
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo
+    from acprof.host.images.runtime import ImageInfo
     from acprof.host.input_plan import PlannedInputScales
-    from acprof.host.runtime_images import ImageInfo
 
 
 class RuntimeValidationReport(TypedDict, total=False):

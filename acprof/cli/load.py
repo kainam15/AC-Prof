@@ -21,15 +21,15 @@ from acprof.host.docker_runtime import start_container_session, stop_container_s
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.execution_conditions import ExecutionConditions
 from acprof.host.hardware_conditions import record_case_conditions
-from acprof.host.load_protocol import LoadConfig, run_load
+from acprof.host.images.runtime import ImageInfo, require_image_identity
+from acprof.host.measurement.load import LoadConfig, run_load
 from acprof.host.run_state import MeasurementLock, file_sha256, host_identity, load_run_state
-from acprof.host.runtime_images import ImageInfo, require_image_identity
 from acprof.installation import module_command, resource_root
 
 
 @contextmanager
 def capture_packets(path, *, interface):
-    from acprof.host.packet_capture import require_packet_latency_prerequisites
+    from acprof.host.measurement.capture import require_packet_latency_prerequisites
     require_packet_latency_prerequisites(interface)
     with path.with_suffix(".log").open("w") as log:
         capture = subprocess.Popen(["tcpdump", "-i", interface, "-n", "-U", "-w", str(path),

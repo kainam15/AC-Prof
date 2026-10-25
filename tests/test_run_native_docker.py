@@ -13,8 +13,9 @@ import pytest
 import acprof.host.preflight as host_preflight
 from acprof.application import run
 from acprof.cli import run as run_cli
-from acprof.host import input_plan, orchestrator, runtime_images
+from acprof.host import input_plan, orchestrator
 from acprof.host.detect import TaskInfo
+from acprof.host.images import runtime as runtime_images
 
 
 def test_terminal_log_is_not_started_outside_tmux() -> None:
@@ -654,7 +655,7 @@ class TestNativeDockerGuard:
             "acprof.host.command.run_command",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="No such image"),
         ), patch(
-            "acprof.host.runtime_images.build_runtime_image",
+            "acprof.host.images.runtime.build_runtime_image",
             return_value=built_image,
         ) as build_image, patch(
             "acprof.host.static_metadata.collect_static_meta",
@@ -745,7 +746,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.runtime_images.prepare_image",
+            "acprof.host.images.runtime.prepare_image",
             return_value=runtime_images.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta",
@@ -766,7 +767,7 @@ class TestNativeDockerGuard:
                 plan_file=None,
             ),
         ), patch(
-            "acprof.host.compute_profile.collect_compute_profile_plan",
+            "acprof.host.profiling.compute.collect_compute_profile_plan",
             return_value=f"{tmp_dir}/dummy-model/compute_profile_plan.json",
         ) as collect_compute_profile_plan, patch(
             "acprof.host.orchestrator.run_matrix",
@@ -849,7 +850,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.runtime_images.prepare_image",
+            "acprof.host.images.runtime.prepare_image",
             return_value=runtime_images.ImageInfo(tag="acprof-nlp-dummy-model:latest"),
         ), patch(
             "acprof.host.static_metadata.collect_static_meta",

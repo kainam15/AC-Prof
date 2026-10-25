@@ -18,8 +18,8 @@ from textual.strip import Strip
 from textual.widgets import Button, Collapsible, DataTable, Static, Tree
 from textual.widgets.tree import TreeNode
 
-from acprof.host.image_graph import reclaimable_image_bytes
-from acprof.host.image_management import (
+from acprof.host.images.graph import reclaimable_image_bytes
+from acprof.host.images.inventory import (
     ImageInventory,
     ImageLayer,
     ImageManagementError,

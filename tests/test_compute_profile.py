@@ -10,14 +10,14 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import acprof.host.profilers.compute_parsers as host_profilers_compute_parsers
-import acprof.host.profilers.tool_discovery as host_profilers_tool_discovery
+import acprof.host.profiling.tools.compute_parsers as host_profilers_compute_parsers
+import acprof.host.profiling.tools.tool_discovery as host_profilers_tool_discovery
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.container.handlers import transformers_pipeline_load_kwargs
-from acprof.host import compute_profile, profiler_support
-from acprof.host.compute_profile_plan import load_compute_profile_plan
 from acprof.host.detect import TaskInfo
-from acprof.host.profilers import advisor, compute_parsers, ncu, tool_discovery, torch
+from acprof.host.profiling import compute as compute_profile, support as profiler_support
+from acprof.host.profiling.compute_plan import load_compute_profile_plan
+from acprof.host.profiling.tools import advisor, compute_parsers, ncu, tool_discovery, torch
 
 
 def _write_input_scale_plan(directory: str, input_scale: float = 8.0) -> str:
@@ -255,9 +255,9 @@ class TestComputeProfile:
         uid = os.getuid() + 1 if invalid == "owner" else os.getuid()
         gid = os.getgid() + 1 if invalid == "group" else os.getgid()
         with patch("acprof.host.model_store.acquire_mount") as acquire, patch(
-            "acprof.host.profiler_support.os.getuid", return_value=uid,
-        ), patch("acprof.host.profiler_support.os.getgid", return_value=gid), patch(
-            "acprof.host.profiler_support.os.getgroups", return_value=[gid],
+            "acprof.host.profiling.support.os.getuid", return_value=uid,
+        ), patch("acprof.host.profiling.support.os.getgid", return_value=gid), patch(
+            "acprof.host.profiling.support.os.getgroups", return_value=[gid],
         ):
             with pytest.raises(ValueError, match="GPU profiler|output directory"):
                 with profiler_support.profiler_container_command(
@@ -534,10 +534,10 @@ class TestComputeProfile:
         }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.profilers.torch.profiler_container_command",
+                "acprof.host.profiling.tools.torch.profiler_container_command",
             return_value=nullcontext(["docker"]),
         ), patch(
-            "acprof.host.profilers.torch.run_command",
+            "acprof.host.profiling.tools.torch.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout=json.dumps(runner_result),
@@ -596,16 +596,16 @@ class TestComputeProfile:
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                    "acprof.host.profilers.ncu.profiler_container_command",
+                    "acprof.host.profiling.tools.ncu.profiler_container_command",
                 return_value=nullcontext(["docker"]),
             ), patch(
-                "acprof.host.profilers.ncu._ncu_collect_filter_args",
+                "acprof.host.profiling.tools.ncu._ncu_collect_filter_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profilers.ncu._ncu_section_args",
+                "acprof.host.profiling.tools.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profilers.ncu.run_command",
+                "acprof.host.profiling.tools.ncu.run_command",
                 side_effect=[collect_result, import_result],
             ):
                 result = ncu._run_ncu_for_entry(
@@ -657,16 +657,16 @@ class TestComputeProfile:
             profile_root = os.path.join(tmp, "compute_profiles")
             os.makedirs(profile_root)
             with patch(
-                    "acprof.host.profilers.ncu.profiler_container_command",
+                    "acprof.host.profiling.tools.ncu.profiler_container_command",
                 return_value=nullcontext(["docker"]),
             ), patch(
-                "acprof.host.profilers.ncu._ncu_collect_filter_args",
+                "acprof.host.profiling.tools.ncu._ncu_collect_filter_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profilers.ncu._ncu_section_args",
+                "acprof.host.profiling.tools.ncu._ncu_section_args",
                 return_value=[],
             ), patch(
-                "acprof.host.profilers.ncu.run_command",
+                "acprof.host.profiling.tools.ncu.run_command",
                 side_effect=[command_result, command_result],
             ):
                 result = ncu._run_ncu_for_entry(
@@ -742,7 +742,7 @@ class TestComputeProfile:
                 stderr="",
             )
 
-        with patch("acprof.host.profilers.ncu.run_command", side_effect=fake_run):
+        with patch("acprof.host.profiling.tools.ncu.run_command", side_effect=fake_run):
             metrics, error = ncu._resolve_ncu_metrics("/opt/ncu")
 
         assert (metrics) == ([])
@@ -792,7 +792,7 @@ class TestComputeProfile:
                 ),
             )
 
-        with patch("acprof.host.profilers.ncu.run_command", side_effect=fake_run):
+        with patch("acprof.host.profiling.tools.ncu.run_command", side_effect=fake_run):
             metrics, error = ncu._resolve_ncu_metrics(
                 "/opt/ncu",
                 container_base_cmd=container_base_cmd,
@@ -830,10 +830,10 @@ class TestComputeProfile:
             return list(compute_parsers.NCU_SASS_FLOP_WEIGHTS), ""
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.profilers.ncu._resolve_ncu_metrics",
+            "acprof.host.profiling.tools.ncu._resolve_ncu_metrics",
             side_effect=fake_resolve,
         ), patch(
-            "acprof.host.profilers.ncu._run_ncu_for_entry",
+            "acprof.host.profiling.tools.ncu._run_ncu_for_entry",
             return_value={
                 "input_scale": 8.0,
                 "tool": "ncu",
@@ -925,13 +925,13 @@ class TestComputeProfile:
                 )
 
             with patch(
-                "acprof.host.profilers.ncu._resolve_ncu_metrics",
+                "acprof.host.profiling.tools.ncu._resolve_ncu_metrics",
                 return_value=(metrics, ""),
             ), patch(
-                "acprof.host.profilers.ncu._export_ncu_report",
+                "acprof.host.profiling.tools.ncu._export_ncu_report",
                 side_effect=fake_export,
             ) as export_report, patch(
-                "acprof.host.profilers.ncu._run_ncu_for_entry",
+                "acprof.host.profiling.tools.ncu._run_ncu_for_entry",
                 side_effect=fake_collect,
             ):
                 result = ncu._profile_gpu_entries(
@@ -1071,10 +1071,10 @@ class TestComputeProfile:
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             return_value=None,
         ), patch(
-            "acprof.host.compute_profile.run_command",
+            "acprof.host.profiling.compute.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1120,13 +1120,13 @@ class TestComputeProfile:
             detection_method="hub_api",
         )
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             side_effect=AssertionError("none mode must not discover tools"),
         ), patch(
-            "acprof.host.profilers.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch._profile_torch_entries",
             side_effect=AssertionError("none mode must not run Torch"),
         ), patch(
-            "acprof.host.profilers.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
             side_effect=AssertionError("none mode must not run NCU"),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1204,16 +1204,16 @@ class TestComputeProfile:
             }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             side_effect=fake_find_executable,
         ), patch(
-            "acprof.host.profilers.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch._profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.profilers.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
             side_effect=AssertionError("vendor CPU profiler should not run in both mode"),
         ), patch(
-            "acprof.host.profilers.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1280,13 +1280,13 @@ class TestComputeProfile:
             }
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             return_value="/usr/bin/ncu",
         ), patch(
-            "acprof.host.profilers.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch._profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.profilers.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1334,10 +1334,10 @@ class TestComputeProfile:
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             return_value=None,
         ), patch(
-            "acprof.host.compute_profile.run_command",
+            "acprof.host.profiling.compute.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1383,13 +1383,13 @@ class TestComputeProfile:
             return {"tool": "ncu", "repeat": 1, "error": "", "entries": []}
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             return_value="/usr/bin/tool",
         ), patch(
-            "acprof.host.profilers.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ), patch(
-            "acprof.host.profilers.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(
@@ -1429,16 +1429,16 @@ class TestComputeProfile:
             return {"tool": "intel_advisor", "repeat": 1, "error": "", "entries": []}
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-                "acprof.host.compute_profile.find_executable",
+                "acprof.host.profiling.compute.find_executable",
             return_value="/usr/bin/tool",
         ), patch(
-            "acprof.host.compute_profile._host_logical_cpus",
+            "acprof.host.profiling.compute._host_logical_cpus",
             return_value=12,
         ), patch(
-            "acprof.host.compute_profile._host_memory_gb_fraction",
+            "acprof.host.profiling.compute._host_memory_gb_fraction",
             return_value=48,
         ), patch(
-            "acprof.host.profilers.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(

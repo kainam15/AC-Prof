@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.host import execution_profile, profiler_support
 from acprof.host.detect import TaskInfo
-from acprof.host.profilers import execution_parsers, massif, nsys
+from acprof.host.profiling import execution as execution_profile, support as profiler_support
+from acprof.host.profiling.tools import execution_parsers, massif, nsys
 
 
 def _task_info() -> TaskInfo:
@@ -220,7 +220,7 @@ heap_tree=peak
             report_path = os.path.join(tmp, "report.nsys-rep")
             sqlite_path = os.path.join(tmp, "report.sqlite")
             with patch(
-                "acprof.host.profilers.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_command",
                 side_effect=fake_run,
             ):
                 outputs = nsys._run_nsys_stats(
@@ -256,7 +256,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.profilers.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_command",
                 side_effect=fake_run,
             ), pytest.raises(RuntimeError, match="nsys_stats_failed"):
                 nsys._run_nsys_stats(
@@ -337,7 +337,7 @@ heap_tree=peak
                 )
 
             with patch(
-                "acprof.host.profilers.execution_environment.run_command",
+                "acprof.host.profiling.tools.execution_environment.run_command",
                 side_effect=fake_run,
             ):
                 version = (
@@ -427,7 +427,7 @@ heap_tree=peak
                 return profiled
 
             with patch(
-                "acprof.host.profilers.massif._collect_massif_entry",
+                "acprof.host.profiling.tools.massif._collect_massif_entry",
                 side_effect=fake_collect,
             ):
                 result = massif.profile(
@@ -502,16 +502,16 @@ heap_tree=peak
     ) -> None:
         events = []
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.execution_profile.require_execution_image",
+            "acprof.host.profiling.execution.require_execution_image",
             side_effect=RuntimeError("massif_runtime_unavailable:rebuild_current_image"),
         ), patch(
-            "acprof.host.execution_profile.find_nsys_executable",
+            "acprof.host.profiling.execution.find_nsys_executable",
             return_value=None,
         ), patch(
-            "acprof.host.profilers.massif.profile",
+            "acprof.host.profiling.tools.massif.profile",
             wraps=massif.profile,
         ) as profile_massif, patch(
-            "acprof.host.profilers.nsys.profile",
+            "acprof.host.profiling.tools.nsys.profile",
             wraps=nsys.profile,
         ) as profile_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
@@ -571,16 +571,16 @@ heap_tree=peak
             raise RuntimeError("notification unavailable")
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.execution_profile.require_execution_image",
+            "acprof.host.profiling.execution.require_execution_image",
             side_effect=RuntimeError("massif_runtime_unavailable:rebuild_current_image"),
         ), patch(
-            "acprof.host.execution_profile.find_nsys_executable",
+            "acprof.host.profiling.execution.find_nsys_executable",
             return_value=None,
         ), patch(
-            "acprof.host.profilers.massif.profile",
+            "acprof.host.profiling.tools.massif.profile",
             wraps=massif.profile,
         ) as profile_massif, patch(
-            "acprof.host.profilers.nsys.profile",
+            "acprof.host.profiling.tools.nsys.profile",
             wraps=nsys.profile,
         ) as profile_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
@@ -732,9 +732,9 @@ heap_tree=peak
     ) -> None:
         events = []
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.execution_profile.require_execution_image",
+            "acprof.host.profiling.execution.require_execution_image",
         ) as require_image, patch(
-            "acprof.host.execution_profile.find_nsys_executable",
+            "acprof.host.profiling.execution.find_nsys_executable",
         ) as find_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
                 execution_profile.ExecutionProfileRequest(
@@ -839,13 +839,13 @@ heap_tree=peak
                 )
 
             with patch(
-                    "acprof.host.profilers.nsys.profiler_container_command",
+                    "acprof.host.profiling.tools.nsys.profiler_container_command",
                 return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
-                "acprof.host.profilers.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_command",
                 side_effect=fake_run,
             ), patch(
-                "acprof.host.profilers.nsys._run_nsys_stats",
+                "acprof.host.profiling.tools.nsys._run_nsys_stats",
                 return_value=reports,
             ):
                 result = nsys._collect_nsys_entry(
@@ -901,10 +901,10 @@ heap_tree=peak
                 )
 
             with patch(
-                    "acprof.host.profilers.nsys.profiler_container_command",
+                    "acprof.host.profiling.tools.nsys.profiler_container_command",
                 return_value=nullcontext(["docker", "run", "acprof-test:latest"]),
             ), patch(
-                "acprof.host.profilers.nsys.run_command",
+                "acprof.host.profiling.tools.nsys.run_command",
                 side_effect=fake_run,
             ):
                 result = nsys._collect_nsys_entry(

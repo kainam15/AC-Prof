@@ -10,8 +10,8 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import profiler_container_command
-from acprof.host.runtime_images import ImageInfo
+from acprof.host.images.runtime import ImageInfo
+from acprof.host.profiling.support import profiler_container_command
 from acprof.host.runtime_validation import validate_runtime
 
 SUCCESS = 'ACPROF_RUNTIME_VALIDATION=' + json.dumps({
@@ -415,8 +415,8 @@ class TestRuntimeValidation:
             stack.enter_context(patch('acprof.application.run.require_cgroup_prerequisites', return_value='v2'))
             stack.enter_context(patch('acprof.host.detect.detect_task', return_value=self.task()))
             stack.enter_context(patch('acprof.host.interface_probe.probe_interface', return_value={'status': 'ok'}))
-            stack.enter_context(patch('acprof.host.runtime_images.configure_runtime_profile'))
-            stack.enter_context(patch('acprof.host.runtime_images.prepare_image', return_value=ImageInfo(
+            stack.enter_context(patch('acprof.host.images.runtime.configure_runtime_profile'))
+            stack.enter_context(patch('acprof.host.images.runtime.prepare_image', return_value=ImageInfo(
                 tag='sha256:' + 'b' * 64, runtime_environment={'build_fingerprint': 'build'},
             )))
             stack.enter_context(patch('acprof.host.static_metadata.collect_static_meta', return_value=SimpleNamespace()))
@@ -430,8 +430,8 @@ class TestRuntimeValidation:
                 'acprof.host.runtime_validation.validate_runtime', side_effect=RuntimeError('adapter load failed'),
             ))
             matrix = stack.enter_context(patch('acprof.host.orchestrator.run_matrix'))
-            compute = stack.enter_context(patch('acprof.host.compute_profile.collect_compute_profile_plan'))
-            execution = stack.enter_context(patch('acprof.host.execution_profile.collect_execution_profile_plan'))
+            compute = stack.enter_context(patch('acprof.host.profiling.compute.collect_compute_profile_plan'))
+            execution = stack.enter_context(patch('acprof.host.profiling.execution.collect_execution_profile_plan'))
             with pytest.raises(SystemExit) as exited:
                 run_cli.main()
             assert (exited.value.code) == (1)

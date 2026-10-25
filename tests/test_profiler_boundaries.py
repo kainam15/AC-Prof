@@ -4,24 +4,24 @@ import sys
 import tempfile
 from pathlib import Path
 
-from acprof.host.profilers import compute_parsers, execution_parsers
+from acprof.host.profiling.tools import compute_parsers, execution_parsers
 
 
 def test_execution_facade_does_not_own_tool_processes():
-    from acprof.host import execution_profile
+    from acprof.host.profiling import execution as execution_profile
     for name in ("_collect_massif_entry", "_collect_nsys_entry", "_run_nsys_stats"):
         assert not (hasattr(execution_profile, name)), name
 
 def test_profiler_support_is_independent_of_task_discovery():
     result = subprocess.run([sys.executable, "-c",
-        "import sys; from acprof.host import profiler_support; "
+        "import sys; from acprof.host.profiling import support as profiler_support; "
         "assert 'acprof.host.detect' not in sys.modules"],
         capture_output=True, text=True)
     assert (result.returncode) == (0), result.stderr
 
 def test_compatibility_parsers_have_pure_owners():
-    assert (compute_parsers.parse_ncu_profile_csv.__module__) == ("acprof.host.profilers.compute_parsers")
-    assert (execution_parsers.parse_massif_output.__module__) == ("acprof.host.profilers.execution_parsers")
+    assert (compute_parsers.parse_ncu_profile_csv.__module__) == ("acprof.host.profiling.tools.compute_parsers")
+    assert (execution_parsers.parse_massif_output.__module__) == ("acprof.host.profiling.tools.execution_parsers")
     with tempfile.TemporaryDirectory() as directory:
         report = Path(directory) / "massif.out"
         report.write_text("time_unit: ms\nsnapshot=0\ntime=5\nmem_heap_B=10\nmem_heap_extra_B=2\nmem_stacks_B=3\n")
@@ -30,8 +30,8 @@ def test_compatibility_parsers_have_pure_owners():
 
 def test_pure_parser_imports_do_not_load_hardware_or_orchestration():
     result = subprocess.run([sys.executable, "-c",
-        "import sys; from acprof.host.profilers import compute_parsers, execution_parsers; "
-        "assert 'acprof.host.profiler_support' not in sys.modules; "
+        "import sys; from acprof.host.profiling.tools import compute_parsers, execution_parsers; "
+        "assert 'acprof.host.profiling.support' not in sys.modules; "
         "assert 'acprof.host.detect' not in sys.modules; assert 'torch' not in sys.modules"],
         capture_output=True, text=True)
     assert (result.returncode) == (0), result.stderr

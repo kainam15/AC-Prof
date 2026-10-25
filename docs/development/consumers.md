@@ -175,7 +175,7 @@ runtime/host/device/资源条件不完整或变化时降为需要重新验证。
 不读取权重内容、不自动下载，也不凭历史成功跳过正式准备验证。
 `images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_controller.ImageController` 收纳镜像页事件、渲染及 Docker worker。
 `ImageController` 拥有清单、选择、计时器和存储弹窗状态，App 显式路由事件；Docker worker 通过 App 调度，配置模块仍不提前加载 Textual。
-`storage.StorageSpaceScreen` 展示可滚动的存储空间弹窗；`host.image_management.read_storage` 读取固定 Docker 连接的分类汇总和可核验的本机数据目录文件系统。
+`storage.StorageSpaceScreen` 展示可滚动的存储空间弹窗；`host.images.inventory.read_storage` 读取固定 Docker 连接的分类汇总和可核验的本机数据目录文件系统。
 存储 worker 由 `ImageController` 管理，打开和手动刷新时才查询；关闭弹窗不取消尚在执行的 Docker 子进程，查询完成前保持与采集互斥。
 `ImageWorkspace` 按可用空间分配列表和详情高度；`ImageDetailResizeHandle` 使用 Textual 鼠标捕获和屏幕坐标处理上下拖动，也支持聚焦后按键调整。
 两侧各保留至少三行，手动高度仅存于控件的本次会话，窗口缩小不覆盖偏好。拖动只触发布局更新；禁用、隐藏、窗口缩放、失去捕获或按 `Esc` 时释放鼠标，沿用镜像控件的任务互斥，不增加后台扫描或定时器。
@@ -184,7 +184,7 @@ runtime/host/device/资源条件不完整或变化时降为需要重新验证。
 `images.ImageTreeHeader` 复用该控件，更新树节点的列宽，并同步表头与树的横向滚动；拖动不重建树节点或改变折叠状态。
 镜像列表通过原生 `fixed_columns=1` 只固定勾选列，“环境 / 模型”与其余数据列一起横向滚动。
 列重建复用手动值，未调整的列仍采用页面默认宽度；设置文件不保存列宽。拖动只更新列缓存及滚动范围，禁用、隐藏或任务开始时释放鼠标。
-Docker 访问由标准库模块 `host.image_management` 执行，固定连接并复核 daemon ID、镜像 ID 和全部标签。
+Docker 访问由标准库模块 `host.images.inventory` 执行，固定连接并复核 daemon ID、镜像 ID 和全部标签。
 打开镜像页自动读取清单，空闲时每轮完成后 5 秒更新；切换筛选和语言只操作内存中的清单。
 离开页面或运行任务时暂停计时器；确认框和鼠标拖动期间不启动扫描。查询期间禁止启动实验，但保留镜像浏览交互。
 自动更新保留有效选择和浏览状态；查询失败保留上次清单并自动重试。删除仍按用户确认的快照复核。

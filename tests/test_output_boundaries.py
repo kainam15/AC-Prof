@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from acprof.host import client
-from acprof.host.energy_validation import check_idle_power_values_stable
+from acprof.host.measurement.energy_validation import check_idle_power_values_stable
 from acprof.tui.process import ProcessLifecycle
 
 ROOT = Path(__file__).resolve().parents[1]

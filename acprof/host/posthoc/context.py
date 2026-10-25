@@ -18,7 +18,8 @@ from typing import (
 
 from acprof.artifacts import read_json_object
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
-from acprof.host.compute_profile_plan import (
+from acprof.host.detect import TaskInfo
+from acprof.host.profiling.compute_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
@@ -30,8 +31,7 @@ from acprof.host.compute_profile_plan import (
     TORCH_ERROR_FIELD,
     TORCH_LOGICAL_MFLOP_FIELD,
 )
-from acprof.host.detect import TaskInfo
-from acprof.host.execution_profile_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
+from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
 from acprof.installation import resource_root
 from acprof.metric_registry import tool_fields
 from acprof.model_repository import MODEL_SOURCES

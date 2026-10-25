@@ -23,7 +23,7 @@ from acprof.host.container_lifecycle import (
     recover_abandoned_containers,
     remove_owned_container,
 )
-from acprof.host.dependency_images import prepare_environment_image
+from acprof.host.images.environment import prepare_environment_image
 from acprof.host.source_bundle import source_bundle
 from acprof.installation import resource_root
 from acprof.model_contract import write_model_resolution

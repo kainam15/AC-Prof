@@ -76,7 +76,7 @@ def _capability(probe: Callable) -> str:
 
 
 def _packet(sniff_iface: str) -> str:
-    from acprof.host.packet_capture import (
+    from acprof.host.measurement.capture import (
         TCPDUMP_CAPTURE_CAPABILITY,
         _tcpdump_can_capture_without_sudo,
     )

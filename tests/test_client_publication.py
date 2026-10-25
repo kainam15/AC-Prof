@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from acprof.host import client_publication
+from acprof.host.measurement import publication as client_publication
 
 
 def test_result_row_waits_for_sniff_group_durability() -> None:

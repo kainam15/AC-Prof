@@ -150,14 +150,14 @@ def verify_labels(image: dict, expected: dict, kind: str) -> None:
 
 
 def require_image_source(source: str, image_id: str) -> None:
-    from acprof.host.runtime_images import inspect_identity
+    from acprof.host.images.runtime import inspect_identity
     actual = inspect_identity(source)
     if actual is None or actual["image_id"] != image_id:
         raise RuntimeError("构建父镜像引用发生变化，拒绝发布缓存")
 
 
 def checked_image(name: str, label: str, fingerprint: str, expected: dict, identity: dict, kind: str):
-    from acprof.host.runtime_images import inspect_identity
+    from acprof.host.images.runtime import inspect_identity
     image = inspect_identity(name)
     if image is None:
         return None
@@ -171,7 +171,7 @@ def checked_image(name: str, label: str, fingerprint: str, expected: dict, ident
 
 def build_dependency(root: Path, recipe: str, name: str, arguments: dict, expected: dict,
                      identity: dict, current_fingerprint, original_fingerprint: str) -> None:
-    from acprof.host.runtime_images import inspect_identity
+    from acprof.host.images.runtime import inspect_identity
     with tempfile.TemporaryDirectory(prefix="acprof-dependency-build-") as directory:
         context = Path(directory)
         for relative in ("dockerfiles/" + recipe, *BUILD_HELPERS):
@@ -270,7 +270,7 @@ def prepare_platform_image(platform: PlatformSpec, project_dir=PROJECT_ROOT,
 def prepare_environment_image(environment: DependencyEnvironment, project_dir=PROJECT_ROOT,
                               *, image_source: str | None = None,
                               registry: str | None = None) -> PreparedEnvironment:
-    from acprof.host.runtime_images import inspect_identity
+    from acprof.host.images.runtime import inspect_identity
     root = Path(project_dir)
     source_policy = _source_policy(image_source)
     identity = environment_identity(environment, root)

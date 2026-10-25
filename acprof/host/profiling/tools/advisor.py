@@ -6,15 +6,15 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     format_scale_value,
     profile_runner_args,
     profiler_container_command,
 )
-from acprof.host.profilers.compute_parsers import (
+from acprof.host.profiling.tools.compute_parsers import (
     parse_advisor_self_gflop_csv,
 )
-from acprof.host.profilers.tool_discovery import tool_mount_roots
+from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
 
 
 def _tool_error_entries(

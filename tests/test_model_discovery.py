@@ -12,8 +12,8 @@ from unittest.mock import patch
 import pytest
 
 from acprof.host.detect import TaskInfo, detect_task
+from acprof.host.images.runtime import request_fingerprint
 from acprof.host.input_plan import _get_task_generator
-from acprof.host.runtime_images import request_fingerprint
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.runtime_profiles import PROFILES
 

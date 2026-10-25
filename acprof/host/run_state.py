@@ -246,7 +246,7 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
                 if not path.is_file() or file_sha256(path) != record.get("sha256"):
                     raise RunStateError(message("已完成 case 的 CSV 缺失或改变：{0}", path))
             elif record.get("measurement_status") == "complete":
-                from acprof.host.measurement_checkpoint import read_measurement_checkpoint
+                from acprof.host.measurement.checkpoint import read_measurement_checkpoint
                 case = layout.case_from_csv(layout.contained(name))
                 cpu, mem, gpu = record["resources"]
                 try:
@@ -447,8 +447,8 @@ class RunState:
 
     def restore_runtime(self):
         from acprof.host.detect import TaskInfo
+        from acprof.host.images.runtime import ImageInfo, require_image_identity
         from acprof.host.input_plan import PlannedInputScales
-        from acprof.host.runtime_images import ImageInfo, require_image_identity
         snapshot = self.data["runtime"]
         image = ImageInfo(**snapshot["image"])
         if not image.tag.startswith("sha256:"):
@@ -476,7 +476,7 @@ class RunState:
             read_result_csv(path, expected=self.expected(cpu, mem, gpu))
             return str(path)
         if record.get("case_attempt_id") and record.get("measurement_status") != "complete":
-            from acprof.host.measurement_checkpoint import discover_measurement_checkpoint
+            from acprof.host.measurement.checkpoint import discover_measurement_checkpoint
             try:
                 reference = discover_measurement_checkpoint(
                     case, run_id=self.data["run_id"], attempt_id=record["case_attempt_id"],
@@ -544,7 +544,7 @@ class RunState:
 
     def checkpoint_measurement(self, path: str, cpu: int, mem: int, gpu: str, *, processing: dict,
                                container_id: str) -> None:
-        from acprof.host.measurement_checkpoint import publish_measurement_checkpoint
+        from acprof.host.measurement.checkpoint import publish_measurement_checkpoint
         key = str(Path(path).relative_to(self.directory))
         record = self.data["cases"][key]
         reference = publish_measurement_checkpoint(
@@ -558,7 +558,7 @@ class RunState:
         self.save()
 
     def processing_checkpoint(self, path: str, cpu: int, mem: int, gpu: str) -> dict | None:
-        from acprof.host.measurement_checkpoint import read_measurement_checkpoint
+        from acprof.host.measurement.checkpoint import read_measurement_checkpoint
         record = self.data["cases"].get(str(Path(path).relative_to(self.directory)), {})
         if record.get("measurement_status") != "complete":
             return None

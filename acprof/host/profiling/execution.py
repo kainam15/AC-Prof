@@ -16,24 +16,24 @@ from time import perf_counter
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_progress import (
+from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
 )
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     load_input_scale_plan_entries,
     write_profile_json,
 )
-from acprof.host.profilers import massif, nsys
-from acprof.host.profilers.execution_environment import (
+from acprof.host.profiling.tools import massif, nsys
+from acprof.host.profiling.tools.execution_environment import (
     get_massif_version,
     get_nsys_version,
     require_execution_image,
     validate_nsys_container_runtime,
 )
-from acprof.host.profilers.massif import MASSIF_TOOL
-from acprof.host.profilers.nsys import NSYS_TOOL
-from acprof.host.profilers.tool_discovery import find_nsys_executable, find_nsys_mount_root
+from acprof.host.profiling.tools.massif import MASSIF_TOOL
+from acprof.host.profiling.tools.nsys import NSYS_TOOL
+from acprof.host.profiling.tools.tool_discovery import find_nsys_executable, find_nsys_mount_root
 
 EXECUTION_PROFILE_PLAN_NAME = "execution_profile_plan.json"
 EXECUTION_PROFILE_DIRNAME = "execution_profiles"

@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.host import measurement_checkpoint as checkpoints
-from acprof.host.client_publication import append_request_window
+from acprof.host.measurement import checkpoint as checkpoints
+from acprof.host.measurement.publication import append_request_window
 from acprof.result_csv import KEY_FIELDS
 from acprof.telemetry import window_evidence
 from acprof.window_records import (

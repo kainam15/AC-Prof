@@ -8,7 +8,7 @@ from textual.widgets import DataTable, Input, Label, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig, RunConfigError, build_run_command
-from acprof.host.image_management import DockerConnection, ImageInventory, ImageLayer, ManagedImage
+from acprof.host.images.inventory import DockerConnection, ImageInventory, ImageLayer, ManagedImage
 from acprof.tui.i18n import translate
 from acprof.tui.images import ImageTree, image_metadata
 from acprof.tui.presentation import format_byte_fields, format_bytes

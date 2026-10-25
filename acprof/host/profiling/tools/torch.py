@@ -5,12 +5,12 @@ from typing import Any, Dict, List
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
-from acprof.host.profiler_support import (
+from acprof.host.profiling.support import (
     parse_last_json_line,
     profile_runner_args,
     profiler_container_command,
 )
-from acprof.host.profilers.compute_parsers import (
+from acprof.host.profiling.tools.compute_parsers import (
     _to_float,
 )
 

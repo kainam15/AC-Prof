@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
-from acprof.host.image_management import STORAGE_KINDS, DockerStorage
+from acprof.host.images.inventory import STORAGE_KINDS, DockerStorage
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN, format_bytes

@@ -16,7 +16,20 @@ from typing import (
 )
 
 from acprof.host.collection_history import append_collection_record
-from acprof.host.compute_profile_plan import (
+from acprof.host.posthoc.context import (
+    NCU_DERIVED_APP_FIELD,
+    NCU_DERIVED_PACKET_FIELD,
+    TOOL_ERROR_FIELD,
+    TOOL_FIELDS,
+    TOOL_GPU_MODES,
+    TOOL_METRIC_FIELDS,
+    PosthocError,
+    ResultContext,
+    _finite_float,
+    _fmt_float,
+    _integer,
+)
+from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
     NCU_KERNEL_TIME_FIELD,
@@ -31,23 +44,10 @@ from acprof.host.compute_profile_plan import (
     compute_mflops,
     find_compute_profile_entry,
 )
-from acprof.host.execution_profile_plan import (
+from acprof.host.profiling.execution_plan import (
     MASSIF_METRIC_FIELDS,
     NSYS_METRIC_FIELDS,
     ExecutionProfileResolver,
-)
-from acprof.host.posthoc.context import (
-    NCU_DERIVED_APP_FIELD,
-    NCU_DERIVED_PACKET_FIELD,
-    TOOL_ERROR_FIELD,
-    TOOL_FIELDS,
-    TOOL_GPU_MODES,
-    TOOL_METRIC_FIELDS,
-    PosthocError,
-    ResultContext,
-    _finite_float,
-    _fmt_float,
-    _integer,
 )
 from acprof.metric_registry import order_csv_fields
 

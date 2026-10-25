@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from acprof.host.client_config import ClientConfig
-from acprof.host.execution_profile_plan import ExecutionProfileResolver
-from acprof.host.measurement_window import MonitorCleanupError
-from acprof.host.window_errors import RequestTimeoutAbort
-from acprof.host.window_execution import WindowExecutor
-from acprof.host.window_types import MonitorDependencies, WindowSpec
+from acprof.host.measurement.config import ClientConfig
+from acprof.host.measurement.errors import RequestTimeoutAbort
+from acprof.host.measurement.execution import WindowExecutor
+from acprof.host.measurement.monitors import MonitorCleanupError
+from acprof.host.measurement.types import MonitorDependencies, WindowSpec
+from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 from acprof.monitors import resource_metrics
 
 

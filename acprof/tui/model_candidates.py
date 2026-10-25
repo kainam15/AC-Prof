@@ -191,8 +191,8 @@ def current_context(config, project_dir: Path, *, needs_torch_platform: bool = T
     """Capture shared host/platform facts once, outside measurement; never start Docker."""
     import subprocess
 
+    from acprof.host.images.runtime import select_nlp_torch_index_url
     from acprof.host.run_state import host_identity
-    from acprof.host.runtime_images import select_nlp_torch_index_url
     context: dict[str, Any] = {'host': host_identity(project_dir), 'gpu_uuid': None,
                                'torch_index_url': None, 'warnings': []}
     gpu_requested = 'on' in config.gpus.split(',')
@@ -218,7 +218,7 @@ def current_context(config, project_dir: Path, *, needs_torch_platform: bool = T
 
 def current_conditions(record: ExperimentRecord, config, context: dict, project_dir: Path) -> dict:
     from acprof.host.detect import TaskInfo
-    from acprof.host.runtime_images import configure_runtime_profile
+    from acprof.host.images.runtime import configure_runtime_profile
     from acprof.runtime_profiles import environment_id, select_runtime_profile
     revision = config.revision or record.revision
     from acprof.host.execution_conditions import measurement_environment

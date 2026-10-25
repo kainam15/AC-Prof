@@ -20,8 +20,8 @@ BRANCH_FLOORS = {
     "acprof/host/result_cleanup.py": 75.0,
     "acprof/host/client.py": 65.0,
     # Preserve the client floor when window lifecycle and row reduction move.
-    "acprof/host/window_execution.py": 65.0,
-    "acprof/host/client_metrics.py": 65.0,
+    "acprof/host/measurement/execution.py": 65.0,
+    "acprof/host/measurement/metrics.py": 65.0,
 }
 
 
