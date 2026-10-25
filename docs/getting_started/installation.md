@@ -19,7 +19,7 @@ acprof --help
 acprof tui
 ```
 
-如果 PyPI 返回 `No solution found` / `not found` 等未发布错误，请改用下方 GitHub Release 安装方式，**不要反复尝试同一条 PyPI 命令**。
+`acprof` 已在 [PyPI](https://pypi.org/project/acprof/) 发布。如遇 `No solution found` / `not found`，请先检查 Python 3.12+、包索引镜像是否同步以及网络连通性；下方的 GitHub Release Wheel 可作为备用发行来源，但第三方依赖仍可能需要从包索引下载。
 
 工具安装使用独立环境，包含 TUI 和分析依赖；uv 可按需准备 Python 3.12+。
 普通用户无需 clone 仓库、创建或激活 `.venv`，也无需运行开发用的 `uv sync`。
@@ -29,21 +29,24 @@ acprof tui
 
 ### GitHub Release fallback
 
-在 `acprof` 尚未上架 PyPI 时，可以从 [v0.2.0 Release](https://github.com/kainam15/AC-Prof/releases/tag/v0.2.0) 安装带版本号的 Wheel（使用 PyPI 之外的发行源）：
+如需直接安装 GitHub 发布的 Wheel，可访问[最新正式版 GitHub Release](https://github.com/kainam15/AC-Prof/releases/latest)。在 Bash 终端执行以下命令，自动识别最新正式版 Tag，下载 Wheel 和同版本的 `SHA256SUMS`，校验成功后再安装：
 
 ```bash
-uv tool install https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
-acprof --version
+(
+  set -euo pipefail
+  release_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/kainam15/AC-Prof/releases/latest)"
+  release_tag="${release_url##*/}"
+  wheel="acprof-${release_tag#v}-py3-none-any.whl"
+  base="https://github.com/kainam15/AC-Prof/releases/download/${release_tag}"
+  curl -fLO "${base}/${wheel}"
+  curl -fLO "${base}/SHA256SUMS"
+  grep -F " ${wheel}" SHA256SUMS | sha256sum --check -
+  uv tool install "./${wheel}"
+  acprof --version
+)
 ```
 
-如果需要在安装前验证发行资产，先下载 Wheel 和同一 Release 的 `SHA256SUMS`，核验成功再安装本地文件：
-
-```bash
-curl -fLO https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
-curl -fLO https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/SHA256SUMS
-grep ' acprof-0.2.0-py3-none-any.whl$' SHA256SUMS | sha256sum --check -
-uv tool install ./acprof-0.2.0-py3-none-any.whl
-```
+若 Release 的 Wheel 文件名或平台标签发生变化，请以[发布页](https://github.com/kainam15/AC-Prof/releases/latest)列出的实际资产为准。下载与哈希校验使用同一 Release 的文件，不要混用不同版本。
 
 同一 Release 也提供 `acprof-linux-x86_64` standalone，可按需下载、对照 `SHA256SUMS` 核验并赋予执行权限。它面向 Linux x86_64，仍需符合 Docker 和 GPU / profiling 的主机要求。Wheel 的依赖仍由 uv 解析下载；从 GitHub 下载 Wheel **不等于**全部依赖离线可用。
 

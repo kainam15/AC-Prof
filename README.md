@@ -19,22 +19,21 @@ AC-Prof supports text, vision, audio, time series, diffusion, multimodal, and st
 
 ## Quick start
 
-Install the latest published release with [uv](https://docs.astral.sh/uv/getting-started/installation/) and launch the interactive terminal interface:
+Install the latest release from [PyPI](https://pypi.org/project/acprof/) with [uv](https://docs.astral.sh/uv/getting-started/installation/) and launch the interactive terminal interface:
 
 ```bash
 uv tool install acprof
+acprof --version
 acprof tui
 ```
 
-Until the package is available on PyPI, install the verified v0.2.0 wheel from
-[GitHub Releases](https://github.com/kainam15/AC-Prof/releases/tag/v0.2.0) instead:
+Upgrade an existing PyPI installation with:
 
 ```bash
-uv tool install https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
-acprof tui
+uv tool upgrade acprof
 ```
 
-See the [installation guide](docs/getting_started/installation.md#github-release-fallback) for download checksums and the standalone Linux binary.
+For a GitHub Release wheel or Linux standalone binary, see the [latest release](https://github.com/kainam15/AC-Prof/releases/latest) and the [installation guide](docs/getting_started/installation.md#github-release-fallback) for checksum verification.
 
 Collection requires a suitable Linux host with a local Docker Engine and cgroup v2. Native Linux x86_64 is the FULL measurement platform; WSL2 has limited basic/PARTIAL support. See [host requirements](docs/getting_started/installation.md#1-检查主机环境).
 

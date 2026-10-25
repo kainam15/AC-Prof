@@ -19,21 +19,21 @@ AC-Prof 用于分析容器化 AI 模型在不同 CPU、内存、GPU 配置和输
 
 ## 快速开始
 
-使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装最新发布版本，启动交互式终端界面：
+使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 从 [PyPI](https://pypi.org/project/acprof/) 安装最新正式版本，启动交互式终端界面：
 
 ```bash
 uv tool install acprof
+acprof --version
 acprof tui
 ```
 
-在包正式发布到 PyPI 之前，可以从 [GitHub Releases v0.2.0](https://github.com/kainam15/AC-Prof/releases/tag/v0.2.0) 安装已发布的 Wheel：
+通过 PyPI 安装的用户可使用以下命令升级：
 
 ```bash
-uv tool install https://github.com/kainam15/AC-Prof/releases/download/v0.2.0/acprof-0.2.0-py3-none-any.whl
-acprof tui
+uv tool upgrade acprof
 ```
 
-校验文件哈希及 Linux standalone 下载方式见[安装说明](../getting_started/installation.md#github-release-fallback)。
+如需从 GitHub Release 下载 Wheel 或 Linux standalone，可查看[最新正式版](https://github.com/kainam15/AC-Prof/releases/latest)，并按[安装说明](../getting_started/installation.md#github-release-fallback)校验文件哈希。
 
 实验采集需要满足要求的 Linux 主机、本机 Docker Engine 和 cgroup v2。Native Linux x86_64 支持符合前置条件的 FULL 测量；WSL2 仅有受限的 basic/PARTIAL 支持。详见[主机要求](../getting_started/installation.md#1-检查主机环境)。
 
