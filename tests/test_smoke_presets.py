@@ -30,7 +30,7 @@ def test_task_minimum_uses_workload_tokens_seconds_and_image_scale(task, family,
         info = TaskInfo("example/model", task, family,
             "transformers_pipeline" if family == "nlp" else "transformers_model", "transformers", "fixed", "unit")
         with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_container_session"
+            input_plan, "stop_service_session"
         ), patch.object(input_plan, "_request_scale_meta", return_value={
             "input_scale_type": "duration_s", "required_sampling_rate": 16000,
             "source_sampling_rate": 16000, "short_form_fixed_padding": True,

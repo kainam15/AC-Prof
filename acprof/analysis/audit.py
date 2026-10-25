@@ -38,6 +38,19 @@ def missing_reason(field: str, row: dict, metadata: dict) -> str:
     if field not in row:
         return "not_recorded"
     metric = METRICS[field]
+    if row.get("runtime_kind", metadata.get("runtime_kind")) == "process":
+        if field in {"cpu_cores", "mem_cap_gb"}:
+            return "inherited_limit_not_controlled"
+        if field.startswith("container_") or field.startswith("cold_start_"):
+            return "unsupported_by_process_runtime"
+        if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
+            return str(row.get("process_resource_status", "unavailable"))
+        if field.startswith("gpu_util_"):
+            return str(row.get("gpu_utilization_status", "unavailable"))
+        if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
+            return str(row.get("gpu_memory_status", "unavailable"))
+        if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
+            return "not_requested"
     if recorded_identity(metadata)["environment_class"] == "wsl2" and native_only_metric(metric):
         return "unavailable_on_wsl2"
     if metric.applicability in {"gpu", "gpu_idle_debug"} and row.get("gpu_mode") == "off":
@@ -60,6 +73,8 @@ def missing_reason(field: str, row: dict, metadata: dict) -> str:
                 enabled = enabled.split(",")
         if isinstance(enabled, list) and not any(metric.tool in str(tool) for tool in enabled):
             return "tool_not_enabled"
+    if row.get("runtime_kind") == "process":
+        return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips", "gpu_runtime_state"} else "unavailable"
     return "unavailable_unspecified"
 
 
@@ -200,6 +215,16 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         issue("invalid_csv", error)
         return report
     report["counts"]["rows"] = len(rows)
+    runtime = metadata.get("runtime_kind", "docker")
+    report["runtime_kind"] = runtime
+    report["resource_scope"] = "observed_process_tree" if runtime == "process" else "container_cgroup"
+    hardware = {}
+    if runtime == "process":
+        from acprof.hardware_conditions import conditions_path
+        hardware = read_json(str(conditions_path(layout).relative_to(layout.root))).get("cases", {})
+        if not isinstance(hardware, dict):
+            issue("invalid_metadata", "hardware conditions cases must be an object")
+            hardware = {}
     if "environment_class" not in fields:
         issue("missing_environment_class", "结果缺少 environment_class 环境身份列")
     environments = {row.get("environment_class", "unknown") for row in rows}
@@ -224,8 +249,8 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         try:
             options = state["options"]
             expected = expected_measurements(
-                [int(value) for value in options["cpus"].split(",")],
-                [int(value) for value in options["mems"].split(",")], options["gpus"].split(","),
+                [None] if options["cpus"] == "auto" else [int(value) for value in options["cpus"].split(",")],
+                [None] if options["mems"] == "auto" else [int(value) for value in options["mems"].split(",")], options["gpus"].split(","),
                 state["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
             )
             actual = {measurement_key(row) for row in rows}
@@ -246,11 +271,36 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             report["counts"][status] += 1
         formal = status == "ok" and not warmup
         report["counts"]["formal_ok"] += formal
+        if runtime == "process" or row.get("runtime_kind") == "process":
+            from acprof.artifact_layout import resource_case_id
+            if (runtime != "process" or row.get("runtime_kind") != "process"
+                    or not metadata.get("runtime_id") or row.get("runtime_id") != metadata["runtime_id"]):
+                issue("runtime_identity", "Process Runtime 身份与元数据不一致", row=index)
+            if row.get("resource_scope") != "observed_process_tree":
+                issue("resource_scope", "Process 指标必须标记 observed_process_tree", row=index)
+            if status in {"ok", "warn"}:
+                case_id = resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
+                record = hardware.get(case_id, {})
+                plan = record.get("resource_plan", {}) if isinstance(record, dict) else {}
+                if not isinstance(plan, dict) or plan.get("verified") is not True:
+                    issue("resource_enforcement", "缺少已验证的 Process 资源限制证据", row=index)
+                else:
+                    requested = plan.get("requested", {})
+                    for field, name in (("cpu_cores", "cpu_quota"), ("mem_cap_gb", "memory_gib")):
+                        value = number(row.get(field))
+                        if (value != requested.get(name)
+                                or value is not None and plan.get("method") != "cgroup_v2"):
+                            issue("resource_enforcement", f"{field} 与实际实施的限制不符", row=index, field=field)
+                    if row.get("resource_limit_source") != plan.get("method"):
+                        issue("resource_enforcement", "资源限制来源与执行证据不符", row=index)
         try:
             _check_workload_counts(row)
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
         for field in NUMERIC_FIELDS:
+            if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
+                    and number(row.get(field)) is not None):
+                issue("unsupported_process_metric", f"Process 不能记录 Docker 专属指标 {field}", row=index, field=field)
             if (report["environment_class"] == "wsl2" and native_only_metric(METRICS[field])
                     and number(row.get(field)) is not None):
                 issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)

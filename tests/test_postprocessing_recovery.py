@@ -78,8 +78,8 @@ def measured_case(tmp_path, monkeypatch):
         case.pcap.write_bytes(b"fixture-captured-packets")
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr(orchestrator, "start_container_session", start)
-    monkeypatch.setattr(orchestrator, "stop_container_session", stop)
+    monkeypatch.setattr(orchestrator, "start_service_session", start)
+    monkeypatch.setattr(orchestrator, "stop_service_session", stop)
     monkeypatch.setattr(orchestrator, "record_case_conditions", lambda *a, **k: None)
     monkeypatch.setattr(orchestrator, "_resolve_packet_latency_runtime", lambda **k: PacketLatencyRuntime(
         mode="local", tcpdump_cmd=["fixture-capture"], parse_cmd=["fixture-parser"]))
@@ -286,7 +286,7 @@ def test_timeout_keeps_partial_requests_without_reusing_them_as_committed_window
         return SimpleNamespace(returncode=CLIENT_REQUEST_TIMEOUT_EXIT_CODE)
 
     monkeypatch.setattr(orchestrator.host_command, "run_command", timeout_after_committed_window)
-    monkeypatch.setattr(orchestrator, "container_runtime_oom_error", lambda *args: None)
+    monkeypatch.setattr(orchestrator, "service_failure", lambda *args: None)
     monkeypatch.setattr(orchestrator, "_finalize_case", fail_postprocessing)
     with pytest.raises(RuntimeError, match="packet parser interrupted"):
         orchestrator.run_single_case(**{**arguments, "workload": replace(arguments["workload"], repeat=2)})
@@ -313,7 +313,7 @@ def test_cleanup_debt_is_verified_before_retrying_only_postprocessing(measured_c
     def cannot_stop(*args, **kwargs):
         raise ContainerCleanupError("c" * 64, [], final_state="present")
 
-    monkeypatch.setattr(orchestrator, "stop_container_session", cannot_stop)
+    monkeypatch.setattr(orchestrator, "stop_service_session", cannot_stop)
     with pytest.raises(ContainerCleanupError):
         orchestrator.run_single_case(**arguments)
     monkeypatch.setattr(container_lifecycle, "recover_cleanup_debt", cannot_stop)
@@ -371,7 +371,7 @@ def test_client_cancellation_and_capture_failure_still_release_container(measure
 
     monkeypatch.setattr(orchestrator.host_command, "run_command", interrupted)
     monkeypatch.setattr(orchestrator, "_stop_capture", broken_capture)
-    monkeypatch.setattr(orchestrator, "stop_container_session", broken_container)
+    monkeypatch.setattr(orchestrator, "stop_service_session", broken_container)
     monkeypatch.setattr(orchestrator, "emit_event", lambda kind, detail, **values: events.append((kind, values)))
     with pytest.raises(ContainerCleanupError) as caught:
         orchestrator.run_single_case(**arguments)
@@ -381,9 +381,9 @@ def test_client_cancellation_and_capture_failure_still_release_container(measure
     assert len(capture_stops) == 1
     assert calls["container"] == calls["cleanup"] == 1
     record = state.data["cases"][str(case.csv.relative_to(state.directory))]
-    # Before a measurement checkpoint, cleanup ownership remains pending;
-    # the sidecar retains the failure for the next whole-case recovery.
-    assert record["cleanup_status"] == "pending"
+    # Persist failed cleanup even before a measurement checkpoint so recovery
+    # cannot mistake an attempted, failed cleanup for untouched ownership.
+    assert record["cleanup_status"] == "failed"
     assert record["cleanup_container_id"] == "c" * 64
     assert record["measurement_status"] != "complete"
     assert case.sidecar("cleanup_error").is_file()

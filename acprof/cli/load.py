@@ -132,6 +132,8 @@ def main(argv=None):
                             max_pending=args.max_pending, timeout_seconds=conditions.request_timeout_seconds).validate()
         if args.warmup < 0:
             raise ValueError("warmup must be nonnegative")
+        if state["runtime"].get("kind", "docker") == "process":
+            raise ValueError("load replay currently requires a Docker source; Process supports basic run collection")
         cpus, mems = [int(v) for v in options["cpus"].split(",")], [int(v) for v in options["mems"].split(",")]
         cpu, mem = args.cpu if args.cpu is not None else max(cpus), args.mem if args.mem is not None else max(mems)
         if cpu not in cpus or mem not in mems:

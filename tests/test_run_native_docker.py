@@ -13,7 +13,7 @@ import pytest
 import acprof.host.preflight as host_preflight
 from acprof.application import run
 from acprof.cli import run as run_cli
-from acprof.host import input_plan, orchestrator
+from acprof.host import input_plan, orchestrator, preflight
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 
@@ -318,7 +318,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.application.run.require_collection_host",
         ), patch(
-            "acprof.application.run.require_native_docker",
+            "acprof.host.preflight.require_native_docker",
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             side_effect=SystemExit(7),
@@ -365,7 +365,7 @@ class TestNativeDockerGuard:
             "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
@@ -399,7 +399,7 @@ class TestNativeDockerGuard:
             "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
@@ -434,7 +434,7 @@ class TestNativeDockerGuard:
             "builtins.print"
         ) as mock_print:
             with pytest.raises(SystemExit) as raised:
-                run.require_native_docker()
+                preflight.require_native_docker()
 
         assert (raised.value.code) == (1)
         assert (mock_run.call_count) == (1)
@@ -466,7 +466,7 @@ class TestNativeDockerGuard:
             "builtins.print"
         ) as mock_print:
             with pytest.raises(SystemExit) as raised:
-                run.require_native_docker()
+                preflight.require_native_docker()
 
         assert (raised.value.code) == (1)
         message = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
@@ -495,7 +495,7 @@ class TestNativeDockerGuard:
             "acprof.host.preflight.run_command",
             side_effect=[context, endpoint, completed],
         ):
-            run.require_native_docker()
+            preflight.require_native_docker()
 
     def test_remote_docker_context_exits_before_docker_info(self) -> None:
         context = SimpleNamespace(returncode=0, stdout="remote-lab\n", stderr="")
@@ -510,7 +510,7 @@ class TestNativeDockerGuard:
             "acprof.host.preflight.run_command",
             side_effect=[context, endpoint],
         ) as mock_run, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
-            run.require_native_docker()
+            preflight.require_native_docker()
 
         assert (raised.value.code) == (1)
         assert (mock_run.call_count) == (2)
@@ -529,7 +529,7 @@ class TestNativeDockerGuard:
             "acprof.host.preflight.run_command",
             return_value=context,
         ) as mock_run, pytest.raises(SystemExit) as raised, redirect_stderr(stderr):
-            run.require_native_docker()
+            preflight.require_native_docker()
 
         assert (raised.value.code) == (1)
         assert (mock_run.call_count) == (1)
@@ -544,7 +544,7 @@ class TestNativeDockerGuard:
             "acprof.application.run.require_collection_host",
             side_effect=RuntimeError("host guard called"),
         ), patch(
-            "acprof.application.run.require_native_docker",
+            "acprof.host.preflight.require_native_docker",
             side_effect=AssertionError("Docker guard must run after host guard"),
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
@@ -561,21 +561,21 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.application.run.require_collection_host",
         ), patch(
-            "acprof.application.run.require_native_docker",
+            "acprof.host.preflight.require_native_docker",
             side_effect=RuntimeError("guard called"),
         ), patch(
             "acprof.host.detect.detect_task", return_value=self.resolved_task,
         ) as detect, patch("acprof.application.run.bootstrap_project_env"):
             with pytest.raises(RuntimeError, match="guard called"):
                 run_cli.main()
-        detect.assert_called_once()
+        detect.assert_not_called()
 
     def test_main_runs_packet_latency_preflight_before_runtime_preparation(self) -> None:
         with patch.object(sys, "argv", ["acprof run", "--model", "dummy-model"]), patch(
             "acprof.application.run.bootstrap_project_env",
             return_value=None,
         ), patch("acprof.application.run.require_collection_host"), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
@@ -638,7 +638,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
@@ -732,7 +732,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",
@@ -836,7 +836,7 @@ class TestNativeDockerGuard:
         ), patch(
             "acprof.application.run.require_collection_host"
         ), patch(
-            "acprof.application.run.require_native_docker"
+            "acprof.host.preflight.require_native_docker"
         ), patch(
             "acprof.application.run.require_cgroup_prerequisites",
             return_value="v2",

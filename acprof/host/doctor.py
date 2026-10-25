@@ -24,6 +24,8 @@ class DoctorCheck:
     status: str
     detail: str
     remedy: str = ""
+    required: bool = True
+    runtime_kind: str = ""
 
 
 def _check(name: str, action: Callable[[], str | None], remedy: str) -> DoctorCheck:
@@ -101,9 +103,33 @@ def _gpu() -> str:
     return f"{devices}；Docker 已注册 NVIDIA runtime（容器 GPU 尚未实测）"
 
 
-def collect_checks(*, profiling_mode: str = "full", gpus: str = "off",
+def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus: str = "off",
                    sniff_iface: str = "docker0", output_dir: Path | None = None) -> list[DoctorCheck]:
+    from acprof.host.runtimes.selection import select_runtime
+    runtime_check = DoctorCheck("runtime", "available", "explicit Docker Runtime", runtime_kind="docker")
+    if runtime != "docker":
+        try:
+            selected = select_runtime(runtime, profiling_mode=profiling_mode)
+            runtime_check = DoctorCheck("runtime", "available", selected.reason, runtime_kind=selected.selected)
+        except ValueError as exc:
+            runtime_check = DoctorCheck("runtime", "unavailable", str(exc))
+            if runtime == "process":
+                return [runtime_check, *_workspace_checks(output_dir)]
+        if runtime_check.runtime_kind == "process":
+            from acprof.host.runtimes.capabilities import probe_collection_plan
+            from acprof.host.runtimes.gpu import process_gpu_device
+            checks = [runtime_check, _check("architecture", _architecture, "请使用 Linux x86_64。"),
+                      _check("resources", _resources, "重新安装完整 AC-Prof。"),
+                      DoctorCheck("uv", "available" if shutil.which("uv") else "unavailable",
+                                  "Process 使用 uv 创建隔离环境", "安装 uv 并加入 PATH。")]
+            gpu = process_gpu_device() if gpus == "on" else {}
+            plan = probe_collection_plan("process", gpu=gpu)
+            checks.extend(DoctorCheck(name, item['status'], item['detail'], required=False)
+                          for name, item in plan['probes'].items())
+            checks.append(DoctorCheck("resource_limits", "available", "auto=继承；数值 CPU/内存限制需要 cgroup v2 委托权限"))
+            return [*checks, *_workspace_checks(output_dir)]
     checks = [
+        runtime_check,
         _check("environment", lambda: preflight.require_collection_host(profiling_mode=profiling_mode),
                "WSL2 请使用 --profiling-mode basic；full 需要 Native Linux。"),
         _check("architecture", _architecture, "请使用 Linux x86_64；当前依赖锁不支持 ARM。"),
@@ -126,6 +152,11 @@ def collect_checks(*, profiling_mode: str = "full", gpus: str = "off",
                       DoctorCheck(name, "not_requested", "basic 模式不要求此能力"))
     checks.append(_check("gpu", _gpu, "检查 NVIDIA driver 和 NVIDIA Container Toolkit。")
                   if gpus == "on" else DoctorCheck("gpu", "not_requested", "--gpus off"))
+    return [*checks, *_workspace_checks(output_dir)]
+
+
+def _workspace_checks(output_dir):
+    checks = []
     destination = (output_dir or Path.cwd()).expanduser().resolve()
     while not destination.exists() and destination != destination.parent:
         destination = destination.parent
@@ -151,8 +182,11 @@ def _probe_environment() -> dict[str, str]:
 
 def report_dict(checks: list[DoctorCheck], *, profiling_mode: str, gpus: str) -> dict:
     environment = detect_environment()
+    runtime = next((check.runtime_kind for check in checks if check.runtime_kind), "unknown")
     return {"schema_version": 2, "profiling_mode": profiling_mode, "gpus": gpus,
-            **environment.metadata(), "native_benchmark": environment.native,
+            **environment.metadata(), "native_benchmark": environment.native and runtime == "docker",
             "metric_support": capability_matrix(environment),
-            "ready": all(check.status != "unavailable" for check in checks),
+            "runtime_kind": runtime,
+            "ready": all(not check.required or check.status in {"available", "verified", "not_requested", "warning"}
+                         for check in checks),
             "scope": "prerequisites_only", "checks": [asdict(check) for check in checks]}

@@ -12,6 +12,10 @@ def test_historical_field_order_is_unchanged():
                  'gpu_energy_fallback_reason', 'gpu_idle_energy_source',
                  'latency_tail_ratio', 'latency_app_tail_ratio',
                  'cpu_cycles_per_request', 'cpu_ref_cycles_per_request', 'cpu_ipc', 'cpu_perf_running_pct'}
+    additions.update({'runtime_kind', 'runtime_id', 'resource_limit_source', 'resource_scope',
+                      'environment_sharing', 'gpu_metric_scope', 'process_resource_status', 'process_resource_error',
+                      'gpu_utilization_status', 'gpu_memory_status', 'process_startup_s',
+                      'process_cpu_time_s', 'process_cpu_util_avg_pct', 'process_rss_avg_bytes', 'process_rss_peak_bytes'})
     historical_fields = [name for name in CSV_FIELDS if name not in additions and not name.startswith('dram_')]
     assert (hashlib.sha256(json.dumps(historical_fields).encode()).hexdigest()) == ("1422b14ebaa48586573923cea2d33f615e6dc180d099cdf773678f453e3268f3")
 

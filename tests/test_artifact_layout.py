@@ -183,7 +183,7 @@ class TestArtifactLayout:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
-            with patch("acprof.host.orchestrator.start_container_session", side_effect=RuntimeError("startup failed")), \
+            with patch("acprof.host.orchestrator.start_service_session", side_effect=RuntimeError("startup failed")), \
                  redirect_stdout(io.StringIO()):
                 output = run_single_case(
                     CaseRequest(

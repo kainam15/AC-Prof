@@ -276,6 +276,8 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         static_meta = read_static_metadata(directory, required=True)
     except (ValueError, OSError) as exc:
         raise PosthocError(str(exc)) from exc
+    if static_meta.get("runtime_kind") == "process":
+        raise PosthocError("Independent post-hoc profilers currently require Docker Runtime")
     collection_history_existed = collection_history_path.is_file()
     collection_history_payload = (
         _load_json_object(collection_history_path, COLLECTION_HISTORY_NAME)

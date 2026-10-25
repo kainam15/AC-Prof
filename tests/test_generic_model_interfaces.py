@@ -67,7 +67,7 @@ def test_embedding_parameters_survive_public_manual_and_auto_input_planning(scal
         spec = Path(directory, "embedding.json")
         spec.write_text(json.dumps({"schema_version": 1, "task": task.pipeline_tag, "params": params}))
         with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_container_session",
+            input_plan, "stop_service_session",
         ), patch.object(input_plan, "_post_probe_payload", side_effect=probe), patch.object(
             input_plan, "_request_nlp_scale_meta", return_value={"max_effective_input_scale": 16, "reason": "test tokenizer"},
         ):

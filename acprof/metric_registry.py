@@ -44,6 +44,21 @@ class Metric:
 # 顺序就是 CSV 协议顺序；单位和窗口在此显式声明，消费者不得按列名猜测。
 _DECLARATIONS = (
     Metric('environment_class', 'text', 'platform_identity', 'experiment', kind='text'),
+    Metric('runtime_kind', 'text', 'execution_runtime', 'experiment', kind='text'),
+    Metric('runtime_id', 'text', 'immutable_runtime_artifact', 'experiment', kind='text'),
+    Metric('resource_limit_source', 'text', 'verified_runtime_limits', 'case', kind='text'),
+    Metric('resource_scope', 'text', 'collector_contract', 'case', kind='text'),
+    Metric('environment_sharing', 'text', 'allocation_evidence', 'case', kind='text'),
+    Metric('gpu_metric_scope', 'text', 'collector_contract', 'case', applicability='gpu', kind='text'),
+    Metric('process_resource_error', 'text', 'psutil', 'request_window', kind='text'),
+    Metric('process_resource_status', 'text', 'psutil', 'request_window', kind='text'),
+    Metric('gpu_utilization_status', 'text', 'nvml_selected_device', 'request_window', kind='text'),
+    Metric('gpu_memory_status', 'text', 'nvml_selected_device', 'request_window', kind='text'),
+    Metric('process_startup_s', 's', 'managed_process_to_ready', 'case_startup'),
+    Metric('process_cpu_time_s', 's/window', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=0),
+    Metric('process_cpu_util_avg_pct', '% one logical CPU', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=1, label='进程 CPU 平均占用', group='CPU'),
+    Metric('process_rss_avg_bytes', 'byte', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=2, label='进程 RSS 平均用量', group='Memory'),
+    Metric('process_rss_peak_bytes', 'byte', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=3, label='进程 RSS 峰值用量', group='Memory', summary=True, aggregation='max'),
     # 资源配置、输入、输出与网络。
     Metric('cpu_cores', 'core', 'protocol', 'case'),
     Metric('mem_cap_gb', 'GiB', 'protocol', 'case'),

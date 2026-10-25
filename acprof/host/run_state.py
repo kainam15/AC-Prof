@@ -106,7 +106,7 @@ def host_identity(project_dir: str | Path) -> dict:
 
 def run_options(args) -> dict:
     from acprof.host.gpu_device import selected_gpu_device
-    ignored = {"resume", "rebuild_image", "output_dir", "notify"}
+    ignored = {"resume", "rebuild_image", "output_dir", "notify", "runtime_selection", "process_gpu"}
     options = {name: value for name, value in flatten_run_options(vars(args)).items() if name not in ignored}
     # Freeze even default policies: they affect both timing and retained evidence.
     options.setdefault("sampling_policy", "burst")
@@ -121,7 +121,14 @@ def run_options(args) -> dict:
         options.pop("revision", None)
     if options.get("input_scale_policy", "auto") == "auto":
         options.pop("input_scale_policy", None)
-    device = selected_gpu_device()
+    if options.get("runtime") == "process":
+        from acprof.host.runtimes.resources import inherited_resources
+        # Allocation and device visibility can change within the same VM/container.
+        # Refuse to append windows collected under different inherited conditions.
+        options["process_allocation"] = inherited_resources()
+        options["process_gpu"] = getattr(args, "process_gpu", {})
+        options["nvidia_visible_devices"] = os.environ.get("NVIDIA_VISIBLE_DEVICES")
+    device = selected_gpu_device() if options.get("runtime") != "process" else {}
     if device:
         options["gpu_device"] = device["uuid"]
     elif options.get("gpu_device") is None:
@@ -178,8 +185,8 @@ def load_run_state(directory: str | Path) -> dict:
 def _expected(data: dict, cpu=None, mem=None, gpu=None):
     options = data["options"]
     return expected_measurements(
-        [cpu] if cpu is not None else [int(x) for x in options["cpus"].split(",")],
-        [mem] if mem is not None else [int(x) for x in options["mems"].split(",")],
+        [cpu] if cpu is not None else [None] if options["cpus"] == "auto" else [int(x) for x in options["cpus"].split(",")],
+        [mem] if mem is not None else [None] if options["mems"] == "auto" else [int(x) for x in options["mems"].split(",")],
         [gpu] if gpu is not None else options["gpus"].split(","),
         data["runtime"]["planned"]["scales"], options["warmup"], options["repeat"],
     )
@@ -330,6 +337,9 @@ class RunState:
             if resume:
                 self.data = load_run_state(self.directory)
                 phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options)
+                if options.get("runtime") == "process":
+                    from acprof.host.runtimes.process_control import verify_process_cleanup
+                    verify_process_cleanup(self.directory / "logs")
                 if phase == "preparation":
                     attempt["preparation_backup"] = self._archive_preparation()
                     self.data["status"] = "preparing"
@@ -436,7 +446,9 @@ class RunState:
         plan = asdict(planned)
         if plan["plan_file"]:
             plan["plan_file"] = str(Path(plan["plan_file"]).resolve().relative_to(self.directory))
+        from acprof.host.runtimes.contracts import runtime_kind
         self.data["runtime"] = {
+            "kind": runtime_kind(image),
             "task": {key: value for key, value in asdict(task).items() if key != "repository_sources"},
             "image": asdict(image), "planned": plan,
             "compute_plan": str(Path(compute_plan).resolve().relative_to(self.directory)) if compute_plan else "",
@@ -447,13 +459,10 @@ class RunState:
 
     def restore_runtime(self):
         from acprof.host.detect import TaskInfo
-        from acprof.host.images.runtime import ImageInfo, require_image_identity
         from acprof.host.input_plan import PlannedInputScales
+        from acprof.host.runtimes.service import execution_runtime
         snapshot = self.data["runtime"]
-        image = ImageInfo(**snapshot["image"])
-        if not image.tag.startswith("sha256:"):
-            raise RunStateError("恢复要求原实验的不可变 image ID；历史标签镜像请使用新输出目录")
-        require_image_identity(image.tag, image.runtime_environment)
+        image = execution_runtime(snapshot.get("kind", "docker")).restore(snapshot["image"])
         plan = dict(snapshot["planned"])
         if plan.get("plan_file"):
             plan["plan_file"] = str(self.artifact_path(plan["plan_file"]))
@@ -491,6 +500,11 @@ class RunState:
         if record.get("measurement_status") == "complete":
             self.processing_checkpoint(str(path), cpu, mem, gpu)
             return None
+        if record.get("cleanup_process") and record.get("cleanup_status") != "complete":
+            from acprof.host.runtimes.process_control import recover_process
+            recover_process(record["cleanup_process"])
+            record["cleanup_status"] = "complete"
+            self.save()
         candidates = [*case.temporary_files(), case.retained_requests, case.idle]
         existing = list(dict.fromkeys(candidate for candidate in candidates if candidate.exists() or candidate.is_symlink()))
         previous_attempts = list(record.get("previous_attempts", []))
@@ -542,6 +556,11 @@ class RunState:
         record.update(cleanup_container_id=container_id, cleanup_status="pending")
         self.save()
 
+    def bind_case_process(self, path: str, evidence: dict) -> None:
+        record = self.data["cases"][str(Path(path).relative_to(self.directory))]
+        record.update(cleanup_process=evidence, cleanup_status="pending")
+        self.save()
+
     def checkpoint_measurement(self, path: str, cpu: int, mem: int, gpu: str, *, processing: dict,
                                container_id: str) -> None:
         from acprof.host.measurement.checkpoint import publish_measurement_checkpoint
@@ -571,13 +590,16 @@ class RunState:
         except (OSError, ValueError, KeyError) as exc:
             raise RunStateError(f"已完成测量的原始证据无效：{exc}") from exc
         if record.get("cleanup_status") != "complete":
-            from acprof.host import command as host_command
-            from acprof.host.container_lifecycle import recover_cleanup_debt
-            # The existing lifecycle protocol removes only verified abandoned
-            # containers, then proves the recorded immutable ID is absent.
-            recovery = recover_cleanup_debt(
-                [{"container_id": record.get("cleanup_container_id", "")}], host_command.run_command,
-            )
+            if record.get("cleanup_process"):
+                from acprof.host.runtimes.process_control import recover_process
+                recover_process(record["cleanup_process"])
+                recovery = {"kind": "process", "status": "complete"}
+            else:
+                from acprof.host import command as host_command
+                from acprof.host.container_lifecycle import recover_cleanup_debt
+                recovery = recover_cleanup_debt(
+                    [{"container_id": record.get("cleanup_container_id", "")}], host_command.run_command,
+                )
             case = self.layout.case_from_csv(path)
             error = case.sidecar("cleanup_error")
             if error.exists():
@@ -603,9 +625,8 @@ class RunState:
         if status not in {"complete", "failed"}:
             raise ValueError(f"Invalid case cleanup status: {status}")
         record = self.data["cases"][str(Path(path).relative_to(self.directory))]
-        if record.get("measurement_status") == "complete":
-            record["cleanup_status"] = status
-            self.save()
+        record["cleanup_status"] = status
+        self.save()
 
     def finish_case(self, path: str, cpu: int, mem: int, gpu: str) -> None:
         _, rows = read_result_csv(path, expected=self.expected(cpu, mem, gpu))

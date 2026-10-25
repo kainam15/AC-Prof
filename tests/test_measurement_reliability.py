@@ -126,11 +126,11 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
             )
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    with patch("acprof.host.orchestrator.start_container_session", return_value=docker_runtime.RunningContainer(
+    with patch("acprof.host.orchestrator.start_service_session", return_value=docker_runtime.RunningContainer(
         name="case_google-bert--bert-base-uncased_1c_4g_off",
         base_url="http://127.0.0.1:8106", host_port=8106, cold_start_s=1,
     )), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-        "acprof.host.orchestrator.stop_container_session"
+        "acprof.host.orchestrator.stop_service_session"
     ), patch("acprof.host.command.run_command", side_effect=fake_run):
         path = orchestrator.run_single_case(
             orchestrator.CaseRequest(

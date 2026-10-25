@@ -17,8 +17,8 @@ from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_
 
 
 def make_config_label(row) -> str:
-    cpu = resource_coordinate(row["cpu_cores"])
-    mem = resource_coordinate(row["mem_cap_gb"])
+    cpu = resource_coordinate(row["cpu_cores"]) if pd.notna(row["cpu_cores"]) else "inherited"
+    mem = resource_coordinate(row["mem_cap_gb"]) if pd.notna(row["mem_cap_gb"]) else "inherited"
     if is_gpu_on(row["gpu_mode"]):
         label = f"GPU+CPU{cpu}+Mem{mem}"
     else:
@@ -131,6 +131,9 @@ def prepare_df(
         df["gpu_mode"] = df["gpu_mode"].map(normalize_gpu_mode)
 
     static_meta = read_static_meta(csv_path)
+    kinds = set(df.get("runtime_kind", pd.Series(dtype=str)).dropna()) - {"", "nan"}
+    if len(kinds) > 1 or kinds and kinds != {static_meta.get("runtime_kind", "docker")}:
+        raise ValueError("mixed or inconsistent execution runtime; split results by runtime")
     environment = recorded_identity(static_meta)["environment_class"]
     if "environment_class" not in df:
         df["environment_class"] = environment
@@ -167,9 +170,9 @@ def prepare_df(
         "gpu_mem_total_bytes": "gpu_mem_total_gib",
         "cpu_heap_peak_total_bytes_massif": "cpu_heap_peak_total_gib_massif",
     }
-    for source_col, target_col in bytes_to_gib.items():
-        if source_col in df.columns:
-            df[target_col] = df[source_col] / float(BYTES_PER_GIB)
+    converted = {target: df[source] / float(BYTES_PER_GIB)
+                 for source, target in bytes_to_gib.items() if source in df.columns}
+    df = pd.concat([df.drop(columns=list(converted), errors="ignore"), pd.DataFrame(converted, index=df.index)], axis=1)
 
     df = _with_pixel_metrics(df, static_meta)
 

@@ -19,7 +19,7 @@ def info(task, family="nlp", backend="transformers_pipeline"):
 
 def test_chronos_default_scales_respect_loaded_model_context():
     with tempfile.TemporaryDirectory() as tmp, patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-        input_plan, "stop_container_session"
+        input_plan, "stop_service_session"
     ), patch.object(input_plan, "_request_scale_meta", return_value={
         "input_scale_type": "context_length", "max_effective_input_scale": 512,
         "reason": "model context length",

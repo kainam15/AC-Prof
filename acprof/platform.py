@@ -51,7 +51,8 @@ class Environment:
 
     @property
     def collection_tier(self) -> str:
-        return {"native_linux": "full", "wsl2": "partial"}.get(self.environment, "unknown")
+        return {"native_linux": "full", "wsl2": "partial", "vm": "partial",
+                "cloud": "partial", "container_host": "partial"}.get(self.environment, "unknown")
 
     @property
     def label(self) -> str:
@@ -92,7 +93,7 @@ def detect_environment(*, system=None, release=None, version=None, machine=None,
                        environ=None, read_text=None, exists=None) -> Environment:
     """Recognize WSL2, including custom kernels; ambiguous WSL1 stays unknown.
 
-    VM/cloud values are reserved, not guessed from hostnames or CPU models.
+    VM identity uses local hypervisor evidence, never cloud-provider capability assumptions.
     Containers never gain native identity from their Linux kernel alone.
     """
     system = platform.system() if system is None else system
@@ -125,8 +126,14 @@ def detect_environment(*, system=None, release=None, version=None, machine=None,
             kind = "wsl2" if wsl["generation"] == 2 else "unknown"
             evidence.append("wsl_signals")
         else:
-            kind = "native_linux"
-            evidence.append("linux_without_wsl_or_container_signals")
+            hypervisor = read_text("/sys/hypervisor/type")
+            cpu_flags = read_text("/proc/cpuinfo")
+            if hypervisor or any("hypervisor" in line.split() for line in cpu_flags.splitlines() if line.startswith(("flags", "Features"))):
+                kind = "vm"
+                evidence.append("hypervisor:" + (hypervisor or "cpu_flag"))
+            else:
+                kind = "native_linux"
+                evidence.append("linux_without_wsl_or_container_signals")
         if exists("/.dockerenv") or exists("/run/.containerenv") or environ.get("container"):
             kind = "container_host"
             evidence.append("container")
@@ -140,8 +147,9 @@ def recorded_identity(payload: Mapping) -> dict:
     kind = raw.get("environment", "unknown")
     if not isinstance(kind, str):
         return Environment().metadata()
-    tier = {"native_linux": "full", "wsl2": "partial"}.get(kind, "unknown")
-    known = (kind in {"native_linux", "wsl2"}
+    tier = {"native_linux": "full", "wsl2": "partial", "vm": "partial",
+            "cloud": "partial", "container_host": "partial"}.get(kind, "unknown")
+    known = (kind in {"native_linux", "wsl2", "vm", "cloud", "container_host"}
              and raw.get("native") is (kind == "native_linux")
              and payload.get("comparability_class") == kind
              and payload.get("collection_tier") == tier
@@ -165,7 +173,7 @@ def capability_matrix(environment: Environment) -> dict[str, str]:
     names = (*_PORTABLE, *_GUEST, *_NATIVE_ONLY, *_PROFILERS)
     if environment.native:
         return dict.fromkeys(names, SupportStatus.SUPPORTED.value)
-    if environment.environment == "wsl2":
+    if environment.environment in {"wsl2", "vm", "cloud", "container_host"}:
         return {**dict.fromkeys(_PORTABLE, "supported"), **dict.fromkeys(_GUEST, "partial"),
                 **dict.fromkeys(_NATIVE_ONLY, "unsupported"),
                 **dict.fromkeys(_PROFILERS, "requires_native_validation")}
@@ -184,12 +192,12 @@ def collection_policy_error(environment: Environment, *, profiling_mode="basic",
                             compute_tool="none", execution_tool="none", dram_energy="auto") -> str:
     if environment.native:
         return ""
-    if environment.environment != "wsl2":
+    if environment.environment not in {"wsl2", "vm", "cloud", "container_host"}:
         return f"Unsupported collection environment: {environment.label}; use Native Linux or WSL2."
     if (profiling_mode != "basic" or compute_tool != "none" or execution_tool != "none"
             or dram_energy == "required"):
-        return ("WSL2 / PARTIAL: RAPL, DRAM energy, PMU/perf, packet and independent profilers "
-                "are not enabled for WSL collection. Use --profiling-mode basic "
+        return (f"{environment.label}: RAPL, DRAM energy, PMU/perf, packet and independent profilers "
+                "are not enabled for this environment. Use --profiling-mode basic "
                 "--compute-profile-tool none --execution-profile-tool none --dram-energy off, "
                 "or run on Native Linux. No hardware fallback is permitted.")
     return ""

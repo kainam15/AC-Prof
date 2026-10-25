@@ -56,7 +56,7 @@ def test_summary_keeps_input_scales_separate_and_single_windows_insufficient():
 
 def test_unrequested_rapl_is_not_a_pass():
     with patch("acprof.tui.diagnostics.shutil.which", return_value=None):
-        checks = quick_preflight(RunConfig.smoke("demo/model"))
+        checks = quick_preflight(replace(RunConfig.smoke("demo/model"), runtime="docker"))
     rapl = next(check for check in checks if check.label == "CPU RAPL")
     assert (rapl.status) == ("not_requested")
 

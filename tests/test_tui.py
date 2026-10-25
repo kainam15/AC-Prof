@@ -428,8 +428,8 @@ class TestTuiApp:
             app.query_one("#run-preset", Select).value = "main"
             await pilot.pause(0.1)
             preset_preview = str(app.query_one("#command-preview", Static).render())
-            assert (app.query_one("#cpus", Input).value) == ("1,2,4,8")
-            assert ("--cpus 1,2,4,8") in (preset_preview)
+            assert (app.query_one("#cpus", Input).value) == ("auto")
+            assert ("--cpus auto") in (preset_preview)
             assert ("--compute-profile-tool none") in (preset_preview)
 
             app.experiments.request_probe()

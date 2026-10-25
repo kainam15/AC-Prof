@@ -47,7 +47,9 @@ def input_unit(config: RunConfig, planned: dict | None = None) -> str:
 
 
 def estimate_run(config: RunConfig, planned: dict | None = None) -> RunEstimate:
-    cases = len(config.cpus.split(",")) * len(config.mems.split(",")) * len(config.gpus.split(","))
+    from acprof.application.resources import resource_matrix
+    cpus, mems, gpus = resource_matrix(config.to_namespace())
+    cases = len(cpus) * len(mems) * len(gpus)
     scales = len(planned["scales"]) if planned and planned.get("scales") else (
         len({float(value) for value in config.input_scales.split(",")}) if config.input_scales else
         1 if config.input_scale_policy == "minimal" else None)
@@ -80,7 +82,7 @@ def plan_summary(config: RunConfig, planned: dict | None = None) -> str:
         duration = f"{estimate.estimated_seconds:g} s"
     assumption = message_id('ui.0639') if config.repeat_in_window else message_id('ui.0640', config.repeat_window_seconds)
     budget = config.max_download or os.environ.get("ACPROF_MAX_DOWNLOAD", "") or message_id('ui.0642')
-    return join_messages("\n", (counts, per_condition,
+    return join_messages("\n", (message_id('ui.2007', config.runtime), counts, per_condition,
                                message_id('ui.0641', duration, assumption),
                                message_id('ui.0643', budget)))
 

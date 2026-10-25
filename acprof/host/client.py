@@ -144,7 +144,7 @@ class ClientRunner:
         )
 
     def _cold_start_row_metrics(self) -> dict[str, str]:
-        return {
+        result = {
             "cold_start_started_at": self.config.cold_start_started_at or "nan",
             "cold_start_ready_at": self.config.cold_start_ready_at or "nan",
             "cold_start_container_launch_s": self.config.cold_start_container_launch_s or "nan",
@@ -155,6 +155,7 @@ class ClientRunner:
             "cold_start_first_predict_app_s": _fmt_float(self.first_predict_app_s),
             "cold_start_s": self.config.cold_start_s or "nan",
         }
+        return dict.fromkeys(result, "nan") if self.config.runtime_kind == "process" else result
 
     def _write_client_error_sidecar(self, exc: RequestTimeoutAbort) -> None:
         payload = {
@@ -335,9 +336,9 @@ class ClientRunner:
             self.input_scale_entries = self._load_input_scale_entries()
         self.first_predict_app_s = float("nan")
 
-        if self.config.profiling_mode == "basic" and self.resource_usage_mod is None:
+        if self.config.runtime_kind == "docker" and self.config.profiling_mode == "basic" and self.resource_usage_mod is None:
             raise RuntimeError("basic profiling requires the container CPU and memory collector")
-        if self.config.gpu_mode == "on" and not self.config.gpu_device_uuid:
+        if self.config.runtime_kind == "docker" and self.config.gpu_mode == "on" and not self.config.gpu_device_uuid:
             raise RuntimeError("GPU_DEVICE_UUID is required: launch the client through the AC-Prof orchestrator")
 
         if measurement_requested(self.config.profiling_mode, "gpu_power", gpu=self.use_energy) and self.energy_mod is None:
@@ -354,12 +355,19 @@ class ClientRunner:
         execution_profiles = ExecutionProfileResolver(_load_execution_profile_plan(
             self.config.execution_profile_plan_file
         ))
+        resource_factory = self.resource_usage_mod.ResourceUsageMonitor if self.resource_usage_mod is not None else None
+        if self.config.runtime_kind == "process":
+            from functools import partial
+
+            from acprof.monitors.process_usage import ProcessUsageMonitor
+            resource_factory = partial(ProcessUsageMonitor, pid=self.config.process_pid,
+                                       start_ticks=self.config.process_start_ticks)
         windows = WindowExecutor(
             self.config,
             MonitorDependencies(
                 gpu=self.energy_mod.GPUEnergyMonitor if self.energy_mod is not None else None,
                 cpu=self.cpu_energy_mod.CPUEnergyMonitor if self.cpu_energy_mod is not None else None,
-                resource=self.resource_usage_mod.ResourceUsageMonitor if self.resource_usage_mod is not None else None,
+                resource=resource_factory,
                 instructions=self.perf_mips_mod.PerfMIPSMonitor if self.perf_mips_mod is not None else None,
             ),
             one_request=self._one_request,

@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from acprof.artifact_layout import ArtifactLayout
+from acprof.artifact_layout import ArtifactLayout, resource_case_id
 from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import (
@@ -28,15 +28,7 @@ from acprof.config import (
     SERVER_PORT,
 )
 from acprof.host import command as host_command
-from acprof.host.container_lifecycle import ContainerCleanupError
-from acprof.host.container_state import container_runtime_oom_error
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import (
-    cold_start_client_env,
-    service_port,
-    start_container_session,
-    stop_container_session,
-)
 from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.images.identity import model_token
@@ -59,13 +51,25 @@ from acprof.host.measurement.energy_validation import (
 )
 from acprof.host.measurement.packet_processing import postprocessing_timeout, run_packet_command
 from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
+from acprof.host.runtimes.contracts import (
+    RuntimeCleanupError,
+    ServiceSession,
+    runtime_identity,
+    runtime_kind,
+)
+from acprof.host.runtimes.service import (
+    bind_session,
+    client_environment,
+    service_failure,
+    start_service_session,
+    stop_service_session,
+)
 from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
 from acprof.progress_events import emit_event, measurement_boundary
 
 if TYPE_CHECKING:
-    from acprof.host.docker_runtime import RunningContainer
     from acprof.host.run_state import RunState
 
 _LOG = logging.getLogger(__name__)
@@ -239,7 +243,7 @@ class _CaseExecution:
         self.out_csv = str(self.case.csv)
         self.case_name = (
             f"case_{model_token(request.task_info.model_id)}_"
-            f"{request.cpu}c_{request.mem}g_{request.gpu}"
+            f"{self.case.case_id}"
         )
         self.require_packet_latency = measurement.require_packet_latency and measurement_requested(
             measurement.profiling_mode, "packet_latency"
@@ -264,20 +268,19 @@ class _CaseExecution:
         )
         print(f"\n{'='*60}")
         print(f"[case] {self.case_name}")
-        print(f"  CPU={self.request.cpu}, MEM={self.request.mem}GB, GPU={self.request.gpu}")
-        print(f"  Port: {service_port(self.request.cpu, self.request.mem)}")
+        print(f"  Resources={self.case.case_id}")
         print(f"{'='*60}")
         try:
             os.remove(self.case.sidecar("client_error"))
         except FileNotFoundError:
             pass
         emit_event("case_started", self.case_name)
-        session = self._start_container()
+        session = self._start_service()
         if session is None:
             return self.out_csv
         try:
             if self.run_state is not None:
-                self.run_state.bind_case_container(self.out_csv, session.container_id)
+                bind_session(self.run_state, self.out_csv, session)
             record_case_conditions(
                 self.request.output_dir, self.case.case_id, session,
                 cpuset_cpus=self.request.cpuset_cpus,
@@ -302,23 +305,24 @@ class _CaseExecution:
         print(f"[case] Done. Output: {self.out_csv}")
         return self.out_csv
 
-    def _start_container(self) -> RunningContainer | None:
+    def _start_service(self) -> ServiceSession | None:
         try:
-            return start_container_session(
+            return start_service_session(
                 task_info=self.request.task_info,
                 cpu=self.request.cpu, mem=self.request.mem, gpu=self.request.gpu,
                 image_info=self.request.image_info, container_name=self.case_name,
                 log_prefix="[case]", request_timeout_seconds=self.workload.request_timeout_seconds,
                 cpuset_cpus=self.request.cpuset_cpus,
             )
-        except ContainerCleanupError as exc:
+        except RuntimeCleanupError as exc:
             from acprof.artifacts import atomic_write_json
 
             atomic_write_json(self.case.sidecar("cleanup_error"), exc.to_dict())
             emit_event("case_finished", self.case_name, status="error")
             raise
-        except RuntimeError as exc:
-            error = f"container_start_failed: {exc}"
+        except (RuntimeError, OSError) as exc:
+            kind = "process" if runtime_kind(self.request.image_info) == "process" else "container"
+            error = f"{kind}_start_failed: {exc}"
             print(f"[case] {error}", file=sys.stderr)
             self._write_error(error)
             emit_event("case_finished", self.case_name, status="error")
@@ -357,7 +361,7 @@ class _CaseExecution:
             print(f"[sniff] packet_latency=not_requested (profiling_mode={self.measurement.profiling_mode})")
         return runtime
 
-    def _client_environment(self, session: RunningContainer) -> dict[str, str]:
+    def _client_environment(self, session: ServiceSession) -> dict[str, str]:
         request, workload, measurement, plans = self.request, self.workload, self.measurement, self.plans
         task_info = request.task_info
         scales = plans.input_scales or serialize_input_scales(
@@ -371,14 +375,14 @@ class _CaseExecution:
             "TASK_FAMILY": task_info.task_family,
             "PIPELINE_TAG": task_info.pipeline_tag,
             "RUNTIME_BACKEND": task_info.runtime_backend,
-            "IMAGE_TAG": request.image_info.tag,
-            "CPU_CORES": str(request.cpu), "MEM_CAP_GB": str(request.mem), "GPU_MODE": request.gpu,
+            "IMAGE_TAG": runtime_identity(request.image_info),
+            "CPU_CORES": str(request.cpu) if request.cpu is not None else "nan", "MEM_CAP_GB": str(request.mem) if request.mem is not None else "nan", "GPU_MODE": request.gpu,
             "BASE_URL": session.base_url, "ENDPOINT": "/predict",
             "BATCH_SIZE": str(workload.batch_size), "WARMUP": str(workload.warmup),
             "REPEAT": str(workload.repeat), "REPEAT_IN_WINDOW": str(workload.repeat_in_window),
             "REPEAT_WINDOW_SECONDS": str(workload.repeat_window_seconds),
             "REQUEST_TIMEOUT_SECONDS": f"{workload.request_timeout_seconds:g}",
-            **cold_start_client_env(session),
+            **client_environment(session),
             "OUT_CSV": self.out_csv, "CASE_NAME": self.case_name, "CONTAINER_NAME": session.name,
             "USE_MIPS": "1" if measurement_requested(measurement.profiling_mode, "cpu_instructions") else "0",
             "PROFILING_MODE": measurement.profiling_mode, "DRAM_ENERGY": measurement.dram_energy,
@@ -406,7 +410,7 @@ class _CaseExecution:
         environment.pop("ACPROF_WECOM_WEBHOOK_URL", None)
         return environment
 
-    def _run_client(self, session: RunningContainer) -> _ClientOutcome:
+    def _run_client(self, session: ServiceSession) -> _ClientOutcome:
         print("[case] Running workload...")
         environment = self._client_environment(session)
         with measurement_boundary(self.case_name):
@@ -422,14 +426,14 @@ class _CaseExecution:
             outcome = _ClientOutcome(True, completed, "client readiness failed")
         return outcome
 
-    def _client_failure(self, session: RunningContainer, returncode: int) -> _ClientOutcome:
-        oom = container_runtime_oom_error(session.name, self.request.mem, returncode)
-        if oom is not None:
+    def _client_failure(self, session: ServiceSession, returncode: int) -> _ClientOutcome:
+        oom = service_failure(session, self.request.mem, returncode)
+        if oom:
             print(f"[case][WARN] {oom}", file=sys.stderr)
             completed, _ = self._write_error(
                 oom, preserve_existing=True, annotate_existing_error_rows=True,
             )
-            return _ClientOutcome(True, completed, "runtime OOM")
+            return _ClientOutcome(True, completed, "runtime OOM" if oom.startswith("runtime_oom") else "runtime exit")
         if returncode == CLIENT_REQUEST_TIMEOUT_EXIT_CODE:
             context = _load_client_error_context(str(self.case.sidecar("client_error")))
             context.setdefault("request_timeout_s", self.workload.request_timeout_seconds)
@@ -473,16 +477,17 @@ class _CaseExecution:
             preserve_existing=preserve_existing,
             annotate_existing_error_rows=annotate_existing_error_rows,
             timeout_context=timeout_context,
+            execution_kind=runtime_kind(self.request.image_info), runtime_id=runtime_identity(self.request.image_info),
         )
 
     def _checkpoint_measurement(
-        self, session: RunningContainer, outcome: _ClientOutcome, capture_available: bool,
+        self, session: ServiceSession, outcome: _ClientOutcome, capture_available: bool,
     ) -> None:
         if self.run_state is None:
             return
         self.run_state.checkpoint_measurement(
             self.out_csv, self.request.cpu, self.request.mem, self.request.gpu,
-            container_id=session.container_id,
+            container_id=getattr(session, "container_id", ""),
             processing={
                 "capture_available": capture_available, "case_incomplete": outcome.incomplete,
                 "completed_rows_before_failure": outcome.completed_rows,
@@ -509,13 +514,13 @@ class _CaseExecution:
                 self.run_state.record_case_processing(self.out_csv, "failed")
             raise
 
-    def _cleanup(self, session: RunningContainer, run_error: BaseException | None) -> None:
+    def _cleanup(self, session: ServiceSession, run_error: BaseException | None) -> None:
         try:
             try:
                 if self.capture is not None and self.capture.poll() is None:
                     _stop_capture(self.capture)
             finally:
-                stop_container_session(session, log_prefix="[case]")
+                stop_service_session(session, log_prefix="[case]")
                 if self.run_state is not None:
                     self.run_state.record_case_cleanup(self.out_csv, "complete")
         except BaseException as exc:
@@ -523,7 +528,7 @@ class _CaseExecution:
             self.status = "error"
             if self.run_state is not None:
                 self.run_state.record_case_cleanup(self.out_csv, "failed")
-            if isinstance(exc, ContainerCleanupError):
+            if isinstance(exc, RuntimeCleanupError):
                 from acprof.artifacts import atomic_write_json
 
                 exc.run_error = run_error or exc.run_error
@@ -706,6 +711,7 @@ def _write_case_error_csv(
     annotate_existing_error_rows: bool = False,
     timeout_context: dict[str, Any] | None = None,
     result_origin: str = "formal_attempt",
+    execution_kind: str = "docker", runtime_id: str = "",
 ) -> tuple[int, int]:
     """Write missing error rows and return successful-preserved/added counts."""
     if not str(error or "").strip():
@@ -719,9 +725,10 @@ def _write_case_error_csv(
     def make_row(scale: float, repeat_idx: int, is_warmup: bool) -> dict[str, Any]:
         row = {field: "nan" for field in CSV_FIELDS}
         row.update({
-            "environment_class": environment_class,
-            "cpu_cores": str(cpu),
-            "mem_cap_gb": str(mem),
+            "environment_class": environment_class, "runtime_kind": execution_kind, "runtime_id": runtime_id,
+            "resource_scope": "observed_process_tree" if execution_kind == "process" else "container_cgroup",
+            "cpu_cores": "nan" if cpu is None else str(cpu),
+            "mem_cap_gb": "nan" if mem is None else str(mem),
             "gpu_mode": gpu,
             "input_scale": _format_scale_value(scale),
             "task_param": "",
@@ -1043,6 +1050,8 @@ def run_matrix(
     if request_timeout_seconds <= 0 or not math.isfinite(request_timeout_seconds):
         raise ValueError("request_timeout_seconds must be a finite value > 0")
     os.makedirs(output_dir, exist_ok=True)
+    if runtime_kind(image_info) == "process":
+        prune_startup_oom = False
     scales = resolve_input_scales(task_info.task_family, input_scales)
     identity = matrix_identity(task_info, image_info, cpu_list, mem_list, gpu_list, scales,
                                order=matrix_order, seed=matrix_seed, prune=prune_startup_oom,
@@ -1075,10 +1084,10 @@ def run_matrix(
     total = len(plan["cases"])
     for current, case in enumerate(plan["cases"], 1):
         cpu, mem, gpu = case["cpu_cores"], case["mem_cap_gb"], case["gpu_mode"]
-        case_name = f"case_{model_token(task_info.model_id)}_{cpu}c_{mem}g_{gpu}"
+        case_name = f"case_{model_token(task_info.model_id)}_{resource_case_id(cpu, mem, gpu)}"
         emit_event("case_selected", case_name, current=current, total=total, cpu=cpu, mem=mem, gpu=gpu)
-        print(f"[matrix] Case {current}/{total}: CPU={cpu}, MEM={mem}GB, GPU={gpu}")
-        filename = f"result_case_{model_token(task_info.model_id)}_{cpu}c_{mem}g_{gpu}.csv"
+        print(f"[matrix] Case {current}/{total}: {resource_case_id(cpu, mem, gpu)}")
+        filename = f"result_case_{model_token(task_info.model_id)}_{layout.case(task_info.model_id, cpu, mem, gpu).case_id}.csv"
         cached_case = run_state.prepare_case(filename, cpu, mem, gpu) if run_state else None
         if cached_case:
             csv_path = cached_case

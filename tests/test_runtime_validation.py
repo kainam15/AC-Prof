@@ -406,8 +406,9 @@ class TestRuntimeValidation:
                 'acprof run', '--model', self.task().model_id, '--cpus', '1', '--mems', '8',
                 '--gpus', 'off,on', '--input-scales', '1', '--notify', 'none', '--output-dir', temporary,
             ]))
+            stack.enter_context(patch('acprof.host.preflight.require_native_docker'))
             for name in (
-                'bootstrap_project_env', 'require_collection_host', 'require_native_docker',
+                'bootstrap_project_env', 'require_collection_host',
                 'require_packet_latency_prerequisites', 'require_cpu_energy_prerequisites',
                 'require_mips_prerequisites',
             ):

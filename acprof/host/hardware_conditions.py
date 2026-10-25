@@ -37,11 +37,23 @@ def observe_conditions(session) -> dict:
     record["host_id"] = hashlib.sha256(machine_id.encode()).hexdigest() if machine_id else None
     cpuinfo = _read("/proc/cpuinfo") or ""
     record["cpu_model"] = sorted(set(re.findall(r"^model name\s*:\s*(.+)$", cpuinfo, re.M))) or None
-    if not re.fullmatch(r"[0-9a-f]{64}", str(getattr(session, "container_id", ""))):
-        return {**record, "errors": ["container identity unavailable"]}
-    raw = _run(["docker", "top", session.container_id, "-eo", "pid"])
-    try:
+    if getattr(session, "runtime_kind", "docker") == "process":
+        import psutil
+        record["runtime_kind"] = "process"
+        record["resource_plan"] = session.resource_plan
+        record["environment_sharing"] = "unknown"
+        try:
+            root = psutil.Process(session.process.pid)
+            pids = [root.pid, *(child.pid for child in root.children(recursive=True))]
+        except psutil.Error as exc:
+            pids = []
+            errors.append(f"process observation: {type(exc).__name__}: {exc}")
+    else:
+        if not re.fullmatch(r"[0-9a-f]{64}", str(getattr(session, "container_id", ""))):
+            return {**record, "errors": ["container identity unavailable"]}
+        raw = _run(["docker", "top", session.container_id, "-eo", "pid"])
         pids = [int(value.strip()) for value in (raw or "").splitlines()[1:]]
+    try:
         masks = set()
         allowed = set()
         for pid in pids:
@@ -80,7 +92,7 @@ def observe_conditions(session) -> dict:
     except (OSError, ValueError, AttributeError) as exc:
         errors.append(f"CPU affinity: {exc}")
     gpu = session.gpu_device
-    if gpu:
+    if gpu.get("uuid"):
         raw = _run(["nvidia-smi", f"--id={gpu.get('uuid', '')}",
                     "--query-gpu=driver_version,power.limit,persistence_mode", "--format=csv,noheader,nounits"])
         raw_values = next(csv.reader([raw], skipinitialspace=True), []) if raw else []

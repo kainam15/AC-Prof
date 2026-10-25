@@ -11,6 +11,7 @@ from acprof.host.env_utils import load_project_env
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="只读检查 AC-Prof 主机前置条件；不安装软件或更改权限")
+    parser.add_argument("--runtime", choices=("auto", "docker", "process"), default="auto")
     parser.add_argument("--profiling-mode", choices=("basic", "full"), default="full")
     parser.add_argument("--gpus", choices=("off", "on"), default="off")
     parser.add_argument("--sniff-iface", default="docker0")
@@ -23,8 +24,13 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         checks.append(DoctorCheck("environment", "unavailable", str(exc),
                                   "删除旧密码配置，按 docs/getting_started/installation.md#最小权限安装配置权限。"))
-    checks.extend(collect_checks(profiling_mode=args.profiling_mode, gpus=args.gpus,
-                                sniff_iface=args.sniff_iface, output_dir=args.output_dir))
+    from acprof.host.run_state import MeasurementLock, RunStateError
+    try:
+        with MeasurementLock():
+            checks.extend(collect_checks(runtime=args.runtime, profiling_mode=args.profiling_mode, gpus=args.gpus,
+                                        sniff_iface=args.sniff_iface, output_dir=args.output_dir))
+    except RunStateError as exc:
+        checks.append(DoctorCheck("measurement_lock", "unavailable", str(exc)))
     report = report_dict(checks, profiling_mode=args.profiling_mode, gpus=args.gpus)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -33,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         name = {"wsl2": "WSL2", "native_linux": "Native Linux"}.get(
             report["platform"]["environment"], report["platform"]["environment"])
         print(f"Environment       {name}")
+        print(f"Runtime           {report['runtime_kind']}")
         print(f"Collection tier   {report['collection_tier'].upper()}")
         print(f"Native benchmark  {'YES' if report['native_benchmark'] else 'NO'}")
         for name, support in report["metric_support"].items():

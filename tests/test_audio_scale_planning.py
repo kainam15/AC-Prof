@@ -17,7 +17,7 @@ class TestAudioScalePlanning:
     def _plan(self, task, constraints, directory):
         info = TaskInfo("example/audio", task, "audio", "transformers_model", "transformers", "fixed", "unit")
         with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="audio-probe")), patch.object(
-            input_plan, "stop_container_session"
+            input_plan, "stop_service_session"
         ), patch.object(input_plan, "_request_scale_meta", return_value=constraints), patch.object(
             input_plan, "_post_probe_payload", return_value={"effective_input_scale": 1.0, "truncated_by_limit": False, "reason": "valid waveform"}
         ):

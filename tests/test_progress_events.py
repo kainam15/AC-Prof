@@ -59,11 +59,11 @@ def test_case_cleanup_failure_cannot_emit_success():
     task = TaskInfo("fixture/model", "tabular-classification", "structured", "onnxruntime", "onnx", "abc", "manual")
     session = RunningContainer("fixture", "http://127.0.0.1:8002", 8002, 1, container_id="a" * 64)
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-        for name, result in (("start_container_session", session), ("record_case_conditions", None),
+        for name, result in (("start_service_session", session), ("record_case_conditions", None),
                              ("_finalize_case", None)):
             stack.enter_context(patch.object(orchestrator, name, return_value=result))
         stack.enter_context(patch("acprof.host.command.run_command", return_value=SimpleNamespace(returncode=0)))
-        stack.enter_context(patch.object(orchestrator, "stop_container_session", side_effect=RuntimeError("cleanup failed")))
+        stack.enter_context(patch.object(orchestrator, "stop_service_session", side_effect=RuntimeError("cleanup failed")))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         with pytest.raises(RuntimeError, match="cleanup failed"):
             orchestrator.run_single_case(
@@ -102,8 +102,8 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
         Path(kwargs["env"]["OUT_CSV"]).write_text("status,error\nerror,predict failed\n")
         return SimpleNamespace(returncode=0)
     with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-        for name, result in (("start_container_session", session), ("record_case_conditions", None),
-                             ("stop_container_session", None), ("_finalize_case", None)):
+        for name, result in (("start_service_session", session), ("record_case_conditions", None),
+                             ("stop_service_session", None), ("_finalize_case", None)):
             stack.enter_context(patch.object(orchestrator, name, return_value=result))
         stack.enter_context(patch("acprof.host.command.run_command", side_effect=failed_client))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))

@@ -24,18 +24,22 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
         raise ValueError("matrix order must be seeded/declared and seed must be an integer")
     if any(not values or len(set(values)) != len(values) for values in (cpus, mems, gpus, scales)):
         raise ValueError("matrix resource and scale lists must be non-empty and unique")
-    if any(type(value) is not int or value <= 0 for value in [*cpus, *mems]):
+    from acprof.host.runtimes.contracts import runtime_kind
+    if any((type(value) is not int or value <= 0) and not (value is None and runtime_kind(image) == "process")
+           for value in [*cpus, *mems]):
         raise ValueError("matrix CPUs and memory must be positive integers")
     if any(gpu not in {"off", "on"} for gpu in gpus):
         raise ValueError("matrix GPU modes must be off/on")
     if any(not math.isfinite(scale) or scale <= 0 for scale in scales):
         raise ValueError("matrix input scales must be finite and positive")
     from acprof.cpu_affinity import normalize_cpu_set
+    from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     return {**({"cpuset_cpus": cpuset_cpus} if cpuset_cpus else {}),
             **({"model_source": task.model_source} if getattr(task, "model_source", "huggingface") != "huggingface" else {}),
             "model_id": task.model_id, "model_revision": task.model_revision,
-            "image_id": image.tag, "cpus": list(cpus), "mems": list(mems),
+            **({"runtime_kind": "process"} if runtime_kind(image) == "process" else {}),
+            "image_id": runtime_identity(image), "cpus": list(cpus), "mems": list(mems),
             "gpus": list(gpus), "input_scales": list(scales), "order": order,
             "seed": seed, "prune_startup_oom": prune,
             "input_plan_sha256": hashlib.sha256(Path(input_plan_file).read_bytes()).hexdigest()

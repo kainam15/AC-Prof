@@ -64,7 +64,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
                      workflow=None, project_dir: str, notices: RunNotifications) -> PreparedRuntime:
     """Build or restore the runtime and persist evidence before the matrix."""
     from acprof.host.collection_workflow import PreparationWorkflow
-    from acprof.host.images.runtime import prepare_image
+    from acprof.host.runtimes.service import execution_runtime
+    runtime = execution_runtime(getattr(args, "runtime", "docker"))
     from acprof.host.input_plan import input_plan_summary, plan_input_scales
     workflow = workflow or PreparationWorkflow()
     from acprof.host.static_metadata import (
@@ -84,6 +85,8 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
     if run_state.ready:
         (task_info, image_info, planned_input_scales, compute_profile_plan_file,
          execution_profile_plan_file) = run_state.restore_runtime()
+        if getattr(args, "runtime", "docker") == "process":
+            image_info.runtime_environment["logs_dir"] = str(Path(output_dir).absolute() / "logs")
         workflow.emit("input", "passed", input_plan=input_plan_summary(task_info, planned_input_scales))
         notices.update_plan(model_id=task_info.model_id, output_dir=output_dir,
                                       total_cases=total_cases)
@@ -102,18 +105,18 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
     else:
         task_info.model_download_policy = args.model_download_policy
         from acprof.host.images.runtime import configure_runtime_profile
-        from acprof.host.interface_probe import probe_interface
         workflow.run("interface", configure_runtime_profile, task_info)
-        workflow.run("interface", probe_interface, task_info, output_dir,
-                     timeout_seconds=args.request_timeout_seconds)
         try:
-            image_info = workflow.run("image", prepare_image,
-                task_info, project_dir, reuse_existing=not (args.rebuild_image or workflow.rebuild_environment),
+            image_info = workflow.run("image", runtime.prepare,
+                task_info, project_dir, output_dir, rebuild=(args.rebuild_image or workflow.rebuild_environment),
+                timeout_seconds=args.request_timeout_seconds,
             )
         except (RuntimeError, OSError) as exc:
             print(f"\n[build][ERROR] {exc}", file=sys.stderr)
             raise CollectionFailed(str(exc)) from exc
 
+        if args.runtime == "process":
+            image_info.runtime_environment["gpu_device"] = getattr(args, "process_gpu", {})
         os.makedirs(output_dir, exist_ok=True)
         if task_info.model_resolution:
             from acprof.model_contract import write_model_resolution
@@ -133,7 +136,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             compute_profile_enabled=not compute_profile_disabled,
             execution_profile_enabled=args.execution_profile_tool != "none",
             profiling_mode=args.profiling_mode,
-            gpu_device=selected_gpu_device(),
+            gpu_device=getattr(args, "process_gpu", {}) if args.runtime == "process" else selected_gpu_device(),
         )
         capability_report = measurement_report(
             args.profiling_mode, gpu_modes=gpu_list, compute_tool=args.compute_profile_tool,
@@ -141,11 +144,22 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             dram_energy=args.dram_energy,
             rapl_topology=rapl_topology,
         )
+        collection_plan = {}
+        resource_allocation = {}
+        if args.runtime == "process":
+            from acprof.host.runtimes.capabilities import apply_process_plan, probe_collection_plan
+            from acprof.host.runtimes.resources import inherited_resources
+            collection_plan = probe_collection_plan("process", gpu=getattr(args, "process_gpu", {}),
+                                                    profiling_mode=args.profiling_mode)
+            resource_allocation = inherited_resources()
+            apply_process_plan(capability_report, collection_plan)
         capability_report.measurement.update({name: item for name, item in preflight_measurements.items() if isinstance(item, Capability)})
         from acprof.extensions import select_extension
         apply_extension(capability_report, select_extension(task_info))
         static_meta = enrich_static_meta(static_meta, {
             "capability_report": capability_report.to_dict(), "latency_slo": latency_slo,
+            "runtime_selection": getattr(args, "runtime_selection", {}),
+            "resource_allocation": resource_allocation, "collection_plan": collection_plan,
         })
         write_static_meta_json(static_meta, static_meta_json)
         write_collection_history_json(
@@ -179,11 +193,10 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
         )
         write_static_meta_json(static_meta, static_meta_json)
         compute_profile_plan_file = ""
-        from acprof.host.runtime_validation import validate_runtime
         from acprof.host.static_metadata import enrich_static_meta
         def validate_selected_runtime():
             try:
-                report = validate_runtime(
+                report = runtime.validate(
                     task_info=task_info, image_info=image_info, planned=planned_input_scales,
                     cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list, output_dir=output_dir,
                     timeout_seconds=args.request_timeout_seconds,

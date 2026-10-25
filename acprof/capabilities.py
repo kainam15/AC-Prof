@@ -305,6 +305,8 @@ def apply_profiler_plan(report: CapabilityReport, plan: Mapping, *, source: str)
 
 REQUIRED_MEASUREMENT_FIELDS = {
     "dram_energy": ("dram_window_energy_j", "dram_energy_per_request_j", "dram_window_effective_energy_j"),
+    "process_cpu": ("process_cpu_time_s", "process_cpu_util_avg_pct"),
+    "process_memory": ("process_rss_avg_bytes", "process_rss_peak_bytes"),
     "latency": ("latency_app_s",), "throughput": ("throughput_samples_per_s",),
     "container_cpu": ("container_cpu_util_avg_pct",), "container_memory": ("container_mem_usage_avg_bytes",),
     "packet_latency": ("latency_s",), "cpu_energy": ("cpu_energy_total_j", "vcpu_energy_total_j"),
@@ -368,14 +370,16 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
                                               for row in relevant for metric in metrics)
         except (ValueError, TypeError):
             verified = False
-        report.measurement[name] = Capability("verified" if verified else "unavailable",
+        status = next((candidate for candidate in ("permission_denied", "unsupported", "error", "unavailable")
+                       if any(row.get(name + "_status") == candidate for row in relevant)), CapabilityStatus(item.status).value)
+        report.measurement[name] = Capability("verified" if verified else status if status != "available" else "unavailable",
                                               "" if verified else "NVML query has no complete finite evidence",
                                               "result_layers.json", {"fields": list(metrics)})
     for name, metrics in REQUIRED_MEASUREMENT_FIELDS.items():
         if report.metric_support.get(name) == "unsupported":
             continue
         if name not in report.requested and not (
-            name == "dram_energy" and name in report.measurement
+            name in {"dram_energy", "process_cpu", "process_memory"} and name in report.measurement
             and report.measurement[name].status != CapabilityStatus.NOT_REQUESTED
         ):
             continue
@@ -389,12 +393,13 @@ def apply_collection_result(report: CapabilityReport, rows: Sequence[Mapping]) -
         if relevant and all(finite(row) for row in relevant):
             report.measurement[name] = Capability("verified", source="result_layers.json", evidence={"fields": list(metrics), "rows": len(relevant)})
         else:
-            if name == "dram_energy":
-                statuses = {row.get("dram_energy_status") for row in relevant}
-                status = next((candidate for candidate in ("permission_denied", "error", "unavailable")
+            if name in {"dram_energy", "process_cpu", "process_memory"}:
+                prefix = "process_resource" if name.startswith("process_") else "dram_energy"
+                statuses = {row.get(prefix + "_status") for row in relevant}
+                status = next((candidate for candidate in ("permission_denied", "unsupported", "error", "unavailable")
                                if candidate in statuses), "unavailable")
-                detail = "; ".join(sorted({str(row.get("dram_energy_error") or "") for row in relevant}))
-                report.measurement[name] = Capability(status, detail or "no complete DRAM window evidence",
+                detail = "; ".join(sorted({str(row.get(prefix + "_error") or "") for row in relevant}))
+                report.measurement[name] = Capability(status, detail or "no complete finite window evidence",
                                                       "result_layers.json", {"fields": list(metrics)})
                 continue
             errors = "; ".join(str(row.get("error") or "") for row in rows if row.get("status") == "error")

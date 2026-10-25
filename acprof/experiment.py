@@ -201,17 +201,23 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("model", message('模型 ID 不能为空')))
 
         try:
-            cpus = _positive_int_csv(self.cpus, message('CPU 列表'), "cpus")
+            cpus = [] if self.cpus == "auto" else _positive_int_csv(self.cpus, message('CPU 列表'), "cpus")
         except RunConfigError as exc:
             errors.extend(exc.issues)
             cpus = []
         try:
-            mems = _positive_int_csv(self.mems, message('内存列表'), "mems")
+            mems = [] if self.mems == "auto" else _positive_int_csv(self.mems, message('内存列表'), "mems")
         except RunConfigError as exc:
             errors.extend(exc.issues)
             mems = []
 
         gpus = _csv_values(self.gpus.lower())
+        if self.runtime not in {"auto", "docker", "process"}:
+            errors.append(ConfigIssue("runtime", "Execution runtime must be auto, docker or process"))
+        if self.runtime == "process" and (self.profiling_mode != "basic"
+                or self.compute_profile_tool != "none" or self.execution_profile_tool != "none"
+                or self.extra_options.get("dram_energy") == "required"):
+            errors.append(ConfigIssue("runtime", "Process Runtime currently supports basic collection without independent profilers"))
         if not gpus:
             errors.append(ConfigIssue("gpus", message('GPU 模式不能为空')))
         elif any(item not in GPU_MODES for item in gpus):
@@ -307,9 +313,9 @@ class RunConfig(RunOptions):
             task=self.task.strip(),
             task_family=task_family,
             backend=self.backend.strip(),
-            cpus=",".join(str(value) for value in cpus),
+            cpus="auto" if self.cpus == "auto" else ",".join(str(value) for value in cpus),
             cpuset_cpus=cpuset_cpus,
-            mems=",".join(str(value) for value in mems),
+            mems="auto" if self.mems == "auto" else ",".join(str(value) for value in mems),
             gpus=",".join(gpus),
             input_scales=",".join(_csv_values(self.input_scales)),
             workload_spec=workload_spec,

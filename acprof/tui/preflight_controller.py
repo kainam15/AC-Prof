@@ -69,15 +69,19 @@ class PreflightController:
             self.download_progress(replace(self.latest_download, state="cancelled" if cancelled else "failed",
                                            rate_bytes_s=None))
 
+    @property
+    def selected_runtime(self) -> str:
+        return next((check.runtime_kind for check in self.checks if check.runtime_kind), "")
+
     def show_environment_status(self) -> None:
         lines = []
         reason = self.preflight_run_reason()
         if reason:
             lines.append(reason)
         lines.extend(message("[{0}] {1}: {2}",
-                             message("失败" if check.status == "fail" else "警告"),
+                             check.capability_status or check.status,
                              check.label, check.detail)
-                     for check in self.checks if check.status in {"warn", "fail"})
+                     for check in self.checks)
         if not lines:
             return
         self.app.push_screen(EnvironmentPreflightScreen(
@@ -193,6 +197,9 @@ class PreflightController:
         )
         return RunConfig(
             model="preflight-only",
+            runtime=self.app.configuration.select("runtime"),
+            cpus=self.app.configuration.input("cpus"), mems=self.app.configuration.input("mems"),
+            cpuset_cpus=self.app.configuration.input("cpuset-cpus"),
             profiling_mode=self.app.configuration.select("profiling-mode"),
             gpus=self.app.configuration.select("gpus"),
             sniff_iface=self.app.configuration.input("sniff-iface"),
@@ -207,11 +214,22 @@ class PreflightController:
             return message_id('ui.0599')
         if self.error:
             return message_id('ui.0600', self.error)
-        if self.preflight_config() != self.checked_config:
+        if not self.config_matches():
             return message_id('ui.0601')
         failures = [message("{0}: {1}", check.label, check.detail)
                     for check in self.checks if check.status == "fail"]
         return message_id('ui.0602', join_messages("；", failures)) if failures else ""
+
+    def config_matches(self) -> bool:
+        current, checked = self.preflight_config(), self.checked_config
+        if checked is None:
+            return False
+        if current.runtime != "process" and self.selected_runtime != "process":
+            # Docker preflight does not validate numeric matrix enforcement;
+            # form validation and the runner retain that responsibility.
+            current = replace(current, cpus="auto", mems="auto", cpuset_cpus="")
+            checked = replace(checked, cpus="auto", mems="auto", cpuset_cpus="")
+        return current == checked
 
     def allow_collection(self) -> bool:
         reason = self.preflight_run_reason()
@@ -226,16 +244,23 @@ class PreflightController:
             return
         reason = self.preflight_run_reason()
         issues = [check for check in self.checks if check.status in {"warn", "fail"}]
-        stale = self.check_completed and self.preflight_config() != self.checked_config
+        stale = self.check_completed and not self.config_matches()
         entry = self.app.query_one("#environment-status", Button)
-        entry.display = bool(issues or self.error or stale)
+        entry.display = bool(issues or self.error or stale or self.selected_runtime == "process")
         failed = bool(self.error or any(check.status == "fail" for check in issues))
-        self.app.localization.set_text(entry, "环境异常" if failed else "环境警告", "label")
-        entry.variant = "error" if failed else "warning"
+        warning = bool(issues or stale)
+        self.app.localization.set_text(entry, "环境异常" if failed else "环境警告" if warning else "环境能力", "label")
+        entry.variant = "error" if failed else "warning" if warning else "default"
         self.app.localization.set_text(entry, "查看环境问题与重新检查", "tooltip")
         detail = self.app.query_one("#preflight-run-reason", Static)
         detail.display = bool(reason)
         self.app.localization.set_text(detail, reason)
+        inherited = self.app.query_one("#process-inherited-resources", Button)
+        inherited.display = self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process"
+        probe = self.app.query_one("#probe-largest", Button)
+        if self.selected_runtime == "process" or self.app.configuration.select("runtime") == "process":
+            probe.disabled = True
+            self.app.localization.set_text(probe, "Process 请使用输入规模扫描；最小内存探测需要 Docker。", "tooltip")
         start = self.app.query_one("#start-run", Button)
         start.disabled = bool(reason) or not self.app.operation_state().allows("run")
         self.app.localization.set_text(start, reason or "开始采集", "tooltip")
@@ -289,4 +314,6 @@ class PreflightController:
         self.checks = tuple(checks)
         self.error = error
         self.app.set_busy(False)
+        if self.checked_config is not None:
+            self.app.configuration.update_plan_summary(self.checked_config)
         self.app.recovery.finish_recovery_check()

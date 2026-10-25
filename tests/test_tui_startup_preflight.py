@@ -104,7 +104,7 @@ class TestStartupPreflight:
                 # User selection still applies presets after initial events settle.
                 app.query_one("#run-preset", Select).value = "main"
                 await pilot.pause()
-                assert (app.query_one("#cpus", Input).value) == ("1,2,4,8")
+                assert (app.query_one("#cpus", Input).value) == ("auto")
                 notify.assert_called_once()
 
     async def test_error_blocks_all_launch_paths_until_retry_succeeds(self):

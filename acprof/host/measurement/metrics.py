@@ -764,6 +764,7 @@ class WindowMetrics:
         self.cpu = _nan_metrics(CPU_METRIC_FIELDS)
         self.efficiency = _nan_metrics(EFFICIENCY_METRIC_FIELDS)
         self.resource = _nan_metrics(RESOURCE_USAGE_METRIC_FIELDS)
+        self.process = _nan_metrics(row_group_fields("process_usage"))
         self.gpu_runtime: dict[str, Any] = {
             **_nan_metrics(GPU_RUNTIME_STATE_FIELDS), "gpu_pstate": "nan",
         }
@@ -794,7 +795,7 @@ class WindowMetrics:
         )):
             raise EnergyAbort("required DRAM RAPL measurement unavailable or incomplete")
         if observations.resource_result is not None:
-            if self.config.profiling_mode == "basic":
+            if self.config.profiling_mode == "basic" and self.config.runtime_kind == "docker":
                 if observations.resource_error:
                     raise RuntimeError(f"required CPU/memory measurement failed: {observations.resource_error}")
                 if not all(math.isfinite(value) for value in (
@@ -802,6 +803,8 @@ class WindowMetrics:
                     observations.resource_result.container_mem_usage_avg_bytes,
                 )):
                     raise RuntimeError("required CPU/memory measurement unavailable")
+            self.process = {name: to_float_or_nan(getattr(observations.resource_result, name, None))
+                            for name in self.process}
             self.resource = resource_usage_metrics_from_result(
                 observations.resource_result, progress.count,
             )
@@ -826,7 +829,7 @@ class WindowMetrics:
         if observations.mips_result is not None:
             self.mips = _mips_metrics_from_result(observations.mips_result)
         warnings = window_monitor_warnings(
-            resource_error=observations.resource_error,
+            resource_error=observations.resource_error if self.config.runtime_kind == "docker" else "",
             gpu_error=observations.gpu_error,
             cpu_error=observations.cpu_error,
             dram_energy=self.config.dram_energy,
@@ -881,7 +884,25 @@ class WindowMetrics:
         gpu_power_requested = measurement_requested(
             self.config.profiling_mode, "gpu_power", gpu=self.use_energy,
         )
+        plan = json.loads(self.config.resource_plan)
+        gpu_evidence = observations.collector_evidence.get("resource", {}).get("gpu", {})
+        def gpu_status(name: str, fields: tuple[str, ...]) -> str:
+            if not self.use_energy:
+                return "not_requested"
+            if all(math.isfinite(to_float_or_nan(getattr(observations.resource_result, field, None))) for field in fields):
+                return "verified"
+            status = str(gpu_evidence.get(name + "_status", gpu_evidence.get("status", "unavailable")))
+            return "unavailable" if status in {"available", "verified"} else status
         row: dict[str, Any] = {
+            "runtime_kind": self.config.runtime_kind, "runtime_id": self.config.image_tag,
+            "resource_limit_source": plan.get("method", "docker_cgroup"),
+            "resource_scope": "observed_process_tree" if self.config.runtime_kind == "process" else "container_cgroup",
+            "environment_sharing": "unknown", "gpu_metric_scope": "device" if self.use_energy else "not_requested",
+            "process_startup_s": self.config.process_startup_s,
+            "process_resource_error": observations.resource_error if self.config.runtime_kind == "process" else "",
+            "process_resource_status": getattr(observations.resource_result, "process_resource_status", "not_requested"),
+            "gpu_utilization_status": gpu_status("utilization", ("gpu_util_avg_pct", "gpu_util_peak_pct")),
+            "gpu_memory_status": gpu_status("memory", ("gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes")),
             "cpu_cores": self.config.cpu_cores,
             "mem_cap_gb": self.config.mem_cap_gb,
             "gpu_mode": self.config.gpu_mode,
@@ -943,7 +964,7 @@ class WindowMetrics:
             "error": self.error,
         }
         for metrics in (
-            self.gpu, self.cpu, self.efficiency, self.resource,
+            self.gpu, self.cpu, self.efficiency, self.resource, self.process,
             self.gpu_runtime, self.mips, self.packet_distribution, self.app_distribution,
         ):
             row.update({name: str(value) if name == "gpu_pstate" else _fmt_float(value)

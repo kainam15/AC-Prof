@@ -123,7 +123,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                             window_values.append(value)
                     groups[(*comparison_case, metric)][side].append({
                         "run_id": run_id, "mean": statistics.fmean(window_values) if window_values and complete else None,
-                        "resource_coordinates": {"cpu_cores": float(case[0]), "mem_cap_gb": float(case[1])},
+                        "resource_coordinates": {"cpu_cores": number(case[0]), "mem_cap_gb": number(case[1])},
                         "valid_windows": len(window_values), "failed_windows": sum(row.get("status") != "ok" for row in windows),
                         "missing_windows": sum(row.get("status") == "ok" and number(row.get(metric)) is None for row in windows),
                         "eligible": complete, **evidence,
@@ -138,7 +138,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             if baseline_coordinates is None:
                 raise ValueError("resource-scaling case has no recorded resource coordinates")
             cpu, mem = baseline_coordinates["cpu_cores"], baseline_coordinates["mem_cap_gb"]
-        result: dict[str, Any] = {"cpu_cores": float(cpu), "mem_cap_gb": float(mem), "gpu_mode": gpu,
+        result: dict[str, Any] = {"cpu_cores": number(cpu), "mem_cap_gb": number(mem), "gpu_mode": gpu,
                   "resource_coordinates": coordinates,
                   "input_scale": float(scale), "metric": metric, "unit": METRICS[metric].unit,
                   "difference": None, "ratio": None, "difference_ci": None, "ratio_ci": None, "reason": ""}

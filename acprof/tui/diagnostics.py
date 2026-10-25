@@ -36,6 +36,7 @@ class PreflightCheck:
     status: str
     detail: str
     capability_status: str = ""
+    runtime_kind: str = ""
 
 
 def collection_preview(config: RunConfig):
@@ -99,6 +100,9 @@ def quick_preflight(
         )
     )
 
+    if config.runtime == "process":
+        return checks + _process_checks(config)
+
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
     checks.append(
         PreflightCheck(
@@ -156,6 +160,12 @@ def quick_preflight(
             status = "fail"
             detail = message_id('ui.0892', exc)
         checks.append(PreflightCheck(message_id('ui.0893'), status, detail))
+
+    if config.runtime == "auto" and config.profiling_mode == "basic" and any(check.status == "fail" for check in checks[1:]):
+        reasons = "; ".join(str(check.detail) for check in checks[1:] if check.status == "fail")
+        checks = checks[:1] + [PreflightCheck("Runtime auto → Process", "ok", reasons)]
+        return checks + _process_checks(config)
+    checks.append(PreflightCheck("Runtime", "ok", "Docker", runtime_kind="docker"))
 
     for tool in (("tcpdump", "tshark") if measurement_requested(config.profiling_mode, "packet_latency") else ()):
         path = shutil.which(tool)
@@ -246,6 +256,34 @@ def quick_preflight(
     return checks
 
 
+def _process_checks(config):
+    from dataclasses import replace
+
+    from acprof.application.resources import resource_matrix
+    from acprof.host.runtimes.resources import preflight_resources
+    checks = [PreflightCheck("Runtime", "ok", "Process: managed subprocess; basic collection", runtime_kind="process")]
+    try:
+        replace(config, runtime="process").validate()
+        cpus, mems, _ = resource_matrix(replace(config, runtime="process").to_namespace())
+        preflight_resources(cpus, mems, config.cpuset_cpus)
+    except (OSError, ValueError) as exc:
+        checks.append(PreflightCheck("Process resources", "fail", str(exc)))
+    else:
+        checks.append(PreflightCheck("Process resources", "ok",
+                                    f"CPU={config.cpus}, memory={config.mems}; auto=inherited, sharing=unknown"))
+    from acprof.host.runtimes.capabilities import probe_collection_plan
+    from acprof.host.runtimes.gpu import process_gpu_device
+    gpu = process_gpu_device(config.to_namespace().gpu_device) if "on" in config.gpus.split(",") else {}
+    plan = probe_collection_plan("process", gpu=gpu)
+    for name, item in plan["probes"].items():
+        requested = name in {"process_cpu", "process_memory", "gpu_memory", "gpu_utilization"}
+        status = "ok" if item["status"] == "available" else "warn" if requested else "not_requested"
+        checks.append(PreflightCheck(name, status, f"{item['status']}: {item['detail']}", item['status']))
+    if shutil.which("uv") is None:
+        checks.append(PreflightCheck("uv", "fail", "Process environment preparation requires uv"))
+    return checks
+
+
 @dataclass(frozen=True)
 class ResultSummary:
     rows: int
@@ -259,7 +297,7 @@ class ResultSummary:
 
 
 SUMMARY_METRICS = (
-    "latency_app_s", "throughput_samples_per_s", "container_mem_usage_peak_bytes",
+    "latency_app_s", "throughput_samples_per_s", "container_mem_usage_peak_bytes", "process_rss_peak_bytes",
     "gpu_mem_used_peak_bytes", "container_attributed_energy_eff_j", "cpu_energy_total_j", "gpu_energy_total_j",
 )
 

@@ -2,6 +2,16 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    'ui.2008': '环境能力',
+    'ui.2007': '运行方式：{0}',
+    'ui.2005': '使用 Process 继承限制',
+    'ui.2006': 'Process 请使用输入规模扫描；最小内存探测需要 Docker。',
+
+    'ui.2001': '运行方式',
+    'ui.2002': '自动选择 Runtime',
+    'ui.2003': 'Process（无需 Docker）',
+    'ui.2004': 'Process 的 CPU / 内存填 auto 表示继承限制；数值配额需要可写的 cgroup。',
+
     "ui.0001": '模型来源',
     "ui.0002": '预计下载大小',
     "ui.0003": '使用系统网络环境',
@@ -989,6 +999,16 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    'ui.2008': 'Environment capabilities',
+    'ui.2007': 'Runtime: {0}',
+    'ui.2005': 'Use Process with inherited limits',
+    'ui.2006': 'For Process, scan input scales; the minimum-memory probe requires Docker.',
+
+    'ui.2001': 'Execution runtime',
+    'ui.2002': 'Select runtime automatically',
+    'ui.2003': 'Process (without Docker)',
+    'ui.2004': 'For Process, auto CPU / memory inherits limits; numeric quotas require a delegated cgroup.',
+
     "ui.0001": 'Model source',
     "ui.0002": 'Expected download size',
     "ui.0003": 'Using the system network environment',

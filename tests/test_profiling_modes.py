@@ -41,8 +41,8 @@ class TestProfilingMode:
                 captured.append(kwargs["env"])
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
-            stack.enter_context(patch.object(orchestrator, "start_container_session", return_value=RunningContainer("test", "http://localhost", 8000, 0.1)))
-            stack.enter_context(patch.object(orchestrator, "stop_container_session"))
+            stack.enter_context(patch.object(orchestrator, "start_service_session", return_value=RunningContainer("test", "http://localhost", 8000, 0.1)))
+            stack.enter_context(patch.object(orchestrator, "stop_service_session"))
             stack.enter_context(patch("acprof.host.command.run_command", side_effect=fake_run))
             stack.enter_context(patch.object(orchestrator, "_resolve_packet_latency_runtime", side_effect=AssertionError("basic must not resolve packet capture")))
             stack.enter_context(patch.object(orchestrator, "check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
@@ -72,9 +72,9 @@ class TestProfilingMode:
             def start(self):
                 events.append("resource_start")
             def stop(self):
-                from acprof.monitors.resource_metrics import _nan_result
+                from acprof.monitors.resource_metrics import empty_resource_result
                 events.append("resource_stop")
-                result = _nan_result()
+                result = empty_resource_result()
                 result.container_cpu_util_avg_pct = 25.0
                 result.container_mem_usage_avg_bytes = 1024.0
                 return result, "", []
@@ -121,7 +121,8 @@ class TestProfilingMode:
         from acprof.cli import run as run_cli
         with ExitStack() as stack:
             stack.enter_context(patch.object(run.sys, "argv", ["acprof run", "--model", "test", "--profiling-mode", "basic", "--notify", "none"]))
-            for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker"):
+            stack.enter_context(patch("acprof.host.preflight.require_native_docker"))
+            for name in ("bootstrap_project_env", "require_collection_host"):
                 stack.enter_context(patch.object(run, name))
             stack.enter_context(patch.object(run, "require_cgroup_prerequisites", return_value="v2"))
             for name in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites"):

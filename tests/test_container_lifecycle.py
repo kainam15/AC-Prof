@@ -168,7 +168,7 @@ class TestContainerCleanup:
         session = RunningContainer('owned', 'http://localhost', 8002, 0, container_id='a' * 64)
         task = TaskInfo('fixture/model', 'tabular-classification', 'structured', 'onnxruntime', 'onnx', 'a' * 40, 'manual')
         with tempfile.TemporaryDirectory() as directory, patch.object(
-            orchestrator, 'start_container_session', return_value=session,
+            orchestrator, 'start_service_session', return_value=session,
         ) as start, patch.object(orchestrator, 'record_case_conditions', side_effect=ValueError('original runtime failure')), patch(
             'acprof.host.command.run_command', side_effect=subprocess.TimeoutExpired(['docker'], 1),
         ):

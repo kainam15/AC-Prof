@@ -58,6 +58,9 @@ class ExperimentController:
             return
         try:
             config = self.app.configuration.collect_config()
+            if config.runtime == "process" or self.app.preflight.selected_runtime == "process":
+                self.app.notify("Process 请使用输入规模扫描；最小内存探测需要 Docker。", severity="warning")
+                return
             command = build_probe_command(
                 config,
                 project_dir=self.app.project_dir,
@@ -67,10 +70,10 @@ class ExperimentController:
             self.app.configuration.show_config_error(exc)
             return
 
-        cpu = min(int(value) for value in config.cpus.split(","))
-        memory_candidates = sorted(
-            set(int(value) for value in config.mems.split(","))
-        )
+        from acprof.application.resources import resource_matrix
+        cpus, memories, _ = resource_matrix(config.to_namespace())
+        cpu = min(cpus)
+        memory_candidates = sorted(set(memories))
         gpu_modes = config.gpus.split(",")
         gpu = "off" if "off" in gpu_modes else "on"
         largest_scale = (

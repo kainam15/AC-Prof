@@ -33,11 +33,12 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
             raise CancelledError()
         key = measurement_key(row)
         environment = row.get("environment_class", "unknown")
-        if (environment, key) in keys:
+        runtime = (row.get("runtime_kind", "docker"), row.get("runtime_id", ""), row.get("resource_scope", "container_cgroup"))
+        if (environment, runtime, key) in keys:
             raise ValueError(f"duplicate measurement: {key}")
-        keys.add((environment, key))
+        keys.add((environment, runtime, key))
         if key[4] == "0":
-            case = (*key[:4], environment)
+            case = (*key[:4], environment, *runtime)
             if str(row.get("status", "")).strip().lower() == "ok":
                 cases[case].append(row)
             elif precision_target is not None:
@@ -60,8 +61,8 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
                 if math.isfinite(value):
                     values.append(value)
             count = len(values)
-            result = {"cpu_cores": float(case[0]), "mem_cap_gb": float(case[1]), "gpu_mode": case[2],
-                      "environment_class": case[4],
+            result = {"cpu_cores": None if case[0] == "inherited" else float(case[0]), "mem_cap_gb": None if case[1] == "inherited" else float(case[1]), "gpu_mode": case[2],
+                      "environment_class": case[4], "runtime_kind": case[5], "runtime_id": case[6], "resource_scope": case[7],
                       "input_scale": float(case[3]), "metric": name, "unit": METRICS[name].unit,
                       "n_windows": count, "missing_windows": len(ordered) - count,
                       "mean": statistics.fmean(values) if values else None,

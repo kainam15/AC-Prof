@@ -48,7 +48,8 @@ def test_run_and_probe_reject_unsupported_tasks_before_build_or_results(tag, fam
         csv.write_text("existing measurement\n", encoding="utf-8")
         stack.enter_context(patch.object(module, "bootstrap_project_env"))
         for guard in ("require_collection_host", "require_native_docker", "require_cgroup_prerequisites"):
-            stack.enter_context(patch.object(module, guard, return_value="v2"))
+            target = "acprof.host.preflight." if module is run and guard == "require_native_docker" else module.__name__ + "."
+            stack.enter_context(patch(target + guard, return_value="v2"))
         if module is run:
             for guard in ("require_packet_latency_prerequisites", "require_cpu_energy_prerequisites", "require_mips_prerequisites", "start_terminal_log"):
                 stack.enter_context(patch.object(run, guard, return_value=None))

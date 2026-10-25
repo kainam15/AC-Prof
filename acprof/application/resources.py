@@ -27,13 +27,14 @@ def format_elapsed(seconds: float) -> str:
 
 def resource_matrix(args):
     """Validate resource selection before building the runtime."""
-    cpu_list = _parse_int_list(args.cpus)
-    mem_list = _parse_int_list(args.mems)
+    process = getattr(args, 'runtime', 'docker') == 'process'
+    cpu_list = ([None] if process else [1, 2, 4, 8]) if args.cpus == 'auto' else _parse_int_list(args.cpus)
+    mem_list = ([None] if process else [2, 4, 8, 16]) if args.mems == 'auto' else _parse_int_list(args.mems)
     gpu_list = [mode.lower() for mode in _parse_str_list(args.gpus)]
     if args.warmup < 0 or args.repeat <= 0:
         raise ValueError("--warmup must be >= 0 and --repeat must be > 0")
     if (not cpu_list or not mem_list or not gpu_list
-            or any(value <= 0 for value in cpu_list + mem_list)
+            or any(value is not None and value <= 0 for value in cpu_list + mem_list)
             or any(mode not in ("off", "on") for mode in gpu_list)):
         raise ValueError("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
     if any(len(values) != len(set(values)) for values in (cpu_list, mem_list, gpu_list)):

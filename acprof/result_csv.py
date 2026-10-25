@@ -49,6 +49,10 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     values = []
     for field in KEY_FIELDS:
         value = str(row.get(field, "")).strip()
+        if (field in {"cpu_cores", "mem_cap_gb"} and row.get("runtime_kind") == "process"
+                and value.lower() in {"", "none", "nan"}):
+            values.append("inherited")
+            continue
         if field == "gpu_mode":
             if value not in ("off", "on"):
                 raise ResultValidationError(f"invalid gpu_mode: {value!r}")
@@ -70,10 +74,11 @@ def measurement_key(row: Mapping[str, object]) -> MeasurementKey:
     return tuple(values)
 
 
-def expected_measurements(cpus: Sequence[int], mems: Sequence[int], gpus: Sequence[str],
+def expected_measurements(cpus: Sequence[int | None], mems: Sequence[int | None], gpus: Sequence[str],
                           scales: Sequence[float], warmup: int, repeat: int) -> set[MeasurementKey]:
     return {
-        measurement_key(dict(zip(KEY_FIELDS, (cpu, mem, gpu, str(float(scale)), is_warmup, index), strict=True)))
+        measurement_key({**dict(zip(KEY_FIELDS, (cpu, mem, gpu, str(float(scale)), is_warmup, index), strict=True)),
+                         **({"runtime_kind": "process"} if cpu is None or mem is None else {})})
         for cpu, mem, gpu, scale in product(cpus, mems, gpus, scales)
         for is_warmup, count in ((1, warmup), (0, repeat))
         for index in range(count)
@@ -229,12 +234,19 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
         raise ResultValidationError("final CSV cannot also be an input case")
     rows, keys = [], set()
     environments: set[str] = set()
+    runtimes: set[tuple[str, str]] = set()
+    runtime_ids: set[str] = set()
     fields = list(CSV_FIELDS)
     for path in resolved:
         if not path.is_file():
             raise ResultValidationError(f"missing case CSV: {path}")
         source_fields, source_rows = read_result_csv(path)
         environments.update(row["environment_class"] for row in source_rows)
+        runtimes.update((row.get("runtime_kind", "docker"),
+                         row.get("resource_scope", "container_cgroup")) for row in source_rows)
+        runtime_ids.update(str(row["runtime_id"]) for row in source_rows if str(row.get("runtime_id", "")).lower() not in {"", "nan", "none"})
+        if len(runtimes) > 1 or len(runtime_ids) > 1:
+            raise ResultValidationError("cannot merge different execution runtimes, identities or metric scopes")
         if len(environments) > 1:
             raise ResultValidationError(f"cannot merge result environments: {sorted(environments)}")
         fields.extend(field for field in source_fields if field not in fields)

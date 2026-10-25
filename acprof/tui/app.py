@@ -1001,6 +1001,10 @@ class AcprofTui(BarCursorApp):
     def on_experiments_start_run_button(self) -> None:
         self.experiments.start_run_button()
 
+    @on(Button.Pressed, '#process-inherited-resources')
+    def on_process_inherited_resources(self) -> None:
+        self.configuration.use_process_inherited_resources()
+
     @on(Button.Pressed, '#probe-largest')
     def on_experiments_probe_largest_button(self) -> None:
         self.experiments.probe_largest_button()

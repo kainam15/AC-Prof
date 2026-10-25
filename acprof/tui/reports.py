@@ -68,6 +68,13 @@ def _count(value) -> int:
     return value
 
 
+def _resource_label(record, name, suffix):
+    if name not in record:
+        raise ValueError(message_id('ui.0518'))
+    value = record[name]
+    return "inherited" + suffix if value is None else f"{_number(value):g}{suffix}"
+
+
 def _interval(row: dict, low_key: str, high_key: str) -> tuple[float | None, float | None]:
     low = _number(row.get(low_key), nullable=True)
     high = _number(row.get(high_key), nullable=True)
@@ -129,8 +136,8 @@ def _windows(source: Path, data: dict) -> ReportView:
         mode = group.get("gpu_mode")
         if mode not in {"on", "off"}:
             raise ValueError(message_id('ui.0526'))
-        config = "/".join((f"{_number(group.get('cpu_cores')):g}c",
-                           f"{_number(group.get('mem_cap_gb')):g}G",
+        config = "/".join((_resource_label(group, 'cpu_cores', 'c'),
+                           _resource_label(group, 'mem_cap_gb', 'G'),
                            "GPU" if mode == "on" else "CPU",
                            f"{_number(group.get('input_scale')):g}"))
         inapplicable = name == "gpu_energy_total_j" and mode == "off" and count == 0
@@ -231,13 +238,13 @@ def _independent_comparison(source: Path, data: dict) -> ReportView:
         reason = _text(group.get("reason")) or _text(group.get("comparability"))
         qualities = "/".join(_text(side.get("quality_status"), "unknown") for side in (left, right))
         explanation = f"{reason} · quality={qualities}"
-        config = "/".join((f"{_number(group.get('cpu_cores')):g}c", f"{_number(group.get('mem_cap_gb')):g}G",
+        config = "/".join((_resource_label(group, 'cpu_cores', 'c'), _resource_label(group, 'mem_cap_gb', 'G'),
                            _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
         coordinates = group.get("resource_coordinates", {})
         if (isinstance(coordinates, dict) and coordinates.get("left") and coordinates.get("right")
                 and coordinates["left"] != coordinates["right"]):
-            config = " → ".join(f"{_number(coordinates[side].get('cpu_cores')):g}c/"
-                                 f"{_number(coordinates[side].get('mem_cap_gb')):g}G" for side in ("left", "right")) + "/" + "/".join((
+            config = " → ".join(_resource_label(coordinates[side], 'cpu_cores', 'c') + "/" +
+                                 _resource_label(coordinates[side], 'mem_cap_gb', 'G') for side in ("left", "right")) + "/" + "/".join((
                                      _text(group.get("gpu_mode")), f"{_number(group.get('input_scale')):g}"))
         detail = json.dumps(group, ensure_ascii=False, indent=2)
         rows.append(ReportRow((explanation, config, message(_METRIC_LABELS.get(metric, metric)),

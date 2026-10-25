@@ -41,7 +41,6 @@ from acprof.host.preflight import (
     require_collection_host,
     require_cpu_energy_prerequisites,
     require_mips_prerequisites,
-    require_native_docker,
     require_result_cgroup_compatibility,
     require_result_environment,
 )
@@ -226,6 +225,21 @@ class RunApplication:
         workflow = self.workflow_factory(args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(args.output_dir)
 
         saved_run = load_run_state(terminal_output_dir) if args.resume else {}
+        from acprof.host.runtimes.selection import require_runtime_requests, select_runtime
+        requested_runtime = args.runtime
+        if args.resume and requested_runtime == "auto":
+            requested_runtime = saved_run.get("runtime", {}).get("kind", "docker")
+        selection = select_runtime(requested_runtime, profiling_mode=args.profiling_mode)
+        args.runtime = selection.selected
+        args.runtime_selection = selection.to_dict()
+        require_runtime_requests(args)
+        if args.runtime == "docker":
+            args.cpus = "1,2,4,8" if args.cpus == "auto" else args.cpus
+            args.mems = "2,4,8,16" if args.mems == "auto" else args.mems
+        elif args.prune_startup_oom:
+            print("[runtime] Startup OOM pruning is Docker-only; Process cases run independently")
+            args.prune_startup_oom = False
+        print(f"[runtime] {selection.selected}: {selection.reason}")
         if saved_run.get("runtime"):
             from acprof.host.detect import TaskInfo
             initial_task = TaskInfo(**saved_run["runtime"]["task"])
@@ -234,7 +248,17 @@ class RunApplication:
         task_info = workflow.resolve(args, initial=initial_task)
 
         def host_preflight():
-            require_native_docker()
+            if args.runtime == "process":
+                from acprof.host.run_state import MeasurementLock
+                from acprof.host.runtimes.gpu import process_gpu_device
+                from acprof.host.runtimes.resources import preflight_resources
+                # CUDA driver discovery can create a context. Serialize this
+                # preflight too; it must not overlap another formal experiment.
+                with MeasurementLock():
+                    cpus, mems, gpus = resource_matrix(args)
+                    preflight_resources(cpus, mems, args.cpuset_cpus)
+                    args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}
+                return "not_used", {}, {}
             version = require_cgroup_prerequisites()
             from acprof.platform import detect_environment
             topology = discover_rapl_topology() if detect_environment().native else {}
@@ -255,8 +279,11 @@ class RunApplication:
         cgroup_version, rapl_topology, preflight_measurements = workflow.run("preflight", host_preflight)
         from acprof.platform import detect_environment
         collection_environment = detect_environment()
-        cgroup_collection_mode = "strict_v2" if collection_environment.native else "wsl2_v2"
-        print(f"  Environment: {collection_environment.label}; Native benchmark: {collection_environment.native}")
+        cgroup_collection_mode = ("process_tree" if args.runtime == "process" else
+                                  "strict_v2" if collection_environment.native else
+                                  "wsl2_v2" if collection_environment.environment == "wsl2" else "guest_v2")
+        native_benchmark = collection_environment.native and args.runtime == "docker"
+        print(f"  Environment: {collection_environment.label}; Native benchmark: {native_benchmark}")
         from acprof.runtime_profiles import select_runtime_profile
         latency_slo = resolve_latency_slo(
             latency_slo_rules, pipeline_tag=task_info.pipeline_tag,

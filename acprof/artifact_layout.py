@@ -21,8 +21,16 @@ DIRECTORIES = {
     "debug_idle_diag": "debug/idle",
     "analysis": "plots/analysis",
 }
-_CASE_ID = re.compile(r"[1-9][0-9]*c_[1-9][0-9]*g_(?:on|off)\Z")
+_CASE_ID = re.compile(r"(?:[1-9][0-9]*|inherited)c_(?:[1-9][0-9]*|inherited)g_(?:on|off)\Z")
 _ATTEMPT_ID = re.compile(r"[a-f0-9]{32}\Z")
+
+
+def resource_case_id(cpu, memory, gpu):
+    def label(value):
+        if value is None or str(value).lower() in {"inherited", "nan", "none", ""}:
+            return "inherited"
+        return str(int(float(value)))
+    return f"{label(cpu)}c_{label(memory)}g_{gpu}"
 
 
 def _manifest() -> dict:
@@ -157,7 +165,7 @@ class ArtifactLayout:
         self.path("collection_history.json").parent.mkdir(parents=True, exist_ok=True)
 
     def case(self, model_id: str, cpu: int, mem: int, gpu: str) -> CaseArtifacts:
-        case_id = f"{cpu}c_{mem}g_{gpu}"
+        case_id = resource_case_id(cpu, mem, gpu)
         if not _CASE_ID.fullmatch(case_id):
             raise ValueError(f"Invalid case ID: {case_id}")
         filename = f"result_case_{model_id.replace('/', '--')}_{case_id}.csv"
@@ -174,7 +182,7 @@ class ArtifactLayout:
                 raise ValueError(f"Unexpected case CSV: {path}")
             case_id = path.parent.name
         else:
-            match = re.search(r"_([1-9][0-9]*c_[1-9][0-9]*g_(?:on|off))\.csv$", path.name)
+            match = re.search(r"_((?:[1-9][0-9]*|inherited)c_(?:[1-9][0-9]*|inherited)g_(?:on|off))\.csv$", path.name)
             if not match or path.parent != self.root:
                 raise ValueError(f"Unexpected case CSV: {path}")
             case_id = match[1]

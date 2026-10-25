@@ -867,6 +867,13 @@ class TestEffectiveEnergyWarning:
         assert (metrics["cold_start_first_predict_app_s"]) == ("0.250000")
         assert (metrics["cold_start_s"]) == ("1.0")
 
+    def test_process_first_predict_is_not_reported_as_docker_cold_start(self) -> None:
+        with patch_client(self.runner, "RUNTIME_KIND", "process"), patch_client(
+            self.runner, "_FIRST_PREDICT_APP_S", 0.25
+        ), patch_client(self.runner, "COLD_START_S", "1.0"):
+            metrics = self.runner._cold_start_row_metrics()
+        assert set(metrics.values()) == {"nan"}
+
     def test_manual_repeat_in_window_skips_auto_warmup(self) -> None:
         def fake_one_request(scale_value, req_id, payload_override=None):
             assert ("_auto_warmup") not in (req_id)

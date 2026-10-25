@@ -61,12 +61,21 @@ def field_layer(name: str) -> str:
         return "network"
     if "energy" in name or "power" in name or metric.source.startswith("rapl"):
         return "energy"
-    if metric.source in {"cgroup", "perf_stat", "host_cpufreq", "nvml_selected_device"}:
+    if metric.source in {"cgroup", "perf_stat", "host_cpufreq", "nvml_selected_device",
+                         "psutil", "psutil_observed_process_tree"}:
         return "resources"
     if (name.startswith(("latency", "throughput", "cold_start"))
-            or metric.source in {"pcap", "docker_and_server"}):
+            or name == "process_startup_s" or metric.source in {"pcap", "docker_and_server"}):
         return "performance"
     return "summary"
+
+
+def layer_identity_fields(fields: Sequence[str]) -> tuple[str, ...]:
+    """Inherited resource axes require execution context in every projection.
+
+    Historical files without runtime_kind keep their original layer headers.
+    """
+    return (*KEY_FIELDS, *(["runtime_kind"] if "runtime_kind" in fields else []))
 
 
 def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
@@ -74,9 +83,10 @@ def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
     if (any(not isinstance(name, str) or not name for name in fields)
             or len(fields) != len(set(fields)) or not set(KEY_FIELDS) <= set(fields)):
         raise ResultValidationError("invalid layered result header or measurement keys")
-    mapping = {name: list(KEY_FIELDS) for name in LAYER_FILES}
+    identity = layer_identity_fields(fields)
+    mapping = {name: list(identity) for name in LAYER_FILES}
     for name in fields:
-        if name not in KEY_FIELDS:
+        if name not in identity:
             mapping[field_layer(name)].append(name)
     return mapping
 
@@ -240,6 +250,7 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
     if not rows:
         raise ResultValidationError("cannot partition empty result")
     assigned = layer_fields(fields)
+    identity = layer_identity_fields(fields)
     # The semantic key is unique even when a profiler has no evidence for a row.
     keys = [measurement_key(row) for row in rows]
     if len(set(keys)) != len(keys):
@@ -251,7 +262,7 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
             {name: row.get(name, "nan") for name in names}
             for row in rows
             if layer not in PROFILER_LAYERS
-            or any(_has_evidence(row.get(name, "")) for name in names if name not in KEY_FIELDS)
+            or any(_has_evidence(row.get(name, "")) for name in names if name not in identity)
         ]
         if layer in PROFILER_LAYERS and not selected:
             continue
@@ -305,6 +316,7 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
                     hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
                 raise ResultValidationError("source CSV has changed since layers were published")
     assigned = layer_fields(wide_fields)
+    identity = layer_identity_fields(wide_fields)
     layers = manifest["layers"]
     expected_keys: list[tuple[str, ...]] | None = None
     combined: dict[tuple[str, ...], dict[str, str]] = {}
@@ -315,7 +327,7 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
         path = paths[layer]
         if not path.is_file():
             raise ResultValidationError(f"missing or modified {layer} layer: {path}")
-        if layer in PROFILER_LAYERS and not set(assigned[layer]) - set(KEY_FIELDS):
+        if layer in PROFILER_LAYERS and not set(assigned[layer]) - set(identity):
             raise ResultValidationError(f"empty profiler schema: {layer}")
         try:
             snapshot = read_result_csv_snapshot(path)
@@ -340,7 +352,9 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
             if key not in combined:
                 raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
             if layer != "summary":
-                combined[key].update({name: row[name] for name in assigned[layer] if name not in KEY_FIELDS})
+                if "runtime_kind" in identity and row["runtime_kind"] != combined[key]["runtime_kind"]:
+                    raise ResultValidationError(f"runtime identity mismatch in {layer}")
+                combined[key].update({name: row[name] for name in assigned[layer] if name not in identity})
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")
     ordered = order_csv_fields(wide_fields)

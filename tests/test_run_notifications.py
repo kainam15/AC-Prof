@@ -168,7 +168,7 @@ class TestRunNotificationLifecycle:
             "acprof.application.run.require_collection_host",
             side_effect=policy,
         ), patch(
-            "acprof.application.run.require_native_docker",
+            "acprof.host.preflight.require_native_docker",
             side_effect=preflight,
         ):
             with pytest.raises(RuntimeError, match="ordering check"):
@@ -177,7 +177,6 @@ class TestRunNotificationLifecycle:
             assert (order) == ([("policy", None)] + ([
                 ("activate", expected_command),
                 ("started", None),
-                ("resolution", "org/model with space"),
                 ("preflight", None),
             ] if allowed else []))
 
@@ -360,13 +359,12 @@ class TestRunNotificationLifecycle:
             run,
             bootstrap_project_env=Mock(),
             require_collection_host=Mock(),
-            require_native_docker=Mock(),
             require_cgroup_prerequisites=Mock(return_value="v2"),
             require_packet_latency_prerequisites=Mock(),
             require_cpu_energy_prerequisites=Mock(),
             require_mips_prerequisites=Mock(),
             start_terminal_log=Mock(return_value=None),
-        ), patch(
+        ), patch("acprof.host.preflight.require_native_docker"), patch(
             "acprof.application.notifications.WeComWebhookNotifier.from_env", return_value=notifier,
         ) as from_env, patch(
             "acprof.host.detect.detect_task", return_value=task_info,

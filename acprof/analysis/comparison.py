@@ -236,7 +236,8 @@ def load_comparison_snapshot(source: str | Path) -> dict:
     try:
         _, rows = read_result_csv(directory / "result_layers.json" if source.is_dir() else source)
         actual = _actual_workload(rows)
-        case_ids = {f"{int(float(row['cpu_cores']))}c_{int(float(row['mem_cap_gb']))}g_{row['gpu_mode']}"
+        from acprof.artifact_layout import resource_case_id
+        case_ids = {resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
                     for row in rows if row.get("status") in {"ok", "warn"}}
 
     except (OSError, ValueError, TypeError, AttributeError) as error:
@@ -259,6 +260,11 @@ def load_comparison_snapshot(source: str | Path) -> dict:
         "planned_input_entries": ([{key: entry[key] for key in ("input_scale", "payload")} for entry in entries]
                                   if inputs is not None else None),
         "conditions": {
+            "execution_runtime": {"kind": metadata.get("runtime_kind", "docker"),
+                                  "resource_scope": "observed_process_tree" if metadata.get("runtime_kind") == "process" else "container_cgroup",
+                                  **({"allocation": options.get("process_allocation"),
+                                      "gpu_visibility": options.get("process_gpu")}
+                                     if metadata.get("runtime_kind") == "process" else {})},
             "comparability_class": recorded_identity(metadata)["comparability_class"],
             "task_semantics": {key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
             "planned_inputs": inputs,
@@ -276,7 +282,7 @@ def load_comparison_snapshot(source: str | Path) -> dict:
             for name in HARDWARE_FIELDS
         },
         "identity": {**{key: metadata.get(key) for key in (
-            "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment")},
+            "model_name", "model_revision", "runtime_backend", "image_id", "runtime_environment", "runtime_kind", "runtime_id")},
             "model_source": metadata.get("model_source", "huggingface"),
             "runtime_requested_environment": runtime_environment,
             **{key: host.get(key) for key in ("source_sha256", "packages_sha256")}},
@@ -352,7 +358,8 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
             "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
             "comparison_reasons": qualification["reasons"],
             "warnings": warnings, "metric_comparability": metric_comparability,
-            "native_baseline_eligible": status == "compatible" and lhs["comparability_class"] == "native_linux",
+            "native_baseline_eligible": (status == "compatible" and lhs["comparability_class"] == "native_linux"
+                                         and lhs["conditions"]["execution_runtime"]["kind"] == "docker"),
             "scope": "recorded_comparison_conditions_not_model_quality_or_resume_identity",
             "limitations": ["hardware conditions are boundary observations, not proof of continuous isolation or identical thermal state",
                             "resource-scaling allows CPU and memory quotas; changing both cannot isolate either causal effect",

@@ -19,6 +19,11 @@ from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, s
 
 @dataclass
 class ClientConfig:
+    runtime_kind: str = 'docker'
+    process_pid: int = 0
+    process_start_ticks: int = 0
+    resource_plan: str = '{}'
+    process_startup_s: str = 'nan'
     model_revision: str = 'main'
     task_family: str = 'nlp'
     pipeline_tag: str = 'text-generation'
@@ -133,6 +138,11 @@ class ClientConfig:
             "",
         ).strip()
         config = cls(
+            runtime_kind=env.get('ACPROF_EXECUTION_RUNTIME', 'docker'),
+            process_pid=int(env.get('ACPROF_PROCESS_PID', '0')),
+            process_start_ticks=int(env.get('ACPROF_PROCESS_START_TICKS', '0')),
+            resource_plan=env.get('ACPROF_RESOURCE_PLAN', '{}'),
+            process_startup_s=env.get('ACPROF_PROCESS_STARTUP_S', 'nan'),
             model_revision=model_revision,
             task_family=task_family,
             pipeline_tag=pipeline_tag,
@@ -191,6 +201,10 @@ class ClientConfig:
         return config
 
     def validate(self) -> None:
+        if self.runtime_kind not in {'process', 'docker'}:
+            raise ValueError('runtime_kind must be process or docker')
+        if self.runtime_kind == 'process' and (self.process_pid <= 0 or self.process_start_ticks <= 0 or self.profiling_mode != 'basic'):
+            raise ValueError('Process client requires a verified process identity and basic profiling')
         require_profiling_mode(self.profiling_mode)
         sampling_policy(self.sampling_policy)
         if isinstance(self.raw_sample_limit, bool) or not isinstance(self.raw_sample_limit, int) or self.raw_sample_limit < 2:

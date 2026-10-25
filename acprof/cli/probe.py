@@ -83,9 +83,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.timeout_seconds <= 0.0 or not math.isfinite(args.timeout_seconds)
     ):
         parser.error("--timeout-seconds must be a finite value > 0")
+    if args.runtime == "process":
+        parser.error("the minimum-memory probe requires Docker; Process input scans use acprof run --runtime process --profiling-mode basic")
     try:
-        cpu_list = _int_list(args.cpus, "CPU 列表")
-        mem_list = _int_list(args.mems, "内存列表")
+        cpu_list = _int_list("1,2,4,8" if args.cpus == "auto" else args.cpus, "CPU 列表")
+        mem_list = _int_list("2,4,8,16" if args.mems == "auto" else args.mems, "内存列表")
         gpu_list = _gpu_list(args.gpus)
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))

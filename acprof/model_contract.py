@@ -212,14 +212,17 @@ def write_model_resolution(task_info, output_dir: str | Path) -> Path:
 
 
 def record_runtime_validation(task_info, report: Mapping[str, Any]) -> None:
-    """Keep runtime facts scoped to the actual image, mode, payload and devices."""
+    """Keep runtime facts scoped to the execution artifact, payload and devices."""
     from acprof.model_evidence import content_digest
     mode = report["mode"]
     passed = report["status"] == "ok"
     status = ("verified" if mode == "full" else "basic_verified") if passed else report["status"]
+    if report.get("runtime_kind") == "process":
+        identity = {"runtime_kind": "process", "runtime_id": report["runtime_id"]}
+    else:
+        identity = {"image_id": report["image_id"], "build_fingerprint": report["build_fingerprint"]}
     observation = {
-        "status": status, "mode": mode, "image_id": report["image_id"],
-        "build_fingerprint": report["build_fingerprint"], "payload_sha256": report["payload_sha256"],
+        "status": status, "mode": mode, **identity, "payload_sha256": report["payload_sha256"],
         "report_sha256": content_digest(report), "devices": copy.deepcopy(report["devices"]),
     }
     task_info.model_resolution["runtime_validation"] = observation
@@ -228,7 +231,8 @@ def record_runtime_validation(task_info, report: Mapping[str, Any]) -> None:
         return
     contract["runtime_validation"] = copy.deepcopy(observation)
     # Runtime evidence does not change the static cache identity or erase gaps.
+    contract_identity = {key: value for key, value in identity.items() if key != "build_fingerprint"}
     contract["fields"]["runtime." + mode] = {
         "state": "verified" if passed else "unresolved", "value": status,
-        "sources": ["runtime_validation.json"], "image_id": report["image_id"],
+        "sources": ["runtime_validation.json"], **contract_identity,
     }

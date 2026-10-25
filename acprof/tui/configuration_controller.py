@@ -57,6 +57,15 @@ class ConfigurationController:
         self.selected_preset: str | None = None
         self.initial_preset: str = run_form.infer_preset(self.initial_config)
 
+    def use_process_inherited_resources(self) -> None:
+        if self.app.is_busy():
+            return
+        self.app.query_one("#runtime", Select).value = "process"
+        self.app.query_one("#cpus", Input).value = "auto"
+        self.app.query_one("#mems", Input).value = "auto"
+        self.app.query_one("#prune-startup-oom", Checkbox).value = False
+        self.app.call_after_refresh(self.app.preflight.quick_check)
+
     def apply_ui_preferences(self) -> None:
         self.app.localization.apply_language()
         self.app.theme = self.preferences.theme
@@ -359,11 +368,8 @@ class ConfigurationController:
                         widget.value = selected_preset
         if self.field_errors_visible:
             self.update_field_errors(())
-        case_count = (
-            len(config.cpus.split(","))
-            * len(config.mems.split(","))
-            * len(config.gpus.split(","))
-        )
+        effective = replace(config, runtime=self.app.preflight.selected_runtime) if config.runtime == "auto" and self.app.preflight.selected_runtime else config
+        case_count = run_planning.estimate_run(effective).cases
         scale_summary = (
             message_id('ui.0746', len(config.input_scales.split(',')))
             if config.input_scales
@@ -388,6 +394,8 @@ class ConfigurationController:
         return True
 
     def update_plan_summary(self, config: RunConfig) -> None:
+        if config.runtime == "auto" and self.app.preflight.selected_runtime:
+            config = replace(config, runtime=self.app.preflight.selected_runtime)
         planned = self.planned_input if self.planned_input_identity == run_planning.input_identity(config) else None
         summary = self.app.query_one("#run-plan-summary", Static)
         self.app.localization.set_text(summary, run_planning.plan_summary(config, planned))

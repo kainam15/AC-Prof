@@ -40,8 +40,8 @@ class StaticMeta:
     model_download_url: str
     gpu: str
     gpu_mem_total_bytes: int | None
-    model_cache_bytes: int
-    docker_image_bytes: int
+    model_cache_bytes: int | None
+    docker_image_bytes: int | None
     environment: str
     cpu_power_source: str
     vcpu_power_method: str
@@ -54,6 +54,11 @@ class StaticMeta:
     runtime_image_bytes: int | None = None
     total_deployment_bytes: int | None = None
     runtime_environment: dict[str, Any] = field(default_factory=dict)
+    runtime_kind: str = "docker"
+    runtime_id: str = ""
+    runtime_selection: dict[str, Any] = field(default_factory=dict)
+    resource_allocation: dict[str, Any] = field(default_factory=dict)
+    collection_plan: dict[str, Any] = field(default_factory=dict)
     runtime_validation: dict[str, Any] = field(default_factory=dict)
     latency_slo: dict[str, Any] = field(
         default_factory=lambda: {"threshold_s": None, "source": "unconfigured"}
@@ -651,7 +656,9 @@ def collect_static_meta(
     """Collect static metadata for the current model/image pair."""
     from acprof.capabilities import measurement_requested
     from acprof.host.platform_metadata import collect_platform_metadata
+    from acprof.host.runtimes.contracts import runtime_identity, runtime_kind
     from acprof.installation import resource_root
+    process = runtime_kind(image_info) == 'process'
     environment = detect_environment()
     cpu_power_source, vcpu_power_method = (
         _cpu_power_metadata() if measurement_requested(profiling_mode, "cpu_energy")
@@ -659,15 +666,18 @@ def collect_static_meta(
     )
     cpu_governor, cpu_boost = _cpu_frequency_policy_metadata()
     host_swap = _host_swap_metadata()
-    docker_storage = _docker_storage_metadata()
+    docker_storage: dict[str, Any] = dict.fromkeys(('docker_storage_total_bytes', 'docker_storage_available_bytes_at_start'), None) if process else _docker_storage_metadata()
+    if process:
+        docker_storage.update(docker_storage_filesystem='not_applicable', docker_storage_device='not_applicable', docker_storage_type='not_applicable')
     input_format, output_format = _model_io_formats(task_info)
     manifest = getattr(image_info, "runtime_environment", {})
     store = manifest.get("model_store")
-    model_bytes = store["model_artifact_bytes"] if store else _docker_model_cache_bytes(image_info.tag)
-    image_bytes = _docker_image_size_bytes(image_info.tag)
+    model_bytes = store["model_artifact_bytes"] if store else None if process else _docker_model_cache_bytes(image_info.tag)
+    image_bytes = None if process else _docker_image_size_bytes(image_info.tag)
     static_meta = StaticMeta(
         **environment.metadata(),
-        platform_runtime=collect_platform_metadata(environment, resource_root()),
+        platform_runtime=collect_platform_metadata(environment, resource_root(), runtime_kind=runtime_kind(image_info)),
+        runtime_kind=runtime_kind(image_info), runtime_id=runtime_identity(image_info),
         model_name=task_info.model_id,
         profiling_mode=profiling_mode,
         model_revision=task_info.model_revision,
@@ -688,8 +698,8 @@ def collect_static_meta(
         task_family=task_info.task_family,
         pipeline_tag=task_info.pipeline_tag,
         runtime_backend=task_info.runtime_backend,
-        image_tag=image_info.tag,
-        image_id=image_info.tag if image_info.tag.startswith("sha256:") else "",
+        image_tag='' if process else image_info.tag,
+        image_id='' if process else image_info.tag if image_info.tag.startswith("sha256:") else "",
         image_name=getattr(image_info, "name", ""),
         runtime_environment=dict(getattr(image_info, "runtime_environment", {})),
         batch_size=batch_size,
@@ -714,7 +724,8 @@ def collect_static_meta(
         model_storage_mode="mounted" if store else "baked",
         model_artifact_bytes=model_bytes if store else None,
         runtime_image_bytes=image_bytes if store else None,
-        total_deployment_bytes=model_bytes + image_bytes if store else image_bytes,
+        total_deployment_bytes=(model_bytes + image_bytes if store and model_bytes is not None and image_bytes is not None
+                                else image_bytes),
         docker_storage_total_bytes=docker_storage[
             "docker_storage_total_bytes"
         ],

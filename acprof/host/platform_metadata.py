@@ -9,7 +9,7 @@ from acprof.host.command import run_command
 from acprof.platform import Environment
 
 
-def collect_platform_metadata(environment: Environment, project_dir: str | Path) -> dict:
+def collect_platform_metadata(environment: Environment, project_dir: str | Path, *, runtime_kind='docker') -> dict:
     errors = {}
 
     def command(name, args):
@@ -28,7 +28,7 @@ def collect_platform_metadata(environment: Environment, project_dir: str | Path)
             errors[name] = str(exc)
             return None
 
-    docker = command("docker", ["docker", "info", "--format", "{{json .}}"])
+    docker = command("docker", ["docker", "info", "--format", "{{json .}}"]) if runtime_kind == 'docker' else None
     try:
         info = json.loads(docker) if docker else {}
         if not isinstance(info, dict):

@@ -177,6 +177,8 @@ def build_probe_command(
     python_executable: str | Path = sys.executable,
 ) -> list[str]:
     """Build a one-request largest-scale diagnostic probe command."""
+    if config.runtime == "process":
+        raise RunConfigError([ConfigIssue("runtime", "Minimum-memory probe requires Docker; use a Process input-scale run")])
     config = config.validate(project_dir=project_dir)
     return [
         *cli_command("probe", python_executable=python_executable),

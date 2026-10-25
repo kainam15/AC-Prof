@@ -200,6 +200,12 @@ def _recompute_gpu(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _recompute_resource(item: dict[str, Any]) -> dict[str, Any]:
+    if item.get("source") == "psutil":
+        from acprof.monitors.process_usage import reduce_process_samples
+        values = reduce_process_samples(item["samples"])
+        if item.get("lost_members"):
+            values.update(process_cpu_time_s=None, process_cpu_util_avg_pct=None)
+        return values
     from acprof.monitors import resource_metrics
     context = item["context"]
     samples = [resource_metrics.ResourceUsageSample(**sample) for sample in item["samples"]]

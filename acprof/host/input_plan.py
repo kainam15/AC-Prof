@@ -14,14 +14,14 @@ from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
 from acprof.config import SCALING_DIMENSIONS
 from acprof.extensions import CATALOG
 from acprof.host.detect import TaskInfo
-from acprof.host.docker_runtime import (
-    RunningContainer,
-    start_container_session,
-    stop_container_session,
-)
 from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.images.identity import model_token
 from acprof.host.images.runtime import ImageInfo
+from acprof.host.runtimes.contracts import ServiceSession
+from acprof.host.runtimes.service import (
+    start_service_session,
+    stop_service_session,
+)
 
 
 @dataclass
@@ -232,7 +232,7 @@ def _start_probe_session(
     cpu_list: list[int],
     mem_list: list[int],
     gpu_list: list[str],
-) -> RunningContainer:
+) -> ServiceSession:
     probe_cpu = max(cpu_list)
     probe_mem = max(mem_list)
     normalized_gpu = [normalize_gpu_mode(gpu) for gpu in gpu_list]
@@ -244,7 +244,7 @@ def _start_probe_session(
         f"[scale] Starting probe container with CPU={probe_cpu}, "
         f"MEM={probe_mem}GB, GPU={probe_gpu}"
     )
-    return start_container_session(
+    return start_service_session(
         task_info=task_info,
         cpu=probe_cpu,
         mem=probe_mem,
@@ -299,7 +299,7 @@ def _probe_exceeds_limit(result: dict[str, Any]) -> bool:
 
 
 def _post_probe_payload(
-    session: RunningContainer,
+    session: ServiceSession,
     payload: dict[str, Any],
     desc: str,
 ) -> dict[str, Any]:
@@ -330,7 +330,7 @@ def _post_probe_payload(
 
 
 def _request_scale_meta(
-    session: RunningContainer,
+    session: ServiceSession,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     import requests
@@ -360,7 +360,7 @@ def _request_scale_meta(
 
 
 def _request_nlp_scale_meta(
-    session: RunningContainer,
+    session: ServiceSession,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     data = _request_scale_meta(session, payload)
@@ -392,7 +392,7 @@ def _request_nlp_scale_meta(
 
 
 def _request_audio_scale_meta(
-    session: RunningContainer,
+    session: ServiceSession,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     data = _request_scale_meta(session, payload)
@@ -463,7 +463,7 @@ def _assert_manual_nlp_scales_legal(
     batch_size: int,
 ) -> list[float]:
 
-    session: RunningContainer | None = None
+    session: ServiceSession | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
@@ -490,7 +490,7 @@ def _assert_manual_nlp_scales_legal(
             raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
     finally:
         if session is not None:
-            stop_container_session(session, log_prefix="[probe]")
+            stop_service_session(session, log_prefix="[probe]")
 
     print(f"[scale] Using manual input scales: {serialize_input_scales(scales)}")
     return scales
@@ -508,7 +508,7 @@ def _plan_manual_nlp_scales(
     workload_spec_path: str | None = None,
 ) -> PlannedInputScales:
 
-    session: RunningContainer | None = None
+    session: ServiceSession | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
@@ -549,7 +549,7 @@ def _plan_manual_nlp_scales(
             raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
     finally:
         if session is not None:
-            stop_container_session(session, log_prefix="[probe]")
+            stop_service_session(session, log_prefix="[probe]")
 
     plan_file = _scale_plan_file_path(output_dir)
     workload_metadata = workload_gen.plan_metadata()
@@ -580,7 +580,7 @@ def _plan_nlp_auto_scales(
     workload_spec_path: str | None = None,
 ) -> PlannedInputScales:
 
-    session: RunningContainer | None = None
+    session: ServiceSession | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
@@ -700,7 +700,7 @@ def _plan_nlp_auto_scales(
         )
     finally:
         if session is not None:
-            stop_container_session(session, log_prefix="[probe]")
+            stop_service_session(session, log_prefix="[probe]")
 
 
 def _default_family_max_scale(task_info: TaskInfo, batch_size: int) -> float:
@@ -750,7 +750,7 @@ def _plan_audio_scales(
         (scale, workload_gen.generate(scale)) for scale in normalized_scales
     ]
 
-    session: RunningContainer | None = None
+    session: ServiceSession | None = None
     model_constraints: dict[str, Any] = {}
     try:
         session = _start_probe_session(
@@ -811,7 +811,7 @@ def _plan_audio_scales(
                 )
     finally:
         if session is not None:
-            stop_container_session(session, log_prefix="[probe]")
+            stop_service_session(session, log_prefix="[probe]")
 
     print(
         f"[scale] Using {source} audio scales: "
@@ -840,7 +840,7 @@ def _plan_timeseries_scales(
     try:
         constraints = _request_scale_meta(session, generator.generate(1))
     finally:
-        stop_container_session(session, log_prefix="[probe]")
+        stop_service_session(session, log_prefix="[probe]")
     limit = constraints.get("max_effective_input_scale")
     if (isinstance(limit, bool) or not isinstance(limit, (float, int))
             or not math.isfinite(limit) or limit < 1 or int(limit) != limit):

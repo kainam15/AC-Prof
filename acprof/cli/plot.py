@@ -51,6 +51,11 @@ def main(argv=None):
     xlabel = scale_type
 
     output_dir = str(ArtifactLayout.from_csv(csv_path).plots_dir)
+    if static_meta.get("runtime_kind") == "process":
+        from acprof.plotting.process import plot_process_results
+        target = plot_process_results(df, output_dir, xlabel=xlabel)
+        print(f"[plot] {target}; CPU quota latency fitting is unavailable for inherited limits")
+        return
 
     performance_groups = dict(plotting_data.build_plot_groups(df))
     feasibility_groups = dict(plotting_data.build_plot_groups(all_status_df))

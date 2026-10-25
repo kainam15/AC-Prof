@@ -916,7 +916,7 @@ class TestDetectEnvironment:
             "acprof.host.input_plan._start_probe_session",
             return_value=session,
         ), patch(
-            "acprof.host.input_plan.stop_container_session",
+            "acprof.host.input_plan.stop_service_session",
         ), patch(
             "acprof.host.input_plan._post_probe_payload",
             return_value={
@@ -971,7 +971,7 @@ class TestDetectEnvironment:
             "acprof.workloads.get_generator",
             return_value=FakeWorkloadGenerator(),
         ), patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_container_session"
+            input_plan, "stop_service_session"
         ), patch.object(input_plan, "_request_scale_meta", return_value={
             "max_effective_input_scale": 512, "input_scale_type": "context_length",
             "reason": "test model context limit",
@@ -1237,7 +1237,7 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.os.environ",
             {"ACPROF_WECOM_WEBHOOK_URL": "https://example.invalid/secret"},
         ), patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1252,7 +1252,7 @@ class TestDetectEnvironment:
                 cold_start_ready_wait_s=0.1,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -1304,7 +1304,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1312,7 +1312,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -1359,7 +1359,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1370,7 +1370,7 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch(
             "acprof.host.command.run_command",
             side_effect=fake_run,
@@ -1420,7 +1420,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1428,7 +1428,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -1482,7 +1482,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1490,7 +1490,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ) as start_container, patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -1541,7 +1541,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1549,7 +1549,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -1602,7 +1602,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -1610,9 +1610,9 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch(
-            "acprof.host.orchestrator.container_runtime_oom_error",
+            "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             recorded_failure = tuple((None, Failure('predict', 'inference_failed', 'typed inference error')))[recorded_failure_case]
@@ -1707,7 +1707,7 @@ class TestDetectEnvironment:
             "Error": "",
         }
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_2c_2g_on",
                 base_url="http://127.0.0.1:8204",
@@ -1721,7 +1721,7 @@ class TestDetectEnvironment:
             "acprof.host.container_state.inspect_container_state",
             return_value=container_state,
         ) as inspect_state, patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ) as stop_container, patch(
             "acprof.host.command.run_command",
             side_effect=fake_run,
@@ -1788,7 +1788,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1799,10 +1799,10 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator.container_runtime_oom_error",
+            "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch(
             "acprof.host.command.run_command",
             side_effect=fake_run,
@@ -1881,7 +1881,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -1892,9 +1892,9 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ) as stop_container, patch(
-            "acprof.host.orchestrator.container_runtime_oom_error",
+            "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch(
             "acprof.host.command.run_command",
@@ -1995,7 +1995,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -2006,9 +2006,9 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator._resolve_packet_latency_runtime",
             return_value=None,
         ), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch(
-            "acprof.host.orchestrator.container_runtime_oom_error",
+            "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch(
             "acprof.host.command.run_command",
@@ -2064,7 +2064,7 @@ class TestDetectEnvironment:
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             side_effect=RuntimeError(
                 "container_oom_killed during startup "
                 "(container=unit-test, memory_limit=2g, status=exited, exit_code=137)"
@@ -2129,7 +2129,7 @@ class TestDetectEnvironment:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -2137,7 +2137,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -2182,7 +2182,7 @@ class TestDetectEnvironment:
 
         stdout = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_on",
                 base_url="http://127.0.0.1:8106",
@@ -2190,7 +2190,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -2242,7 +2242,7 @@ class TestDetectEnvironment:
 
         stdout = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -2250,7 +2250,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 orchestrator.CaseRequest(
@@ -2349,7 +2349,7 @@ class TestDetectEnvironment:
         )
 
         with patch(
-            "acprof.host.orchestrator.start_container_session",
+            "acprof.host.orchestrator.start_service_session",
             return_value=docker_runtime.RunningContainer(
                 name="case_google-bert--bert-base-uncased_1c_4g_off",
                 base_url="http://127.0.0.1:8106",
@@ -2357,7 +2357,7 @@ class TestDetectEnvironment:
                 cold_start_s=1.0,
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
-            "acprof.host.orchestrator.stop_container_session"
+            "acprof.host.orchestrator.stop_service_session"
         ):
             with pytest.raises(packet_capture.PacketLatencyError) as raised:
                 orchestrator.run_single_case(

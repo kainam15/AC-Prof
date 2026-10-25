@@ -60,14 +60,17 @@ class RunOptions:
     backend: str = option(
         '', help='Override runtime backend (transformers_pipeline/chronos/...)', probe=True, cli_default=None,
     )
+    runtime: str = option(
+        'auto', help='Execution runtime; auto prefers usable local Docker', choices=('auto', 'docker', 'process'), probe=True,
+    )
     cpus: str = option(
-        '1,2,4,8', help='CPU core counts (comma-separated)', probe=True,
+        'auto', help='CPU quotas (comma-separated), or auto: Docker default matrix / Process inherited limits', probe=True,
     )
     cpuset_cpus: str = option(
         '', help='Optional fixed CPU IDs for formal/startup containers, e.g. 0-3,8',
     )
     mems: str = option(
-        '2,4,8,16', help='Memory caps in GB (comma-separated)', probe=True,
+        'auto', help='Memory caps in GiB (comma-separated), or auto: Docker default matrix / Process inherited limits', probe=True,
         probe_help='Memory GB candidates scanned from low to high',
     )
     gpus: str = option(

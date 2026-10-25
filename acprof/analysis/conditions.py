@@ -101,7 +101,8 @@ def comparison_profile(snapshot, *, purpose="same-hardware", case=None):
     workload = conditions.pop("actual_workload")
     if case is not None:
         cpu, memory, gpu, scale = case
-        case_id = f"{int(float(cpu))}c_{int(float(memory))}g_{gpu}"
+        from acprof.artifact_layout import resource_case_id
+        case_id = resource_case_id(cpu, memory, gpu)
         conditions["resources"] = {**conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu}
         entries = snapshot.get("planned_input_entries")
         selected = [entry for entry in entries or [] if float(entry["input_scale"]) == float(scale)]

@@ -36,6 +36,7 @@ INPUT_FIELDS = {
     "sniff-iface": "sniff_iface",
 }
 SELECT_FIELDS = {
+    "runtime": "runtime",
     "input-scale-policy": "input_scale_policy",
     "model-source": "model_source",
     "task-family": "task_family",

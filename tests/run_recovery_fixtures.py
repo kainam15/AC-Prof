@@ -74,7 +74,8 @@ class RunRecoveryFixture:
                 "--repeat-in-window", "1", "--notify", "none", "--no-prune-startup-oom",
                 "--output-dir", str(self.root), "--matrix-order", "declared", *extra,
             ]))
-            for name in ("bootstrap_project_env", "require_collection_host", "require_native_docker",
+            stack.enter_context(patch("acprof.host.preflight.require_native_docker"))
+            for name in ("bootstrap_project_env", "require_collection_host",
                          "require_packet_latency_prerequisites", "require_cpu_energy_prerequisites",
                          "require_mips_prerequisites"):
                 stack.enter_context(patch.object(run, name))

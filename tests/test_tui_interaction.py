@@ -107,7 +107,7 @@ class TestTuiInteraction:
                 assert (refresh.call_count) == (1)
             assert (app.configuration.preview_timer) is None
             assert (app.query_one("#run-preset", Select).value) == ("main")
-            assert (app.query_one("#cpus", Input).value) == ("1,2,4,8")
+            assert (app.query_one("#cpus", Input).value) == ("auto")
 
     async def test_starting_run_cancels_preview_and_locks_configuration(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
