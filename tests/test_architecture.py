@@ -75,7 +75,7 @@ def implementation_paths():
     paths = [path for package in ("application", "host", "container", "workloads", "monitors", "packet",
                                   "analysis", "plotting", "tui")
              for path in (PROJECT_DIR / "acprof" / package).rglob("*.py")]
-    paths.extend(PROJECT_DIR / "acprof" / name for name in ("experiment.py", "run_args.py"))
+    paths.extend(PROJECT_DIR / "acprof" / name for name in ("experiment.py", "run_args.py", "run_options.py"))
     return sorted(paths)
 
 

@@ -1,25 +1,11 @@
 """Shared profiling argument declarations and frozen-option serialization."""
 import argparse
 
-from acprof.config import (
-    DEFAULT_COMPUTE_PROFILE_TOOL,
-    DEFAULT_IDLE_COOLDOWN_SECONDS,
-    DEFAULT_IDLE_SECONDS,
-    DEFAULT_REPEAT_IN_WINDOW,
-    DEFAULT_REPEAT_WINDOW_SECONDS,
-    DEFAULT_REQUEST_TIMEOUT_SECONDS,
-)
-from acprof.hf_endpoints import HF_DOWNLOAD_MODES
+from acprof.run_options import add_option_arguments
 
 
 def add_download_arguments(parser):
-    parser.add_argument("--model-source", choices=("huggingface", "modelscope"), default=None,
-                        help="Model artifact source (default huggingface); never switched automatically")
-    parser.add_argument("--download-mode", choices=HF_DOWNLOAD_MODES, default=None,
-                        help="Advanced/compatibility HF Hub entry policy (default auto); TUI always uses auto")
-    parser.add_argument("--max-download", default=None, help="Bulk download budget, e.g. 5GB; unknown size stops before download")
-    parser.add_argument("--model-store", default=None, help="Host Model Store path shared across CPU/GPU runs")
-    parser.add_argument("--model-store-max", default=None, help="Model Store capacity, e.g. 100GB")
+    add_option_arguments(parser, group="download")
 
 
 def build_parser(*, default_notify_provider: str = "auto", automatic: bool = False) -> argparse.ArgumentParser:
@@ -35,33 +21,13 @@ Examples:
         """,
     )
 
-    # Required
+    add_option_arguments(parser, default_notify_provider=default_notify_provider, automatic=automatic)
+
     if automatic:
         parser.description = "AC-Prof: resolve, preflight and collect an exact Hugging Face model ID"
         parser.epilog = "Example: acprof auto openai-community/gpt2 --profiling-mode auto --gpus off"
-        parser.add_argument("model", help="Exact Hugging Face model ID; ambiguous names are not searched")
-    else:
-        parser.add_argument("--model", required=True, help="HuggingFace model ID")
-    parser.add_argument("--revision", help="Model branch, tag or full commit SHA")
-    parser.add_argument("--resume", action="store_true",
-                        help="Resume the same experiment using its recorded image, input plan and completed cases")
-
-    # Detection overrides
-    parser.add_argument("--task", default=None, help="Override pipeline_tag (e.g., text-generation)")
-    parser.add_argument(
-        "--task-family",
-        default=None,
-        help="Override task family (nlp/cv/audio/timeseries/diffusion/multimodal/structured)",
-    )
-    parser.add_argument("--backend", default=None, help="Override runtime backend (transformers_pipeline/chronos/...)")
-    parser.add_argument("--model-spec", default=None,
-                        help="Local acprof_model.json interface declaration; baked into the immutable service image")
 
     # Resource matrix
-    parser.add_argument("--cpus", default="1,2,4,8", help="CPU core counts (comma-separated)")
-    parser.add_argument("--cpuset-cpus", default="", help="Optional fixed CPU IDs for formal/startup containers, e.g. 0-3,8")
-    parser.add_argument("--mems", default="2,4,8,16", help="Memory caps in GB (comma-separated)")
-    parser.add_argument("--gpus", default="off,on", help="GPU modes (comma-separated: off,on)")
     parser.add_argument("--matrix-order", choices=("seeded", "declared"), default="seeded",
                         help="Frozen case/scale execution order (default: seeded)")
     parser.add_argument("--matrix-seed", type=int, default=0,
@@ -69,101 +35,14 @@ Examples:
     parser.add_argument("--dram-energy", choices=("auto", "off", "required"), default="auto",
                         help="Optional host DRAM RAPL measurement; only required makes absence fatal")
     parser.add_argument("--gpu-device", default=None, help="One physical GPU index or UUID (default: ACPROF_GPU_DEVICE, DEVICE_INDEX, then 0)")
-    startup_oom_pruning_group = parser.add_mutually_exclusive_group()
-    startup_oom_pruning_group.add_argument(
-        "--prune-startup-oom",
-        dest="prune_startup_oom",
-        action="store_true",
-        help=(
-            "Probe startup-only OOM evidence before freezing the formal matrix (default)"
-        ),
-    )
-    startup_oom_pruning_group.add_argument(
-        "--no-prune-startup-oom",
-        dest="prune_startup_oom",
-        action="store_false",
-        help=(
-            "Disable startup-OOM pruning and independently attempt every "
-            "selected CPU/memory/GPU case"
-        ),
-    )
-    parser.set_defaults(prune_startup_oom=True)
 
-    # Experiment parameters
-    parser.add_argument(
-        "--profiling-mode", choices=("full", "basic", "auto") if automatic else ("full", "basic"), default="full",
-        help="full requires packet latency, RAPL and perf (default); basic measures application latency, throughput, CPU and memory",
-    )
-    parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
-    parser.add_argument("--warmup", type=int, default=2, help="Warmup iterations")
-    parser.add_argument("--repeat", type=int, default=5, help="Measurement repeat count")
-    parser.add_argument(
-        "--repeat-in-window",
-        type=int,
-        default=DEFAULT_REPEAT_IN_WINDOW,
-        help="Requests per energy window; 0 enables auto calibration",
-    )
-    parser.add_argument(
-        "--repeat-window-seconds",
-        type=float,
-        default=DEFAULT_REPEAT_WINDOW_SECONDS,
-        help="Target workload window duration for auto repeat-in-window",
-    )
-    parser.add_argument(
-        "--request-timeout-seconds",
-        type=float,
-        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
-        help="Connect and read-inactivity timeout per /predict (not a total deadline; no retries)",
-    )
+    # Additional recorded options
     parser.add_argument(
         "--latency-slo", action="append", default=[], metavar="SELECTOR=SECONDS",
         help="Latency SLO (repeatable): task:TAG=SECONDS, profile:ID=SECONDS or default=SECONDS; no implicit threshold",
     )
-    parser.add_argument("--sample-hz", type=float, default=20.0, help="GPU energy sampling rate")
-    parser.add_argument("--sampling-policy", choices=("burst", "skip"), default="burst",
-                        help="Late sampling policy: preserve absolute-phase catch-up or skip missed ticks")
-    parser.add_argument("--raw-sample-limit", type=int, default=100000,
-                        help="Maximum retained raw samples per collector (integer of at least 2)")
-    parser.add_argument(
-        "--idle-seconds",
-        type=float,
-        default=DEFAULT_IDLE_SECONDS,
-        help="Idle baseline measurement duration before each workload window",
-    )
-    parser.add_argument(
-        "--idle-cooldown-seconds",
-        type=float,
-        default=DEFAULT_IDLE_COOLDOWN_SECONDS,
-        help="Cooldown duration before collecting idle baselines for each workload window",
-    )
-    parser.add_argument(
-        "--idle-debug",
-        action="store_true",
-        help="Write CPU idle baseline timestamps and per-row diagnostic JSONL sidecars",
-    )
-    parser.add_argument("--input-scales", default=None, help="Override input scale values (comma-separated)")
-    parser.add_argument("--input-scale-policy", choices=("auto", "minimal"), default="auto",
-                        help="Without explicit scales, plan a full range or one smallest declared workload scale")
-    parser.add_argument(
-        "--workload-spec",
-        default=None,
-        help=(
-            "Path to an NLP, CV, audio, multimodal, diffusion or structured workload manifest. ASR defaults to the "
-            "bundled LibriSpeech short-form manifest."
-        ),
-    )
 
     # Compute profiling
-    parser.add_argument(
-        "--compute-profile-tool",
-        choices=("none", "both", "torch", "ncu", "vendor"),
-        default=DEFAULT_COMPUTE_PROFILE_TOOL,
-        help=(
-            "Compute FLOP profiler (default: none): none skips all compute "
-            "probes; both independently collects torch_profiler_eager logical "
-            "FLOP and ncu GPU executed FLOP"
-        ),
-    )
     parser.add_argument("--advisor-root", default=None, help="Host Intel Advisor install root or advisor executable")
     parser.add_argument("--ncu-root", default=None, help="Host Nsight Compute install root or ncu executable")
     parser.add_argument("--advisor-repeat", type=int, default=20, help="Intel Advisor profiled inference repetitions")
@@ -193,15 +72,6 @@ Examples:
 
     # High-overhead execution profiling. These probes are intentionally
     # opt-in and use reduced resource sampling by default.
-    parser.add_argument(
-        "--execution-profile-tool",
-        choices=("none", "both", "massif", "nsys"),
-        default="none",
-        help=(
-            "Optional execution profiler: Massif for CPU heap peaks, Nsight "
-            "Systems for CUDA/GPU timelines, both, or none (default)"
-        ),
-    )
     parser.add_argument(
         "--massif-sampling",
         choices=("per-scale", "full"),
@@ -288,22 +158,6 @@ Examples:
     parser.add_argument(
         "--model-download-policy", choices=("auto", "full"), default="auto",
         help="Model files: auto selects verified loader formats; full keeps the complete repository",
-    )
-    parser.add_argument("--sniff-iface", default="docker0", help="Network interface for tcpdump")
-    parser.add_argument("--output-dir", default="results", help="Output directory")
-    parser.add_argument(
-        "--rebuild-image",
-        action="store_true",
-        help="Rebuild the model image (Docker cache allowed); by default reuse a verified image or build if missing",
-    )
-    parser.add_argument(
-        "--notify",
-        choices=("auto", "none", "wecom"),
-        default=default_notify_provider,
-        help=(
-            "Notification mode: auto (default) enables WeCom when "
-            "ACPROF_WECOM_WEBHOOK_URL is configured; none disables notifications"
-        ),
     )
 
     add_download_arguments(parser)

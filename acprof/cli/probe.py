@@ -24,6 +24,7 @@ from acprof.host.preflight import (
 from acprof.host.runtime_images import prepare_image
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.installation import resource_root
+from acprof.run_options import add_option_arguments
 
 PROJECT_DIR = resource_root()
 
@@ -54,31 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "first cap that completes one largest-scale cold request."
         )
     )
-    parser.add_argument("--model", required=True, help="Hugging Face model ID")
-    parser.add_argument("--revision", default=None, help="Model branch, tag or full commit SHA")
-    parser.add_argument("--task", default=None, help="Override pipeline_tag")
-    parser.add_argument("--task-family", default=None, help="Override task family")
-    parser.add_argument("--backend", default=None, help="Override runtime backend")
-    parser.add_argument("--model-spec", default=None,
-                        help="Local acprof_model.json interface declaration; baked into the service image")
-    parser.add_argument("--cpus", default="1,2,4,8", help="CPU list")
-    parser.add_argument(
-        "--mems",
-        default="2,4,8,16",
-        help="Memory GB candidates scanned from low to high",
-    )
-    parser.add_argument("--gpus", default="off,on", help="GPU modes")
-    parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument(
-        "--input-scales",
-        default=None,
-        help="Optional input scales; the largest value is probed",
-    )
-    parser.add_argument(
-        "--workload-spec",
-        default=None,
-        help="Optional NLP, CV, audio, multimodal, diffusion or structured workload manifest",
-    )
+    add_option_arguments(parser, group=None, purpose="probe")
     parser.add_argument(
         "--timeout-seconds",
         type=float,
@@ -88,18 +65,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "wait indefinitely"
         ),
     )
-    parser.add_argument("--output-dir", default="results", help="Output root")
     parser.add_argument(
         "--model-download-policy", choices=("auto", "full"), default="auto",
         help="Model files: auto selects verified loader formats; full keeps the complete repository",
     )
-    parser.add_argument(
-        "--rebuild-image",
-        action="store_true",
-        help="Rebuild the model image (Docker cache allowed); by default reuse a verified image or build if missing",
-    )
-    from acprof.run_args import add_download_arguments
-    add_download_arguments(parser)
     return parser
 
 

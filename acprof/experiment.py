@@ -8,17 +8,10 @@ from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 from typing import Iterable
 
-from acprof.config import (
-    DEFAULT_COMPUTE_PROFILE_TOOL,
-    DEFAULT_IDLE_COOLDOWN_SECONDS,
-    DEFAULT_IDLE_SECONDS,
-    DEFAULT_REPEAT_IN_WINDOW,
-    DEFAULT_REPEAT_WINDOW_SECONDS,
-    DEFAULT_REQUEST_TIMEOUT_SECONDS,
-)
 from acprof.extensions import CATALOG
 from acprof.installation import cli_command
 from acprof.messages import message
+from acprof.run_options import RunOptions, configuration_arguments
 
 TASK_FAMILIES = tuple(sorted(set(CATALOG.task_families.values())))
 GPU_MODES = ("off", "on")
@@ -88,56 +81,11 @@ def _number(value: str | int | float, label: str, field: str, *, integer: bool) 
         raise RunConfigError([ConfigIssue(field, message('{0}必须是{1}', label, kind))]) from exc
 
 
-def _format_number(value: int | float) -> str:
-    if isinstance(value, float) and value.is_integer():
-        return f"{value:.1f}"
-    return str(value)
-
-
 @dataclass(frozen=True)
-class RunConfig:
+class RunConfig(RunOptions):
     """Common experiment options independent of presentation."""
 
-    model: str = ""
-    model_source: str = "huggingface"
-    revision: str = ""
     extra_options: dict = dataclass_field(default_factory=dict)
-    task: str = ""
-    task_family: str = ""
-    backend: str = ""
-    cpus: str = "1,2,4,8"
-    cpuset_cpus: str = ""
-    mems: str = "2,4,8,16"
-    gpus: str = "off,on"
-    input_scales: str = ""
-    input_scale_policy: str = "auto"
-    workload_spec: str = ""
-    model_spec: str = ""
-    download_mode: str = "auto"
-    max_download: str = ""
-    model_store: str = ""
-    model_store_max: str = ""
-    output_dir: str = "results"
-    batch_size: int = 1
-    warmup: int = 2
-    repeat: int = 5
-    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW
-    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS
-    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
-    sample_hz: float = 20.0
-    sampling_policy: str = "burst"
-    raw_sample_limit: int = 100000
-    idle_seconds: float = DEFAULT_IDLE_SECONDS
-    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
-    compute_profile_tool: str = DEFAULT_COMPUTE_PROFILE_TOOL
-    profiling_mode: str = "full"
-    execution_profile_tool: str = "none"
-    sniff_iface: str = "docker0"
-    notify: str = "auto"
-    prune_startup_oom: bool = True
-    rebuild_image: bool = False
-    resume: bool = False
-    idle_debug: bool = False
 
     def experiment_parameters(self) -> tuple[tuple[str, object], ...]:
         """Preset identity excludes transport, storage and execution controls."""
@@ -399,77 +347,10 @@ def build_run_command(
 ) -> list[str]:
     """Build the installed CLI command without duplicating its work."""
     config = config.validate(project_dir=project_dir)
-    command = [
-        *cli_command("run", python_executable=python_executable),
-        "--model",
-        config.model,
-        "--cpus",
-        config.cpus,
-        "--mems",
-        config.mems,
-        "--gpus",
-        config.gpus,
-        "--batch-size",
-        str(config.batch_size),
-        "--warmup",
-        str(config.warmup),
-        "--repeat",
-        str(config.repeat),
-        "--repeat-in-window",
-        str(config.repeat_in_window),
-        "--repeat-window-seconds",
-        _format_number(config.repeat_window_seconds),
-        "--request-timeout-seconds",
-        _format_number(config.request_timeout_seconds),
-        "--sample-hz",
-        _format_number(config.sample_hz),
-        "--sampling-policy",
-        config.sampling_policy,
-        "--raw-sample-limit",
-        str(config.raw_sample_limit),
-        "--idle-seconds",
-        _format_number(config.idle_seconds),
-        "--idle-cooldown-seconds",
-        _format_number(config.idle_cooldown_seconds),
-        "--compute-profile-tool",
-        config.compute_profile_tool,
-        "--profiling-mode",
-        config.profiling_mode,
-        "--execution-profile-tool",
-        config.execution_profile_tool,
-        "--sniff-iface",
-        config.sniff_iface,
-        "--output-dir",
-        config.output_dir,
-        "--notify",
-        config.notify,
-    ]
-    for option, value in (
-        ("--revision", config.revision),
-        ("--model-source", config.model_source),
-        ("--cpuset-cpus", config.cpuset_cpus),
-        ("--task", config.task),
-        ("--task-family", config.task_family),
-        ("--backend", config.backend),
-        ("--input-scales", config.input_scales),
-        ("--input-scale-policy", config.input_scale_policy),
-        ("--workload-spec", config.workload_spec),
-        ("--model-spec", config.model_spec),
-        ("--download-mode", config.download_mode),
-        ("--max-download", config.max_download),
-        ("--model-store", config.model_store),
-        ("--model-store-max", config.model_store_max),
-    ):
-        if value:
-            command.extend((option, value))
-    if not config.prune_startup_oom:
-        command.append("--no-prune-startup-oom")
-    if config.rebuild_image:
-        command.append("--rebuild-image")
-    if config.resume:
-        command.append("--resume")
-    if config.idle_debug:
-        command.append("--idle-debug")
     from acprof.run_args import arguments_from_options
-    command.extend(arguments_from_options(config.extra_options))
-    return command
+
+    return [
+        *cli_command("run", python_executable=python_executable),
+        *configuration_arguments(config, purpose="run"),
+        *arguments_from_options(config.extra_options),
+    ]

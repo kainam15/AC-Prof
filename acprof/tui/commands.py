@@ -12,6 +12,7 @@ from typing import Sequence
 from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
 from acprof.messages import message
+from acprof.run_options import configuration_arguments
 from acprof.tui.i18n import message_id
 
 
@@ -135,40 +136,10 @@ def build_probe_command(
 ) -> list[str]:
     """Build a one-request largest-scale diagnostic probe command."""
     config = config.validate(project_dir=project_dir)
-    command = [
+    return [
         *cli_command("probe", python_executable=python_executable),
-        "--model",
-        config.model,
-        "--cpus",
-        config.cpus,
-        "--mems",
-        config.mems,
-        "--gpus",
-        config.gpus,
-        "--batch-size",
-        str(config.batch_size),
-        "--output-dir",
-        config.output_dir,
+        *configuration_arguments(config, purpose="probe"),
     ]
-    for option, value in (
-        ("--revision", config.revision),
-        ("--model-source", config.model_source),
-        ("--task", config.task),
-        ("--task-family", config.task_family),
-        ("--backend", config.backend),
-        ("--input-scales", config.input_scales),
-        ("--workload-spec", config.workload_spec),
-        ("--model-spec", config.model_spec),
-        ("--download-mode", config.download_mode),
-        ("--max-download", config.max_download),
-        ("--model-store", config.model_store),
-        ("--model-store-max", config.model_store_max),
-    ):
-        if value:
-            command.extend((option, value))
-    if config.rebuild_image:
-        command.append("--rebuild-image")
-    return command
 
 
 def build_plot_command(

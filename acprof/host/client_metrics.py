@@ -6,7 +6,6 @@ import math
 from typing import TYPE_CHECKING, Any, Dict, List
 
 from acprof.capabilities import measurement_requested
-from acprof.config import GPU_RUNTIME_STATE_FIELDS
 from acprof.host.compute_profile_plan import (
     NCU_ERROR_FIELD,
     NCU_KERNEL_COUNT_FIELD,
@@ -21,6 +20,7 @@ from acprof.host.compute_profile_plan import (
     find_compute_profile_entry,
 )
 from acprof.host.window_errors import EnergyAbort
+from acprof.metric_registry import GPU_RUNTIME_STATE_FIELDS, METRICS, row_group_fields, tool_fields
 from acprof.pixel_metrics import pixel_counts_from_metadata, pixel_rate_metrics
 from acprof.workloads.contract import summarize_workload_contracts
 
@@ -116,27 +116,11 @@ def _compute_profile_row_metrics(
     }
 
 
-EXECUTION_PROFILE_NUMERIC_FIELDS = (
-    "cpu_heap_peak_bytes_massif",
-    "cpu_heap_extra_peak_bytes_massif",
-    "cpu_stack_peak_bytes_massif",
-    "cpu_heap_peak_total_bytes_massif",
-    "cpu_heap_peak_at_ms_massif",
-    "host_inference_wall_time_ms_per_request_nsys",
-    "cuda_api_time_sum_ms_per_request_nsys",
-    "cuda_api_call_count_per_request_nsys",
-    "gpu_kernel_time_sum_ms_per_request_nsys",
-    "gpu_kernel_launch_count_per_request_nsys",
-    "gpu_memcpy_time_sum_ms_per_request_nsys",
-    "gpu_memcpy_count_per_request_nsys",
-    "gpu_memcpy_bytes_per_request_nsys",
-)
+_EXECUTION_PROFILE_FIELDS = (*tool_fields("massif"), *tool_fields("nsys"))
+EXECUTION_PROFILE_NUMERIC_FIELDS = tuple(name for name in _EXECUTION_PROFILE_FIELDS if METRICS[name].kind == "number")
 
 
-EXECUTION_PROFILE_ERROR_FIELDS = (
-    "compute_profile_error_massif",
-    "compute_profile_error_nsys",
-)
+EXECUTION_PROFILE_ERROR_FIELDS = tuple(name for name in _EXECUTION_PROFILE_FIELDS if METRICS[name].kind == "text")
 
 
 def _execution_profile_row_metrics(
@@ -336,149 +320,27 @@ def _estimate_cpu_cycles(
     return float("nan")
 
 
-GPU_METRIC_FIELDS = [
-    "gpu_idle_power_w",
-    "gpu_energy_iters",
-    "gpu_avg_power_total_w",
-    "gpu_peak_power_total_w",
-    "gpu_energy_total_j",
-    "gpu_avg_power_eff_w",
-    "gpu_peak_power_eff_w",
-    "gpu_energy_eff_j",
-]
+GPU_METRIC_FIELDS = row_group_fields("gpu_energy")
 
 
-DRAM_METRIC_FIELDS = [
-    "dram_window_energy_j", "dram_window_duration_s", "dram_energy_per_request_j",
-    "dram_avg_power_w", "dram_peak_power_w", "dram_idle_power_w",
-    "dram_window_effective_energy_j", "dram_effective_energy_per_request_j",
-]
+DRAM_METRIC_FIELDS = row_group_fields("dram_energy")
 
-CPU_METRIC_FIELDS = [
-    "cpu_idle_power_w",
-    "cpu_energy_iters",
-    "cpu_avg_power_total_w",
-    "cpu_peak_power_total_w",
-    "cpu_energy_total_j",
-    "cpu_avg_power_eff_w",
-    "cpu_peak_power_eff_w",
-    "cpu_energy_eff_j",
-    "vcpu_cpu_share",
-    "vcpu_cpu_time_s",
-    "vcpu_avg_power_total_w",
-    "vcpu_peak_power_total_w",
-    "vcpu_energy_total_j",
-    "vcpu_avg_power_eff_w",
-    "vcpu_peak_power_eff_w",
-    "vcpu_energy_eff_j",
-    *DRAM_METRIC_FIELDS,
-]
+CPU_METRIC_FIELDS = [*row_group_fields("cpu_energy"), *row_group_fields("cpu_attribution"), *DRAM_METRIC_FIELDS]
 
 
-RESOURCE_USAGE_METRIC_FIELDS = [
-    "resource_usage_iters",
-    "container_cpu_util_avg_pct",
-    "container_cpu_util_peak_pct",
-    "container_cpu_nr_periods_delta",
-    "container_cpu_nr_throttled_delta",
-    "container_cpu_throttled_period_ratio_pct",
-    "container_cpu_throttled_time_s_per_request",
-    "container_cpu_pressure_some_stall_pct",
-    "container_cpu_pressure_full_stall_pct",
-    "cpu_freq_avg_hz",
-    "cpu_freq_peak_hz",
-    "container_mem_usage_avg_bytes",
-    "container_mem_usage_peak_bytes",
-    "container_mem_util_avg_pct",
-    "container_mem_util_peak_pct",
-    "container_mem_peak_cgroup_bytes",
-    "container_mem_anon_bytes_end",
-    "container_mem_file_bytes_end",
-    "container_mem_slab_bytes_end",
-    "container_mem_pgfault_delta",
-    "container_mem_pgmajfault_delta",
-    "container_mem_workingset_refault_delta",
-    "container_mem_high_events_delta",
-    "container_mem_max_events_delta",
-    "container_mem_oom_events_delta",
-    "container_mem_oom_kill_events_delta",
-    "container_mem_pressure_some_stall_pct",
-    "container_mem_pressure_full_stall_pct",
-    "container_swap_limit_bytes",
-    "container_swap_usage_avg_bytes",
-    "container_swap_usage_peak_bytes",
-    "container_io_read_bytes_per_request",
-    "container_io_write_bytes_per_request",
-    "container_io_read_ops_per_request",
-    "container_io_write_ops_per_request",
-    "container_io_pressure_some_stall_pct",
-    "container_io_pressure_full_stall_pct",
-    "container_pids_current_end",
-    "container_pids_peak_cgroup",
-    "container_pids_max_events_delta",
-    "gpu_util_avg_pct",
-    "gpu_util_peak_pct",
-    "gpu_mem_used_avg_bytes",
-    "gpu_mem_used_peak_bytes",
-    "gpu_mem_util_avg_pct",
-    "gpu_mem_util_peak_pct",
-]
+RESOURCE_USAGE_METRIC_FIELDS = row_group_fields("resource_usage")
 
 
-LATENCY_PACKET_DISTRIBUTION_FIELDS = [
-    "latency_request_count",
-    "latency_p50_s",
-    "latency_p90_s",
-    "latency_p95_s",
-    "latency_tail_ratio",
-    "latency_std_s",
-    "latency_cv",
-    "latency_iqr_s",
-    "latency_max_s",
-    "latency_slow_ratio",
-]
+LATENCY_PACKET_DISTRIBUTION_FIELDS = row_group_fields("latency_packet_distribution")
 
 
-LATENCY_APP_DISTRIBUTION_FIELDS = [
-    "latency_app_request_count",
-    "latency_app_p50_s",
-    "latency_app_p90_s",
-    "latency_app_p95_s",
-    "latency_app_tail_ratio",
-    "latency_app_std_s",
-    "latency_app_cv",
-    "latency_app_iqr_s",
-    "latency_app_max_s",
-    "latency_app_slow_ratio",
-]
+LATENCY_APP_DISTRIBUTION_FIELDS = row_group_fields("latency_app_distribution")
 
 
-EFFICIENCY_METRIC_FIELDS = [
-    "container_attributed_energy_eff_j",
-    "container_attributed_samples_per_j",
-    "container_attributed_edp_app_js",
-    "output_tokens_per_s_app",
-    "container_attributed_j_per_output_token",
-    "container_attributed_j_per_input_unit",
-]
+EFFICIENCY_METRIC_FIELDS = row_group_fields("efficiency")
 
 
-MIPS_METRIC_FIELDS = [
-    "cpu_cycles_per_request",
-    "cpu_ref_cycles_per_request",
-    "cpu_ipc",
-    "cpu_perf_running_pct",
-    "cpu_instructions_per_request",
-    "cpu_mips_app",
-    "cpu_mips_packet",
-    "cpu_perf_elapsed_s",
-    "cpu_cache_references_per_request",
-    "cpu_cache_misses_per_request",
-    "cpu_cache_miss_rate_pct",
-    "cpu_dtlb_loads_per_request",
-    "cpu_dtlb_load_misses_per_request",
-    "cpu_dtlb_load_miss_rate_pct",
-]
+MIPS_METRIC_FIELDS = row_group_fields("cpu_pmu")
 
 
 def _nan_metrics(fields: List[str]) -> Dict[str, float]:
@@ -1106,7 +968,6 @@ class WindowMetrics:
         )
         row.update(_execution_profile_row_metrics(execution_profile))
         if environment_class == "wsl2":
-            from acprof.metric_registry import METRICS
             from acprof.platform import native_only_metric
             for name, metric in METRICS.items():
                 if native_only_metric(metric):
