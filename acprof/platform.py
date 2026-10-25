@@ -73,6 +73,21 @@ def _read(path: str) -> str:
         return ""
 
 
+def can_open_local_browser(*, environ: Mapping[str, str] | None = None,
+                           system: str | None = None) -> bool:
+    """A local GUI is a prerequisite, not proof that browser startup will succeed.
+
+    SSH (including X forwarding) always uses file transfer guidance. Do not let
+    webbrowser fall back to a terminal browser on a headless collection server.
+    """
+    env = os.environ if environ is None else environ
+    if any(env.get(key) for key in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")):
+        return False
+    system = platform.system() if system is None else system
+    return system in {"Windows", "Darwin"} or (
+        system == "Linux" and bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")))
+
+
 def detect_environment(*, system=None, release=None, version=None, machine=None,
                        environ=None, read_text=None, exists=None) -> Environment:
     """Recognize WSL2, including custom kernels; ambiguous WSL1 stays unknown.

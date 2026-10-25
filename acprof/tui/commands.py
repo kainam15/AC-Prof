@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
@@ -86,6 +87,47 @@ def prepare_stats(source: str, *, project_dir: Path, python_executable: Path) ->
     output_dir = ArtifactLayout.discover(path.parent).path("analysis")
     command = build_stats_command(path, output_dir, project_dir=project_dir, python_executable=python_executable)
     return PendingLaunch(tuple(command), "stats", result_csv=str(path))
+
+
+def html_report_inputs(source: str, *, project_dir: Path) -> tuple[Path, ...]:
+    """Normalize the TUI's quoted-semicolon list to report's positional inputs.
+
+    The experiment picker returns a layer manifest; the public report command
+    documents directories and CSVs. Preserve all layers by passing its directory.
+    This only validates paths; analysis belongs to the report subprocess.
+    """
+    try:
+        values = next(csv.reader([source], delimiter=";", skipinitialspace=True, strict=True))
+    except csv.Error as exc:
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0950'))]) from exc
+    paths = []
+    for value in values:
+        if not value.strip():
+            continue
+        path = resolve_result_path(value.strip(), project_dir).resolve()
+        reference = path / "result_layers.json" if path.is_dir() else path
+        if not reference.is_file() or (reference.name != "result_layers.json" and reference.suffix.lower() != ".csv"):
+            raise RunConfigError([ConfigIssue(None, message_id('ui.0951', path))])
+        normalized = reference.parent if reference.name == "result_layers.json" else reference
+        if normalized in paths:
+            raise RunConfigError([ConfigIssue(None, message_id('ui.0952', normalized))])
+        paths.append(normalized)
+    if not paths:
+        raise RunConfigError([ConfigIssue(None, message_id('ui.0953'))])
+    return tuple(paths)
+
+
+def prepare_html_report(source: str, *, project_dir: Path, python_executable: Path) -> PendingLaunch:
+    """Prepare a new offline HTML artifact without importing analysis or Plotly."""
+    from acprof.artifact_layout import ArtifactLayout
+
+    paths = html_report_inputs(source, project_dir=project_dir)
+    first = paths[0]
+    layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
+    output = layout.path("analysis") / f"report-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:12]}.html"
+    command = (*cli_command("report", python_executable=python_executable),
+               *(str(path) for path in paths), "--output", str(output))
+    return PendingLaunch(command, "html-report", report_path=str(output))
 
 
 def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,

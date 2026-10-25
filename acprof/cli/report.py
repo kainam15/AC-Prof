@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
@@ -31,5 +32,12 @@ def main(argv=None):
             write_report(model, output, baseline=args.baseline, comparison_purpose=args.comparison_purpose)
     except (OSError, ValueError, RuntimeError, ImportError, csv.Error) as error:
         parser.exit(1, f"报告生成失败：{error}\n")
+    print("ACPROF_REPORT " + json.dumps({
+        "report_path": str(output.resolve()), "config_count": len(model.configs),
+        "valid_windows": sum(config["valid_windows"] for config in model.configs),
+        "excluded_rows": sum(config["excluded_rows"] for config in model.configs),
+        "quality_status": sorted({config["quality_status"] for config in model.configs}),
+        "measurement_status": sorted({config["measurement_status"] for config in model.configs}),
+    }, ensure_ascii=False))
     print(f"报告已生成：{output.resolve()}（{len(model.configs)} 个配置）")
     return 0

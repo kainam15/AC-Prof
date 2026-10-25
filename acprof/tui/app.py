@@ -289,8 +289,12 @@ class AcprofTui(BarCursorApp):
             "#summarize-results": "summary", "#plot-results": "plot",
             "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
+            "#html-report-generate": "html-report", "#html-report-open": "html-open",
+            "#html-report-export": "html-export",
         }.items():
             self.query_one(selector, Button).disabled = not state.allows(operation)
+        self.query_one("#html-report-cancel", Button).disabled = not (
+            self.process_kind == "html-report" and state.allows("stop"))
         for selector in ("#result-csv", "#report-source"):
             self.query_one(selector, Input).disabled = not state.allows("summary")
         self.refresh_bindings()
@@ -336,6 +340,8 @@ class AcprofTui(BarCursorApp):
         self.process_token = object()
         self.active_run_config = pending.config if pending.kind == "run" else None
         self.results.comparison_report_path = Path(pending.report_path) if pending.kind == "compare" else None
+        if pending.kind == "html-report":
+            self.results.html_report_started(pending)
         self.active_command = pending.command
         self.process_kind = pending.kind
         self.started_monotonic = time.monotonic()
@@ -425,6 +431,8 @@ class AcprofTui(BarCursorApp):
         snapshot: ProgressSnapshot | None,
         state_changed: bool,
     ) -> None:
+        if self.process_kind == "html-report" and line:
+            self.results.consume_html_line(line)
         if self.process_kind == "stats" and line.startswith("ACPROF_STATS "):
             receipt = json.loads(line.removeprefix("ACPROF_STATS "))
             if (not isinstance(receipt, dict) or not isinstance(receipt.get("report_path"), str)
@@ -499,6 +507,9 @@ class AcprofTui(BarCursorApp):
     ) -> None:
         # The child has exited; flush preparation output before its final outcome.
         self.logs.suspend(False)
+        cancelled = self.stop_requested
+        if kind == "html-report" and not cancelled:
+            launch_error = self.results.html_report_error(returncode, launch_error)
         if kind == "stats" and returncode == 0 and not launch_error and self.results.stats_report_path is None:
             launch_error = "统计进程未返回报告路径"
         if kind == "probe" and returncode == 0 and not launch_error and not self.stop_requested:
@@ -524,7 +535,7 @@ class AcprofTui(BarCursorApp):
                 time.monotonic() - self.started_monotonic
             )
             self.localization.set_text(self.query_one('#status-elapsed', Static), final_elapsed)
-        if kind in {"stats", "compare"}:
+        if kind in {"stats", "compare", "html-report"}:
             # Move focus before disabling the monitor page's focused Stop button;
             # its queued focus event could otherwise reactivate that old page.
             self.activate_tab("reports-tab")
@@ -535,7 +546,7 @@ class AcprofTui(BarCursorApp):
         )
         if launch_error:
             log.write(self.localization.tr(message_id('ui.0786', launch_error)))
-            self.notify(launch_error, title="任务启动失败", severity="error", timeout=8)
+            self.notify(launch_error, title=message_id('ui.0986') if kind == "html-report" else "任务启动失败", severity="error", timeout=8)
         elif comparison_ready:
             notice: str = message_id('ui.0488')
             log.write(self.localization.tr(notice))
@@ -547,7 +558,7 @@ class AcprofTui(BarCursorApp):
             self.notify(notice, severity="information", timeout=8 if self.results.stats_report_reused else 5)
         elif self.stop_requested:
             log.write(self.localization.tr(message_id('ui.0790', returncode)))
-            self.notify("任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
+            self.notify(message_id('ui.0962') if kind == "html-report" else "任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
         elif unsupported_task and snapshot is not None:
             log.write(self.localization.tr(snapshot.detail))
             log.write(self.localization.tr(message_id(
@@ -655,6 +666,8 @@ class AcprofTui(BarCursorApp):
             else:
                 self.activate_tab("reports-tab")
                 self.results.clear_report(message_id('ui.0570'))
+        elif kind == "html-report":
+            self.results.html_report_finished(error=launch_error, cancelled=cancelled)
         elif kind == "compare":
             report_path, self.results.comparison_report_path = self.results.comparison_report_path, None
             # The comparison CLI uses exit 1 for a valid incompatible/unknown
@@ -674,10 +687,11 @@ class AcprofTui(BarCursorApp):
             self.notify("当前没有运行中的任务", severity="warning")
             return
         token = self.process_token
+        html_report = self.process_kind == "html-report"
         self.push_screen(
             ConfirmActionScreen(
-                "终止当前任务？",
-                "将先向整个采集进程组发送 SIGINT，允许容器和监控器清理；"
+                message_id('ui.0984') if html_report else "终止当前任务？",
+                message_id('ui.0985') if html_report else "将先向整个采集进程组发送 SIGINT，允许容器和监控器清理；"
                 "超时后才会升级为 SIGTERM。已写入的 case 结果不会删除。",
                 "终止任务",
                 variant="error",
@@ -945,6 +959,23 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#report-compare')
     def on_results_compare_experiments_button(self) -> None:
         self.results.compare_experiments_button()
+
+    @on(Button.Pressed, '#html-report-generate')
+    def on_results_generate_html(self) -> None:
+        self.results.launch_html_report()
+
+    @on(Button.Pressed, '#html-report-open')
+    def on_results_open_html(self) -> None:
+        self.results.open_html_report()
+
+    @on(Button.Pressed, '#html-report-export')
+    def on_results_export_html(self) -> None:
+        self.results.export_html_report()
+
+    @on(Button.Pressed, '#html-report-cancel')
+    def on_results_cancel_html(self) -> None:
+        if self.process_kind == "html-report":
+            self.action_request_stop()
 
     @on(Button.Pressed, '#environment-status')
     def on_preflight_show_environment_status(self) -> None:

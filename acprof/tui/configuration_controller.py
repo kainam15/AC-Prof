@@ -401,7 +401,7 @@ class ConfigurationController:
         self.app.localization.set_text(self.app.query_one("#input-scales", Input), placeholder, "placeholder")
 
     def remember_last_used(
-        self, *, model: str = "", result_dir: str = "", result_csv: str = "",
+        self, *, model: str = "", result_dir: str = "", result_csv: str = "", html_report: str = "",
     ) -> None:
         """Remember confirmed inputs, preserving explicitly saved preferences."""
         updates = {}
@@ -419,6 +419,7 @@ class ConfigurationController:
             last_model=updates.get("last_model", self.saved_settings.last_model),
             last_result_dir=updates.get("last_result_dir", self.saved_settings.last_result_dir),
             last_result_csv=updates.get("last_result_csv", self.saved_settings.last_result_csv),
+            last_html_report=html_report or self.saved_settings.last_html_report,
         )
         if settings == self.saved_settings:
             return

@@ -1,0 +1,51 @@
+"""Explicit file actions for completed HTML artifacts; no analysis or inference."""
+from __future__ import annotations
+
+import os
+import shutil
+import webbrowser
+from contextlib import AbstractContextManager, nullcontext
+from pathlib import Path
+
+from acprof.artifact_layout import ArtifactLayout
+from acprof.tui.i18n import message_id
+
+
+def existing_html_report(inputs: tuple[Path, ...]) -> Path | None:
+    """Find the newest conventional report for the first selected experiment."""
+    first = inputs[0]
+    layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
+    candidates = [layout.root / "report.html", *layout.path("analysis").glob("report*.html")]
+    files = [path for path in candidates if path.is_file()]
+    return max(files, key=lambda path: path.stat().st_mtime_ns) if files else None
+
+
+def require_html_file(path: Path) -> None:
+    if path.suffix.lower() != ".html" or not path.is_file():
+        raise ValueError(message_id('ui.0955', path))
+
+
+def open_html_file(path: Path) -> None:
+    require_html_file(path)
+    if not webbrowser.open(path.resolve().as_uri(), new=2):
+        raise RuntimeError(message_id('ui.0956'))
+
+
+def export_html_file(source: Path, destination: Path) -> None:
+    """Copy a complete offline report, refusing every existing destination."""
+    require_html_file(source)
+    if destination.suffix.lower() != ".html":
+        raise ValueError(message_id('ui.0957'))
+    guard: AbstractContextManager = nullcontext()
+    if os.name == "posix":
+        from acprof.host.run_state import MeasurementLock
+        guard = MeasurementLock()
+    with guard:
+        # Exclusive creation protects existing files and dangling symlinks too.
+        with destination.open("xb") as target:
+            try:
+                with source.open("rb") as stream:
+                    shutil.copyfileobj(stream, target)
+            except BaseException:
+                destination.unlink()
+                raise
