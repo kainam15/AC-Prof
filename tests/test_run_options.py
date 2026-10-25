@@ -103,3 +103,27 @@ def test_automatic_cli_retains_positional_model_and_auto_mode():
     assert parsed.profiling_mode == "auto"
     assert parsed.notify == "none"
     assert parsed.idle_seconds == 0.25
+
+
+@pytest.mark.parametrize("purpose", ["run", "probe"])
+def test_command_preserves_underlying_string_values(purpose: str, tmp_path: Path):
+    from acprof.cli.probe import _build_parser
+
+    class DisplayValue(str):
+        def __str__(self) -> str:
+            return "displayed_" + super().__str__()
+
+    config = replace(
+        RunConfig.smoke("org/model"),
+        model_source=DisplayValue("huggingface"),
+        revision=DisplayValue("frozen-revision"),
+    )
+    builder = build_run_command if purpose == "run" else build_probe_command
+    parser = build_parser() if purpose == "run" else _build_parser()
+
+    command = builder(config, project_dir=tmp_path)
+    parsed = parser.parse_args(command[command.index(purpose) + 1:])
+
+    assert parsed.model_source == "huggingface"
+    assert parsed.revision == "frozen-revision"
+    assert type(command[command.index("--model-source") + 1]) is str

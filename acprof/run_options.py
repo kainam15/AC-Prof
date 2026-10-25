@@ -219,5 +219,7 @@ def configuration_arguments(config: RunOptions, *, purpose: Literal["run", "prob
             elif not value and spec.negative:
                 arguments.append(spec.negative)
         elif value is not None and value != "":
-            arguments.extend((flag, str(value)))
+            # Preserve the payload of string subclasses, including str-based enums.
+            text = str.__str__(value) if isinstance(value, str) else str(value)
+            arguments.extend((flag, text))
     return arguments
