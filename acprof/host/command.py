@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
+import signal
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -70,18 +72,69 @@ DOCKER_INSPECT_TIMEOUT_S = 15
 DOCKER_RUN_TIMEOUT_S = 120
 
 
+def _signal_group(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass  # The whole group already exited.
+
+
+def _run_process_group(argv, *, check, capture_output, timeout, **kwargs):
+    """Own a POSIX command tree with bounded termination, including cancellation."""
+    if os.name != "posix":
+        raise ValueError("process-group commands require POSIX")
+    if timeout is None or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("process-group commands require a finite positive timeout")
+    if "start_new_session" in kwargs or "process_group" in kwargs:
+        raise ValueError("process-group commands own their session")
+    input_data = kwargs.pop("input", None)
+    if input_data is not None:
+        if kwargs.get("stdin") is not None:
+            raise ValueError("stdin and input cannot both be supplied")
+        kwargs["stdin"] = subprocess.PIPE
+    if capture_output:
+        if kwargs.get("stdout") is not None or kwargs.get("stderr") is not None:
+            raise ValueError("capture_output cannot be combined with stdout/stderr")
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(argv, start_new_session=True, **kwargs)
+    try:
+        try:
+            stdout, stderr = process.communicate(input_data, timeout=timeout)
+        except BaseException:
+            _signal_group(process.pid, signal.SIGTERM)
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass  # Escalate even when descendants keep inherited pipes open.
+            finally:
+                _signal_group(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+            raise
+        if check and process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, argv, stdout, stderr)
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+    finally:
+        # A successful wrapper must not leave detached work in its owned group.
+        _signal_group(process.pid, signal.SIGKILL)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+
+
 def run_command(
     command: Sequence[str], *, check: bool = False, capture_output: bool = True,
     timeout: float | None = None, cwd: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None, env_overrides: Mapping[str, str] | None = None,
-    redact_values: Sequence[str] = (), **kwargs: Any,
+    redact_values: Sequence[str] = (), kill_process_group: bool = False, **kwargs: Any,
 ) -> CommandResult:
     """Run literal argv with UTF-8 replacement and native subprocess exceptions.
 
     ``env`` retains subprocess's replacement semantics; ``env_overrides`` merges
     over it (or the parent). Timeout kills/waits for the direct child, exactly as
-    subprocess.run does. Process groups, retries and artifact publication belong
-    to callers. Exceptions retain raw stdout/stderr and gain command_metadata;
+    subprocess.run does. Callers can opt into ``kill_process_group`` for bounded
+    POSIX trees: TERM, then KILL after a 2-second grace and at most 5 seconds to
+    reap the direct child. Retries and artifact publication belong to callers.
+    Exceptions retain raw stdout/stderr and gain command_metadata;
     only the latter is safe to publish. Never call from a sampling window.
     """
     if isinstance(command, (str, bytes)) or kwargs.get("shell"):
@@ -102,7 +155,8 @@ def run_command(
     result = None
     failure: BaseException | None = None
     try:
-        result = subprocess.run(argv, check=check, capture_output=capture_output,
+        runner = _run_process_group if kill_process_group else subprocess.run
+        result = runner(argv, check=check, capture_output=capture_output,
                                 timeout=timeout, cwd=cwd, env=command_env,
                                 text=True, encoding="utf-8", errors="replace", **kwargs)
     except BaseException as exc:

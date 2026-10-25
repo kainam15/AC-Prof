@@ -328,7 +328,7 @@ heap_tree=peak
                 executable.write("#!/bin/sh\n")
             os.chmod(importer, 0o755)
 
-            def fake_run(command, check=False):
+            def fake_run(command, check=False, timeout=None):
                 commands.append(command)
                 return SimpleNamespace(
                     returncode=0,

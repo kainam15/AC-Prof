@@ -107,6 +107,49 @@ def fail_postprocessing(*args, **kwargs):
     raise RuntimeError("packet parser interrupted")
 
 
+@pytest.mark.parametrize("stage", ["parsing", "merge"])
+def test_packet_timeout_preserves_checkpoint_cleanup_and_resume(measured_case, monkeypatch, stage):
+    import subprocess
+
+    state, case, calls, arguments = measured_case
+    client = orchestrator.host_command.run_command
+
+    def run(command, **kwargs):
+        if command == ["fixture-parser"]:
+            assert kwargs.get("timeout") == 30
+            assert kwargs.get("kill_process_group") is True
+            if stage != "parsing":
+                return SimpleNamespace(returncode=0, stdout='{"requests":{"request":{}}}')
+            raise subprocess.TimeoutExpired(command, 30)
+        if "acprof.packet.merge_packet_latency" in command:
+            assert kwargs.get("timeout") == 30
+            assert kwargs.get("kill_process_group") is True
+            raise subprocess.TimeoutExpired(command, 30)
+        return client(command, **kwargs)
+
+    monkeypatch.setenv("ACPROF_POSTPROCESS_TIMEOUT_S", "30")
+    monkeypatch.setattr(orchestrator.host_command, "run_command", run)
+    with pytest.raises(RuntimeError, match=stage + " timed out"):
+        orchestrator.run_single_case(**arguments)
+    record = state.data["cases"][str(case.csv.relative_to(state.directory))]
+    assert record["measurement_status"] == "complete"
+    assert record["processing_status"] == "failed"
+    assert record["cleanup_status"] == "complete"
+    snapshot = case.attempt_directory("measurements", record["case_attempt_id"]) / "measurement.csv"
+    original = snapshot.read_bytes()
+    state.close()
+    # Opening a fresh owner proves both experiment and host locks were released.
+    resumed = run_state.RunState(state.directory, state.data["options"], resume=True, project_dir=".")
+    try:
+        monkeypatch.setattr(orchestrator, "_finalize_case", lambda *args: None)
+        assert resumed.prepare_case("unused.csv", 1, 4, "off") is None
+        orchestrator.run_single_case(**{**arguments, "run_state": resumed})
+        assert case.csv.read_bytes() == original
+    finally:
+        resumed.close()
+    assert calls["client"] == calls["container"] == calls["cleanup"] == 1
+
+
 def test_postprocessing_failure_resumes_without_client_or_container(measured_case, monkeypatch):
     state, case, calls, arguments = measured_case
     monkeypatch.setattr(orchestrator, "_finalize_case", fail_postprocessing)

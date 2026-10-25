@@ -136,7 +136,7 @@ def inspect_identity(image: str) -> dict | None:
     result = host_command.run_command([
         "docker", "image", "inspect", image, "--format",
         '{"image_id":{{json .Id}},"labels":{{json (index .Config "Labels")}}}',
-    ], check=False)
+    ], check=False, timeout=host_command.DOCKER_INSPECT_TIMEOUT_S)
     if result.returncode:
         detail = (result.stderr or result.stdout or "").strip()
         if "No such image" in detail or "No such object" in detail:
@@ -161,7 +161,7 @@ def verified_image(task_info: Any, name: str, fingerprint: str, project_dir=PROJ
     result = host_command.run_command([
         "docker", "run", "--rm", "--network", "none", "--entrypoint", "cat",
         identity["image_id"], "/app/runtime_environment.json",
-    ], check=False)
+    ], check=False, timeout=host_command.DOCKER_RUN_TIMEOUT_S)
     if result.returncode:
         raise RuntimeError(f"镜像 {name} 缺少运行环境清单；请重新构建")
     try:

@@ -117,7 +117,7 @@ def _runtime_fingerprint(identity: dict, platform_key: str, root: Path) -> str:
 
 
 def read_image_manifest(image_id: str, path: str) -> dict:
-    result = host_command.run_command(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id, path], check=False)
+    result = host_command.run_command(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'cat', image_id, path], check=False, timeout=host_command.DOCKER_RUN_TIMEOUT_S)
     if result.returncode:
         raise RuntimeError(f"镜像缺少依赖清单：{image_id}: {path}")
     try:

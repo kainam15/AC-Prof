@@ -23,7 +23,8 @@ def test_docker_inspection_supports_unlabeled_base_images():
     image = "python:3.10-slim"
     identity = {"image_id": "sha256:" + "a" * 64, "labels": None}
 
-    def inspect(command, *, check):
+    def inspect(command, *, check, timeout):
+        assert timeout == 15
         assert command[:4] == ["docker", "image", "inspect", image]
         assert '(index .Config "Labels")' in command[-1]
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps(identity), stderr="")

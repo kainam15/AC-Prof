@@ -6,6 +6,16 @@
 
 ## 诊断证据
 
+PCAP parse 与 packet merge 各自默认最多运行 300 秒；可用
+`ACPROF_POSTPROCESS_TIMEOUT_S` 调整为 10–3600 秒的有限值。预算在测量前校验，
+不进入正式测量窗口，也不改变已完成测量的身份。超时或取消会终止该阶段的 POSIX
+进程组，包括 parser 派生的 `tshark`；TERM 后最多等待 2 秒再 KILL，直接子进程
+回收最多等待 5 秒。失败会沿现有清理路径退出并标记 `processing_status=failed`，
+保留原始 measurement checkpoint。调整预算后 resume 只重做后处理。
+
+镜像 inspect／本地版本查询使用 15 秒预算，镜像清单读取及容器内版本查询使用
+120 秒预算；build、pull 和正式工作负载仍按各自生命周期管理。
+
 | 情况 | 判断依据与限制 |
 | --- | --- |
 | 启动或运行期主机内存不足 | Docker `OOMKilled=true`、明确 cgroup OOM kill 或分配失败日志，并结合发生阶段；仅分配失败不等于已发生 OOM kill |

@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from acprof.host.command import run_command
+from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, DOCKER_RUN_TIMEOUT_S, run_command
 from acprof.host.profiling.tools.tool_discovery import find_nsys_importer
 
 MASSIF_TOOL = "massif"
@@ -32,6 +32,7 @@ def _inspect_execution_image(image_ref: str) -> dict[str, Any] | None:
     result = run_command(
         ["docker", "image", "inspect", image_ref, "--format", "{{json .}}"],
         check=False,
+        timeout=DOCKER_INSPECT_TIMEOUT_S,
     )
     if result.returncode != 0:
         detail = command_detail(result)
@@ -76,6 +77,7 @@ def get_massif_version(derived_image: str | None) -> str:
         result = run_command(
             ["docker", "run", "--rm", derived_image, "valgrind", "--version"],
             check=False,
+            timeout=DOCKER_RUN_TIMEOUT_S,
         )
     except Exception:
         return "unknown"
@@ -89,7 +91,7 @@ def get_nsys_version(nsys_bin: str | None) -> str:
     if not nsys_bin:
         return "unknown"
     try:
-        result = run_command([nsys_bin, "--version"], check=False)
+        result = run_command([nsys_bin, "--version"], check=False, timeout=DOCKER_INSPECT_TIMEOUT_S)
     except Exception:
         return "unknown"
     if result.returncode != 0:
@@ -125,6 +127,7 @@ def validate_nsys_container_runtime(
             "--version",
         ],
         check=False,
+        timeout=DOCKER_RUN_TIMEOUT_S,
     )
     if result.returncode != 0:
         raise RuntimeError(

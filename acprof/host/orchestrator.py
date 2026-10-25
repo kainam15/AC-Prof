@@ -57,6 +57,7 @@ from acprof.host.measurement.energy_validation import (
     check_case_gpu_idle_power_stable,
     row_has_error_status,
 )
+from acprof.host.measurement.packet_processing import postprocessing_timeout, run_packet_command
 from acprof.host.profiling.compute_plan import NCU_ERROR_FIELD, TORCH_ERROR_FIELD
 from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
@@ -212,6 +213,7 @@ def run_single_case(
     if timeout <= 0.0 or not math.isfinite(timeout):
         raise ValueError("request_timeout_seconds must be a finite value > 0")
     workload = replace(workload, request_timeout_seconds=timeout)
+    postprocessing_timeout()
     return _CaseExecution(request, workload, measurement, plans, run_state).run()
 
 
@@ -617,7 +619,7 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
             print("[sniff] Parsing pcap -> packet latencies...")
             if sniff_runtime is None:
                 raise _packet_latency_error("packet capture parser was not initialized")
-            parse_result = host_command.run_command(sniff_runtime.parse_cmd, check=False)
+            parse_result = run_packet_command(sniff_runtime.parse_cmd, stage="pcap parsing")
             parse_output = parse_result.stdout.strip()
             if parse_result.returncode != 0:
                 raise _packet_latency_error(
@@ -660,7 +662,7 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
 
             print("[sniff] Merging packet latency into CSV...")
             merged_csv = out_csv + ".merged"
-            merge_result = host_command.run_command([*module_command('acprof.packet.merge_packet_latency'), out_csv, lat_json, merged_csv], check=False)
+            merge_result = run_packet_command([*module_command('acprof.packet.merge_packet_latency'), out_csv, lat_json, merged_csv], stage="packet latency merge")
             if merge_result.returncode != 0:
                 raise _packet_latency_error(
                     "packet latency merge failed",

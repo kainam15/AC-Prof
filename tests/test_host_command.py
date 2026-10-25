@@ -11,6 +11,37 @@ import pytest
 from acprof.host.command import run_command
 
 
+def test_process_group_timeout_reaps_parser_and_descendant(tmp_path):
+    import signal
+
+    pid_file = tmp_path / "descendant.pid"
+    source = """
+import pathlib, signal, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+def stop(*args):
+    child.wait(timeout=2)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+print('parser ready', flush=True)
+time.sleep(30)
+"""
+    try:
+        with pytest.raises(subprocess.TimeoutExpired) as caught:
+            run_command([sys.executable, "-c", source, str(pid_file)], timeout=0.8,
+                        kill_process_group=True)
+        assert b"parser ready" in caught.value.output
+        assert caught.value.command_metadata.error_type == "TimeoutExpired"
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def test_streams_encoding_returncode_and_duration():
     result = run_command([sys.executable, "-c", "import os; os.write(1,b'out\\xff'); os.write(2,b'err\\xff'); raise SystemExit(7)"], capture_output=True)
     assert ((result.stdout, result.stderr, result.returncode)) == (("out�", "err�", 7))
