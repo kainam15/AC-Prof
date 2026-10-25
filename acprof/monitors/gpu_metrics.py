@@ -122,4 +122,3 @@ def reduce_gpu_samples(
         energy_eff,
         "power_integration",
     )
-

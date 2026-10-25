@@ -300,4 +300,3 @@ class RunNotifications:
             event,
             success_message="[notify] 企业微信最终通知已发送",
         )
-
