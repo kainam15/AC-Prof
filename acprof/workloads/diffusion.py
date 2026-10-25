@@ -11,6 +11,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
 
 DEFAULT_RESOLUTIONS = [128, 192, 256, 320, 384, 512]
@@ -53,7 +54,8 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         if self._task != "text-to-image" and batch_size != 1:
             raise ValueError(f"{task_type} requires batch_size=1")
 
-        self._prompts = [PROMPTS[index % len(PROMPTS)] for index in range(batch_size)]
+        self._budget = InputBudget()
+        self._prompts: list[str] = []
         self._prompt_optional = task_type in {"image-to-image", "image-to-video"}
         self._params = {
             "num_inference_steps": DEFAULT_NUM_INFERENCE_STEPS,
@@ -73,6 +75,11 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         self._image_source = "deterministic synthetic geometric RGB image"
         if workload_spec_path is not None:
             self._load_spec(Path(workload_spec_path).expanduser().resolve())
+        self._budget.batch(batch_size)
+        if not self._prompts:
+            self._prompts = [PROMPTS[index % len(PROMPTS)] for index in range(batch_size)]
+        if self._task in IMAGE_TASKS or self._task == "video-to-video":
+            self._budget.pixels(256, 256, frames=int(self._params.get("num_frames", 1)))
         if self._task in IMAGE_TASKS and self._image_bytes is None:
             from PIL import Image, ImageDraw
 
@@ -107,12 +114,15 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             "schema_version", "workload_id", "image_path", "image_sha256",
             "prompt", "input_scales", "params",
             "video_frames", "frame_paths",
+            "input_budget",
         }
         unknown = sorted(set(spec) - allowed)
         if unknown:
             raise ValueError("unknown diffusion workload keys: " + ", ".join(unknown))
         if spec.get("schema_version", 1) != 1 or isinstance(spec.get("schema_version"), bool):
             raise ValueError("diffusion workload schema_version must be 1")
+        self._budget = InputBudget.from_value(spec.get("input_budget"))
+        self._budget.batch(self.batch_size)
         self._spec_sha256 = hashlib.sha256(content).hexdigest()
         if "workload_id" in spec:
             if not isinstance(spec["workload_id"], str) or not spec["workload_id"].strip():
@@ -123,6 +133,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
                 raise ValueError(f"{self._task} does not consume prompt")
             prompts = spec["prompt"]
             if isinstance(prompts, str):
+                self._budget.text(len(prompts) * self.batch_size, batch_items=self.batch_size)
                 prompts = [prompts] * self.batch_size
             if (
                 not isinstance(prompts, list) or len(prompts) != self.batch_size
@@ -130,6 +141,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             ):
                 raise ValueError("prompt must contain one non-empty string per batch entry")
             self._prompts = prompts
+            self._budget.text(sum(map(len, prompts)), batch_items=self.batch_size)
             self._prompt_optional = False
         if "input_scales" in spec:
             scales = spec["input_scales"]
@@ -194,6 +206,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             from PIL import Image
 
             with Image.open(io.BytesIO(self._image_bytes)) as image:
+                self._budget.pixels(*image.size)
                 image.load()
             self._image_source = str(image_path)
         frame_paths = spec.get("video_frames", spec.get("frame_paths"))
@@ -209,12 +222,14 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             if "num_frames" in params and params["num_frames"] != len(frame_paths):
                 raise ValueError("num_frames must equal the number of video_frames")
             self._params["num_frames"] = len(frame_paths)
+            self._budget.pixels(256, 256, frames=len(frame_paths))
             from PIL import Image
 
             for item in frame_paths:
                 frame_path = (path.parent / item).resolve()
                 content = frame_path.read_bytes()
                 with Image.open(io.BytesIO(content)) as frame:
+                    self._budget.pixels(*frame.size)
                     frame.load()
                 self._video_bytes.append(content)
                 self._video_sources.append(str(frame_path))
@@ -259,8 +274,11 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
 
     def generate(self, scale_value: float) -> dict[str, Any]:
         resolution = self._scale(scale_value)
+        side = 256 if self._task in STEP_TASKS else resolution
+        self._budget.pixels(side, side, frames=int(self._params.get("num_frames", 1)), batch=self.batch_size)
         payload: dict[str, Any] = {
             "params": copy.deepcopy(self._params),
+            "input_budget": self._budget.as_dict(),
         }
         if self._task in PROMPT_TASKS:
             payload["prompt"] = list(self._prompts)
@@ -319,6 +337,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
 
     def plan_metadata(self) -> dict[str, Any]:
         metadata = {
+            "input_budget": self._budget.as_dict(),
             "workload_id": self._workload_id,
             "source": "custom diffusion workload spec" if self._spec_sha256 else "deterministic synthetic prompts",
             "input_scale_semantics": "square output image side length in pixels",

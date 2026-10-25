@@ -15,6 +15,7 @@ from acprof.container.handlers import (
     transformers_pipeline_load_kwargs,
 )
 from acprof.container.load_policy import load_policy
+from acprof.input_budget import check_nlp_input, positive_integer
 from acprof.model_spec import pipeline_task
 
 # Tasks that generate text output
@@ -419,10 +420,7 @@ class NLPHandler(BaseHandler):
 
     @staticmethod
     def _batch_size(raw_input: dict[str, Any]) -> int:
-        value = raw_input.get("batch_size", 1)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value or value < 1:
-            raise ValueError("batch_size must be a positive integer")
-        return int(value)
+        return positive_integer(raw_input.get("batch_size", 1), "batch_size")
 
     @staticmethod
     def _string_list(raw_input: dict[str, Any], field: str) -> list[str]:
@@ -481,7 +479,14 @@ class NLPHandler(BaseHandler):
         text = raw_input.get("text", "")
         params = raw_input.get("params", {})
         pipe = model_ctx["pipeline"]
-        common = {"params": params, "batch_size": self._batch_size(raw_input)}
+        if not isinstance(params, dict):
+            raise ValueError("params must be an object")
+        embedding_prompt = self._embedding_options(pipe, params)[1] if (
+            task_type == "sentence-similarity" or model_ctx.get("encoder") == "sentence"
+        ) else ""
+        budget = check_nlp_input(raw_input, task_type, embedding_prompt=embedding_prompt)
+        common = {"params": params, "batch_size": self._batch_size(raw_input),
+                  "input_budget": budget.as_dict()}
         if (task_type == "feature-extraction" and model_ctx.get("encoder") != "sentence"
                 and set(params) & {"prompt", "prompt_name", "normalize_embeddings"}):
             raise ValueError("sentence embedding parameters require backend=sentence_transformers")
@@ -495,7 +500,7 @@ class NLPHandler(BaseHandler):
             if not isinstance(query, str) or not query.strip():
                 raise ValueError(f"{task_type} requires a nonempty query")
             prepare = self._prepare_embedding_text if task_type == "sentence-similarity" else self._truncate_single_text
-            options = {"params": params} if task_type == "sentence-similarity" else {}
+            options: dict[str, Any] = {"params": params} if task_type == "sentence-similarity" else {}
             checked_query, _, query_truncated, _ = prepare(pipe, query, task_type, **options)
             if query_truncated:
                 raise ValueError("query exceeds model token limit")
@@ -532,6 +537,8 @@ class NLPHandler(BaseHandler):
                 question,
                 context,
             )
+            if effective_input_scale == 0 or not context.strip():
+                raise ValueError("question-answering requires context tokens within the model token budget")
             return {
                 **common,
                 "question": question,
@@ -632,6 +639,7 @@ class NLPHandler(BaseHandler):
         task_type = model_ctx["task_type"]
         params = processed_input.get("params", {})
         batch_size = processed_input.get("batch_size", 1)
+        check_nlp_input(processed_input, task_type)
 
         if task_type == "replaced-token-detection":
             import torch

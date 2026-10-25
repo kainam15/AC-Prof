@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from acprof.input_budget import InputBudget, check_nlp_input, positive_integer
 from acprof.workloads import WorkloadGenerator, register_generator
 
 # Fixed corpus for deterministic text generation
@@ -35,8 +36,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
     def __init__(self, model_id: str, task_type: str, batch_size: int,
                  workload_spec_path: str | None = None):
         super().__init__(model_id, task_type, batch_size)
-        if isinstance(batch_size, bool) or int(batch_size) != batch_size or batch_size < 1:
-            raise ValueError("batch_size must be a positive integer")
+        self.batch_size = positive_integer(batch_size, "batch_size")
+        self._budget = InputBudget()
         self._params: dict = {}
         self._spec_metadata: dict = {}
         if workload_spec_path:
@@ -44,9 +45,10 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             spec = json.loads(raw)
             if not isinstance(spec, dict) or spec.get("schema_version") != 1:
                 raise ValueError("NLP workload requires schema_version=1")
-            unknown = set(spec) - {"schema_version", "task", "params"}
+            unknown = set(spec) - {"schema_version", "task", "params", "input_budget"}
             if unknown or spec.get("task", task_type) != task_type:
                 raise ValueError(f"invalid NLP workload task or fields: {sorted(unknown)}")
+            self._budget = InputBudget.from_value(spec.get("input_budget"))
             params = spec.get("params", {})
             allowed = ({"prompt", "prompt_name", "normalize_embeddings"} if task_type in
                        {"feature-extraction", "sentence-similarity"} else
@@ -65,9 +67,15 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             self._params = params
             self._spec_metadata = {"workload_spec_sha256": hashlib.sha256(raw).hexdigest(),
                                    "params": copy.deepcopy(params)}
+        self._budget.batch(self.batch_size)
 
     def _generate_text_from_word_count(self, word_count: int) -> str:
         n_words = max(1, int(word_count))
+        cycles, rest = divmod(n_words, len(_CORPUS_WORDS))
+        characters = cycles * sum(map(len, _CORPUS_WORDS)) + sum(map(len, _CORPUS_WORDS[:rest])) + n_words - 1
+        candidates = 3 if self.task_type in {"sentence-similarity", "zero-shot-classification"} else 2 if self.task_type == "text-ranking" else 1
+        self._budget.text(characters * self.batch_size * candidates,
+                          batch_items=self.batch_size * candidates)
         words = []
         for i in range(n_words):
             words.append(_CORPUS_WORDS[i % len(_CORPUS_WORDS)])
@@ -78,6 +86,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
 
         payload: dict[str, Any] = {
             "text": text, "params": {}, "batch_size": self.batch_size,
+            "input_budget": self._budget.as_dict(),
         }
 
         if self.task_type == "fill-mask":
@@ -106,6 +115,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             payload["documents"] = [text, " ".join(reversed(text.split()))]
 
         payload["params"].update(copy.deepcopy(self._params))
+        check_nlp_input(payload, self.task_type, embedding_prompt=self._params.get("prompt", ""))
         return payload
 
     def generate(self, scale_value: float) -> dict[str, Any]:
@@ -113,6 +123,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             if not math.isfinite(scale_value) or scale_value < 1 or int(scale_value) != scale_value:
                 raise ValueError("table_rows must be a positive integer")
             rows = int(scale_value)
+            self._budget.text(rows * (24 + 2 * len(str(rows))) * self.batch_size,
+                              batch_items=self.batch_size)
             return {
                 "table": {
                     "name": [f"item {index + 1}" for index in range(rows)],
@@ -121,6 +133,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
                 "query": "What is the value of item 1?",
                 "params": {},
                 "batch_size": self.batch_size,
+                "input_budget": self._budget.as_dict(),
                 "input_scale_type": "table_rows",
             }
         return self.generate_for_word_count(int(scale_value))
@@ -137,6 +150,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
 
     def plan_metadata(self) -> dict[str, Any]:
         metadata = copy.deepcopy(self._spec_metadata)
+        metadata["input_budget"] = self._budget.as_dict()
         if self.task_type == "table-question-answering":
             return {**metadata, "input_scale_type": "table_rows", "columns": ["name", "value"]}
         if self.task_type in {"sentence-similarity", "text-ranking"}:

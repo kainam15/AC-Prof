@@ -129,7 +129,20 @@ TUI Smoke 使用 `minimal`；显式 `--input-scales` 优先且严格校验，不
 - 手动传入 `--input-scales` 时以手动值为准；workload 会在 sweep 前验证合法性（图像／视频生成分辨率至少为 64 且必须是 8 的倍数；去噪步数是正整数；CV 倍率为有限正数）。
 
 ### NLP workload 参数
-NLP 清单使用 `schema_version=1`、与检测结果一致的 `task` 和 `params`，不接受额外字段。
+NLP 清单使用 `schema_version=1`、与检测结果一致的 `task`、`params` 和可选 `input_budget`，不接受其他字段。
+
+NLP 与 Diffusion 共用输入构造预算：默认 `max_batch_items=4096`、
+`max_text_characters=16777216`、`max_pixels=67108864`。batch 条目计入 NLP 候选展开，
+像素按 `width × height × frames × batch` 校验；文本按展开后的 Unicode 字符数校验，
+不另做 tokenizer 推理或估算显存。host 在文本、图像和视频帧分配／resize 前检查，
+container 在 tokenizer／decode／batch 展开前检查。源图像解码也受像素上限约束。
+
+可在 NLP 或 Diffusion workload JSON 中设置例如
+`"input_budget": {"max_batch_items": 8192, "max_pixels": 134217728}`，每个值必须为
+正整数，省略的项使用默认值。解析后的完整预算随 payload 和 input plan metadata 保存，
+纳入输入计划身份；适用于正式画像和容量探索，不限于 probe。该预算限制输入构造，
+不承诺模型能在给定 CPU／内存／GPU 下运行；预算拒绝使用 `input_budget_exceeded`，
+与实际推理中的 `resource_limit`／OOM 分开记录。QA 在有效 context token 为零时即拒绝。
 例如 `feature-extraction` 的句向量归一化：
 
 ```json

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.artifacts import read_json_object
+from acprof.input_budget import InputBudgetExceeded
 
 REASON_CODES = frozenset({
     "runtime_task_unsupported", "runtime_dependency_missing", "runtime_dependency_incompatible",
@@ -15,6 +16,7 @@ REASON_CODES = frozenset({
     "model_contract_required", "artifact_layout_unsupported", "processor_incompatible",
     "access_denied", "runtime_initialization_failed", "remote_code_disallowed",
     "compatibility_budget_exhausted", "recorded_evidence_invalid", "inference_failed",
+    "input_budget_exceeded",
 })
 FAILURE_PREFIX = "ACPROF_FAILURE="
 
@@ -64,6 +66,9 @@ def failure_from_exception(exc: BaseException, *, stage: str, device: str = "unk
         if isinstance(cause, ModuleNotFoundError):
             return Failure(stage, "runtime_dependency_missing", str(exc), device, runtime_profile,
                            "after_configuration", {"module": cause.name, **(evidence or {})}, type(cause).__name__)
+        if isinstance(cause, InputBudgetExceeded):
+            return Failure(stage, "input_budget_exceeded", str(exc), device, runtime_profile,
+                           "after_configuration", evidence or {}, type(cause).__name__)
         http_status = getattr(getattr(cause, "response", None), "status_code", None)
         if http_status in (401, 403):
             return Failure(stage, "access_denied", str(exc), device, runtime_profile,
@@ -85,7 +90,7 @@ def compatibility_status(failure: Failure | dict) -> str:
     if code in {"request_timeout", "compatibility_budget_exhausted", "runtime_dependency_unknown",
                 "recorded_evidence_invalid"}:
         return "inconclusive"
-    if code == "model_contract_required":
+    if code in {"model_contract_required", "input_budget_exceeded"}:
         return "needs_configuration"
     if code == "access_denied":
         return "access_denied"

@@ -14,6 +14,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
 )
 from acprof.container.load_policy import load_policy
+from acprof.input_budget import InputBudget, InputBudgetExceeded
 
 DEFAULT_NUM_INFERENCE_STEPS = 20
 DEFAULT_GUIDANCE_SCALE = 7.5
@@ -207,28 +208,32 @@ def _native_image_size(pipe: Any) -> tuple[int, int]:
     raise ValueError("unconditional generation requires a fixed native UNet sample_size")
 
 
-def _decode_image(encoded: Any, name: str, resolution: int | None = None) -> Any:
+def _decode_image(encoded: Any, name: str, resolution: int | None = None, *, budget: InputBudget) -> Any:
     from PIL import Image
 
     if not isinstance(encoded, str) or not encoded:
         raise ValueError(f"{name} must contain a non-empty base64 image")
     try:
         with Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))) as source:
+            budget.pixels(*source.size)
             image = source.convert("RGB")
         if resolution is not None and image.size != (resolution, resolution):
             image = image.resize((resolution, resolution), Image.Resampling.LANCZOS)
+    except InputBudgetExceeded:
+        raise
     except (ValueError, binascii.Error, OSError) as exc:
         raise ValueError(f"{name} must decode to a valid image") from exc
     return image
 
 
 def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str) -> dict[str, Any]:
+    budget = InputBudget.from_value(raw.get("input_budget"))
     pipe = model_ctx["pipeline"]
     parameters = _native_pipeline_parameters(pipe, task)
     optional_prompt = task in {"image-to-video", "image-to-image"}
     has_prompt = task in {"text-to-video", "video-to-video", "text-to-3d"} or (optional_prompt and "prompt" in parameters)
     has_image = task in {"image-to-video", "image-to-3d", "image-to-image"}
-    allowed_inputs = {"params", "input_scale" if task in STEP_TASKS else "resolution"}
+    allowed_inputs = {"params", "input_budget", "input_scale" if task in STEP_TASKS else "resolution"}
     if has_prompt:
         allowed_inputs.add("prompt")
     if optional_prompt:
@@ -292,8 +297,13 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             raise ValueError(f"resolution must be at least 64 and divisible by pipeline spatial multiple {multiple}")
         scale = resolution
         kwargs.update({name: resolution for name in ("height", "width") if name in parameters})
+    frame_count = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task in VIDEO_TASKS else 1
+    if resolution is not None:
+        budget.pixels(resolution, resolution, frames=frame_count)
+    elif task == "unconditional-image-generation":
+        budget.pixels(*_native_image_size(pipe))
     if has_image:
-        kwargs["image"] = _decode_image(raw.get("image_base64"), "image_base64", resolution)
+        kwargs["image"] = _decode_image(raw.get("image_base64"), "image_base64", resolution, budget=budget)
     frames = None
     if task in VIDEO_TASKS:
         frames = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames")
@@ -304,7 +314,7 @@ def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str
             encoded = raw.get("frames_base64")
             if not isinstance(encoded, list) or len(encoded) != frames:
                 raise ValueError("frames_base64 must contain exactly num_frames ordered images")
-            kwargs["video"] = [_decode_image(item, "frames_base64", resolution) for item in encoded]
+            kwargs["video"] = [_decode_image(item, "frames_base64", resolution, budget=budget) for item in encoded]
             if "num_frames" in parameters:
                 kwargs["num_frames"] = frames
         else:
@@ -394,6 +404,7 @@ class DiffusionHandler(BaseHandler):
         }
 
     def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
+        budget = InputBudget.from_value(raw_input.get("input_budget"))
         task = _canonical_task(model_ctx.get("task_type", "text-to-image"))
         if task in NATIVE_TASKS:
             return _native_preprocess(model_ctx, raw_input, task)
@@ -404,6 +415,7 @@ class DiffusionHandler(BaseHandler):
         elif isinstance(prompt, list) and prompt and all(
             isinstance(item, str) for item in prompt
         ):
+            budget.batch(len(prompt))
             prompts = list(prompt)
         else:
             raise ValueError("prompt must be a non-empty string or string array")
@@ -427,6 +439,9 @@ class DiffusionHandler(BaseHandler):
         if not isinstance(raw_params, dict):
             raise ValueError("params must be an object")
         params = dict(raw_params)
+        frames_for_budget = _positive_int(params.get("num_frames", DEFAULT_NUM_FRAMES), "num_frames") if task == "image-text-to-video" else 1
+        budget.pixels(resolution, resolution, frames=frames_for_budget, batch=len(prompts))
+        budget.text(sum(map(len, prompts)), batch_items=len(prompts))
         allowed_params = {
             "num_inference_steps",
             "guidance_scale",
@@ -502,9 +517,12 @@ class DiffusionHandler(BaseHandler):
             try:
                 image_bytes = base64.b64decode(encoded_image, validate=True)
                 with Image.open(io.BytesIO(image_bytes)) as source:
+                    budget.pixels(*source.size)
                     image = source.convert("RGB")
                 if image.size != (resolution, resolution):
                     image = image.resize((resolution, resolution), Image.Resampling.LANCZOS)
+            except InputBudgetExceeded:
+                raise
             except (ValueError, binascii.Error, OSError, UnidentifiedImageError) as exc:
                 raise ValueError("image_base64 must decode to a valid image") from exc
             processed["image"] = image
