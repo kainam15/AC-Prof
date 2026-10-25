@@ -499,7 +499,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                         yield app.localization.localized_widget(Button("放大日志", id="expand-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("返回监控", id="restore-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("清空日志", id="clear-log", classes="log-tool"))
-                        yield app.localization.localized_widget(Button("筛选 / 搜索", id="log-tools", classes="log-tool log-control"))
+                        yield app.localization.localized_widget(Button("工具", id="log-tools", classes="log-tool log-control", tooltip="筛选 / 搜索"))
                     with Horizontal(classes="action-primary"):
                         yield app.localization.localized_widget(Button(
                             "终止任务", id="stop-run", classes="log-tool",

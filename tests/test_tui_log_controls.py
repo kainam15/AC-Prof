@@ -13,7 +13,7 @@ from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage
 
 
-@pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
+@pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((80, 24), 'en'), ((120, 30), 'en')])
 async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, language):
     app = AcprofTui(RunConfig.smoke('example/test'), settings_path=tmp_path / 'settings.json')
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -24,7 +24,7 @@ async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, la
         log.write(raw)
         await pilot.pause()
         assert '×2' in log.text
-        await pilot.click('#log-tools')
+        assert await pilot.click('#log-tools')
         await pilot.pause()
         for selector in ('#log-search', '#copy-log-all', '#export-log', '#log-next', '#log-details'):
             widget = app.query_one(selector)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    'ui.2010': '工具',
     'ui.2009': '继承限制',
     'ui.2008': '环境能力',
     'ui.2007': '运行方式：{0}',
@@ -1000,6 +1001,7 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    'ui.2010': 'Tools',
     'ui.2009': 'Inherited limits',
     'ui.2008': 'Environment capabilities',
     'ui.2007': 'Runtime: {0}',
@@ -1706,7 +1708,7 @@ ENGLISH_BY_ID: dict[str, str] = {
     "ui.0695": 'Warn/Err',
     "ui.0696": 'Details',
     "ui.0697": 'Not started',
-    "ui.0698": 'Copy text',
+    "ui.0698": 'Copy',
     "ui.0699": 'Follow log',
     "ui.0700": 'Restore log',
     "ui.0701": 'Plotting',
