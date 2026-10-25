@@ -58,6 +58,18 @@ TUI 通过结构化事件显示采集与探测进度。采集进程退出后，�
 
 监控页支持日志级别配色、普通文字搜索、详细视图，以及复制或导出保留原文。模型下载使用独立的字节进度区域，区分缓存数据与 SDK 网络 payload。保留上限和测量期间的行为见[日志与下载进度](../usage/tui-experiments.md#日志查看与复制)。
 
+### 生成交互式报告
+
+运行 `acprof tui` → **统计报告** → **选择实验** → **生成交互式报告**。页面会显示完整输出路径、窗口数量与数据质量限制。本地图形桌面可点击 **打开 HTML**，也可展开 **导出 / 远程获取** → **导出 HTML**，复制为新文件。每次生成保留旧报告；实验结束不会自动生成 HTML。
+
+HTML 单文件包含 **Comparison Matrix**、**Pareto / Trade-off** 和 **Scaling**，无需网络或 Web 服务。在 dor-server 等 SSH 服务器上，用 SFTP 或远程 IDE 下载页面显示的文件，再用本机浏览器打开。多个输入和输出目录见 [TUI 报告流程](../usage/tui-pages.md#交互式-html-报告)。
+
+CLI 仍可独立使用：
+
+```bash
+acprof report results/run-a/ results/run-b/ --output comparison.html
+```
+
 ## 文档导航
 
 | 想做什么 | 阅读入口 |

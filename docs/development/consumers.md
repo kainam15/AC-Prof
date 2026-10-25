@@ -60,6 +60,14 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
 `preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
 `profile_controller` 管理补采，`slash_controller` 分发快捷命令。
+HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_controller` 只管理输出路径、
+完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占创建导出文件；
+文件操作仍交给 App worker manager，导出使用既有 MeasurementLock。`platform.can_open_local_browser`
+集中判断 SSH / 图形桌面前提，浏览器失败不改变生成结果。没有新增运行依赖或测量窗口内的工作。
+设计参考 [Textual worker 生命周期](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)、
+[线程取消限制的 PR](https://github.com/Textualize/textual/pull/6514) 和
+[Plotly HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py)（均为 MIT，官方维护）；
+使用已有调度和内嵌 Plotly.js，只借鉴边界设计，不复制上游源码或添加 Web 服务。
 `log_controller` 管理日志批量展示、搜索、筛选和保留原文导出；`log_records` 保留有界原文并生成可逆的显示投影，
 `SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。

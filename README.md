@@ -58,6 +58,18 @@ The TUI tracks collection and probe progress through structured events. After a 
 
 The monitor offers colored log levels, literal search, a detailed view, and copying or exporting retained original text. Model downloads have a separate byte-progress display that distinguishes cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
 
+### Generate an interactive report
+
+Run `acprof tui` → **Reports** → **Select experiment** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.
+
+The self-contained HTML includes **Comparison Matrix**, **Pareto / Trade-off**, and **Scaling**, with no network or web service required. On an SSH server such as dor-server, download the displayed file using SFTP or your remote IDE and open it in your local browser. See the [TUI report workflow](docs/usage/tui-pages.md#交互式-html-报告) for multiple inputs and output locations.
+
+The standalone CLI remains available:
+
+```bash
+acprof report results/run-a/ results/run-b/ --output comparison.html
+```
+
 ## Documentation
 
 | Goal | Guide |

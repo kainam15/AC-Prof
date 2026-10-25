@@ -62,6 +62,9 @@ CPU/GPU utilization 不默认判定越高或越低越好。
 
 ### 交互式配置比较报告
 
+可通过 `acprof tui` → “统计报告” → “选择实验” → “生成交互式报告”完成生成、查看和导出，
+详见 [TUI 操作](../usage/tui-pages.md#交互式-html-报告)。下面的 CLI 仍可独立使用。
+
 ```bash
 acprof report results/<model>/
 acprof report results/run-a/ results/run-b/ --output comparison.html
