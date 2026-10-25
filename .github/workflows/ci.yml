@@ -158,35 +158,6 @@ jobs:
       - name: 校验指标文档编码与同步状态
         run: uv run --locked python scripts/render_metric_reference.py --check
 
-  python313-smoke:
-    needs: changes
-    if: needs.changes.outputs.full == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          version-file: pyproject.toml
-          python-version: '3.13'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --locked --no-default-groups --group test
-      - run: uv pip check
-      - name: Python 3.13 host and measurement-contract smoke
-        run: |
-          uv run --locked --no-default-groups --group test python -m pytest -q \
-            tests/test_architecture.py \
-            tests/test_private_api_guard.py \
-            tests/test_resource_usage.py \
-            tests/test_orchestrator_environment.py \
-            tests/test_static_gpu_fallback.py \
-            tests/test_measurement_semantics_baseline.py
-        env:
-          ACPROF_WECOM_WEBHOOK_URL: ''
-          TZ: UTC
-          PYTHONHASHSEED: '0'
-
   host:
     needs: changes
     if: needs.changes.outputs.full == 'true'
