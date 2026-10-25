@@ -9,6 +9,7 @@ import copy
 import os
 import sys
 import traceback
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,14 @@ from acprof.preparation_events import MAX_MESSAGE, encode_event
 
 class RebuildEnvironment(Exception):
     """The user explicitly invalidated image, input and runtime preparation."""
+
+
+class PreparationInterrupted(KeyboardInterrupt):
+    """A specific control-plane interruption, still handled as KeyboardInterrupt."""
+
+    def __init__(self, message: str, reason_code: str) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 def retain_validation_failure(output_dir: str) -> None:
@@ -57,6 +66,7 @@ class PreparationWorkflow:
         self.cache_dir = cache_dir
         self.request_id = 0
         self.rebuild_environment = False
+        self.observer: Callable[[str, str, Mapping[str, object]], None] | None = None
 
     @classmethod
     def from_environment(cls, output_dir: str):
@@ -64,6 +74,8 @@ class PreparationWorkflow:
                    cache_dir=Path(output_dir).expanduser() / ".model-contracts" / "decisions")
 
     def emit(self, stage: str, status: str, **fields) -> None:
+        if self.observer is not None:
+            self.observer(stage, status, fields)
         if self.interactive:
             print(encode_event(stage, status, **fields), flush=True)
 
@@ -73,14 +85,14 @@ class PreparationWorkflow:
         self.emit(stage, "waiting" if kind == "review" else "failed", request=request)
         line = sys.stdin.readline(MAX_MESSAGE + 1)
         if not line:
-            raise KeyboardInterrupt("preparation controller disconnected")
+            raise PreparationInterrupted("preparation controller disconnected", "controller_disconnected")
         if len(line) > MAX_MESSAGE:
             raise ValueError("preparation reply exceeds size limit")
         reply = loads_finite_json(line)
         if not isinstance(reply, dict) or type(reply.get("id")) is not int or reply["id"] != self.request_id:
             raise ValueError("stale or invalid preparation reply")
         if reply.get("action") == "cancel":
-            raise KeyboardInterrupt("preparation cancelled")
+            raise PreparationInterrupted("preparation cancelled", "cancelled_by_user")
         if stage in {"image", "runtime"} and kind == "error" and reply.get("action") == "rebuild":
             self.rebuild_environment = True
             for invalidated in ("image", "input", "runtime"):
@@ -101,6 +113,9 @@ class PreparationWorkflow:
             except (Exception, SystemExit) as exc:
                 if isinstance(exc, SystemExit) and exc.code in (0, None):
                     raise
+                if self.observer is not None:
+                    self.observer(stage, "failed", {"exception_type": type(exc).__name__,
+                                                     "exception_message": str(exc)})
                 detail = traceback.format_exc()[-24000:]
                 if not self.interactive:
                     raise

@@ -98,6 +98,7 @@ class RunApplication:
         self._running = True
         self.notifications.reset()
         outcome = None
+        primary_error: BaseException | None = None
         terminal_status = "failed"
         try:
             if not command:
@@ -107,19 +108,23 @@ class RunApplication:
                                     preparation_artifacts=preparation_artifacts, command=command)
             terminal_status = outcome.status
             return outcome
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
+            primary_error = exc
             terminal_status = "cancelled"
             self.notifications.record_termination("cancelled", "用户中断了采集")
             raise
         except BaseException as exc:
+            primary_error = exc
             self.notifications.record_termination("failed", f"{type(exc).__name__}: {exc}")
             raise
         finally:
             try:
                 self._finalize(terminal_status)
-            except BaseException:
+            except BaseException as cleanup_error:
                 terminal_status = "failed"
-                raise
+                if primary_error is None:
+                    raise
+                primary_error.add_note(f"Run finalization also failed: {type(cleanup_error).__name__}")
             finally:
                 self._running = False
                 emit_event("run_finished", status=terminal_status)
@@ -332,20 +337,21 @@ class RunApplication:
 
         cpu_list, mem_list, gpu_list = resource_matrix(args)
         prepared = None
-        while prepared is None:
-            try:
-                prepared = self.runtime_preparer(
-                    args, run_state=run_state, task_info=task_info, output_dir=output_dir,
-                    cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
-                    run_command=run_command, cgroup_version=cgroup_version,
-                    cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
-                    preflight_measurements=preflight_measurements, latency_slo=latency_slo,
-                    workflow=workflow, project_dir=PROJECT_DIR, notices=self.notifications,
-                )
-            except RebuildEnvironment:
-                # No measurement has run. Preserve model/host decisions, invalidate
-                # all downstream evidence affected by a rebuilt immutable image.
-                continue
+        with run_state.preparation_evidence().capture(workflow):
+            while prepared is None:
+                try:
+                    prepared = self.runtime_preparer(
+                        args, run_state=run_state, task_info=task_info, output_dir=output_dir,
+                        cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
+                        run_command=run_command, cgroup_version=cgroup_version,
+                        cgroup_collection_mode=cgroup_collection_mode, rapl_topology=rapl_topology,
+                        preflight_measurements=preflight_measurements, latency_slo=latency_slo,
+                        workflow=workflow, project_dir=PROJECT_DIR, notices=self.notifications,
+                    )
+                except RebuildEnvironment:
+                    # No measurement has run. Preserve model/host decisions, invalidate
+                    # all downstream evidence affected by a rebuilt immutable image.
+                    continue
         task_info, image_info = prepared.task_info, prepared.image_info
         planned_input_scales = prepared.planned_input_scales
         compute_profile_plan_file = prepared.compute_profile_plan_file

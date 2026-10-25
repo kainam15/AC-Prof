@@ -58,6 +58,8 @@ The TUI tracks collection and probe progress through structured events. After a 
 
 The monitor offers colored log levels, literal search, a detailed view, and copying or exporting retained original text. Model downloads have a separate byte-progress display that distinguishes cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
 
+Once the validated result directory is initialized, each preparation attempt retains a redacted host Python log and a structured stage/failure summary. Resume preserves earlier attempts, and both UI log queues have explicit retention limits. See [preparation diagnostics](docs/profiling/artifacts.md#准备阶段诊断) for scope and failure handling.
+
 Download confirmation shows capacity, cache, sources, network status, Runtime state and the Model Store path directly. Before confirmation, a bounded model GET probe reads up to 256 KiB in total, within the download budget; zero budget skips GET. Full downloads begin only after confirmation. A passing probe does not guarantee the complete transfer. See [download preflight](docs/usage/tui-experiments.md#下载与磁盘预检).
 
 CSV headers and result directories exist before inference starts. Each completed measurement window appends to the root module CSVs; completion freezes an immutable snapshot. Use AC-Prof readers for a consistent committed view, including during recovery and postprocessing. See [live results and recovery](docs/profiling/artifacts.md#实时提交与后处理).

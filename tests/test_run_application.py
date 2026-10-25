@@ -103,3 +103,24 @@ def test_absent_cli_transport_options_preserve_configured_environment(monkeypatc
     assert os.environ["HF_DOWNLOAD_MODE"] == "mirror-only"
     assert os.environ["ACPROF_MAX_DOWNLOAD"] == "1GB"
     assert os.environ["ACPROF_MODEL_STORE"] == "/configured/store"
+
+
+@pytest.mark.parametrize("original", [RuntimeError("operation failed"), KeyboardInterrupt("cancelled")])
+def test_finalization_failure_preserves_the_original_operation_error(original):
+    state = Mock()
+    state.close.side_effect = OSError("state save failed")
+    application = RunApplication()
+
+    def execute(*args, **kwargs):
+        application.run_state = state
+        raise original
+
+    with patch.object(application, "_execute", side_effect=execute), patch(
+        "acprof.application.run.emit_event"
+    ) as emitted, pytest.raises(type(original)) as caught:
+        application.run(RunConfig.smoke("fixture/model"))
+
+    assert caught.value is original
+    assert any("OSError" in note for note in original.__notes__)
+    state.close.assert_called_once()
+    emitted.assert_called_once_with("run_finished", status="failed")

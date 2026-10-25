@@ -350,7 +350,7 @@ class RunState:
         self.measurement_lock.__enter__()
         try:
             self.lock.__enter__()
-            attempt = {"started_at": utc_now(), "pid": os.getpid(), "resume": resume}
+            attempt = {"attempt_id": uuid4().hex, "started_at": utc_now(), "pid": os.getpid(), "resume": resume}
             if resume:
                 self.data = load_run_state(self.directory)
                 phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options, repair=True)
@@ -396,6 +396,15 @@ class RunState:
     def save(self) -> None:
         self.data["updated_at"] = utc_now()
         atomic_write_json(self.path, self.data)
+
+    def preparation_evidence(self):
+        """Register this attempt without changing the frozen measurement artifacts."""
+        from acprof.host.preparation_evidence import PreparationEvidence
+        attempt = self.data["attempts"][-1]
+        evidence = PreparationEvidence(self.layout, attempt["attempt_id"])
+        attempt["preparation_evidence"] = evidence.relative_summary_path
+        self.save()
+        return evidence
 
     def artifact_path(self, relative: str) -> Path:
         try:

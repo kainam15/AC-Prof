@@ -195,6 +195,34 @@ CPU RAPL、GPU NVML、PMU、资源监控全部停止并完成收尾后，client 
 `status=ok AND warmup=0` 筛选，以独立窗口为统计单位；请求数组不能替代窗口均值或置信区间。
 历史目录缺少请求文件时视为未保存原始样本，不从均值或分位数重建。
 
+### 准备阶段诊断
+
+输出目录通过校验并创建 RunState 后，每次启动或恢复都会分配独立的 `attempt_id`。
+`.acprof/run_state.json` 的本次 `attempts` 条目用 `preparation_evidence` 引用
+`metadata/preparation/<attempt_id>.json`；对应主进程准备日志在
+`logs/preparation/<attempt_id>.log`。CLI 和 TUI 使用相同路径，恢复不会覆盖上次尝试。
+
+摘要的 `schema_version=1`、`scope=preparation`，记录最近阶段和阶段状态、各阶段尝试次数、
+最终 `complete/failed/cancelled`、经过脱敏和限长的异常、最近一次可恢复错误，以及日志完整性。
+`reason_code` 区分 `preparation_failed`、`cancelled_by_user`、
+`controller_disconnected`、`interrupted` 和 `preparation_complete`。
+同一次准备中的“重新准备环境”沿用同一 attempt；成功后摘要为 complete，最近错误仍保留。
+准备成功不代表主实验成功；后续测量失败以 run state 和正式结果证据为准。
+恢复是否允许仍由既有身份与产物校验决定，诊断摘要不自行推断可重试性。
+
+日志只覆盖主进程 Python stdout/stderr，不保证收录直接继承文件描述符的子工具输出；
+工具日志继续使用各阶段已有路径。每条完整逻辑行先脱敏再保存，去掉 URL 凭据、查询串、
+片段和已识别的认证/敏感键值；摘要不保存原始请求、配置或环境字典。
+日志正文最多 8 MiB，每条逻辑行最多 64 KiB UTF-8；超限整行省略，
+摘要的 `omitted_lines`、`retained_bytes` 和 `log.status` 明示保存状态。
+`log.status` 为 `recording/saved/truncated/failed/unavailable`；
+字节数是保留文本的 UTF-8 长度，不是进程内存占用。
+
+摘要在阶段切换时原子保存。准备退出时恢复原输出流并关闭日志，然后才进入正式测量；
+不会为这份证据向测量窗口增加文件写入。证据保存失败会记录告警，原准备异常继续传播。
+强制终止可能只留下最近的 running 阶段，不能把它当作已完成。
+早于 RunState 的模型解析或主机预检错误仍由 CLI/TUI 报告，不为诊断提前绕过输出目录和锁校验。
+
 ### 结果完整性与断点续跑
 
 主实验默认拒绝已有实验产物的目录，避免重写静态元数据或追加上次遗留的测量行。
