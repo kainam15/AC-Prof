@@ -65,8 +65,13 @@ def require_result_environment(output_dir: str) -> None:
         return
     layout = ArtifactLayout.discover(root)
     meta_path = layout.path("static_meta.json")
-    has_rows = layout.result_csv.exists() or any(root.glob("result_case_*.csv")) or any(
-        root.glob(".acprof/work/cases/*/result.csv"))
+    has_case_files = any(root.glob("result_case_*.csv")) or any(root.glob(".acprof/work/cases/*/result.csv"))
+    has_rows = layout.result_csv.exists() or has_case_files
+    if not meta_path.exists() and not has_case_files and layout.result_csv.exists():
+        from acprof.result_store.initialization import initial_files
+        # Early CSV headers are preparation artifacts, not measured history.
+        # The shared verifier rejects damaged commits, modified prefixes and tails.
+        has_rows = not bool(initial_files(layout))
     if not meta_path.exists() and not has_rows:
         return
     metadata_error = ""

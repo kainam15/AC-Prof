@@ -126,6 +126,30 @@ class TestEnvironmentPolicy:
             assert "Refusing to mix" in str(oversized.value)
             assert "static metadata exceeds the 4 MiB read limit" in str(oversized.value)
 
+    @pytest.mark.parametrize("contents", ["empty", "foreign_metadata", "corrupt_header", "partial_case"])
+    def test_preparation_headers_do_not_bypass_real_result_provenance(self, tmp_path, contents):
+        from acprof.artifact_layout import ArtifactLayout
+        from acprof.host.preflight import require_result_environment
+        from acprof.result_store.initialization import initialize_results
+
+        layout = ArtifactLayout.for_new_run(tmp_path)
+        layout.initialize()
+        initialize_results(layout)
+        if contents == "foreign_metadata":
+            layout.path("static_meta.json").write_text(json.dumps(WSL.metadata()))
+        elif contents == "corrupt_header":
+            layout.layer_csv("summary").write_text("modified header\n")
+        elif contents == "partial_case":
+            case = layout.root / ".acprof/work/cases/1c_4g_off/result.csv"
+            case.parent.mkdir(parents=True)
+            case.write_text("partial result evidence\n")
+        with patch("acprof.host.preflight.detect_environment", return_value=NATIVE):
+            if contents == "empty":
+                require_result_environment(str(tmp_path))
+            else:
+                with pytest.raises(ValueError, match="Refusing to mix|committed prefix"):
+                    require_result_environment(str(tmp_path))
+
     def test_csv_merge_refuses_cross_environment_even_with_disjoint_keys(self):
         from acprof.result_csv import ResultValidationError, merge_result_csvs
         with tempfile.TemporaryDirectory() as directory:
