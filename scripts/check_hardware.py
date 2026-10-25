@@ -127,7 +127,8 @@ def run_matrix(cases: list[tuple[str, RunConfig]], output: Path, *, ui: str) -> 
     return report
 
 
-def main(argv=None):
+def hardware_parser() -> argparse.ArgumentParser:
+    """Use the same selection contract for image preparation and hardware acceptance."""
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--model")
@@ -146,10 +147,12 @@ def main(argv=None):
     parser.add_argument("--execution-profile-tool", choices=("none", "massif", "nsys", "both"), default="none")
     parser.add_argument("--ui", choices=("cli", "headless", "terminal"), default="cli")
     parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args(argv)
-    output = args.output_dir.resolve()
-    if output.exists() and (not output.is_dir() or any(output.iterdir())):
-        parser.error("硬件验证输出目录必须为空")
+    return parser
+
+
+def selected_hardware_cases(args: argparse.Namespace, output: Path,
+                            parser: argparse.ArgumentParser) -> tuple[list[tuple[str, RunConfig]], RunConfig]:
+    """Validate selections once; custom runs have one case for preparation."""
     config = RunConfig(model=args.model or "", revision=args.revision, task=args.task,
                        cpus=args.cpus, mems=args.mems, gpus=args.gpus,
                        input_scales=args.input_scales or "64", output_dir=str(output / "results"),
@@ -164,8 +167,19 @@ def main(argv=None):
             cases = load_hardware_matrix(args.matrix, config, output)
         else:
             config = config.validate(project_dir=ROOT)
+            cases = [("custom", config)]
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    return cases, config
+
+
+def main(argv=None):
+    parser = hardware_parser()
+    args = parser.parse_args(argv)
+    output = args.output_dir.resolve()
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        parser.error("硬件验证输出目录必须为空")
+    cases, config = selected_hardware_cases(args, output, parser)
     output.mkdir(parents=True, exist_ok=True)
     report = run_matrix(cases, output, ui=args.ui) if args.matrix else run_config(config, output, ui=args.ui)
     print(f"硬件验证{'通过' if report['successful'] else '未通过'}，证据：{output}")

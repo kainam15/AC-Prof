@@ -89,9 +89,8 @@ def test_hardware_workflow_is_weekly_and_never_exposes_fork_prs():
     tracked = next(step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", ""))
     assert "git rev-parse HEAD" in tracked
     assert "git diff --quiet" in tracked
-    script = next(step for step in job["steps"] if "VALIDATION_PRESET" in step.get("env", {}))
-    assert "pinned-matrix" in script["env"]["VALIDATION_PRESET"]
-    assert "off,on" in script["env"]["VALIDATION_GPUS"]
+    assert "pinned-matrix" in job["env"]["VALIDATION_PRESET"]
+    assert "off,on" in job["env"]["VALIDATION_GPUS"]
 
 
 def test_release_requires_hardware_proof_before_both_publications():

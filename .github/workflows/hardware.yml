@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       preset:
-        description: 固定小模型矩阵或自定义单模型（都要求预先准备镜像）
+        description: 固定小模型矩阵或自定义单模型（先自动准备镜像，再离线验收）
         type: choice
         options: ['pinned-matrix', 'custom']
         default: pinned-matrix
@@ -35,7 +35,14 @@ jobs:
     # Never execute fork PRs or arbitrary branches on the dedicated host.
     if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, linux, x64, acprof]
-    timeout-minutes: 60
+    timeout-minutes: 180
+    env:
+      VIRTUAL_ENV: ''
+      VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
+      VALIDATION_MODEL: ${{ inputs.model }}
+      VALIDATION_TASK: ${{ inputs.task }}
+      VALIDATION_REVISION: ${{ inputs.revision }}
+      VALIDATION_GPUS: ${{ github.event_name == 'schedule' && 'off,on' || inputs.gpus }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,14 +68,15 @@ jobs:
             --pattern test_energy_cpu.py --pattern test_energy_nvml_start_stop.py \
             --require-no-skips \
             --report "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/offline-faults/host.json"
-      - name: 使用已同步的环境采集并验收
+      - name: 测量前准备缺失的模型和 Docker 镜像
+        timeout-minutes: 90
         env:
-          VALIDATION_PRESET: ${{ github.event_name == 'schedule' && 'pinned-matrix' || inputs.preset }}
-          VALIDATION_MODEL: ${{ inputs.model }}
-          VALIDATION_TASK: ${{ inputs.task }}
-          VALIDATION_REVISION: ${{ inputs.revision }}
-          VALIDATION_GPUS: ${{ github.event_name == 'schedule' && 'off,on' || inputs.gpus }}
           ACPROF_WECOM_WEBHOOK_URL: ''
+          ACPROF_REQUIRE_PREPARED_IMAGE: '0'
+          HF_HUB_OFFLINE: '0'
+          TRANSFORMERS_OFFLINE: '0'
+          ACPROF_RUNTIME_IMAGE_SOURCE: auto
+          ACPROF_MAX_DOWNLOAD: 4GB
         shell: bash
         run: |
           if [[ "$VALIDATION_PRESET" == pinned-matrix ]]; then
@@ -76,7 +84,16 @@ jobs:
           else
             selection=(--model "$VALIDATION_MODEL" --task "$VALIDATION_TASK" --revision "$VALIDATION_REVISION")
           fi
-          uv run --locked --no-default-groups --group test python scripts/check_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
+          uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
+            --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation"
+      - name: 使用已准备的不可变镜像离线采集并验收
+        timeout-minutes: 60
+        env:
+          ACPROF_WECOM_WEBHOOK_URL: ''
+        run: |
+          uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
+            --matrix "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/preparation/prepared-matrix.json" \
+            --gpus "$VALIDATION_GPUS" \
             --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

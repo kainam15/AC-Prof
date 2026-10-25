@@ -69,13 +69,24 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 手动 `hardware.yml` 默认选择 `examples/hardware-validation.json` 的固定小模型矩阵，
 也可选择 `custom` 单模型。矩阵中的 BERT fill-mask 与 ViT image-classification 使用固定
 checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代表生产模型质量或完整模型兼容性。
-专用主机须预先准备对应 revision 和当前源码的 CPU/GPU 镜像，以及通过 `uv sync --locked --no-default-groups --group test` 准备的环境。
-脚本使用默认的镜像核验复用策略，并通过 `ACPROF_REQUIRE_PREPARED_IMAGE=1` 禁止隐式构建和下载。
-缺少匹配镜像时直接失败；运行前须在单独的受控阶段完成准备。
+GitHub Actions 在同一个专用 self-hosted job 内先完成离线故障回归，再运行
+`scripts/prepare_hardware.py` 准备当前源码指纹对应的 Docker 平台、依赖环境、模型镜像及
+Model Store。准备阶段允许缺失产物的拉取或构建，每个模型最多下载 4GB，超时或磁盘不足会失败，
+**不会自动清理已有镜像或缓存**。准备阶段持有同用户的测量锁，不与其他 AC-Prof 正式采集并行。
+所有 case 完成后才原子写出 `preparation/prepared-matrix.json`（固定 40 位 revision）；
+准备失败时只保留 `preparation/preparation.json` 中的失败证据，不会启动正式测量。
+
+随后 `scripts/check_hardware.py` 使用这份固定矩阵执行严格离线验收，
+始终启用 `ACPROF_REQUIRE_PREPARED_IMAGE=1`、`HF_HUB_OFFLINE=1`、
+`TRANSFORMERS_OFFLINE=1` 与零下载预算。即使准备完成后缓存被清理或指纹不匹配，
+验收也会明确失败而不是偷偷重建。手动复现时两个阶段需使用不同的空输出目录：
 
 ```bash
-uv run python scripts/check_hardware.py \
+uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
   --matrix examples/hardware-validation.json --gpus off,on \
+  --output-dir internal-testing/hardware-prepare
+uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
+  --matrix internal-testing/hardware-prepare/prepared-matrix.json --gpus off,on \
   --output-dir internal-testing/hardware-matrix
 ```
 
@@ -84,17 +95,22 @@ uv run python scripts/check_hardware.py \
 全部配置先验证，再串行执行，各 case 使用独立结果目录。失败、清理错误或取消会停止后续 case，
 `hardware_matrix.json` 保存源码/主机身份以及 `passed`、`failed`、`cancelled`、`not_run`，
 中断时保留已完成证据；强制终止可能留下 `running`，不能解释为通过。
-workflow 先将取消、恢复、监测器清理和采样失败的离线回归保存到 `offline-faults/`，再把真实
-采集保存到 `measurements/`。离线故障回归使用 mock，不代表真实硬件故障已实测。
-
+workflow 将离线故障回归保存到 `offline-faults/`、镜像准备报告及固定选择保存到 `preparation/`，
+实际采集和审计证据保存到 `measurements/`；其中离线故障回归使用 mock，不代表真实硬件故障已实测。
 `.github/workflows/hardware.yml` 每周一自动运行固定矩阵，也支持从 `main` 手动触发；不会由 PR 触发。
-专用 Linux x86_64 runner 需要预先准备 `.venv`、Docker/cgroup v2、RAPL、perf、抓包权限与**当前源码指纹匹配的模型镜像**。
-硬件验收严格启用 `ACPROF_REQUIRE_PREPARED_IMAGE=1`、`HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1` 和零模型下载预算。缺失镜像、需要重建或模型元数据缓存不完整会明确失败并留下日志，**不会自动构建或下载**；镜像准备必须在单独的受控阶段完成。此限制只针对硬件验收，不改变普通采集缺少匹配镜像时自动构建的默认策略。
-本地同一入口为：
+自定义单模型即使输入 branch 或留空 revision，准备成功后也会固定为解析到的 commit，
+再交给验收阶段，不在验收时重新解析浮动 revision。运行时必须具备 Docker/cgroup v2、RAPL、
+perf、抓包权限及所选 GPU 的实际权限；没有这些条件仍会如实失败，不会以 mock 代替。
+
+本地自定义模型示例（同样先准备，再验证）：
 
 ```bash
-uv run python scripts/check_hardware.py --model hf-internal-testing/tiny-random-bert \
-  --task fill-mask --gpus off,on --output-dir internal-testing/hardware-smoke
+uv run --locked --no-default-groups --group test python scripts/prepare_hardware.py \
+  --model hf-internal-testing/tiny-random-bert --task fill-mask --gpus off,on \
+  --output-dir internal-testing/hardware-smoke-prepare
+uv run --locked --no-default-groups --group test python scripts/check_hardware.py \
+  --matrix internal-testing/hardware-smoke-prepare/prepared-matrix.json --gpus off,on \
+  --output-dir internal-testing/hardware-smoke
 ```
 
 默认每个设备 1 个 case、warmup=1、repeat=3、2 秒请求窗口及 2 秒 idle，属于短 smoke。
