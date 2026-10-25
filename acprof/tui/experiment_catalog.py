@@ -5,10 +5,10 @@ import hashlib
 import json
 import os
 from collections import deque
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Iterable
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout

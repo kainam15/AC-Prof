@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from acprof.container.handlers import transformers_pipeline_load_kwargs
 from acprof.container.handlers.multimodal import MultimodalHandler
@@ -18,8 +18,8 @@ from acprof.container.load_policy import load_policy, load_processor
 class MossTranscribeDiarizeHandler(MultimodalHandler):
     def load(
         self, model_source: str, task_type: str, backend: str, device: str,
-        model_revision: str = "main", load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        model_revision: str = "main", load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from transformers import AutoModelForCausalLM, AutoProcessor
 
         if task_type != "audio-text-to-text" or backend not in {"transformers_model", "transformers_pipeline"}:
@@ -55,7 +55,7 @@ class MossTranscribeDiarizeHandler(MultimodalHandler):
         )
         return processor(text=prompt, audio=media_kwargs["audio"], return_tensors="pt")
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         import torch
 
         if str(model_ctx["device"]).startswith("cuda"):

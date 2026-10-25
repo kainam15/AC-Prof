@@ -261,7 +261,7 @@ class TestRunRecovery(RunRecoveryFixture):
         with ResultDirectoryLock(self.directory):
             pass
 
-    @pytest.mark.parametrize("link_kind", ("symlink", "hardlink"))
+    @pytest.mark.parametrize("link_kind", ["symlink", "hardlink"])
     def test_directory_lock_rejects_link_swapped_after_path_validation(self, link_kind):
         from acprof.host.run_state import ResultDirectoryLock, RunStateError
 

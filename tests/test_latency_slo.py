@@ -13,7 +13,7 @@ from acprof.packet import merge_packet_latency
 from acprof.run_args import build_parser
 
 
-@pytest.mark.parametrize('task,profile,expected,source', (('text-generation', 'nlp-cu128', 5.0, 'task:text-generation'), ('fill-mask', 'nlp-cu128', 1.0, 'profile:nlp-cu128'), ('image-classification', 'cv-cu128', 0.5, 'default')))
+@pytest.mark.parametrize(('task', 'profile', 'expected', 'source'), [('text-generation', 'nlp-cu128', 5.0, 'task:text-generation'), ('fill-mask', 'nlp-cu128', 1.0, 'profile:nlp-cu128'), ('image-classification', 'cv-cu128', 0.5, 'default')])
 def test_cli_rules_select_task_before_profile_before_default(task, profile, expected, source):
     args = build_parser().parse_args([
         "--model", "test/model", "--latency-slo", "default=0.5",
@@ -27,7 +27,7 @@ def test_cli_rules_select_task_before_profile_before_default(task, profile, expe
     assert (selected["source"]) == (source)
 
 
-@pytest.mark.parametrize('scale', (1.0, 1000.0))
+@pytest.mark.parametrize('scale', [1.0, 1000.0])
 def test_tail_ratio_is_scale_free_and_uses_nearest_rank(scale):
     result = client_metrics._latency_distribution_metrics(
         "latency_app", [value * scale for value in (0.01, 0.02, 0.1, 0.2, 0.3)],
@@ -59,7 +59,7 @@ def test_unconfigured_threshold_does_not_report_zero_violations():
     assert (math.isnan(result["latency_app_slow_ratio"]))
 
 
-@pytest.mark.parametrize('slo,expected', (({'threshold_s': 0.2, 'source': 'task:fill-mask'}, '0.200000'), ({'threshold_s': None, 'source': 'unconfigured'}, 'nan'), (None, 'nan')))
+@pytest.mark.parametrize(('slo', 'expected'), [({'threshold_s': 0.2, 'source': 'task:fill-mask'}, '0.200000'), ({'threshold_s': None, 'source': 'unconfigured'}, 'nan'), (None, 'nan')])
 def test_merge_uses_recorded_slo_and_never_the_current_environment(slo, expected):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

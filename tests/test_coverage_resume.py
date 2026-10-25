@@ -169,7 +169,7 @@ class TestCoverageResume:
         assert (run.call_args.kwargs["retry_stages"]) == (["predict"])
         assert (run.call_args.kwargs["retry_reasons"]) == (["request_timeout"])
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_cli_rejects_invalid_manifest_before_runner(self, case):
         source = Path(str(self.temporary)) / "sample.json"
         sample = copy.deepcopy(self.sample)
@@ -324,7 +324,7 @@ class TestCoverageResume:
         assert (report["attempts"][-1]["status"]) == ("complete")
         assert (report["attempts"][-1]["model_indices"]) == ([])
 
-    @pytest.mark.parametrize('field,value', (('configuration_sha256', 'different'), ('attempt_path', 'attempts/attempt-000002')))
+    @pytest.mark.parametrize(("field", "value"), [('configuration_sha256', 'different'), ('attempt_path', 'attempts/attempt-000002')])
     def test_resume_rejects_rows_bound_to_another_attempt_or_configuration(self, field, value):
         self.run_batch()
         path = self.root / "attempts/attempt-000001/attempt.json"

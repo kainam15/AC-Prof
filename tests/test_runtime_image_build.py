@@ -437,7 +437,7 @@ class TestRuntimeImageBuild:
                 dependency_images.prepare_environment_image(ENVIRONMENTS["audio-cpu"], root)
             assert not (any(name.startswith("acprof-runtime-env:") for name in self.images))
 
-    @pytest.mark.parametrize('recipe', ('platform.Dockerfile', 'runtime.Dockerfile', 'runtime-model.Dockerfile', 'runtime-final.Dockerfile'))
+    @pytest.mark.parametrize('recipe', ['platform.Dockerfile', 'runtime.Dockerfile', 'runtime-model.Dockerfile', 'runtime-final.Dockerfile'])
     def test_build_failure_stops_before_later_layers(self, recipe):
         self.commands.clear()
         self.images.clear()

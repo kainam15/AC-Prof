@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize("task,backend", [(None, None), ("fill-mask", None), (None, "transformers_pipeline")])
+@pytest.mark.parametrize(("task", "backend"), [(None, None), ("fill-mask", None), (None, "transformers_pipeline")])
 def test_absent_cli_overrides_have_one_resolution_identity(task, backend):
     from acprof.host.detect import TaskInfo
     from acprof.model_candidates import discover_model_candidates

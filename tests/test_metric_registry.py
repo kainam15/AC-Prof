@@ -41,7 +41,7 @@ def test_units_windows_and_text_are_explicit():
     assert ("gpu_pstate") not in (NUMERIC_FIELDS)
     assert ("gpu_idle_measured_at") not in (NUMERIC_FIELDS)
 
-@pytest.mark.parametrize('name,direction', [('latency_app_p95_s', 'lower'), ('throughput_samples_per_s', 'higher'), ('cpu_ipc', 'higher'), ('cpu_cycles_per_request', 'lower'), ('cpu_ref_cycles_per_request', 'lower'), ('cold_start_s', 'lower'), ('container_mem_usage_peak_bytes', 'lower'), ('gpu_mem_used_peak_bytes', 'lower'), ('container_cpu_util_peak_pct', 'neutral'), ('gpu_util_peak_pct', 'neutral')])
+@pytest.mark.parametrize(('name', 'direction'), [('latency_app_p95_s', 'lower'), ('throughput_samples_per_s', 'higher'), ('cpu_ipc', 'higher'), ('cpu_cycles_per_request', 'lower'), ('cpu_ref_cycles_per_request', 'lower'), ('cold_start_s', 'lower'), ('container_mem_usage_peak_bytes', 'lower'), ('gpu_mem_used_peak_bytes', 'lower'), ('container_cpu_util_peak_pct', 'neutral'), ('gpu_util_peak_pct', 'neutral')])
 def test_visualization_semantics_distinguish_objectives_from_utilization(name, direction):
     from acprof.metric_registry import METRICS
     assert (getattr(METRICS[name], "direction", None)) == (direction)

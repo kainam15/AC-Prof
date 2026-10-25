@@ -68,7 +68,7 @@ class TestModelInput:
                 assert (app.configuration.collect_config().model) == ('unlisted/new-model')
                 assert (app.configuration.collect_config().revision) == ('')
 
-    @pytest.mark.parametrize("manual_revision", ("", "user-branch"))
+    @pytest.mark.parametrize("manual_revision", ["", "user-branch"])
     async def test_changing_source_clears_only_the_candidate_revision(self, manual_revision):
         record = self.fixture.recorded()
         root = self.fixture.fixture.root

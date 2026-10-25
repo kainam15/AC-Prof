@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, TextIO
+from typing import Any, TextIO
 
 from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.telemetry import canonical_bytes, read_window_evidence, write_window_evidence

@@ -100,7 +100,7 @@ def test_encodec_and_dac_load_and_reconstruct_offline(family_case):
         assert (output["audio_duration_s"]) == (0.1) or round(abs((output["audio_duration_s"]) - (0.1)), 3) == 0
 
 @pytest.mark.skipif(not (_HAS_RUNTIME), reason="audio image dependencies are unavailable")
-@pytest.mark.parametrize('task', ('text-to-speech', 'text-to-audio'))
+@pytest.mark.parametrize('task', ['text-to-speech', 'text-to-audio'])
 def test_vits_text_to_speech_and_text_to_audio_generate_waveform_offline(task):
     from transformers import VitsConfig, VitsModel, VitsTokenizer
 

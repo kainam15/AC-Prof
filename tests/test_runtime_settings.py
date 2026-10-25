@@ -20,12 +20,12 @@ class TestRuntimeSettings:
             assert (params['effective']['providers']) == (['CPUExecutionProvider'])
             assert (params['requested']['intra_op_threads']) is None
 
-    @pytest.mark.parametrize('environment,expected', [({'TORCH_NUM_THREADS': '3'}, 3), ({'TORCH_NUM_THREADS': '3', 'ACPROF_RUNTIME_THREADS': '2'}, 2), ({'TORCH_NUM_THREADS': '3', 'ACPROF_RUNTIME_THREADS': '2', 'ACPROF_ONNX_INTRA_OP_THREADS': '1'}, 1)])
+    @pytest.mark.parametrize(('environment', 'expected'), [({'TORCH_NUM_THREADS': '3'}, 3), ({'TORCH_NUM_THREADS': '3', 'ACPROF_RUNTIME_THREADS': '2'}, 2), ({'TORCH_NUM_THREADS': '3', 'ACPROF_RUNTIME_THREADS': '2', 'ACPROF_ONNX_INTRA_OP_THREADS': '1'}, 1)])
     def test_backend_specific_then_generic_then_legacy_priority(self, environment, expected):
         with patch.dict(os.environ, environment, clear=True):
             assert (self.settings().onnx_runtime_parameters()['effective']['threads']) == (expected)
 
-    @pytest.mark.parametrize('key,value', [('ACPROF_RUNTIME_THREADS', '-1'), ('ACPROF_ONNX_INTRA_OP_THREADS', '0'), ('ACPROF_ONNX_INTER_OP_THREADS', '1.5'), ('ACPROF_REQUEST_TIMEOUT_S', 'nan')])
+    @pytest.mark.parametrize(('key', 'value'), [('ACPROF_RUNTIME_THREADS', '-1'), ('ACPROF_ONNX_INTRA_OP_THREADS', '0'), ('ACPROF_ONNX_INTER_OP_THREADS', '1.5'), ('ACPROF_REQUEST_TIMEOUT_S', 'nan')])
     def test_invalid_explicit_setting_is_not_silently_clamped(self, key, value):
         with patch.dict(os.environ, {key: value}, clear=True):
             settings = self.settings()
@@ -70,7 +70,7 @@ class TestRuntimeSettings:
             assert (complete_prediction(runtime, {}, 'ready')) == ('ready')
         assert (captured) == ([None])
 
-    @pytest.mark.parametrize('override,expected', ((None, None), ('600', 600.0)))
+    @pytest.mark.parametrize(('override', 'expected'), [(None, None), ('600', 600.0)])
     def test_profiler_keeps_unlimited_completion_unless_explicitly_requested(self, override, expected):
         from acprof.container.execution import complete_prediction
         from acprof.host.profiling.support import profiler_container_command
@@ -96,7 +96,7 @@ class TestRuntimeSettings:
             assert (complete_prediction(runtime, {}, 'ready')) == ('ready')
         assert (captured) == ([expected])
 
-    @pytest.mark.parametrize('timeout,override,expected', ((600, None, '600'), (None, None, 'none'), (600, '120', '120')))
+    @pytest.mark.parametrize(('timeout', 'override', 'expected'), [(600, None, '600'), (None, None, 'none'), (600, '120', '120')])
     def test_service_inherits_requested_deadline_with_explicit_override_priority(self, timeout, override, expected):
         from acprof.host.docker_runtime import start_container_session
         from acprof.host.images.runtime import ImageInfo

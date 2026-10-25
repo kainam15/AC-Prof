@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
 
 from textual.widgets import Button, Static
 from textual.worker import Worker

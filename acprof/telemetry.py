@@ -9,15 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence, TextIO, TypeVar
+from typing import Any, TextIO
 
 from acprof.artifacts import atomic_write, loads_finite_json
 
 TELEMETRY_SCHEMA_VERSION = 1
 REDUCTION_VERSION = "window-reduction-v1"
-T = TypeVar("T")
 
 
 def finite_json(value: Any) -> Any:
@@ -37,7 +37,7 @@ def canonical_bytes(value: Any) -> bytes:
                       separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
-def capture_samples(samples: Sequence[T], limit: int,
+def capture_samples[T](samples: Sequence[T], limit: int,
                     encode: Callable[[T], Any] = finite_json) -> dict[str, Any]:
     """Select at most limit samples without copying the full collector buffer."""
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 2:

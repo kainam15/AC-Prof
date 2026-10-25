@@ -3,15 +3,10 @@ from __future__ import annotations
 
 import copy
 import math
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
 )
 
 from acprof.artifact_layout import ArtifactLayout
@@ -37,9 +32,9 @@ from acprof.host.profiling.compute_plan import (
 from acprof.host.profiling.execution_plan import ExecutionProfileResolver
 
 
-def parse_tools(value: str | Iterable[str]) -> Tuple[str, ...]:
+def parse_tools(value: str | Iterable[str]) -> tuple[str, ...]:
     raw_values = [value] if isinstance(value, str) else list(value)
-    tools: List[str] = []
+    tools: list[str] = []
     for raw in raw_values:
         for token in str(raw).replace(";", ",").split(","):
             tool = token.strip().lower()
@@ -59,10 +54,10 @@ def parse_tools(value: str | Iterable[str]) -> Tuple[str, ...]:
 def applicable_tools(
     context: ResultContext,
     tools: Iterable[str],
-) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
     modes = {case[2] for case in context.resource_cases}
-    applicable: List[str] = []
-    skipped: List[str] = []
+    applicable: list[str] = []
+    skipped: list[str] = []
     for tool in tools:
         if modes.intersection(TOOL_GPU_MODES[tool]):
             applicable.append(tool)
@@ -148,7 +143,7 @@ def _compute_plan_candidates(
     context: ResultContext,
     workspace: Path,
     tool: str,
-) -> List[Path]:
+) -> list[Path]:
     return [
         ArtifactLayout.discover(context.result_dir).path("compute_profile_plan.json"),
         workspace / "compute_profile_plan.json",
@@ -160,7 +155,7 @@ def _execution_plan_candidates(
     context: ResultContext,
     workspace: Path,
     tool: str,
-) -> List[Path]:
+) -> list[Path]:
     return [
         ArtifactLayout.discover(context.result_dir).path("execution_profile_plan.json"),
         workspace / "execution_profile_plan.json",
@@ -173,7 +168,7 @@ def _find_reusable_compute_plan(
     context: ResultContext,
     workspace: Path,
     tool: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     for path in _compute_plan_candidates(context, workspace, tool):
         plan = _read_plan(path)
         if (
@@ -190,7 +185,7 @@ def _find_reusable_execution_plan(
     context: ResultContext,
     workspace: Path,
     tool: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     for path in _execution_plan_candidates(context, workspace, tool):
         plan = _read_plan(path)
         if (
@@ -204,7 +199,7 @@ def _find_reusable_execution_plan(
 
 
 def _validate_profiler_runtime(
-    context: ResultContext, *, gpu_modes: Optional[List[str]] = None,
+    context: ResultContext, *, gpu_modes: list[str] | None = None,
 ) -> None:
     # Validate outputs in a separate container before any profiler starts;
     # whole-process profilers must not include validation allocations.
@@ -278,13 +273,13 @@ def _collect_compute_plan(
     output_dir: Path,
     *,
     tool: str,
-    ncu_root: Optional[str],
+    ncu_root: str | None,
     torch_repeat: int,
     ncu_repeat: int,
-    compute_profile_cpus: Optional[int],
-    compute_profile_mem: Optional[int],
+    compute_profile_cpus: int | None,
+    compute_profile_mem: int | None,
     resume_existing_ncu_profiles: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     from acprof.host.profiling.compute import collect_compute_profile_plan
 
     modes: list[str] = [
@@ -325,9 +320,9 @@ def _collect_compute_plan(
 
 def _resolve_massif_reference(
     context: ResultContext,
-    reference_cpu: Optional[int],
-    reference_mem: Optional[int],
-) -> Tuple[int, int]:
+    reference_cpu: int | None,
+    reference_mem: int | None,
+) -> tuple[int, int]:
     cases = [(cpu, mem) for cpu, mem, mode in context.resource_cases if mode == "off"]
     candidates = [
         case
@@ -349,9 +344,9 @@ def expand_representative_massif_plan(
     *,
     reference_cpu: int,
     reference_mem: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     expanded = copy.deepcopy(dict(plan))
-    source_profile: Optional[Mapping[str, Any]] = None
+    source_profile: Mapping[str, Any] | None = None
     for profile in expanded.get("profiles", []):
         if not isinstance(profile, Mapping):
             continue
@@ -374,7 +369,7 @@ def expand_representative_massif_plan(
             entry["profile_source_mem_cap_gb"] = reference_mem
             entry["profile_sampling_strategy"] = "representative_per_scale"
 
-    expanded_profiles: List[Dict[str, Any]] = []
+    expanded_profiles: list[dict[str, Any]] = []
     for cpu, mem, mode in context.resource_cases:
         if mode != "off":
             continue
@@ -407,16 +402,16 @@ def _collect_execution_plan(
     *,
     tool: str,
     massif_sampling: str,
-    massif_reference_cpu: Optional[int],
-    massif_reference_mem: Optional[int],
+    massif_reference_cpu: int | None,
+    massif_reference_mem: int | None,
     nsys_sampling: str,
-    nsys_reference_cpu: Optional[int],
-    nsys_reference_mem: Optional[int],
+    nsys_reference_cpu: int | None,
+    nsys_reference_mem: int | None,
     massif_repeat: int,
     nsys_repeat: int,
-    nsys_root: Optional[str],
+    nsys_root: str | None,
     resume_existing_profiles: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     from acprof.host.profiling.execution import (
         ExecutionProfileOptions,
         ExecutionProfileRequest,
@@ -464,10 +459,10 @@ def _collect_execution_plan(
 def merge_compute_plans(
     context: ResultContext,
     plans_by_tool: Mapping[str, Mapping[str, Any]],
-) -> Dict[str, Any]:
-    profiles: Dict[str, Dict[str, Any]] = {}
-    static_metadata: Dict[str, Any] = {}
-    enabled_tools: List[str] = []
+) -> dict[str, Any]:
+    profiles: dict[str, dict[str, Any]] = {}
+    static_metadata: dict[str, Any] = {}
+    enabled_tools: list[str] = []
     plan_keys = {"torch": TORCH_PROFILE_KEY, "ncu": NCU_PROFILE_KEY}
 
     for requested_tool, plan in plans_by_tool.items():
@@ -529,10 +524,10 @@ def merge_compute_plans(
 def merge_execution_plans(
     context: ResultContext,
     plans_by_tool: Mapping[str, Mapping[str, Any]],
-) -> Dict[str, Any]:
-    profiles: Dict[Tuple[int, int, str], Dict[str, Any]] = {}
-    static_metadata: Dict[str, Any] = {}
-    enabled_tools: List[str] = []
+) -> dict[str, Any]:
+    profiles: dict[tuple[int, int, str], dict[str, Any]] = {}
+    static_metadata: dict[str, Any] = {}
+    enabled_tools: list[str] = []
     for requested_tool, plan in plans_by_tool.items():
         metadata = plan.get("static_metadata")
         if isinstance(metadata, Mapping):

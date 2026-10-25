@@ -9,7 +9,7 @@ Reference: https://github.com/Textualize/textual/issues/6357
 """
 
 from bisect import bisect_left
-from typing import Callable
+from collections.abc import Callable
 
 from textual._compositor import ChopsUpdate, Compositor
 from textual.geometry import Region

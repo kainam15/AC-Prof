@@ -23,7 +23,7 @@ def test_dynamic_linear_model_runs_full_handler_and_validation_contract():
     assert (result['response']['output_shape']) == ([4, 1])
 
 @pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in ('onnx', 'onnxruntime', 'numpy'))), reason='requires the no-Torch ONNX Runtime CPU container')
-@pytest.mark.parametrize('count', (1, 3, 7))
+@pytest.mark.parametrize('count', [1, 3, 7])
 def test_dynamic_rows_have_known_results_at_distinct_shapes(count):
     import numpy as np
 

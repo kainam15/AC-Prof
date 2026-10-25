@@ -25,7 +25,7 @@ async def test_review_omits_empty_advanced_details(tmp_path, summary):
         assert not list(app.screen.query(Collapsible))
 
 
-@pytest.mark.parametrize("language,size,download_size", [
+@pytest.mark.parametrize(("language", "size", "download_size"), [
     ("zh", (80, 24), 890_152_505),
     ("en", (120, 30), 890_152_505),
     ("zh", (150, 45), 890_152_505),
@@ -81,7 +81,8 @@ async def test_download_review_details_expand_and_confirmation_remains_reachable
         assert scroll.scroll_y > 0
         assert content.region.bottom <= scroll.content_region.bottom
         for button in actions:
-            assert button.region.width > 0 and button.region.height > 0
+            assert button.region.width > 0
+            assert button.region.height > 0
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
@@ -203,15 +204,17 @@ async def test_start_stays_on_monitor_without_passive_preparation_modal(tmp_path
             assert app.preflight.preparation_screen is None
             assert app.query_one("#main-tabs").active == "monitor-tab"
             log = app.query_one("#run-log")
-            assert log.display and log.region.height > 0
+            assert log.display
+            assert log.region.height > 0
             app.preflight.preparation_event({"stage": "model", "status": "running"})
             await pilot.pause()
             assert app.screen is base
             assert app.preflight.preparation_screen is None
-            assert log.display and log.region.height > 0
+            assert log.display
+            assert log.region.height > 0
 
 
-@pytest.mark.parametrize("language,size", [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
+@pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_review_is_readonly_for_resolved_fields_and_confirm_waits_for_resolver(tmp_path, language, size):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     process = Mock(stdin=io.StringIO())

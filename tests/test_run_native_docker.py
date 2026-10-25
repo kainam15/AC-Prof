@@ -70,7 +70,7 @@ def test_terminal_log_records_and_atomically_finalizes_tmux_output() -> None:
         assert (finalized)
         assert (pane_id) == ("%7")
         assert not (os.path.exists(partial_path))
-        with open(log_path, "r", encoding="utf-8") as f:
+        with open(log_path, encoding="utf-8") as f:
             terminal_text = f.read()
 
     assert ("$ acprof run --model org/model") in (terminal_text)

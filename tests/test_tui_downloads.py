@@ -57,7 +57,8 @@ def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
     report = {"expected_download_bytes": None, "direct_download_bytes": None, "proxy_download_bytes": 0}
     summary = download_summary(report, lambda value: translate(value, "en"))
     assert "Expected download: Unknown" in summary
-    assert "DIRECT" not in summary and "PROXY" not in summary
+    assert "DIRECT" not in summary
+    assert "PROXY" not in summary
     assert "Using the system network environment" in summary
     assert "Effective download budget: Unknown" in summary
     assert "Docker storage: Unknown" in summary
@@ -85,7 +86,7 @@ async def test_network_reports_display_units_and_preserve_input_json(tmp_path, d
         assert json.loads(line.split(" ", 1)[1]) == download_report
 
 
-@pytest.mark.parametrize('size,language', (((80, 24), 'zh'), ((120, 40), 'en')))
+@pytest.mark.parametrize(("size", "language"), [((80, 24), 'zh'), ((120, 40), 'en')])
 async def test_budget_settings_and_prune_confirmation_in_both_languages(size, language):
     project = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory() as temporary:

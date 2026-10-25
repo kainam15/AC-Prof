@@ -110,9 +110,9 @@ class TestMultimodalHandler:
         with pytest.raises(ValueError, match='Base64'):
             self.handler.preprocess(self.ctx, self.request(image_base64='broken'))
 
-    @pytest.mark.parametrize('params', ([], {'bogus': True}, {'max_new_tokens': 0}, {'max_new_tokens': True}, {'do_sample': True}, {'num_beams': 2}))
+    @pytest.mark.parametrize('params', [[], {'bogus': True}, {'max_new_tokens': 0}, {'max_new_tokens': True}, {'do_sample': True}, {'num_beams': 2}])
     def test_params_reject_unknown_or_unbounded_generation(self, params):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="do_sample must be false|max_new_tokens must be a positive integer|params must be an object|unsupported params"):
             self.handler.preprocess(self.ctx, {**self.request(), 'params': params})
 
     @pytest.mark.parametrize('fps_case', range(4), ids=['0', '-1', "float('nan')", 'True'])
@@ -219,7 +219,7 @@ class TestMultimodalHandler:
         with pytest.raises(ValueError, match='generation'):
             self.handler.preprocess(self.ctx, self.request())
 
-    @pytest.mark.parametrize('sample', ({'words': ['a'], 'boxes': []}, {'words': ['a'], 'boxes': [[0, 0, 2000, 1]]}, {'words': ['a'], 'boxes': [[100, 0, 50, 1]]}))
+    @pytest.mark.parametrize('sample', [{'words': ['a'], 'boxes': []}, {'words': ['a'], 'boxes': [[0, 0, 2000, 1]]}, {'words': ['a'], 'boxes': [[100, 0, 50, 1]]}])
     def test_document_boxes_must_match_words_and_be_normalized(self, sample):
         self.ctx.update(task_type='document-question-answering', mode='qa', pipeline=Mock())
         with pytest.raises(ValueError, match='boxes'):
@@ -245,7 +245,7 @@ class TestMultimodalHandler:
                 self.handler.load(source, 'image-text-to-text', 'transformers_model', 'cpu', 'abc123')
                 assert ('revision') not in (transformers.AutoModelForImageTextToText.from_pretrained.call_args.kwargs)
 
-    @pytest.mark.parametrize('scale_type,scale', [('resolution_px', 12), ('duration_s', 8)])
+    @pytest.mark.parametrize(('scale_type', 'scale'), [('resolution_px', 12), ('duration_s', 8)])
     def test_effective_scale_is_verified_against_decoded_media(self, scale_type, scale):
         request = {**self.request(), 'input_scale': 8, 'input_scale_type': 'resolution_px'}
         processed = self.handler.preprocess(self.ctx, request)
@@ -257,7 +257,7 @@ class TestMultimodalHandler:
     @pytest.mark.parametrize('request_case', range(3), ids=["request(image_url='https://example.test/i.png')", 'request(audio_base64=audio_payload())', "{**request(), 'bogus': True}"])
     def test_unknown_fields_and_inapplicable_modalities_are_rejected(self, request_case):
         request = tuple([self.request(image_url='https://example.test/i.png'), self.request(audio_base64=audio_payload()), {**self.request(), 'bogus': True}])[request_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="does not accept audio_base64|unsupported request fields|unsupported sample fields"):
             self.handler.preprocess(self.ctx, request)
 
     def test_processor_cannot_silently_drop_the_requested_modality(self):
@@ -278,7 +278,7 @@ class TestMultimodalHandler:
             with pytest.raises(RuntimeError, match='token2wav.*SDPA'):
                 self.handler.load('example/omni', 'any-to-any', 'transformers_model', 'cpu', load_options={'attention_implementation': 'eager'})
 
-    @pytest.mark.parametrize('task', ('any-to-any', 'audio-text-to-text', 'visual-document-retrieval'))
+    @pytest.mark.parametrize('task', ['any-to-any', 'audio-text-to-text', 'visual-document-retrieval'])
     def test_unimplemented_architecture_never_falls_back_to_text_generation(self, task):
         transformers = types.ModuleType('transformers')
         transformers.__version__ = '4.57.6'

@@ -4,11 +4,12 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence, cast
+from typing import cast
 
 from acprof.artifacts import atomic_write
 from acprof.config import CSV_FIELDS

@@ -126,7 +126,7 @@ class TestTuiPreflight:
         assert ('perf_event_paranoid setting is 4') in (check.detail)
         assert ('installation.md') in (check.detail)
 
-    @pytest.mark.parametrize('detail', ('<not supported>', '<not counted>'))
+    @pytest.mark.parametrize('detail', ['<not supported>', '<not counted>'])
     def test_zero_exit_without_an_instruction_count_is_failure(self, detail):
         check, _ = self.run_check([self.result(0, detail + ',,instructions,0.00,,\n')])
         assert (check.status) == ('fail')

@@ -32,7 +32,7 @@ def test_modelscope_access_check_never_queries_huggingface():
     assert evidence["source"] == "modelscope"
 
 
-@pytest.mark.parametrize("returncode, reason", [(2, "revision_not_found"), (128, "network_error")])
+@pytest.mark.parametrize(("returncode", "reason"), [(2, "revision_not_found"), (128, "network_error")])
 def test_modelscope_ref_failure_retains_lookup_reason(returncode, reason):
     from acprof.host.model_errors import model_lookup_error
     with patch("acprof.host.command.run_command", return_value=SimpleNamespace(returncode=returncode, stdout="")):
@@ -124,7 +124,7 @@ def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_pa
     assert model_store.prune_candidates(tmp_path)["reclaimable_bytes"] == len(content)
 
 
-@pytest.mark.parametrize("error, reason", [("NotExistError", "repository_unavailable"),
+@pytest.mark.parametrize(("error", "reason"), [("NotExistError", "repository_unavailable"),
     ("AuthenticationError", "access_denied"), ("PermissionDeniedError", "access_denied"),
     ("RateLimitError", "hub_unavailable"), ("ServerError", "hub_unavailable")])
 def test_modelscope_lookup_failure_cannot_be_bypassed_by_manual_task(monkeypatch, error, reason):
@@ -205,7 +205,7 @@ def test_filtered_cache_preserves_original_hub_evidence(tmp_path, monkeypatch):
     assert cached.model_license == "apache-2.0"
 
 
-@pytest.mark.parametrize("source, default_ref", [("huggingface", "main"), ("modelscope", "master")])
+@pytest.mark.parametrize(("source", "default_ref"), [("huggingface", "main"), ("modelscope", "master")])
 def test_recorded_default_ref_is_distinct_from_pinned_release(source, default_ref, tmp_path, monkeypatch):
     from acprof.container.download_model import verify_download
     from acprof.container.model_files import plan_download

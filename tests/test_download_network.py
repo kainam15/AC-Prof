@@ -25,7 +25,7 @@ def test_mirror_preferred_requires_explicit_proxy_fallback_opt_in():
     assert (hf_endpoints({"HF_DOWNLOAD_MODE": "mirror-preferred"})) == (["https://hf-mirror.com", "https://huggingface.co"])
 
 @pytest.mark.parametrize('download_case', range(2), ids=['hub.hf_hub_download', 'hub.snapshot_download'])
-@pytest.mark.parametrize('target', ('https://unknown.example/file', 'https://hf-mirror.com.evil.example/file'))
+@pytest.mark.parametrize('target', ['https://unknown.example/file', 'https://hf-mirror.com.evil.example/file'])
 def test_actual_hub_downloads_block_redirect_before_transport(download_case, target):
     import httpx
     import huggingface_hub as hub

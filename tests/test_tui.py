@@ -491,12 +491,12 @@ class TestTuiApp:
             '[case] Stopping container...',
         ]
         script = (
-            ("from acprof.progress_events import emit_event\n" + ("from acprof.progress_events import emit_event\n"
+            "from acprof.progress_events import emit_event\n" + ("from acprof.progress_events import emit_event\n"
             "emit_event('case_started', 'fixture')\n"
             "emit_event('measurement_started', 'fixture')\n"
             + '\n'.join(f'print({line!r}, flush=True)' for line in lines)
             + "\nemit_event('measurement_stopped', 'fixture')\n"
-            "emit_event('case_finished', 'fixture', status='error')\nraise SystemExit(1)"))
+            "emit_event('case_finished', 'fixture', status='error')\nraise SystemExit(1)")
         )
         app = AcprofTui(RunConfig.smoke('demo/model'))
         async with app.run_test(size=(120, 30)) as pilot:
@@ -650,7 +650,7 @@ class TestTuiApp:
             await pilot.pause()
             assert (stage_widget.has_class("stage-measuring"))
 
-    @pytest.mark.parametrize('command', ('matrix', 'board'))
+    @pytest.mark.parametrize('command', ['matrix', 'board'])
     async def test_removed_matrix_commands_are_rejected_and_absent_from_help(self, command):
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:

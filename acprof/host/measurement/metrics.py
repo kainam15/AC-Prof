@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from acprof.capabilities import measurement_requested
 from acprof.host.measurement.errors import EnergyAbort
@@ -72,9 +72,9 @@ def _per_positive_denominator(value: Any, denominator: Any) -> float:
 
 
 def _compute_profile_row_metrics(
-    profile: Dict[str, Any],
+    profile: dict[str, Any],
     latency_app_s: Any,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Format independent Torch-eager and NCU metrics for one live row."""
     logical_mflop = to_float_or_nan(profile.get(TORCH_LOGICAL_MFLOP_FIELD))
     logical_mflops_app = _compute_mflops(logical_mflop, latency_app_s)
@@ -124,8 +124,8 @@ EXECUTION_PROFILE_ERROR_FIELDS = tuple(name for name in _EXECUTION_PROFILE_FIELD
 
 
 def _execution_profile_row_metrics(
-    profile: Dict[str, Any],
-) -> Dict[str, str]:
+    profile: dict[str, Any],
+) -> dict[str, str]:
     """Format intrusive profiler summaries without changing their semantics."""
     result = {
         field: _fmt_float(to_float_or_nan(profile.get(field)))
@@ -138,11 +138,11 @@ def _execution_profile_row_metrics(
     return result
 
 
-def _mean(xs: List[float]) -> float:
+def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else float("nan")
 
 
-def _mean_finite(xs: List[float]) -> float:
+def _mean_finite(xs: list[float]) -> float:
     values = [
         value
         for value in (to_float_or_nan(item) for item in xs)
@@ -172,7 +172,7 @@ def _input_num_samples(input_metadata: Any) -> float:
     return float("nan")
 
 
-def _percentile_nearest_rank(xs: List[float], percentile: float) -> float:
+def _percentile_nearest_rank(xs: list[float], percentile: float) -> float:
     values = sorted(
         value
         for value in (to_float_or_nan(item) for item in xs)
@@ -185,7 +185,7 @@ def _percentile_nearest_rank(xs: List[float], percentile: float) -> float:
     return values[index]
 
 
-def _slow_ratio(xs: List[float], *, slow_latency_threshold_s: float | None) -> float:
+def _slow_ratio(xs: list[float], *, slow_latency_threshold_s: float | None) -> float:
     values = [
         value
         for value in (to_float_or_nan(item) for item in xs)
@@ -199,10 +199,10 @@ def _slow_ratio(xs: List[float], *, slow_latency_threshold_s: float | None) -> f
 
 def _latency_distribution_metrics(
     prefix: str,
-    latencies: List[float],
+    latencies: list[float],
     *,
     slow_latency_threshold_s: float | None = None,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     values = [
         value
         for value in (to_float_or_nan(item) for item in latencies)
@@ -246,7 +246,7 @@ def _eff_negative_warnings(
     avg_power_eff_w: float,
     peak_power_eff_w: float,
     energy_eff_j: float,
-) -> List[str]:
+) -> list[str]:
     metrics = [
         ("gpu_avg_power_eff_w", avg_power_eff_w),
         ("gpu_peak_power_eff_w", peak_power_eff_w),
@@ -255,14 +255,14 @@ def _eff_negative_warnings(
     return [f"{name}<0" for name, value in metrics if value == value and value < 0.0]
 
 
-def _named_negative_warnings(metrics: Dict[str, float]) -> List[str]:
+def _named_negative_warnings(metrics: dict[str, float]) -> list[str]:
     return [f"{name}<0" for name, value in metrics.items() if value == value and value < 0.0]
 
 
 def window_monitor_warnings(
     *, resource_error: str, gpu_error: str, cpu_error: str,
-    dram_energy: str, gpu_metrics: Dict[str, float], cpu_metrics: Dict[str, float],
-) -> List[str]:
+    dram_energy: str, gpu_metrics: dict[str, float], cpu_metrics: dict[str, float],
+) -> list[str]:
     """Derive warnings after monitor shutdown, preserving existing row semantics."""
     warnings = [
         f"{name} monitor: {error}"
@@ -343,7 +343,7 @@ EFFICIENCY_METRIC_FIELDS = row_group_fields("efficiency")
 MIPS_METRIC_FIELDS = row_group_fields("cpu_pmu")
 
 
-def _nan_metrics(fields: List[str]) -> Dict[str, float]:
+def _nan_metrics(fields: list[str]) -> dict[str, float]:
     return {field: float("nan") for field in fields}
 
 
@@ -354,7 +354,7 @@ def _divide_if_number(value: float, divisor: float) -> float:
     return value
 
 
-def gpu_metrics_from_result(result: EnergyResult, repeat_in_window: int) -> Dict[str, float]:
+def gpu_metrics_from_result(result: EnergyResult, repeat_in_window: int) -> dict[str, float]:
     return {
         "gpu_idle_power_w": to_float_or_nan(result.idle_power_w),
         "gpu_energy_iters": float(result.energy_iters),
@@ -367,7 +367,7 @@ def gpu_metrics_from_result(result: EnergyResult, repeat_in_window: int) -> Dict
     }
 
 
-def cpu_metrics_from_result(result: CPUEnergyResult, repeat_in_window: int) -> Dict[str, float]:
+def cpu_metrics_from_result(result: CPUEnergyResult, repeat_in_window: int) -> dict[str, float]:
     return {
         "cpu_idle_power_w": to_float_or_nan(result.cpu_idle_power_w),
         "cpu_energy_iters": float(result.cpu_energy_iters),
@@ -389,7 +389,7 @@ def cpu_metrics_from_result(result: CPUEnergyResult, repeat_in_window: int) -> D
     }
 
 
-def _dram_metrics_from_result(result: DRAMEnergyResult | None, count: int) -> Dict[str, float]:
+def _dram_metrics_from_result(result: DRAMEnergyResult | None, count: int) -> dict[str, float]:
     metrics = {name: to_float_or_nan(getattr(result, name.removeprefix("dram_"), None))
                for name in DRAM_METRIC_FIELDS}
     metrics["dram_energy_per_request_j"] = _per_positive_denominator(metrics["dram_window_energy_j"], count)
@@ -407,7 +407,7 @@ def _derived_efficiency_metrics(
     gpu_energy_eff_j: float,
     vcpu_energy_eff_j: float,
     input_units_per_request: float = float("nan"),
-) -> Dict[str, float]:
+) -> dict[str, float]:
     latency = to_float_or_nan(latency_app_s)
     output_tokens = to_float_or_nan(output_token_count_avg)
     gpu_energy = to_float_or_nan(gpu_energy_eff_j)
@@ -470,7 +470,7 @@ def _derived_efficiency_metrics(
 def resource_usage_metrics_from_result(
     result: ResourceUsageResult,
     repeat_in_window: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     io_read_bytes = to_float_or_nan(
         getattr(result, "container_io_read_bytes", float("nan"))
     )
@@ -638,7 +638,7 @@ def resource_usage_metrics_from_result(
     }
 
 
-def _gpu_runtime_metrics_from_result(resource_usage_result: ResourceUsageResult | None) -> Dict[str, Any]:
+def _gpu_runtime_metrics_from_result(resource_usage_result: ResourceUsageResult | None) -> dict[str, Any]:
     pstate = str(
         getattr(resource_usage_result, "gpu_pstate", "nan")
         if resource_usage_result is not None
@@ -670,7 +670,7 @@ def _gpu_runtime_metrics_from_result(resource_usage_result: ResourceUsageResult 
     }
 
 
-def _mips_metrics_from_result(result: MIPSResult) -> Dict[str, float]:
+def _mips_metrics_from_result(result: MIPSResult) -> dict[str, float]:
     return {
         "cpu_cycles_per_request": to_float_or_nan(getattr(result, "cycles_per_request", float("nan"))),
         "cpu_ref_cycles_per_request": to_float_or_nan(getattr(result, "ref_cycles_per_request", float("nan"))),
@@ -703,7 +703,7 @@ def _mips_metrics_from_result(result: MIPSResult) -> Dict[str, float]:
     }
 
 
-def _idle_power_debug_stats(values: List[float], prefix: str) -> Dict[str, float]:
+def _idle_power_debug_stats(values: list[float], prefix: str) -> dict[str, float]:
     if not values:
         return {
             f"{prefix}_idle_valid_count": 0,
@@ -728,7 +728,7 @@ def _idle_power_debug_stats(values: List[float], prefix: str) -> Dict[str, float
     }
 
 
-def _idle_debug_stats(values: List[float]) -> Dict[str, float]:
+def _idle_debug_stats(values: list[float]) -> dict[str, float]:
     return _idle_power_debug_stats(values, "cpu")
 
 class WindowMetrics:

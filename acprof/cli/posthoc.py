@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence
 
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.posthoc.context import SUPPORTED_TOOLS, PosthocError
@@ -80,7 +80,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
     bootstrap_project_env(Path.cwd())

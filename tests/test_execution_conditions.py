@@ -45,7 +45,7 @@ class TestExecutionConditions:
     @pytest.mark.parametrize('changes_case', range(3), ids=["{'gpu_device': '1'}", "{'gpu_device': ''}", "{'request_timeout_seconds': float('nan')}"])
     def test_missing_uuid_and_invalid_timeout_are_not_reconstructed(self, changes_case):
         changes = tuple(({'gpu_device': '1'}, {'gpu_device': ''}, {'request_timeout_seconds': float('nan')}))[changes_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="source GPU UUID is missing|source request timeout"):
             ExecutionConditions.from_options(self.options(**changes), gpu="on")
 
     def test_missing_device_restores_environment(self):

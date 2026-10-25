@@ -33,7 +33,7 @@ def test_chronos_default_scales_respect_loaded_model_context():
         assert (len(planned.scales)) == (6)
         assert (planned.workload["model_constraints"]["max_effective_input_scale"]) == (512)
 
-@pytest.mark.parametrize('task,library,family,backend', (('table-question-answering', 'transformers', 'nlp', 'transformers_pipeline'), ('text-ranking', 'sentence-transformers', 'nlp', 'cross_encoder'), ('sentence-similarity', 'sentence-transformers', 'nlp', 'sentence_transformers'), ('text-to-audio', 'transformers', 'audio', 'transformers_pipeline'), ('audio-to-audio', 'transformers', 'audio', 'transformers_model'), ('voice-activity-detection', 'unknown', 'audio', 'torchscript'), ('tabular-classification', 'unknown', 'structured', 'torchscript'), ('tabular-regression', 'sklearn', 'structured', 'skops'), ('reinforcement-learning', 'unknown', 'structured', 'torchscript'), ('robotics', 'unknown', 'structured', 'torchscript'), ('graph-ml', 'unknown', 'structured', 'torchscript')))
+@pytest.mark.parametrize(("task", "library", "family", "backend"), [('table-question-answering', 'transformers', 'nlp', 'transformers_pipeline'), ('text-ranking', 'sentence-transformers', 'nlp', 'cross_encoder'), ('sentence-similarity', 'sentence-transformers', 'nlp', 'sentence_transformers'), ('text-to-audio', 'transformers', 'audio', 'transformers_pipeline'), ('audio-to-audio', 'transformers', 'audio', 'transformers_model'), ('voice-activity-detection', 'unknown', 'audio', 'torchscript'), ('tabular-classification', 'unknown', 'structured', 'torchscript'), ('tabular-regression', 'sklearn', 'structured', 'skops'), ('reinforcement-learning', 'unknown', 'structured', 'torchscript'), ('robotics', 'unknown', 'structured', 'torchscript'), ('graph-ml', 'unknown', 'structured', 'torchscript')])
 def test_new_hub_tasks_select_the_appropriate_runtime(task, library, family, backend):
     with patch("huggingface_hub.HfApi.model_info", return_value=SimpleNamespace(
         pipeline_tag=task, library_name=library, sha="fixed-revision",
@@ -77,7 +77,7 @@ def test_table_planning_uses_rows_instead_of_token_binary_search():
         saved = json.loads(Path(planned.plan_file).read_text())
         assert (saved["entries"][1]["input_metadata"]["table_rows"]) == (4)
 
-@pytest.mark.parametrize('task', ('text-to-speech', 'text-to-audio'))
+@pytest.mark.parametrize('task', ['text-to-speech', 'text-to-audio'])
 def test_text_audio_uses_token_planning_and_forwards_manifest(task):
     with tempfile.TemporaryDirectory() as tmp, patch.object(
         input_plan, "_plan_manual_nlp_scales", return_value="planned tokens"
@@ -89,7 +89,7 @@ def test_text_audio_uses_token_planning_and_forwards_manifest(task):
         assert (result) == ("planned tokens")
         assert (plan.call_args.kwargs["workload_spec_path"]) == ("text.json")
 
-@pytest.mark.parametrize('task,family,required,output_type', (('table-question-answering', 'nlp', {'table', 'query'}, 'table_answer'), ('sentence-similarity', 'nlp', {'query', 'documents'}, 'similarity'), ('text-ranking', 'nlp', {'query', 'documents'}, 'ranking'), ('text-to-speech', 'audio', {'text'}, 'audio'), ('text-to-audio', 'audio', {'text'}, 'audio')))
+@pytest.mark.parametrize(("task", "family", "required", "output_type"), [('table-question-answering', 'nlp', {'table', 'query'}, 'table_answer'), ('sentence-similarity', 'nlp', {'query', 'documents'}, 'similarity'), ('text-ranking', 'nlp', {'query', 'documents'}, 'ranking'), ('text-to-speech', 'audio', {'text'}, 'audio'), ('text-to-audio', 'audio', {'text'}, 'audio')])
 def test_static_input_contracts_describe_task_inputs(task, family, required, output_type):
     inputs, outputs = model_schema._model_io_formats(info(task, family))
     assert (required.issubset(inputs["json_schema"]["required"]))

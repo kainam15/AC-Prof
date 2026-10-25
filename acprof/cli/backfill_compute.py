@@ -8,8 +8,9 @@ import math
 import os
 import stat
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any
 
 from acprof.host.profiling.compute_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
@@ -117,9 +118,9 @@ def _csv_encoding(path: str) -> str:
     return "utf-8-sig" if has_utf8_bom else "utf-8"
 
 
-def _read_result_csv(path: str) -> Tuple[List[str], List[Dict[str, str]], str]:
+def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
     encoding = _csv_encoding(path)
-    with open(path, "r", encoding=encoding, newline="") as f:
+    with open(path, encoding=encoding, newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         if not fieldnames:
@@ -148,9 +149,9 @@ def _read_result_csv(path: str) -> Tuple[List[str], List[Dict[str, str]], str]:
     return fieldnames, rows, encoding
 
 
-def _read_ncu_summary(path: str) -> List[Tuple[float, Dict[str, Any]]]:
+def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
     """Read the historical per-scale NCU sidecar without changing its paths."""
-    with open(path, "r", encoding=_csv_encoding(path), newline="") as f:
+    with open(path, encoding=_csv_encoding(path), newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         if not fieldnames:
@@ -166,7 +167,7 @@ def _read_ncu_summary(path: str) -> List[Tuple[float, Dict[str, Any]]]:
                 f"({', '.join(NCU_SUMMARY_FIELD_ALIASES[NCU_TOTAL_MFLOP_FIELD])})"
             )
 
-        entries: List[Tuple[float, Dict[str, Any]]] = []
+        entries: list[tuple[float, dict[str, Any]]] = []
         for row_index, row in enumerate(reader, start=2):
             scale = _to_float_or_nan(row.get("input_scale"))
             if not math.isfinite(scale):
@@ -186,7 +187,7 @@ def _read_ncu_summary(path: str) -> List[Tuple[float, Dict[str, Any]]]:
                     f"NCU summary CSV has duplicate input_scale: {scale:g}"
                 )
 
-            mapped: Dict[str, Any] = {}
+            mapped: dict[str, Any] = {}
             for destination, aliases in NCU_SUMMARY_FIELD_ALIASES.items():
                 value: Any = None
                 for alias in aliases:
@@ -199,9 +200,9 @@ def _read_ncu_summary(path: str) -> List[Tuple[float, Dict[str, Any]]]:
 
 
 def _find_ncu_summary_entry(
-    entries: Sequence[Tuple[float, Dict[str, Any]]],
+    entries: Sequence[tuple[float, dict[str, Any]]],
     input_scale: float,
-) -> Dict[str, Any] | None:
+) -> dict[str, Any] | None:
     for entry_scale, entry in entries:
         if math.isclose(
             entry_scale,
@@ -214,9 +215,9 @@ def _find_ncu_summary_entry(
 
 
 def _apply_ncu_summary(
-    profile: Dict[str, Any],
+    profile: dict[str, Any],
     *,
-    entries: Sequence[Tuple[float, Dict[str, Any]]],
+    entries: Sequence[tuple[float, dict[str, Any]]],
     input_scale: float,
 ) -> None:
     entry = _find_ncu_summary_entry(entries, input_scale)
@@ -260,9 +261,9 @@ def _apply_ncu_summary(
 
 
 def _backfill_row(
-    row: Dict[str, str],
-    plan: Dict[str, Any],
-    ncu_summary: Sequence[Tuple[float, Dict[str, Any]]] | None = None,
+    row: dict[str, str],
+    plan: dict[str, Any],
+    ncu_summary: Sequence[tuple[float, dict[str, Any]]] | None = None,
 ) -> None:
     input_scale = _to_float_or_nan(row.get("input_scale"))
     gpu_mode = str(row.get("gpu_mode", "") or "").strip().lower()
@@ -355,7 +356,7 @@ def _publish_csv_atomically(
     input_csv: str,
     output_csv: str,
     fieldnames: Sequence[str],
-    rows: Sequence[Dict[str, str]],
+    rows: Sequence[dict[str, str]],
     encoding: str,
     overwrite: bool,
 ) -> None:

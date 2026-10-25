@@ -40,7 +40,7 @@ def test_first_launch_without_saved_configuration_is_a_small_smoke():
         app = AcprofTui(settings_path=Path(temporary) / "settings.json")
         assert (app.configuration.initial_config) == (RunConfig.smoke())
 
-@pytest.mark.parametrize("legacy_mode", ("mirror-only", "mirror-preferred", "official"))
+@pytest.mark.parametrize("legacy_mode", ["mirror-only", "mirror-preferred", "official"])
 async def test_changing_presets_preserves_effective_download_constraints(legacy_mode):
     with tempfile.TemporaryDirectory() as temporary:
         config = replace(RunConfig.smoke("demo/model"), model_source="modelscope",
@@ -109,7 +109,7 @@ def test_starting_without_overrides_preserves_saved_full_matrix():
             main([])
         assert (run.call_args.args[0].configuration.initial_config) == (config)
 
-@pytest.mark.parametrize('size,language', (((80, 24), 'zh'), ((120, 30), 'en'), ((150, 45), 'zh')))
+@pytest.mark.parametrize(("size", "language"), [((80, 24), 'zh'), ((120, 30), 'en'), ((150, 45), 'zh')])
 async def test_prepared_scales_update_summary_outside_measurement_in_both_languages(size, language):
     with tempfile.TemporaryDirectory() as temporary:
         config = RunConfig.smoke("openai/whisper-tiny")

@@ -41,7 +41,7 @@ def hub_http(tmp_path, monkeypatch):
         hub.set_client_factory(_httpx_factory)
 
 
-@pytest.mark.parametrize("filename,limit", [
+@pytest.mark.parametrize(("filename", "limit"), [
     ("config.json", METADATA_LIMIT),
     ("model_index.json", METADATA_LIMIT),
     ("pipeline.py", SOURCE_LIMIT),
@@ -56,11 +56,9 @@ def test_oversized_static_files_never_download_a_body(hub_http, filename, limit)
         }, content=b"{}" if request.method == "GET" else b"")
 
     cache = hub_http(respond)
+    download = detect.read_model_source if filename.endswith(".py") else detect._download_metadata
     with pytest.raises((ValueError, OSError)):
-        if filename.endswith(".py"):
-            detect.read_model_source("fixture/model", filename, SHA)
-        else:
-            detect._download_metadata("fixture/model", filename, SHA)
+        download("fixture/model", filename, SHA)
     assert visited == ["HEAD"]
     assert not list(cache.rglob("*.incomplete"))
 

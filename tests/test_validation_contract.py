@@ -74,18 +74,18 @@ class TestValidationContract:
         for response in ({'task': 'tabular-regression', 'score': float('inf')}, {}):
             args = list(self.fixture())
             args[4] = response
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="output serialization must be finite JSON|postprocess must return a non-empty JSON object"):
                 self.validator()(*args)
 
-    @pytest.mark.parametrize('position,replacement,expected', ((3, None, 'raw output'), (2, {}, 'actual.*scale')))
+    @pytest.mark.parametrize(('position', 'replacement', 'expected'), [(3, None, 'raw output'), (2, {}, 'actual.*scale')])
     def test_missing_raw_output_or_effective_scale_cannot_verify(self, position, replacement, expected):
         args = list(self.fixture())
         args[position] = replacement
         with pytest.raises(ValueError, match=expected):
             self.validator()(*args)
 
-    @pytest.mark.parametrize('missing', ('output_type', 'n_results'))
-    @pytest.mark.parametrize('task', ('text-classification', 'image-classification'))
+    @pytest.mark.parametrize('missing', ['output_type', 'n_results'])
+    @pytest.mark.parametrize('task', ['text-classification', 'image-classification'])
     def test_nlp_and_cv_require_actual_output_summary_fields(self, missing, task):
         base = {'task': task, 'output_type': 'classification', 'n_results': 1}
         response = {key: value for key, value in base.items() if key != missing}
@@ -93,7 +93,7 @@ class TestValidationContract:
             self.validator()({'task_type': task}, {'input_scale': 1},
                              {'_effective_input_scale': 1}, [{'label': 'a', 'score': 0.9}], response)
 
-    @pytest.mark.parametrize('task,output_type', (('text-generation', 'text'), ('automatic-speech-recognition', 'transcription')))
+    @pytest.mark.parametrize(('task', 'output_type'), [('text-generation', 'text'), ('automatic-speech-recognition', 'transcription')])
     def test_generation_requires_text_or_observed_tokens(self, task, output_type):
         response = {'task': task, 'output_type': output_type, 'n_results': 1, 'text': ''}
         with pytest.raises(ValueError, match='empty|evidence'):
@@ -107,7 +107,7 @@ class TestValidationContract:
         assert ('shape') not in (report['protocol']['checks'])
         assert (report['protocol']['aspects']['shape']['status']) == ('unavailable')
 
-    @pytest.mark.parametrize('status', ('unsupported', 'unavailable', 'error'))
+    @pytest.mark.parametrize('status', ['unsupported', 'unavailable', 'error'])
     def test_runtime_probe_refuses_custom_validator_unverified_status(self, status):
         import os
         from contextlib import nullcontext

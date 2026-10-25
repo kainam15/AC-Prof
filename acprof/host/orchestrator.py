@@ -9,8 +9,9 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
@@ -78,7 +79,7 @@ class MatrixProgress:
     cpu: int
     mem: int
     gpu: str
-    result_csv: Optional[str]
+    result_csv: str | None
 
 
 class MIPSProfilingError(RuntimeError):
@@ -96,7 +97,7 @@ def _assert_packet_latency_csv_complete(
     if not os.path.exists(csv_path):
         raise _packet_latency_error(f"result CSV does not exist: {csv_path}")
 
-    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+    with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         if not reader.fieldnames:
             raise _packet_latency_error(f"result CSV is empty: {csv_path}")
@@ -174,11 +175,11 @@ class CaseMeasurement:
 class CasePlans:
     """Previously prepared plans consumed by the measured client."""
 
-    input_scales: Optional[str] = None
-    input_scale_plan_file: Optional[str] = None
-    compute_profile_plan_file: Optional[str] = None
-    execution_profile_plan_file: Optional[str] = None
-    input_scale_order: Optional[List[float]] = None
+    input_scales: str | None = None
+    input_scale_plan_file: str | None = None
+    compute_profile_plan_file: str | None = None
+    execution_profile_plan_file: str | None = None
+    input_scale_order: list[float] | None = None
 
 
 @dataclass(frozen=True)
@@ -354,7 +355,7 @@ class _CaseExecution:
             print(f"[sniff] packet_latency=not_requested (profiling_mode={self.measurement.profiling_mode})")
         return runtime
 
-    def _client_environment(self, session: RunningContainer) -> Dict[str, str]:
+    def _client_environment(self, session: RunningContainer) -> dict[str, str]:
         request, workload, measurement, plans = self.request, self.workload, self.measurement, self.plans
         task_info = request.task_info
         scales = plans.input_scales or serialize_input_scales(
@@ -459,8 +460,8 @@ class _CaseExecution:
     def _write_error(
         self, error: str, *, preserve_existing: bool = False,
         annotate_existing_error_rows: bool = False,
-        timeout_context: Dict[str, Any] | None = None,
-    ) -> Tuple[int, int]:
+        timeout_context: dict[str, Any] | None = None,
+    ) -> tuple[int, int]:
         return _write_case_error_csv(
             task_info=self.request.task_info, out_csv=self.out_csv,
             cpu=self.request.cpu, mem=self.request.mem, gpu=self.request.gpu,
@@ -697,13 +698,13 @@ def _write_case_error_csv(
     warmup: int,
     repeat: int,
     repeat_in_window: int,
-    input_scales: Optional[str],
+    input_scales: str | None,
     error: str,
     preserve_existing: bool = False,
     annotate_existing_error_rows: bool = False,
-    timeout_context: Optional[Dict[str, Any]] = None,
+    timeout_context: dict[str, Any] | None = None,
     result_origin: str = "formal_attempt",
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Write missing error rows and return successful-preserved/added counts."""
     if not str(error or "").strip():
         raise ValueError("error rows require a non-empty diagnostic")
@@ -713,7 +714,7 @@ def _write_case_error_csv(
     from acprof.platform import detect_environment
     environment_class = detect_environment().environment
 
-    def make_row(scale: float, repeat_idx: int, is_warmup: bool) -> Dict[str, Any]:
+    def make_row(scale: float, repeat_idx: int, is_warmup: bool) -> dict[str, Any]:
         row = {field: "nan" for field in CSV_FIELDS}
         row.update({
             "environment_class": environment_class,
@@ -737,14 +738,14 @@ def _write_case_error_csv(
             row["compute_profile_error_massif"] = "not_run"
         return row
 
-    planned_rows: List[Dict[str, Any]] = []
+    planned_rows: list[dict[str, Any]] = []
     for scale in scales:
         for idx in range(warmup):
             planned_rows.append(make_row(scale, idx, True))
         for idx in range(repeat):
             planned_rows.append(make_row(scale, idx, False))
 
-    def measurement_key(row: Dict[str, Any]) -> Tuple[str, str, int]:
+    def measurement_key(row: dict[str, Any]) -> tuple[str, str, int]:
         try:
             scale = _format_scale_value(float(row.get("input_scale", "nan")))
             repeat_idx = int(row.get("repeat_idx", ""))
@@ -759,10 +760,10 @@ def _write_case_error_csv(
         measurement_key(row): row
         for row in planned_rows
     }
-    existing_rows: List[Dict[str, Any]] = []
+    existing_rows: list[dict[str, Any]] = []
     existing_keys = set()
     if preserve_existing and os.path.exists(out_csv) and os.path.getsize(out_csv) > 0:
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             optional_pixel_fields = {*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES}
             missing_fields = set(CSV_FIELDS) - set(reader.fieldnames or []) - optional_pixel_fields
@@ -874,7 +875,7 @@ def _timeout_context_float(value: Any, fallback: float) -> float:
     return parsed if math.isfinite(parsed) and parsed > 0.0 else float(fallback)
 
 
-def _load_client_error_context(path: str) -> Dict[str, Any]:
+def _load_client_error_context(path: str) -> dict[str, Any]:
     try:
         return read_json_object(path, label="client error context")
     except FileNotFoundError:
@@ -888,10 +889,10 @@ def _load_client_error_context(path: str) -> Dict[str, Any]:
 
 
 def _annotate_timeout_placeholder_rows(
-    rows: List[Dict[str, Any]],
+    rows: list[dict[str, Any]],
     *,
     measurement_key,
-    timeout_context: Dict[str, Any],
+    timeout_context: dict[str, Any],
 ) -> None:
     first_missing_scale = measurement_key(rows[0])[0]
     try:
@@ -960,7 +961,7 @@ def _write_startup_oom_pruned_case_csv(
     warmup: int,
     repeat: int,
     repeat_in_window: int,
-    input_scales: Optional[str],
+    input_scales: str | None,
 ) -> str:
     case = ArtifactLayout.discover(output_dir).case(task_info.model_id, cpu, mem, gpu)
     case.csv.parent.mkdir(parents=True, exist_ok=True)
@@ -993,9 +994,9 @@ def _write_startup_oom_pruned_case_csv(
 def run_matrix(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
     output_dir: str,
     project_dir: str,
     batch_size: int = 1,
@@ -1009,11 +1010,11 @@ def run_matrix(
     idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS,
     idle_debug: bool = False,
     sniff_iface: str = "docker0",
-    input_scales: Optional[str] = None,
-    input_scale_plan_file: Optional[str] = None,
-    compute_profile_plan_file: Optional[str] = None,
-    execution_profile_plan_file: Optional[str] = None,
-    progress_callback: Optional[Callable[[MatrixProgress], None]] = None,
+    input_scales: str | None = None,
+    input_scale_plan_file: str | None = None,
+    compute_profile_plan_file: str | None = None,
+    execution_profile_plan_file: str | None = None,
+    progress_callback: Callable[[MatrixProgress], None] | None = None,
     prune_startup_oom: bool = False,
     run_state=None,
     profiling_mode: str = "full",
@@ -1023,7 +1024,7 @@ def run_matrix(
     cpuset_cpus: str = "",
     sampling_policy: str = "burst",
     raw_sample_limit: int = 100000,
-) -> List[str]:
+) -> list[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.matrix_plan import (
@@ -1124,7 +1125,7 @@ def run_matrix(
     return result_csvs
 
 
-def merge_all_csvs(csv_paths: List[str], output_path: str, *, expected=None) -> None:
+def merge_all_csvs(csv_paths: list[str], output_path: str, *, expected=None) -> None:
     """Validate all cases before atomically publishing the final result CSV."""
     from acprof.result_csv import merge_result_csvs
 

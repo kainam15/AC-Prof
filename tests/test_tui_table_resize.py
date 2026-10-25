@@ -148,7 +148,7 @@ class TestResizableTable:
             await pilot.click(table, offset=(inset.x + 2, inset.y))
             assert (app.headers) == (["new"])
 
-    @pytest.mark.parametrize('layout', ('wide', 'scrolled', 'single'))
+    @pytest.mark.parametrize('layout', ['wide', 'scrolled', 'single'])
     async def test_last_header_edge_cannot_resize_and_keeps_header_clicks(self, layout):
         app = TableApp()
         async with app.run_test(size=(80, 24)) as pilot:
@@ -252,7 +252,7 @@ class TestResizableTable:
             await pilot.click(table, offset=(start[0] - 5, start[1]))
             assert (app.headers) == (["name"])
 
-    @pytest.mark.parametrize('interruption', ('disabled', 'locked', 'hidden', 'clear', 'capture_lost'))
+    @pytest.mark.parametrize('interruption', ['disabled', 'locked', 'hidden', 'clear', 'capture_lost'])
     async def test_interrupted_drag_cannot_leave_mouse_captured(self, interruption):
         app = TableApp()
         async with app.run_test(size=(80, 24)) as pilot:

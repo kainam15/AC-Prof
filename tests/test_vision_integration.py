@@ -56,7 +56,7 @@ def test_cv_rejects_unimplemented_batch_and_backend_before_measurement(task_case
     with pytest.raises(TaskSupportError, match="transformers_model"):
         require_task_support(info)
 
-@pytest.mark.parametrize('arch,task', (('VideoMAEForVideoClassification', 'video-classification'), ('OwlViTForObjectDetection', 'zero-shot-object-detection'), ('Owlv2ForObjectDetection', 'zero-shot-object-detection'), ('SamModel', 'mask-generation'), ('Sam2Model', 'mask-generation'), ('SuperPointForKeypointDetection', 'keypoint-detection'), ('VitPoseForPoseEstimation', 'keypoint-detection'), ('Mask2FormerForUniversalSegmentation', 'image-segmentation')))
+@pytest.mark.parametrize(("arch", "task"), [('VideoMAEForVideoClassification', 'video-classification'), ('OwlViTForObjectDetection', 'zero-shot-object-detection'), ('Owlv2ForObjectDetection', 'zero-shot-object-detection'), ('SamModel', 'mask-generation'), ('Sam2Model', 'mask-generation'), ('SuperPointForKeypointDetection', 'keypoint-detection'), ('VitPoseForPoseEstimation', 'keypoint-detection'), ('Mask2FormerForUniversalSegmentation', 'image-segmentation')])
 def test_specific_vision_architectures_do_not_use_generic_detection(arch, task):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "snapshots" / ("a" * 40) / "config.json"
@@ -67,7 +67,7 @@ def test_specific_vision_architectures_do_not_use_generic_detection(arch, task):
         assert (result) is not None
         assert ((result.pipeline_tag, result.task_family)) == ((task, "cv"))
 
-@pytest.mark.parametrize('pipeline,task', (('DDPMPipeline', 'unconditional-image-generation'), ('ShapEPipeline', 'text-to-3d'), ('ShapEImg2ImgPipeline', 'image-to-3d'), ('StableVideoDiffusionPipeline', 'image-to-video'), ('CogVideoXPipeline', 'text-to-video'), ('CogVideoXVideoToVideoPipeline', 'video-to-video')))
+@pytest.mark.parametrize(("pipeline", "task"), [('DDPMPipeline', 'unconditional-image-generation'), ('ShapEPipeline', 'text-to-3d'), ('ShapEImg2ImgPipeline', 'image-to-3d'), ('StableVideoDiffusionPipeline', 'image-to-video'), ('CogVideoXPipeline', 'text-to-video'), ('CogVideoXVideoToVideoPipeline', 'video-to-video')])
 def test_missing_diffusers_tag_uses_pinned_native_pipeline_class(pipeline, task):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "model_index.json"
@@ -106,7 +106,7 @@ def test_cv_manifest_reaches_materialized_plan_and_preserves_parameters():
         assert (data["workload"]["input_scale_type"]) == ("resolution_scale")
         assert (len(planned.plan_sha256)) == (64)
 
-@pytest.mark.parametrize('task,expected', (('depth-estimation', 'depth'), ('image-segmentation', 'segmentation'), ('mask-generation', 'masks'), ('image-feature-extraction', 'features'), ('keypoint-detection', 'keypoints'), ('text-to-video', 'video'), ('text-to-3d', 'mesh'), ('image-to-3d', 'mesh')))
+@pytest.mark.parametrize(("task", "expected"), [('depth-estimation', 'depth'), ('image-segmentation', 'segmentation'), ('mask-generation', 'masks'), ('image-feature-extraction', 'features'), ('keypoint-detection', 'keypoints'), ('text-to-video', 'video'), ('text-to-3d', 'mesh'), ('image-to-3d', 'mesh')])
 def test_static_contract_uses_correct_media_and_output_types(task, expected):
     _, outputs = _model_io_formats(task_info(task))
     assert (outputs["json_schema"]["properties"]["output_type"]["enum"]) == ([expected])
@@ -118,7 +118,7 @@ def test_static_contract_uses_correct_media_and_output_types(task, expected):
         inputs, _ = _model_io_formats(task_info(task))
         assert ("prompt") not in (inputs["json_schema"]["required"])
 
-@pytest.mark.parametrize('task', ('unconditional-image-generation', 'text-to-3d', 'image-to-3d'))
+@pytest.mark.parametrize('task', ['unconditional-image-generation', 'text-to-3d', 'image-to-3d'])
 def test_denoising_scale_plan_preserves_steps_and_omits_fake_resolution(task):
     with tempfile.TemporaryDirectory() as tmp:
         planned = plan_input_scales(

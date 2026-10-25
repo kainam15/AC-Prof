@@ -14,8 +14,9 @@ import hashlib
 import io
 import math
 import wave
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.installation import resource_root
@@ -93,7 +94,7 @@ _BUILTIN_PROVENANCE_REQUIRED_KEYS = {
 }
 
 
-def _require_object(value: Any, location: str) -> Dict[str, Any]:
+def _require_object(value: Any, location: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{location} must be a JSON object")
     return value
@@ -256,7 +257,7 @@ def _validate_provenance(spec: Mapping[str, Any], asset: Mapping[str, Any]) -> N
             )
 
 
-def _load_workload_spec(path: Path) -> Dict[str, Any]:
+def _load_workload_spec(path: Path) -> dict[str, Any]:
     try:
         raw = read_json_object(path, label="audio workload spec")
     except FileNotFoundError as exc:
@@ -387,7 +388,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
         model_id: str,
         task_type: str,
         batch_size: int,
-        workload_spec_path: Optional[str] = None,
+        workload_spec_path: str | None = None,
     ):
         super().__init__(model_id, task_type, batch_size)
         if batch_size != 1:
@@ -506,7 +507,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
             )
         return duration_s, num_samples
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         if self._text_generator is not None:
             scale = _require_number(scale_value, "text input scale")
             if scale < 1 or not scale.is_integer():
@@ -524,7 +525,7 @@ class AudioWorkloadGenerator(WorkloadGenerator):
             "params": copy.deepcopy(inference),
         }
 
-    def generate_for_word_count(self, word_count: int) -> Dict[str, Any]:
+    def generate_for_word_count(self, word_count: int) -> dict[str, Any]:
         if self._text_generator is None:
             raise ValueError("word counts only apply to text-to-audio/speech")
         payload = self._text_generator.generate_for_word_count(word_count)
@@ -539,27 +540,27 @@ class AudioWorkloadGenerator(WorkloadGenerator):
     def effective_input_scale(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Optional[float]:
+        payload: dict[str, Any] | None = None,
+    ) -> float | None:
         if self._text_generator is not None:
             # The container tokenizer supplies the measured effective token count.
             return None
         metadata = self.input_metadata(scale_value, payload)
         return float(metadata["duration_s"])
 
-    def max_input_scale(self) -> Optional[float]:
+    def max_input_scale(self) -> float | None:
         if self._text_generator is not None:
             return None
         if not hasattr(self, "_asset_duration_s"):
             return SHORT_FORM_MAX_DURATION_S
         return min(self._asset_duration_s, self._max_short_form_duration_s)
 
-    def default_input_scales(self) -> Optional[List[float]]:
+    def default_input_scales(self) -> list[float] | None:
         if self._text_generator is not None:
             return None
         return list(self._default_scales)
 
-    def plan_metadata(self) -> Dict[str, Any]:
+    def plan_metadata(self) -> dict[str, Any]:
         if self._text_generator is not None:
             return {
                 "workload_id": "deterministic-text-audio-v1",
@@ -584,8 +585,8 @@ class AudioWorkloadGenerator(WorkloadGenerator):
     def input_metadata(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if self._text_generator is not None:
             materialized = self.generate(scale_value) if payload is None else payload
             text = materialized.get("text")

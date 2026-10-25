@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import math
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
-from typing import Iterable
 
 from acprof.extensions import CATALOG
 from acprof.installation import cli_command
@@ -94,7 +94,7 @@ class RunConfig(RunOptions):
         return tuple((item.name, getattr(self, item.name)) for item in fields(self)
                      if item.name not in execution)
 
-    def with_preset(self, preset: str) -> "RunConfig":
+    def with_preset(self, preset: str) -> RunConfig:
         """Change experimental parameters while retaining identity and user constraints."""
         if preset not in {"smoke", "main"}:
             raise RunConfigError([ConfigIssue(None, message("未知预设：{0}", preset))])
@@ -105,7 +105,7 @@ class RunConfig(RunOptions):
         return updated
 
     @classmethod
-    def from_namespace(cls, args) -> "RunConfig":
+    def from_namespace(cls, args) -> RunConfig:
         from acprof.run_args import build_parser
 
         defaults = cls()
@@ -135,7 +135,7 @@ class RunConfig(RunOptions):
         return options
 
     @classmethod
-    def smoke(cls, model: str = "") -> "RunConfig":
+    def smoke(cls, model: str = "") -> RunConfig:
         """Return a basic CPU validation run without optional collectors or notifications."""
         return cls(
             model=model,
@@ -156,7 +156,7 @@ class RunConfig(RunOptions):
         )
 
     @classmethod
-    def main_matrix(cls, model: str = "") -> "RunConfig":
+    def main_matrix(cls, model: str = "") -> RunConfig:
         """Return the normal matrix with isolated profilers deferred."""
         return cls(
             model=model,
@@ -164,7 +164,7 @@ class RunConfig(RunOptions):
             execution_profile_tool="none",
         )
 
-    def validate(self, *, project_dir: Path | None = None) -> "RunConfig":
+    def validate(self, *, project_dir: Path | None = None) -> RunConfig:
         """Normalize form values and reject invalid or misleading runs."""
         errors: list[ConfigIssue] = []
         if self.resume and self.rebuild_image:

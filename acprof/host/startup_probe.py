@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host import container_state, docker_runtime
@@ -16,7 +16,7 @@ def probe_startup(task, image, cpu, mem, gpu, *, request_timeout_seconds, cpuset
     name = f"startup-probe-{runtime_identity.model_token(task.model_id)}-{cpu}c-{mem}g-{gpu}"
     started = time.perf_counter()
     record = {"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": gpu,
-              "container_name": name, "started_at": datetime.now(timezone.utc).isoformat(),
+              "container_name": name, "started_at": datetime.now(UTC).isoformat(),
               "ready": False, "docker_state": None, "outcome": "error", "diagnostic": ""}
     session = None
     try:

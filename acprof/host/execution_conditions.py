@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Mapping
 
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
@@ -53,7 +53,7 @@ class ExecutionConditions:
     environment: dict
 
     @classmethod
-    def from_options(cls, options: Mapping, *, gpu: str) -> "ExecutionConditions":
+    def from_options(cls, options: Mapping, *, gpu: str) -> ExecutionConditions:
         if gpu not in {"off", "on"} or gpu not in options.get("gpus", "").split(","):
             raise ValueError("source does not include the requested GPU mode")
         environment = options.get("measurement_environment")

@@ -5,7 +5,8 @@ import logging
 import os
 import shutil
 import time
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
@@ -37,7 +38,7 @@ def _host_logical_cpus() -> int:
 def _host_memory_gb_fraction(fraction: float = 0.75) -> int:
     total_bytes = 0
     try:
-        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+        with open("/proc/meminfo", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("MemTotal:"):
                     total_bytes = int(line.split()[1]) * 1024
@@ -51,9 +52,9 @@ def _host_memory_gb_fraction(fraction: float = 0.75) -> int:
 
 
 def _default_compute_profile_resources(
-    compute_profile_cpus: Optional[int],
-    compute_profile_mem: Optional[int],
-) -> Tuple[int, int]:
+    compute_profile_cpus: int | None,
+    compute_profile_mem: int | None,
+) -> tuple[int, int]:
     cpu = max(1, int(compute_profile_cpus or _host_logical_cpus()))
     mem = max(1, int(compute_profile_mem or _host_memory_gb_fraction(0.75)))
     return cpu, mem
@@ -62,10 +63,10 @@ def _default_compute_profile_resources(
 def _failed_tool_profile(
     *,
     tool: str,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     repeat: int,
     error: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     error_entries = (
         ncu._ncu_error_entries(entries, error)
         if tool == ncu.NCU_TOOL
@@ -84,11 +85,11 @@ def _failed_tool_profile(
 def _safe_profile_tool(
     *,
     tool: str,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     repeat: int,
     callback: Any,
-    task_info: Optional[TaskInfo] = None,
-) -> Dict[str, Any]:
+    task_info: TaskInfo | None = None,
+) -> dict[str, Any]:
     try:
         if task_info is not None:
             error = declared_profiler_error(task_info, tool)
@@ -105,7 +106,7 @@ def _safe_profile_tool(
         )
 
 
-def _executable_version(executable: Optional[str]) -> str:
+def _executable_version(executable: str | None) -> str:
     if not executable:
         return "unknown"
     try:
@@ -121,7 +122,7 @@ def _executable_version(executable: Optional[str]) -> str:
     return lines[-1] if lines else "unknown"
 
 
-def _profile_tool_maps(profiles: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+def _profile_tool_maps(profiles: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for device_profile in profiles.values():
         if not isinstance(device_profile, dict):
             continue
@@ -132,7 +133,7 @@ def _profile_tool_maps(profiles: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
 
 
 def _first_profile_value(
-    profiles: Dict[str, Any],
+    profiles: dict[str, Any],
     key: str,
     default: Any,
 ) -> Any:
@@ -150,7 +151,7 @@ def _first_profile_value(
     return default
 
 
-def _strip_discarded_profile_paths(profiles: Dict[str, Any]) -> None:
+def _strip_discarded_profile_paths(profiles: dict[str, Any]) -> None:
     for profile in _profile_tool_maps(profiles):
         for entry in profile.get("entries", []):
             if not isinstance(entry, dict):
@@ -163,22 +164,22 @@ def collect_compute_profile_plan(
     *,
     task_info: TaskInfo,
     image_tag: str,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
     output_dir: str,
     input_scale_plan_file: str,
-    advisor_root: Optional[str],
-    ncu_root: Optional[str],
+    advisor_root: str | None,
+    ncu_root: str | None,
     advisor_repeat: int,
     ncu_repeat: int,
     keep_profiles: bool,
-    compute_profile_cpus: Optional[int] = None,
-    compute_profile_mem: Optional[int] = None,
+    compute_profile_cpus: int | None = None,
+    compute_profile_mem: int | None = None,
     compute_profile_tool: str = DEFAULT_COMPUTE_PROFILE_TOOL,
     torch_profiler_repeat: int = 1,
     resume_existing_ncu_profiles: bool = False,
-    progress_callback: Optional[ProfilerProgressCallback] = None,
+    progress_callback: ProfilerProgressCallback | None = None,
 ) -> str:
     """Collect or synthesize compute profiles and write a plan file.
 
@@ -240,9 +241,9 @@ def collect_compute_profile_plan(
         compute_profile_mem,
     )
 
-    profiles: Dict[str, Any] = {}
+    profiles: dict[str, Any] = {}
     if "off" in normalized_gpus:
-        cpu_tools: Dict[str, Dict[str, Any]] = {}
+        cpu_tools: dict[str, dict[str, Any]] = {}
         if collect_advisor_cpu:
             started_at = time.perf_counter()
             cpu_tools["intel_advisor"] = _safe_profile_tool(
@@ -299,7 +300,7 @@ def collect_compute_profile_plan(
             profiles["cpu"] = cpu_tools
 
     if "on" in normalized_gpus:
-        gpu_tools: Dict[str, Dict[str, Any]] = {}
+        gpu_tools: dict[str, dict[str, Any]] = {}
         if collect_torch_gpu:
             started_at = time.perf_counter()
             gpu_tools[torch.TORCH_PROFILER_TOOL] = _safe_profile_tool(
@@ -365,7 +366,7 @@ def collect_compute_profile_plan(
         )
         if enabled
     ]
-    ncu_metrics: List[str] = []
+    ncu_metrics: list[str] = []
     gpu_profile = profiles.get("gpu", {})
     if isinstance(gpu_profile, dict):
         ncu_profile = gpu_profile.get(ncu.NCU_TOOL, {})

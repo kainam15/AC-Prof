@@ -241,7 +241,7 @@ class TestBackfillComputeProfile:
                 output_csv,
             )
 
-            with open(output_csv, "r", encoding="utf-8", newline="") as f:
+            with open(output_csv, encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 output_fields = reader.fieldnames
                 output_rows = list(reader)
@@ -302,7 +302,7 @@ class TestBackfillComputeProfile:
                 plan_path,
                 output_csv,
             )
-            with open(output_csv, "r", encoding="utf-8", newline="") as f:
+            with open(output_csv, encoding="utf-8", newline="") as f:
                 output_rows = list(csv.DictReader(f))
 
         assert (summary.diagnostic_count) == (0)
@@ -381,7 +381,7 @@ class TestBackfillComputeProfile:
                 output_csv,
                 ncu_summary=ncu_summary,
             )
-            with open(output_csv, "r", encoding="utf-8", newline="") as f:
+            with open(output_csv, encoding="utf-8", newline="") as f:
                 output_rows = list(csv.DictReader(f))
 
         assert (summary.row_count) == (2)
@@ -432,7 +432,7 @@ class TestBackfillComputeProfile:
                 plan_path,
                 output_csv,
             )
-            with open(output_csv, "r", encoding="utf-8", newline="") as f:
+            with open(output_csv, encoding="utf-8", newline="") as f:
                 reader = csv.DictReader(f)
                 output_fields = reader.fieldnames or []
                 output_row = next(reader)
@@ -499,7 +499,7 @@ class TestBackfillComputeProfile:
                     plan_path,
                     output_csv,
                 )
-            with open(output_csv, "r", encoding="utf-8") as f:
+            with open(output_csv, encoding="utf-8") as f:
                 output_contents = f.read()
 
         assert (output_contents) == ("do not replace")
@@ -520,7 +520,7 @@ class TestBackfillComputeProfile:
                 input_csv,
                 overwrite=True,
             )
-            with open(input_csv, "r", encoding="utf-8", newline="") as f:
+            with open(input_csv, encoding="utf-8", newline="") as f:
                 output_row = next(csv.DictReader(f))
 
         for field in REMOVED_LEGACY_COMPUTE_FIELDS:

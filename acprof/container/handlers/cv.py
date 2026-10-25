@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import io
 import math
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -27,8 +27,8 @@ class CVHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from transformers import pipeline as hf_pipeline
 
         device_map = device if device == "cpu" else "auto"
@@ -54,7 +54,7 @@ class CVHandler(BaseHandler):
         }
 
     def _load_direct(self, model_source: str, task_type: str, device: str,
-                     model_revision: str, load_options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+                     model_revision: str, load_options: dict[str, Any] | None) -> dict[str, Any]:
         from transformers import AutoConfig, AutoImageProcessor, AutoModelForVideoClassification
 
         policy = load_policy(model_source, task_type, "transformers_model", device, load_options)
@@ -100,7 +100,7 @@ class CVHandler(BaseHandler):
             raise ValueError("invalid base64 image payload") from exc
 
     @staticmethod
-    def _params(raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def _params(raw_input: dict[str, Any]) -> dict[str, Any]:
         params = raw_input.get("params", {})
         if not isinstance(params, dict):
             raise ValueError("params must be an object")
@@ -110,7 +110,7 @@ class CVHandler(BaseHandler):
         return dict(params)
 
     @staticmethod
-    def _scale_metadata(raw_input: Dict[str, Any], image: Any) -> Dict[str, Any]:
+    def _scale_metadata(raw_input: dict[str, Any], image: Any) -> dict[str, Any]:
         scale = raw_input.get("input_scale", image.width / 224.0)
         if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) or scale <= 0:
             raise ValueError("input_scale must be a finite positive resolution multiplier")
@@ -122,7 +122,7 @@ class CVHandler(BaseHandler):
                 "_original_resolution": list(image.size),
                 "_probe_reason": "raw image resolution verified; processor may resize or pad internally"}
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task = model_ctx["task_type"]
         params = self._params(raw_input)
         if task == "video-classification":
@@ -177,7 +177,7 @@ class CVHandler(BaseHandler):
         return processed
 
     @staticmethod
-    def _candidate_labels(raw_input: Dict[str, Any]) -> list[str]:
+    def _candidate_labels(raw_input: dict[str, Any]) -> list[str]:
         labels = raw_input.get("candidate_labels")
         if not isinstance(labels, list) or not labels or any(
             not isinstance(label, str) or not label.strip() for label in labels
@@ -185,7 +185,7 @@ class CVHandler(BaseHandler):
             raise ValueError("candidate_labels must be a non-empty list of non-empty strings")
         return list(labels)
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         task = model_ctx["task_type"]
         params = self._params(processed_input)
         if task in {"video-classification", "keypoint-detection"}:
@@ -211,7 +211,7 @@ class CVHandler(BaseHandler):
         return pipe(processed_input["image"], **params)
 
     @staticmethod
-    def _caption_token_count(pipe: Any, captions: list[str]) -> Optional[int]:
+    def _caption_token_count(pipe: Any, captions: list[str]) -> int | None:
         """Count decoded text tokens, not generation steps or special tokens."""
         tokenizer = getattr(pipe, "tokenizer", None)
         if tokenizer is None:
@@ -232,7 +232,7 @@ class CVHandler(BaseHandler):
             return None
         return total
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         task_type = model_ctx["task_type"]
 
         if task_type == "video-classification":

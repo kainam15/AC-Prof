@@ -231,7 +231,7 @@ def test_partial_start_failure_cannot_reuse_a_control_window_timestamp():
     assert monitor.snapshot_calls == 0
 
 
-@pytest.mark.parametrize("module,class_name,has_end", [
+@pytest.mark.parametrize(("module", "class_name", "has_end"), [
     ("energy_cpu", "CPUEnergyMonitor", True),
     ("energy_nvml", "GPUEnergyMonitor", True),
     ("resource_usage", "ResourceUsageMonitor", True),

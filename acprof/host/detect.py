@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.model_errors import ModelLookupError, model_lookup_error
@@ -27,15 +27,15 @@ class TaskInfo:
     detection_method: str  # "hub_api" / "config_infer" / "manual"
     model_source: str = "huggingface"
     requested_revision: str | None = None
-    parameter_count: Optional[int] = None
-    parameter_bytes: Optional[int] = None
-    precision_dtype: Optional[str] = None
+    parameter_count: int | None = None
+    parameter_bytes: int | None = None
+    precision_dtype: str | None = None
     parameter_dtype_counts: dict[str, int] = field(default_factory=dict)
-    quantized: Optional[bool] = None
-    quantization_method: Optional[str] = None
+    quantized: bool | None = None
+    quantization_method: str | None = None
     quantization_config: dict[str, Any] = field(default_factory=dict)
-    model_license: Optional[str] = None
-    model_metadata_source: Optional[str] = None
+    model_license: str | None = None
+    model_metadata_source: str | None = None
     model_config: dict[str, Any] = field(default_factory=dict)
     runtime_profile_id: str = ""
     model_adapter: str = "family-default"
@@ -290,7 +290,7 @@ def _json_mapping(value: object) -> dict[str, Any]:
 
 def _parameter_bytes_from_dtype_counts(
     dtype_counts: dict[str, int],
-) -> Optional[int]:
+) -> int | None:
     """Return logical tensor payload bytes, or ``None`` if not exact."""
     if not dtype_counts:
         return None
@@ -319,7 +319,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
             if dtype:
                 dtype_counts[dtype] = dtype_counts.get(dtype, 0) + count
 
-    parameter_count: Optional[int] = None
+    parameter_count: int | None = None
     raw_parameter_count = _mapping_value(safetensors, "total")
     try:
         if raw_parameter_count is not None:
@@ -337,7 +337,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
         if str(tag).strip()
     }
 
-    precision_dtype: Optional[str] = None
+    precision_dtype: str | None = None
     if dtype_counts:
         # Small INT64/BOOL tensors are commonly non-weight buffers. The
         # dominant dtype is the most useful single precision label.
@@ -357,7 +357,7 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
         quantization_method = matching_quantization_tags[0]
 
     if quantization_config or matching_quantization_tags:
-        quantized: Optional[bool] = True
+        quantized: bool | None = True
     elif precision_dtype in _QUANTIZED_PRECISIONS:
         quantized = True
     elif precision_dtype:
@@ -397,7 +397,7 @@ def _format_failure(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _record_failure(diagnostics: Optional[list[str]], stage: str, reason: str) -> None:
+def _record_failure(diagnostics: list[str] | None, stage: str, reason: str) -> None:
     if diagnostics is not None:
         diagnostics.append(f"{stage}: {reason}")
 
@@ -427,8 +427,8 @@ _DIFFUSERS_PIPELINE_TASKS = {
 
 
 def _diffusers_task_from_index(
-    model_id: str, revision: str, diagnostics: Optional[list[str]],
-) -> Optional[str]:
+    model_id: str, revision: str, diagnostics: list[str] | None,
+) -> str | None:
     """Read native pipeline metadata only; never execute repository code."""
     try:
         path = _download_metadata(model_id, "model_index.json", revision)
@@ -444,9 +444,9 @@ def _diffusers_task_from_index(
 
 def _detect_from_hub(
     model_id: str,
-    diagnostics: Optional[list[str]] = None,
+    diagnostics: list[str] | None = None,
     *, revision: str | None = None, failures: list[Exception] | None = None,
-) -> Optional[TaskInfo]:
+) -> TaskInfo | None:
     """Level 1: Query HuggingFace Hub API."""
     try:
         from huggingface_hub import HfApi
@@ -536,9 +536,9 @@ def _detect_from_hub(
 
 def _detect_from_config(
     model_id: str,
-    diagnostics: Optional[list[str]] = None,
+    diagnostics: list[str] | None = None,
     *, requested_revision: str | None = None, failures: list[Exception] | None = None,
-) -> Optional[TaskInfo]:
+) -> TaskInfo | None:
     """Level 2: Infer task from model architecture name."""
     architectures: list[str] = []
     config_data = {}
@@ -583,10 +583,10 @@ def _detect_from_config(
 
 def detect_task(
     model_id: str,
-    override_tag: Optional[str] = None,
-    override_family: Optional[str] = None,
-    override_backend: Optional[str] = None,
-    model_spec_path: Optional[str] = None,
+    override_tag: str | None = None,
+    override_family: str | None = None,
+    override_backend: str | None = None,
+    model_spec_path: str | None = None,
     *, revision: str | None = None,
 ) -> TaskInfo:
     """Discover candidates and apply CLI overrides, checking declaration conflicts."""

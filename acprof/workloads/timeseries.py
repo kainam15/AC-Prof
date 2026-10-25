@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any, Dict
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -26,7 +26,7 @@ class TimeseriesWorkloadGenerator(WorkloadGenerator):
         self._max_len = MAX_CONTEXT_LENGTH
         self._base_seq = [rng.random() for _ in range(self._max_len)]
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         if (isinstance(scale_value, bool) or not isinstance(scale_value, (int, float))
                 or not math.isfinite(scale_value) or scale_value <= 0 or int(scale_value) != scale_value
                 or scale_value > self._max_len):
@@ -50,7 +50,7 @@ class TimeseriesWorkloadGenerator(WorkloadGenerator):
     def effective_input_scale(
         self,
         scale_value: float,
-        payload: Dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> float:
         if payload is None:
             return float(min(int(scale_value), self._max_len))

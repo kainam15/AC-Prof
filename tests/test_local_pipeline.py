@@ -57,7 +57,7 @@ class TestLocalPipelineRouting:
         self.dynamic.get_relative_import_files.assert_not_called()
         self.dynamic.get_class_in_module.assert_not_called()
 
-    @pytest.mark.parametrize('version', ('4.57.6', '5.10.4'))
+    @pytest.mark.parametrize('version', ['4.57.6', '5.10.4'])
     def test_supported_versions_keep_compat(self, version):
         self.transformers.__version__ = version
         assert (self.load()) is (self.compat_class)
@@ -74,7 +74,7 @@ class TestLocalPipelineRouting:
         self.dynamic.get_cached_module_file.assert_not_called()
         self.dynamic.get_class_in_module.assert_not_called()
 
-    @pytest.mark.parametrize('transitive,symlink', ((False, True), (True, False)))
+    @pytest.mark.parametrize(("transitive", "symlink"), [(False, True), (True, False)])
     def test_partial_capabilities_still_use_compat(self, transitive, symlink):
         self.catalog(f"88.{int(transitive)}.0", {
             "local_dynamic_transitive_imports": transitive, "local_dynamic_symlink_safe": symlink})
@@ -89,7 +89,7 @@ class TestLocalPipelineRouting:
         self.dynamic.get_class_from_dynamic_module.assert_called_once_with(
             "package/entry.Pipeline", str(self.snapshot), local_files_only=True)
 
-    @pytest.mark.parametrize('version', ('99.0.1', '5.10.4+unreviewed'))
+    @pytest.mark.parametrize('version', ['99.0.1', '5.10.4+unreviewed'])
     def test_unknown_version_fails_before_any_loader(self, version):
         self.transformers.__version__ = version
         with pytest.raises(ValueError, match="[Tt]ransformers.*" + version.split("+")[0]):

@@ -59,7 +59,8 @@ class TestPerfMIPS:
             with pytest.raises(perf_mips.MIPSProfilingError, match="ping timeout"):
                 monitor.prepare()
         process.kill.assert_called_once()
-        assert monitor._control_write is None and monitor._ack_read is None
+        assert monitor._control_write is None
+        assert monitor._ack_read is None
 
     def test_unprepared_start_is_rejected_without_discovery(self):
         with patch.object(perf_mips.common, "docker_container_pid") as discover:
@@ -369,7 +370,7 @@ class TestPerfMIPS:
             perf_mips.PERF_STOP_TIMEOUT_S,
         ]
 
-    @pytest.mark.parametrize('prefix', (['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']))
+    @pytest.mark.parametrize('prefix', [['sudo', '-S', '-p', '', 'perf'], ['sudo', '-n', 'perf']])
     def test_monitor_rejects_legacy_sudo_command_prefix(self, prefix):
         with patch('acprof.monitors.common.docker_container_pid', return_value=1234), patch.object(
             perf_mips.subprocess, 'Popen',

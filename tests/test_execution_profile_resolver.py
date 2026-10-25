@@ -46,7 +46,7 @@ def test_resource_lookup_prefers_first_case_containing_requested_tool():
     assert math.isnan(result[plans.NSYS_HOST_WALL_TIME_FIELD])
 
 
-@pytest.mark.parametrize("first, expected_error", [
+@pytest.mark.parametrize(("first", "expected_error"), [
     (None, "execution_profile_missing_case:massif:cpu_cores=2,mem_cap_gb=4,gpu_mode=off"),
     ({"enabled": False}, ""),
     ({"status": "disabled"}, ""),
@@ -107,7 +107,7 @@ def test_snapshot_does_not_retain_unrelated_report_payload():
     assert resolver.resolve(2, 4, "off", 1.0)[plans.MASSIF_HEAP_PEAK_FIELD] == 123
 
 
-@pytest.mark.parametrize("plan, query", [
+@pytest.mark.parametrize(("plan", "query"), [
     (None, (2, 4, "off", 1.0)),
     ([], (2, 4, "on", 1.0)),
     ({"_disabled": True, "_load_error": "bad"}, (2, 4, "on", 1.0)),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional
+from typing import Any
 
 from acprof.container.handlers import (
     BaseHandler,
@@ -21,13 +21,13 @@ class ChronosHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from acprof.container.load_policy import load_policy
 
         if task_type != "time-series-forecasting" or backend != "chronos":
             raise ValueError("time-series-forecasting supports Chronos/ChronosBolt with backend='chronos'")
-        chronos_load_options: Dict[str, Any] = {}
+        chronos_load_options: dict[str, Any] = {}
         if load_options:
             unknown = set(load_options) - {"attention_implementation", "dtype", "trust_remote_code"}
             if unknown:
@@ -64,7 +64,7 @@ class ChronosHandler(BaseHandler):
             "load_options": dict(load_options or {}),
         }
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         import torch
 
         raw = raw_input.get("context")
@@ -96,7 +96,7 @@ class ChronosHandler(BaseHandler):
                 "_effective_input_scale": float(len(rows[0])), "_truncated_by_limit": False,
                 "_probe_reason": "validated context length against available Chronos model limit"}
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         pipeline = model_ctx["pipeline"]
         context = processed_input["context"]
         series = processed_input.get("series")
@@ -121,14 +121,14 @@ class ChronosHandler(BaseHandler):
             forecast = torch.cat(forecast, dim=0)
         return forecast
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         return {
             "task": model_ctx["task_type"],
             "forecast_shape": list(raw_output.shape),
         }
 
     @staticmethod
-    def _context_limit(model_ctx: Dict[str, Any]) -> Optional[int]:
+    def _context_limit(model_ctx: dict[str, Any]) -> int | None:
         pipeline = model_ctx["pipeline"]
         model = getattr(pipeline, "model", None)
         config = getattr(model, "config", None)
@@ -144,7 +144,7 @@ class ChronosHandler(BaseHandler):
                 return value
         return None
 
-    def get_scale_metadata(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         limit = self._context_limit(model_ctx)
         return {"context_length": limit, "max_effective_input_scale": limit,
                 "input_scale_type": "context_length",
@@ -161,18 +161,18 @@ class TimeseriesTransformersHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         raise ValueError(
             "time-series-forecasting currently supports Chronos/ChronosBolt with backend='chronos'; "
             "Transformers has no generic time-series-forecasting pipeline"
         )
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         raise ValueError("use the Chronos handler for time-series-forecasting")
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         raise ValueError("use the Chronos handler for time-series-forecasting")
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         raise ValueError("use the Chronos handler for time-series-forecasting")

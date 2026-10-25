@@ -5,7 +5,7 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize("entrypoint", ("run", "probe"))
+@pytest.mark.parametrize("entrypoint", ["run", "probe"])
 def test_image_policy_defaults_to_reuse_and_allows_explicit_rebuild(entrypoint):
     from pathlib import Path
 

@@ -53,7 +53,7 @@ class TestCjkComposition:
         ])
         assert (self.compositor.render_strips()[0].text) == (".甲 TOP丁戊.")
 
-    @pytest.mark.parametrize('column', (3, 4))
+    @pytest.mark.parametrize('column', [3, 4])
     def test_partial_update_emits_the_whole_character_at_either_half(self, column):
         self.configure_layers([
             (Region(1, 0, 10, 1), "甲乙丙丁戊"),
@@ -79,8 +79,8 @@ class TestCjkComposition:
         assert (self.compositor.render_strips()[0].text) == ("")
 
 
-@pytest.mark.parametrize('size', ((80, 24), (81, 24), (120, 30), (121, 30), (150, 45), (151, 45)))
-@pytest.mark.parametrize('language,expected', (('zh', '已恢复完整默认配置'), ('en', 'Full defaults restored')))
+@pytest.mark.parametrize('size', [(80, 24), (81, 24), (120, 30), (121, 30), (150, 45), (151, 45)])
+@pytest.mark.parametrize(("language", "expected"), [('zh', '已恢复完整默认配置'), ('en', 'Full defaults restored')])
 async def test_toast_survives_button_borders_language_changes_and_resize(size, language, expected):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(
@@ -107,7 +107,7 @@ async def test_toast_survives_button_borders_language_changes_and_resize(size, l
                 await pilot.pause()
                 assert not (app.query(Toast))
 
-@pytest.mark.parametrize('size', ((81, 24), (120, 30), (150, 45)))
+@pytest.mark.parametrize('size', [(81, 24), (120, 30), (150, 45)])
 async def test_titled_notifications_on_confirmation_screen_keep_text_and_cancel(size):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(settings_path=Path(directory) / "tui.json")

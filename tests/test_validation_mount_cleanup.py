@@ -61,7 +61,7 @@ def test_uncertain_start_without_id_retains_lease(tmp_path, monkeypatch, validat
     primary = error_type("interrupted Docker start")
     monkeypatch.setattr("acprof.host.runtime_validation.owned_container_id", lambda path: "")
     monkeypatch.setattr("acprof.host.runtime_validation.run_command", Mock(side_effect=primary))
-    with pytest.raises(BaseException) as caught:
+    with pytest.raises(BaseException, match="cleanup unknown|interrupted Docker start") as caught:
         validate_runtime(**options)
     if error_type is OSError:
         assert isinstance(caught.value, ContainerCleanupError)

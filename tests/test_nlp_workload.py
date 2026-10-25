@@ -29,7 +29,7 @@ def test_table_qa_scales_real_rows_and_reports_row_defaults():
     assert (generator.scale_label(8)) == ("rows8")
     assert (generator.default_input_scales()) == ([1, 2, 4, 8, 16, 32])
 
-@pytest.mark.parametrize('scale', (0, -1, 1.5))
+@pytest.mark.parametrize('scale', [0, -1, 1.5])
 def test_table_qa_rejects_fractional_or_empty_row_counts(scale):
     generator = NLPWorkloadGenerator("model", "table-question-answering", 1)
     with pytest.raises(ValueError, match="positive integer"):

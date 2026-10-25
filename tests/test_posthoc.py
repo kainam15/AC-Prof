@@ -176,7 +176,7 @@ class TestPosthocProfile:
         assert (explicit.nsys_reference_mem) == (8)
 
     @pytest.mark.parametrize(
-        "recorded_source,environment_source,expected_source",
+        ('recorded_source', 'environment_source', 'expected_source'),
         [
             ("missing", "modelscope", "huggingface"),
             ("huggingface", "modelscope", "huggingface"),
@@ -500,8 +500,8 @@ class TestPosthocProfile:
         assert (skipped) == (())
 
     @pytest.mark.parametrize(
-        "name,payload",
-        (
+        ('name', 'payload'),
+        [
             (
                 host_posthoc_context.INPUT_SCALE_PLAN_NAME,
                 b'{"schema_version":2,"model_id":"example/model","entries":'
@@ -522,7 +522,7 @@ class TestPosthocProfile:
                 b'{"schema_version":1,"posthoc_profile_history":[],"observed":1e999}',
             ),
             (host_collection_history.COLLECTION_HISTORY_NAME, b"\xff"),
-        ),
+        ],
     )
     def test_load_context_rejects_invalid_auxiliary_json_without_rewriting(self, name, payload):
         with tempfile.TemporaryDirectory() as tmp:
@@ -544,8 +544,8 @@ class TestPosthocProfile:
 
     @pytest.mark.parametrize(
         "name",
-        (host_posthoc_context.INPUT_SCALE_PLAN_NAME,
-         host_collection_history.COLLECTION_HISTORY_NAME),
+        [host_posthoc_context.INPUT_SCALE_PLAN_NAME,
+         host_collection_history.COLLECTION_HISTORY_NAME],
     )
     def test_load_context_rejects_oversized_auxiliary_json_without_rewriting(self, name):
         with tempfile.TemporaryDirectory() as tmp:
@@ -572,11 +572,11 @@ class TestPosthocProfile:
 
     @pytest.mark.parametrize(
         "payload",
-        (
+        [
             b'{"schema_version":1,"observed":NaN}',
             b'{"schema_version":1,"observed":1e999}',
             None,
-        ),
+        ],
     )
     def test_optional_plan_reader_rejects_invalid_or_oversized_json_without_rewriting(
         self, payload,

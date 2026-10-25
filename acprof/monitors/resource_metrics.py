@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 BYTES_PER_GIB = 1024 ** 3
 
@@ -12,18 +11,18 @@ BYTES_PER_GIB = 1024 ** 3
 @dataclass
 class ResourceUsageSample:
     timestamp: float
-    container_cpu_s: Optional[float]
-    container_mem_usage_bytes: Optional[int]
-    gpu_util_pct: Optional[float]
-    gpu_mem_used_bytes: Optional[int]
-    gpu_mem_total_bytes: Optional[int]
-    cpu_freq_avg_hz: Optional[float] = None
-    cpu_freq_peak_hz: Optional[float] = None
-    gpu_sm_clock_mhz: Optional[float] = None
-    gpu_memory_clock_mhz: Optional[float] = None
-    gpu_pstate: Optional[str] = None
-    gpu_temp_c: Optional[float] = None
-    container_swap_usage_bytes: Optional[int] = None
+    container_cpu_s: float | None
+    container_mem_usage_bytes: int | None
+    gpu_util_pct: float | None
+    gpu_mem_used_bytes: int | None
+    gpu_mem_total_bytes: int | None
+    cpu_freq_avg_hz: float | None = None
+    cpu_freq_peak_hz: float | None = None
+    gpu_sm_clock_mhz: float | None = None
+    gpu_memory_clock_mhz: float | None = None
+    gpu_pstate: str | None = None
+    gpu_temp_c: float | None = None
+    container_swap_usage_bytes: int | None = None
 
 
 @dataclass
@@ -83,15 +82,15 @@ class ResourceUsageResult:
 
 @dataclass
 class WindowCounterSnapshots:
-    cpu_throttle: Optional[Dict[str, float]] = None
-    memory_events: Optional[Dict[str, float]] = None
-    cpu_pressure: Optional[Dict[str, float]] = None
-    memory_pressure: Optional[Dict[str, float]] = None
-    io_pressure: Optional[Dict[str, float]] = None
-    memory_peak: Optional[Dict[str, float]] = None
-    memory_stat: Optional[Dict[str, float]] = None
-    io_operations: Optional[Dict[str, float]] = None
-    pids: Optional[Dict[str, float]] = None
+    cpu_throttle: dict[str, float] | None = None
+    memory_events: dict[str, float] | None = None
+    cpu_pressure: dict[str, float] | None = None
+    memory_pressure: dict[str, float] | None = None
+    io_pressure: dict[str, float] | None = None
+    memory_peak: dict[str, float] | None = None
+    memory_stat: dict[str, float] | None = None
+    io_operations: dict[str, float] | None = None
+    pids: dict[str, float] | None = None
 
 
 def _nan_result(resource_usage_iters: int = 0) -> ResourceUsageResult:
@@ -125,11 +124,11 @@ def _nan_result(resource_usage_iters: int = 0) -> ResourceUsageResult:
     )
 
 
-def _mean(values: List[float]) -> float:
+def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else float("nan")
 
 
-def _normalize_pstate(value: object) -> Optional[str]:
+def _normalize_pstate(value: object) -> str | None:
     if isinstance(value, str):
         normalized = value.strip().upper()
         if normalized.startswith("P") and normalized[1:].isdigit():
@@ -144,7 +143,7 @@ def _normalize_pstate(value: object) -> Optional[str]:
     return f"P{numeric}" if 0 <= numeric <= 15 else None
 
 
-def _dominant_pstate(values: List[str]) -> str:
+def _dominant_pstate(values: list[str]) -> str:
     normalized = [state for value in values if (state := _normalize_pstate(value))]
     if not normalized:
         return "nan"
@@ -155,8 +154,8 @@ def _dominant_pstate(values: List[str]) -> str:
 
 
 def counter_delta(
-    start: Optional[Dict[str, float]],
-    end: Optional[Dict[str, float]],
+    start: dict[str, float] | None,
+    end: dict[str, float] | None,
     key: str,
 ) -> float:
     if start is None or end is None:
@@ -173,7 +172,7 @@ def counter_delta(
     return end_value - start_value
 
 
-def _snapshot_value(snapshot: Optional[Dict[str, float]], key: str) -> float:
+def _snapshot_value(snapshot: dict[str, float] | None, key: str) -> float:
     if snapshot is None:
         return float("nan")
     try:
@@ -184,8 +183,8 @@ def _snapshot_value(snapshot: Optional[Dict[str, float]], key: str) -> float:
 
 
 def _pressure_stall_pct(
-    start: Optional[Dict[str, float]],
-    end: Optional[Dict[str, float]],
+    start: dict[str, float] | None,
+    end: dict[str, float] | None,
     scope: str,
     elapsed_s: float,
 ) -> float:
@@ -328,7 +327,7 @@ def apply_window_counter_metrics(
 
 
 def reduce_resource_samples(
-    samples: List[ResourceUsageSample],
+    samples: list[ResourceUsageSample],
     cpu_cores: float,
     mem_limit_bytes: float,
     min_cpu_interval_s: float = 0.0,
@@ -339,7 +338,7 @@ def reduce_resource_samples(
     samples = sorted(samples, key=lambda sample: sample.timestamp)
     result = _nan_result(len(samples))
 
-    cpu_interval_utils: List[float] = []
+    cpu_interval_utils: list[float] = []
     cpu_elapsed_s = 0.0
     cpu_delta_s = 0.0
     if cpu_cores > 0:

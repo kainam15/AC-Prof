@@ -11,9 +11,10 @@ import copy
 import logging
 import os
 import shutil
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from time import perf_counter
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any
 
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.progress import (
@@ -48,8 +49,8 @@ SAMPLING_STRATEGY_METADATA = {
 }
 
 
-def _normalize_gpu_modes(gpu_list: Iterable[str]) -> List[str]:
-    modes: List[str] = []
+def _normalize_gpu_modes(gpu_list: Iterable[str]) -> list[str]:
+    modes: list[str] = []
     for gpu in gpu_list:
         mode = "on" if str(gpu).strip().lower() == "on" else "off"
         if mode not in modes:
@@ -57,8 +58,8 @@ def _normalize_gpu_modes(gpu_list: Iterable[str]) -> List[str]:
     return modes
 
 
-def _normalize_resources(values: Iterable[int], name: str) -> List[int]:
-    normalized: List[int] = []
+def _normalize_resources(values: Iterable[int], name: str) -> list[int]:
+    normalized: list[int] = []
     for value in values:
         integer = int(value)
         if integer <= 0:
@@ -86,7 +87,7 @@ def _normalize_sampling_mode(
 
 def _resolve_reference_resource(
     values: Sequence[int],
-    requested: Optional[int],
+    requested: int | None,
     *,
     name: str,
 ) -> int:
@@ -105,9 +106,9 @@ def _sampled_resource_cases(
     cpus: Sequence[int],
     memories: Sequence[int],
     sampling: str,
-    reference_cpu: Optional[int],
-    reference_mem: Optional[int],
-) -> Tuple[List[Tuple[int, int]], Optional[int], Optional[int]]:
+    reference_cpu: int | None,
+    reference_mem: int | None,
+) -> tuple[list[tuple[int, int]], int | None, int | None]:
     """Return actual profiler resources and resolved representative values."""
     if sampling == "full":
         return (
@@ -137,9 +138,9 @@ def _profile_source_resource(
     cpu: int,
     mem: int,
     sampling: str,
-    reference_cpu: Optional[int],
-    reference_mem: Optional[int],
-) -> Tuple[int, int]:
+    reference_cpu: int | None,
+    reference_mem: int | None,
+) -> tuple[int, int]:
     if sampling == "full":
         return cpu, mem
     if sampling == "per-cpu-scale":
@@ -157,7 +158,7 @@ def _copy_profile_with_provenance(
     source_cpu: int,
     source_mem: int,
     sampling: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     copied = copy.deepcopy(dict(profile))
     strategy = SAMPLING_STRATEGY_METADATA[sampling]
     entries = copied.get("entries")
@@ -193,9 +194,9 @@ class ExecutionProfileRequest:
 
     task_info: TaskInfo
     image_tag: str
-    cpu_list: List[int]
-    mem_list: List[int]
-    gpu_list: List[str]
+    cpu_list: list[int]
+    mem_list: list[int]
+    gpu_list: list[str]
     output_dir: str
     input_scale_plan_file: str
 
@@ -206,8 +207,8 @@ class ProfilerSampling:
 
     sampling: str = "per-scale"
     repeat: int = 1
-    reference_cpu: Optional[int] = None
-    reference_mem: Optional[int] = None
+    reference_cpu: int | None = None
+    reference_mem: int | None = None
 
 
 @dataclass(frozen=True)
@@ -215,7 +216,7 @@ class ExecutionProfileOptions:
     tool_mode: str = "both"
     massif: ProfilerSampling = ProfilerSampling()
     nsys: ProfilerSampling = ProfilerSampling(sampling="per-cpu-scale")
-    nsys_root: Optional[str] = None
+    nsys_root: str | None = None
     keep_profiles: bool = True
     resume_existing_profiles: bool = False
 
@@ -226,22 +227,22 @@ class _ToolPlan:
     enabled: bool
     sampling: str
     repeat: int
-    sources: List[Tuple[int, int]]
-    reference_cpu: Optional[int]
-    reference_mem: Optional[int]
+    sources: list[tuple[int, int]]
+    reference_cpu: int | None
+    reference_mem: int | None
 
 
 @dataclass(frozen=True)
 class _ExecutionPlan:
-    cpus: List[int]
-    memories: List[int]
-    gpu_modes: List[str]
+    cpus: list[int]
+    memories: list[int]
+    gpu_modes: list[str]
     tool_mode: str
     massif: _ToolPlan
     nsys: _ToolPlan
 
     @property
-    def enabled_tools(self) -> List[str]:
+    def enabled_tools(self) -> list[str]:
         return [tool.tool for tool in (self.massif, self.nsys) if tool.enabled]
 
 
@@ -250,12 +251,12 @@ class _ProfileWorkspace:
     output_dir: str
     profile_root: str
     plan_path: str
-    entries: List[Dict[str, Any]]
+    entries: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
 class _MassifRuntime:
-    image: Optional[str]
+    image: str | None
     error: str
     version: str
 
@@ -263,8 +264,8 @@ class _MassifRuntime:
 @dataclass(frozen=True)
 class _NsysRuntime:
     image: str
-    binary: Optional[str]
-    mount_root: Optional[str]
+    binary: str | None
+    mount_root: str | None
     error: str
     version: str
 
@@ -273,7 +274,7 @@ def _tool_plan(
     tool: str, enabled: bool, settings: ProfilerSampling,
     cpus: Sequence[int], memories: Sequence[int],
 ) -> _ToolPlan:
-    sources: List[Tuple[int, int]] = []
+    sources: list[tuple[int, int]] = []
     reference_cpu = reference_mem = None
     if enabled:
         sources, reference_cpu, reference_mem = _sampled_resource_cases(
@@ -359,7 +360,7 @@ def _prepare_massif(request: ExecutionProfileRequest, plan: _ToolPlan) -> _Massi
 
 
 def _prepare_nsys(
-    request: ExecutionProfileRequest, plan: _ToolPlan, root: Optional[str],
+    request: ExecutionProfileRequest, plan: _ToolPlan, root: str | None,
 ) -> _NsysRuntime:
     from acprof.capabilities import declared_profiler_error
 
@@ -394,9 +395,9 @@ def _prepare_nsys(
 def _collect_massif(
     request: ExecutionProfileRequest, plan: _ToolPlan, runtime: _MassifRuntime,
     workspace: _ProfileWorkspace, *, resume: bool,
-    progress_callback: Optional[ProfilerProgressCallback],
-) -> Dict[Tuple[str, int, int], Dict[str, Any]]:
-    profiles: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+    progress_callback: ProfilerProgressCallback | None,
+) -> dict[tuple[str, int, int], dict[str, Any]]:
+    profiles: dict[tuple[str, int, int], dict[str, Any]] = {}
     started = perf_counter()
     for cpu, mem in plan.sources:
         profiles[(MASSIF_TOOL, cpu, mem)] = massif.profile(
@@ -415,9 +416,9 @@ def _collect_massif(
 
 def _collect_nsys(
     request: ExecutionProfileRequest, plan: _ToolPlan, runtime: _NsysRuntime,
-    workspace: _ProfileWorkspace, *, progress_callback: Optional[ProfilerProgressCallback],
-) -> Dict[Tuple[str, int, int], Dict[str, Any]]:
-    profiles: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+    workspace: _ProfileWorkspace, *, progress_callback: ProfilerProgressCallback | None,
+) -> dict[tuple[str, int, int], dict[str, Any]]:
+    profiles: dict[tuple[str, int, int], dict[str, Any]] = {}
     started = perf_counter()
     for cpu, mem in plan.sources:
         profiles[(NSYS_TOOL, cpu, mem)] = nsys.profile(
@@ -436,9 +437,9 @@ def _collect_nsys(
 
 
 def _expand_profiles(
-    plan: _ExecutionPlan, sources: Mapping[Tuple[str, int, int], Mapping[str, Any]],
-) -> List[Dict[str, Any]]:
-    profiles: List[Dict[str, Any]] = []
+    plan: _ExecutionPlan, sources: Mapping[tuple[str, int, int], Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
     for cpu in plan.cpus:
         for mem in plan.memories:
             for gpu in plan.gpu_modes:
@@ -463,7 +464,7 @@ def _expand_profiles(
 def _profile_static_metadata(
     plan: _ExecutionPlan, massif_runtime: _MassifRuntime, nsys_runtime: _NsysRuntime,
     *, keep_profiles: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     massif_plan, nsys_plan = plan.massif, plan.nsys
     return {
         "execution_profile_schema_version": EXECUTION_PROFILE_SCHEMA_VERSION,
@@ -502,7 +503,7 @@ def collect_execution_profile_plan(
     request: ExecutionProfileRequest,
     options: ExecutionProfileOptions = ExecutionProfileOptions(),
     *,
-    progress_callback: Optional[ProfilerProgressCallback] = None,
+    progress_callback: ProfilerProgressCallback | None = None,
 ) -> str:
     """Collect independent tool samples and publish their resource-grid plan.
 

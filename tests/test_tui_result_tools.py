@@ -72,7 +72,7 @@ class TestTuiResultTools:
                 await pilot.pause()
                 assert (all(not widget.disabled for widget in controls))
 
-    @pytest.mark.parametrize('command', ('results', 'summary'))
+    @pytest.mark.parametrize('command', ['results', 'summary'])
     async def test_summary_commands_show_the_plotting_page(self, command):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:

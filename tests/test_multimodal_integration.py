@@ -63,7 +63,7 @@ def test_io_contract_describes_multimodal_request_and_retrieval_summary():
     assert ("samples") in (inputs["json_schema"]["required"])
     assert ("scores") in (outputs["json_schema"]["properties"])
 
-@pytest.mark.parametrize('architecture,expected_task', (('Qwen2AudioForConditionalGeneration', 'audio-text-to-text'), ('Qwen2_5OmniForConditionalGeneration', 'any-to-any'), ('Qwen2_5_VLForConditionalGeneration', 'image-text-to-text'), ('ColPaliForRetrieval', 'visual-document-retrieval'), ('ViltForQuestionAnswering', 'visual-question-answering'), ('LayoutLMv3ForQuestionAnswering', 'document-question-answering')))
+@pytest.mark.parametrize(("architecture", "expected_task"), [('Qwen2AudioForConditionalGeneration', 'audio-text-to-text'), ('Qwen2_5OmniForConditionalGeneration', 'any-to-any'), ('Qwen2_5_VLForConditionalGeneration', 'image-text-to-text'), ('ColPaliForRetrieval', 'visual-document-retrieval'), ('ViltForQuestionAnswering', 'visual-question-answering'), ('LayoutLMv3ForQuestionAnswering', 'document-question-answering')])
 def test_specific_architectures_do_not_fall_through_to_text_generation(architecture, expected_task):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "snapshots" / ("a" * 40) / "config.json"

@@ -25,7 +25,7 @@ def task(model_type, **kwargs):
     return TaskInfo(**values)
 
 
-@pytest.mark.parametrize('architecture,library', (('voxtral', 'vllm'), ('qwen2_audio', 'transformers'), ('granite_speech', 'transformers')))
+@pytest.mark.parametrize(('architecture', 'library'), [('voxtral', 'vllm'), ('qwen2_audio', 'transformers'), ('granite_speech', 'transformers')])
 def test_native_audio_architectures_share_preflight_without_id_rules(architecture, library):
     info = task(architecture, library_name=library)
     require_task_support(info)
@@ -49,12 +49,12 @@ def test_text_generation_subconfig_uses_registered_auto_not_full_speech_output()
     assert (select_runtime_profile(info).profile_id) == ('multimodal-transformers5104-cu128')
     assert (model_support.audio_text_loader('5.10.4', config)) == (('AutoModelForImageTextToText', 'thinker_config'))
 
-@pytest.mark.parametrize('config', ({'model_type': 'not_registered'}, {'model_type': 'custom', 'auto_map': {'AutoConfig': 'custom.Config'}}))
+@pytest.mark.parametrize('config', [{'model_type': 'not_registered'}, {'model_type': 'custom', 'auto_map': {'AutoConfig': 'custom.Config'}}])
 def test_unknown_or_custom_architectures_still_fail_before_build(config):
     with pytest.raises(TaskSupportError):
         require_task_support(task(config['model_type'], model_config=config))
 
-@pytest.mark.parametrize('config', ({'model_type': 'not_registered', 'head': {'model_type': 'qwen2_5_omni_thinker'}}, {'model_type': 'qwen2_5_omni', 'text_config': {'model_type': 'qwen2'}}, {'model_type': 'qwen2_5_omni', 'head_a': {'model_type': 'qwen2_5_omni_thinker'}, 'head_b': {'model_type': 'qwen3_omni_moe_thinker'}}))
+@pytest.mark.parametrize('config', [{'model_type': 'not_registered', 'head': {'model_type': 'qwen2_5_omni_thinker'}}, {'model_type': 'qwen2_5_omni', 'text_config': {'model_type': 'qwen2'}}, {'model_type': 'qwen2_5_omni', 'head_a': {'model_type': 'qwen2_5_omni_thinker'}, 'head_b': {'model_type': 'qwen3_omni_moe_thinker'}}])
 def test_submodels_cannot_hide_an_unknown_parent_or_discard_audio(config):
     with pytest.raises(TaskSupportError):
         require_task_support(task(config['model_type'], model_config=config))
@@ -79,7 +79,7 @@ class TestAudioGenerationHandler:
         self.request = {'samples': [{'text': 'Describe the sound.', 'audio_base64': audio_payload(), 'sampling_rate': 16000}],
                         'params': {'max_new_tokens': 2}}
 
-    @pytest.mark.parametrize('architecture', ('voxtral', 'qwen2_audio', 'granite_speech'))
+    @pytest.mark.parametrize('architecture', ['voxtral', 'qwen2_audio', 'granite_speech'])
     def test_load_uses_the_same_auto_registry_as_preflight(self, architecture):
         config = types.SimpleNamespace(model_type=architecture, to_dict=lambda: {'model_type': architecture})
         transformers = types.SimpleNamespace(__version__='4.57.6', AutoConfig=Mock(), AutoProcessor=Mock(),
@@ -127,8 +127,8 @@ class TestAudioGenerationHandler:
     @pytest.mark.parametrize('audio_case', range(3), ids=['{}', "{'input_features': None}", "{'input_features': np.empty((0, 8))}"])
     def test_native_processor_cannot_drop_audio_or_return_empty_features(self, audio_case):
         audio = tuple(({}, {'input_features': None}, {'input_features': np.empty((0, 8))}))[audio_case]
+        self.processor.apply_chat_template.return_value = {'input_ids': np.array([[1, 2]]), **audio}
         with pytest.raises(ValueError, match='audio'):
-            self.processor.apply_chat_template.return_value = {'input_ids': np.array([[1, 2]]), **audio}
             self.handler.preprocess(self.ctx, self.request)
 
     def test_native_processor_failure_removes_temporary_audio(self):

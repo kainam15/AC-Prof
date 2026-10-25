@@ -7,10 +7,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
 from threading import RLock
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def resolve_model_source(model_id: str, model_path: Optional[str] = None) -> str:
+def resolve_model_source(model_id: str, model_path: str | None = None) -> str:
     """Use the configured baked snapshot, or an explicit Hub source for manual callers."""
     candidate = model_path
     if candidate is None:
@@ -23,7 +23,7 @@ def resolve_model_source(model_id: str, model_path: Optional[str] = None) -> str
     return model_id
 
 
-def model_revision_kwargs(model_source: str, model_revision: str) -> Dict[str, str]:
+def model_revision_kwargs(model_source: str, model_revision: str) -> dict[str, str]:
     """Only pass Hub revision metadata when loading by repository ID."""
     if os.path.isdir(model_source):
         return {}
@@ -31,8 +31,8 @@ def model_revision_kwargs(model_source: str, model_revision: str) -> Dict[str, s
 
 
 def transformers_pipeline_load_kwargs(
-    load_options: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    load_options: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Translate isolated profiler load options to Transformers pipeline args."""
     options = dict(load_options or {})
     options.pop("dtype", None)
@@ -78,24 +78,24 @@ class BaseHandler(ABC):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Load model, return model_ctx dict containing model, tokenizer, processor, device, etc."""
 
     @abstractmethod
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         """Convert raw request data into model input format."""
 
     @abstractmethod
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         """Run inference, return raw output."""
 
     @abstractmethod
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         """Convert model output to standardized response (shape/metadata only)."""
 
-    def validate_output(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any],
-                        processed_input: Any, raw_output: Any, response: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_output(self, model_ctx: dict[str, Any], raw_input: dict[str, Any],
+                        processed_input: Any, raw_output: Any, response: dict[str, Any]) -> dict[str, Any]:
         """Validate protocol and task output outside every formal measurement window."""
         entrypoint = model_ctx.get("_validation_entrypoint", "acprof.container.validation:validate_output")
         module_name, separator, name = entrypoint.partition(":")
@@ -106,7 +106,7 @@ class BaseHandler(ABC):
             raise TypeError(f"validation entrypoint is not callable: {entrypoint}")
         return validator(model_ctx, raw_input, processed_input, raw_output, response)
 
-    def get_scale_metadata(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         """Return optional scale-planning metadata for the current model."""
         return {}
 
@@ -144,7 +144,7 @@ def handler_declaration(task_type: str, backend: str):
 
 
 def load_handler(handler: BaseHandler, model_source: str, task_type: str, backend: str,
-                 device: str, model_revision: str = "main", **load_kwargs: Any) -> Dict[str, Any]:
+                 device: str, model_revision: str = "main", **load_kwargs: Any) -> dict[str, Any]:
     """Keep dependency failures during model loading as explicit as lazy import failures."""
     module_name = type(handler).__module__
     try:
@@ -200,8 +200,8 @@ def _handler_source(value: Any) -> str:
 class HandlerRegistry:
     """Route declarations are cheap; import and instantiate only the selected handler."""
 
-    _handlers: Dict[str, Any] = {}
-    _adapters: Dict[tuple[str, str, str], Any] = {}
+    _handlers: dict[str, Any] = {}
+    _adapters: dict[tuple[str, str, str], Any] = {}
     _lock = RLock()
 
     @classmethod

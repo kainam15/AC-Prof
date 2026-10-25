@@ -6,10 +6,10 @@ import json
 import os
 import platform
 import shutil
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 from acprof.host import preflight
 from acprof.host.command import run_command

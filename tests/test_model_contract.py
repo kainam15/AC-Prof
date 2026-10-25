@@ -86,7 +86,7 @@ class TestModelContract:
         assert ("pipeline.py") in (self.downloads)
         assert ("turns") not in (task_model_spec(task)["multimodal"]["inputs"])
 
-    @pytest.mark.parametrize('model_classes', (['AutoModel'], 'AutoModel'))
+    @pytest.mark.parametrize('model_classes', [['AutoModel'], 'AutoModel'])
     def test_generic_loader_hint_allows_unique_pipeline_contract_synthesis(self, model_classes):
         config = copy.deepcopy(CONFIG)
         config["custom_pipelines"]["listen-and-answer"]["pt"] = model_classes
@@ -275,7 +275,7 @@ print(json.dumps(task_model_spec(task)))
             assert not (marker.exists())
             assert (json.loads(process.stdout)) == (EXPECTED)
 
-    @pytest.mark.parametrize('reference', ('../evil.Pipeline', 'other/repo--evil.Pipeline'))
+    @pytest.mark.parametrize('reference', ['../evil.Pipeline', 'other/repo--evil.Pipeline'])
     def test_unsafe_code_references_are_rejected_before_source_download(self, reference):
         config = copy.deepcopy(CONFIG)
         config["custom_pipelines"]["listen-and-answer"]["impl"] = reference

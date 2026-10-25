@@ -12,7 +12,7 @@ from acprof.monitors.sampling import SamplingDiagnostics
 
 
 @pytest.mark.parametrize('error_type_case', range(2), ids=['RuntimeError', 'MIPSProfilingError'])
-@pytest.mark.parametrize('code,output,error', ((1, '', 'permission denied'), (0, 'not-a-pid', ''), (0, '0', '')))
+@pytest.mark.parametrize(('code', 'output', 'error'), [(1, '', 'permission denied'), (0, 'not-a-pid', ''), (0, '0', '')])
 def test_pid_lookup_preserves_error_type_and_rejects_invalid_or_stopped_pid(error_type_case, code, output, error):
     error_type = tuple((RuntimeError, MIPSProfilingError))[error_type_case]
     with patch(
@@ -137,7 +137,7 @@ def test_diagnostics_retain_callback_failure_and_propagate_it(sampling_clock):
 
 
 @pytest.mark.parametrize(
-    "callback_costs, expected_starts, expected_waits",
+    ('callback_costs', 'expected_starts', 'expected_waits'),
     [
         pytest.param(
             [0.120, 0.005, 0.005, 0.005, 0.005, 0.005],

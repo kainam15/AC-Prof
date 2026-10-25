@@ -1,7 +1,7 @@
 """Structured source messages; translation belongs to the presentation layer."""
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 
 class Message(str):
@@ -10,7 +10,7 @@ class Message(str):
     template: str
     values: tuple[object, ...]
 
-    def __new__(cls, template: str, *values: object) -> "Message":
+    def __new__(cls, template: str, *values: object) -> Message:
         instance = super().__new__(cls, template.format(*values) if values else template)
         instance.template = template
         instance.values = values

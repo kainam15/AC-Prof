@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
@@ -18,10 +19,10 @@ from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
 
 
 def _tool_error_entries(
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     error: str,
     tool: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return [
         {
             "input_scale": float(entry["input_scale"]),
@@ -43,9 +44,9 @@ def _run_advisor_for_entry(
     payload_file: str,
     profile_root: str,
     tool_mount_roots: Sequence[str],
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     scale_label = format_scale_value(float(entry["input_scale"]))
     project_dir = f"/profiles/advisor_scale_{scale_label}"
     report_path = f"/profiles/advisor_scale_{scale_label}.csv"
@@ -116,9 +117,9 @@ def _run_advisor_for_entry(
 
 def _profile_cpu_entries(
     *,
-    entries: List[Dict[str, Any]],
-    advisor_bin: Optional[str],
-    advisor_root: Optional[str],
+    entries: list[dict[str, Any]],
+    advisor_bin: str | None,
+    advisor_root: str | None,
     task_info: TaskInfo,
     image_tag: str,
     cpu: int,
@@ -126,7 +127,7 @@ def _profile_cpu_entries(
     payload_file: str,
     profile_root: str,
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if advisor_bin is None:
         return {
             "tool": "intel_advisor",

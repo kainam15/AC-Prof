@@ -116,7 +116,7 @@ class TestRunNotificationLifecycle:
         assert (event.elapsed_seconds) >= (0.0)
         assert (self.notices.context.event) is None
 
-    @pytest.mark.parametrize('allowed', (False, True))
+    @pytest.mark.parametrize('allowed', [False, True])
     def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self, allowed) -> None:
         argv = [
             "acprof run",

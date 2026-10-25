@@ -18,7 +18,7 @@ from acprof.host.measurement.config import ClientConfig
 from acprof.host.run_state import RunState
 
 
-@pytest.mark.parametrize('invalid', ('oversized', 'nonfinite'))
+@pytest.mark.parametrize('invalid', ['oversized', 'nonfinite'])
 def test_manifest_uses_bounded_finite_json_reader(tmp_path, invalid):
     from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
     ArtifactLayout.for_new_run(tmp_path).initialize()
@@ -159,7 +159,7 @@ class TestArtifactLayout:
             assert (result.read_bytes()) == (b"existing data")
             assert not ((root / "result_manifest.json").exists())
 
-    @pytest.mark.parametrize('name', ('input_scale_plan.json', '../outside.json', '/outside.json'))
+    @pytest.mark.parametrize('name', ['input_scale_plan.json', '../outside.json', '/outside.json'])
     def test_symlinked_metadata_and_escaping_paths_are_rejected(self, name):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "result"

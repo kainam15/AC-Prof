@@ -35,7 +35,7 @@ class TestAudioTaskExtension:
         self._request = request
         self.handler = AudioHandler()
 
-    @pytest.mark.parametrize('task', ('text-to-speech', 'text-to-audio'))
+    @pytest.mark.parametrize('task', ['text-to-speech', 'text-to-audio'])
     def test_text_audio_workloads_are_deterministic_text_and_keep_scale_kind(self, task):
         generator = AudioWorkloadGenerator("model", task, 1)
         payload = generator.generate(4)
@@ -45,7 +45,7 @@ class TestAudioTaskExtension:
         assert (generator.plan_metadata()["input_scale"]["type"]) == ("seq_length")
         assert (generator.scale_label(4)) == ("seq4")
 
-    @pytest.mark.parametrize('task', ('audio-classification', 'audio-to-audio', 'voice-activity-detection'))
+    @pytest.mark.parametrize('task', ['audio-classification', 'audio-to-audio', 'voice-activity-detection'])
     def test_waveform_tasks_reuse_verified_speech_without_asr_inference_options(self, task):
         generator = AudioWorkloadGenerator("model", task, 1)
         payload = generator.generate(1)

@@ -61,7 +61,7 @@ def test_short_host_commands_use_the_registered_runner():
                     violations.append(f"{relative}:{node.lineno}: {resolved}")
     assert (violations) == ([])
 
-@pytest.mark.parametrize('name', ('probe', 'posthoc'))
+@pytest.mark.parametrize('name', ['probe', 'posthoc'])
 def test_shared_preflight_does_not_depend_on_run_cli(name):
     path = PROJECT_DIR / "acprof" / "cli" / f"{name}.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))

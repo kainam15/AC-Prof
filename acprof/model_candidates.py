@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import copy
-from functools import lru_cache
+from functools import cache
 from typing import Any
 
 from acprof.model_spec import FORMAT_BACKENDS, task_model_spec, validate_model_spec
@@ -19,7 +19,7 @@ _AUTO_TASKS = {
 }
 
 
-@lru_cache(maxsize=None)
+@cache
 def _architecture_tasks(architecture: str) -> tuple[str, ...]:
     """Reverse locked Auto registries, retaining ambiguity between task protocols."""
     tasks = set()

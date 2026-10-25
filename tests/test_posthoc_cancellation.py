@@ -1,6 +1,7 @@
 """Cancellation must not leave a partially published post-hoc transaction."""
 import asyncio
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -108,11 +109,11 @@ def test_cancelled_temporary_writer_removes_its_partial_file(tmp_path, monkeypat
         raise cancellation
 
     monkeypatch.setattr(storage.os, "fsync", interrupt_sync)
+    write = (partial(storage._write_csv_temporary, path, fieldnames=["value"],
+                     rows=[{"value": "new"}], encoding="utf-8") if writer == "csv"
+             else partial(storage._write_json_temporary, path, {"value": "new"}))
     with pytest.raises(cancellation_type) as caught:
-        if writer == "csv":
-            storage._write_csv_temporary(path, fieldnames=["value"], rows=[{"value": "new"}], encoding="utf-8")
-        else:
-            storage._write_json_temporary(path, {"value": "new"})
+        write()
     assert caught.value is cancellation
     assert path.read_bytes() == b"original artifact"
     assert list(tmp_path.glob(".*.tmp")) == []

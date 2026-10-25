@@ -13,7 +13,7 @@ import re
 import sys
 import time
 from contextlib import nullcontext
-from typing import IO, Any, Dict, List, Literal, Optional
+from typing import IO, Any, Literal
 
 import requests
 
@@ -55,7 +55,7 @@ def _local_proxy_options(url: str) -> dict:
         "localhost", "127.0.0.1", "::1"} else {}
 
 
-def _parse_float_list(s: str) -> List[float]:
+def _parse_float_list(s: str) -> list[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 def _is_file_empty(path: str) -> bool:
@@ -64,7 +64,7 @@ def _is_file_empty(path: str) -> bool:
     except Exception:
         return True
 
-def _request_phase_context(request_id: str) -> Dict[str, Any]:
+def _request_phase_context(request_id: str) -> dict[str, Any]:
     auto_match = re.search(r"_auto_warmup(?P<request_idx>\d+)$", request_id)
     if auto_match:
         return {
@@ -88,7 +88,7 @@ def _request_phase_context(request_id: str) -> Dict[str, Any]:
 
     return {"request_phase": "unknown"}
 
-def _parse_effective_input_scale(resp: Dict[str, Any]) -> Optional[float]:
+def _parse_effective_input_scale(resp: dict[str, Any]) -> float | None:
     if not isinstance(resp, dict):
         return None
     value = resp.get("effective_input_scale")
@@ -112,8 +112,8 @@ class ClientRunner:
         from acprof.platform import detect_environment
         self.collection_environment = detect_environment()
         self.first_predict_app_s = float("nan")
-        self.input_scale_entries: List[Dict[str, Any]] = []
-        self.runtime_failures: List[Dict[str, Any]] = []
+        self.input_scale_entries: list[dict[str, Any]] = []
+        self.runtime_failures: list[dict[str, Any]] = []
         self.use_energy = config.gpu_mode == "on"
         self.energy_mod = self._monitor_module("energy_nvml") if self.use_energy else None
         self.cpu_energy_mod = self._monitor_module("energy_cpu")
@@ -143,7 +143,7 @@ class ClientRunner:
             f"{csv_name}.idle_diag.jsonl",
         )
 
-    def _cold_start_row_metrics(self) -> Dict[str, str]:
+    def _cold_start_row_metrics(self) -> dict[str, str]:
         return {
             "cold_start_started_at": self.config.cold_start_started_at or "nan",
             "cold_start_ready_at": self.config.cold_start_ready_at or "nan",
@@ -187,7 +187,7 @@ class ClientRunner:
     def _prepare_repeat_window(self,
         scale_value: float,
         scale_label: str,
-        payload_override: Optional[Dict[str, Any]],
+        payload_override: dict[str, Any] | None,
     ) -> int:
         if self.config.repeat_in_window > 0:
             return self.config.repeat_in_window
@@ -213,7 +213,7 @@ class ClientRunner:
         )
         return 1
 
-    def _one_request(self, scale_value: float, req_id: str, payload_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _one_request(self, scale_value: float, req_id: str, payload_override: dict[str, Any] | None = None) -> dict[str, Any]:
         if payload_override is None:
             raise RuntimeError("input scale plan entry has no payload; the plan must be self-contained")
         payload = payload_override
@@ -272,7 +272,7 @@ class ClientRunner:
             "workload_contract": resp.get("workload_contract"),
         }
 
-    def _load_input_scale_entries(self) -> List[Dict[str, Any]]:
+    def _load_input_scale_entries(self) -> list[dict[str, Any]]:
         if self.config.input_scale_plan_file:
             from acprof.artifacts import read_input_scale_plan
             plan = read_input_scale_plan(self.config.input_scale_plan_file)
@@ -281,7 +281,7 @@ class ClientRunner:
             if not isinstance(entries, list) or not entries:
                 raise RuntimeError(f"invalid input scale plan file: {self.config.input_scale_plan_file}")
 
-            loaded_entries: List[Dict[str, Any]] = []
+            loaded_entries: list[dict[str, Any]] = []
             for idx, entry in enumerate(entries):
                 if not isinstance(entry, dict):
                     raise RuntimeError(
@@ -379,7 +379,7 @@ class ClientRunner:
         ) if self.config.window_records_dir else None
         fieldnames = CSV_FIELDS
         if not need_header:
-            with open(self.config.out_csv, "r", newline="", encoding="utf-8-sig") as existing:
+            with open(self.config.out_csv, newline="", encoding="utf-8-sig") as existing:
                 fieldnames = next(csv.reader(existing))
             if len(fieldnames) != len(CSV_FIELDS) or set(fieldnames) != set(CSV_FIELDS):
                 raise RuntimeError(f"existing CSV columns do not match current fields: {self.config.out_csv}; use a new output file")

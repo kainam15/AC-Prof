@@ -12,7 +12,7 @@ from acprof.tui.preparation import ModelSourceScreen, PreparationScreen
 from acprof.tui.process import ProcessLifecycle
 
 
-@pytest.mark.parametrize("size,language", [((80, 24), "zh"), ((120, 40), "en"), ((160, 48), "zh")])
+@pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 40), "en"), ((160, 48), "zh")])
 async def test_failure_actions_keep_diagnostics_folded_and_require_source_confirmation(tmp_path, size, language):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     replies = []
@@ -27,10 +27,14 @@ async def test_failure_actions_keep_diagnostics_folded_and_require_source_confir
         await pilot.pause()
         assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
         body = str(screen.query_one("#preparation-detail", Static).content)
-        assert "Traceback" not in body and "storage / TLS" in body and "us.aws.cdn.hf.co" in body
+        assert "Traceback" not in body
+        assert "storage / TLS" in body
+        assert "us.aws.cdn.hf.co" in body
         for identifier in ("preparation-continue", "preparation-show-diagnostics", "preparation-modelscope"):
             button = screen.query_one("#" + identifier, Button)
-            assert button.region.width > 0 and button.region.right <= size[0] and button.region.bottom <= size[1]
+            assert button.region.width > 0
+            assert button.region.right <= size[0]
+            assert button.region.bottom <= size[1]
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.click("#preparation-show-diagnostics")
         assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
@@ -42,7 +46,8 @@ async def test_failure_actions_keep_diagnostics_folded_and_require_source_confir
         assert not replies
         await pilot.press("escape")
         await pilot.pause()
-        assert not replies and app.screen is screen
+        assert not replies
+        assert app.screen is screen
         await pilot.click("#preparation-modelscope")
         await pilot.pause()
         app.screen.query_one("#source-model-id", Input).value = "new-owner/new-model"

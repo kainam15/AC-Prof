@@ -34,7 +34,7 @@ def test_append_validates_field_and_keeps_native_json_types() -> None:
     )
 
     assert (updated["quality_retry_history"]) == ([record])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unsupported collection history field"):
         append_collection_record(updated, "unknown_history", record)
 
 def test_writer_rejects_nonfinite_provenance_numbers() -> None:

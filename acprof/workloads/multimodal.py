@@ -14,7 +14,7 @@ import json
 import math
 import wave
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -84,20 +84,20 @@ def _scene(*, document: bool = False, frame: int = 0) -> tuple[Any, list, list]:
 class MultimodalWorkloadGenerator(WorkloadGenerator):
     @classmethod
     def from_config(cls, model_id: str, task_type: str, batch_size: int, *,
-                    workload_spec_path: Optional[str] = None,
-                    model_adapter: Optional[str] = None, **options: Any):
+                    workload_spec_path: str | None = None,
+                    model_adapter: str | None = None, **options: Any):
         return cls(model_id, task_type, batch_size, workload_spec_path=workload_spec_path,
                    model_adapter=model_adapter, **options)
 
     def __init__(self, model_id: str, task_type: str, batch_size: int,
-                 workload_spec_path: Optional[str] = None, model_adapter: Optional[str] = None):
+                 workload_spec_path: str | None = None, model_adapter: str | None = None):
         super().__init__(model_id, task_type, batch_size)
         if task_type not in TASK_MODALITY:
             raise ValueError(f"unsupported multimodal task: {task_type}")
         if isinstance(batch_size, bool) or batch_size != 1:
             raise ValueError("multimodal workloads require batch_size=1")
-        self._assets: List[Dict[str, Any]] = []
-        self._spec: Dict[str, Any] = {}
+        self._assets: list[dict[str, Any]] = []
+        self._spec: dict[str, Any] = {}
         self._base = Path.cwd()
         self._manifest_sha256 = None
         if workload_spec_path:
@@ -158,7 +158,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._text = spec.get("text", declared_defaults.get("text", DEFAULT_TEXT[task_type]))
         if not isinstance(self._text, str) or not self._text.strip():
             raise ValueError("text must be a nonempty prompt or query")
-        defaults: Dict[str, Any] = {} if task_type in {"visual-question-answering", "document-question-answering", "visual-document-retrieval"} else {"max_new_tokens": 64, "do_sample": False}
+        defaults: dict[str, Any] = {} if task_type in {"visual-question-answering", "document-question-answering", "visual-document-retrieval"} else {"max_new_tokens": 64, "do_sample": False}
         defaults.update(declared_defaults.get("params", {}))
         if task_type == "any-to-any":
             defaults.update(return_audio=True, talker_max_new_tokens=256, speaker="Chelsie", seed=12345)
@@ -172,8 +172,8 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._video_count = int(_positive_number(spec.get("video_num_frames", 4), "video_num_frames", integer=True))
         self._image = None
         self._frames = None
-        self._words: List[str] = []
-        self._boxes: List[List[float]] = []
+        self._words: list[str] = []
+        self._boxes: list[list[float]] = []
         if "image" in self._modalities:
             if "image_path" in spec:
                 self._image = self._read_image(spec["image_path"])
@@ -234,10 +234,10 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
     def _scale(self, value: Any) -> float:
         return _positive_number(value, self.input_scale_type, integer=self._scale_modality != "audio")
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         from PIL import Image
         scale = self._scale(scale_value)
-        sample: Dict[str, Any] = {"text": self._text}
+        sample: dict[str, Any] = {"text": self._text}
         if "image" in self._modalities:
             if self._image is None:
                 raise ValueError("image is required for the selected multimodal workload")
@@ -271,17 +271,17 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
     def scale_label(self, scale_value: float) -> str:
         return f"{self.input_scale_type}{self._scale(scale_value):g}"
 
-    def effective_input_scale(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> float:
+    def effective_input_scale(self, scale_value: float, payload: dict[str, Any] | None = None) -> float:
         return self._scale((payload or self.generate(scale_value))["input_scale"])
 
-    def default_input_scales(self) -> List[float]:
+    def default_input_scales(self) -> list[float]:
         return list(self._scales)
 
     def max_input_scale(self) -> float:
         return max(self._scales)
 
-    def plan_metadata(self) -> Dict[str, Any]:
-        fixed_media: Dict[str, Any] = {}
+    def plan_metadata(self) -> dict[str, Any]:
+        fixed_media: dict[str, Any] = {}
         if "image" in self._modalities and self._scale_modality != "image" or "video" in self._modalities:
             fixed_media["image_resolution"] = self._image_resolution
         if "audio" in self._modalities and self._scale_modality != "audio":
@@ -307,7 +307,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
             "processor_scale_caveat": "raw media dimensions; model processor may resize, tile, pad or limit context",
         }
 
-    def input_metadata(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def input_metadata(self, scale_value: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         materialized = payload or self.generate(scale_value)
         sample = materialized["samples"][0]
         result = {"input_num_samples": 1, "input_scale_type": self.input_scale_type, "payload_sha256": hashlib.sha256(json.dumps(materialized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}

@@ -22,7 +22,7 @@ def write_run_state(root: Path, content: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize("number", ("NaN", "Infinity", "-Infinity", "1e999"))
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity", "1e999"])
 def test_load_run_state_rejects_nonfinite_numbers(tmp_path, number):
     root = tmp_path / "result"
     write_run_state(root, '{"schema_version":1,"layout_version":2,"value":' + number + "}")
@@ -54,9 +54,13 @@ def test_changed_manifest_prevents_resume():
             state = run_state.RunState(root / "result", {}, resume=False, project_dir=root)
             state.close()
             manifest.write_text(json.dumps({"max_new_tokens": 65}))
-            with pytest.raises(run_state.RunStateError):
-                resumed = run_state.RunState(root / "result", {}, resume=True, project_dir=root)
-                resumed.close()
+            resumed = None
+            try:
+                with pytest.raises(run_state.RunStateError):
+                    resumed = run_state.RunState(root / "result", {}, resume=True, project_dir=root)
+            finally:
+                if resumed is not None:
+                    resumed.close()
 
 def test_input_asset_changes_identity_but_ui_changes_do_not():
     with tempfile.TemporaryDirectory() as temporary:

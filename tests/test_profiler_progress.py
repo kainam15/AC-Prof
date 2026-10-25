@@ -27,7 +27,7 @@ def test_counts_source_samples_once_regardless_of_repeat() -> None:
     assert (event.elapsed_seconds) == (65.0)
     assert (event.detail) == ("timeout")
 
-@pytest.mark.parametrize('profiles,status,total,failed', (([{'entries': [{'error': ''}]}], 'success', 1, 0), ([{'entries': []}], 'no_results', 0, 0), ([{'error': 'tool_missing', 'entries': []}], 'failed', 0, 0), ([{'error': 'tool_failed', 'entries': [{}]}], 'failed', 1, 1), ([{'entries': [{'error': 'OOM'}]}], 'failed', 1, 1), ([{'error': 'OOM', 'entries': [{'error': 'OOM'}, {}]}], 'partial', 2, 1)))
+@pytest.mark.parametrize(("profiles", "status", "total", "failed"), [([{'entries': [{'error': ''}]}], 'success', 1, 0), ([{'entries': []}], 'no_results', 0, 0), ([{'error': 'tool_missing', 'entries': []}], 'failed', 0, 0), ([{'error': 'tool_failed', 'entries': [{}]}], 'failed', 1, 1), ([{'entries': [{'error': 'OOM'}]}], 'failed', 1, 1), ([{'error': 'OOM', 'entries': [{'error': 'OOM'}, {}]}], 'partial', 2, 1)])
 def test_reports_empty_and_failed_results_without_claiming_success(profiles, status, total, failed) -> None:
     callback = Mock()
     report_profiler_completion(

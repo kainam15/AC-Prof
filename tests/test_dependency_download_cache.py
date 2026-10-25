@@ -129,11 +129,11 @@ class TestDependencyDownloadCache:
             assert redirected.full_url == "https://files.pythonhosted.org/artifact"
             assert network_policy.source_route(redirected.full_url) == "direct-socket"
 
-    @pytest.mark.parametrize('error', (
+    @pytest.mark.parametrize('error', [
         URLError(ssl.SSLEOFError(8, 'unexpected EOF during handshake')),
         TimeoutError('connection timeout'), ConnectionResetError('connection reset'),
         IncompleteRead(b'partial', 100),
-    ))
+    ])
     def test_transient_get_failure_retries_same_source_before_publishing(self, tmp_path, error):
         helper = self.helper()
         payload = b'verified dependency payload'
@@ -168,7 +168,8 @@ class TestDependencyDownloadCache:
                 patch('time.sleep'), patch.object(helper, '_record_transfer') as recorded:
             helper.cached_artifact(entry, target, 'python')
         assert target.read_bytes() == payload
-        assert broken.closed and complete.closed
+        assert broken.closed
+        assert complete.closed
         assert not target.with_suffix('.whl.part').exists()
         assert recorded.call_count == 1
 
@@ -274,13 +275,13 @@ class TestDependencyDownloadCache:
         assert not target.with_suffix(".whl.part").exists()
         assert not target.with_suffix(".whl.part.source.json").exists()
 
-    @pytest.mark.parametrize('error', (
+    @pytest.mark.parametrize('error', [
         URLError(ssl.SSLCertVerificationError(1, 'certificate rejected')),
         URLError(ssl.SSLError(1, 'unsupported TLS version')),
         HTTPError('https://files.pythonhosted.org/example.whl', 403, 'Forbidden', {}, None),
         network_policy.DownloadPolicyError('source transition forbidden'),
         PermissionError('cache not writable'),
-    ))
+    ])
     def test_permanent_download_errors_are_not_retried(self, tmp_path, error):
         helper = self.helper()
         entry = {'name': 'example', 'sha256': 'a' * 64, 'url': 'https://files.pythonhosted.org/example.whl'}

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import ast
 import json
+from collections.abc import Callable
 from pathlib import PurePosixPath
-from typing import Callable
 
 from acprof.model_evidence import ModelEvidence
 from acprof.model_source_analysis import model_card_examples, parse_source, top_level_bound_names

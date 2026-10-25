@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.model_evidence import pinned_revision
@@ -70,7 +71,7 @@ def snapshot_sample(strata: list[str], limit: int) -> dict:
             if selected == limit:
                 break
     sample = {"schema_version": 1, "sampling": "head_per_task_library; selected_sample_only",
-              "captured_at": datetime.now(timezone.utc).isoformat(),
+              "captured_at": datetime.now(UTC).isoformat(),
               "weight_basis": "Hub downloads at snapshot time; not a whole-Hub estimate",
               "strata": strata, "limit_per_stratum": limit, "models": list(models.values())}
     validate_sample(sample)

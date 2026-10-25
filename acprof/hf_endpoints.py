@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Mapping
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 HF_DEFAULT_ENDPOINT = "https://hf-mirror.com"

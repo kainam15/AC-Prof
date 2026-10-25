@@ -143,7 +143,7 @@ class TestAnalysisModel:
             load_analysis([path])
         path.write_text("cpu_cores,status,warmup\n2,ok,0\n")
         (path.parent / "static_meta.json").write_text("{broken")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid analysis metadata JSON"):
             load_analysis([path])
 
     def test_nonfinite_run_state_is_rejected_instead_of_becoming_legacy(self):
@@ -223,7 +223,7 @@ class TestAnalysisModel:
         assert ("quality_evidence_missing") in (model.configs[0]["quality_reasons"])
         assert (model.configs[0]["measurement_status"]) == ("unknown")
 
-    @pytest.mark.parametrize('recorded', (True, False))
+    @pytest.mark.parametrize('recorded', [True, False])
     def test_moving_recorded_or_legacy_experiment_preserves_configuration_identity(self, recorded):
         from acprof.analysis.model import load_analysis
         source = self.source([self.row()], directory=f"original-{recorded}")

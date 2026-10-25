@@ -2,48 +2,48 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
 
 from acprof.monitors.common import docker_container_pid
 
 
 @dataclass
 class _ContainerReaders:
-    cpu: Optional[Callable[[], float]] = None
-    memory: Optional[Callable[[], int]] = None
-    swap: Optional[Callable[[], int]] = None
-    swap_limit: Optional[Callable[[], int]] = None
-    io: Optional[Callable[[], Tuple[int, int]]] = None
-    cpu_throttle: Optional[Callable[[], Dict[str, float]]] = None
-    memory_events: Optional[Callable[[], Dict[str, float]]] = None
-    cpu_pressure: Optional[Callable[[], Dict[str, float]]] = None
-    memory_pressure: Optional[Callable[[], Dict[str, float]]] = None
-    io_pressure: Optional[Callable[[], Dict[str, float]]] = None
-    memory_peak: Optional[Callable[[], Dict[str, float]]] = None
-    memory_stat: Optional[Callable[[], Dict[str, float]]] = None
-    io_operations: Optional[Callable[[], Dict[str, float]]] = None
-    pids: Optional[Callable[[], Dict[str, float]]] = None
+    cpu: Callable[[], float] | None = None
+    memory: Callable[[], int] | None = None
+    swap: Callable[[], int] | None = None
+    swap_limit: Callable[[], int] | None = None
+    io: Callable[[], tuple[int, int]] | None = None
+    cpu_throttle: Callable[[], dict[str, float]] | None = None
+    memory_events: Callable[[], dict[str, float]] | None = None
+    cpu_pressure: Callable[[], dict[str, float]] | None = None
+    memory_pressure: Callable[[], dict[str, float]] | None = None
+    io_pressure: Callable[[], dict[str, float]] | None = None
+    memory_peak: Callable[[], dict[str, float]] | None = None
+    memory_stat: Callable[[], dict[str, float]] | None = None
+    io_operations: Callable[[], dict[str, float]] | None = None
+    pids: Callable[[], dict[str, float]] | None = None
 
 
 def _read_int(path: str) -> int:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return int(f.read().strip())
 
 
 def _read_cgroup_limit(path: str) -> int:
     """Read a cgroup byte limit, using -1 for the kernel's unlimited value."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = f.read().strip().lower()
     if raw == "max":
         return -1
     return int(raw)
 
 
-def _read_cgroup_v2_io_stat(path: str) -> Tuple[int, int]:
+def _read_cgroup_v2_io_stat(path: str) -> tuple[int, int]:
     read_bytes = 0
     write_bytes = 0
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()
             for token in parts[1:]:
@@ -57,10 +57,10 @@ def _read_cgroup_v2_io_stat(path: str) -> Tuple[int, int]:
     return read_bytes, write_bytes
 
 
-def _read_cgroup_v2_io_operations(path: str) -> Dict[str, float]:
+def _read_cgroup_v2_io_operations(path: str) -> dict[str, float]:
     read_ops = 0
     write_ops = 0
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()
             for token in parts[1:]:
@@ -75,7 +75,7 @@ def _read_cgroup_v2_io_operations(path: str) -> Dict[str, float]:
 
 
 def _read_cpu_stat_usage_s(path: str) -> float:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             key, _, value = line.strip().partition(" ")
             if key == "usage_usec":
@@ -83,9 +83,9 @@ def _read_cpu_stat_usage_s(path: str) -> float:
     raise RuntimeError(f"usage_usec missing from {path}")
 
 
-def _read_flat_cgroup_stats(path: str) -> Dict[str, float]:
-    stats: Dict[str, float] = {}
-    with open(path, "r", encoding="utf-8") as f:
+def _read_flat_cgroup_stats(path: str) -> dict[str, float]:
+    stats: dict[str, float] = {}
+    with open(path, encoding="utf-8") as f:
         for raw_line in f:
             parts = raw_line.strip().split()
             if len(parts) != 2:
@@ -97,11 +97,11 @@ def _read_flat_cgroup_stats(path: str) -> Dict[str, float]:
     return stats
 
 
-def _read_cgroup_memory_peak(path: str) -> Dict[str, float]:
+def _read_cgroup_memory_peak(path: str) -> dict[str, float]:
     return {"peak": float(_read_int(path))}
 
 
-def _read_cgroup_memory_stat(path: str) -> Dict[str, float]:
+def _read_cgroup_memory_stat(path: str) -> dict[str, float]:
     stats = _read_flat_cgroup_stats(path)
     slab = stats.get("slab", float("nan"))
     if slab != slab:
@@ -127,10 +127,10 @@ def _read_cgroup_memory_stat(path: str) -> Dict[str, float]:
 
 
 def _read_cgroup_pids(
-    current_path: Optional[str],
-    peak_path: Optional[str],
-    events_path: Optional[str],
-) -> Dict[str, float]:
+    current_path: str | None,
+    peak_path: str | None,
+    events_path: str | None,
+) -> dict[str, float]:
     result = {
         "current": float("nan"),
         "peak": float("nan"),
@@ -148,7 +148,7 @@ def _read_cgroup_pids(
     return result
 
 
-def _read_cgroup_v2_cpu_throttle(path: str) -> Dict[str, float]:
+def _read_cgroup_v2_cpu_throttle(path: str) -> dict[str, float]:
     stats = _read_flat_cgroup_stats(path)
     return {
         "nr_periods": stats.get("nr_periods", float("nan")),
@@ -157,7 +157,7 @@ def _read_cgroup_v2_cpu_throttle(path: str) -> Dict[str, float]:
     }
 
 
-def _read_cgroup_memory_events(path: str) -> Dict[str, float]:
+def _read_cgroup_memory_events(path: str) -> dict[str, float]:
     stats = _read_flat_cgroup_stats(path)
     return {
         key: stats.get(key, float("nan"))
@@ -165,9 +165,9 @@ def _read_cgroup_memory_events(path: str) -> Dict[str, float]:
     }
 
 
-def _read_pressure_totals(path: str) -> Dict[str, float]:
-    totals: Dict[str, float] = {}
-    with open(path, "r", encoding="utf-8") as f:
+def _read_pressure_totals(path: str) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    with open(path, encoding="utf-8") as f:
         for raw_line in f:
             parts = raw_line.strip().split()
             if not parts:
@@ -187,8 +187,8 @@ def _read_pressure_totals(path: str) -> Dict[str, float]:
     return totals
 
 
-def _parse_online_cpu_ids(text: str) -> List[int]:
-    cpu_ids: List[int] = []
+def _parse_online_cpu_ids(text: str) -> list[int]:
+    cpu_ids: list[int] = []
     for raw_part in text.replace("\n", ",").split(","):
         part = raw_part.strip()
         if not part:
@@ -204,11 +204,11 @@ def _parse_online_cpu_ids(text: str) -> List[int]:
     return sorted(set(cpu_ids))
 
 
-def _discover_cpu_ids(cpu_sysfs_root: str) -> List[int]:
+def _discover_cpu_ids(cpu_sysfs_root: str) -> list[int]:
     online_path = os.path.join(cpu_sysfs_root, "online")
     if os.path.exists(online_path):
         try:
-            with open(online_path, "r", encoding="utf-8") as f:
+            with open(online_path, encoding="utf-8") as f:
                 cpu_ids = _parse_online_cpu_ids(f.read())
             if cpu_ids:
                 return cpu_ids
@@ -228,10 +228,10 @@ def _discover_cpu_ids(cpu_sysfs_root: str) -> List[int]:
     return sorted(set(cpu_ids))
 
 
-def _read_proc_cpuinfo_freqs_hz(proc_cpuinfo_path: str) -> List[float]:
-    freqs: List[float] = []
+def _read_proc_cpuinfo_freqs_hz(proc_cpuinfo_path: str) -> list[float]:
+    freqs: list[float] = []
     try:
-        with open(proc_cpuinfo_path, "r", encoding="utf-8") as f:
+        with open(proc_cpuinfo_path, encoding="utf-8") as f:
             for line in f:
                 key, sep, value = line.partition(":")
                 if sep and key.strip().lower() == "cpu mhz":
@@ -246,7 +246,7 @@ def _read_proc_cpuinfo_freqs_hz(proc_cpuinfo_path: str) -> List[float]:
 def _prepare_cpu_frequency_reader(
     cpu_sysfs_root: str = "/sys/devices/system/cpu",
     proc_cpuinfo_path: str = "/proc/cpuinfo",
-) -> Callable[[], Tuple[Optional[float], Optional[float]]]:
+) -> Callable[[], tuple[float | None, float | None]]:
     """Freeze topology/path discovery before sampling; values remain live reads."""
     paths = []
     for cpu_id in _discover_cpu_ids(cpu_sysfs_root):
@@ -254,12 +254,12 @@ def _prepare_cpu_frequency_reader(
         paths.append(tuple(path for leaf in ("scaling_cur_freq", "cpuinfo_cur_freq")
                            if os.path.exists(path := os.path.join(root, leaf))))
 
-    def read() -> Tuple[Optional[float], Optional[float]]:
-        freqs: List[float] = []
+    def read() -> tuple[float | None, float | None]:
+        freqs: list[float] = []
         for candidates in paths:
             for path in candidates:
                 try:
-                    with open(path, "r", encoding="utf-8") as stream:
+                    with open(path, encoding="utf-8") as stream:
                         khz = float(stream.read().strip())
                 except (OSError, ValueError):
                     continue
@@ -280,7 +280,7 @@ def _join_cgroup_path(root: str, relative: str, leaf: str) -> str:
     return os.path.join(root, rel, leaf) if rel else os.path.join(root, leaf)
 
 
-def _first_existing(paths: List[str]) -> Optional[str]:
+def _first_existing(paths: list[str]) -> str | None:
     for path in paths:
         if os.path.exists(path):
             return path
@@ -297,7 +297,7 @@ def _resolve_container_metric_readers(
 
     pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
-    with open(cgroup_file, "r", encoding="utf-8") as f:
+    with open(cgroup_file, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     readers = _ContainerReaders()

@@ -183,7 +183,7 @@ class TestSetup:
         assert (retried.returncode) == (0), retried.stdout + retried.stderr
         assert (self.config.read_text()) == ("KEEP_EXISTING_CONFIG=yes\n")
 
-    @pytest.mark.parametrize('overrides', ({'SETUP_TEST_DOCKER_EXIT': '1'}, {'SETUP_TEST_OS': 'Darwin'}))
+    @pytest.mark.parametrize('overrides', [{'SETUP_TEST_DOCKER_EXIT': '1'}, {'SETUP_TEST_OS': 'Darwin'}])
     def test_missing_docker_or_unsupported_os_fails_before_installation(self, overrides):
         result = self.invoke(**overrides)
         assert (result.returncode) != (0)

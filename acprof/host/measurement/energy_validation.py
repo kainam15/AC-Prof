@@ -5,7 +5,7 @@ import csv
 import math
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from acprof.host.gpu_device import normalize_gpu_mode
 
@@ -17,11 +17,11 @@ class EnergyProfilingError(RuntimeError):
 IDLE_POWER_RELATIVE_RANGE_THRESHOLD = 0.05
 
 
-def _format_watts(values: List[float]) -> str:
+def _format_watts(values: list[float]) -> str:
     return "[" + ", ".join(f"{value:.3f}" for value in values) + "]"
 
 
-def row_has_error_status(row: Dict[str, Any]) -> bool:
+def row_has_error_status(row: dict[str, Any]) -> bool:
     return str(row.get("status") or "").strip().lower() == "error"
 
 
@@ -29,7 +29,7 @@ def check_idle_power_values_stable(
     *,
     csv_path: str,
     metric_name: str,
-    idle_values: List[float],
+    idle_values: list[float],
     invalid_rows: int,
     row_count: int,
     threshold: float,
@@ -92,8 +92,8 @@ def check_case_gpu_idle_power_stable(
 
     gpu_rows = 0
     invalid_rows = 0
-    idle_values: List[float] = []
-    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+    idle_values: list[float] = []
+    with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             if ignore_error_rows and row_has_error_status(row):
@@ -137,8 +137,8 @@ def check_case_cpu_idle_power_stable(
 
     rows = 0
     invalid_rows = 0
-    idle_values: List[float] = []
-    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+    idle_values: list[float] = []
+    with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             if ignore_error_rows and row_has_error_status(row):

@@ -58,7 +58,7 @@ class TestOverviewLegend:
             for axis in figure.axes:
                 assert not (box.overlaps(axis.get_tightbbox(renderer)))
 
-    @pytest.mark.parametrize('modes', ((True, False), (True,), (False,)))
+    @pytest.mark.parametrize('modes', [(True, False), (True,), (False,)])
     def test_complete_grids_align_memory_rows_under_cpu_mode_headings(self, modes):
         configs = [
             (cpu, mem, gpu_on)

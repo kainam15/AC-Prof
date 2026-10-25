@@ -185,7 +185,7 @@ def test_primary_abort_and_cleanup_priorities_survive_journal_failure(tmp_path, 
     assert collector.stop_calls == collector.close_calls == 1
 
 
-@pytest.mark.parametrize("fault, expected_stops", [("prepare", 0), ("start", 1)])
+@pytest.mark.parametrize(("fault", "expected_stops"), [("prepare", 0), ("start", 1)])
 def test_startup_failure_closes_owned_collectors_without_sending_requests(tmp_path, fault, expected_stops):
     events = []
     collector = Collector(events, fault=fault)
@@ -229,7 +229,7 @@ def test_later_constructor_failure_closes_already_owned_collector(tmp_path):
     assert "construction failed" in result.row["error"]
 
 
-@pytest.mark.parametrize("mode, expected", [("full", "warn"), ("basic", "error")])
+@pytest.mark.parametrize(("mode", "expected"), [("full", "warn"), ("basic", "error")])
 def test_collector_unavailability_keeps_mode_specific_result_status(tmp_path, mode, expected):
     events = []
     collector = Collector(events, warning="resource samples unavailable")

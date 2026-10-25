@@ -232,7 +232,7 @@ def test_close_error_preserves_retry_handle_and_registry(store, monkeypatch):
     session = _session(mount)
     monkeypatch.setattr(docker_runtime, "remove_owned_container", Mock())
     try:
-        with pytest.raises(OSError) as caught:
+        with pytest.raises(OSError, match="descriptor close failed before release") as caught:
             docker_runtime.stop_container_session(session)
         assert caught.value is failure
         assert session._model_store_mount is mount

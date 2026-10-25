@@ -11,7 +11,7 @@ import re
 import shutil
 import stat
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 from uuid import uuid4
@@ -86,7 +86,7 @@ def _finite_json_number(raw: str) -> float:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def host_identity(project_dir: str | Path) -> dict:

@@ -9,7 +9,7 @@ import math
 import wave
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -41,7 +41,7 @@ def _positive_int(value: Any, field_name: str) -> int:
     return parsed
 
 
-def _optional_positive_number(value: Any) -> Optional[float]:
+def _optional_positive_number(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -53,7 +53,7 @@ def _optional_positive_number(value: Any) -> Optional[float]:
     return parsed
 
 
-def _optional_positive_int(value: Any) -> Optional[int]:
+def _optional_positive_int(value: Any) -> int | None:
     parsed = _optional_positive_number(value)
     if parsed is None:
         return None
@@ -69,8 +69,8 @@ class AudioHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if task_type == "voice-activity-detection":
             return self._load_vad(model_source, device, model_revision, load_options)
         if task_type == "audio-to-audio":
@@ -116,8 +116,8 @@ class AudioHandler(BaseHandler):
     @staticmethod
     def _load_vad(
         model_source: str, device: str, model_revision: str,
-        load_options: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         if device != "cpu":
             raise ValueError("Silero TorchScript voice activity detection supports CPU execution only")
         if load_options:
@@ -148,8 +148,8 @@ class AudioHandler(BaseHandler):
     @staticmethod
     def _load_codec(
         model_source: str, device: str, model_revision: str,
-        load_options: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         import transformers
 
         revision = model_revision_kwargs(model_source, model_revision)
@@ -185,7 +185,7 @@ class AudioHandler(BaseHandler):
         }
 
     @staticmethod
-    def _text_tokenizer(model_ctx: Dict[str, Any]) -> Any:
+    def _text_tokenizer(model_ctx: dict[str, Any]) -> Any:
         pipe = model_ctx.get("pipeline")
         tokenizer = getattr(pipe, "tokenizer", None)
         if tokenizer is None:
@@ -195,7 +195,7 @@ class AudioHandler(BaseHandler):
         return tokenizer
 
     @classmethod
-    def _text_input_limit(cls, model_ctx: Dict[str, Any]) -> Optional[int]:
+    def _text_input_limit(cls, model_ctx: dict[str, Any]) -> int | None:
         tokenizer = cls._text_tokenizer(model_ctx)
         pipe = model_ctx.get("pipeline")
         config = getattr(getattr(pipe, "model", None), "config", None)
@@ -215,7 +215,7 @@ class AudioHandler(BaseHandler):
         special_count = int(special(pair=False)) if callable(special) else 0
         return max(1, limit - special_count)
 
-    def _preprocess_text(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def _preprocess_text(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         text = raw_input.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text-to-audio/speech input requires non-empty text")
@@ -233,7 +233,7 @@ class AudioHandler(BaseHandler):
         }
 
     @staticmethod
-    def _extract_audio_metadata(pipe: Any) -> Dict[str, Any]:
+    def _extract_audio_metadata(pipe: Any) -> dict[str, Any]:
         feature_extractor = getattr(pipe, "feature_extractor", None)
         model = getattr(pipe, "model", None)
         config = getattr(model, "config", None)
@@ -295,14 +295,14 @@ class AudioHandler(BaseHandler):
             "model_type": model_type or None,
         }
 
-    def _audio_metadata(self, model_ctx: Dict[str, Any]) -> Dict[str, Any]:
+    def _audio_metadata(self, model_ctx: dict[str, Any]) -> dict[str, Any]:
         metadata = model_ctx.get("audio_metadata")
         if isinstance(metadata, dict):
             return metadata
         return self._extract_audio_metadata(model_ctx.get("pipeline"))
 
     @staticmethod
-    def _decode_wav(audio_base64: Any) -> Tuple[np.ndarray, int]:
+    def _decode_wav(audio_base64: Any) -> tuple[np.ndarray, int]:
         if not isinstance(audio_base64, str) or not audio_base64.strip():
             raise ValueError("audio_base64 must be a non-empty Base64 string")
         try:
@@ -340,7 +340,7 @@ class AudioHandler(BaseHandler):
         audio_array = pcm.astype(np.float32) / 32768.0
         return audio_array, int(sample_rate)
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task_type = model_ctx["task_type"]
         if task_type in _TEXT_AUDIO_TASK_TYPES:
             return self._preprocess_text(model_ctx, raw_input)
@@ -443,9 +443,9 @@ class AudioHandler(BaseHandler):
 
     def get_scale_metadata(
         self,
-        model_ctx: Dict[str, Any],
-        raw_input: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        model_ctx: dict[str, Any],
+        raw_input: dict[str, Any],
+    ) -> dict[str, Any]:
         if model_ctx["task_type"] in _TEXT_AUDIO_TASK_TYPES:
             model_limit = self._text_input_limit(model_ctx)
             return {
@@ -517,7 +517,7 @@ class AudioHandler(BaseHandler):
         return result
 
     @staticmethod
-    def _is_whisper(model_ctx: Dict[str, Any]) -> bool:
+    def _is_whisper(model_ctx: dict[str, Any]) -> bool:
         metadata = model_ctx.get("audio_metadata")
         if isinstance(metadata, dict) and metadata.get("model_type") == "whisper":
             return True
@@ -525,7 +525,7 @@ class AudioHandler(BaseHandler):
         config = getattr(getattr(pipe, "model", None), "config", None)
         return str(getattr(config, "model_type", "") or "").lower() == "whisper"
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         task_type = model_ctx["task_type"]
         params = processed_input.get("params", {})
         if not isinstance(params, dict):
@@ -652,7 +652,7 @@ class AudioHandler(BaseHandler):
         return pipe(audio_input, **call_kwargs)
 
     @staticmethod
-    def _output_token_count(pipe: Any, text: str) -> Optional[int]:
+    def _output_token_count(pipe: Any, text: str) -> int | None:
         tokenizer = getattr(pipe, "tokenizer", None)
         if tokenizer is None:
             return None
@@ -671,7 +671,7 @@ class AudioHandler(BaseHandler):
         except (TypeError, ValueError, RuntimeError):
             return None
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         task_type = model_ctx["task_type"]
 
         if task_type in _TEXT_AUDIO_TASK_TYPES | {"audio-to-audio"}:

@@ -38,7 +38,7 @@ def saved_preparation(tmp_path, monkeypatch):
     return config, directory
 
 
-@pytest.mark.parametrize("language,size", [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
+@pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_start_existing_experiment_reviews_preparation_retry(saved_preparation, tmp_path, language, size):
     config, directory = saved_preparation
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}

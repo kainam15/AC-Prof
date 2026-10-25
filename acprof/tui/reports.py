@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal, overload
+from typing import Any, Literal, overload
 
 from acprof.messages import join_messages, message
 from acprof.tui.i18n import message_id

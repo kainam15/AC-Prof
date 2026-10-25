@@ -24,7 +24,7 @@ def test_smoke_defers_single_scale_until_task_resolution():
     options = build_parser().parse_args(command[command.index("--model"):])
     assert (options.input_scale_policy) == ("minimal")
 
-@pytest.mark.parametrize('task,family,expected,size_type', (('text-classification', 'nlp', 64.0, 'seq_length'), ('automatic-speech-recognition', 'audio', 1.0, 'duration_s'), ('image-classification', 'cv', 0.1, 'resolution_scale')))
+@pytest.mark.parametrize(("task", "family", "expected", "size_type"), [('text-classification', 'nlp', 64.0, 'seq_length'), ('automatic-speech-recognition', 'audio', 1.0, 'duration_s'), ('image-classification', 'cv', 0.1, 'resolution_scale')])
 def test_task_minimum_uses_workload_tokens_seconds_and_image_scale(task, family, expected, size_type):
     with tempfile.TemporaryDirectory() as directory:
         info = TaskInfo("example/model", task, family,

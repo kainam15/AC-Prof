@@ -24,7 +24,7 @@ from acprof.runtime_profiles import RuntimeProfile
 from acprof.tui.settings import load_settings
 
 
-@pytest.mark.parametrize('suffix', ('core', 'settings', 'i18n', 'input', 'log', 'scrollbar', 'themes'))
+@pytest.mark.parametrize('suffix', ['core', 'settings', 'i18n', 'input', 'log', 'scrollbar', 'themes'])
 def test_retired_tui_imports_fail(suffix):
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("acprof.cli.tui_" + suffix)
@@ -42,7 +42,7 @@ def test_missing_baked_snapshot_does_not_fall_back_to_hub():
     with pytest.raises(FileNotFoundError, match="snapshot"):
         resolve_model_source("example/model", "/missing/acprof/model-snapshot")
 
-@pytest.mark.parametrize('module,name', [('acprof.config', 'DEFAULT_BACKEND'), ('acprof.config', 'LIBRARY_TO_BACKEND'), ('acprof.config', 'PIPELINE_TAG_TO_FAMILY'), ('acprof.config', 'ARCHITECTURE_TO_TASK'), ('acprof.runtime_profiles', 'MOSS_MODEL_ID'), ('acprof.runtime_profiles', 'MOSS_ADAPTER'), ('acprof.runtime_profiles', 'MOSS_PROMPT'), ('acprof.runtime_profiles', 'ARCHITECTURE_PROFILES'), ('acprof.runtime_profiles', 'MODEL_PROFILES')])
+@pytest.mark.parametrize(('module', 'name'), [('acprof.config', 'DEFAULT_BACKEND'), ('acprof.config', 'LIBRARY_TO_BACKEND'), ('acprof.config', 'PIPELINE_TAG_TO_FAMILY'), ('acprof.config', 'ARCHITECTURE_TO_TASK'), ('acprof.runtime_profiles', 'MOSS_MODEL_ID'), ('acprof.runtime_profiles', 'MOSS_ADAPTER'), ('acprof.runtime_profiles', 'MOSS_PROMPT'), ('acprof.runtime_profiles', 'ARCHITECTURE_PROFILES'), ('acprof.runtime_profiles', 'MODEL_PROFILES')])
 def test_retired_extension_routing_exports_fail_explicitly(module, name):
     import importlib
     with pytest.raises(AttributeError):
@@ -66,14 +66,14 @@ def test_failed_ncu_query_does_not_guess_a_metric_list():
     assert (metrics) == ([])
     assert ("query unavailable") in (error)
 
-@pytest.mark.parametrize('arguments', (['--no-compute-profile'], ['--compute-profile-tool', 'auto'], ['--allow-cgroup-v1']))
+@pytest.mark.parametrize('arguments', [['--no-compute-profile'], ['--compute-profile-tool', 'auto'], ['--allow-cgroup-v1']])
 def test_removed_cli_options_fail_during_argument_parsing(arguments):
     with contextlib.redirect_stderr(io.StringIO()):
         with pytest.raises(SystemExit) as caught:
             build_parser().parse_args(["--model", "example/model", *arguments])
         assert (caught.value.code) == (2)
 
-@pytest.mark.parametrize('payload', ({}, {'version': 1}, {'version': 2}, {'version': 3}))
+@pytest.mark.parametrize('payload', [{}, {'version': 1}, {'version': 2}, {'version': 3}])
 def test_old_settings_fail_without_overwriting_the_file(payload):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -84,7 +84,7 @@ def test_old_settings_fail_without_overwriting_the_file(payload):
             load_settings(path, root)
         assert (path.read_bytes()) == (original)
 
-@pytest.mark.parametrize('version', (None, 1, True, 99))
+@pytest.mark.parametrize('version', [None, 1, True, 99])
 def test_old_input_plan_is_rejected_and_current_payload_is_preserved(version):
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary) / "input_scale_plan.json"
@@ -99,7 +99,7 @@ def test_old_input_plan_is_rejected_and_current_payload_is_preserved(version):
         assert (load_input_scale_plan_entries(str(path))[0]["payload"]) == (entry["payload"])
 
 
-@pytest.mark.parametrize("input_scale", (True, "1", "nan", 0, -1))
+@pytest.mark.parametrize("input_scale", [True, "1", "nan", 0, -1])
 def test_profiler_input_plan_rejects_non_numeric_or_non_positive_scales(input_scale):
     with tempfile.TemporaryDirectory() as temporary:
         path = Path(temporary) / "input_scale_plan.json"
@@ -151,15 +151,15 @@ def test_missing_static_metadata_preserves_optional_and_required_semantics():
 
 
 @pytest.mark.parametrize(
-    "content,error",
-    (
+    ('content', 'error'),
+    [
         (b"[]", "object"),
         (b'{"schema_version": 7, "value": NaN}', "non-finite"),
         (b'{"schema_version": 7, "value": Infinity}', "non-finite"),
         (b'{"schema_version": 7, "value": -Infinity}', "non-finite"),
         (b'{"schema_version": 7, "value": 1e999}', "non-finite"),
         (b"\xff", "invalid static metadata JSON"),
-    ),
+    ],
 )
 def test_static_metadata_rejects_non_object_or_invalid_json_without_rewriting(content, error):
     with tempfile.TemporaryDirectory() as temporary:

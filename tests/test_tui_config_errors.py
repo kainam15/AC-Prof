@@ -11,8 +11,8 @@ from acprof.experiment import RunConfig
 from acprof.tui.input import BarCursorInput as Input
 
 
-@pytest.mark.parametrize('size,language', (((80, 24), 'zh'), ((120, 30), 'en')))
-@pytest.mark.parametrize('field,invalid,valid,page', (('cpus', 'zero', '1', 'run-form'), ('repeat', '0', '1', 'advanced-form'), ('workload-spec', 'missing-coverage-input.json', '', 'advanced-form'), ('max-download', 'bad', '5GB', 'advanced-form')))
+@pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
+@pytest.mark.parametrize(('field', 'invalid', 'valid', 'page'), [('cpus', 'zero', '1', 'run-form'), ('repeat', '0', '1', 'advanced-form'), ('workload-spec', 'missing-coverage-input.json', '', 'advanced-form'), ('max-download', 'bad', '5GB', 'advanced-form')])
 async def test_submit_reveals_and_focuses_each_error_then_clears_its_reason(size, language, field, invalid, valid, page):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=Path(directory) / "settings.json")

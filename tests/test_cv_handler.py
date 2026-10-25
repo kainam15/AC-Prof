@@ -63,7 +63,7 @@ class TestCVCaption:
         assert (result["output_token_count"]) is None
         assert (result["output_length"]) == (9)
 
-    @pytest.mark.parametrize('output', (None, [], 'a cat', [{'label': 'cat'}], [{'generated_text': None}]))
+    @pytest.mark.parametrize('output', [None, [], 'a cat', [{'label': 'cat'}], [{'generated_text': None}]])
     def test_malformed_caption_output_fails_instead_of_reporting_detection(self, output):
         with pytest.raises(ValueError, match="caption"):
             self.handler.postprocess(self.ctx, output)
@@ -143,9 +143,9 @@ class TestCVExtendedHandler:
             self.handler.predict({"pipeline": Mock(), "task_type": "zero-shot-object-detection"},
                                  {"image": "decoded", "params": {}})
 
-    @pytest.mark.parametrize('payload', ({}, {'image_base64': 'garbage'}))
+    @pytest.mark.parametrize('payload', [{}, {'image_base64': 'garbage'}])
     def test_missing_or_invalid_images_do_not_turn_into_dummy_measurements(self, payload):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="image_base64 must contain|invalid base64 image payload"):
             self.handler.preprocess({"task_type": "image-classification"}, payload)
 
     @pytest.mark.parametrize('task_case', range(4))

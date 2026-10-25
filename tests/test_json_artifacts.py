@@ -55,7 +55,7 @@ def test_artifact_reader_does_not_strip_embedded_or_repeated_bom(tmp_path, conte
 
 
 def test_wire_json_decoder_remains_strict_about_bom():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unexpected UTF-8 BOM"):
         loads_finite_json('\ufeff{}')
 
 

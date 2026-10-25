@@ -127,7 +127,7 @@ class TestCapability:
         assert (report.to_dict()["profiling_mode"]) == ("basic")
         assert not (report.to_dict()["full_profile_complete"])
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_run_profiler_plan_reader_rejects_invalid_json_artifacts(self, case):
         from acprof.application.preparation import apply_profiler_plan_file
 
@@ -198,7 +198,7 @@ class TestCapability:
         assert (payload["collection_succeeded"]) is None
         assert (payload["row_counts"]) is None
 
-    @pytest.mark.parametrize('version', ({}, {'schema_version': 1}, {'schema_version': 2}))
+    @pytest.mark.parametrize('version', [{}, {'schema_version': 1}, {'schema_version': 2}])
     def test_report_reader_accepts_known_versions_and_legacy_missing_version(self, version):
         caps = self.capabilities()
         restored = caps.CapabilityReport.from_dict({
@@ -210,14 +210,14 @@ class TestCapability:
         assert (restored["collection_succeeded"]) is None
         assert (restored["row_counts"]) is None
 
-    @pytest.mark.parametrize('version', (0, 4, 999, True, False, 1.0, '2', None))
+    @pytest.mark.parametrize('version', [0, 4, 999, True, False, 1.0, '2', None])
     def test_report_reader_rejects_unknown_and_non_integer_versions(self, version):
         caps = self.capabilities()
         with pytest.raises(ValueError, match="schema_version"):
             caps.CapabilityReport.from_dict({"schema_version": version})
 
-    @pytest.mark.parametrize('value', ('false', 'true', 0, 1, [], {}))
-    @pytest.mark.parametrize('field', ('collection_complete', 'collection_finished', 'collection_succeeded'))
+    @pytest.mark.parametrize('value', ['false', 'true', 0, 1, [], {}])
+    @pytest.mark.parametrize('field', ['collection_complete', 'collection_finished', 'collection_succeeded'])
     def test_report_reader_rejects_non_boolean_collection_states(self, value, field):
         caps = self.capabilities()
         with pytest.raises(ValueError, match=field):
@@ -225,7 +225,7 @@ class TestCapability:
         with pytest.raises(ValueError, match="collection_complete"):
             caps.CapabilityReport.from_dict({"schema_version": 2, "collection_complete": None})
 
-    @pytest.mark.parametrize('value', (True, False, None))
+    @pytest.mark.parametrize('value', [True, False, None])
     def test_report_reader_preserves_nullable_states_and_legacy_success(self, value):
         caps = self.capabilities()
         legacy = caps.CapabilityReport.from_dict({"collection_complete": True}).to_dict()

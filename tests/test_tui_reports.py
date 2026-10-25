@@ -156,7 +156,7 @@ class TestTuiReports:
                 assert not (app.is_busy())
         assert (self.csv_path.read_bytes()) == (original)
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_empty_header_click_before_loading_and_after_read_failure(self, size):
         report = self.overhead_report()
         app = self.make_app()
@@ -187,7 +187,7 @@ class TestTuiReports:
             await self.finish_workers(app, pilot)
             assert (table.row_count) == (1), "空表头点击后仍能正常读取报告"
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_open_overhead_at_all_sizes_and_language_switch_preserves_data_and_draft(self, size):
         report = self.overhead_report()
         original = report.read_bytes()

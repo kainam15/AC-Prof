@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -18,8 +17,8 @@ class EnergyResult:
     energy_eff_j: float
     energy_source: str = "unavailable"
     energy_fallback_reason: str = ""
-    counter_start_mj: Optional[int] = None
-    counter_end_mj: Optional[int] = None
+    counter_start_mj: int | None = None
+    counter_end_mj: int | None = None
     measurement_duration_s: float = float("nan")
 
 
@@ -50,7 +49,7 @@ def median_power(xs):
     return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
 
 
-def time_weighted_average_power(samples: List[Tuple[float, float]]) -> float:
+def time_weighted_average_power(samples: list[tuple[float, float]]) -> float:
     if not samples:
         return float("nan")
     if len(samples) == 1:
@@ -82,7 +81,7 @@ def unavailable_gpu_result(energy_iters: int = 0, idle_power_w: float = float("n
 
 
 def reduce_gpu_samples(
-    samples: List[Tuple[float, float]],
+    samples: list[tuple[float, float]],
     idle_power_w: float,
 ) -> EnergyResult:
     if len(samples) < 2:

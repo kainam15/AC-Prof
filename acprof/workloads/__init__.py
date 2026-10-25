@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib import import_module
 from threading import RLock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.extensions import CATALOG, ExtensionCatalog, validate_entrypoint
 
@@ -22,16 +22,16 @@ class WorkloadGenerator(ABC):
     @classmethod
     def from_config(
         cls, model_id: str, task_type: str, batch_size: int, *,
-        workload_spec_path: Optional[str] = None, model_adapter: Optional[str] = None,
+        workload_spec_path: str | None = None, model_adapter: str | None = None,
         **options: Any,
-    ) -> "WorkloadGenerator":
+    ) -> WorkloadGenerator:
         """Keep legacy constructors; adapter-specific families override this factory."""
         if workload_spec_path is not None:
             options["workload_spec_path"] = workload_spec_path
         return cls(model_id, task_type, batch_size, **options)
 
     @abstractmethod
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         """Return a JSON-serializable payload for /predict."""
 
     @abstractmethod
@@ -41,28 +41,28 @@ class WorkloadGenerator(ABC):
     def effective_input_scale(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Optional[float]:
+        payload: dict[str, Any] | None = None,
+    ) -> float | None:
         """Return the effective input scale represented by the generated payload."""
         return float(scale_value)
 
-    def max_input_scale(self) -> Optional[float]:
+    def max_input_scale(self) -> float | None:
         """Return the default maximum input scale for auto-planning when known."""
         return None
 
-    def default_input_scales(self) -> Optional[List[float]]:
+    def default_input_scales(self) -> list[float] | None:
         """Return workload-defined default scales, or ``None`` for legacy planning."""
         return None
 
-    def plan_metadata(self) -> Dict[str, Any]:
+    def plan_metadata(self) -> dict[str, Any]:
         """Return JSON-serializable metadata to persist with a materialized plan."""
         return {}
 
     def input_metadata(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Return JSON-serializable metadata for one materialized input."""
         return {}
 
@@ -94,10 +94,10 @@ class WorkloadInitializationError(RuntimeError):
 @dataclass(frozen=True)
 class _LazyGenerator:
     entrypoint: str
-    implementation: Optional[type] = None
+    implementation: type | None = None
 
 
-_generators: Dict[str, Any] = {}
+_generators: dict[str, Any] = {}
 _lock = RLock()
 
 
@@ -185,8 +185,8 @@ def get_generator(
     model_id: str,
     task_type: str,
     batch_size: int,
-    workload_spec_path: Optional[str] = None,
-    model_adapter: Optional[str] = None,
+    workload_spec_path: str | None = None,
+    model_adapter: str | None = None,
     **options: Any,
 ) -> WorkloadGenerator:
     # An omitted CLI --workload-spec is represented as an empty string.

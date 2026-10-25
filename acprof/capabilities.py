@@ -6,14 +6,19 @@ stays a number in the existing CSV; missing measurements stay NaN/null.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Mapping, Sequence
+from enum import Enum, StrEnum
+from typing import Any
 
 from acprof.platform import Environment, capability_matrix, detect_environment, recorded_identity
 
 
-class CapabilityStatus(str, Enum):
+class CapabilityStatus(StrEnum):
+    # Preserve diagnostic strings; serialized evidence explicitly uses .value.
+    __str__ = Enum.__str__
+    __format__ = Enum.__format__
+
     AVAILABLE = "available"
     VERIFIED = "verified"
     UNSUPPORTED = "unsupported"
@@ -97,7 +102,7 @@ class CapabilityReport:
         }
 
     @classmethod
-    def from_dict(cls, payload: Mapping) -> "CapabilityReport":
+    def from_dict(cls, payload: Mapping) -> CapabilityReport:
         """Read v1/v2/v3 evidence; legacy reports have unknown environment identity."""
         version = payload.get("schema_version", 1)
         if type(version) is not int or version not in {1, 2, 3}:

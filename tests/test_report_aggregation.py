@@ -28,7 +28,7 @@ class TestReportAggregation:
         assert (report["successful"]), report["errors"]
         assert (report["versions"]["3.12"]["counts"]["passed"]) == (4)
 
-    @pytest.mark.parametrize('field', ('source_sha256', 'tests_sha256', 'locks_sha256', 'packages', 'missing'))
+    @pytest.mark.parametrize('field', ['source_sha256', 'tests_sha256', 'locks_sha256', 'packages', 'missing'])
     def test_mixed_or_missing_evidence_identity_is_rejected(self, field):
         reports = self.reports()
         if field == 'packages':

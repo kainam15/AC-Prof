@@ -37,7 +37,7 @@ class TestDependencyLock:
             lock.write_text('# Same dependency environment, reviewed again.\n' + lock.read_text())
             assert (first) == (runtime_fingerprint(environment, root))
 
-    @pytest.mark.parametrize('family', ('nlp', 'cv', 'audio', 'diffusion', 'structured', 'timeseries', 'multimodal'))
+    @pytest.mark.parametrize('family', ['nlp', 'cv', 'audio', 'diffusion', 'structured', 'timeseries', 'multimodal'])
     def test_every_family_defaults_to_complete_lock_and_digest(self, family):
         environment = select_runtime_profile(self.task(family)).environment
         assert ('@sha256:') in (environment.platform.python_base_image)

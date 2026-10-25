@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Mapping, Optional, Set, Tuple
+from typing import Any
 
 from acprof.artifacts import read_json_object
 
@@ -89,8 +90,8 @@ NSYS_FIELDS = NSYS_METRIC_FIELDS + (NSYS_ERROR_FIELD,)
 EXECUTION_PROFILE_FIELDS = MASSIF_FIELDS + NSYS_FIELDS
 
 
-def _empty_result() -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+def _empty_result() -> dict[str, Any]:
+    result: dict[str, Any] = {
         field: float("nan")
         for field in MASSIF_METRIC_FIELDS + NSYS_METRIC_FIELDS
     }
@@ -107,7 +108,7 @@ def _finite_float_or_nan(value: Any) -> float:
     return number if math.isfinite(number) else float("nan")
 
 
-def load_execution_profile_plan(path: str) -> Dict[str, Any]:
+def load_execution_profile_plan(path: str) -> dict[str, Any]:
     """Load an execution profile plan without raising client-side errors.
 
     An empty path means that execution profiling was deliberately disabled.
@@ -140,7 +141,7 @@ def _normalize_gpu_mode(value: Any) -> str:
     return str(value).strip().lower()
 
 
-def _integer_value(value: Any) -> Optional[int]:
+def _integer_value(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     try:
@@ -193,7 +194,7 @@ def _tool_profile_enabled(profile: Any) -> bool:
     return status not in {"disabled", "not_enabled", "off"}
 
 
-def _tool_names(value: Any) -> Set[str]:
+def _tool_names(value: Any) -> set[str]:
     if isinstance(value, Mapping):
         return {
             str(key).strip().lower()
@@ -215,8 +216,8 @@ def _tool_names(value: Any) -> Set[str]:
     return set()
 
 
-def _enabled_tools(plan: Mapping[str, Any]) -> Set[str]:
-    enabled: Set[str] = set()
+def _enabled_tools(plan: Mapping[str, Any]) -> set[str]:
+    enabled: set[str] = set()
     for key in ("enabled_tools", "execution_profile_tools"):
         enabled.update(_tool_names(plan.get(key)))
 
@@ -242,12 +243,12 @@ def _find_resource_case(
     mem_cap_gb: int | str,
     gpu_mode: str,
     tool_key: str,
-) -> Optional[Mapping[str, Any]]:
+) -> Mapping[str, Any] | None:
     profiles = plan.get("profiles")
     if not isinstance(profiles, list):
         return None
 
-    first_match: Optional[Mapping[str, Any]] = None
+    first_match: Mapping[str, Any] | None = None
     for profile in profiles:
         if not isinstance(profile, Mapping):
             continue
@@ -285,7 +286,7 @@ def _resolve_tool_entry(
     tool_key: str,
     error_field: str,
     input_scale: float,
-) -> Tuple[Mapping[str, Any], str]:
+) -> tuple[Mapping[str, Any], str]:
     profile_error = _profile_error(tool_profile, error_field)
     entries = tool_profile.get("entries")
     if not isinstance(entries, list):
@@ -338,7 +339,7 @@ def _missing_case_error(
 
 
 def _apply_entry(
-    result: Dict[str, Any],
+    result: dict[str, Any],
     *,
     entry: Mapping[str, Any],
     metric_fields: Iterable[str],
@@ -447,7 +448,7 @@ class ExecutionProfileResolver:
         mem_cap_gb: int | str,
         gpu_mode: str,
         input_scale: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         result = _empty_result()
         mode = _normalize_gpu_mode(gpu_mode)
         tool_key = NSYS_TOOL_KEY if mode == "on" else MASSIF_TOOL_KEY
@@ -485,12 +486,12 @@ class ExecutionProfileResolver:
 
 
 def find_execution_profile_entry(
-    plan: Dict[str, Any] | ExecutionProfileResolver,
+    plan: dict[str, Any] | ExecutionProfileResolver,
     cpu_cores: int | str,
     mem_cap_gb: int | str,
     gpu_mode: str,
     input_scale: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return the flat execution-profile fields for one result row.
 
     A CPU-only row (``gpu_mode="off"``) applies only Massif.  A GPU row

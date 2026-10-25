@@ -122,7 +122,7 @@ class TestPixelNormalization:
         assert (df.output_pixels_per_request.tolist()) == ([131072])
         assert (df.container_attributed_j_per_output_megapixel.tolist()) == ([10000])
 
-    @pytest.mark.parametrize('family,scale_type', (('nlp', 'seq_length'), ('audio', 'duration_s'), ('diffusion', 'denoising_steps')))
+    @pytest.mark.parametrize(("family", "scale_type"), [('nlp', 'seq_length'), ('audio', 'duration_s'), ('diffusion', 'denoising_steps')])
     def test_non_image_scales_are_not_squared(self, family, scale_type):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.write_result(tmp, family=family, scale_type=scale_type,
@@ -214,7 +214,7 @@ class TestPixelNormalization:
             matplotlib_pyplot.close("all")
 
 
-    @pytest.mark.parametrize('filename,index,expected,unit', (('service_efficiency_overview_vs_scale.png', 3, [10000, 10000], 'J/Mpixel'), ('latency_overview_vs_scale.png', 2, [1, 1], 's/Mpixel')))
+    @pytest.mark.parametrize(("filename", "index", "expected", "unit"), [('service_efficiency_overview_vs_scale.png', 3, [10000, 10000], 'J/Mpixel'), ('latency_overview_vs_scale.png', 2, [1, 1], 's/Mpixel')])
     def test_energy_and_latency_panels_plot_pixels(self, filename, index, expected, unit):
         with tempfile.TemporaryDirectory() as tmp:
             df = plotting_data.prepare_df(str(self.write_result(tmp)))

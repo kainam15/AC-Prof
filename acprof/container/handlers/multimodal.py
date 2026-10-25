@@ -17,7 +17,7 @@ import tempfile
 import wave
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -70,8 +70,8 @@ class MultimodalHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         import transformers
 
         if task_type not in _TASKS:
@@ -181,7 +181,7 @@ class MultimodalHandler(BaseHandler):
             raise ValueError("image_base64 must contain a valid Base64 image") from exc
 
     @staticmethod
-    def _params(task: str, value: Any) -> Dict[str, Any]:
+    def _params(task: str, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise ValueError("params must be an object")
         allowed = {"max_new_tokens", "do_sample"}
@@ -218,7 +218,7 @@ class MultimodalHandler(BaseHandler):
         return params
 
     @staticmethod
-    def _word_boxes(sample: Dict[str, Any]) -> list[Any]:
+    def _word_boxes(sample: dict[str, Any]) -> list[Any]:
         words, boxes = sample.get("words"), sample.get("boxes")
         if not isinstance(words, list) or not words or not all(isinstance(word, str) and word for word in words):
             raise ValueError("document words and boxes must be non-empty parallel lists")
@@ -233,7 +233,7 @@ class MultimodalHandler(BaseHandler):
                 raise ValueError("document boxes must be ordered [x0,y0,x1,y1] integers normalized to 0..1000")
         return list(zip(words, boxes, strict=True))
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task = model_ctx["task_type"]
         unknown = set(raw_input) - {"samples", "params", "input_scale", "input_scale_type"}
         if unknown:
@@ -425,7 +425,7 @@ class MultimodalHandler(BaseHandler):
         return processor(text=[prompt], return_tensors="pt", padding=True, add_special_tokens=False, **media_kwargs)
 
     @staticmethod
-    def _scale_metadata(raw_input: Dict[str, Any], media_scales: Dict[str, float]) -> Dict[str, Any]:
+    def _scale_metadata(raw_input: dict[str, Any], media_scales: dict[str, float]) -> dict[str, Any]:
         scale_type = raw_input.get("input_scale_type")
         if scale_type is None and len(media_scales) == 1:
             scale_type = next(iter(media_scales))
@@ -445,9 +445,9 @@ class MultimodalHandler(BaseHandler):
         }
 
     def _preprocess_qa(
-        self, model_ctx: Dict[str, Any], sample: Dict[str, Any],
-        image: Any, params: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        self, model_ctx: dict[str, Any], sample: dict[str, Any],
+        image: Any, params: dict[str, Any],
+    ) -> dict[str, Any]:
         pipe = model_ctx["pipeline"]
         inputs = {"image": image, "question": sample["text"]}
         if model_ctx["task_type"] == "document-question-answering":
@@ -469,7 +469,7 @@ class MultimodalHandler(BaseHandler):
         chunks = [pipe._ensure_tensor_on_device(dict(chunk), device=pipe.device) for chunk in chunks]
         return {"chunks": chunks, "forward_params": forward_params, "post_params": post_params}
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         import torch
 
         mode = model_ctx["mode"]
@@ -518,7 +518,7 @@ class MultimodalHandler(BaseHandler):
                     "max_new_tokens": processed_input["params"].get("max_new_tokens")}
 
     @staticmethod
-    def _text_summary(tokenizer: Any, texts: list[str]) -> Dict[str, Any]:
+    def _text_summary(tokenizer: Any, texts: list[str]) -> dict[str, Any]:
         token_count = None
         if tokenizer is not None:
             try:
@@ -527,7 +527,7 @@ class MultimodalHandler(BaseHandler):
                 pass
         return {"n_results": len(texts), "output_length": sum(map(len, texts)), "output_token_count": token_count}
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         task, mode = model_ctx["task_type"], model_ctx["mode"]
         result = {"task": task}
         if mode == "custom_pipeline":
@@ -603,7 +603,7 @@ class MultimodalHandler(BaseHandler):
             **evidence,
         }
 
-    def get_scale_metadata(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         processor = model_ctx.get("processor")
         rate = getattr(getattr(processor, "feature_extractor", None), "sampling_rate", None)
         return {"sampling_rate": rate} if isinstance(rate, int) and rate > 0 else {}

@@ -66,7 +66,7 @@ def test_recomputes_both_explicit_flop_rates_from_packet_latency() -> None:
             check=True,
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             row = next(reader)
             output_fields = reader.fieldnames or []
@@ -150,7 +150,7 @@ def test_recomputes_compute_mflops_from_packet_latency() -> None:
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
 
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
             fieldnames = reader.fieldnames or []
@@ -218,7 +218,7 @@ def test_merges_packet_latency_distribution_fields() -> None:
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
 
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             rows = list(csv.DictReader(f))
 
     assert (rows[0]["latency_s"]) == ("0.126000")
@@ -285,7 +285,7 @@ def test_merges_schema_v2_network_and_normalized_metrics() -> None:
             check=True,
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             row = next(csv.DictReader(f))
 
     assert (row["latency_s"]) == ("0.500000")
@@ -344,7 +344,7 @@ def test_merges_packet_latency_with_sidecar_when_csv_omits_sniff_group_id() -> N
             cwd=os.path.dirname(os.path.dirname(__file__)),
         )
 
-        with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        with open(out_csv, encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
             output_fields = reader.fieldnames or []
@@ -384,7 +384,7 @@ def test_sidecar_row_count_mismatch_fails_closed(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    "packet_payload,error_match",
+    ("packet_payload", "error_match"),
     [
         ('{"schema_version":2,"requests":{},"corrupt":NaN}', "non-finite"),
         ('{"schema_version":2,"requests":{},"corrupt":Infinity}', "non-finite"),

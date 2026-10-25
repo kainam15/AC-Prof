@@ -97,7 +97,7 @@ def detect_cgroup_version(
         return "v2"
 
     try:
-        with open(proc_self_cgroup_path, "r", encoding="utf-8") as f:
+        with open(proc_self_cgroup_path, encoding="utf-8") as f:
             lines = f.readlines()
     except OSError:
         return "unknown"

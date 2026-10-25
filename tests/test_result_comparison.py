@@ -121,7 +121,7 @@ class TestResultComparison(ComparisonFixture):
         assert (report["conditions"]["resources"]["status"]) == ("incompatible")
         assert (report["conditions"]["measurement_protocol"]["status"]) == ("incompatible")
 
-    @pytest.mark.parametrize("field,value", [("sampling_policy", "skip"), ("raw_sample_limit", 500)])
+    @pytest.mark.parametrize(("field", "value"), [("sampling_policy", "skip"), ("raw_sample_limit", 500)])
     @pytest.mark.parametrize("purpose", ["same-hardware", "cross-hardware", "resource-scaling"])
     def test_sampling_and_retention_protocol_changes_block_comparison(self, field, value, purpose):
         from acprof.analysis.comparison import compare_results

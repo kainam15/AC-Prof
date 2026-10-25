@@ -52,7 +52,7 @@ def test_repeated_identical_manifest_is_idempotent():
     assert (once.workloads) == (repeated.workloads)
     assert (once.backend_rules) == (repeated.backend_rules)
 
-@pytest.mark.parametrize('value', ('missing-colon', ':Generator', 'module:', 'module:bad-name', None, 4))
+@pytest.mark.parametrize('value', ['missing-colon', ':Generator', 'module:', 'module:bad-name', None, 4])
 def test_workload_entrypoint_is_validated_without_import(value):
     from acprof.extensions import CATALOG, ExtensionCatalog
     original = CATALOG.get_extension("structured", "torchscript")

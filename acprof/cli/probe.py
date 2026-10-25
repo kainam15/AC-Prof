@@ -6,8 +6,8 @@ import argparse
 import math
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from acprof.host.env_utils import bootstrap_project_env
 from acprof.host.images.runtime import prepare_image

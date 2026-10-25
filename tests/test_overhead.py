@@ -29,7 +29,7 @@ def test_known_paired_increase_and_zero_change():
     assert (result[0]["latency_mean_s"]) == (35 / 12) or round(abs((result[0]["latency_mean_s"]) - (35 / 12)), 7) == 0
     assert (result[0]["latency_stdev_s"]) > (0)
 
-@pytest.mark.parametrize('status,body', ((202, {'status': 'pending'}), (200, {'error': 'background failure'})))
+@pytest.mark.parametrize(("status", "body"), [(202, {'status': 'pending'}), (200, {'error': 'background failure'})])
 def test_failed_or_unfinished_response_is_not_a_latency_sample(status, body):
     from scripts.measure_overhead import measure_window
     response = Mock(status_code=status)

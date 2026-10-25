@@ -7,16 +7,12 @@ import os
 import shutil
 import stat
 import tempfile
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import (
     Any,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
     TextIO,
-    Tuple,
 )
 
 from acprof.artifacts import atomic_write
@@ -379,7 +375,7 @@ def commit_result_files(
                 pass
 
 
-def _read_process_cmdline(pid_dir: Path) -> List[str]:
+def _read_process_cmdline(pid_dir: Path) -> list[str]:
     try:
         data = (pid_dir / "cmdline").read_bytes()
     except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
@@ -391,7 +387,7 @@ def _read_process_cmdline(pid_dir: Path) -> List[str]:
     ]
 
 
-def _option_value(args: Sequence[str], name: str) -> Optional[str]:
+def _option_value(args: Sequence[str], name: str) -> str | None:
     prefix = f"{name}="
     for index, arg in enumerate(args):
         if arg == name and index + 1 < len(args):
@@ -421,9 +417,9 @@ def find_active_processes(
     result_dir: Path,
     *,
     model_id: str = "",
-) -> List[Tuple[int, str]]:
+) -> list[tuple[int, str]]:
     expected = result_dir.resolve()
-    matches: List[Tuple[int, str]] = []
+    matches: list[tuple[int, str]] = []
     proc_root = Path("/proc")
     if not proc_root.is_dir():
         return matches
@@ -479,7 +475,7 @@ class PosthocLock:
         self._result_lock = ResultDirectoryLock(result_dir)
         self._measurement_lock = MeasurementLock()
 
-    def __enter__(self) -> "PosthocLock":
+    def __enter__(self) -> PosthocLock:
         self._measurement_lock.__enter__()
         try:
             self._result_lock.__enter__()

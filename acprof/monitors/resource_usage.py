@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
 
 from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically
@@ -55,50 +55,32 @@ class ResourceUsageMonitor:
                                      resource_readers._prepare_cpu_frequency_reader(
                                          cpu_sysfs_root, proc_cpuinfo_path))
 
-        self.samples: List[resource_metrics.ResourceUsageSample] = []
-        self._cpu_reader: Optional[Callable[[], float]] = None
-        self._mem_reader: Optional[Callable[[], int]] = None
-        self._swap_reader: Optional[Callable[[], int]] = None
-        self._swap_limit_reader: Optional[Callable[[], int]] = None
-        self._io_reader: Optional[Callable[[], Tuple[int, int]]] = None
-        self._cpu_throttle_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._memory_events_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._cpu_pressure_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._memory_pressure_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._io_pressure_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._memory_peak_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._memory_stat_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._io_operations_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._pids_reader: Optional[
-            Callable[[], Dict[str, float]]
-        ] = None
-        self._swap_limit_bytes: Optional[int] = None
-        self._io_start: Optional[Tuple[int, int]] = None
-        self._io_end: Optional[Tuple[int, int]] = None
+        self.samples: list[resource_metrics.ResourceUsageSample] = []
+        self._cpu_reader: Callable[[], float] | None = None
+        self._mem_reader: Callable[[], int] | None = None
+        self._swap_reader: Callable[[], int] | None = None
+        self._swap_limit_reader: Callable[[], int] | None = None
+        self._io_reader: Callable[[], tuple[int, int]] | None = None
+        self._cpu_throttle_reader: Callable[[], dict[str, float]] | None = None
+        self._memory_events_reader: Callable[[], dict[str, float]] | None = None
+        self._cpu_pressure_reader: Callable[[], dict[str, float]] | None = None
+        self._memory_pressure_reader: Callable[[], dict[str, float]] | None = None
+        self._io_pressure_reader: Callable[[], dict[str, float]] | None = None
+        self._memory_peak_reader: Callable[[], dict[str, float]] | None = None
+        self._memory_stat_reader: Callable[[], dict[str, float]] | None = None
+        self._io_operations_reader: Callable[[], dict[str, float]] | None = None
+        self._pids_reader: Callable[[], dict[str, float]] | None = None
+        self._swap_limit_bytes: int | None = None
+        self._io_start: tuple[int, int] | None = None
+        self._io_end: tuple[int, int] | None = None
         self._window_counters_start = resource_metrics.WindowCounterSnapshots()
         self._window_counters_end = resource_metrics.WindowCounterSnapshots()
         self._gpu_handle = None
         self._gpu_initialized = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._t_start: Optional[float] = None
-        self._t_end: Optional[float] = None
+        self._t_start: float | None = None
+        self._t_end: float | None = None
         self._init_error = ""
         self._runtime_error = ""
         self._runtime_errors: list[str] = []

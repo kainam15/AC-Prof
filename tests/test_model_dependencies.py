@@ -69,7 +69,7 @@ class TestModelDependency:
         lookup.assert_not_called()
         assert (task_model_spec(task)) == (declaration)
 
-    @pytest.mark.parametrize('suffix', ('\nif dynamic_training_mode():\n    AutoModel.from_pretrained("example/base")', '\nmodels = [AutoModel.from_pretrained("example/base") for item in dynamic_items()]', '\nmatch dynamic_mode():\n    case "train":\n        AutoModel.from_pretrained("example/base")'))
+    @pytest.mark.parametrize('suffix', ['\nif dynamic_training_mode():\n    AutoModel.from_pretrained("example/base")', '\nmodels = [AutoModel.from_pretrained("example/base") for item in dynamic_items()]', '\nmatch dynamic_mode():\n    case "train":\n        AutoModel.from_pretrained("example/base")'])
     def test_conditional_weight_load_does_not_download_a_potential_base_model(self, suffix):
         task, lookup = self.discover(fixture.SOURCE + suffix, ["config.json", "model.safetensors"])
         assert not (task_model_spec(task))
@@ -106,7 +106,7 @@ def test_missing_shard_does_not_fall_back_to_incomplete_numbered_files():
         dependency_files(['config.json', index, first, 'pytorch_model.bin'], {'weights'},
                          read_json=lambda _: {'weight_map': {'a': first, 'b': missing}})
 
-@pytest.mark.parametrize('name', ('../outside.safetensors', '/outside.safetensors', 'bad\\name.safetensors'))
+@pytest.mark.parametrize('name', ['../outside.safetensors', '/outside.safetensors', 'bad\\name.safetensors'])
 def test_invalid_index_paths_and_selection_limit_still_fail(name):
     from acprof.model_dependencies import dependency_files
     index = 'model.safetensors.index.json'

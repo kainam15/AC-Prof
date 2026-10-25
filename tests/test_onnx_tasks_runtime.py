@@ -97,7 +97,7 @@ class TestONNXTaskRuntime:
         assert (report['workload_contract']['input']['tensors']['input_ids']) == ({'dtype': 'int64', 'shape': [1, 4]})
         assert ({item['name'] for item in context['runtime_parameters']['outputs']}) == ({'logits', 'token_count'})
 
-    @pytest.mark.parametrize('payload,reason', [({'text': 'hello world hello', 'batch_size': 1}, 'max_length'), ({'text': 'hello', 'batch_size': 2}, 'batch'), ({'text': ['hello', 'hello world'], 'batch_size': 2}, 'padding'), ({'text': 'hello world', 'input_scale': 5}, 'input_scale')])
+    @pytest.mark.parametrize(('payload', 'reason'), [({'text': 'hello world hello', 'batch_size': 1}, 'max_length'), ({'text': 'hello', 'batch_size': 2}, 'batch'), ({'text': ['hello', 'hello world'], 'batch_size': 2}, 'padding'), ({'text': 'hello world', 'input_scale': 5}, 'input_scale')])
     def test_text_rejects_truncation_padding_and_sample_replication(self, payload, reason):
         handler, context = self.load('nlp', create_text_fixture(self.root, max_length=4), 'text-classification')
         with pytest.raises(ValueError, match=reason):

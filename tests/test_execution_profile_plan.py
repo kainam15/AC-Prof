@@ -94,7 +94,7 @@ class TestExecutionProfilePlan:
 
         assert (actual) == (expected)
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_loader_rejects_untrusted_json(self, case):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "execution_profile_plan.json")

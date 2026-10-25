@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -66,7 +66,7 @@ def _dense_matrix(value: Any, feature_dim: int, name: str) -> np.ndarray:
 
 class StructuredHandler(BaseHandler):
     def load(self, model_source: str, task_type: str, backend: str, device: str,
-             model_revision: str = "main", load_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+             model_revision: str = "main", load_options: dict[str, Any] | None = None) -> dict[str, Any]:
         if task_type not in TASK_OUTPUT_TYPES:
             raise ValueError(f"unsupported structured task: {task_type!r}")
         declaration = handler_declaration(task_type, backend)
@@ -116,7 +116,7 @@ class StructuredHandler(BaseHandler):
                 "feature_dim": feature_dim, "model_revision": model_revision or "main",
                 "model_format": backend, "tensor_inputs": tensor_inputs, "load_options": {}}
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         task = model_ctx["task_type"]
         if not isinstance(raw_input, dict):
             raise ValueError("structured input must be an object")
@@ -166,7 +166,7 @@ class StructuredHandler(BaseHandler):
         return {"args": args, "_effective_input_scale": float(scale), "_truncated_by_limit": False,
                 "_probe_reason": "validated structured input shape; feature dimension fixed"}
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         if not model_ctx["tensor_inputs"]:
             return model_ctx["model"].predict(processed_input["args"][0])
         import torch
@@ -174,12 +174,12 @@ class StructuredHandler(BaseHandler):
         with torch.inference_mode():
             return model_ctx["model"](*processed_input["args"])
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         if not hasattr(raw_output, "shape") or len(raw_output.shape) < 1:
             raise ValueError("structured model must return one tensor/array with a result dimension")
         shape = list(raw_output.shape)
         return {"task": model_ctx["task_type"], "output_type": TASK_OUTPUT_TYPES[model_ctx["task_type"]],
                 "output_shape": shape, "n_results": shape[0]}
 
-    def get_scale_metadata(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         return {"feature_dim": model_ctx["feature_dim"], "model_format": model_ctx["backend"]}

@@ -5,7 +5,6 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
-from typing import List, Optional
 
 from acprof.config import SERVER_PORT
 from acprof.host import command as host_command
@@ -15,8 +14,8 @@ from acprof.installation import module_command
 @dataclass
 class PacketLatencyRuntime:
     mode: str
-    tcpdump_cmd: List[str]
-    parse_cmd: List[str]
+    tcpdump_cmd: list[str]
+    parse_cmd: list[str]
 
 
 class PacketLatencyError(RuntimeError):
@@ -107,7 +106,7 @@ def _resolve_packet_latency_runtime(
     project_dir: str,
     pcap_file: str,
     sniff_iface: str,
-) -> Optional[PacketLatencyRuntime]:
+) -> PacketLatencyRuntime | None:
     del project_dir  # Packet capture and parsing now always run on the local Linux host.
     local_tcpdump = shutil.which("tcpdump")
     local_tshark = shutil.which("tshark")

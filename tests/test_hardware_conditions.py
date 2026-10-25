@@ -20,12 +20,12 @@ class TestHardwareConditions:
         fixture.build(self._request.getfixturevalue("tmp_path_factory").mktemp("comparison"))
         return load_comparison_snapshot(fixture.left)
 
-    @pytest.mark.parametrize('value', ('1-0', '1,', '-1', '0-99999999999', '1.0'))
+    @pytest.mark.parametrize('value', ['1-0', '1,', '-1', '0-99999999999', '1.0'])
     def test_cpu_set_is_optional_and_equivalent_spellings_are_canonical(self, value):
         from acprof.cpu_affinity import normalize_cpu_set
         assert (normalize_cpu_set("")) == ("")
         assert (normalize_cpu_set("8,2,0-1,2")) == ("0-2,8")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="CPU set"):
             normalize_cpu_set(value)
 
     def test_optional_cpu_set_is_part_of_requested_run_options(self):

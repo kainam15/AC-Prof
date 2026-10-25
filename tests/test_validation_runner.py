@@ -97,7 +97,7 @@ class TestValidationRunner:
         assert (set(selected)) == (expected)
         assert (len(selected)) == (len(expected))
 
-    @pytest.mark.parametrize('index,count', ((-1, 2), (2, 2), (0, 0)))
+    @pytest.mark.parametrize(("index", "count"), [(-1, 2), (2, 2), (0, 0)])
     def test_invalid_or_empty_shard_cannot_pass(self, index, count):
         body = "class TestSample:\n    def test_one(self): pass\n"
         process, report = self.run_fixture(

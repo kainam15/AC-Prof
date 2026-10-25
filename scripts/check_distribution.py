@@ -122,7 +122,8 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         doctor = run(["doctor", "--profiling-mode", "basic", "--json"], accepted=(1,),
                      env={**environment, "PATH": ""})
         report = json.loads(doctor.stdout)
-        assert not report["ready"] and report["scope"] == "prerequisites_only", report
+        assert not report["ready"], report
+        assert report["scope"] == "prerequisites_only", report
         assert next(item for item in report["checks"] if item["name"] == "resources")["status"] == "available", report
         assert all(path.name in {"config", "docker-context"} for path in workspace.iterdir()), "Help/doctor created result files"
 
@@ -133,8 +134,11 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         visualization = workspace / "report.html"
         run(["report", str(visualization_source), "--output", str(visualization)])
         html = visualization.read_text(encoding="utf-8")
-        assert "Plotly" in html and "ACProfViews" in html and "report-data" in html
-        assert "__APP__" not in html and "__PLOTLY__" not in html
+        assert "Plotly" in html
+        assert "ACProfViews" in html
+        assert "report-data" in html
+        assert "__APP__" not in html
+        assert "__PLOTLY__" not in html
         run(["report", str(visualization_source), "--output", str(visualization)], accepted=(1,))
 
         # Exercise the actual child-process dispatcher, not just its command construction.
@@ -150,7 +154,8 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         run(["_worker", "acprof.packet.merge_packet_latency", str(source), str(metrics), str(merged)])
         with merged.open(newline="") as stream:
             rows = list(csv.DictReader(stream))
-        assert len(rows) == 1 and float(rows[0]["latency_s"]) == 0.25, rows
+        assert len(rows) == 1, rows
+        assert float(rows[0]["latency_s"]) == 0.25, rows
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({"successful": True, "checks": evidence}, indent=2) + "\n")

@@ -73,8 +73,10 @@ def test_same_repo_and_revision_in_different_sources_stay_separate(tmp_path, iso
         rows = list(csv.DictReader(stream))
     assert [row["source"] for row in rows] == ["huggingface", "modelscope"]
     text = (root / "REPORT.md").read_text()
-    assert "| Source |" in text and REVISION in text
-    assert "huggingface" in text and "modelscope" in text
+    assert "| Source |" in text
+    assert REVISION in text
+    assert "huggingface" in text
+    assert "modelscope" in text
 
 
 @pytest.mark.parametrize("source", ["huggingface", "modelscope"])
@@ -99,7 +101,8 @@ def test_resolver_source_mismatch_is_not_counted_as_success(tmp_path, monkeypatc
     monkeypatch.setattr("acprof.host.detect.detect_task", Mock(return_value=task))
     report = run_sample(sample(item(source="huggingface")), tmp_path / "report", probe="full")
     row = report["rows"][0]
-    assert not row["resolved"] and not row["supported"]
+    assert not row["resolved"]
+    assert not row["supported"]
     assert row["runtime_status"] == "failed"
     assert row["failed_stage"] == "resolution"
     assert row["source"] == "huggingface"

@@ -67,7 +67,7 @@ class TestModelStoreMetadata:
             with pytest.raises(ValueError, match='metadata.*limit'):
                 model_store.read_entry(self.key, self.root)
 
-    @pytest.mark.parametrize('component', ('metadata', 'entry', 'entries'))
+    @pytest.mark.parametrize('component', ['metadata', 'entry', 'entries'])
     def test_symlink_metadata_or_entry_directory_cannot_escape_store(self, component):
         with tempfile.TemporaryDirectory(dir=self.base) as directory:
             root = Path(directory) / 'store'
@@ -87,7 +87,7 @@ class TestModelStoreMetadata:
             with pytest.raises(ValueError, match='metadata.*path'):
                 model_store.read_entry(self.key, root)
 
-    @pytest.mark.parametrize('kind', ('directory', 'fifo'))
+    @pytest.mark.parametrize('kind', ['directory', 'fifo'])
     def test_non_regular_metadata_is_rejected_without_blocking_on_fifo(self, kind):
         with tempfile.TemporaryDirectory(dir=self.base) as directory:
             root = Path(directory)

@@ -18,8 +18,8 @@ def test_all_critical_paths_are_present_and_pass():
     assert check_report(baseline()) == []
 
 
-@pytest.mark.parametrize("failure", ("missing_file", "missing_branch_count", "zero_branches",
-                                      "low_branch_coverage", "invalid_counter"))
+@pytest.mark.parametrize("failure", ["missing_file", "missing_branch_count", "zero_branches",
+                                      "low_branch_coverage", "invalid_counter"])
 def test_critical_path_regressions_fail_closed(failure):
     report = deepcopy(baseline())
     target = "acprof/host/client.py"
@@ -35,7 +35,8 @@ def test_critical_path_regressions_fail_closed(failure):
     elif failure == "invalid_counter":
         item["covered_branches"] = 101
     errors = check_report(report)
-    assert len(errors) == 1 and target in errors[0]
+    assert len(errors) == 1
+    assert target in errors[0]
 
 
 def test_empty_report_cannot_pass():

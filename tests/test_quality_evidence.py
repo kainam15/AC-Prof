@@ -54,7 +54,7 @@ class TestQualityEvidence:
         assert (gpu["quality_checks"][0]["evidence"]["source"]) == ("loader")
         assert (gpu["quality_checks"][0]["evidence"]["artifact"].endswith("runtime_validation.json"))
 
-    @pytest.mark.parametrize('payload', ('{broken', '[]', '{"schema_version":1}', '{"schema_version":1,"checks":[{"code":"x"}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":NaN}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":1e999}]}'))
+    @pytest.mark.parametrize('payload', ['{broken', '[]', '{"schema_version":1}', '{"schema_version":1,"checks":[{"code":"x"}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":NaN}]}', '{"schema_version":1,"checks":[{"code":"x","severity":"info","detail":"ok","evidence":{},"observed":1e999}]}'])
     def test_malformed_evidence_is_unknown_and_does_not_fall_back_to_success(self, payload):
         path = self.root / "quality_checks.json"
         path.write_text(payload)

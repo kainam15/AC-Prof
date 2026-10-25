@@ -4,7 +4,7 @@ import importlib.metadata
 import platform
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from acprof.artifacts import atomic_write_json
 from acprof.testing.provenance import capture_provenance
@@ -94,7 +94,7 @@ class Evidence:
         if report_path:
             atomic_write_json(report_path, {
                 "schema_version": 1, "successful": successful,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "duration_s": time.perf_counter() - self.started,
                 "python": platform.python_version(), "platform": platform.platform(),
                 "packages": dict(sorted((dist.metadata["Name"], dist.version)

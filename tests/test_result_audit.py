@@ -112,8 +112,8 @@ class TestResultAudit:
         assert ("invalid_number") in ([issue["code"] for issue in report["issues"]])
 
     @pytest.mark.parametrize(
-        "name,payload",
-        (
+        ("name", "payload"),
+        [
             ("static_meta.json", b'{"schema_version": 7, "value": NaN}'),
             ("static_meta.json", b'{"schema_version": 7, "value": 1e999}'),
             ("static_meta.json", b"\xff"),
@@ -122,7 +122,7 @@ class TestResultAudit:
             ("runtime_failures.json", b'{"failures": {}}'),
             ("runtime_failures.json", b'{"failures": [{"reason_code": "inference_failed"}]}'),
             ("model_resolution.json", b'{"failure": []}'),
-        ),
+        ],
     )
     def test_invalid_recorded_metadata_becomes_an_audit_issue(self, name, payload):
         self.write(self.row())

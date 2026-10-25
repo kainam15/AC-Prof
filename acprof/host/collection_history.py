@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import copy
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any
 
 from acprof.artifacts import atomic_write_json
 
@@ -18,7 +19,7 @@ COLLECTION_HISTORY_FIELDS = (
 )
 
 
-def empty_collection_history() -> Dict[str, Any]:
+def empty_collection_history() -> dict[str, Any]:
     """Return a new empty collection-history document."""
     return {
         "schema_version": COLLECTION_HISTORY_SCHEMA_VERSION,
@@ -26,7 +27,7 @@ def empty_collection_history() -> Dict[str, Any]:
     }
 
 
-def normalize_collection_history(payload: Mapping[str, Any] | None) -> Dict[str, Any]:
+def normalize_collection_history(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     """Validate known fields while preserving forward-compatible extra fields."""
     if payload is None:
         return empty_collection_history()
@@ -56,7 +57,7 @@ def append_collection_record(
     payload: Mapping[str, Any] | None,
     history_field: str,
     record: Mapping[str, Any],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Append one provenance record to a known history."""
     if history_field not in COLLECTION_HISTORY_FIELDS:
         raise ValueError(f"unsupported collection history field: {history_field}")

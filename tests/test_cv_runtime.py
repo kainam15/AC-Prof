@@ -18,7 +18,7 @@ pytestmark = pytest.mark.runtime
 class TestCVRuntime(CVRuntimeFixture):
     @pytest.mark.skipif(_RUNTIME_AVAILABLE and importlib.util.find_spec("timm") is None,
                         reason="requires timm")
-    @pytest.mark.parametrize('architecture', ('mobilenetv3_small_050', 'resnet18'))
+    @pytest.mark.parametrize('architecture', ['mobilenetv3_small_050', 'resnet18'])
     def test_timm_architectures_share_transformers_loading_and_preprocessing(self, architecture):
         import timm
         import torch

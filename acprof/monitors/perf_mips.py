@@ -10,8 +10,9 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.monitors import common
@@ -115,7 +116,7 @@ def _event_label_matches(label: str, event_name: str) -> bool:
 def parse_perf_stat_output(
     text: str,
     *,
-    fallback_elapsed_s: Optional[float] = None,
+    fallback_elapsed_s: float | None = None,
     require_elapsed: bool = True,
 ) -> PerfStatParsed:
     event_values = {event_name: float("nan") for event_name in PERF_EVENTS}
@@ -198,13 +199,13 @@ def parse_perf_stat_output(
 
 def read_perf_event_paranoid(path: str = "/proc/sys/kernel/perf_event_paranoid") -> str:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return f.read().strip()
     except Exception:
         return "unavailable"
 
 
-def _perf_probe_command(prefix: List[str]) -> List[str]:
+def _perf_probe_command(prefix: list[str]) -> list[str]:
     return [
         *prefix,
         "stat",
@@ -219,7 +220,7 @@ def _perf_probe_command(prefix: List[str]) -> List[str]:
     ]
 
 
-def _perf_attach_probe_command(prefix: List[str], pid: int) -> List[str]:
+def _perf_attach_probe_command(prefix: list[str], pid: int) -> list[str]:
     return [
         *prefix,
         "stat",
@@ -237,9 +238,9 @@ def _perf_attach_probe_command(prefix: List[str], pid: int) -> List[str]:
 
 
 def _run_perf_probe(
-    prefix: List[str],
+    prefix: list[str],
     *,
-    env: Optional[Mapping[str, str]] = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     kwargs: dict[str, Any] = {
         "capture_output": True,
@@ -257,10 +258,10 @@ def _run_perf_probe(
 
 
 def _run_perf_attach_probe(
-    prefix: List[str],
+    prefix: list[str],
     pid: int,
     *,
-    env: Optional[Mapping[str, str]] = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     kwargs: dict[str, Any] = {
         "capture_output": True,
@@ -294,8 +295,8 @@ def _attach_probe_succeeded(result: subprocess.CompletedProcess) -> bool:
 
 
 def resolve_perf_command_prefix(
-    *, env: Optional[Mapping[str, str]] = None,
-) -> List[str]:
+    *, env: Mapping[str, str] | None = None,
+) -> list[str]:
     """Probe real instruction counts without changing the caller's privileges."""
     probe_environ = os.environ if env is None else env
     perf_path = shutil.which("perf", path=probe_environ.get("PATH", os.defpath))
@@ -328,7 +329,7 @@ def resolve_perf_command_prefix(
     raise MIPSProfilingError(f"perf: {detail}; see docs/getting_started/installation.md#最小权限安装")
 
 
-def resolve_perf_command_prefix_for_pid(pid: int) -> List[str]:
+def resolve_perf_command_prefix_for_pid(pid: int) -> list[str]:
     perf_path = shutil.which("perf")
     if not perf_path:
         raise MIPSProfilingError("Linux perf command was not found.")
@@ -398,13 +399,13 @@ class PerfMIPSMonitor:
     def __init__(
         self,
         container_name: str,
-        command_prefix: Optional[List[str]] = None,
+        command_prefix: list[str] | None = None,
     ) -> None:
         self.container_name = container_name
         self.command_prefix = command_prefix
-        self._proc: Optional[subprocess.Popen] = None
-        self._t_start: Optional[float] = None
-        self._command: Optional[List[str]] = None
+        self._proc: subprocess.Popen | None = None
+        self._t_start: float | None = None
+        self._command: list[str] | None = None
         self._perf_path = "not found"
         self._paranoid = "unknown"
         self._control_write: int | None = None

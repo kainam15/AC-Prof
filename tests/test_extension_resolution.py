@@ -51,19 +51,19 @@ def test_resolve_routes_and_config_predicates(task_case):
     if config.get("model_type") == "moss_transcribe_diarize":
         assert (result.declaration.adapter) == ("moss-transcribe-diarize")
 
-@pytest.mark.parametrize('kwargs', ({'task': 'future-task', 'library': 'transformers'}, {'task': 'text-generation', 'library': 'unknown-library'}, {'task': 'text-generation', 'family': 'cv', 'library': 'transformers'}, {'task': 'text-generation', 'backend': 'onnxruntime'}, {'task': 'time-series-forecasting', 'backend': 'transformers_pipeline'}))
+@pytest.mark.parametrize('kwargs', [{'task': 'future-task', 'library': 'transformers'}, {'task': 'text-generation', 'library': 'unknown-library'}, {'task': 'text-generation', 'family': 'cv', 'library': 'transformers'}, {'task': 'text-generation', 'backend': 'onnxruntime'}, {'task': 'time-series-forecasting', 'backend': 'transformers_pipeline'}])
 def test_unknown_and_conflicting_routes_are_explicit_errors(kwargs):
     with pytest.raises(UnsupportedExtensionError):
         CATALOG.resolve(**kwargs)
     assert (CATALOG.resolve(task="text-generation", library="unknown-library",
                                     backend="transformers_model").backend) == ("transformers_model")
 
-@pytest.mark.parametrize('payload', ({'schema_version': 1, 'extensions': []}, {'schema_version': True, 'extensions': []}, {'schema_version': 2, 'extensions': [{'input_plan': {'text_payload': 'yes'}}]}))
+@pytest.mark.parametrize('payload', [{'schema_version': 1, 'extensions': []}, {'schema_version': True, 'extensions': []}, {'schema_version': 2, 'extensions': [{'input_plan': {'text_payload': 'yes'}}]}])
 def test_schema_v1_and_malformed_nested_fields_fail(payload):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp, "manifest.json")
         path.write_text(json.dumps(payload))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid extension declaration|unsupported extension manifest schema"):
             load_catalog([path])
 
 def test_precision_policy_is_independent_of_checkpoint_storage_dtype():
@@ -87,7 +87,7 @@ def test_priority_is_order_independent_and_equal_priority_conflicts_fail():
     with pytest.raises(UnsupportedExtensionError, match="ambiguous backend"):
         catalog.resolve(task="text-generation", library="transformers")
 
-@pytest.mark.parametrize('capability', ({'text_payload': 'yes'}, {'text_paylod': True}))
+@pytest.mark.parametrize('capability', [{'text_payload': 'yes'}, {'text_paylod': True}])
 def test_nested_capability_typo_and_non_boolean_are_rejected(capability):
     raw = asdict(CATALOG.get_extension("nlp", "transformers_model"))
     with tempfile.TemporaryDirectory() as tmp:

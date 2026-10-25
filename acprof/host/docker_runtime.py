@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, NoReturn, Optional
+from typing import Any, NoReturn
 
 from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
@@ -49,7 +49,7 @@ class RunningContainer:
     cold_start_cuda_init_s: float = float("nan")
     cold_start_model_load_s: float = float("nan")
     cold_start_ready_wait_s: float = float("nan")
-    gpu_device: Dict[str, Any] = field(default_factory=dict)
+    gpu_device: dict[str, Any] = field(default_factory=dict)
     container_id: str = ""
     _model_store_mount: Any = field(default=None, repr=False, compare=False)
 
@@ -71,15 +71,15 @@ def _iso_from_epoch(epoch_s: float) -> str:
         return "nan"
     return datetime.datetime.fromtimestamp(
         epoch_s,
-        tz=datetime.timezone.utc,
+        tz=datetime.UTC,
     ).astimezone().isoformat(timespec="milliseconds")
 
 
 def _cold_start_breakdown(
-    body: Optional[Dict[str, Any]],
+    body: dict[str, Any] | None,
     docker_started_at_epoch_s: float,
     ready_received_at_epoch_s: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     timing = body.get("startup_timing", {}) if isinstance(body, dict) else {}
     if not isinstance(timing, dict):
         timing = {}
@@ -121,7 +121,7 @@ def _cold_start_breakdown(
     }
 
 
-def cold_start_client_env(session: RunningContainer) -> Dict[str, str]:
+def cold_start_client_env(session: RunningContainer) -> dict[str, str]:
     return {
         "COLD_START_STARTED_AT": session.cold_start_started_at,
         "COLD_START_READY_AT": session.cold_start_ready_at,
@@ -140,7 +140,7 @@ def service_port(cpu: int, mem: int) -> int:
     return SERVER_PORT + cpu * 100 + mem
 
 
-def _launch_container(command: List[str]) -> str:
+def _launch_container(command: list[str]) -> str:
     """Track ownership even if Docker creates a container but fails to start it."""
     with tempfile.TemporaryDirectory(prefix="acprof-container-") as directory:
         cidfile = Path(directory) / "container.cid"
@@ -341,7 +341,7 @@ def start_container_session(
         raise
 
 
-def stop_container_session(session: RunningContainer, log_prefix: Optional[str] = None) -> None:
+def stop_container_session(session: RunningContainer, log_prefix: str | None = None) -> None:
     mount = session._model_store_mount
     try:
         if not re.fullmatch(r"[0-9a-f]{64}", session.container_id):

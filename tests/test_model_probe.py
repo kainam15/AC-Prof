@@ -28,10 +28,10 @@ class TestModelProbe:
     def test_empty_device_set_and_mutable_image_cannot_claim_verification(self):
         with tempfile.TemporaryDirectory() as directory:
             options = runtime_fixture.TestRuntimeValidation().fixture(Path(directory))
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="requires devices and positive resource/timeout limits"):
                 validate_runtime(**{**options, "gpu_list": []})
             options["image_info"].tag = "example:latest"
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="requires an immutable image ID"):
                 validate_runtime(**options)
 
     def test_runtime_validation_rejects_the_removed_basic_switch(self):

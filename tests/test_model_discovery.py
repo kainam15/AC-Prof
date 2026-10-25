@@ -148,7 +148,7 @@ class TestModelSpecification:
         with pytest.raises(ValueError, match="format"):
             validate_model_spec({"schema_version": 1, "format": [], "task": "text-classification"})
 
-    @pytest.mark.parametrize('output', ([], [{'unrelated': True}], [{'label': '', 'score': 0.5}]))
+    @pytest.mark.parametrize('output', [[], [{'unrelated': True}], [{'label': '', 'score': 0.5}]])
     def test_custom_classification_requires_actual_labels_and_scores(self, output):
         from acprof.container.validation import OutputValidationError, validate_output
         context = {"task_type": "text-classification", "model_spec": {"format": "transformers-pipeline"}}

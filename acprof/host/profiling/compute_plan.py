@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from acprof.artifacts import read_json_object
 
@@ -38,7 +38,7 @@ def _to_float_or_nan(value: Any) -> float:
         return float("nan")
 
 
-def load_compute_profile_plan(path: str) -> Dict[str, Any]:
+def load_compute_profile_plan(path: str) -> dict[str, Any]:
     """Load a profiling plan while preserving the client's diagnostic semantics."""
     if not path:
         return {"profiles": {}, "_load_error": "compute_profile_disabled"}
@@ -74,7 +74,7 @@ def load_compute_profile_plan(path: str) -> Dict[str, Any]:
     return plan
 
 
-def _empty_result() -> Dict[str, Any]:
+def _empty_result() -> dict[str, Any]:
     return {
         TORCH_LOGICAL_MFLOP_FIELD: float("nan"),
         TORCH_ERROR_FIELD: "",
@@ -93,7 +93,7 @@ def _resolve_profile_entry(
     *,
     profile_key: str,
     input_scale: float,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """Return ``(matching_entry, diagnostic)`` for one tool profile."""
     if not isinstance(profile, dict):
         return (
@@ -142,9 +142,9 @@ def _resolve_profile_entry(
 
 
 def _apply_torch_profile(
-    result: Dict[str, Any],
+    result: dict[str, Any],
     *,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     error: str,
 ) -> None:
     logical_mflop = _to_float_or_nan(entry.get(TORCH_LOGICAL_MFLOP_FIELD))
@@ -157,9 +157,9 @@ def _apply_torch_profile(
 
 
 def _apply_ncu_profile(
-    result: Dict[str, Any],
+    result: dict[str, Any],
     *,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     error: str,
 ) -> None:
     total_mflop = _to_float_or_nan(entry.get(NCU_TOTAL_MFLOP_FIELD))
@@ -192,10 +192,10 @@ def _apply_ncu_profile(
 
 
 def find_compute_profile_entry(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     gpu_mode: str,
     input_scale: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Resolve both FLOP profiles for one device/scale."""
     profile_key = "gpu" if gpu_mode == "on" else "cpu"
     result = _empty_result()

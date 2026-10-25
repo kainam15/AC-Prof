@@ -115,11 +115,17 @@ VS Code 提交失败弹窗可能只显示 hook 输出的第一行；点击“显
 Ruff 版本由 [`pyproject.toml`](../../pyproject.toml) 的 `required-version` 强制核验，Python 目标为
 3.12，显式启用 `E4`、`E7`、`E9`、`F`，以及 `B006`（可变默认值）、`B012`（finally 跳转）、
 `B904`（异常链）、`B905`（zip 长度语义显式声明）、`I`（import 排序），以及 `RUF010`（f-string 显式转换）、
-`RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）。不启用全量 RUF/SIM、`E501` 或 formatter；
+`RUF013`（显式 Optional）、`SIM101`（合并同一对象的 isinstance）、`UP`（目标 Python 版本语法）和
+`PT`（pytest 参数化、异常断言及 fixture 约束）。不启用全量 RUF/SIM、`E501` 或 formatter；
 `line-length = 100` 本身不检查行长。Ruff hook 只检查，不自动修复；空白和末尾换行 hooks
 会修正文件并返回失败，检查 `git diff` 后重新运行。不得用扩大 `ignore` 或排除目录掩盖新问题。
 公共导出用显式重导出或 `__all__` 表达；必须先设置路径、环境或验证缺失依赖的 import，
 只在对应行标注具体规则及原因，不统一忽略 `__init__.py`。
+
+`pytest.raises` 对宽泛异常给出具体消息或异常属性检查，并将待验证的单个操作放在上下文中；
+清理放入独立 `finally` / fixture `yield`，避免清理异常被误认为预期业务异常。
+规则升级先审查诊断；自动修复默认使用 safe fixes，涉及测试参数化格式和断言拆分的修复单独审核。
+不启用全局 `unsafe-fixes`，规则行为参考 [Ruff 修复安全性说明](https://docs.astral.sh/ruff/linter/#fix-safety)。
 
 本地 Python 修改先运行 Ruff，再按受影响行为选择 pytest 文件、node ID 或 marker。
 需要 evidence 时追加 `--report`，或使用 CI wrapper；后者的 `--pattern` 可重复。

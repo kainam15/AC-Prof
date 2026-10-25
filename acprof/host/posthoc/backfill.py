@@ -3,16 +3,11 @@ from __future__ import annotations
 
 import copy
 import math
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
 )
 
 from acprof.host.collection_history import append_collection_record
@@ -82,7 +77,7 @@ def _packet_mflops(total_mflop: Any, row: Mapping[str, Any]) -> float:
 
 
 def _backfill_torch_row(
-    row: Dict[str, str],
+    row: dict[str, str],
     plan: Mapping[str, Any],
 ) -> None:
     mode = str(row.get("gpu_mode") or "").strip().lower()
@@ -95,7 +90,7 @@ def _backfill_torch_row(
 
 
 def _backfill_ncu_row(
-    row: Dict[str, str],
+    row: dict[str, str],
     plan: Mapping[str, Any],
 ) -> None:
     scale = _finite_float(row.get("input_scale"))
@@ -131,7 +126,7 @@ def _backfill_ncu_row(
 
 
 def _backfill_execution_row(
-    row: Dict[str, str],
+    row: dict[str, str],
     profiles: ExecutionProfileResolver,
     tool: str,
 ) -> None:
@@ -152,10 +147,10 @@ def backfill_rows(
     context: ResultContext,
     *,
     tools: Iterable[str],
-    compute_plan: Optional[Mapping[str, Any]] = None,
-    execution_plan: Optional[Mapping[str, Any]] = None,
+    compute_plan: Mapping[str, Any] | None = None,
+    execution_plan: Mapping[str, Any] | None = None,
     force: bool = False,
-) -> Tuple[List[str], List[Dict[str, str]], Dict[str, int]]:
+) -> tuple[list[str], list[dict[str, str]], dict[str, int]]:
     selected = tuple(tools)
     fieldnames = list(context.fieldnames)
     for tool in selected:
@@ -194,14 +189,14 @@ def backfill_rows(
     return order_csv_fields(fieldnames), rows, updated
 
 
-def _normalize_tool_metadata(value: Any) -> List[str]:
+def _normalize_tool_metadata(value: Any) -> list[str]:
     if isinstance(value, str):
         values = value.replace(";", ",").split(",")
     elif isinstance(value, (list, tuple, set)):
         values = list(value)
     else:
         values = []
-    result: List[str] = []
+    result: list[str] = []
     for value in values:
         tool = str(value).strip()
         if tool and tool not in result:
@@ -223,7 +218,7 @@ def _merge_provenance(existing: Any, new_value: str) -> str:
 def _static_flops_from_compute_plan(
     plan: Mapping[str, Any],
     context: ResultContext,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     profiles = plan.get("profiles")
     if not isinstance(profiles, Mapping):
         return None
@@ -245,7 +240,7 @@ def _static_flops_from_compute_plan(
         if not isinstance(entries, list):
             continue
 
-        values: List[Dict[str, Any]] = []
+        values: list[dict[str, Any]] = []
         seen_scales: set[float] = set()
         for entry in entries:
             if not isinstance(entry, Mapping) or entry.get("error"):
@@ -289,9 +284,9 @@ def update_static_meta(
     context: ResultContext,
     *,
     tools: Iterable[str],
-    compute_plan: Optional[Mapping[str, Any]],
-    execution_plan: Optional[Mapping[str, Any]],
-) -> Dict[str, Any]:
+    compute_plan: Mapping[str, Any] | None,
+    execution_plan: Mapping[str, Any] | None,
+) -> dict[str, Any]:
     updated = copy.deepcopy(context.static_meta)
     selected = tuple(tools)
 
@@ -305,7 +300,7 @@ def update_static_meta(
             if metadata_name not in compute_tools:
                 compute_tools.append(metadata_name)
         updated["compute_profile_tools"] = compute_tools
-        metadata_keys: List[str] = ["gpu_compute_capability", "gpu_sm_count"]
+        metadata_keys: list[str] = ["gpu_compute_capability", "gpu_sm_count"]
         if "torch" in compute_selected:
             metadata_keys.extend(
                 [
@@ -403,7 +398,7 @@ def update_collection_history(
     backup_dir: Path,
     massif_sampling: str,
     nsys_sampling: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Record post-hoc collection provenance outside ``static_meta.json``."""
     selected = tuple(tools)
     record = {

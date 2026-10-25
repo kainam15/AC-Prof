@@ -80,7 +80,7 @@ def test_dotted_versions_and_model_names_are_preserved_without_guessing():
     assert (image_display_name(replace(item, kind="model", model_id="Qwen/Qwen2.5-0.5B"))) == ("Qwen/Qwen2.5-0.5B")
 
 
-@pytest.mark.parametrize(("raw", "expected"), (
+@pytest.mark.parametrize(("raw", "expected"), [
     ("", "未知"),
     ("not-a-timestamp", "未知"),
     ("2026-09-13T00:00:00", "未知"),
@@ -92,7 +92,7 @@ def test_dotted_versions_and_model_names_are_preserved_without_guessing():
      datetime.fromisoformat("2026-09-13T00:00:00+00:00").astimezone().strftime("%Y-%m-%d %H:%M")),
     ("2026-09-13T00:00:00Z",
      datetime.fromisoformat("2026-09-13T00:00:00+00:00").astimezone().strftime("%Y-%m-%d %H:%M")),
-))
+])
 def test_image_created_text_uses_docker_instant(raw, expected):
     assert image_created_text(raw) == expected
 
@@ -118,9 +118,9 @@ class TestTuiImages:
     def make_app(self):
         return AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.directory / "tui.json")
 
-    @pytest.mark.parametrize('view', ('tree', 'list', 'layers'))
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('view', ['tree', 'list', 'layers'])
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_detail_boundary_drags_in_all_views_sizes_and_languages(self, view, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
@@ -151,12 +151,12 @@ class TestTuiImages:
             assert (detail.region.bottom) <= (app.query_one("#image-panel").content_region.bottom)
             assert (len(self.docker.commands)) == (before), "调整详情高度不能查询 Docker"
 
-    @pytest.mark.parametrize('view, widget_id', (
+    @pytest.mark.parametrize(("view", "widget_id"), [
         ('tree', '#image-tree'), ('list', '#image-table'), ('layers', '#image-layer-table'),
-    ))
-    @pytest.mark.parametrize('size, language, scroll_y', (
+    ])
+    @pytest.mark.parametrize(("size", "language", "scroll_y"), [
         ((80, 24), 'zh', 0), ((120, 30), 'en', 0), ((150, 45), 'zh', 5),
-    ))
+    ])
     async def test_detail_drag_preserves_browser_scroll_position(self, view, widget_id, size, language, scroll_y):
         for number in range(30):
             key = f"sha256:{number:064x}"
@@ -259,7 +259,7 @@ class TestTuiImages:
             assert (detail.scroll_y) == (detail.max_scroll_y), "调整高度后仍能滚动到末尾"
             assert not (self.directory.joinpath("tui.json").exists()), "高度仅在本次会话保留"
 
-    @pytest.mark.parametrize('interruption', ('escape', 'capture_lost', 'hidden', 'measurement', 'resize'))
+    @pytest.mark.parametrize('interruption', ['escape', 'capture_lost', 'hidden', 'measurement', 'resize'])
     async def test_detail_resize_releases_mouse_after_interruption(self, interruption):
         # 断言失败也会退出本次应用，避免隐藏页面或 busy 状态影响下一场景。
         app = self.make_app()
@@ -354,8 +354,8 @@ class TestTuiImages:
             assert (app.images.selected_ids) == (selected)
             assert not (self.docker.removals)
 
-    @pytest.mark.parametrize("language", ("zh", "en"))
-    @pytest.mark.parametrize("size", ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
     async def test_image_creation_date_is_right_aligned_and_hidden_for_layers(self, language, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
@@ -503,8 +503,8 @@ class TestTuiImages:
                 assert not (app.query_one(selector).display)
             assert ("sha256:") not in (str(app.query_one("#image-detail", Static).content))
 
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_tree_dependencies_stay_in_details_and_search_after_resize_and_language(self, language, size):
         dependency_images(self.docker, profile="nlp-cu128")
         app = self.make_app()
@@ -613,7 +613,7 @@ class TestTuiImages:
         index = next(index for index, char in enumerate(text) if char in "□☑◩✓—")
         return cell_len(text[:index]), row
 
-    @pytest.mark.parametrize("view", ("tree", "list"))
+    @pytest.mark.parametrize("view", ["tree", "list"])
     async def test_branch_selection_and_half_selection_never_promote_ancestors(self, view):
         sibling = "sha256:" + "d" * 64
         self.docker.images[sibling] = image(sibling, ["acprof-nlp-sibling:code"], 420,
@@ -653,7 +653,7 @@ class TestTuiImages:
             assert not app.images.selected_ids
             assert len(self.docker.commands) == before
 
-    @pytest.mark.parametrize("language", ("zh", "en"))
+    @pytest.mark.parametrize("language", ["zh", "en"])
     async def test_collapsed_filtered_branch_includes_hidden_images_and_inferred_confirmation(self, language):
         app = self.make_app()
         app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -677,11 +677,12 @@ class TestTuiImages:
             content = str(app.screen.query_one("#image-confirm-text", Static).content)
             assert all(image_id in content for image_id in (RUNTIME, WEIGHTS, FINAL))
             assert ("筛选外 2" if language == "zh" else "2 filtered-out") in content
-            assert "≈" in content and ("未确认 FROM" if language == "zh" else "FROM unconfirmed") in content
+            assert "≈" in content
+            assert ("未确认 FROM" if language == "zh" else "FROM unconfirmed") in content
             await pilot.press("escape")
             assert not self.docker.removals
 
-    @pytest.mark.parametrize("container_image", (FINAL, RUNTIME), ids=("leaf", "parent"))
+    @pytest.mark.parametrize("container_image", [FINAL, RUNTIME], ids=("leaf", "parent"))
     async def test_container_in_branch_preserves_ancestors_and_selects_free_siblings(self, container_image):
         sibling = "sha256:" + "d" * 64
         self.docker.images[sibling] = image(sibling, ["acprof-nlp-sibling:code"], 420,
@@ -701,7 +702,7 @@ class TestTuiImages:
             await pilot.pause()
             assert not app.images.selected_ids
 
-    @pytest.mark.parametrize("change", ("tag", "container", "new_child"))
+    @pytest.mark.parametrize("change", ["tag", "container", "new_child"])
     async def test_refresh_invalidates_ancestor_selection_without_selecting_new_images(self, change):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
@@ -786,8 +787,8 @@ class TestTuiImages:
             assert (app.images.selected_ids) == (set())
             assert (len(self.docker.commands)) == (before)
 
-    @pytest.mark.parametrize('language,theme', (('zh', 'acprof-dark'), ('en', 'acprof-light')))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize(("language", "theme"), [('zh', 'acprof-dark'), ('en', 'acprof-light')])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_tree_path_survives_language_resize_scroll_blur_and_search(self, language, theme, size):
         self.add_tree_branches()
         app = self.make_app()
@@ -828,7 +829,7 @@ class TestTuiImages:
             self.assert_tree_path(app, tree, color, set())
             assert (len(self.docker.commands)) == (before)
 
-    @pytest.mark.parametrize('view', ('tree', 'list'))
+    @pytest.mark.parametrize('view', ['tree', 'list'])
     async def test_image_row_clicks_only_focus_and_show_details(self, view):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
@@ -855,9 +856,9 @@ class TestTuiImages:
             assert (app.images.selected_ids) == ({FINAL})
             assert (len(self.docker.commands)) == (before)
 
-    @pytest.mark.parametrize('view', ('tree', 'list'))
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('view', ['tree', 'list'])
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_checkbox_and_adjacent_padding_toggle_once_after_language_and_resize(self, view, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
@@ -1058,8 +1059,8 @@ class TestTuiImages:
                     assert (button.region.height) > (0)
                     assert (button.region.right) <= (size[0]), selector
 
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_tree_platform_names_and_dotted_versions_survive_language_and_resize(self, language, size):
         from acprof.runtime_profiles import ENVIRONMENTS, environment_id
 
@@ -1201,9 +1202,9 @@ class TestTuiImages:
             await self.load_images(restarted, pilot)
             assert (restarted.query_one("#image-table", DataTable).columns["name"].width) == (76)
 
-    @pytest.mark.parametrize('view,selector,key,index', (('list', '#image-table', 'name', 1), ('layers', '#image-layer-table', 'diff', 0)))
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize(("view", "selector", "key", "index"), [('list', '#image-table', 'name', 1), ('layers', '#image-layer-table', 'diff', 0)])
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_header_drags_in_both_languages_and_all_terminal_sizes(self, view, selector, key, index, language, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
@@ -1258,7 +1259,7 @@ class TestTuiImages:
             await drag(pilot, table, header_offset(table, 1), -6)
             assert (table.columns["name"].width) == (70)
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_filter_selection_details_and_language_work_at_all_sizes(self, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
@@ -1369,8 +1370,8 @@ class TestTuiImages:
             assert not (app.is_busy())
             assert not (app.query_one("#start-run", Button).disabled)
 
-    @pytest.mark.parametrize("language", ("zh", "en"))
-    @pytest.mark.parametrize("size", ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    @pytest.mark.parametrize("size", [(80, 24), (120, 30), (150, 45)])
     async def test_confirmation_reclaim_tooltip_on_hover(self, language, size):
         app = self.make_app()
         app.TOOLTIP_DELAY = 0.01
@@ -1454,7 +1455,7 @@ class TestTuiImages:
             assert (app.query_one("#image-table", DataTable).row_count) == (4)
             assert (extra) in (app.query_one("#image-table", DataTable).rows)
 
-    @pytest.mark.parametrize('callback', ('timer', 'worker'))
+    @pytest.mark.parametrize('callback', ['timer', 'worker'])
     async def test_queued_image_callbacks_are_safe_during_shutdown(self, callback):
         class ClosingImagesApp(AcprofTui):
             CSS_PATH = AcprofTui.CSS_PATH
@@ -1568,7 +1569,7 @@ class TestTuiImages:
             await pilot.pause()
             assert not (app.images.selected_ids)
 
-    @pytest.mark.parametrize("expanded", (False, True))
+    @pytest.mark.parametrize("expanded", [False, True])
     async def test_refresh_preserves_tree_and_detail_folds(self, expanded):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:

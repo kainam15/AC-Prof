@@ -29,7 +29,10 @@ class TestAudioGenerationRuntime:
         import torch
         threads = torch.get_num_threads()
         torch.set_num_threads(1)
-        request.addfinalizer(partial(torch.set_num_threads, threads))
+        try:
+            yield
+        finally:
+            torch.set_num_threads(threads)
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request

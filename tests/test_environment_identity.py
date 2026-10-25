@@ -115,14 +115,14 @@ class TestEnvironmentIdentity:
             with pytest.raises(ValueError, match='父层'):
                 environment_id(self.env, self.root)
 
-    @pytest.mark.parametrize('content', ('torch==2.11.0\n', '-r another.txt\n', '', 'torch>=2\n'))
+    @pytest.mark.parametrize('content', ['torch==2.11.0\n', '-r another.txt\n', '', 'torch>=2\n'])
     def test_unhashed_or_unpinned_input_is_rejected(self, content):
         path = self.root / 'bad-lock.txt'
         path.write_text(content)
         with pytest.raises(ValueError, match="依赖 lock 不能为空|无效或未锁定的依赖 lock"):
             read_python_lock(path)
 
-    @pytest.mark.parametrize('actual', ({}, {'torch': '2.11', 'hidden': '1'}, {'torch': '2.12'}))
+    @pytest.mark.parametrize('actual', [{}, {'torch': '2.11', 'hidden': '1'}, {'torch': '2.12'}])
     def test_missing_extra_or_changed_packages_are_rejected(self, actual):
         with pytest.raises(ValueError, match='package set'):
             require_exact_packages({'torch': '2.11'}, actual)

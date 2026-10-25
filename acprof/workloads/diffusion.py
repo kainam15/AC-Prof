@@ -9,7 +9,7 @@ import io
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -38,7 +38,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
         model_id: str,
         task_type: str,
         batch_size: int,
-        workload_spec_path: Optional[str] = None,
+        workload_spec_path: str | None = None,
     ):
         super().__init__(model_id, task_type, batch_size)
         self._task = {
@@ -66,10 +66,10 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             self._params["num_frames"] = DEFAULT_NUM_FRAMES
         self._scales = [1, 2, 4, 8, 16, 20] if self._task in STEP_TASKS else list(DEFAULT_RESOLUTIONS)
         self._workload_id = f"synthetic-{self._task}-v1"
-        self._spec_sha256: Optional[str] = None
-        self._image_bytes: Optional[bytes] = None
-        self._video_bytes: List[bytes] = []
-        self._video_sources: List[str] = []
+        self._spec_sha256: str | None = None
+        self._image_bytes: bytes | None = None
+        self._video_bytes: list[bytes] = []
+        self._video_sources: list[str] = []
         self._image_source = "deterministic synthetic geometric RGB image"
         if workload_spec_path is not None:
             self._load_spec(Path(workload_spec_path).expanduser().resolve())
@@ -257,9 +257,9 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
             raise ValueError("diffusion resolution must be at least 64 and divisible by 8")
         return resolution
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         resolution = self._scale(scale_value)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "params": copy.deepcopy(self._params),
         }
         if self._task in PROMPT_TASKS:
@@ -302,7 +302,7 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
     def effective_input_scale(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
     ) -> float:
         if payload is None:
             return float(self._scale(scale_value))
@@ -314,10 +314,10 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
     def max_input_scale(self) -> float:
         return float(max(self._scales))
 
-    def default_input_scales(self) -> List[float]:
+    def default_input_scales(self) -> list[float]:
         return [float(value) for value in self._scales]
 
-    def plan_metadata(self) -> Dict[str, Any]:
+    def plan_metadata(self) -> dict[str, Any]:
         metadata = {
             "workload_id": self._workload_id,
             "source": "custom diffusion workload spec" if self._spec_sha256 else "deterministic synthetic prompts",
@@ -365,8 +365,8 @@ class DiffusionWorkloadGenerator(WorkloadGenerator):
     def input_metadata(
         self,
         scale_value: float,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         materialized = self.generate(scale_value) if payload is None else payload
         if self._task in STEP_TASKS:
             scale = materialized.get("input_scale")

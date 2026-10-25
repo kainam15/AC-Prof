@@ -24,7 +24,7 @@ class TestTuiColor:
         surface = app.get_css_variables()["surface"]
         return Strip([Segment(" ", Style(bgcolor=surface))]).render(app.console)
 
-    @pytest.mark.parametrize('colorterm', (None, '', 'truecolor', '24bit'))
+    @pytest.mark.parametrize('colorterm', [None, '', 'truecolor', '24bit'])
     def test_missing_colorterm_keeps_the_same_rgb_surface_as_vscode(self, colorterm):
         with patch.dict(
             os.environ, {"TERM": "xterm-256color"}, clear=True,
@@ -42,7 +42,7 @@ class TestTuiColor:
             assert ("\x1b[48;5;235m") in (self.render_surface(app))
             assert ("48;2;") not in (self.render_surface(app))
 
-    @pytest.mark.parametrize('colorterm,expected', (('', '\x1b[48;5;235m'), ('truecolor', '\x1b[48;2;41;43;50m')))
+    @pytest.mark.parametrize(("colorterm", "expected"), [('', '\x1b[48;5;235m'), ('truecolor', '\x1b[48;2;41;43;50m')])
     def test_auto_mode_retains_terminal_capability_detection(self, colorterm, expected):
         with patch.dict(
             os.environ, {"TERM": "xterm-256color", "COLORTERM": colorterm}, clear=True,
@@ -50,7 +50,7 @@ class TestTuiColor:
             app = AcprofTui(settings_path=self.settings_path, color_system="auto")
             assert (expected) in (self.render_surface(app))
 
-    @pytest.mark.parametrize('mode,expected', (('truecolor', '\x1b[48;2;41;43;50m'), ('256', '\x1b[48;5;235m')))
+    @pytest.mark.parametrize(("mode", "expected"), [('truecolor', '\x1b[48;2;41;43;50m'), ('256', '\x1b[48;5;235m')])
     def test_cli_color_mode_applies_before_rendering(self, mode, expected):
         with patch.dict(
             os.environ, {"TERM": "xterm-256color"}, clear=True,
@@ -62,7 +62,7 @@ class TestTuiColor:
             assert (expected) in (self.render_surface(run.call_args.args[0]))
 
 
-@pytest.mark.parametrize('no_color', (False, True))
+@pytest.mark.parametrize('no_color', [False, True])
 async def test_no_color_still_converts_the_rendered_frame_to_grayscale(no_color):
     environment = {"TERM": "xterm-256color"}
     if no_color:

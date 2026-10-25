@@ -21,7 +21,7 @@ def test_unreadable_report_aborts_without_publication_or_retained_lock(tmp_path,
         raise failure
 
     monkeypatch.setattr(stats, "read_json_object", fail_read)
-    with pytest.raises(OSError) as caught:
+    with pytest.raises(OSError, match="simulated report read failure") as caught:
         stats._save_unique_report(tmp_path, report)
 
     assert caught.value is failure

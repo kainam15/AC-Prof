@@ -35,7 +35,7 @@ class TestDistribution:
             assert (result.returncode) == (2), result.stderr
             assert ("Traceback") not in (result.stderr)
 
-    @pytest.mark.parametrize('command', ('run', 'probe', 'profile', 'plot', 'audit', 'stats', 'tui'))
+    @pytest.mark.parametrize('command', ['run', 'probe', 'profile', 'plot', 'audit', 'stats', 'tui'])
     def test_public_help_uses_only_the_console_command(self, command):
         with tempfile.TemporaryDirectory() as workspace:
             result = self.invoke(
@@ -74,7 +74,7 @@ class TestDistribution:
             command = format_run_command(["acprof run", *arguments])
         assert (shlex.split(command)) == (["acprof", "run", *arguments])
 
-    @pytest.mark.parametrize('prefix', (['/opt/python', '/opt/bin/acprof', 'run'], ['/opt/acprof-linux-x86_64', 'run'], ['/opt/python', '-m', 'acprof', 'run'], ['/opt/python', '-u', '-m', 'acprof', 'run']))
+    @pytest.mark.parametrize('prefix', [['/opt/python', '/opt/bin/acprof', 'run'], ['/opt/acprof-linux-x86_64', 'run'], ['/opt/python', '-m', 'acprof', 'run'], ['/opt/python', '-u', '-m', 'acprof', 'run']])
     def test_posthoc_recognizes_installed_runs_in_their_own_workspace(self, prefix):
         from acprof.host.posthoc.storage import find_active_processes
         with tempfile.TemporaryDirectory() as temporary:
@@ -89,7 +89,7 @@ class TestDistribution:
                 matches = find_active_processes(root / "results" / "org--model", model_id="org/model")
             assert ([pid for pid, _ in matches]) == ([999999999])
 
-    @pytest.mark.parametrize('prefix', (['/opt/python', '/opt/bin/acprof', 'profile'], ['/opt/acprof-linux-x86_64', 'profile'], ['/opt/python', '-u', '-m', 'acprof', 'profile']))
+    @pytest.mark.parametrize('prefix', [['/opt/python', '/opt/bin/acprof', 'profile'], ['/opt/acprof-linux-x86_64', 'profile'], ['/opt/python', '-u', '-m', 'acprof', 'profile']])
     def test_posthoc_recognizes_installed_profile_processes(self, prefix):
         from acprof.host.posthoc.storage import find_active_processes
         with tempfile.TemporaryDirectory() as temporary:

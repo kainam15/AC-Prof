@@ -112,8 +112,8 @@ class TestTuiEnvironment:
             screen._checked_permissions('late', 0)
 
 
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_bilingual_dialog_actions_are_reachable_at_supported_sizes(self, language, size):
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
         async with app.run_test(size=(150, 45)) as pilot:
@@ -125,7 +125,8 @@ class TestTuiEnvironment:
             await self.open_connections(app, pilot)
             for widget_id in ('close-environment-settings', 'save-environment-settings'):
                 widget = app.screen.query_one('#' + widget_id, Button)
-                assert (widget.region.width and widget.region.height)
+                assert (widget.region.width)
+                assert (widget.region.height)
                 assert (widget.region.right) <= (size[0])
                 assert (widget.region.bottom) <= (size[1])
             app.screen.query_one('#environment-tabs', TabbedContent).active = 'permissions-tab'
@@ -154,7 +155,8 @@ class TestTuiEnvironment:
             load_project_env(self.root, environ=env)
             assert (env['HF_TOKEN']) == ('hf_testonly')
             assert (os.environ['HF_TOKEN']) == ('hf_testonly')
-            assert 'HTTP_PROXY' not in env and 'HTTPS_PROXY' not in env
+            assert 'HTTP_PROXY' not in env
+            assert 'HTTPS_PROXY' not in env
             assert not ((self.root / 'tui.json').exists())
             status = app.screen.query_one('#environment-status', Static).content
             assert isinstance(status, str)

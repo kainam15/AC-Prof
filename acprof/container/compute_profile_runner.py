@@ -9,7 +9,7 @@ import json
 import math
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 # Compute profiling must use the same offline model artifact as normal inference.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -24,7 +24,7 @@ from acprof.runtime_settings import runtime_threads
 torch = None
 
 
-def _find_payload(payload_file: str, input_scale: float) -> Dict[str, Any]:
+def _find_payload(payload_file: str, input_scale: float) -> dict[str, Any]:
     plan = read_input_scale_plan(payload_file)
 
     entries = plan.get("entries")
@@ -52,9 +52,9 @@ def _find_payload(payload_file: str, input_scale: float) -> Dict[str, Any]:
 
 class _ITTControl:
     def __init__(self) -> None:
-        self._lib: Optional[Any] = None
-        self._resume: Optional[Any] = None
-        self._pause: Optional[Any] = None
+        self._lib: Any | None = None
+        self._resume: Any | None = None
+        self._pause: Any | None = None
         candidates = self._library_candidates()
         for name in candidates:
             if name is not None and not os.path.exists(name) and os.sep in name:
@@ -73,7 +73,7 @@ class _ITTControl:
                 self._pause = None
 
     @staticmethod
-    def _library_candidates() -> list[Optional[str]]:
+    def _library_candidates() -> list[str | None]:
         raw_candidates = [
             os.getenv("ADVISOR_ITT_LIB") or "",
             os.getenv("INTEL_LIBITTNOTIFY64") or "",
@@ -85,7 +85,7 @@ class _ITTControl:
             None,
             "libittnotify.so",
         ]
-        candidates: list[Optional[str]] = []
+        candidates: list[str | None] = []
         seen = set()
         for name in raw_candidates:
             if name == "":
@@ -156,8 +156,8 @@ def _package_version(distribution: str) -> str:
         return "unknown"
 
 
-def _gpu_metadata() -> Dict[str, Any]:
-    metadata: Dict[str, Any] = {
+def _gpu_metadata() -> dict[str, Any]:
+    metadata: dict[str, Any] = {
         "gpu_compute_capability": "",
         "gpu_sm_count": None,
     }
@@ -225,7 +225,7 @@ def _verify_eager_attention(model_ctx: Any) -> str:
 
 def _load_options_for_profile_mode(
     profile_mode: str,
-) -> Optional[Dict[str, str]]:
+) -> dict[str, str] | None:
     if profile_mode in {
         "torch_cpu",
         "torch_gpu",
@@ -281,7 +281,7 @@ def main() -> None:
         import torch as selected_torch
         torch = selected_torch
     t_load = time.perf_counter()
-    handler_load_kwargs: Dict[str, Any] = {}
+    handler_load_kwargs: dict[str, Any] = {}
     if load_options is not None:
         handler_load_kwargs["load_options"] = load_options
     model_ctx = load_handler(handler,

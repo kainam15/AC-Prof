@@ -32,7 +32,7 @@ class TestHandlerRegistry:
                 self.fail = "must not be constructed on duplicate"
 
         handlers.HandlerRegistry.register("test", "runtime", First)
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="duplicate handler key") as caught:
             handlers.HandlerRegistry.register("test", "runtime", Replacement)
         assert (type(caught.value).__name__) == ("DuplicateHandlerRegistrationError")
         for detail in ("test:runtime", "First", "Replacement", __name__):
@@ -50,7 +50,7 @@ class TestHandlerRegistry:
         handlers.HandlerRegistry.register("test", "runtime", Second, override=True)
         assert isinstance(handlers.HandlerRegistry.get("test", "runtime"), Second)
         handlers.HandlerRegistry.register_adapter("a", "test", "runtime", First)
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="duplicate handler key") as caught:
             handlers.HandlerRegistry.register_adapter("a", "test", "runtime", Second)
         assert (type(caught.value).__name__) == ("DuplicateHandlerRegistrationError")
 
@@ -86,7 +86,7 @@ class TestHandlerRegistry:
 
     def test_selected_missing_dependency_preserves_original_exception(self):
         name = self._module("import acprof_missing_optional_dependency\nclass Handler: pass\n")
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="missing dependency: acprof_missing_optional_dependency") as caught:
             handlers.HandlerRegistry.get("test", "optional")
         assert (type(caught.value).__name__) == ("HandlerDependencyMissingError")
         for detail in ("optional", name, "acprof_missing_optional_dependency", "ModuleNotFoundError"):
@@ -95,20 +95,20 @@ class TestHandlerRegistry:
 
     def test_internal_module_failure_is_distinct_from_missing_dependency(self):
         self._module("raise RuntimeError('module defect')\n")
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="RuntimeError: module defect") as caught:
             handlers.HandlerRegistry.get("test", "optional")
         assert (type(caught.value).__name__) == ("HandlerModuleImportError")
         assert isinstance(caught.value.__cause__, RuntimeError)
 
     def test_handler_constructor_failure_is_distinct(self):
         self._module("class Handler:\n def __init__(self): raise RuntimeError('constructor defect')\n")
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="RuntimeError: constructor defect") as caught:
             handlers.HandlerRegistry.get("test", "optional")
         assert (type(caught.value).__name__) == ("HandlerInitializationError")
         assert isinstance(caught.value.__cause__, RuntimeError)
 
     def test_unknown_handler_is_distinct(self):
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="Handler not registered") as caught:
             handlers.HandlerRegistry.get("test", "unknown")
         assert (type(caught.value).__name__) == ("HandlerNotRegisteredError")
 
@@ -117,7 +117,7 @@ class TestHandlerRegistry:
             def load(self, *_args):
                 import acprof_missing_runtime_dependency  # noqa: F401 -- 验证缺失依赖的失败路径。
 
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="missing dependency: acprof_missing_runtime_dependency") as caught:
             handlers.load_handler(Handler(), "/model", "task", "optional", "cpu")
         assert (type(caught.value).__name__) == ("HandlerDependencyMissingError")
         assert ("acprof_missing_runtime_dependency") in (str(caught.value))
@@ -129,7 +129,7 @@ class TestHandlerRegistry:
             def load(self, *_args):
                 raise RuntimeError("corrupt model")
 
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="RuntimeError: corrupt model") as caught:
             handlers.load_handler(Handler(), "/model", "task", "optional", "cpu")
         assert (type(caught.value).__name__) == ("HandlerInitializationError")
         assert isinstance(caught.value.__cause__, RuntimeError)

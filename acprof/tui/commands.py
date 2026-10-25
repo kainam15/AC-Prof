@@ -4,10 +4,10 @@ from __future__ import annotations
 import csv
 import shlex
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 from acprof.experiment import ConfigIssue, RunConfig, RunConfigError, _csv_values
 from acprof.installation import cli_command
@@ -109,7 +109,7 @@ def prepare_comparison(left: str, right: str, *, baseline: str, purpose: str,
         groups.reverse()
     first = groups[0][0]
     layout = ArtifactLayout.discover(first) if first.is_dir() else ArtifactLayout.from_csv(first)
-    output = layout.path("analysis") / f"experiment-comparison-{datetime.now(timezone.utc):%Y%m%d-%H%M%S-%f}.json"
+    output = layout.path("analysis") / f"experiment-comparison-{datetime.now(UTC):%Y%m%d-%H%M%S-%f}.json"
     command = [*cli_command("compare", python_executable=python_executable)]
     for name, paths in zip(("--left", "--right"), groups, strict=True):
         for path in paths:

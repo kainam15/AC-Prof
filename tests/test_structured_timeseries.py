@@ -59,7 +59,7 @@ def test_invalid_context_and_prediction_length_fail(payload_case):
     torch = types.SimpleNamespace(tensor=lambda value, **kwargs: Tensor(value), float32="float32")
     ctx = {"device": "cpu", "task_type": "time-series-forecasting", "pipeline": Mock()}
     payload = tuple(({'context': []}, {'context': [[1], [1, 2]]}, {'context': [[float('nan')]]}, {'context': [[True]]}, {'context': [[1]], 'prediction_length': 0}, {'context': [[1]], 'prediction_length': 1.5}))[payload_case]
-    with patch.dict("sys.modules", {"torch": torch}), pytest.raises(ValueError):
+    with patch.dict("sys.modules", {"torch": torch}), pytest.raises(ValueError, match="context .*must|prediction_length must be a positive integer"):
         handler.preprocess(ctx, payload)
 
 def test_non_chronos_pipeline_fails_with_explicit_support_boundary():
@@ -70,8 +70,8 @@ def test_non_chronos_pipeline_fails_with_explicit_support_boundary():
             TimeseriesTransformersHandler().load("unsupported/model", "time-series-forecasting", "transformers_pipeline", "cpu")
     transformers.pipeline.assert_not_called()
 
-@pytest.mark.parametrize('value', (0, -1, 1.5, True, 2049))
+@pytest.mark.parametrize('value', [0, -1, 1.5, True, 2049])
 def test_workload_rejects_invalid_scale_instead_of_slicing(value):
     generator = TimeseriesWorkloadGenerator("demo", "time-series-forecasting", 1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="context length must be a positive integer"):
         generator.generate(value)

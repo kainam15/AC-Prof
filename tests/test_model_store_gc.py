@@ -1,4 +1,5 @@
 """Model Store GC plans scale linearly and retain current ownership evidence."""
+import errno
 import fcntl
 import hashlib
 import json
@@ -91,7 +92,7 @@ class TestModelStoreGc:
         target = self.root / "lock-target"
         target.write_text("sentinel")
         (self.root / ".lock").symlink_to(target)
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, check=lambda error: error.errno == errno.ELOOP):
             with model_store.store_lock(self.root):
                 pass
         assert target.read_text() == "sentinel"
@@ -101,7 +102,7 @@ class TestModelStoreGc:
         target = self.root / "lock-target"
         target.write_text("sentinel")
         os.link(target, self.root / ".lock")
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="lock is not a regular file owned only by this user"):
             with model_store.store_lock(self.root):
                 pass
         assert target.read_text() == "sentinel"
@@ -116,7 +117,10 @@ class TestModelStoreGc:
             lease_path.symlink_to(target)
         else:
             os.link(target, lease_path)
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, check=lambda error: (
+            error.errno == errno.ELOOP if link_kind == "symlink"
+            else str(error) == "Model Store lease lock is not a regular file owned only by this user"
+        )):
             model_store.prune_store(root=self.root)
         assert target.read_text() == "sentinel"
 

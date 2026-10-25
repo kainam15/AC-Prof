@@ -51,7 +51,7 @@ def custom_task(spec=None, *, model_id="unseen/speech-model", model_type="unseen
     )
 
 
-@pytest.mark.parametrize('name', ('unseen_audio', 'another_speech_architecture'))
+@pytest.mark.parametrize('name', ['unseen_audio', 'another_speech_architecture'])
 def test_distinct_unknown_architectures_use_the_declared_shared_protocol(name):
     task = custom_task(model_id=f"arbitrary/{name}", model_type=name)
     require_task_support(task)
@@ -71,14 +71,14 @@ def test_declared_pipeline_rejects_a_native_environment_override():
     with pytest.raises(TaskSupportError, match="custom-multimodal"):
         require_task_support(task)
 
-@pytest.mark.parametrize('missing', ('question', 'waveform', 'rate'))
+@pytest.mark.parametrize('missing', ['question', 'waveform', 'rate'])
 def test_audio_protocol_requires_text_waveform_and_sampling_rate(missing):
     spec = pipeline_spec()
     del spec["multimodal"]["inputs"][missing]
     with pytest.raises(ValueError, match="inputs|audio|text|sampling_rate"):
         validate_model_spec(spec)
 
-@pytest.mark.parametrize('kwargs', ({'limit': '$unknown', 'temperature': 0.0}, {'temperature': 0.0}, {'limit': '$max_new_tokens', 'do_sample': True}))
+@pytest.mark.parametrize('kwargs', [{'limit': '$unknown', 'temperature': 0.0}, {'temperature': 0.0}, {'limit': '$max_new_tokens', 'do_sample': True}])
 def test_unknown_parameter_references_and_unbounded_generation_are_rejected(kwargs):
     spec = pipeline_spec()
     spec["multimodal"]["forward_kwargs"] = kwargs
@@ -158,7 +158,7 @@ class TestCustomMultimodalPhase:
             self.handler.preprocess(self.context, self.payload)
         self.pipeline._forward.assert_not_called()
 
-    @pytest.mark.parametrize('value', ({'unrelated': True}, ['one', 'two'], 123))
+    @pytest.mark.parametrize('value', [{'unrelated': True}, ['one', 'two'], 123])
     def test_custom_output_must_be_a_single_text_result(self, value):
         self.pipeline.postprocess.return_value = value
         with pytest.raises(ValueError, match="text"):

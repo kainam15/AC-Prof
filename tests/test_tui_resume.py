@@ -9,7 +9,7 @@ from acprof.experiment import RunConfig, build_run_command
 from acprof.tui.input import BarCursorInput as Input
 
 
-@pytest.mark.parametrize("language,size", [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
+@pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_restored_run_can_configure_a_new_experiment_without_a_resume_toggle(tmp_path, language, size):
     restored = replace(RunConfig.smoke("org/model"), resume=True, output_dir=str(tmp_path / "original"))
     app = AcprofTui(restored, settings_path=tmp_path / "tui.json")

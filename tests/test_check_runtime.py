@@ -17,7 +17,7 @@ from acprof.runtime_profiles import PROFILES
 from scripts.check_runtime import ONNX_ENVIRONMENT_CHECK, main
 
 
-@pytest.mark.parametrize('python_version', ('3.12.12', '3.13.0'))
+@pytest.mark.parametrize('python_version', ['3.12.12', '3.13.0'])
 def test_test_wheel_download_uses_runtime_python_markers_and_preserves_hashes(tmp_path, monkeypatch, python_version):
     profile = PROFILES['onnxruntime-cpu']
     platform = replace(profile.environment.platform, python_version=python_version)
@@ -103,7 +103,7 @@ class TestRuntimeCheckSelection:
         assert not any('requirements/runtime-test.lock' in argument for argument in command)
         assert command[command.index('--network') + 1] == 'none'
 
-    @pytest.mark.parametrize('profile_id,task,trust', (('nlp-transformers5104-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)))
+    @pytest.mark.parametrize(('profile_id', 'task', 'trust'), [('nlp-transformers5104-cpu', 'text-generation', False), ('custom-multimodal-cpu', 'audio-text-to-text', True)])
     def test_container_uses_selected_profile_and_adapter_loading_policy(self, profile_id, task, trust):
         from acprof.container.load_policy import registered_policy
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
@@ -155,7 +155,7 @@ class TestRuntimeCheckSelection:
             assert not (result['successful'])
             assert not (result['cleanup']['successful'])
 
-    @pytest.mark.parametrize('forbidden', ('torch', 'transformers'))
+    @pytest.mark.parametrize('forbidden', ['torch', 'transformers'])
     def test_onnx_environment_guard_rejects_installed_torch_or_transformers(self, forbidden):
         with patch('importlib.util.find_spec',
                 side_effect=lambda name: object() if name == forbidden else None):
@@ -229,7 +229,7 @@ class TestRuntimeCheckSelection:
                                    '--output-dir', temporary])) == (1)
             assert ([call.kwargs['scenario'] for call in e2e.call_args_list]) == (['tabular', 'image', 'text'])
 
-    @pytest.mark.parametrize('profile', ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'))
+    @pytest.mark.parametrize('profile', ['onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'])
     def test_onnx_profile_defaults_to_required_onnx_tests_and_forbids_torch(self, profile):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})
@@ -249,7 +249,7 @@ class TestRuntimeCheckSelection:
             assert ("'transformers'") in (guard[-1])
             assert ("'onnxruntime'") in (guard[-1])
 
-    @pytest.mark.parametrize('profile', ('onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'))
+    @pytest.mark.parametrize('profile', ['onnxruntime-cpu', 'onnxruntime-cv-cpu', 'onnxruntime-nlp-cpu'])
     def test_each_onnx_profile_build_only_records_dependencies_without_claiming_tests(self, profile):
         image = SimpleNamespace(image_id='sha256:' + 'a' * 64, name='locked-env',
                                 platform_image_id='sha256:' + 'b' * 64, manifest={})

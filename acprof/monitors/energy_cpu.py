@@ -11,8 +11,9 @@ import math
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from acprof.config import DEFAULT_IDLE_SECONDS
 from acprof.monitors.common import docker_container_pid, sample_periodically
@@ -33,10 +34,10 @@ class RaplDomain:
 @dataclass
 class CPUSample:
     timestamp: float
-    energy_uj: List[int]
+    energy_uj: list[int]
     host_active_s: float
-    container_cpu_s: Optional[float]
-    dram_energy_uj: Optional[List[int]] = None
+    container_cpu_s: float | None
+    dram_energy_uj: list[int] | None = None
 
 
 @dataclass
@@ -94,7 +95,7 @@ def _nan_result(cpu_energy_iters: int = 0, cpu_idle_power_w: float = float("nan"
 
 
 def _read_int(path: str) -> int:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return int(f.read().strip())
 
 
@@ -104,11 +105,11 @@ def _clock_ticks_per_second() -> float:
     return 100.0
 
 
-def _discover_rapl_domains(powercap_root: str = "/sys/class/powercap") -> List[RaplDomain]:
+def _discover_rapl_domains(powercap_root: str = "/sys/class/powercap") -> list[RaplDomain]:
     return _topology_domains(discover_rapl_topology(powercap_root), "package")
 
 
-def _topology_domains(topology: dict, kind: str) -> List[RaplDomain]:
+def _topology_domains(topology: dict, kind: str) -> list[RaplDomain]:
     return [RaplDomain(entry["id"], entry["energy_path"], entry["max_energy_range_uj"] or 0)
             for entry in topology["domains"] if entry["selected"] and entry["kind"] == kind]
 
@@ -129,7 +130,7 @@ def detect_vcpu_power_method(
 
 
 def _read_host_active_s(proc_stat_path: str = "/proc/stat") -> float:
-    with open(proc_stat_path, "r", encoding="utf-8") as f:
+    with open(proc_stat_path, encoding="utf-8") as f:
         first_line = f.readline().strip()
 
     parts = first_line.split()
@@ -145,7 +146,7 @@ def _read_host_active_s(proc_stat_path: str = "/proc/stat") -> float:
     return active / _clock_ticks_per_second()
 
 
-def _percentile(values: List[float], pct: float) -> float:
+def _percentile(values: list[float], pct: float) -> float:
     if not values:
         return float("nan")
     ordered = sorted(values)
@@ -162,14 +163,14 @@ def _percentile(values: List[float], pct: float) -> float:
 
 
 def _idle_power_windows(
-    samples: List[CPUSample],
-    domains: List[RaplDomain],
-) -> List[Dict[str, Any]]:
+    samples: list[CPUSample],
+    domains: list[RaplDomain],
+) -> list[dict[str, Any]]:
     if len(samples) < 2:
         return []
 
     start_t = samples[0].timestamp
-    windows: List[Dict[str, Any]] = []
+    windows: list[dict[str, Any]] = []
     for idx in range(1, len(samples)):
         prev = samples[idx - 1]
         curr = samples[idx]
@@ -189,10 +190,10 @@ def _idle_power_windows(
 
 
 def _build_idle_trace(
-    samples: List[CPUSample],
-    domains: List[RaplDomain],
+    samples: list[CPUSample],
+    domains: list[RaplDomain],
     trace_interval_s: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if len(samples) < 2:
         return {}
 
@@ -208,7 +209,7 @@ def _build_idle_trace(
     if start.container_cpu_s is not None and end.container_cpu_s is not None:
         container_delta_s = end.container_cpu_s - start.container_cpu_s
 
-    trace: Dict[str, Any] = {
+    trace: dict[str, Any] = {
         "idle_trace_schema": "cpu_rapl_control_v1",
         "idle_trace_interval_s": trace_interval_s,
         "actual_idle_duration_s": duration_s,
@@ -243,13 +244,13 @@ def _resolve_container_cpu_reader(
     container_name: str,
     cgroup_root: str = "/sys/fs/cgroup",
     proc_root: str = "/proc",
-) -> Optional[Callable[[], float]]:
+) -> Callable[[], float] | None:
     if not container_name:
         return None
 
     pid = docker_container_pid(container_name)
     cgroup_file = os.path.join(proc_root, str(pid), "cgroup")
-    with open(cgroup_file, "r", encoding="utf-8") as f:
+    with open(cgroup_file, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     for line in lines:
@@ -258,7 +259,7 @@ def _resolve_container_cpu_reader(
             stat_path = _join_cgroup_path(cgroup_root, parts[2], "cpu.stat")
             if os.path.exists(stat_path):
                 def read_v2(path: str = stat_path) -> float:
-                    with open(path, "r", encoding="utf-8") as stat_f:
+                    with open(path, encoding="utf-8") as stat_f:
                         for stat_line in stat_f:
                             key, _, value = stat_line.strip().partition(" ")
                             if key == "usage_usec":
@@ -270,7 +271,7 @@ def _resolve_container_cpu_reader(
     return None
 
 
-def _energy_delta_j(prev: CPUSample, curr: CPUSample, domains: List[RaplDomain]) -> float:
+def _energy_delta_j(prev: CPUSample, curr: CPUSample, domains: list[RaplDomain]) -> float:
     total_uj = 0
     for index, domain in enumerate(domains):
         old = prev.energy_uj[index]
@@ -288,9 +289,9 @@ def _energy_delta_j(prev: CPUSample, curr: CPUSample, domains: List[RaplDomain])
 
 
 def reduce_cpu_samples(
-    samples: List[CPUSample],
+    samples: list[CPUSample],
     idle_power_w: float,
-    domains: List[RaplDomain],
+    domains: list[RaplDomain],
     min_power_interval_s: float = 0.0,
 ) -> CPUEnergyResult:
     if len(samples) < 2 or not domains:
@@ -307,10 +308,10 @@ def reduce_cpu_samples(
     total_host_active_s = 0.0
     vcpu_energy_total_j = 0.0
     vcpu_energy_eff_j = 0.0
-    total_power_peaks: List[float] = []
-    eff_power_peaks: List[float] = []
-    vcpu_total_power_peaks: List[float] = []
-    vcpu_eff_power_peaks: List[float] = []
+    total_power_peaks: list[float] = []
+    eff_power_peaks: list[float] = []
+    vcpu_total_power_peaks: list[float] = []
+    vcpu_eff_power_peaks: list[float] = []
     has_total_interval = False
     has_eff_interval = False
 
@@ -484,13 +485,13 @@ class CPUEnergyMonitor:
         if dram_energy == "required" and self.dram_status != "available":
             raise RuntimeError(f"required DRAM RAPL unavailable: {self.dram_status}")
         self.idle_power_w = float("nan")
-        self.idle_trace: Dict[str, Any] = {}
-        self.samples: List[CPUSample] = []
-        self._container_cpu_reader: Optional[Callable[[], float]] = None
-        self._thread: Optional[threading.Thread] = None
+        self.idle_trace: dict[str, Any] = {}
+        self.samples: list[CPUSample] = []
+        self._container_cpu_reader: Callable[[], float] | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._t_start: Optional[float] = None
-        self._t_end: Optional[float] = None
+        self._t_start: float | None = None
+        self._t_end: float | None = None
         self._init_error = ""
         self._runtime_error = ""
 
@@ -516,7 +517,7 @@ class CPUEnergyMonitor:
     def apply_control_baseline(
         self,
         result: CPUEnergyResult,
-        samples: List[CPUSample],
+        samples: list[CPUSample],
         *,
         trace: bool = False,
     ) -> float:

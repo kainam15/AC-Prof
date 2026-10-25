@@ -93,7 +93,7 @@ class TestEffectiveEnergyWarning:
             assert (rows[1]["status"]) == ("error")
             assert ("offline fixture") in (rows[1]["error"])
 
-    @pytest.mark.parametrize('invalid', ('[16,32]', '[16,32,32]', '[16,32,128]'))
+    @pytest.mark.parametrize('invalid', ['[16,32]', '[16,32,32]', '[16,32,128]'])
     def test_frozen_scale_order_changes_execution_without_changing_payloads(self, invalid):
         entries = [{"input_scale": scale, "payload": {"text": f"payload-{scale}"}}
                    for scale in (16, 32, 64)]
@@ -110,7 +110,7 @@ class TestEffectiveEnergyWarning:
                     with pytest.raises(ValueError, match="frozen matrix input-scale"):
                         self.runner._load_input_scale_entries()
 
-    @pytest.mark.parametrize('invalid_value, expected', [('NaN', 'non-finite'), ('1e999', 'non-finite')])
+    @pytest.mark.parametrize(("invalid_value", "expected"), [('NaN', 'non-finite'), ('1e999', 'non-finite')])
     def test_input_plan_rejects_nonfinite_numbers_before_measurement(self, invalid_value, expected):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp, "input_scale_plan.json")
@@ -449,7 +449,7 @@ class TestEffectiveEnergyWarning:
             ), patch_client(self.runner, "_one_request", side_effect=lambda *args, **kwargs: next(responses)):
                 self.runner.main()
 
-            with open(out_csv, "r", encoding="utf-8", newline="") as f:
+            with open(out_csv, encoding="utf-8", newline="") as f:
                 row = next(csv.DictReader(f))
 
         assert (row["input_units_per_request"]) == ("2.000000")
@@ -726,7 +726,7 @@ class TestEffectiveEnergyWarning:
                 side_effect=fake_one_request,
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["repeat_in_window"]) == ("5")
@@ -780,7 +780,7 @@ class TestEffectiveEnergyWarning:
                 side_effect=fake_one_request,
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
             assert (os.path.isfile(f"{out_csv}.requests.jsonl"))
@@ -902,7 +902,7 @@ class TestEffectiveEnergyWarning:
                 side_effect=fake_one_request,
             ) as one_request:
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["repeat_in_window"]) == ("20")
@@ -987,7 +987,7 @@ class TestEffectiveEnergyWarning:
                 side_effect=fake_one_request,
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     reader = csv.DictReader(f)
                     fieldnames = reader.fieldnames or []
                     rows = list(reader)
@@ -1208,7 +1208,7 @@ class TestEffectiveEnergyWarning:
             ), pytest.raises(SystemExit), redirect_stderr(stderr):
                 self.runner.run_cli()
 
-            with open(sidecar_path, "r", encoding="utf-8") as f:
+            with open(sidecar_path, encoding="utf-8") as f:
                 payload = json.load(f)
 
         assert (payload["error_type"]) == ("client_request_timeout")
@@ -1272,12 +1272,12 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     reader = csv.DictReader(f)
                     rows = list(reader)
                     fieldnames = reader.fieldnames or []
 
-            with open(f"{out_csv}.sniff_groups.jsonl", "r", encoding="utf-8") as f:
+            with open(f"{out_csv}.sniff_groups.jsonl", encoding="utf-8") as f:
                 sidecar_rows = [json.loads(line) for line in f if line.strip()]
 
         assert ("sniff_group_id") not in (fieldnames)
@@ -1339,7 +1339,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["status"]) == ("ok")
@@ -1449,9 +1449,9 @@ class TestEffectiveEnergyWarning:
                 create=True,
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
-                with open(diag_path, "r", encoding="utf-8") as f:
+                with open(diag_path, encoding="utf-8") as f:
                     diag_rows = [json.loads(line) for line in f if line.strip()]
 
         assert (rows[0]["cpu_idle_measured_at"]) == ("2026-05-02T10:00:00+08:00")
@@ -1565,9 +1565,9 @@ class TestEffectiveEnergyWarning:
                 create=True,
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
-                with open(diag_path, "r", encoding="utf-8") as f:
+                with open(diag_path, encoding="utf-8") as f:
                     diag_rows = [json.loads(line) for line in f if line.strip()]
 
         assert (FakeGpuMonitor.trace_args) == ([True, True])
@@ -1617,7 +1617,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["cpu_idle_measured_at"]) == ("nan")
@@ -1720,7 +1720,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["status"]) == ("ok")
@@ -1818,7 +1818,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.25, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["status"]) == ("ok")
@@ -1892,7 +1892,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert rows[0]["status"] == "warn"
@@ -1956,7 +1956,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["status"]) == ("ok")
@@ -2026,7 +2026,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     row = next(csv.DictReader(f))
 
         assert (row["status"]) == ("ok")
@@ -2095,7 +2095,7 @@ class TestEffectiveEnergyWarning:
                 return_value={"latency_app_s": 0.5, "effective_input_scale": 1.0},
             ):
                 self.runner.main()
-                with open(out_csv, "r", encoding="utf-8", newline="") as f:
+                with open(out_csv, encoding="utf-8", newline="") as f:
                     rows = list(csv.DictReader(f))
 
         assert (rows[0]["status"]) == ("ok")

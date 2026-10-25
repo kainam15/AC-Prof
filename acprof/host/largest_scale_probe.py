@@ -7,8 +7,9 @@ import math
 import os
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Sequence
+from typing import Any
 
 import requests
 
@@ -81,7 +82,7 @@ def select_minimum_resources(
     ), gpu
 
 
-def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> Dict[str, Any]:
+def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> dict[str, Any]:
     """Load the materialized payload with the largest effective input scale."""
     path = Path(plan_file)
     try:
@@ -92,7 +93,7 @@ def load_largest_scale_entry(plan_file: str | os.PathLike[str]) -> Dict[str, Any
     if not isinstance(entries, list) or not entries:
         raise RuntimeError("input scale plan 没有可探测的 entries")
 
-    candidates: list[tuple[float, Dict[str, Any]]] = []
+    candidates: list[tuple[float, dict[str, Any]]] = []
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise RuntimeError(f"input scale plan entry {index} 不是 object")
@@ -140,7 +141,7 @@ def create_probe_output_dir(
 
 def write_probe_summary(
     path: str | os.PathLike[str],
-    summary: Dict[str, Any],
+    summary: dict[str, Any],
 ) -> None:
     """Atomically persist a probe result."""
     def write(handle) -> None:
@@ -157,7 +158,7 @@ def write_probe_summary(
     atomic_write(Path(path), write)
 
 
-def _cold_start_payload(session: RunningContainer | None) -> Dict[str, Any]:
+def _cold_start_payload(session: RunningContainer | None) -> dict[str, Any]:
     if session is None:
         return {
             "total_s": None,
@@ -187,7 +188,7 @@ def _finite_or_none(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _result_marker(summary: Dict[str, Any]) -> str:
+def _result_marker(summary: dict[str, Any]) -> str:
     resource = summary["resource"]
     input_data = summary["input"]
     timing = summary["timing"]
@@ -260,19 +261,19 @@ def _probe_memory_candidate(
     cpu: int,
     mem: int,
     gpu: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     planned_scale: float,
     timeout_seconds: float | None,
     attempt_index: int,
     attempt_total: int,
-) -> tuple[Dict[str, Any], Dict[str, Any] | None]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Run at most one largest-scale request for one memory candidate."""
     container_name = (
         f"largest_probe_{model_token(task_info.model_id)}_"
         f"{cpu}c_{mem}g_{gpu}_{os.getpid()}"
     )
     session: RunningContainer | None = None
-    response_payload: Dict[str, Any] | None = None
+    response_payload: dict[str, Any] | None = None
     request_s: float | None = None
     request_started: float | None = None
     attempt_started = time.perf_counter()
@@ -393,7 +394,7 @@ def run_largest_scale_probe(
     batch_size: int,
     output_dir: str | os.PathLike[str],
     timeout_seconds: float | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Find the minimum viable memory cap and time its largest-scale request."""
     if int(batch_size) <= 0:
         raise ValueError("batch_size 必须大于 0")
@@ -412,8 +413,8 @@ def run_largest_scale_probe(
     summary_path = Path(output_dir) / PROBE_SUMMARY_NAME
     started_at = datetime.datetime.now().astimezone().isoformat()
     probe_started = time.perf_counter()
-    attempts: list[Dict[str, Any]] = []
-    response_payload: Dict[str, Any] | None = None
+    attempts: list[dict[str, Any]] = []
+    response_payload: dict[str, Any] | None = None
     selected_mem: int | None = None
 
     from acprof.progress_events import emit_event
@@ -492,7 +493,7 @@ def run_largest_scale_probe(
     effective_scale = _finite_or_none(
         (response_payload or {}).get("effective_input_scale")
     )
-    summary: Dict[str, Any] = {
+    summary: dict[str, Any] = {
         "schema_version": PROBE_SUMMARY_SCHEMA_VERSION,
         "status": status,
         "error": error,

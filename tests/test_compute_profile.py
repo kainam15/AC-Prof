@@ -84,7 +84,7 @@ class TestComputeProfile:
             with pytest.raises(FileNotFoundError, match="input scale plan not found"):
                 compute_profile.load_input_scale_plan_entries(missing)
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_compute_plan_loader_rejects_untrusted_json(self, case) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "compute_profile_plan.json")
@@ -100,7 +100,7 @@ class TestComputeProfile:
         assert (plan["profiles"]) == ({})
         assert ("compute_profile_plan_invalid") in (plan["_load_error"])
 
-    @pytest.mark.parametrize('schema_version', (2,))
+    @pytest.mark.parametrize('schema_version', [2])
     def test_current_input_plan_reuses_the_exact_payload(self, schema_version) -> None:
         payload = {
             "audio_base64": "UklGRg==",
@@ -207,7 +207,7 @@ class TestComputeProfile:
         mount.close.assert_called_once_with()
         retain.assert_not_called()
 
-    @pytest.mark.parametrize("use_gpu", (False, True))
+    @pytest.mark.parametrize("use_gpu", [False, True])
     def test_regular_profilers_use_host_identity_without_capabilities(self, tmp_path, use_gpu):
         task = SimpleNamespace(model_id="fixture", model_revision="fixed", task_family="nlp",
                                pipeline_tag="fill-mask", runtime_backend="transformers_pipeline",
@@ -245,7 +245,7 @@ class TestComputeProfile:
                 assert tmp_path.stat().st_mode & 0o777 == 0o770
         mount.close.assert_called_once_with()
 
-    @pytest.mark.parametrize("invalid", ("cpu", "file", "owner", "group"))
+    @pytest.mark.parametrize("invalid", ["cpu", "file", "owner", "group"])
     def test_ncu_rejects_invalid_output_access_before_acquiring_model_mount(self, tmp_path, invalid):
         profile_root = tmp_path / "profiles"
         if invalid == "file":
@@ -1093,7 +1093,7 @@ class TestComputeProfile:
                 compute_profile_tool="vendor",
             )
 
-            with open(plan_path, "r", encoding="utf-8") as f:
+            with open(plan_path, encoding="utf-8") as f:
                 plan = json.load(f)
             assert not (os.path.exists(os.path.join(tmp, "compute_profiles")))
             assert not (os.path.exists(
@@ -1143,7 +1143,7 @@ class TestComputeProfile:
                 ncu_repeat=1,
                 keep_profiles=True,
             )
-            with open(plan_path, "r", encoding="utf-8") as f:
+            with open(plan_path, encoding="utf-8") as f:
                 plan = json.load(f)
             assert not (os.path.exists(os.path.join(tmp, "compute_profiles")))
 
@@ -1232,7 +1232,7 @@ class TestComputeProfile:
                 compute_profile_tool="both",
             )
 
-            with open(plan_path, "r", encoding="utf-8") as f:
+            with open(plan_path, encoding="utf-8") as f:
                 plan = json.load(f)
 
         assert (calls) == ([
@@ -1305,7 +1305,7 @@ class TestComputeProfile:
                 keep_profiles=False,
                 compute_profile_tool="both",
             )
-            with open(plan_path, "r", encoding="utf-8") as f:
+            with open(plan_path, encoding="utf-8") as f:
                 plan = json.load(f)
 
         assert (calls) == ([("torch", "cpu"), ("torch", "gpu"), ("ncu", 3)])
@@ -1356,7 +1356,7 @@ class TestComputeProfile:
                 compute_profile_tool="vendor",
             )
 
-            with open(plan_path, "r", encoding="utf-8") as f:
+            with open(plan_path, encoding="utf-8") as f:
                 plan = json.load(f)
 
         assert ("advisor_not_found") in (plan["profiles"]["cpu"]["intel_advisor"]["error"])
@@ -1499,7 +1499,7 @@ class TestComputeProfile:
 class TestComputeProfileProgress:
     def _collect(self, directory, **kwargs):
         input_plan = _write_input_scale_plan(directory)
-        with open(input_plan, "r", encoding="utf-8") as f:
+        with open(input_plan, encoding="utf-8") as f:
             payload = json.load(f)
         payload["entries"].append({
             **payload["entries"][0],
@@ -1537,7 +1537,7 @@ class TestComputeProfileProgress:
                 keep_profiles=False,
                 **kwargs,
             )
-        with open(plan_path, "r", encoding="utf-8") as f:
+        with open(plan_path, encoding="utf-8") as f:
             return json.load(f)
 
     @staticmethod
@@ -1652,7 +1652,7 @@ class TestComputeProfileProgress:
         assert (attempted) == (["CPU Torch", "GPU Torch"])
         assert (actual) == (expected)
 
-    @pytest.mark.parametrize('mode,gpu_list', (('none', ['off', 'on']), ('ncu', ['off'])))
+    @pytest.mark.parametrize(("mode", "gpu_list"), [('none', ['off', 'on']), ('ncu', ['off'])])
     def test_disabled_and_inapplicable_tools_do_not_notify(self, mode, gpu_list):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
             torch, "_profile_torch_entries",

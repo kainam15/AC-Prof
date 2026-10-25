@@ -55,7 +55,7 @@ class TestTuiInput:
             settings_path=Path(temporary.name) / "tui.json",
         )
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     @pytest.mark.parametrize('value_case', range(4), ids=["('OpenMOSS-Team/MOSS-Transcribe-Diarize', 0)", "('模型/中文abc', 3)", "('模型abc/' * 24, 144)", "('', 0)"])
     async def test_ctrl_a_selects_all_and_typing_replaces_entire_value(self, size, value_case):
         app = self.make_app()
@@ -72,7 +72,7 @@ class TestTuiInput:
             await pilot.press("X")
             assert (field.value) == ("X")
 
-    @pytest.mark.parametrize('key', ('backspace', 'delete'))
+    @pytest.mark.parametrize('key', ['backspace', 'delete'])
     async def test_ctrl_a_supports_delete_paste_and_home_navigation(self, key):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
@@ -92,7 +92,7 @@ class TestTuiInput:
             await pilot.press("ctrl+shift+a")
             assert (field.selected_text) == (field.value)
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_caret_tracks_editing_wide_text_and_horizontal_scroll(self, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:

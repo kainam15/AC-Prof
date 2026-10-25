@@ -63,7 +63,7 @@ def test_replay_rapl_wrap_uses_recorded_hardware_range():
     assert result["cpu_avg_power_total_w"] == 1.0
 
 
-@pytest.mark.parametrize("source,expected_energy,expected_average,expected_effective", [
+@pytest.mark.parametrize(("source", "expected_energy", "expected_average", "expected_effective"), [
     ("power_integration", 80.0, 80.0 / 3.0, 50.0),
     ("nvml_total_energy", 75.0, 25.0, 45.0),
 ])

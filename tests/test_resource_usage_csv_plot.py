@@ -914,10 +914,10 @@ class TestResourceUsageCsvPlot:
                     ))
             assert ([axis.get_xlabel() for axis in figure.axes[-2:]]) == (["input_scale", "input_scale"])
             assert (len(figure.legends)) == (1)
-            assert ((
+            assert (
                     "Measured GPU board idle: mean 11.00 W | "
                     "max within-case range/mean 8.00%"
-                )) in ([text.get_text() for text in figure.texts])
+                ) in ([text.get_text() for text in figure.texts])
         finally:
             matplotlib_pyplot.close(figure)
 
@@ -1003,10 +1003,10 @@ class TestResourceUsageCsvPlot:
             ),
         )
 
-        assert (gpu_note) == ((
+        assert (gpu_note) == (
                 "Measured GPU board idle: mean 16.00 W | "
                 "max within-case range/mean 4.00%"
-            ))
+            )
         assert (cpu_note.splitlines()) == ([
                 (
                     "CPU-only measured package idle: mean 5.00 W | "
@@ -1047,10 +1047,10 @@ class TestResourceUsageCsvPlot:
             ),
         )
 
-        assert (note) == ((
+        assert (note) == (
                 "Measured GPU board idle: mean 15.00 W | "
                 "max within-case range/mean N/A"
-            ))
+            )
 
     def test_execution_profile_overview_and_massif_are_registered(self) -> None:
         metrics = {

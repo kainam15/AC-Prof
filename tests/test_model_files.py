@@ -53,13 +53,13 @@ class TestModelFilePlan:
         with pytest.raises(ModelFilesError, match="missing checkpoint shards"):
             self.plan(["config.json", index, "pytorch_model.bin"], {index: {"weight_map": {"a": "missing.safetensors"}}})
 
-    @pytest.mark.parametrize('weight_map', ({}, {'a': '../outside.safetensors'}, {'a': 3}))
+    @pytest.mark.parametrize('weight_map', [{}, {'a': '../outside.safetensors'}, {'a': 3}])
     def test_invalid_shard_paths_and_empty_index_are_rejected(self, weight_map):
         index = "model.safetensors.index.json"
         with pytest.raises(ModelFilesError):
             self.plan(["config.json", index], {index: {"weight_map": weight_map}})
 
-    @pytest.mark.parametrize('config', ({'model_type': 'new_model'}, {'model_type': 'bert', 'auto_map': {'AutoModel': 'custom.Model'}}, {'model_type': 'bert', 'quantization_config': {'quant_method': 'gptq'}}, {'model_type': 'bert', 'custom_pipelines': {'custom': {'impl': 'custom.Pipeline'}}}, {'model_type': ['custom', 'Model']}))
+    @pytest.mark.parametrize('config', [{'model_type': 'new_model'}, {'model_type': 'bert', 'auto_map': {'AutoModel': 'custom.Model'}}, {'model_type': 'bert', 'quantization_config': {'quant_method': 'gptq'}}, {'model_type': 'bert', 'custom_pipelines': {'custom': {'impl': 'custom.Pipeline'}}}, {'model_type': ['custom', 'Model']}])
     def test_unknown_custom_and_quantized_models_keep_full_snapshot(self, config):
         names = ["config.json", "model.safetensors", "pytorch_model.bin", "custom.py", "extra.bin"]
         plan = self.plan(names, {"config.json": config})
@@ -105,13 +105,13 @@ class TestModelFilePlan:
         })
         assert (len(plan["weights"])) == (2)
 
-    @pytest.mark.parametrize('pipeline', ('NewPipeline', ['custom', 'Pipeline']))
+    @pytest.mark.parametrize('pipeline', ['NewPipeline', ['custom', 'Pipeline']])
     def test_unknown_diffusers_pipeline_keeps_complete_repository(self, pipeline):
         names = ["model_index.json", "unet/diffusion_pytorch_model.safetensors", "extra.ckpt"]
         plan = self.plan(names, {"model_index.json": {"_class_name": pipeline}}, backend="diffusers")
         assert (self.selected(plan)) == (set(names))
 
-    @pytest.mark.parametrize('pipeline,scheduler', (('DDPMPipeline', 'DDPMScheduler'), ('DDIMPipeline', 'DDIMScheduler')))
+    @pytest.mark.parametrize(("pipeline", "scheduler"), [('DDPMPipeline', 'DDPMScheduler'), ('DDIMPipeline', 'DDIMScheduler')])
     def test_ddpm_root_components_preserve_selected_weights_and_scheduler(self, pipeline, scheduler):
         names = ["model_index.json", "config.json", "scheduler_config.json",
                  "diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.bin",
@@ -128,7 +128,7 @@ class TestModelFilePlan:
         assert (plan["weights"][0]["component"]) == (".")
         assert (plan["weights"][0]["files"]) == (["diffusion_pytorch_model.safetensors"])
 
-    @pytest.mark.parametrize('missing', ('scheduler_config.json', 'config.json', 'diffusion_pytorch_model.safetensors'))
+    @pytest.mark.parametrize('missing', ['scheduler_config.json', 'config.json', 'diffusion_pytorch_model.safetensors'])
     def test_ddpm_missing_components_still_fail(self, missing):
         with pytest.raises(ModelFilesError):
             self.plan({"model_index.json", "config.json", "scheduler_config.json",
@@ -147,7 +147,7 @@ class TestModelFilePlan:
         assert (plan["weights"][0]["component"]) == ("unet")
         assert ("unet/diffusion_pytorch_model.bin") in (self.selected(plan))
 
-    @pytest.mark.parametrize('spec', ((['custom'], 'Model'), ('diffusers', {'custom': 'Model'}), ('custom',), {'custom': 'Model'}))
+    @pytest.mark.parametrize('spec', [(['custom'], 'Model'), ('diffusers', {'custom': 'Model'}), ('custom',), {'custom': 'Model'}])
     def test_nonstandard_diffusers_component_keeps_complete_repository(self, spec):
         names = ["model_index.json", "unet/diffusion_pytorch_model.safetensors", "extra.ckpt"]
         plan = self.plan(names, {"model_index.json": {

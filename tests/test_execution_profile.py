@@ -80,7 +80,7 @@ class TestExecutionProfile:
         selection.start()
         self._request.addfinalizer(partial(selection.stop))
 
-    @pytest.mark.parametrize('schema_version', (2,))
+    @pytest.mark.parametrize('schema_version', [2])
     def test_current_input_plan_reuses_the_exact_payload(self, schema_version) -> None:
         payload = {
             "audio_base64": "UklGRg==",
@@ -530,7 +530,7 @@ heap_tree=peak
                 ),
                 progress_callback=events.append,
             )
-            with open(plan_path, "r", encoding="utf-8") as plan_file:
+            with open(plan_path, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
         assert (plan["schema_version"]) == (1)
@@ -605,7 +605,7 @@ heap_tree=peak
                 ),
                 progress_callback=failing_callback,
             )
-            with open(plan_path, "r", encoding="utf-8") as plan_file:
+            with open(plan_path, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
         assert (profile_massif.call_count) == (4)
@@ -671,7 +671,7 @@ heap_tree=peak
                 ),
                 progress_callback=completed,
             )
-            with open(plan_path, "r", encoding="utf-8") as plan_file:
+            with open(plan_path, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
         expected = []
@@ -752,7 +752,7 @@ heap_tree=peak
                 ),
                 progress_callback=events.append,
             )
-            with open(plan_path, "r", encoding="utf-8") as plan_file:
+            with open(plan_path, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
             assert not (os.path.exists(
@@ -770,7 +770,7 @@ heap_tree=peak
         assert not (plan["static_metadata"]["execution_profiles_retained"])
         assert (plan["static_metadata"]["execution_profile_provenance"]) == ("disabled")
 
-    @pytest.mark.parametrize('tool_mode,gpu_mode', (('massif', 'on'), ('nsys', 'off')))
+    @pytest.mark.parametrize(("tool_mode", "gpu_mode"), [('massif', 'on'), ('nsys', 'off')])
     def test_inapplicable_tools_do_not_report_completion(self, tool_mode, gpu_mode) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             events = []
@@ -789,7 +789,7 @@ heap_tree=peak
                 ),
                 progress_callback=events.append,
             )
-            with open(plan_path, "r", encoding="utf-8") as plan_file:
+            with open(plan_path, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
             assert (events) == ([])
             assert (plan["profiles"]) == ([])

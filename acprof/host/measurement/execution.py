@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import datetime
 import time
+from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
-from typing import TYPE_CHECKING, Any, Callable, TextIO, cast
+from typing import TYPE_CHECKING, Any, TextIO, cast
 
 from acprof.capabilities import measurement_requested
 from acprof.failures import RuntimeFailure

@@ -16,7 +16,7 @@ from acprof.workloads.structured import StructuredWorkloadGenerator
 TASKS = ("tabular-classification", "tabular-regression", "reinforcement-learning", "robotics", "graph-ml")
 
 
-@pytest.mark.parametrize('task,key,width', (('tabular-classification', 'features', 8), ('tabular-regression', 'features', 8), ('reinforcement-learning', 'observations', 4), ('robotics', 'observations', 7)))
+@pytest.mark.parametrize(("task", "key", "width"), [('tabular-classification', 'features', 8), ('tabular-regression', 'features', 8), ('reinforcement-learning', 'observations', 4), ('robotics', 'observations', 7)])
 def test_dense_scale_counts_rows_and_keeps_feature_width_fixed(task, key, width):
     generator = StructuredWorkloadGenerator("demo", task, 2)
     small, large = generator.generate(2), generator.generate(3)
@@ -46,7 +46,7 @@ def test_graph_scale_is_per_graph_nodes_with_valid_ring_edges():
 def test_invalid_scales_fail_instead_of_silent_rounding_or_truncation(value_case):
     generator = StructuredWorkloadGenerator("demo", "tabular-classification", 1)
     value = tuple((0, -1, 1.5, True, float('nan'), float('inf'), 4097))[value_case]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="input_scale must be a positive integer"):
         generator.generate(value)
 
 def test_spec_controls_shape_scales_seed_and_records_provenance():
@@ -87,7 +87,7 @@ class TestStructuredHandler:
             assert (processed["_effective_input_scale"]) == (2)
             np.testing.assert_array_equal(processed["args"][0], [[1, 2], [3, 4]])
             payload = tuple(({'features': [[1]], 'input_scale': 1}, {'features': [[1, 2]], 'input_scale': 2}, {'features': [[1, float('nan')]], 'input_scale': 1}, {'features': [[True, 2]], 'input_scale': 1}, {'features': [[1, 2]], 'batch_size': 2, 'input_scale': 1}))[payload_case]
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="feature_dim must match|features must contain finite numbers|match actual features row count"):
                 self.handler.preprocess(ctx, payload)
 
     def test_graph_preprocess_forms_disjoint_batch_and_offsets_edges(self):
@@ -99,10 +99,10 @@ class TestStructuredHandler:
         np.testing.assert_array_equal(processed["args"][1], [[0, 1, 2, 3], [1, 0, 3, 2]])
         np.testing.assert_array_equal(processed["args"][2], [0, 0, 1, 1])
 
-    @pytest.mark.parametrize('edges', ([[0], [2]], [[-1], [0]], [[0.5], [1]], [[True], [1]], [[0], []]))
+    @pytest.mark.parametrize('edges', [[[0], [2]], [[-1], [0]], [[0.5], [1]], [[True], [1]], [[0], []]])
     def test_graph_rejects_invalid_indices_and_mixed_node_counts(self, edges):
         ctx = self.context("graph-ml")
-        with patch.dict("sys.modules", {"torch": self.fake_torch}), pytest.raises(ValueError):
+        with patch.dict("sys.modules", {"torch": self.fake_torch}), pytest.raises(ValueError, match="edge_index must"):
             self.handler.preprocess(ctx, {"graphs": [{"node_features": [[1, 2], [3, 4]], "edge_index": edges}],
                                           "input_scale": 2})
 
@@ -124,7 +124,7 @@ class TestStructuredHandler:
         assert (result["task"]) == (task)
         assert (result["output_shape"]) == ([3, 2])
         assert (result["n_results"]) == (3)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="structured model must return one tensor/array"):
             self.handler.postprocess(self.context(), {"loss": 0})
 
     def test_torchscript_loads_only_declared_local_artifact(self):

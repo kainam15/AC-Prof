@@ -7,7 +7,7 @@ import binascii
 import inspect
 import io
 import math
-from typing import Any, Dict, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 from acprof.container.handlers import (
     BaseHandler,
@@ -27,14 +27,14 @@ VIDEO_TASKS = {"image-text-to-video", "text-to-video", "video-to-video", "image-
 class _ConditionedOutput(NamedTuple):
     result: Any
     resolution: int
-    num_frames: Optional[int]
+    num_frames: int | None
 
 
 def _canonical_task(task_type: str) -> str:
     return task_type
 
 
-def _pipeline_parameters(pipe: Any) -> Dict[str, inspect.Parameter]:
+def _pipeline_parameters(pipe: Any) -> dict[str, inspect.Parameter]:
     try:
         parameters = inspect.signature(pipe).parameters
     except (TypeError, ValueError) as exc:
@@ -48,7 +48,7 @@ def _pipeline_parameters(pipe: Any) -> Dict[str, inspect.Parameter]:
     }
 
 
-def _require_pipeline_parameters(pipe: Any, required: set[str]) -> Dict[str, inspect.Parameter]:
+def _require_pipeline_parameters(pipe: Any, required: set[str]) -> dict[str, inspect.Parameter]:
     parameters = _pipeline_parameters(pipe)
     missing = sorted(required - set(parameters))
     if missing:
@@ -59,7 +59,7 @@ def _require_pipeline_parameters(pipe: Any, required: set[str]) -> Dict[str, ins
     return parameters
 
 
-def _conditioned_pipeline_parameters(pipe: Any, task_type: str) -> Dict[str, inspect.Parameter]:
+def _conditioned_pipeline_parameters(pipe: Any, task_type: str) -> dict[str, inspect.Parameter]:
     _reject_fixed_upscaler(pipe)
     required = {
         "prompt", "image", "num_inference_steps", "guidance_scale", "generator",
@@ -110,7 +110,7 @@ def _positive_int(value: Any, field_name: str) -> int:
     return parsed
 
 
-def _load_eager_attention(pipe: Any, load_options: Optional[Dict[str, Any]]) -> Any:
+def _load_eager_attention(pipe: Any, load_options: dict[str, Any] | None) -> Any:
     """Use Diffusers' explicit eager attention processor for FLOP profiling."""
     options = dict(load_options or {})
     options.pop("dtype", None)
@@ -144,7 +144,7 @@ def _load_eager_attention(pipe: Any, load_options: Optional[Dict[str, Any]]) -> 
     return denoiser
 
 
-def _native_pipeline_parameters(pipe: Any, task: str) -> Dict[str, inspect.Parameter]:
+def _native_pipeline_parameters(pipe: Any, task: str) -> dict[str, inspect.Parameter]:
     _reject_fixed_upscaler(pipe)
     required = {"num_inference_steps", "generator", "output_type", "return_dict"}
     if task == "unconditional-image-generation":
@@ -207,7 +207,7 @@ def _native_image_size(pipe: Any) -> tuple[int, int]:
     raise ValueError("unconditional generation requires a fixed native UNet sample_size")
 
 
-def _decode_image(encoded: Any, name: str, resolution: Optional[int] = None) -> Any:
+def _decode_image(encoded: Any, name: str, resolution: int | None = None) -> Any:
     from PIL import Image
 
     if not isinstance(encoded, str) or not encoded:
@@ -222,7 +222,7 @@ def _decode_image(encoded: Any, name: str, resolution: Optional[int] = None) -> 
     return image
 
 
-def _native_preprocess(model_ctx: Dict[str, Any], raw: Dict[str, Any], task: str) -> Dict[str, Any]:
+def _native_preprocess(model_ctx: dict[str, Any], raw: dict[str, Any], task: str) -> dict[str, Any]:
     pipe = model_ctx["pipeline"]
     parameters = _native_pipeline_parameters(pipe, task)
     optional_prompt = task in {"image-to-video", "image-to-image"}
@@ -270,7 +270,7 @@ def _native_preprocess(model_ctx: Dict[str, Any], raw: Dict[str, Any], task: str
     seed = params.get("seed", DEFAULT_SEED)
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("seed must be an integer")
-    kwargs: Dict[str, Any] = {"num_inference_steps": steps, "output_type": "mesh" if task in {"text-to-3d", "image-to-3d"} else "pil", "return_dict": True}
+    kwargs: dict[str, Any] = {"num_inference_steps": steps, "output_type": "mesh" if task in {"text-to-3d", "image-to-3d"} else "pil", "return_dict": True}
     if has_prompt:
         prompt = raw.get("prompt")
         if isinstance(prompt, str):
@@ -352,8 +352,8 @@ class DiffusionHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         task = _canonical_task(task_type)
         if task not in {"text-to-image", "image-text-to-image", "image-text-to-video", *NATIVE_TASKS}:
             raise ValueError(f"unsupported diffusion task_type={task_type!r}")
@@ -393,7 +393,7 @@ class DiffusionHandler(BaseHandler):
             "load_options": dict(load_options or {}),
         }
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task = _canonical_task(model_ctx.get("task_type", "text-to-image"))
         if task in NATIVE_TASKS:
             return _native_preprocess(model_ctx, raw_input, task)
@@ -416,7 +416,7 @@ class DiffusionHandler(BaseHandler):
         if resolution < 64 or resolution % 8 != 0:
             raise ValueError("resolution must be at least 64 and divisible by 8")
         pipe = model_ctx.get("pipeline")
-        parameters: Dict[str, inspect.Parameter] = {}
+        parameters: dict[str, inspect.Parameter] = {}
         if conditioned:
             parameters = _conditioned_pipeline_parameters(pipe, task)
             multiple = _spatial_multiple(pipe)
@@ -557,7 +557,7 @@ class DiffusionHandler(BaseHandler):
                 raise ValueError("unsupported required pipeline parameters: " + ", ".join(missing))
         return processed
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         import torch
 
         if "native_kwargs" in processed_input:
@@ -575,7 +575,7 @@ class DiffusionHandler(BaseHandler):
             for index in range(len(prompts))
         ]
         generator: Any = generators[0] if len(generators) == 1 else generators
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "prompt": prompts,
             "height": processed_input["resolution"],
             "width": processed_input["resolution"],
@@ -606,7 +606,7 @@ class DiffusionHandler(BaseHandler):
             )
         return output
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         if isinstance(raw_output, _ConditionedOutput):
             metadata = self.postprocess(model_ctx, raw_output.result)
             media = metadata["output_type"]
@@ -705,12 +705,12 @@ class DiffusionHandler(BaseHandler):
 
     def get_scale_metadata(
         self,
-        model_ctx: Dict[str, Any],
-        raw_input: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        model_ctx: dict[str, Any],
+        raw_input: dict[str, Any],
+    ) -> dict[str, Any]:
         task = _canonical_task(model_ctx.get("task_type", "text-to-image"))
         if task in STEP_TASKS:
-            metadata: Dict[str, Any] = {"input_scale_type": "denoising_steps", "minimum_denoising_steps": 1}
+            metadata: dict[str, Any] = {"input_scale_type": "denoising_steps", "minimum_denoising_steps": 1}
             if task == "unconditional-image-generation":
                 width, height = _native_image_size(model_ctx["pipeline"])
                 metadata.update({"native_output_width": width, "native_output_height": height})

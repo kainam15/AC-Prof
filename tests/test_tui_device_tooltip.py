@@ -45,7 +45,7 @@ def cell_offset(table, row, column):
     return (x + table.cell_padding, table.header_height + row - table.scroll_offset.y)
 
 
-@pytest.mark.parametrize('size,language', (((80, 24), 'zh'), ((120, 30), 'en')))
+@pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((120, 30), 'en')])
 async def test_device_model_and_hover_uuid_follow_rows_and_search(device_choices, size, language):
     app = PickerHarness(language)
     app.TOOLTIP_DELAY = 0.01

@@ -1,9 +1,10 @@
 """RunConfig form conversion and preset matching, independent of Textual widgets."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from acprof.experiment import PRESET_FIELDS, RunConfig
 from acprof.tui.presentation import format_input_number

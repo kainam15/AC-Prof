@@ -53,7 +53,7 @@ def test_resource_errors_keep_distinct_gpu_queries_and_other_causes():
     assert error.count("NVML utilization failed") == 1
 
 
-@pytest.mark.parametrize("kind", ("gpu", "cpu"))
+@pytest.mark.parametrize("kind", ["gpu", "cpu"])
 def test_full_mode_propagates_energy_monitor_errors_to_csv(tmp_path, request, kind):
     from platform_fixtures import native_policy
 

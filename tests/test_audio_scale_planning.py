@@ -34,7 +34,7 @@ class TestAudioScalePlanning:
             "short_form_fixed_padding": False, "model_type": "encodec", "reason": "audio seconds",
         }
 
-    @pytest.mark.parametrize('task,rate', (('audio-to-audio', 24000), ('audio-classification', 32000)))
+    @pytest.mark.parametrize(("task", "rate"), [('audio-to-audio', 24000), ('audio-classification', 32000)])
     def test_codec_and_classification_accept_declared_resampling_and_persist_source(self, task, rate):
         with tempfile.TemporaryDirectory() as directory:
             plan = self._plan(task, self._constraints(rate), directory)

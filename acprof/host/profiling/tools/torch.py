@@ -1,7 +1,7 @@
 """Torch profiler execution in isolated containers."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
@@ -18,9 +18,9 @@ TORCH_PROFILER_TOOL = "torch_profiler_eager"
 
 
 def _torch_error_entries(
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     error: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return [
         {
             "input_scale": float(entry["input_scale"]),
@@ -41,9 +41,9 @@ def _run_torch_profiler_for_entry(
     use_gpu: bool,
     payload_file: str,
     profile_root: str,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     runner_mode = "torch_eager_gpu" if use_gpu else "torch_eager_cpu"
     with profiler_container_command(
         task_info=task_info,
@@ -106,7 +106,7 @@ def _run_torch_profiler_for_entry(
 
 def _profile_torch_entries(
     *,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     task_info: TaskInfo,
     image_tag: str,
     cpu: int,
@@ -116,7 +116,7 @@ def _profile_torch_entries(
     payload_file: str,
     profile_root: str,
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     profile_entries = []
     for entry in entries:
         try:

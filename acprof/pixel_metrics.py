@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 PIXEL_COUNT_FIELDS = ("input_pixels_per_request", "output_pixels_per_request")
 PIXEL_RATE_SOURCES = {

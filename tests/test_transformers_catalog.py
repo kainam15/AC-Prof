@@ -56,7 +56,7 @@ MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = OrderedDict([
         assert (mapping["vision"]) == (("VisionModel", "VisionVariant"))
         assert (len(catalog["source_sha256"])) == (64)
 
-    @pytest.mark.parametrize('expression', ('OrderedDict(build_dynamic_mapping())', 'build_dynamic_mapping()', '{"vision": "Model"}'))
+    @pytest.mark.parametrize('expression', ['OrderedDict(build_dynamic_mapping())', 'build_dynamic_mapping()', '{"vision": "Model"}'])
     def test_changed_registry_shape_is_rejected_instead_of_publishing_partial_data(self, expression):
         source = '''
 MODEL_MAPPING_NAMES = OrderedDict([("encoder", "EncoderModel")])
@@ -67,5 +67,5 @@ MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES = REPLACEMENT
             export_support(source.replace("REPLACEMENT", expression).encode(), "test")
 
     def test_calls_inside_entries_are_rejected_without_execution(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="malformed node or string"):
             export_support(b'MODEL_MAPPING_NAMES = OrderedDict([("a", load_remote_code())])', "test")

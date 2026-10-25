@@ -7,8 +7,8 @@ import os
 import re
 import stat
 import tempfile
+from collections.abc import Iterable, Mapping, MutableMapping
 from pathlib import Path
-from typing import Iterable, Mapping, MutableMapping
 
 from acprof.config import (
     CONTAINER_HF_HOME,

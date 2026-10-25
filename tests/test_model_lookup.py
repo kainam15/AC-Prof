@@ -37,7 +37,7 @@ def test_invalid_id_is_rejected_before_network_even_with_manual_task():
     hub.assert_not_called()
     download.assert_not_called()
 
-@pytest.mark.parametrize('override', (None, 'text-generation'))
+@pytest.mark.parametrize('override', [None, 'text-generation'])
 @pytest.mark.parametrize('failure_case', range(4), ids=["(hub_error(RepositoryNotFoundError, 401), 'repository_unavailable')", "(hub_error(RepositoryNotFoundError, 404), 'repository_unavailable')", "(hub_error(GatedRepoError, 403), 'access_denied')", "(hub_error(RevisionNotFoundError, 404), 'revision_not_found')"])
 def test_permanent_lookup_errors_cannot_be_bypassed_by_manual_task(override, failure_case):
     (failure, reason) = tuple(((hub_error(RepositoryNotFoundError, 401), 'repository_unavailable'), (hub_error(RepositoryNotFoundError, 404), 'repository_unavailable'), (hub_error(GatedRepoError, 403), 'access_denied'), (hub_error(RevisionNotFoundError, 404), 'revision_not_found')))[failure_case]

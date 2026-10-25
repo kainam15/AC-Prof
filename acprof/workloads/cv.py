@@ -10,7 +10,7 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -28,22 +28,22 @@ class CVWorkloadGenerator(WorkloadGenerator):
     """Generate synthetic RGB images at scaled resolutions."""
 
     def __init__(self, model_id: str, task_type: str, batch_size: int,
-                 workload_spec_path: Optional[str] = None):
+                 workload_spec_path: str | None = None):
         super().__init__(model_id, task_type, batch_size)
         if task_type not in CV_TASKS:
             raise ValueError(f"unsupported CV task_type={task_type!r}")
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size != 1:
             raise ValueError(f"{task_type} requires batch_size=1")
         self._base_res = BASE_RESOLUTION
-        self._params: Dict[str, Any] = {}
+        self._params: dict[str, Any] = {}
         self._labels = ["cat", "dog", "car", "person"]
         self._boxes = [[0.0, 0.0, 1.0, 1.0]]
         self._num_frames = 16
-        self._assets: List[bytes] = []
-        self._sources: List[str] = []
-        self._scales: Optional[List[float]] = None
+        self._assets: list[bytes] = []
+        self._sources: list[str] = []
+        self._scales: list[float] | None = None
         self._workload_id = f"synthetic-{task_type}-v1"
-        self._spec_sha256: Optional[str] = None
+        self._spec_sha256: str | None = None
         if workload_spec_path is not None:
             self._load_spec(Path(workload_spec_path).expanduser().resolve())
 
@@ -171,7 +171,7 @@ class CVWorkloadGenerator(WorkloadGenerator):
         img.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode("ascii")
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         from PIL import Image
 
         resolution = self._resolution(scale_value)
@@ -200,11 +200,11 @@ class CVWorkloadGenerator(WorkloadGenerator):
     def scale_label(self, scale_value: float) -> str:
         return f"res{scale_value}"
 
-    def default_input_scales(self) -> Optional[List[float]]:
+    def default_input_scales(self) -> list[float] | None:
         return list(self._scales) if self._scales is not None else None
 
-    def plan_metadata(self) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = {
+    def plan_metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
             "workload_id": self._workload_id,
             "workload_spec_sha256": self._spec_sha256,
             "input_scale_type": "resolution_scale",
@@ -223,10 +223,10 @@ class CVWorkloadGenerator(WorkloadGenerator):
             metadata.update(boxes=copy.deepcopy(self._boxes), boxes_format="normalized xywh; used by VitPose")
         return metadata
 
-    def input_metadata(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def input_metadata(self, scale_value: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = self.generate(scale_value) if payload is None else payload
         resolution = self._resolution(scale_value)
-        metadata: Dict[str, Any] = {"image_width": resolution, "image_height": resolution, "input_num_samples": 1}
+        metadata: dict[str, Any] = {"image_width": resolution, "image_height": resolution, "input_num_samples": 1}
         frames = payload.get("frames_base64")
         if frames is not None:
             metadata.update(num_frames=len(frames), frame_sha256=[

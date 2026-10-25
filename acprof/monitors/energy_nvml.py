@@ -1,7 +1,7 @@
 import math
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pynvml
 
@@ -55,17 +55,17 @@ class GPUEnergyMonitor:
         self.handle = None
         self.gpu_name = "unknown"
         self.idle_power_w = float("nan")
-        self.idle_trace: Dict[str, Any] = {}
-        self.samples: List[Tuple[float, float]] = []
+        self.idle_trace: dict[str, Any] = {}
+        self.samples: list[tuple[float, float]] = []
 
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._t_start: Optional[float] = None
-        self._t_end: Optional[float] = None
+        self._t_start: float | None = None
+        self._t_end: float | None = None
         self._init_error = ""
         self._runtime_error = ""
         self._closed = False
-        self._energy_start_mj: Optional[int] = None
+        self._energy_start_mj: int | None = None
         self._energy_error = ""
         self.idle_energy_source = "unavailable"
         self._idle_sample_avg_w = float("nan")
@@ -90,12 +90,12 @@ class GPUEnergyMonitor:
     def _build_idle_trace(
         self,
         *,
-        idle_samples: List[Tuple[float, float]],
+        idle_samples: list[tuple[float, float]],
         t_start: float,
         t_end: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         powers = [power for _, power in idle_samples]
-        trace: Dict[str, Any] = {
+        trace: dict[str, Any] = {
             "gpu_idle_trace_schema": "nvml_gpu_idle_v1",
             "gpu_idle_baseline_method": "time_weighted_mean",
             "gpu_idle_requested_duration_s": self.idle_seconds,
@@ -133,7 +133,7 @@ class GPUEnergyMonitor:
     def apply_control_baseline(
         self,
         result: EnergyResult,
-        samples: List[Tuple[float, float]],
+        samples: list[tuple[float, float]],
         *,
         trace: bool = False,
     ) -> float:
@@ -362,7 +362,7 @@ class GPUEnergyMonitor:
             if sleep_s > 0:
                 self._stop_event.wait(sleep_s)
 
-    def _read_energy_mj(self) -> Optional[int]:
+    def _read_energy_mj(self) -> int | None:
         try:
             value = pynvml.nvmlDeviceGetTotalEnergyConsumption(self.handle)
             if not math.isfinite(value) or value < 0:

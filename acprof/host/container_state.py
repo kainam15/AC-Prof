@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.container_lifecycle import INSPECT_TIMEOUT_S
@@ -26,7 +26,7 @@ class ContainerStartupError(RuntimeError):
         self.outcome = "timeout" if timed_out else "startup_oom" if confirmed else "error"
 
 
-def inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
+def inspect_container_state(container_name: str) -> dict[str, Any] | None:
     """Return Docker's runtime state without flooding readiness logs."""
     try:
         result = run_command(
@@ -60,7 +60,7 @@ def inspect_container_state(container_name: str) -> Optional[Dict[str, Any]]:
 def container_startup_exit_error(
     container_name: str,
     memory_limit_gb: int,
-) -> Optional[str]:
+) -> str | None:
     """Describe a container that exited while the server was starting."""
     state = inspect_container_state(container_name)
     if not state:
@@ -96,7 +96,7 @@ def container_runtime_oom_error(
     container_name: str,
     memory_limit_gb: int,
     client_exit_code: int,
-) -> Optional[str]:
+) -> str | None:
     """Describe a workload-time cgroup OOM reported by Docker.
 
     Client-side monitors can observe a dead container before the orchestrator

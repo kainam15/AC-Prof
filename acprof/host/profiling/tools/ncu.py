@@ -4,7 +4,8 @@ from __future__ import annotations
 import math
 import os
 import re
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 from acprof.artifacts import atomic_write, read_json_object
 from acprof.host.command import run_command
@@ -47,9 +48,9 @@ NCU_COMPLETE_ENTRY_FIELDS = (
 
 
 def _ncu_error_entries(
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     error: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return [
         {
             "input_scale": float(entry["input_scale"]),
@@ -66,7 +67,7 @@ def _ncu_error_entries(
     ]
 
 
-def _parse_ncu_metric_names(query_output: str) -> List[str]:
+def _parse_ncu_metric_names(query_output: str) -> list[str]:
     names = set()
     for line in query_output.splitlines():
         for token in re.split(r"[\s,]+", line.strip()):
@@ -78,7 +79,7 @@ def _parse_ncu_metric_names(query_output: str) -> List[str]:
     return sorted(names)
 
 
-def _select_ncu_flop_metrics(available_metrics: Iterable[str]) -> List[str]:
+def _select_ncu_flop_metrics(available_metrics: Iterable[str]) -> list[str]:
     available = set(available_metrics)
     sass_metrics = []
     for metric in NCU_SASS_FLOP_WEIGHTS:
@@ -98,11 +99,11 @@ def _select_ncu_flop_metrics(available_metrics: Iterable[str]) -> List[str]:
 def _resolve_ncu_metrics(
     ncu_bin: str,
     *,
-    container_base_cmd: Optional[Sequence[str]] = None,
+    container_base_cmd: Sequence[str] | None = None,
     include_host: bool = True,
-) -> Tuple[List[str], str]:
+) -> tuple[list[str], str]:
     query_errors = []
-    command_prefixes: List[Sequence[str]] = [()] if include_host else []
+    command_prefixes: list[Sequence[str]] = [()] if include_host else []
     if container_base_cmd:
         command_prefixes.append(container_base_cmd)
 
@@ -137,13 +138,13 @@ def _ncu_supports_nvtx_filter(ncu_bin: str) -> bool:
     return result.returncode == 0 and "--nvtx-include" in result.stdout
 
 
-def _ncu_collect_filter_args(ncu_bin: str) -> List[str]:
+def _ncu_collect_filter_args(ncu_bin: str) -> list[str]:
     if _ncu_supports_nvtx_filter(ncu_bin):
         return ["--nvtx", "--nvtx-include", "acprof_compute/"]
     return ["--nvtx", "--nvtx-include", "acprof_compute"]
 
 
-def _ncu_section_args(ncu_bin: str) -> List[str]:
+def _ncu_section_args(ncu_bin: str) -> list[str]:
     section_dir = os.path.join(os.path.dirname(os.path.realpath(ncu_bin)), "sections")
     if os.path.isdir(section_dir):
         return ["--section-folder", section_dir, "--apply-rules", "no"]
@@ -160,7 +161,7 @@ def _write_text_atomic(path: str, text: str) -> None:
 def _ncu_artifact_paths(
     profile_root: str,
     input_scale: float,
-) -> Tuple[str, str, str, str]:
+) -> tuple[str, str, str, str]:
     scale_label = format_scale_value(input_scale)
     report_base = f"/profiles/ncu_scale_{scale_label}"
     host_csv = os.path.join(profile_root, f"ncu_scale_{scale_label}.csv")
@@ -186,7 +187,7 @@ def _ncu_report_reference(profile_root: str, host_csv: str) -> str:
     )
 
 
-def _ncu_entry_complete(entry: Dict[str, Any]) -> bool:
+def _ncu_entry_complete(entry: dict[str, Any]) -> bool:
     return not str(entry.get("error") or "").strip() and all(
         math.isfinite(_to_float(entry.get(field)))
         for field in NCU_COMPLETE_ENTRY_FIELDS
@@ -195,12 +196,12 @@ def _ncu_entry_complete(entry: Dict[str, Any]) -> bool:
 
 def _ncu_entry_from_csv(
     *,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     host_csv: str,
     profile_root: str,
     repeat: int,
-    runner_payload: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    runner_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     report_path = _ncu_report_reference(profile_root, host_csv)
     try:
         parsed = parse_ncu_profile_csv(host_csv, repeat=repeat)
@@ -275,7 +276,7 @@ def _export_ncu_report(
     base_cmd: Sequence[str],
     report_base: str,
     host_csv: str,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     import_cmd = [
         ncu_bin,
         "--import", f"{report_base}.ncu-rep",
@@ -292,7 +293,7 @@ def _export_ncu_report(
     return True, ""
 
 
-def _read_ncu_checkpoint(path: str) -> Optional[Dict[str, Any]]:
+def _read_ncu_checkpoint(path: str) -> dict[str, Any] | None:
     try:
         return read_json_object(path, label="NCU checkpoint")
     except (OSError, ValueError, TypeError):
@@ -300,7 +301,7 @@ def _read_ncu_checkpoint(path: str) -> Optional[Dict[str, Any]]:
 
 
 def _ncu_checkpoint_matches(
-    checkpoint: Dict[str, Any],
+    checkpoint: dict[str, Any],
     *,
     task_info: TaskInfo,
     image_tag: str,
@@ -344,7 +345,7 @@ def _write_ncu_checkpoint(
     repeat: int,
     metrics: Sequence[str],
     host_csv: str,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
 ) -> None:
     write_profile_json(
         checkpoint_path,
@@ -373,9 +374,9 @@ def _resume_ncu_for_entry(
     payload_file: str,
     profile_root: str,
     tool_mount_roots: Sequence[str],
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     repeat: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     input_scale = float(entry["input_scale"])
     scale_label = format_scale_value(input_scale)
     report_base, host_csv, host_report, checkpoint_path = _ncu_artifact_paths(
@@ -501,7 +502,7 @@ def _resume_ncu_for_entry(
 def _run_ncu_for_entry(
     *,
     ncu_bin: str,
-    ncu_metrics: List[str],
+    ncu_metrics: list[str],
     task_info: TaskInfo,
     image_tag: str,
     cpu: int,
@@ -509,9 +510,9 @@ def _run_ncu_for_entry(
     payload_file: str,
     profile_root: str,
     tool_mount_roots: Sequence[str],
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     report_base, host_csv, _host_report, _checkpoint = _ncu_artifact_paths(
         profile_root,
         float(entry["input_scale"]),
@@ -580,9 +581,9 @@ def _run_ncu_for_entry(
 
 def _profile_gpu_entries(
     *,
-    entries: List[Dict[str, Any]],
-    ncu_bin: Optional[str],
-    ncu_root: Optional[str],
+    entries: list[dict[str, Any]],
+    ncu_bin: str | None,
+    ncu_root: str | None,
     task_info: TaskInfo,
     image_tag: str,
     cpu: int,
@@ -591,7 +592,7 @@ def _profile_gpu_entries(
     profile_root: str,
     repeat: int,
     resume_existing: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if ncu_bin is None:
         return {
             "tool": NCU_TOOL,

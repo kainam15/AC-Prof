@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
@@ -53,9 +54,9 @@ def error_entry(
     entry: Mapping[str, Any],
     error: str,
     *,
-    report: Optional[str] = None,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+    report: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "input_scale": float(entry["input_scale"]),
         "tool": NSYS_TOOL,
         **{field: None for field in NSYS_FIELDS},
@@ -80,8 +81,8 @@ def _discard_nsys_sqlite(report_path: str) -> None:
         pass
 
 
-def _run_nsys_stats(nsys_bin: str, report_path: str) -> Dict[str, str]:
-    outputs: Dict[str, str] = {}
+def _run_nsys_stats(nsys_bin: str, report_path: str) -> dict[str, str]:
+    outputs: dict[str, str] = {}
     sqlite_path = _nsys_sqlite_path(report_path)
     try:
         for index, report_name in enumerate(NSYS_REPORTS):
@@ -150,7 +151,7 @@ def _collect_nsys_entry(
     output_dir: str,
     entry: Mapping[str, Any],
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     scale_label = safe_filename_token(
         format_scale_value(float(entry["input_scale"]))
     )
@@ -272,19 +273,19 @@ def _collect_nsys_entry(
 
 def profile(
     *,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     global_error: str,
     task_info: TaskInfo,
     image_tag: str,
-    nsys_bin: Optional[str],
-    nsys_mount_root: Optional[str],
+    nsys_bin: str | None,
+    nsys_mount_root: str | None,
     cpu: int,
     mem: int,
     payload_file: str,
     profile_root: str,
     output_dir: str,
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if global_error or not nsys_bin or not nsys_mount_root:
         error = global_error or "nsys_not_found"
         profiled_entries = [

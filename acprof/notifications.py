@@ -12,8 +12,8 @@ import os
 import re
 import socket
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping, Optional
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -51,19 +51,19 @@ class NotificationEvent:
     model_id: str
     output_dir: str
     elapsed_seconds: float
-    run_command: Optional[str] = None
-    total_cases: Optional[int] = None
-    completed_cases: Optional[int] = None
-    result_rows: Optional[int] = None
-    error_rows: Optional[int] = None
-    final_csv: Optional[str] = None
-    terminal_log: Optional[str] = None
-    detail: Optional[str] = None
+    run_command: str | None = None
+    total_cases: int | None = None
+    completed_cases: int | None = None
+    result_rows: int | None = None
+    error_rows: int | None = None
+    final_csv: str | None = None
+    terminal_log: str | None = None
+    detail: str | None = None
     host: str = field(default_factory=socket.gethostname)
-    profiler: Optional[str] = None
-    profile_elapsed_seconds: Optional[float] = None
-    profile_samples: Optional[int] = None
-    profile_error_samples: Optional[int] = None
+    profiler: str | None = None
+    profile_elapsed_seconds: float | None = None
+    profile_samples: int | None = None
+    profile_error_samples: int | None = None
 
 
 def redact_notification_secrets(value: object) -> str:
@@ -217,12 +217,12 @@ class WeComWebhookNotifier:
     @classmethod
     def from_env(
         cls,
-        environ: Optional[Mapping[str, str]] = None,
+        environ: Mapping[str, str] | None = None,
         *,
         timeout_seconds: float = DEFAULT_NOTIFY_TIMEOUT_SECONDS,
         attempts: int = DEFAULT_NOTIFY_ATTEMPTS,
         retry_delay_seconds: float = DEFAULT_NOTIFY_RETRY_DELAY_SECONDS,
-    ) -> "WeComWebhookNotifier":
+    ) -> WeComWebhookNotifier:
         env = os.environ if environ is None else environ
         return cls(env.get(WECOM_WEBHOOK_ENV, ""), timeout_seconds=timeout_seconds,
                    attempts=attempts, retry_delay_seconds=retry_delay_seconds)

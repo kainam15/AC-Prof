@@ -28,8 +28,8 @@ class TestTuiConfirm:
         assert not (button.styles.text_style.reverse)
         assert (button.styles.background.a) == (0)
 
-    @pytest.mark.parametrize('theme', ('acprof-dark', 'acprof-light'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('theme', ['acprof-dark', 'acprof-light'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_mouse_highlight_only_lasts_while_hovering_confirmation(self, theme, size):
         app = self.make_app()
         app.theme = theme

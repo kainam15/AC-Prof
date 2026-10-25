@@ -5,7 +5,8 @@ import csv
 import io
 import math
 import re
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 NSYS_REPORTS = (
     "cuda_api_sum",
@@ -15,7 +16,7 @@ NSYS_REPORTS = (
 )
 
 
-def finite_float(value: Any) -> Optional[float]:
+def finite_float(value: Any) -> float | None:
     try:
         if value is None:
             return None
@@ -29,17 +30,17 @@ def finite_float(value: Any) -> Optional[float]:
     return number if math.isfinite(number) else None
 
 
-def parse_massif_output(report_path: str) -> Dict[str, Any]:
+def parse_massif_output(report_path: str) -> dict[str, Any]:
     """Parse native Massif snapshots and return the execution-plan fields.
 
     Component peaks are independent maxima.  The total peak and its timestamp
     come from the single snapshot maximizing heap + heap-extra + stack.
     """
-    snapshots: List[Dict[str, float]] = []
-    current: Optional[Dict[str, float]] = None
+    snapshots: list[dict[str, float]] = []
+    current: dict[str, float] | None = None
     time_unit = ""
 
-    with open(report_path, "r", encoding="utf-8", errors="replace") as report:
+    with open(report_path, encoding="utf-8", errors="replace") as report:
         for raw_line in report:
             line = raw_line.strip()
             if not line:
@@ -154,7 +155,7 @@ def _csv_table(
     csv_text: str,
     *,
     required_header_bases: Sequence[str],
-) -> Tuple[List[str], List[Dict[str, str]]]:
+) -> tuple[list[str], list[dict[str, str]]]:
     lines = (csv_text or "").splitlines()
     for index, line in enumerate(lines):
         try:
@@ -190,7 +191,7 @@ def _sum_numeric_column(
     rows: Sequence[Mapping[str, str]],
     field: str,
     *,
-    include_row: Optional[Any] = None,
+    include_row: Any | None = None,
 ) -> float:
     total = 0.0
     found = False
@@ -224,7 +225,7 @@ def parse_nsys_stats_csv(
     report_name: str,
     *,
     repeat: int = 1,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Parse one Nsys stats CSV report, normalizing units and repetitions."""
     normalized_repeat = max(1, int(repeat))
     report_name = str(report_name).strip()
@@ -316,7 +317,7 @@ def parse_nsys_stats_reports(
     report_outputs: Mapping[str, str],
     *,
     repeat: int = 1,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Combine the four Nsys summary reports into execution-plan fields."""
     missing = [report for report in NSYS_REPORTS if report not in report_outputs]
     if missing:

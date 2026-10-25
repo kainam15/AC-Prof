@@ -4,16 +4,11 @@ from __future__ import annotations
 import math
 import os
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
 )
 
 from acprof.artifacts import read_json_object
@@ -121,19 +116,19 @@ class ResultContext:
     static_meta_path: Path
     collection_history_path: Path
     input_scale_plan_path: Path
-    fieldnames: List[str]
-    rows: List[Dict[str, str]]
+    fieldnames: list[str]
+    rows: list[dict[str, str]]
     csv_encoding: str
-    static_meta: Dict[str, Any]
-    collection_history: Dict[str, Any]
+    static_meta: dict[str, Any]
+    collection_history: dict[str, Any]
     collection_history_existed: bool
-    input_scale_plan: Dict[str, Any]
+    input_scale_plan: dict[str, Any]
     task_info: TaskInfo
     image_tag: str
-    resource_cases: List[Tuple[int, int, str]]
-    scales_by_mode: Dict[str, List[float]]
+    resource_cases: list[tuple[int, int, str]]
+    scales_by_mode: dict[str, list[float]]
 
-    def cases_for_mode(self, gpu_mode: str) -> List[Tuple[int, int, str]]:
+    def cases_for_mode(self, gpu_mode: str) -> list[tuple[int, int, str]]:
         return [case for case in self.resource_cases if case[2] == gpu_mode]
 
 
@@ -141,11 +136,11 @@ class ResultContext:
 class PosthocSummary:
     result_csv: str
     static_meta: str
-    backup_dir: Optional[str]
-    collected_tools: Tuple[str, ...]
-    reused_tools: Tuple[str, ...]
-    skipped_tools: Tuple[str, ...]
-    updated_rows_by_tool: Dict[str, int]
+    backup_dir: str | None
+    collected_tools: tuple[str, ...]
+    reused_tools: tuple[str, ...]
+    skipped_tools: tuple[str, ...]
+    updated_rows_by_tool: dict[str, int]
 
 
 def _finite_float(value: Any) -> float:
@@ -172,7 +167,7 @@ def _integer(value: Any, field: str) -> int:
 
 def _load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
@@ -181,7 +176,7 @@ def _load_json_object(
         raise PosthocError(f"cannot read {label} {path}: {exc}") from exc
 
 
-def _load_result_csv(path: Path) -> Tuple[List[str], List[Dict[str, str]], str]:
+def _load_result_csv(path: Path) -> tuple[list[str], list[dict[str, str]], str]:
     if not path.is_file():
         raise PosthocError(
             f"missing completed {RESULT_CSV_NAME}: {path}; wait for acprof run to finish"
@@ -209,8 +204,8 @@ def _load_result_csv(path: Path) -> Tuple[List[str], List[Dict[str, str]], str]:
     return fieldnames, rows, encoding
 
 
-def _unique_scales(rows: Iterable[Mapping[str, Any]]) -> List[float]:
-    scales: List[float] = []
+def _unique_scales(rows: Iterable[Mapping[str, Any]]) -> list[float]:
+    scales: list[float] = []
     for row in rows:
         scale = _finite_float(row.get("input_scale"))
         if not math.isfinite(scale):
@@ -230,11 +225,11 @@ def _unique_scales(rows: Iterable[Mapping[str, Any]]) -> List[float]:
     return sorted(scales)
 
 
-def _input_plan_scales(plan: Mapping[str, Any]) -> List[float]:
+def _input_plan_scales(plan: Mapping[str, Any]) -> list[float]:
     entries = plan.get("entries")
     if not isinstance(entries, list) or not entries:
         raise PosthocError("input_scale_plan.json has no entries")
-    scales: List[float] = []
+    scales: list[float] = []
     for index, entry in enumerate(entries):
         if not isinstance(entry, Mapping) or not isinstance(entry.get("payload"), dict):
             raise PosthocError(
@@ -396,7 +391,7 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
     )
 
 
-def _read_plan(path: Path) -> Optional[Dict[str, Any]]:
+def _read_plan(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:

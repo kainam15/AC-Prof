@@ -7,7 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.config import (
@@ -87,7 +87,7 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _append_idle_diag(diag_f, record: Dict[str, Any]) -> None:
+def _append_idle_diag(diag_f, record: dict[str, Any]) -> None:
     diag_f.write(json.dumps(_json_safe(record), ensure_ascii=True, sort_keys=True) + "\n")
     diag_f.flush()
     os.fsync(diag_f.fileno())
@@ -125,12 +125,12 @@ def append_request_window(stream, *, sniff_group_id, input_scale, warmup, repeat
 
 def _append_row(
     writer: csv.DictWriter,
-    row: Dict[str, Any],
+    row: dict[str, Any],
     f,
     sidecar_f,
     sniff_group_id: str,
     diag_f=None,
-    idle_diag_record: Optional[Dict[str, Any]] = None,
+    idle_diag_record: dict[str, Any] | None = None,
     publication: WindowPublicationContext | None = None,
     telemetry_evidence: dict[str, Any] | None = None,
     request_record: dict[str, Any] | None = None,

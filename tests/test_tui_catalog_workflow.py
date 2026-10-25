@@ -17,7 +17,7 @@ from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
 
-@pytest.mark.parametrize('extra', ({'model': 'other/model'}, {'output_dir': 'elsewhere'}, {'resume': True}, {'matrix_order': 'bad'}, {'latency_slo': 'not-list'}, {'matrix_seed': True}))
+@pytest.mark.parametrize('extra', [{'model': 'other/model'}, {'output_dir': 'elsewhere'}, {'resume': True}, {'matrix_order': 'bad'}, {'latency_slo': 'not-list'}, {'matrix_seed': True}])
 def test_extra_options_are_typed_cannot_override_fields_and_survive_settings(extra):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

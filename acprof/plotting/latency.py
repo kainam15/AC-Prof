@@ -440,7 +440,7 @@ def plot_latency_model_fit_curves(
         print(f"[skip] No latency fit rows in {residuals_path}")
         return False
 
-    with open(report_path, "r", encoding="utf-8") as f:
+    with open(report_path, encoding="utf-8") as f:
         report = json.load(f)
 
     for column in ("cpu_cores", "mem_cap_gb", "input_scale", "latency_s"):

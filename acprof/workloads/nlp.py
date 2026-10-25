@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -33,7 +33,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
     """Generate synthetic text of target sequence length (in approximate tokens)."""
 
     def __init__(self, model_id: str, task_type: str, batch_size: int,
-                 workload_spec_path: Optional[str] = None):
+                 workload_spec_path: str | None = None):
         super().__init__(model_id, task_type, batch_size)
         if isinstance(batch_size, bool) or int(batch_size) != batch_size or batch_size < 1:
             raise ValueError("batch_size must be a positive integer")
@@ -73,10 +73,10 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             words.append(_CORPUS_WORDS[i % len(_CORPUS_WORDS)])
         return " ".join(words)
 
-    def generate_for_word_count(self, word_count: int) -> Dict[str, Any]:
+    def generate_for_word_count(self, word_count: int) -> dict[str, Any]:
         text = self._generate_text_from_word_count(word_count)
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "text": text, "params": {}, "batch_size": self.batch_size,
         }
 
@@ -108,7 +108,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
         payload["params"].update(copy.deepcopy(self._params))
         return payload
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         if self.task_type == "table-question-answering":
             if not math.isfinite(scale_value) or scale_value < 1 or int(scale_value) != scale_value:
                 raise ValueError("table_rows must be a positive integer")
@@ -130,12 +130,12 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             return f"rows{int(scale_value)}"
         return f"seq{int(scale_value)}"
 
-    def default_input_scales(self) -> Optional[List[float]]:
+    def default_input_scales(self) -> list[float] | None:
         if self.task_type == "table-question-answering":
             return [1, 2, 4, 8, 16, 32]
         return None
 
-    def plan_metadata(self) -> Dict[str, Any]:
+    def plan_metadata(self) -> dict[str, Any]:
         metadata = copy.deepcopy(self._spec_metadata)
         if self.task_type == "table-question-answering":
             return {**metadata, "input_scale_type": "table_rows", "columns": ["name", "value"]}

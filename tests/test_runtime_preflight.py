@@ -33,7 +33,7 @@ def test_explicit_remote_profile_respects_manifest_and_load_option_denials():
         assert not (load_policy("fixture/model", "image-classification", "transformers_pipeline", "cpu", {"trust_remote_code": False})["trust_remote_code"])
         with patch.object(CATALOG, "get_extension", return_value=replace(extension, trust_remote_code=False)):
             assert not (load_policy("fixture/model", "image-classification", "transformers_pipeline", "cpu")["trust_remote_code"])
-            with pytest.raises(ValueError) as caught:
+            with pytest.raises(ValueError, match="cannot enable remote code forbidden") as caught:
                 load_policy("fixture/model", "image-classification", "transformers_pipeline", "cpu", {"trust_remote_code": True})
         assert (caught.value.failure.reason_code) == ("remote_code_disallowed")
 
@@ -47,7 +47,7 @@ def test_precision_intersects_adapter_support_and_scopes_sam_evidence():
     assert (resolve_precision(PROFILES["cv-cu128"], extension, device="gpu", version="5.10.4", **args)["dtype"]) == ("FP16")
     scoped = replace(extension, precision_policy={"model_type_overrides": {"sam2": {"preferred_dtype": "FP32"}}})
     assert (resolve_precision(PROFILES["cv-cu128"], scoped, device="gpu", version="5.10.4", **args)["dtype"]) == ("FP32")
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="dtype 'FP16' is not supported") as caught:
         resolve_precision(PROFILES["cv-cu128"], replace(extension, dtypes=("FP32",)), device="gpu", version="5.10.4", **args)
     assert (caught.value.failure.reason_code) == ("precision_mismatch")
 
@@ -63,7 +63,7 @@ def test_dependency_versions_dynamic_imports_and_training_requirements(sources_c
     if "custom.py" in sources:
         task.model_config["auto_map"] = {"AutoModel": "custom.Model"}
     if reason:
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="runtime_dependency_(?:missing|incompatible|unknown)") as caught:
             dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)
         assert (caught.value.failure.reason_code) == (reason)
     else:
@@ -110,7 +110,7 @@ def test_dependency_preflight_rejects_unproven_package_export(initializer):
     task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
     task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
 
-    with pytest.raises(ValueError) as caught:
+    with pytest.raises(ValueError, match="unresolved relative import VALUE") as caught:
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=sources.__getitem__)
 
     assert caught.value.failure.reason_code == "runtime_dependency_unknown"
@@ -134,7 +134,7 @@ def test_package_export_lookup_respects_source_file_budget():
     task = model("image-classification", "cv", "vit", repository_files=tuple(sources))
     task.model_config["auto_map"] = {"AutoModel": "pkg.consumer.Model"}
 
-    with patch("acprof.runtime_dependencies.MAX_FILES", 1), pytest.raises(ValueError) as caught:
+    with patch("acprof.runtime_dependencies.MAX_FILES", 1), pytest.raises(ValueError, match="source dependency file budget exceeded") as caught:
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=read_source)
 
     assert caught.value.failure.reason_code == "runtime_dependency_unknown"
@@ -160,7 +160,7 @@ def test_installed_transformers_must_match_the_selected_lock():
     pipeline = Mock()
     with patch.dict(sys.modules, {"torch": SimpleNamespace(), "transformers": SimpleNamespace(pipeline=pipeline, __version__="5.10.4")}), patch.dict(
         os.environ, {"ACPROF_RUNTIME_PROFILE": "cv-cpu"}):
-        with pytest.raises(ValueError) as caught:
+        with pytest.raises(ValueError, match="Runtime profile requires transformers") as caught:
             CVHandler().load("fixture/model", "image-classification", "transformers_pipeline", "cpu")
     assert (caught.value.failure.reason_code) == ("runtime_dependency_incompatible")
     pipeline.assert_not_called()
@@ -177,7 +177,7 @@ def test_sam_gpu_defaults_to_fp32_but_explicit_fp16_is_rejected():
             CVHandler().load(directory, "mask-generation", "transformers_pipeline", "cuda")
             assert (pipeline.call_args.kwargs["torch_dtype"]) == ("float32")
             pipeline.reset_mock()
-            with pytest.raises(ValueError) as caught:
+            with pytest.raises(ValueError, match="dtype 'FP16' is not supported") as caught:
                 CVHandler().load(directory, "mask-generation", "transformers_pipeline", "cuda", load_options={"dtype": "FP16"})
             assert (caught.value.failure.reason_code) == ("precision_mismatch")
             pipeline.assert_not_called()
@@ -212,7 +212,7 @@ def test_unversioned_typing_backport_uses_target_python_stdlib():
     assert (typing["status"]) == ("stdlib")
     assert (typing["source"]) == ("requirements.txt")
     assert (typing["python_version"]) == ("3.12")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="runtime_dependency_missing"):
         dependency_preflight(task, PROFILES["cv-cpu"], read_source=lambda _: "typing==3.7.4.3")
 
 def test_remote_rmbg_missing_scikit_image_is_preflight_failure():

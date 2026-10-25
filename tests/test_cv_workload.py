@@ -20,7 +20,7 @@ def test_omitted_cli_workload_spec_generates_synthetic_input():
 
 
 
-@pytest.mark.parametrize('task', ('image-classification', 'mask-generation', 'video-classification'))
+@pytest.mark.parametrize('task', ['image-classification', 'mask-generation', 'video-classification'])
 def test_every_task_rejects_unimplemented_batching(task):
     with pytest.raises(ValueError, match="batch_size=1"):
         CVWorkloadGenerator("example/model", task, 2)
@@ -81,14 +81,14 @@ def test_video_manifest_never_resamples_or_drops_frames():
 def test_bad_scales_are_rejected(scale_case):
     generator = CVWorkloadGenerator("example/model", "image-classification", 1)
     scale = tuple((0, -1, float('nan'), float('inf'), True))[scale_case]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="finite positive resolution multiplier"):
         generator.generate(scale)
 
-@pytest.mark.parametrize('spec', ({'typo': 1}, {'candidate_labels': []}, {'params': {'batch_size': 3}}, {'video_frames': ['missing.png']}, {'input_scales': [0.5, 0.5]}))
+@pytest.mark.parametrize('spec', [{'typo': 1}, {'candidate_labels': []}, {'params': {'batch_size': 3}}, {'video_frames': ['missing.png']}, {'input_scales': [0.5, 0.5]}])
 def test_spec_rejects_unsupported_or_mismatched_inputs(spec):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "spec.json"
         path.write_text(json.dumps(spec))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="candidate_labels|input_scales|unknown CV workload|unsupported CV params|require video-classification"):
             CVWorkloadGenerator("example/model", "zero-shot-image-classification", 1,
                                 workload_spec_path=str(path))

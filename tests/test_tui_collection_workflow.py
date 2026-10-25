@@ -132,8 +132,8 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
                 assert ("ACPROF_PREPARATION") not in (app.query_one("#run-log", SelectableLog).text)
                 launch.assert_called_once()
 
-@pytest.mark.parametrize('language', ('zh', 'en'))
-@pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+@pytest.mark.parametrize('language', ['zh', 'en'])
+@pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
 async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(language, size):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=Path(directory, "settings.json"))
@@ -195,8 +195,8 @@ async def test_model_lookup_error_is_translated_in_preparation_dialog():
             assert ("SystemExit") not in (detail)
 
 
-@pytest.mark.parametrize("size", ((80, 24), (120, 30)))
-@pytest.mark.parametrize("completion", ("runtime", "process"))
+@pytest.mark.parametrize("size", [(80, 24), (120, 30)])
+@pytest.mark.parametrize("completion", ["runtime", "process"])
 async def test_preparation_completion_preserves_stop_confirmation(tmp_path, size, completion):
     from acprof.tui.views import ConfirmActionScreen
 

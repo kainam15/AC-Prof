@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 # Tasks select upstream operations; checkpoint names never take part in this map.
@@ -40,7 +40,7 @@ def _transformers_support_catalog(version: str) -> dict:
     return data
 
 
-@lru_cache(maxsize=None)
+@cache
 def transformers_support(version: str) -> dict:
     return _transformers_support_catalog(version)["mappings"]
 

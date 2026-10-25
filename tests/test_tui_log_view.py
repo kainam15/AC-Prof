@@ -37,7 +37,7 @@ class TestTuiLogView:
         assert (region.bottom) <= (app.size.height), button_id
         assert (app.get_widget_at(region.x + 3, region.y)[0]) is (button)
 
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_monitor_keeps_status_and_log_without_progress_or_matrix(self, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
@@ -166,7 +166,7 @@ class TestTuiLogView:
             assert (app.clipboard) == (raw)
             assert (log.max_scroll_x) == (0)
 
-    @pytest.mark.parametrize('theme', ('acprof-dark', 'acprof-light'))
+    @pytest.mark.parametrize('theme', ['acprof-dark', 'acprof-light'])
     async def test_real_scrollbars_use_solid_renderer_and_theme_backgrounds(self, theme):
         app = self.make_app()
         async with app.run_test(size=(100, 30)) as pilot:

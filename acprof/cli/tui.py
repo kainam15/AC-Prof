@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import replace
-from typing import Sequence
 
 from acprof.experiment import RunConfigError
 from acprof.tui.app import AcprofTui

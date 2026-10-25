@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    List,
-    Optional,
 )
 
 from acprof.host.gpu_device import gpu_device_scope, pin_gpu_device
@@ -54,19 +51,19 @@ def run_posthoc(
     *,
     tools: str | Iterable[str] = SUPPORTED_TOOLS,
     massif_sampling: str = "per-scale",
-    massif_reference_cpu: Optional[int] = None,
-    massif_reference_mem: Optional[int] = None,
+    massif_reference_cpu: int | None = None,
+    massif_reference_mem: int | None = None,
     nsys_sampling: str = "per-cpu-scale",
-    nsys_reference_cpu: Optional[int] = None,
-    nsys_reference_mem: Optional[int] = None,
-    ncu_root: Optional[str] = None,
-    nsys_root: Optional[str] = None,
+    nsys_reference_cpu: int | None = None,
+    nsys_reference_mem: int | None = None,
+    ncu_root: str | None = None,
+    nsys_root: str | None = None,
     torch_repeat: int = 1,
     ncu_repeat: int = 1,
     nsys_repeat: int = 1,
     massif_repeat: int = 1,
-    compute_profile_cpus: Optional[int] = None,
-    compute_profile_mem: Optional[int] = None,
+    compute_profile_cpus: int | None = None,
+    compute_profile_mem: int | None = None,
     force_reprofile: bool = False,
     dry_run: bool = False,
 ) -> PosthocSummary:
@@ -157,9 +154,9 @@ def run_posthoc(
     from acprof.artifact_layout import ArtifactLayout
     workspace = ArtifactLayout.discover(context.result_dir).path(POSTHOC_DIRNAME)
     workspace.mkdir(parents=True, exist_ok=True)
-    collected: List[str] = []
-    reused: List[str] = []
-    plans_by_tool: Dict[str, Dict[str, Any]] = {}
+    collected: list[str] = []
+    reused: list[str] = []
+    plans_by_tool: dict[str, dict[str, Any]] = {}
     runtime_validated = False
 
     with PosthocLock(context.result_dir):
@@ -173,7 +170,7 @@ def run_posthoc(
             )
         context = locked_context
         for tool in needed:
-            reusable: Optional[Dict[str, Any]] = None
+            reusable: dict[str, Any] | None = None
             if not force_reprofile:
                 reusable = (
                     _find_reusable_compute_plan(context, workspace, tool)

@@ -143,9 +143,9 @@ class TestAllTables:
             assert (header.columns["size"].width) == (before - 3)
             assert (len(self.docker.commands)) == (commands)
 
-    @pytest.mark.parametrize('tab,view,selector,index,delta', (('reports-tab', '', '#report-table', 0, 3), ('images-tab', 'tree', '#image-tree-header', 0, -3), ('images-tab', 'list', '#image-table', 1, -3), ('images-tab', 'layers', '#image-layer-table', 0, -3)))
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize(("tab", "view", "selector", "index", "delta"), [('reports-tab', '', '#report-table', 0, 3), ('images-tab', 'tree', '#image-tree-header', 0, -3), ('images-tab', 'list', '#image-table', 1, -3), ('images-tab', 'layers', '#image-layer-table', 0, -3)])
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_every_table_resizes_in_both_languages_at_all_sizes(self, tab, view, selector, index, delta, language, size):
         app = self.make_app()
         async with app.run_test(size=size) as pilot:

@@ -77,7 +77,7 @@ def test_largest_materialized_scale_is_selected() -> None:
     assert (entry["payload"]) == ({"text": "largest"})
 
 
-@pytest.mark.parametrize("input_scale", (True, "512"))
+@pytest.mark.parametrize("input_scale", [True, "512"])
 def test_largest_scale_plan_rejects_non_numeric_scales(input_scale) -> None:
     with tempfile.TemporaryDirectory() as temporary_dir:
         path = Path(temporary_dir) / "input_scale_plan.json"

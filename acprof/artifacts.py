@@ -7,8 +7,9 @@ import math
 import os
 import stat
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TextIO, cast
+from typing import Any, TextIO, cast
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024

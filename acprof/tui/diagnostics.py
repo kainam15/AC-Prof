@@ -6,10 +6,10 @@ import csv
 import os
 import shutil
 import subprocess
+from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
 
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested

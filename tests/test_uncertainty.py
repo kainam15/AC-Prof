@@ -45,7 +45,7 @@ class TestWindowUncertainty:
 
     def test_invalid_settings_and_blocks_with_insufficient_units(self):
         for settings in ({"confidence": 1}, {"resamples": 0}, {"block_size": 0}):
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="block_size 必须为正整数|confidence 必须在 0 与 1 之间"):
                 summarize_windows(self.rows([1, 2, 3]), ["latency_app_s"], **settings)
         result = summarize_windows(self.rows([1, 2, 3]), ["latency_app_s"], block_size=2)
         assert (result["groups"][0]["reason"]) == ("insufficient_windows")

@@ -99,7 +99,7 @@ def test_manifest_rejects_unknown_params_and_image_hash_mismatch(spec_case):
         with pytest.raises(ValueError, match=message):
             DiffusionWorkloadGenerator("example/edit", "image-text-to-image", 1, workload_spec_path=str(manifest))
 
-@pytest.mark.parametrize('task', ('image-to-image', 'image-to-video'))
+@pytest.mark.parametrize('task', ['image-to-image', 'image-to-video'])
 def test_hub_aliases_generate_and_execute_conditioned_workloads(task):
     payload = DiffusionWorkloadGenerator("example/model", task, 1).generate(128)
     assert (payload["prompt_optional"])
@@ -116,7 +116,7 @@ def test_manifest_rejects_invalid_generation_values_before_materializing(params)
     with tempfile.TemporaryDirectory() as directory:
         manifest = Path(directory) / "workload.json"
         manifest.write_text(json.dumps({"params": params}))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="guidance_scale|negative_prompt|num_frames|num_inference_steps|seed|strength"):
             DiffusionWorkloadGenerator(
                 "example/video", "image-text-to-video", 1,
                 workload_spec_path=str(manifest),
@@ -197,7 +197,7 @@ class TestDiffusionMultimodalHandler:
         with pytest.raises(ValueError, match="strength"):
             self.run_pipeline(no_strength, payload=payload)
 
-    @pytest.mark.parametrize('resolution,frames,message', [(72, 9, '16'), (128, 8, 'num_frames')])
+    @pytest.mark.parametrize(("resolution", "frames", "message"), [(72, 9, '16'), (128, 8, 'num_frames')])
     def test_video_enforces_model_spatial_and_temporal_alignment(self, resolution, frames, message):
         context = {"task_type": "image-text-to-video", "pipeline": VideoPipeline()}
         payload = self.payload("image-text-to-video", resolution)

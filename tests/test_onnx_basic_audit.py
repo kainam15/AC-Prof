@@ -35,7 +35,7 @@ def audit_rows():
     } for warmup, repeat in [('1', '0'), ('0', '0'), ('0', '1')]]
 
 
-@pytest.mark.parametrize('host,row_environment', (('native_linux', 'native_linux'), ('wsl2', 'wsl2'), ('native_linux', 'wsl2')))
+@pytest.mark.parametrize(('host', 'row_environment'), [('native_linux', 'native_linux'), ('wsl2', 'wsl2'), ('native_linux', 'wsl2')])
 def test_saved_basic_results_preserve_host_environment_and_reject_mismatch(host, row_environment):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory)
@@ -126,7 +126,7 @@ def test_text_scenario_uses_actual_tokens_and_its_own_batch_throughput():
     with pytest.raises(ValueError, match='actual workload'):
         audit_basic_rows(rows, scenario='text')
 
-@pytest.mark.parametrize('absent', ('protocol', 'task'))
+@pytest.mark.parametrize('absent', ['protocol', 'task'])
 def test_available_execution_without_protocol_or_task_evidence_is_not_success(absent):
     capability = measurement_report('basic', gpu_modes=['off'])
     layers = {name: {'status': 'verified'} for name in ('protocol', 'task') if name != absent}

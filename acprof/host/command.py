@@ -5,9 +5,10 @@ import logging
 import os
 import re
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from time import perf_counter
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 _LOG = logging.getLogger(__name__)
 _SENSITIVE = re.compile(r"password|passwd|token|secret|credential|authorization|api[-_]?key|webhook|^key$", re.I)

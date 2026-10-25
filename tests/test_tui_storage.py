@@ -127,8 +127,8 @@ class TestTuiStorage:
                 assert not (app.is_busy())
                 assert not (self.docker.removals)
 
-    @pytest.mark.parametrize('width,height', ((80, 24), (120, 30), (150, 45)))
-    @pytest.mark.parametrize('language', ('zh', 'en'))
+    @pytest.mark.parametrize(("width", "height"), [(80, 24), (120, 30), (150, 45)])
+    @pytest.mark.parametrize('language', ['zh', 'en'])
     async def test_modal_layout_language_keyboard_and_resize(self, width, height, language):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:

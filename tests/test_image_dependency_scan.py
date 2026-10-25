@@ -89,14 +89,16 @@ def test_identity_mismatch_does_not_claim_historical_manifest_as_verified():
                side_effect=[json.dumps(wrong), RuntimeError("scan failed")]):
         snapshot, note = read_snapshot(CONNECTION, "daemon", node)
     assert snapshot is None
-    assert "构建记录不可用" in note and "实际扫描失败" in note
+    assert "构建记录不可用" in note
+    assert "实际扫描失败" in note
 
 
 def test_unrecognized_build_history_does_not_execute_image_code():
     node = replace(base(), dependency_stage="")
     with patch("acprof.host.images.scan._docker_read", side_effect=AssertionError("not allowed")):
         snapshot, note = read_snapshot(CONNECTION, "daemon", node)
-    assert snapshot is None and "构建步骤" in note
+    assert snapshot is None
+    assert "构建步骤" in note
 
 
 def test_runtime_delta_is_computed_from_historical_parent_not_current_lock():

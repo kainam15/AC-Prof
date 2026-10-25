@@ -6,7 +6,7 @@ import os
 from collections.abc import Mapping
 from numbers import Integral
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from acprof.container.handlers import (
     BaseHandler,
@@ -33,7 +33,7 @@ def _token_rows(value: Any) -> list[list[int]]:
     return [row for child in value for row in _token_rows(child)]
 
 
-def _actual_input_tokens(prepared: Any) -> Optional[int]:
+def _actual_input_tokens(prepared: Any) -> int | None:
     mask = prepared.get("attention_mask")
     rows = _token_rows(mask if mask is not None else prepared.get("input_ids"))
     return (sum(sum(row) if mask is not None else len(row) for row in rows) if rows else None)
@@ -41,7 +41,7 @@ def _actual_input_tokens(prepared: Any) -> Optional[int]:
 
 def _generation_evidence(generated: Any, config: Any, *, prompt_length: int = 0,
                          encoder_decoder: bool = False, max_new_tokens: Any = None,
-                         input_tokens: Optional[int] = None) -> Dict[str, Any]:
+                         input_tokens: int | None = None) -> dict[str, Any]:
     eos = getattr(config, "eos_token_id", None)
     eos_ids = {int(value) for value in (eos if isinstance(eos, (list, tuple)) else [eos])
                if isinstance(value, Integral)}
@@ -72,7 +72,7 @@ class NLPHandler(BaseHandler):
     _FILL_MASK_PLACEHOLDER = "[MASK]"
 
     @staticmethod
-    def _get_tokenizer_max_length(tokenizer: Any) -> Optional[int]:
+    def _get_tokenizer_max_length(tokenizer: Any) -> int | None:
         max_len = getattr(tokenizer, "model_max_length", None)
         if max_len is None:
             return None
@@ -83,7 +83,7 @@ class NLPHandler(BaseHandler):
             return None
 
     @classmethod
-    def _get_model_max_length(cls, pipe: Any) -> Optional[int]:
+    def _get_model_max_length(cls, pipe: Any) -> int | None:
         limits = [cls._get_tokenizer_max_length(getattr(pipe, "tokenizer", None))]
         # Sentence Transformers may configure a shorter sequence limit than
         # the underlying tokenizer; CrossEncoder exposes max_length instead.
@@ -100,7 +100,7 @@ class NLPHandler(BaseHandler):
         return min(known) if known else None
 
     @staticmethod
-    def _generation_token_reserve(pipe: Any, task_type: str, params: Dict[str, Any]) -> int:
+    def _generation_token_reserve(pipe: Any, task_type: str, params: dict[str, Any]) -> int:
         config = getattr(getattr(pipe, "model", None), "config", None)
         if task_type != "text-generation" or getattr(config, "is_encoder_decoder", False) is True:
             return 0
@@ -121,7 +121,7 @@ class NLPHandler(BaseHandler):
         cls,
         tokenizer: Any,
         text: str,
-    ) -> Tuple[str, list, Any]:
+    ) -> tuple[str, list, Any]:
         raw_mask_token = getattr(tokenizer, "mask_token", None)
         if raw_mask_token is None or not str(raw_mask_token):
             raise ValueError(
@@ -162,7 +162,7 @@ class NLPHandler(BaseHandler):
         text: str,
         task_type: str,
         reserved_tokens: int = 0,
-    ) -> Tuple[str, Optional[int], Optional[bool], str]:
+    ) -> tuple[str, int | None, bool | None, str]:
         tokenizer = getattr(pipe, "tokenizer", None)
         if not tokenizer:
             return text, None, None, "tokenizer_missing"
@@ -215,7 +215,7 @@ class NLPHandler(BaseHandler):
         pipe: Any,
         question: str,
         context: str,
-    ) -> Tuple[str, Optional[int], Optional[bool], str]:
+    ) -> tuple[str, int | None, bool | None, str]:
         tokenizer = getattr(pipe, "tokenizer", None)
         if not tokenizer:
             return context, None, None, "tokenizer_missing"
@@ -243,7 +243,7 @@ class NLPHandler(BaseHandler):
 
     def _max_effective_single_text_length(
         self, pipe: Any, reserved_tokens: int = 0,
-    ) -> Tuple[Optional[int], str]:
+    ) -> tuple[int | None, str]:
         tokenizer = getattr(pipe, "tokenizer", None)
         if not tokenizer:
             return None, "tokenizer_missing"
@@ -263,7 +263,7 @@ class NLPHandler(BaseHandler):
         self,
         pipe: Any,
         question: str,
-    ) -> Tuple[Optional[int], str]:
+    ) -> tuple[int | None, str]:
         tokenizer = getattr(pipe, "tokenizer", None)
         if not tokenizer:
             return None, "tokenizer_missing"
@@ -287,8 +287,8 @@ class NLPHandler(BaseHandler):
         backend: str,
         device: str,
         model_revision: str = "main",
-        load_options: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        load_options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         device_map = device if device == "cpu" else "auto"
         policy = load_policy(model_source, task_type, backend, device, load_options)
         torch_dtype = policy["dtype"]
@@ -363,7 +363,7 @@ class NLPHandler(BaseHandler):
         return context
 
     @staticmethod
-    def _observe_generation(model_ctx: Dict[str, Any]) -> None:
+    def _observe_generation(model_ctx: dict[str, Any]) -> None:
         """Observe existing CPU pipeline values; serial scenario, no extra inference/tokenization."""
         pipe = model_ctx["pipeline"]
         if model_ctx["task_type"] not in _GENERATIVE_TASKS or not all(
@@ -387,7 +387,7 @@ class NLPHandler(BaseHandler):
         pipe.preprocess, pipe.postprocess = observe_input, observe_output
 
     @staticmethod
-    def _observed_generation(model_ctx: Dict[str, Any]) -> Dict[str, Any]:
+    def _observed_generation(model_ctx: dict[str, Any]) -> dict[str, Any]:
         state = model_ctx.get("_generation_observation", {})
         pipe = model_ctx["pipeline"]
         config = getattr(pipe, "generation_config", getattr(getattr(pipe, "model", None), "generation_config", None))
@@ -418,14 +418,14 @@ class NLPHandler(BaseHandler):
                 "stop_reason_per_sequence": reasons or None}
 
     @staticmethod
-    def _batch_size(raw_input: Dict[str, Any]) -> int:
+    def _batch_size(raw_input: dict[str, Any]) -> int:
         value = raw_input.get("batch_size", 1)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value or value < 1:
             raise ValueError("batch_size must be a positive integer")
         return int(value)
 
     @staticmethod
-    def _string_list(raw_input: Dict[str, Any], field: str) -> list[str]:
+    def _string_list(raw_input: dict[str, Any], field: str) -> list[str]:
         values = raw_input.get(field)
         if not isinstance(values, list) or not values or not all(
             isinstance(value, str) and value.strip() for value in values
@@ -433,7 +433,7 @@ class NLPHandler(BaseHandler):
             raise ValueError(f"{field} must be a nonempty list of nonempty strings")
         return list(values)
 
-    def _zero_shot_hypotheses(self, pipe: Any, raw_input: Dict[str, Any]) -> Tuple[list[str], str, str]:
+    def _zero_shot_hypotheses(self, pipe: Any, raw_input: dict[str, Any]) -> tuple[list[str], str, str]:
         labels = self._string_list(raw_input, "candidate_labels")
         template = raw_input.get("hypothesis_template", "This example is {}.")
         if not isinstance(template, str) or "{}" not in template:
@@ -445,7 +445,7 @@ class NLPHandler(BaseHandler):
         ) if tokenizer else len(text))
         return labels, template, longest
 
-    def _preprocess_table(self, pipe: Any, raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def _preprocess_table(self, pipe: Any, raw_input: dict[str, Any]) -> dict[str, Any]:
         import pandas as pd
 
         table = raw_input.get("table")
@@ -476,7 +476,7 @@ class NLPHandler(BaseHandler):
         return {"table": frame, "query": query, "_effective_input_scale": next(iter(row_counts)),
                 "_truncated_by_limit": False, "_probe_reason": "complete_table_rows_no_truncation"}
 
-    def preprocess(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Any:
+    def preprocess(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> Any:
         task_type = model_ctx["task_type"]
         text = raw_input.get("text", "")
         params = raw_input.get("params", {})
@@ -557,7 +557,7 @@ class NLPHandler(BaseHandler):
             "_probe_reason": reason,
         }
 
-    def get_scale_metadata(self, model_ctx: Dict[str, Any], raw_input: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scale_metadata(self, model_ctx: dict[str, Any], raw_input: dict[str, Any]) -> dict[str, Any]:
         task_type = model_ctx["task_type"]
         pipe = model_ctx["pipeline"]
 
@@ -598,7 +598,7 @@ class NLPHandler(BaseHandler):
     _TRUNCATION_VIA_KWARGS_TASKS = {"fill-mask"}
 
     @staticmethod
-    def _embedding_options(pipe: Any, params: Dict[str, Any]) -> Tuple[dict, str]:
+    def _embedding_options(pipe: Any, params: dict[str, Any]) -> tuple[dict, str]:
         options = {key: params[key] for key in ("prompt", "prompt_name", "normalize_embeddings") if key in params}
         if "normalize_embeddings" in options and not isinstance(options["normalize_embeddings"], bool):
             raise ValueError("normalize_embeddings must be a boolean")
@@ -627,7 +627,7 @@ class NLPHandler(BaseHandler):
                 raise ValueError("sentence embedding prompt and text exceed model token limit")
         return result
 
-    def predict(self, model_ctx: Dict[str, Any], processed_input: Any) -> Any:
+    def predict(self, model_ctx: dict[str, Any], processed_input: Any) -> Any:
         pipe = model_ctx["pipeline"]
         task_type = model_ctx["task_type"]
         params = processed_input.get("params", {})
@@ -712,7 +712,7 @@ class NLPHandler(BaseHandler):
         else:
             return pipe(request_inputs, truncation=True, **batch_kwargs)
 
-    def postprocess(self, model_ctx: Dict[str, Any], raw_output: Any) -> Dict[str, Any]:
+    def postprocess(self, model_ctx: dict[str, Any], raw_output: Any) -> dict[str, Any]:
         task_type = model_ctx["task_type"]
 
         if task_type == "replaced-token-detection":

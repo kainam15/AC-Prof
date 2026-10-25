@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Callable
 from pathlib import PurePosixPath
-from typing import Callable
 
 from acprof.container.model_files import resolve_checkpoint
 from acprof.model_evidence import pinned_revision

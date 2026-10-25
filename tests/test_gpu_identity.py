@@ -21,7 +21,7 @@ def test_resolves_index_to_uuid_and_pins_it_only_for_one_run():
         assert ("--id=1") in (run.call_args.args[0])
     assert (gpu_device.selected_gpu_device()) == ({})
 
-@pytest.mark.parametrize('selector', ('all', '0,1', 'MIG-GPU-abc/0/1', '-1', 'GPU-one\nsecond'))
+@pytest.mark.parametrize('selector', ['all', '0,1', 'MIG-GPU-abc/0/1', '-1', 'GPU-one\nsecond'])
 def test_rejects_ambiguous_and_mig_device_selection(selector):
     with patch.object(gpu_device, "run_command") as run:
         with pytest.raises(ValueError, match="GPU selector must be one physical GPU index or UUID"):

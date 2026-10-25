@@ -136,7 +136,7 @@ class TestStatisticsOutput:
         assert Path(receipt["report_path"]) != existing
         assert existing.exists()
 
-    @pytest.mark.parametrize('options', (('--confidence', '0.9'), ('--seed', '1'), ('--resamples', '40'), ('--block-size', '2'), ('--metric', 'latency_app_s')))
+    @pytest.mark.parametrize('options', [('--confidence', '0.9'), ('--seed', '1'), ('--resamples', '40'), ('--block-size', '2'), ('--metric', 'latency_app_s')])
     def test_statistics_settings_and_source_changes_create_distinct_reports(self, options):
         first = Path(self.calculate()["report_path"])
         original = first.read_bytes()

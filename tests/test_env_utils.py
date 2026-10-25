@@ -41,14 +41,14 @@ def test_new_private_config_syncs_file_and_parent_directory():
 
     assert fsync.call_count >= 2
 
-@pytest.mark.parametrize('values', ({'HF_TOKEN': 'secret\nEVIL=1'}, {'ACPROF_SUDO_PASSWORD': 'secret'}, {'HF_ENDPOINT': 'https://user:secret@host.example'}, {'ACPROF_WECOM_WEBHOOK_URL': 'https://invalid.example?key=secret'}))
+@pytest.mark.parametrize('values', [{'HF_TOKEN': 'secret\nEVIL=1'}, {'ACPROF_SUDO_PASSWORD': 'secret'}, {'HF_ENDPOINT': 'https://user:secret@host.example'}, {'ACPROF_WECOM_WEBHOOK_URL': 'https://invalid.example?key=secret'}])
 def test_save_config_rejects_secret_injection_without_changing_file_or_environment(values):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         path = root / '.env.local'
         path.write_text('HF_TOKEN=original\n')
         env = {}
-        with pytest.raises(ValueError) as error:
+        with pytest.raises(ValueError, match="invalid WeCom webhook URL|HF endpoint|single line without control characters|Unsupported environment setting") as error:
             env_utils.save_project_env(root, values, environ=env)
         assert ('secret') not in (str(error.value))
         assert (path.read_text()) == ('HF_TOKEN=original\n')
@@ -70,12 +70,12 @@ def test_save_config_refuses_symlinks_and_external_edits():
         source.write_text('HF_TOKEN=external\n')
         target = root / '.env.local'
         target.symlink_to(source)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="regular file, not a symbolic link"):
             env_utils.save_project_env(root, {'HF_TOKEN': 'test-only'}, environ={})
         assert (source.read_text()) == ('HF_TOKEN=external\n')
         target.unlink()
         target.write_text('HF_TOKEN=changed\n')
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="changed since this form opened"):
             env_utils.save_project_env(root, {'HF_TOKEN': 'test-only'}, environ={}, expected_text='old')
         assert (target.read_text()) == ('HF_TOKEN=changed\n')
 
@@ -150,7 +150,7 @@ def test_bootstrap_replaces_blank_endpoint_env_vars() -> None:
         assert (env_utils.os.environ["HF_ENDPOINT"]) == (HF_DEFAULT_ENDPOINT)
         assert (env_utils.os.environ["HF_HUB_ENDPOINT"]) == (HF_DEFAULT_ENDPOINT)
 
-@pytest.mark.parametrize('blank', ('', ' \t '))
+@pytest.mark.parametrize('blank', ['', ' \t '])
 def test_blank_primary_endpoint_uses_configured_fallback(blank) -> None:
     with patch.dict(
         os.environ,
@@ -162,9 +162,9 @@ def test_blank_primary_endpoint_uses_configured_fallback(blank) -> None:
         assert (os.environ["HF_HUB_ENDPOINT"]) == ("https://example.invalid")
         assert ("NO_PROXY") not in (os.environ)
 
-@pytest.mark.parametrize('url', ('https://user:test-secret@host.example', 'https://host.example?token=test-secret'))
+@pytest.mark.parametrize('url', ['https://user:test-secret@host.example', 'https://host.example?token=test-secret'])
 def test_endpoint_rejects_credentials_without_echoing_them(url):
-    with pytest.raises(ValueError) as raised:
+    with pytest.raises(ValueError, match="HF endpoint must be an HTTP") as raised:
         hf_endpoints({"HF_ENDPOINT": url})
     assert ("test-secret") not in (str(raised.value))
 
@@ -177,7 +177,7 @@ def test_explicit_endpoint_retains_priority_and_preserves_nonblank_alias() -> No
         assert (env_utils.configure_hf_network()) == ("https://primary.invalid")
         assert (os.environ["HF_HUB_ENDPOINT"]) == ("https://secondary.invalid")
 
-@pytest.mark.parametrize('blank', ('', ' \t '))
+@pytest.mark.parametrize('blank', ['', ' \t '])
 def test_token_fallback_fills_blank_primary_without_reading_login(blank) -> None:
     with patch.dict(
         os.environ, {"HF_TOKEN": blank, "HUGGING_FACE_HUB_TOKEN": "test-only-legacy"},
@@ -188,7 +188,7 @@ def test_token_fallback_fills_blank_primary_without_reading_login(blank) -> None
         assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-legacy")
         get_token.assert_not_called()
 
-@pytest.mark.parametrize('blank', ('', ' \t '))
+@pytest.mark.parametrize('blank', ['', ' \t '])
 def test_primary_token_fills_blank_legacy_alias(blank) -> None:
     with patch.dict(
         os.environ, {"HF_TOKEN": "test-only-primary", "HUGGING_FACE_HUB_TOKEN": blank},
@@ -198,7 +198,7 @@ def test_primary_token_fills_blank_legacy_alias(blank) -> None:
         assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-primary")
         get_token.assert_not_called()
 
-@pytest.mark.parametrize('values', ({}, {'HF_TOKEN': '', 'HUGGING_FACE_HUB_TOKEN': ' \t '}))
+@pytest.mark.parametrize('values', [{}, {'HF_TOKEN': '', 'HUGGING_FACE_HUB_TOKEN': ' \t '}])
 def test_local_login_fills_missing_or_blank_token_aliases(values) -> None:
     with patch.dict(
         os.environ, values, clear=True,

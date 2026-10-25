@@ -62,7 +62,8 @@ def test_missing_primary_hub_tag_uses_registered_electra_head():
         "replaced-token-detection", "nlp", "transformers_model")
     assert result["status"] == "candidate"
     assert result["semantics"]["status"] == "inferred"
-    assert not result["conflicts"] and not result["missing"]
+    assert not result["conflicts"]
+    assert not result["missing"]
     assert task.hub_metadata["pipeline_tag"] is None
     assert result["provenance"]["sources"]["hub"]["sha256"] == content_digest(task.hub_metadata)
     assert any(item.get("kind") == "unsupported_task_hint" and item.get("value") == "pretraining"

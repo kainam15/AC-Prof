@@ -682,7 +682,7 @@ class TestDetectEnvironment:
             path = os.path.join(tmp, "static_meta.json")
             with patch("acprof.host.static_metadata.os.fsync", wraps=os.fsync) as fsync:
                 static_metadata.write_static_meta_json(meta, path)
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
             leftovers = [
                 name
@@ -750,7 +750,7 @@ class TestDetectEnvironment:
             ):
                 static_metadata.write_static_meta_json(meta, path)
 
-            with open(path, "r", encoding="utf-8") as stream:
+            with open(path, encoding="utf-8") as stream:
                 persisted = stream.read()
 
         assert persisted == previous
@@ -942,13 +942,13 @@ class TestDetectEnvironment:
             assert (planned.plan_file) is not None
             assert planned.plan_file is not None
             assert (os.path.exists(planned.plan_file))
-            with open(planned.plan_file, "r", encoding="utf-8") as f:
+            with open(planned.plan_file, encoding="utf-8") as f:
                 plan = json.load(f)
 
         assert (plan["entries"][0]["input_scale"]) == (254.0)
         assert (plan["entries"][0]["payload"]) == ({"text": "hello [MASK]", "params": {}})
 
-    @pytest.mark.parametrize('task_family', ('cv', 'timeseries'))
+    @pytest.mark.parametrize('task_family', ['cv', 'timeseries'])
     def test_manual_non_nlp_scales_write_reusable_payload_plan(self, task_family) -> None:
         class FakeWorkloadGenerator:
             def generate(self, scale: float) -> dict:
@@ -1002,7 +1002,7 @@ class TestDetectEnvironment:
             assert (planned.source) == ("manual")
             assert (planned.plan_file) == (os.path.join(tmp, "input_scale_plan.json"))
             assert planned.plan_file is not None
-            with open(planned.plan_file, "r", encoding="utf-8") as f:
+            with open(planned.plan_file, encoding="utf-8") as f:
                 plan = json.load(f)
 
             assert (plan["entries"]) == ([
@@ -1205,7 +1205,7 @@ class TestDetectEnvironment:
                 model_constraints=constraints,
             )
             assert planned.plan_file is not None
-            with open(planned.plan_file, "r", encoding="utf-8") as plan_file:
+            with open(planned.plan_file, encoding="utf-8") as plan_file:
                 plan = json.load(plan_file)
 
         assert (plan["schema_version"]) == (2)
@@ -1749,7 +1749,7 @@ class TestDetectEnvironment:
                 ),
             )
 
-            with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            with open(csv_path, encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
         assert (len(rows)) == (3)
@@ -1924,7 +1924,7 @@ class TestDetectEnvironment:
                 ),
             )
 
-            with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            with open(csv_path, encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
         assert (len(rows)) == (6)
@@ -2037,7 +2037,7 @@ class TestDetectEnvironment:
                 ),
             )
 
-            with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            with open(csv_path, encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
         assert (len(rows)) == (2)
@@ -2089,7 +2089,7 @@ class TestDetectEnvironment:
                 ),
             )
 
-            with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            with open(csv_path, encoding="utf-8", newline="") as f:
                 rows = list(csv.DictReader(f))
 
         assert (len(rows)) == (6)

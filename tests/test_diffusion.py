@@ -225,7 +225,7 @@ class TestDiffusionMetadata:
             assert (planned.scales) == ([float(value) for value in DEFAULT_RESOLUTIONS])
             assert (planned.source) == ("workload_default")
             assert (os.path.isfile(planned.plan_file or ""))
-            with open(planned.plan_file or "", "r", encoding="utf-8") as handle:
+            with open(planned.plan_file or "", encoding="utf-8") as handle:
                 plan = json.load(handle)
 
         assert (plan["task_family"]) == ("diffusion")

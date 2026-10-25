@@ -17,7 +17,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize('publisher', ('publish', 'pypi'))
+@pytest.mark.parametrize('publisher', ['publish', 'pypi'])
 def test_publish_requires_same_revision_ci_and_distribution(publisher):
     release = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
     jobs = release['jobs']
@@ -133,7 +133,7 @@ def test_pypi_install_check_cannot_republish():
     assert not (any(step.get('uses', '').startswith('pypa/gh-action-pypi-publish@')
                          for step in smoke['steps']))
 
-@pytest.mark.parametrize('changed,missing', ((False, False), (True, False), (False, True)))
+@pytest.mark.parametrize(('changed', 'missing'), [(False, False), (True, False), (False, True)])
 def test_published_hash_check_rejects_changed_or_missing_artifacts(changed, missing):
     jobs = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())['jobs']
     script = next(step['run'] for step in jobs['pypi-smoke']['steps'] if 'check_pypi_hashes' in step.get('run', ''))
@@ -157,7 +157,7 @@ def test_published_hash_check_rejects_changed_or_missing_artifacts(changed, miss
                 exec(code, {})
 
 @pytest.mark.skipif(not (shutil.which('bash') and os.name != 'nt'), reason='Linux release job uses Bash')
-@pytest.mark.parametrize('success_after,expected_attempts,expected_exit', ((99, 5, 1), (3, 3, 0)))
+@pytest.mark.parametrize(('success_after', 'expected_attempts', 'expected_exit'), [(99, 5, 1), (3, 3, 0)])
 def test_pypi_install_retry_is_bounded_and_stops_after_success(success_after, expected_attempts, expected_exit):
     bash = shutil.which('bash')
     assert bash is not None

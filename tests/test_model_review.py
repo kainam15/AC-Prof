@@ -87,10 +87,10 @@ def test_review_reenters_the_contract_resolver():
     assert resolve.call_count == 1
     assert reviewed.model_resolution["contract"]["status"] == "resolved"
 
-@pytest.mark.parametrize('answers', ({}, {'task': 'text-generation'}, {'multimodal.inputs.turns': {'python': 'eval(text)'}}))
+@pytest.mark.parametrize('answers', [{}, {'task': 'text-generation'}, {'multimodal.inputs.turns': {'python': 'eval(text)'}}])
 def test_review_cannot_change_known_fields_or_accept_empty_invalid_draft(answers):
     task = fixture.TestModelContract().discover(fixture.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]'))
     original = copy.deepcopy(task.model_resolution)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="answers must cover exactly|unknown input transform"):
         apply_review(task, answers)
     assert (task.model_resolution) == (original)

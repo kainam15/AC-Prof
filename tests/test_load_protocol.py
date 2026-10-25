@@ -190,7 +190,7 @@ class TestLoadProtocol:
         assert not (report["successful"])
         assert ("reuse") in (report["requests"][0]["error"])
 
-    @pytest.mark.parametrize('options', ({'concurrency': 2}, {'scenario': 'arrival-rate'}, {'rate': 2}, {'requests': 0}))
+    @pytest.mark.parametrize('options', [{'concurrency': 2}, {'scenario': 'arrival-rate'}, {'rate': 2}, {'requests': 0}])
     def test_poisson_plan_is_seeded_and_invalid_combinations_are_rejected(self, options):
         from acprof.host.measurement.load import LoadConfig
         config = LoadConfig(scenario="arrival-rate", rate=10, arrival="poisson", seed=7)

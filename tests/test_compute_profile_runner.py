@@ -48,7 +48,7 @@ class TestComputeProfileRunnerITT:
         runner.torch = fake_torch
         return runner
 
-    @pytest.mark.parametrize("offline_values", ((None, None), ("0", "0"), ("1", "1")))
+    @pytest.mark.parametrize("offline_values", [(None, None), ("0", "0"), ("1", "1")])
     def test_runner_fixture_restores_host_offline_settings(self, monkeypatch, offline_values):
         names = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
         for name, value in zip(names, offline_values, strict=True):
@@ -61,7 +61,7 @@ class TestComputeProfileRunnerITT:
 
         assert tuple(os.environ.get(name) for name in names) == offline_values
 
-    @pytest.mark.parametrize("invalid", ("nonfinite", "schema"))
+    @pytest.mark.parametrize("invalid", ["nonfinite", "schema"])
     def test_find_payload_rejects_invalid_input_plan(self, tmp_path, invalid):
         runner = self._import_runner()
         plan = tmp_path / "input_scale_plan.json"
@@ -76,7 +76,7 @@ class TestComputeProfileRunnerITT:
                 encoding="utf-8",
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="input.scale.plan.*(?:invalid|unsupported)"):
             runner._find_payload(str(plan), 64)
 
     def test_itt_control_prefers_advisor_injected_collector_environment(self):
@@ -135,7 +135,7 @@ class TestComputeProfileRunnerITT:
         with pytest.raises(RuntimeError, match="ITT resume control unavailable"):
             control.resume()
 
-    @pytest.mark.parametrize("operation", ("resume", "pause"))
+    @pytest.mark.parametrize("operation", ["resume", "pause"])
     def test_itt_control_surfaces_collection_control_failures(self, operation):
         runner = self._import_runner()
         control = object.__new__(runner._ITTControl)
@@ -248,7 +248,7 @@ class TestComputeProfileRunnerITT:
             stack.enter_context(redirect_stdout(stdout))
             yield runner, stdout
 
-    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu'))
+    @pytest.mark.parametrize('mode', ['cpu', 'gpu', 'torch_eager_cpu'])
     def test_invalid_warmup_output_prevents_all_profiler_capture_and_success(self, mode):
         events = []
         with self._main_context(mode, events, invalid_output=True) as (runner, stdout):
@@ -257,7 +257,7 @@ class TestComputeProfileRunnerITT:
         assert (events) == (["load", "preprocess", "predict", "postprocess"])
         assert (stdout.getvalue()) == ("")
 
-    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu'))
+    @pytest.mark.parametrize('mode', ['cpu', 'gpu', 'torch_eager_cpu'])
     def test_warmup_postprocess_does_not_repeat_full_validation_under_profiler(self, mode):
         events = []
         with self._main_context(mode, events) as (runner, stdout):
@@ -270,7 +270,7 @@ class TestComputeProfileRunnerITT:
         assert (result["status"]) == ("ok")
         assert (result["repeat"]) == (2)
 
-    @pytest.mark.parametrize('mode', ('cpu', 'gpu', 'torch_eager_cpu', 'torch_eager_gpu'))
+    @pytest.mark.parametrize('mode', ['cpu', 'gpu', 'torch_eager_cpu', 'torch_eager_gpu'])
     def test_completed_outputs_are_released_before_the_next_profiled_request(self, mode):
         class Output:
             pass

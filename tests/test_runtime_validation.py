@@ -352,7 +352,7 @@ class TestRuntimeValidation:
             mount.close.assert_not_called()
             retained.assert_called_once_with(mount)
 
-    @pytest.mark.parametrize('mode', ('missing', 'malformed', 'permission_denied'))
+    @pytest.mark.parametrize('mode', ['missing', 'malformed', 'permission_denied'])
     def test_timeout_with_unusable_cidfile_preserves_both_failures(self, mode):
         self.cid.stop()
         original_read = Path.read_text

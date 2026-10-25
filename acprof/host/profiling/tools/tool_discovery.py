@@ -5,7 +5,7 @@ import glob
 import os
 import re
 import shutil
-from typing import Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 DEFAULT_TOOL_SEARCH_ROOTS = (
     "/opt/intel/oneapi/advisor",
@@ -41,7 +41,7 @@ def _candidate_executable_paths(root: str, names: Sequence[str]) -> Iterable[str
                 yield from glob.glob(os.path.join(expanded_root, suffix))
 
 
-def _executable_version_key(path: str, names: Sequence[str]) -> Tuple[Tuple[int, ...], int, str]:
+def _executable_version_key(path: str, names: Sequence[str]) -> tuple[tuple[int, ...], int, str]:
     basename = os.path.basename(path)
     try:
         name_rank = len(names) - names.index(basename)
@@ -50,7 +50,7 @@ def _executable_version_key(path: str, names: Sequence[str]) -> Tuple[Tuple[int,
     return tuple(int(part) for part in re.findall(r"\d+", path)), name_rank, path
 
 
-def _best_existing_executable(roots: Sequence[str], names: Sequence[str]) -> Optional[str]:
+def _best_existing_executable(roots: Sequence[str], names: Sequence[str]) -> str | None:
     candidates = [
         os.path.realpath(candidate)
         for root in roots
@@ -62,7 +62,7 @@ def _best_existing_executable(roots: Sequence[str], names: Sequence[str]) -> Opt
     return max(candidates, key=lambda path: _executable_version_key(path, names))
 
 
-def find_executable(root: Optional[str], names: Sequence[str]) -> Optional[str]:
+def find_executable(root: str | None, names: Sequence[str]) -> str | None:
     if root:
         best = _best_existing_executable([root], names)
         if best:
@@ -81,7 +81,7 @@ def find_executable(root: Optional[str], names: Sequence[str]) -> Optional[str]:
     return None
 
 
-def tool_mount_root(tool_path: str, requested_root: Optional[str]) -> str:
+def tool_mount_root(tool_path: str, requested_root: str | None) -> str:
     if requested_root:
         return os.path.abspath(requested_root)
     path = os.path.realpath(tool_path)
@@ -106,7 +106,7 @@ def tool_mount_root(tool_path: str, requested_root: Optional[str]) -> str:
     return path
 
 
-def tool_mount_roots(tool_path: str, requested_root: Optional[str]) -> List[str]:
+def tool_mount_roots(tool_path: str, requested_root: str | None) -> list[str]:
     root = tool_mount_root(tool_path, requested_root)
     roots = [root]
     for ncu_target in glob.glob(os.path.join(root, "target", "*")):
@@ -155,13 +155,13 @@ def _candidate_nsys_paths(root: str) -> Iterable[str]:
         )
 
 
-def _nsys_path_rank(path: str) -> Tuple[Tuple[int, ...], str]:
+def _nsys_path_rank(path: str) -> tuple[tuple[int, ...], str]:
     return tuple(int(part) for part in re.findall(r"\d+", path)), path
 
 
-def find_nsys_executable(nsys_root: Optional[str]) -> Optional[str]:
+def find_nsys_executable(nsys_root: str | None) -> str | None:
     roots = [nsys_root] if nsys_root else list(NSYS_DEFAULT_SEARCH_ROOTS)
-    candidates: List[str] = []
+    candidates: list[str] = []
     seen = set()
     for root in roots:
         if not root:
@@ -207,10 +207,10 @@ def find_nsys_mount_root(nsys_bin: str) -> str:
     return parent
 
 
-def find_nsys_importer(nsys_mount_root: str) -> Optional[str]:
+def find_nsys_importer(nsys_mount_root: str) -> str | None:
     """Find the QDSTRM importer shipped beside the selected Nsys CLI."""
     root = os.path.realpath(os.path.abspath(os.fspath(nsys_mount_root)))
-    candidates: List[str] = []
+    candidates: list[str] = []
     for candidate in glob.iglob(
         os.path.join(root, "**", "QdstrmImporter"),
         recursive=True,

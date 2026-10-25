@@ -81,7 +81,7 @@ def test_probe_progress_is_language_independent_and_keeps_duration_semantics():
     assert ("Single request 1.250s · Cold start Unknown · Ready + request 3.500s") in (translate(snapshot.detail, "en"))
     assert not (snapshot.measurement_active)
 
-@pytest.mark.parametrize("source,translated", [
+@pytest.mark.parametrize(('source', 'translated'), [
     pytest.param(source, translated, id=source) for source, translated in sorted(ENGLISH.items())
 ])
 def test_catalog_preserves_interpolation_fields_and_numeric_formats(source, translated):
@@ -293,8 +293,8 @@ class TestTuiLanguage:
             app.process_started(123, "probe")
             assert ("probe process started, PID=123") in (log.text)
 
-    @pytest.mark.parametrize('language', ('en', 'zh'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ['en', 'zh'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_both_languages_fit_common_terminal_sizes_and_busy_tasks_lock_language(self, language, size):
         app = self.make_app(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(150, 45)) as pilot:

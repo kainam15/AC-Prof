@@ -14,7 +14,7 @@ class TestExperimentCatalog(CatalogFixture):
     def _setup(self, request, tmp_path):
         self.build(request, tmp_path)
 
-    @pytest.mark.parametrize('broken', ('json', 'schema', 'symlink', 'artifact_symlink', 'missing_v2_manifest'))
+    @pytest.mark.parametrize('broken', ['json', 'schema', 'symlink', 'artifact_symlink', 'missing_v2_manifest'])
     def test_invalid_layout_does_not_hide_healthy_experiments(self, broken):
         from acprof.tui.experiment_catalog import scan_experiments
         good = self.record('z-good', run_id='healthy')

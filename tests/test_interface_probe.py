@@ -24,7 +24,8 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
         calls.append(command)
         if command[:2] == ["docker", "run"]:
             Path(command[command.index("--cidfile") + 1]).write_text("c" * 64)
-            assert "--network" in command and command[command.index("--network") + 1] == "none"
+            assert "--network" in command
+            assert command[command.index("--network") + 1] == "none"
             assert "--read-only" in command
             assert command[command.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
             assert "--gpus" not in command
@@ -273,7 +274,8 @@ def test_interface_failure_cleans_container_and_both_temporary_directories(tmp_p
         "acprof.host.interface_probe.recover_abandoned_containers"), patch(
         "acprof.host.interface_probe.run_command", side_effect=run), pytest.raises(KeyboardInterrupt if interrupted else subprocess.TimeoutExpired):
         probe_interface(task, tmp_path)
-    assert directories and all(not directory.exists() for directory in directories)
+    assert directories
+    assert all(not directory.exists() for directory in directories)
     report = json.loads((tmp_path / "interface_validation.json").read_text())
     assert report["status"] == ("cancelled" if interrupted else "error")
     if not interrupted:

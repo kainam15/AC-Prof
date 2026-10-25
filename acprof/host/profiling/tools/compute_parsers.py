@@ -4,7 +4,8 @@ from __future__ import annotations
 import csv
 import math
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 NCU_FLOAT_TYPE_PATTERN = r"(?:bf\d+|fp\d+|tf\d+)"
 
@@ -58,7 +59,7 @@ def _to_float(value: Any) -> float:
         return float("nan")
 
 
-def _finite_or_none(value: Any) -> Optional[float]:
+def _finite_or_none(value: Any) -> float | None:
     number = _to_float(value)
     return number if math.isfinite(number) else None
 
@@ -66,7 +67,7 @@ def _finite_or_none(value: Any) -> Optional[float]:
 def parse_advisor_self_gflop_csv(report_path: str) -> float:
     """Return summed Intel Advisor Self GFLOP from a CSV report."""
     total_gflop = 0.0
-    with open(report_path, "r", encoding="utf-8-sig", newline="") as f:
+    with open(report_path, encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f)
         fieldnames = None
         for row in reader:
@@ -89,7 +90,7 @@ def parse_advisor_self_gflop_csv(report_path: str) -> float:
     return total_gflop if found else float("nan")
 
 
-def _metric_name_from_row(row: Dict[str, str]) -> str:
+def _metric_name_from_row(row: dict[str, str]) -> str:
     for key in ("Metric Name", "Metric", "Name"):
         value = row.get(key)
         if value:
@@ -100,7 +101,7 @@ def _metric_name_from_row(row: Dict[str, str]) -> str:
     return ""
 
 
-def _metric_value_from_row(row: Dict[str, str]) -> float:
+def _metric_value_from_row(row: dict[str, str]) -> float:
     for key in ("Metric Value", "Value"):
         if key in row:
             return _to_float(row.get(key))
@@ -110,7 +111,7 @@ def _metric_value_from_row(row: Dict[str, str]) -> float:
     return float("nan")
 
 
-def _metric_unit_from_row(row: Dict[str, str]) -> str:
+def _metric_unit_from_row(row: dict[str, str]) -> str:
     for key in ("Metric Unit", "Unit"):
         if key in row and row.get(key):
             return str(row[key]).strip()
@@ -120,7 +121,7 @@ def _metric_unit_from_row(row: Dict[str, str]) -> str:
     return ""
 
 
-def _ncu_metric_flop_weight(metric_name: str) -> Optional[float]:
+def _ncu_metric_flop_weight(metric_name: str) -> float | None:
     if NCU_TENSOR_METRIC_RE.match(metric_name):
         return 1.0
     if metric_name in NCU_SASS_FLOP_WEIGHTS:
@@ -176,9 +177,9 @@ def _duration_to_ms(value: float, unit: str) -> float:
     return value * factors.get(normalized, 0.000001)
 
 
-def _ncu_csv_rows(report_path: str) -> Tuple[List[str], List[Dict[str, str]]]:
+def _ncu_csv_rows(report_path: str) -> tuple[list[str], list[dict[str, str]]]:
     """Read an NCU CSV while skipping profiler diagnostics before the header."""
-    with open(report_path, "r", encoding="utf-8-sig", newline="") as f:
+    with open(report_path, encoding="utf-8-sig", newline="") as f:
         filtered_lines = [
             line
             for line in f
@@ -213,7 +214,7 @@ def _ncu_csv_rows(report_path: str) -> Tuple[List[str], List[Dict[str, str]]]:
     return fieldnames, rows
 
 
-def _first_finite(rows: Sequence[Dict[str, str]], fields: Sequence[str]) -> float:
+def _first_finite(rows: Sequence[dict[str, str]], fields: Sequence[str]) -> float:
     for row in rows:
         for field in fields:
             value = _to_float(row.get(field))
@@ -222,7 +223,7 @@ def _first_finite(rows: Sequence[Dict[str, str]], fields: Sequence[str]) -> floa
     return float("nan")
 
 
-def _first_text(rows: Sequence[Dict[str, str]], fields: Sequence[str]) -> str:
+def _first_text(rows: Sequence[dict[str, str]], fields: Sequence[str]) -> str:
     for row in rows:
         for field in fields:
             value = str(row.get(field) or "").strip()
@@ -231,7 +232,7 @@ def _first_text(rows: Sequence[Dict[str, str]], fields: Sequence[str]) -> str:
     return ""
 
 
-def _ncu_launch_count_wide(rows: Sequence[Dict[str, str]]) -> int:
+def _ncu_launch_count_wide(rows: Sequence[dict[str, str]]) -> int:
     count = 0
     for row in rows:
         launch_id = str(row.get("ID") or "").strip()
@@ -246,7 +247,7 @@ def _ncu_launch_count_wide(rows: Sequence[Dict[str, str]]) -> int:
     return count
 
 
-def _ncu_launch_count_long(rows: Sequence[Dict[str, str]]) -> int:
+def _ncu_launch_count_long(rows: Sequence[dict[str, str]]) -> int:
     launch_ids = set()
     for row in rows:
         launch_id = str(row.get("ID") or row.get("Launch ID") or "").strip()
@@ -262,7 +263,7 @@ def _ncu_launch_count_long(rows: Sequence[Dict[str, str]]) -> int:
     if duration_rows:
         return duration_rows
 
-    metric_counts: Dict[str, int] = {}
+    metric_counts: dict[str, int] = {}
     for row in rows:
         metric_name = _metric_name_from_row(row)
         if _is_ncu_flop_metric(metric_name):
@@ -273,7 +274,7 @@ def _ncu_launch_count_long(rows: Sequence[Dict[str, str]]) -> int:
 def parse_ncu_profile_csv(
     report_path: str,
     repeat: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Parse wide or long NCU CSV into per-request hardware execution metrics."""
     fieldnames, rows = _ncu_csv_rows(report_path)
     normalized_repeat = max(1, int(repeat))
@@ -293,7 +294,7 @@ def parse_ncu_profile_csv(
         field.strip().lower() == "metric name"
         for field in fieldnames
     )
-    metric_values: List[Tuple[str, float, str]] = []
+    metric_values: list[tuple[str, float, str]] = []
     kernel_time_ms = 0.0
     duration_found = False
 
@@ -318,7 +319,7 @@ def parse_ncu_profile_csv(
         duration_fields = [
             field for field in fieldnames if field == NCU_DURATION_METRIC
         ]
-        unit_by_field: Dict[str, str] = {}
+        unit_by_field: dict[str, str] = {}
         for row in rows:
             for field in [*metric_fields, *duration_fields]:
                 raw_value = str(row.get(field) or "").strip()

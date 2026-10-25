@@ -41,11 +41,11 @@ class TestMetricReference:
         result = self.run_reference()
         assert (result.returncode) == (0), result.stderr
         raw = self.path.read_bytes()
-        assert (raw.startswith("# 指标登记表速查\n\n".encode("utf-8")))
+        assert (raw.startswith("# 指标登记表速查\n\n".encode()))
         assert (b"\r") not in (raw)
         assert (raw.decode("utf-8")) == (render())
 
-    @pytest.mark.parametrize('newline', ('\n', '\r\n'))
+    @pytest.mark.parametrize('newline', ['\n', '\r\n'])
     def test_check_accepts_utf8_with_lf_or_crlf_without_rewriting(self, newline):
         raw = render().replace("\n", newline).encode("utf-8")
         self.path.write_bytes(raw)
@@ -61,7 +61,7 @@ class TestMetricReference:
         assert not (self.path.exists())
 
     def test_check_rejects_stale_document_without_rewriting(self):
-        raw = "# 过期的指标登记表\n".encode("utf-8")
+        raw = "# 过期的指标登记表\n".encode()
         self.path.write_bytes(raw)
         result = self.run_reference("--check")
         assert (result.returncode) == (1), result.stderr

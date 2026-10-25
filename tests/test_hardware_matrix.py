@@ -10,7 +10,7 @@ from acprof.experiment import RunConfig
 from scripts import check_hardware, compare_ui
 
 
-@pytest.mark.parametrize("image_options", ({"skip_build": True}, {"skip_build": False}, {"rebuild_image": True}))
+@pytest.mark.parametrize("image_options", [{"skip_build": True}, {"skip_build": False}, {"rebuild_image": True}])
 def test_ui_comparison_reuses_images_from_saved_command_configs(tmp_path, image_options):
     config = asdict(RunConfig.smoke("demo/prepared"))
     config.pop("rebuild_image")
@@ -61,7 +61,7 @@ def test_checked_in_matrix_has_a_successful_serial_execution_path(tmp_path):
     assert [case['status'] for case in report['cases']] == ['passed', 'passed']
 
 
-@pytest.mark.parametrize('bad', ('unresolved', 'duplicate', 'escape', 'unknown', 'empty'))
+@pytest.mark.parametrize('bad', ['unresolved', 'duplicate', 'escape', 'unknown', 'empty'])
 def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
     path = matrix_file(tmp_path)
     payload = json.loads(path.read_text())
@@ -76,7 +76,7 @@ def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
     else:
         payload['cases'] = []
     path.write_text(json.dumps(payload))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="hardware matrix"):
         check_hardware.load_hardware_matrix(path, RunConfig(), tmp_path / 'output')
     with patch.object(check_hardware, 'run_config') as run:
         with pytest.raises(SystemExit) as exc:
@@ -86,7 +86,7 @@ def test_invalid_matrix_is_rejected_before_running_any_case(tmp_path, bad):
     assert not (tmp_path / 'output').exists()
 
 
-@pytest.mark.parametrize('failure', ('audit', 'exception', 'cancelled'))
+@pytest.mark.parametrize('failure', ['audit', 'exception', 'cancelled'])
 def test_matrix_stops_on_failure_and_records_unrun_cases(tmp_path, failure):
     path = matrix_file(tmp_path)
     output = tmp_path / 'output'

@@ -205,7 +205,7 @@ class TestPrepareImage:
         assert result.tag == self.image_id
         build.assert_not_called()
 
-    @pytest.mark.parametrize('error', ('Cannot connect to the Docker daemon', 'permission denied'))
+    @pytest.mark.parametrize('error', ['Cannot connect to the Docker daemon', 'permission denied'])
     def test_docker_query_errors_stop_without_building(self, error):
         query = subprocess.CompletedProcess([], 1, stdout='', stderr=error)
         with patch("acprof.host.command.run_command", return_value=query), patch("acprof.host.images.runtime.build_runtime_image",
@@ -236,7 +236,7 @@ class TestPrepareImage:
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='revision'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
-    @pytest.mark.parametrize('field', ('environment_id', 'platform_id', 'platform_image_id', 'environment_image_id', 'model_image_id'))
+    @pytest.mark.parametrize('field', ['environment_id', 'platform_id', 'platform_image_id', 'environment_image_id', 'model_image_id'])
     def test_new_build_requires_environment_identity_and_immutable_parents(self, field):
         value = self.manifest.pop(field)
         try:
@@ -250,7 +250,7 @@ class TestPrepareImage:
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='父镜像'):
             runtime_images.prepare_image(self.task, self.project_dir, reuse_existing=True)
 
-    @pytest.mark.parametrize('plan', (None, {'schema_version': 1, 'plan_sha256': 'wrong'}))
+    @pytest.mark.parametrize('plan', [None, {'schema_version': 1, 'plan_sha256': 'wrong'}])
     def test_missing_or_changed_download_plan_is_rejected(self, plan):
         self.manifest['model_download'] = plan
         with patch("acprof.host.command.run_command", side_effect=self.existing_image), pytest.raises(RuntimeError, match='文件清单'):

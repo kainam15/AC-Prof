@@ -8,7 +8,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Any, Dict, List, Optional, TextIO
+from typing import Any, TextIO
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
 from acprof.config import SCALING_DIMENSIONS
@@ -26,17 +26,17 @@ from acprof.host.images.runtime import ImageInfo
 
 @dataclass
 class PlannedInputScales:
-    scales: List[float]
+    scales: list[float]
     source: str
-    plan_file: Optional[str] = None
-    workload: Dict[str, Any] = field(default_factory=dict)
+    plan_file: str | None = None
+    workload: dict[str, Any] = field(default_factory=dict)
     plan_sha256: str = ""
 
 
 AUTO_INPUT_SCALE_COUNT = 6
 
 
-def _parse_float_list(s: str) -> List[float]:
+def _parse_float_list(s: str) -> list[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 
@@ -48,11 +48,11 @@ def _format_scale_value(scale: float) -> str:
     return str(value)
 
 
-def serialize_input_scales(scales: List[float]) -> str:
+def serialize_input_scales(scales: list[float]) -> str:
     return ",".join(_format_scale_value(scale) for scale in scales)
 
 
-def resolve_input_scales(task_family: str, input_scales: Optional[str] = None) -> List[float]:
+def resolve_input_scales(task_family: str, input_scales: str | None = None) -> list[float]:
     if input_scales:
         return sorted(set(_parse_float_list(input_scales)))
 
@@ -70,10 +70,10 @@ def _scale_plan_file_path(output_dir: str) -> str:
 def _write_scale_plan_file(
     path: str,
     task_info: TaskInfo,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     *,
-    workload: Optional[Dict[str, Any]] = None,
-    model_constraints: Optional[Dict[str, Any]] = None,
+    workload: dict[str, Any] | None = None,
+    model_constraints: dict[str, Any] | None = None,
 ) -> str:
     payload = {
         "schema_version": 2,
@@ -107,12 +107,12 @@ def _write_scale_plan_file(
 def _materialize_scale_plan(
     *,
     task_info: TaskInfo,
-    scales: List[float],
+    scales: list[float],
     batch_size: int,
     output_dir: str,
     source: str,
-    workload_spec_path: Optional[str] = None,
-    model_constraints: Optional[Dict[str, Any]] = None,
+    workload_spec_path: str | None = None,
+    model_constraints: dict[str, Any] | None = None,
 ) -> PlannedInputScales:
     """Generate one reusable payload plan for non-NLP task families."""
 
@@ -120,8 +120,8 @@ def _materialize_scale_plan(
         batch_size,
         workload_spec_path=workload_spec_path,
     )
-    entries: List[Dict[str, Any]] = []
-    effective_scales: List[float] = []
+    entries: list[dict[str, Any]] = []
+    effective_scales: list[float] = []
 
     for scale in scales:
         requested_scale = float(scale)
@@ -154,7 +154,7 @@ def _materialize_scale_plan(
             )
 
         effective_scales.append(actual_scale)
-        input_metadata: Dict[str, Any] = {}
+        input_metadata: dict[str, Any] = {}
         metadata_fn = getattr(workload_gen, "input_metadata", None)
         if callable(metadata_fn):
             candidate_metadata = metadata_fn(actual_scale, payload)
@@ -173,7 +173,7 @@ def _materialize_scale_plan(
             "payload": payload,
         })
 
-    workload_metadata: Dict[str, Any] = {}
+    workload_metadata: dict[str, Any] = {}
     metadata_fn = getattr(workload_gen, "plan_metadata", None)
     if callable(metadata_fn):
         candidate_metadata = metadata_fn()
@@ -203,7 +203,7 @@ def _materialize_scale_plan(
     )
 
 
-def _integer_auto_scales(max_value: int, count: int = AUTO_INPUT_SCALE_COUNT) -> List[float]:
+def _integer_auto_scales(max_value: int, count: int = AUTO_INPUT_SCALE_COUNT) -> list[float]:
     if max_value < count:
         raise RuntimeError(
             f"cannot generate {count} unique integer input scales from max_value={max_value}"
@@ -218,7 +218,7 @@ def _integer_auto_scales(max_value: int, count: int = AUTO_INPUT_SCALE_COUNT) ->
     return [float(v) for v in scales]
 
 
-def _float_auto_scales(max_value: float, count: int = AUTO_INPUT_SCALE_COUNT) -> List[float]:
+def _float_auto_scales(max_value: float, count: int = AUTO_INPUT_SCALE_COUNT) -> list[float]:
     if max_value <= 0:
         raise RuntimeError(f"invalid max_value for float scales: {max_value}")
     scales = [round(float(max_value) * idx / count, 6) for idx in range(1, count + 1)]
@@ -229,9 +229,9 @@ def _float_auto_scales(max_value: float, count: int = AUTO_INPUT_SCALE_COUNT) ->
 def _start_probe_session(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
 ) -> RunningContainer:
     probe_cpu = max(cpu_list)
     probe_mem = max(mem_list)
@@ -255,7 +255,7 @@ def _start_probe_session(
     )
 
 
-def _parse_probe_response(data: Dict[str, Any], desc: str) -> Dict[str, Any]:
+def _parse_probe_response(data: dict[str, Any], desc: str) -> dict[str, Any]:
     required = {"effective_input_scale", "truncated_by_limit", "reason"}
     missing = sorted(required - set(data.keys()))
     if missing:
@@ -293,16 +293,16 @@ def _parse_probe_response(data: Dict[str, Any], desc: str) -> Dict[str, Any]:
     }
 
 
-def _probe_exceeds_limit(result: Dict[str, Any]) -> bool:
+def _probe_exceeds_limit(result: dict[str, Any]) -> bool:
     """Keep old actual-truncation evidence distinct from input rejected before execution."""
     return result["truncated_by_limit"] or result.get("limit_exceeded", False)
 
 
 def _post_probe_payload(
     session: RunningContainer,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     desc: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     import requests
 
     response = requests.post(
@@ -331,8 +331,8 @@ def _post_probe_payload(
 
 def _request_scale_meta(
     session: RunningContainer,
-    payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     import requests
 
     response = requests.post(
@@ -361,8 +361,8 @@ def _request_scale_meta(
 
 def _request_nlp_scale_meta(
     session: RunningContainer,
-    payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     data = _request_scale_meta(session, payload)
     reason = str(data.get("reason", "")).strip()
     if not reason:
@@ -393,8 +393,8 @@ def _request_nlp_scale_meta(
 
 def _request_audio_scale_meta(
     session: RunningContainer,
-    payload: Dict[str, Any],
-) -> Dict[str, Any]:
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     data = _request_scale_meta(session, payload)
     reason = str(data.get("reason", "")).strip()
     if not reason:
@@ -403,7 +403,7 @@ def _request_audio_scale_meta(
             "rebuild the audio image with --rebuild-image"
         )
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "input_scale_type": str(data.get("input_scale_type") or "duration_s"),
         "reason": reason,
     }
@@ -456,20 +456,20 @@ def _request_audio_scale_meta(
 def _assert_manual_nlp_scales_legal(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
-    scales: List[float],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
+    scales: list[float],
     batch_size: int,
-) -> List[float]:
+) -> list[float]:
 
-    session: Optional[RunningContainer] = None
+    session: RunningContainer | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
             batch_size,
         )
-        invalid: Dict[float, str] = {}
+        invalid: dict[float, str] = {}
         for scale in scales:
             payload = workload_gen.generate(scale)
             result = _post_probe_payload(
@@ -499,25 +499,25 @@ def _assert_manual_nlp_scales_legal(
 def _plan_manual_nlp_scales(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
-    scales: List[float],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
+    scales: list[float],
     batch_size: int,
     output_dir: str,
-    workload_spec_path: Optional[str] = None,
+    workload_spec_path: str | None = None,
 ) -> PlannedInputScales:
 
-    session: Optional[RunningContainer] = None
+    session: RunningContainer | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
             batch_size,
             workload_spec_path=workload_spec_path,
         )
-        invalid: Dict[float, str] = {}
-        entries: List[Dict[str, Any]] = []
-        actual_scales: List[float] = []
+        invalid: dict[float, str] = {}
+        entries: list[dict[str, Any]] = []
+        actual_scales: list[float] = []
 
         for scale in scales:
             payload = workload_gen.generate(scale)
@@ -572,15 +572,15 @@ def _plan_manual_nlp_scales(
 def _plan_nlp_auto_scales(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
     batch_size: int,
     output_dir: str,
-    workload_spec_path: Optional[str] = None,
+    workload_spec_path: str | None = None,
 ) -> PlannedInputScales:
 
-    session: Optional[RunningContainer] = None
+    session: RunningContainer | None = None
     try:
         session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
         workload_gen = _get_task_generator(task_info,
@@ -592,9 +592,9 @@ def _plan_nlp_auto_scales(
         max_effective = int(scale_meta["max_effective_input_scale"])
         target_scales = _integer_auto_scales(max_effective, count=AUTO_INPUT_SCALE_COUNT)
 
-        probe_cache: Dict[int, Dict[str, Any]] = {}
+        probe_cache: dict[int, dict[str, Any]] = {}
 
-        def probe_word_count(word_count: int) -> Dict[str, Any]:
+        def probe_word_count(word_count: int) -> dict[str, Any]:
             word_count = max(1, int(word_count))
             cached = probe_cache.get(word_count)
             if cached is not None:
@@ -612,11 +612,11 @@ def _plan_nlp_auto_scales(
             probe_cache[word_count] = result
             return result
 
-        def find_best_candidate(target_scale: int) -> Dict[str, Any]:
+        def find_best_candidate(target_scale: int) -> dict[str, Any]:
             left = 1
             right = max(1, int(target_scale))
-            best_below_wc: Optional[int] = None
-            best_below_result: Optional[Dict[str, Any]] = None
+            best_below_wc: int | None = None
+            best_below_result: dict[str, Any] | None = None
 
             while left <= right:
                 mid = (left + right) // 2
@@ -631,7 +631,7 @@ def _plan_nlp_auto_scales(
                 else:
                     right = mid - 1
 
-            candidates: List[Dict[str, Any]] = []
+            candidates: list[dict[str, Any]] = []
             if best_below_result is not None:
                 candidates.append(best_below_result)
 
@@ -659,8 +659,8 @@ def _plan_nlp_auto_scales(
             )
             return best
 
-        entries: List[Dict[str, Any]] = []
-        actual_scales: List[float] = []
+        entries: list[dict[str, Any]] = []
+        actual_scales: list[float] = []
         previous_scale = float("-inf")
         for target_scale in target_scales:
             candidate = find_best_candidate(int(target_scale))
@@ -723,14 +723,14 @@ def _plan_audio_scales(
     *,
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
-    scales: List[float],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
+    scales: list[float],
     batch_size: int,
     output_dir: str,
     source: str,
-    workload_spec_path: Optional[str],
+    workload_spec_path: str | None,
 ) -> PlannedInputScales:
     """Validate real audio payloads against the loaded model before a sweep."""
 
@@ -750,8 +750,8 @@ def _plan_audio_scales(
         (scale, workload_gen.generate(scale)) for scale in normalized_scales
     ]
 
-    session: Optional[RunningContainer] = None
-    model_constraints: Dict[str, Any] = {}
+    session: RunningContainer | None = None
+    model_constraints: dict[str, Any] = {}
     try:
         session = _start_probe_session(
             task_info,
@@ -830,8 +830,8 @@ def _plan_audio_scales(
 
 def _plan_timeseries_scales(
     task_info: TaskInfo, image_info: ImageInfo,
-    cpu_list: List[int], mem_list: List[int], gpu_list: List[str],
-    batch_size: int, output_dir: str, input_scales: Optional[str],
+    cpu_list: list[int], mem_list: list[int], gpu_list: list[str],
+    batch_size: int, output_dir: str, input_scales: str | None,
 ) -> PlannedInputScales:
     """Use the loaded forecasting model's context limit before materialization."""
 
@@ -861,9 +861,9 @@ def _plan_timeseries_scales(
 
 
 def plan_input_scales(
-    task_info: TaskInfo, image_info: ImageInfo, cpu_list: List[int], mem_list: List[int],
-    gpu_list: List[str], batch_size: int, output_dir: str, input_scales: Optional[str] = None,
-    workload_spec_path: Optional[str] = None, input_scale_policy: str = "auto",
+    task_info: TaskInfo, image_info: ImageInfo, cpu_list: list[int], mem_list: list[int],
+    gpu_list: list[str], batch_size: int, output_dir: str, input_scales: str | None = None,
+    workload_spec_path: str | None = None, input_scale_policy: str = "auto",
 ) -> PlannedInputScales:
     """Select a policy while retaining model-specific validation and payload bytes.
 
@@ -904,13 +904,13 @@ def input_plan_summary(task_info: TaskInfo, plan: PlannedInputScales) -> dict:
 def _plan_input_scales(
     task_info: TaskInfo,
     image_info: ImageInfo,
-    cpu_list: List[int],
-    mem_list: List[int],
-    gpu_list: List[str],
+    cpu_list: list[int],
+    mem_list: list[int],
+    gpu_list: list[str],
     batch_size: int,
     output_dir: str,
-    input_scales: Optional[str] = None,
-    workload_spec_path: Optional[str] = None,
+    input_scales: str | None = None,
+    workload_spec_path: str | None = None,
 ) -> PlannedInputScales:
     capabilities = CATALOG.describe(task_info).declaration.input_plan
     if workload_spec_path and not capabilities.accepts_workload_spec:

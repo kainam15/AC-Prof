@@ -6,8 +6,9 @@ Only complete, conflict-free static contracts participate in runtime routing.
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from acprof.artifacts import atomic_write_json
 from acprof.model_evidence import ModelEvidence, pinned_revision

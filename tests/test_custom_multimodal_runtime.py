@@ -114,7 +114,7 @@ class TestCustomMultimodalRuntime:
             assert (result["validation"]["task"]["status"]) == ("verified")
             assert ("limit 1") in (result["response"]["texts"][0])
 
-    @pytest.mark.parametrize('task', ('audio-text-to-text', 'image-text-to-text', 'video-text-to-text'))
+    @pytest.mark.parametrize('task', ['audio-text-to-text', 'image-text-to-text', 'video-text-to-text'])
     def test_modalities_match_official_pipeline_and_runtime_validation(self, task):
         import numpy as np
         import torch

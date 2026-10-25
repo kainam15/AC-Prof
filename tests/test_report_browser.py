@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import tempfile
+from contextlib import ExitStack
 from functools import partial
 from importlib.metadata import version
 from pathlib import Path
@@ -19,62 +20,61 @@ class TestReportBrowser:
     @pytest.fixture(scope="class", autouse=True)
     def _class_setup(self, request, tmp_path_factory):
         cls = request.cls
-        from playwright.sync_api import sync_playwright
+        with ExitStack() as resources:
+            from playwright.sync_api import sync_playwright
 
-        from acprof.analysis.model import load_analysis
-        from acprof.plotting.report import write_report
-        cls.temporary = tempfile.TemporaryDirectory()
-        request.addfinalizer(partial(cls.temporary.cleanup))
-        cls.root = Path(cls.temporary.name)
-        from comparison_fixtures import ComparisonFixture
-        fixture = ComparisonFixture()
-        fixture.build(tmp_path_factory.mktemp("comparison"))
-        shutil.copytree(fixture.left, cls.root, dirs_exist_ok=True)
-        fixture.change_json(cls.root, "run_state.json", lambda state: (state.pop("runtime"),
-            state["options"].update(cpus="2,4,8", mems="4,8")))
-        fixture.change_json(cls.root, "input_scale_plan.json", lambda plan:
-            plan["entries"][0].update(input_scale=32))
-        hardware = json.loads((cls.root / "hardware_conditions.json").read_text())["cases"]["1c_4g_off"]
-        contract = fixture.contract
-        contract["input"].update(planned_scale=32, actual_scale=32)
-        rows = []
-        for cpu, mem, latency, energy in [(2, 4, .10, 4), (4, 4, .04, 5), (8, 4, .08, 6),
-                                          (2, 8, .09, 4), (4, 8, .03, 5)]:
-            rows.append({"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": "off",
-                         "input_scale": 32, "repeat_idx": 0, "warmup": 0, "status": "ok",
-                         "latency_app_p95_s": latency, "throughput_samples_per_s": 1 / latency,
-                         "cpu_energy_total_j": energy, "repeat_in_window": 2,
-                         "container_mem_usage_peak_bytes": mem * 1024, "cpu_ipc": 2,
-                         "cold_start_s": 1, "concurrency": 1})
-            rows[-1].update(environment_class="native_linux", workload_contract=json.dumps({
-                "schema_version": 1, "request_count": 2, "variants": [{"count": 2, "contract": contract}]}))
-        csv_path = cls.root / "result_all.csv"
-        with csv_path.open("w", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
-        fixture.change_json(cls.root, "static_meta.json", lambda meta: meta.update(
-            model_name="fixture/model", runtime_backend="torch", batch_size=1, pipeline_tag="tabular-regression"))
-        fixture.write_json(cls.root, "hardware_conditions.json", {"schema_version": 1, "cases": {
-            f"{row['cpu_cores']}c_{row['mem_cap_gb']}g_off": hardware for row in rows}})
-        (cls.root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": []}))
-        cls.model = load_analysis([csv_path])
-        cls.report = write_report(cls.model, cls.root / "report.html", comparison_purpose="resource-scaling")
-        cls.playwright = sync_playwright().start()
-        request.addfinalizer(partial(cls.playwright.stop))
-        cls.artifacts = Path(os.environ["ACPROF_BROWSER_ARTIFACT_DIR"]).resolve() if os.environ.get("ACPROF_BROWSER_ARTIFACT_DIR") else None
-        if cls.artifacts:
-            cls.artifacts.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(cls.report, cls.artifacts / "report.html")
-        executable = os.environ.get("ACPROF_BROWSER_EXECUTABLE")
-        cls.browser = cls.playwright.chromium.launch(executable_path=executable, headless=True,
-                                                     args=["--no-sandbox", "--disable-gpu"])
-        request.addfinalizer(partial(cls.browser.close))
-        if cls.artifacts:
-            (cls.artifacts / "browser-info.json").write_text(json.dumps({
-                "playwright": version("playwright"), "chromium": cls.browser.version,
-                "explicit_executable_override": executable, "network_mode": "offline",
-            }, indent=2), encoding="utf-8")
+            from acprof.analysis.model import load_analysis
+            from acprof.plotting.report import write_report
+            cls.root = Path(resources.enter_context(tempfile.TemporaryDirectory()))
+            from comparison_fixtures import ComparisonFixture
+            fixture = ComparisonFixture()
+            fixture.build(tmp_path_factory.mktemp("comparison"))
+            shutil.copytree(fixture.left, cls.root, dirs_exist_ok=True)
+            fixture.change_json(cls.root, "run_state.json", lambda state: (state.pop("runtime"),
+                state["options"].update(cpus="2,4,8", mems="4,8")))
+            fixture.change_json(cls.root, "input_scale_plan.json", lambda plan:
+                plan["entries"][0].update(input_scale=32))
+            hardware = json.loads((cls.root / "hardware_conditions.json").read_text())["cases"]["1c_4g_off"]
+            contract = fixture.contract
+            contract["input"].update(planned_scale=32, actual_scale=32)
+            rows = []
+            for cpu, mem, latency, energy in [(2, 4, .10, 4), (4, 4, .04, 5), (8, 4, .08, 6),
+                                              (2, 8, .09, 4), (4, 8, .03, 5)]:
+                rows.append({"cpu_cores": cpu, "mem_cap_gb": mem, "gpu_mode": "off",
+                             "input_scale": 32, "repeat_idx": 0, "warmup": 0, "status": "ok",
+                             "latency_app_p95_s": latency, "throughput_samples_per_s": 1 / latency,
+                             "cpu_energy_total_j": energy, "repeat_in_window": 2,
+                             "container_mem_usage_peak_bytes": mem * 1024, "cpu_ipc": 2,
+                             "cold_start_s": 1, "concurrency": 1})
+                rows[-1].update(environment_class="native_linux", workload_contract=json.dumps({
+                    "schema_version": 1, "request_count": 2, "variants": [{"count": 2, "contract": contract}]}))
+            csv_path = cls.root / "result_all.csv"
+            with csv_path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            fixture.change_json(cls.root, "static_meta.json", lambda meta: meta.update(
+                model_name="fixture/model", runtime_backend="torch", batch_size=1, pipeline_tag="tabular-regression"))
+            fixture.write_json(cls.root, "hardware_conditions.json", {"schema_version": 1, "cases": {
+                f"{row['cpu_cores']}c_{row['mem_cap_gb']}g_off": hardware for row in rows}})
+            (cls.root / "quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": []}))
+            cls.model = load_analysis([csv_path])
+            cls.report = write_report(cls.model, cls.root / "report.html", comparison_purpose="resource-scaling")
+            cls.playwright = resources.enter_context(sync_playwright())
+            cls.artifacts = Path(os.environ["ACPROF_BROWSER_ARTIFACT_DIR"]).resolve() if os.environ.get("ACPROF_BROWSER_ARTIFACT_DIR") else None
+            if cls.artifacts:
+                cls.artifacts.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(cls.report, cls.artifacts / "report.html")
+            executable = os.environ.get("ACPROF_BROWSER_EXECUTABLE")
+            cls.browser = cls.playwright.chromium.launch(executable_path=executable, headless=True,
+                                                         args=["--no-sandbox", "--disable-gpu"])
+            resources.callback(cls.browser.close)
+            if cls.artifacts:
+                (cls.artifacts / "browser-info.json").write_text(json.dumps({
+                    "playwright": version("playwright"), "chromium": cls.browser.version,
+                    "explicit_executable_override": executable, "network_mode": "offline",
+                }, indent=2), encoding="utf-8")
+            yield
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
         self._request = request

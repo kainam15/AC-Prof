@@ -187,7 +187,7 @@ class TestGenerativeVision:
         (task, pipe, scale, update) = tuple(cases)[task_case]
         payload = DiffusionWorkloadGenerator("example/model", task, 1).generate(scale)
         payload.update(update)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="does not consume the explicit prompt|unsupported.*(?:params|inputs)"):
             self.run_pipeline(task, pipe, payload=payload)
 
     def test_video_rejects_temporal_mismatch_before_predict(self):
@@ -258,8 +258,8 @@ class TestGenerativeVision:
         with pytest.raises(ValueError, match="requested"):
             self.run_pipeline("image-to-image", Upscale())
 
-    @pytest.mark.parametrize('task', ('image-to-image', 'image-text-to-image'))
-    @pytest.mark.parametrize('name', ('StableDiffusionUpscalePipeline', 'StableDiffusionLatentUpscalePipeline'))
+    @pytest.mark.parametrize('task', ['image-to-image', 'image-text-to-image'])
+    @pytest.mark.parametrize('name', ['StableDiffusionUpscalePipeline', 'StableDiffusionLatentUpscalePipeline'])
     def test_known_fixed_upscalers_are_rejected_before_model_execution(self, task, name):
         def call(self, prompt, image, num_inference_steps=20, guidance_scale=7.5,
                  generator=None, output_type="pil", return_dict=True):

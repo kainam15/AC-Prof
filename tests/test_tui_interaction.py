@@ -151,8 +151,8 @@ class TestTuiInteraction:
             app.elapsed_timer = None
 
 
-@pytest.mark.parametrize('frozen', (False, True))
-@pytest.mark.parametrize('name', ('run', 'probe', 'plot', 'profile', 'stats', 'audit'))
+@pytest.mark.parametrize('frozen', [False, True])
+@pytest.mark.parametrize('name', ['run', 'probe', 'plot', 'profile', 'stats', 'audit'])
 def test_preview_uses_public_cli_without_resolving_argument_paths(frozen, name):
     arguments = [
         "--model", "demo/model", "--output-dir", "/remote mount/results;literal",

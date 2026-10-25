@@ -262,7 +262,7 @@ class TestAudioWorkload:
     def test_rejects_invalid_manual_scales(self, value_case):
         generator = self._generator()
         value = tuple((0, -1, 30.1, float('inf'), float('nan'), True))[value_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="audio duration"):
             generator.generate(value)
 
     def test_rejects_batching_and_unsupported_audio_tasks(self):

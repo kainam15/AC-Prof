@@ -31,7 +31,7 @@ def test_interface_timeout_is_reported_as_a_failed_cli_command(tmp_path):
         assert main(["inspect", task.model_id, "--probe-interface", "--output-dir", str(tmp_path)]) == 1
 
 
-@pytest.mark.parametrize('family,tag,expected_scale,field', (('nlp', 'fill-mask', 64, 'text'), ('cv', 'image-classification', 0.1, 'image_base64')))
+@pytest.mark.parametrize(("family", "tag", "expected_scale", "field"), [('nlp', 'fill-mask', 64, 'text'), ('cv', 'image-classification', 0.1, 'image_base64')])
 def test_native_probe_uses_family_defaults_when_generator_has_no_declared_scales(family, tag, expected_scale, field):
     from types import SimpleNamespace
 

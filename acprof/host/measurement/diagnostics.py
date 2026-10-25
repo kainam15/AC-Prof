@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.measurement.metrics import (
@@ -12,7 +12,7 @@ from acprof.host.measurement.metrics import (
 )
 
 
-def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]]:
+def _run_json_lines(cmd: list[str], timeout: float = 2.0) -> list[dict[str, Any]]:
     result = run_command(
         cmd,
         check=False,
@@ -32,7 +32,7 @@ def _run_json_lines(cmd: List[str], timeout: float = 2.0) -> List[Dict[str, Any]
     return rows
 
 
-def _collect_top_cpu_processes(limit: int = 10) -> List[Dict[str, Any]]:
+def _collect_top_cpu_processes(limit: int = 10) -> list[dict[str, Any]]:
     result = run_command(
         [
             "ps",
@@ -70,7 +70,7 @@ def _collect_top_cpu_processes(limit: int = 10) -> List[Dict[str, Any]]:
     return processes
 
 
-def _run_text(cmd: List[str], timeout: float = 2.0) -> str:
+def _run_text(cmd: list[str], timeout: float = 2.0) -> str:
     result = run_command(
         cmd,
         check=False,
@@ -85,19 +85,19 @@ def _run_text(cmd: List[str], timeout: float = 2.0) -> str:
     return result.stdout
 
 
-def _float_or_none(value: str) -> Optional[float]:
+def _float_or_none(value: str) -> float | None:
     number = _to_float_or_nan(value.strip())
     return number if math.isfinite(number) else None
 
 
-def _int_or_none(value: str) -> Optional[int]:
+def _int_or_none(value: str) -> int | None:
     try:
         return int(value.strip())
     except (TypeError, ValueError):
         return None
 
 
-def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> Dict[str, Any]:
+def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> dict[str, Any]:
     query_fields = [
         "index",
         "name",
@@ -143,14 +143,14 @@ def _collect_nvidia_smi_gpu_snapshot(device_index: int = 0) -> Dict[str, Any]:
     }
 
 
-def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> List[Dict[str, Any]]:
+def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> list[dict[str, Any]]:
     output = _run_text([
         "nvidia-smi",
         f"--id={device_index}",
         "--query-compute-apps=pid,process_name,used_memory",
         "--format=csv,noheader,nounits",
     ])
-    apps: List[Dict[str, Any]] = []
+    apps: list[dict[str, Any]] = []
     for line in output.splitlines():
         line = line.strip()
         if not line or "No running processes found" in line:
@@ -166,9 +166,9 @@ def _collect_nvidia_smi_compute_apps(device_index: int = 0) -> List[Dict[str, An
     return apps
 
 
-def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
+def _collect_nvidia_smi_pmon(device_index: int = 0) -> list[dict[str, Any]]:
     output = _run_text(["nvidia-smi", "pmon", "-c", "1", "-i", str(device_index)])
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for line in output.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -192,8 +192,8 @@ def _collect_nvidia_smi_pmon(device_index: int = 0) -> List[Dict[str, Any]]:
     return rows
 
 
-def collect_gpu_idle_debug_snapshot(device_index: int) -> Dict[str, Any]:
-    snapshot: Dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
+def collect_gpu_idle_debug_snapshot(device_index: int) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"gpu_snapshot_scope": "after_gpu_idle"}
     try:
         snapshot["nvidia_smi_gpu"] = _collect_nvidia_smi_gpu_snapshot(device_index)
     except Exception as exc:
@@ -211,8 +211,8 @@ def collect_gpu_idle_debug_snapshot(device_index: int) -> Dict[str, Any]:
 
     return snapshot
 
-def collect_idle_debug_snapshot() -> Dict[str, Any]:
-    snapshot: Dict[str, Any] = {"snapshot_scope": "after_idle"}
+def collect_idle_debug_snapshot() -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"snapshot_scope": "after_idle"}
     try:
         snapshot["loadavg"] = list(os.getloadavg())
     except Exception as exc:

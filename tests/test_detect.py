@@ -149,7 +149,7 @@ def test_detect_task_reports_auto_detection_failure_reasons() -> None:
     with patch("huggingface_hub.HfApi.model_info", side_effect=RuntimeError("hub timeout")), patch(
         "huggingface_hub.hf_hub_download", side_effect=OSError("config missing")
     ), patch("sys.stderr", stderr):
-        with pytest.raises(ValueError) as raised:
+        with pytest.raises(ValueError, match="无法读取模型 missing/model") as raised:
             detect.detect_task("missing/model")
 
     assert (stderr.getvalue()) == ("")

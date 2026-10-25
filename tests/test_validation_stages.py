@@ -93,7 +93,7 @@ class TestValidationStage:
         assert (record["stages"][-1]["status"]) == ("error")
         assert ("ValueError: bad input contract") in (record["error"])
 
-    @pytest.mark.parametrize('stale_parent', (False, True))
+    @pytest.mark.parametrize('stale_parent', [False, True])
     def test_completion_timeout_records_actual_request_budget(self, stale_parent, monkeypatch):
         if stale_parent:
             # Import-isolation tests can restore sys.modules while retaining an

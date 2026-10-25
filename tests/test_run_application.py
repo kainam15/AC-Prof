@@ -32,7 +32,8 @@ def test_two_applications_do_not_share_state_notifications_or_terminal_logs():
     second_state.close.assert_not_called()
     assert second.run_state is second_state
     assert second.terminal_log == second_log
-    assert first.run_state is None and first.terminal_log is None
+    assert first.run_state is None
+    assert first.terminal_log is None
 
 
 def test_cleanup_failure_releases_state_and_emits_failed_terminal_event():

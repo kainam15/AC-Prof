@@ -27,7 +27,7 @@ def test_both_tools_use_the_same_immutable_model_image():
         assert (call.args[0][:4]) == (["docker", "image", "inspect", MODEL_TAG])
 
 @pytest.mark.parametrize('labels_case', range(3), ids=['None', '{}', "{environment.EXECUTION_RUNTIME_LABEL_PREFIX + tool: '0'}"])
-@pytest.mark.parametrize('tool', ('massif', 'nsys'))
+@pytest.mark.parametrize('tool', ['massif', 'nsys'])
 def test_missing_or_outdated_capability_fails_without_build_or_tag(labels_case, tool):
     labels = tuple((None, {}, {environment.EXECUTION_RUNTIME_LABEL_PREFIX + tool: '0'}))[labels_case]
     with patch.object(

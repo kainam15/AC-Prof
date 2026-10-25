@@ -125,7 +125,7 @@ class TestWeComNotification:
         assert (WEBHOOK_KEY) not in (text)
         assert ("key=<redacted>") in (text)
 
-    @pytest.mark.parametrize('status,label', (('success', '成功'), ('partial', '部分失败'), ('failed', '失败'), ('no_results', '无结果')))
+    @pytest.mark.parametrize(("status", "label"), [('success', '成功'), ('partial', '部分失败'), ('failed', '失败'), ('no_results', '无结果')])
     def test_render_profiler_outcomes_and_sample_counts(self, status, label) -> None:
         text = render_notification_text(
             NotificationEvent(

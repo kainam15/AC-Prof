@@ -82,7 +82,8 @@ def test_implausible_cumulative_counter_falls_back_to_integrated_power(
     assert len(samples)==3
     assert result.energy_source=='power_integration'
     assert expected_phrase in result.energy_fallback_reason
-    assert result.counter_start_mj==start_mj and result.counter_end_mj==end_mj
+    assert result.counter_start_mj==start_mj
+    assert result.counter_end_mj==end_mj
     assert result.energy_total_j > 0
     assert result.avg_power_total_w <= max(power_mw)/1000
 
@@ -189,7 +190,7 @@ def test_reset_or_unsupported_counter_uses_power_integral_with_reason(readings_c
     assert (getattr(result, "energy_source", None)) == ("power_integration")
     assert (result.energy_fallback_reason)
 
-@pytest.mark.parametrize("end_mj,expected_energy,expected_average", [(20_000, 10.0, 5.0), (10_000, 0.0, 0.0)])
+@pytest.mark.parametrize(("end_mj", "expected_energy", "expected_average"), [(20_000, 10.0, 5.0), (10_000, 0.0, 0.0)])
 def test_cumulative_energy_survives_unsupported_power_sampling(tmp_path, end_mj, expected_energy, expected_average):
     with patch.object(energy_nvml.pynvml, "nvmlInit"), patch.object(
         energy_nvml.pynvml, "nvmlDeviceGetHandleByIndex", return_value="handle"

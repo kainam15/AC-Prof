@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
+from typing import Any
 
 from acprof.artifacts import read_json_object
 from acprof.host.command import run_command
@@ -44,9 +45,9 @@ def error_entry(
     entry: Mapping[str, Any],
     error: str,
     *,
-    report: Optional[str] = None,
-) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+    report: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "input_scale": float(entry["input_scale"]),
         "tool": MASSIF_TOOL,
         **{field: None for field in MASSIF_FIELDS},
@@ -64,7 +65,7 @@ def _massif_artifact_paths(
     cpu: int,
     mem: int,
     input_scale: float,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     scale_label = safe_filename_token(
         format_scale_value(input_scale)
     )
@@ -89,7 +90,7 @@ def _massif_entry_from_report(
     entry: Mapping[str, Any],
     host_report: str,
     output_dir: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     relative_report = relative_artifact(host_report, output_dir)
     try:
         parsed = parse_massif_output(host_report)
@@ -144,7 +145,7 @@ def _write_massif_checkpoint(
     )
 
 
-def _read_massif_checkpoint(path: str) -> Optional[Dict[str, Any]]:
+def _read_massif_checkpoint(path: str) -> dict[str, Any] | None:
     try:
         return read_json_object(path, label="Massif checkpoint")
     except (OSError, ValueError, TypeError):
@@ -205,7 +206,7 @@ def _resume_massif_entry(
     output_dir: str,
     entry: Mapping[str, Any],
     repeat: int,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     input_scale = float(entry["input_scale"])
     scale_label = format_scale_value(input_scale)
     host_report, checkpoint_path = _massif_artifact_paths(
@@ -296,7 +297,7 @@ def _collect_massif_entry(
     output_dir: str,
     entry: Mapping[str, Any],
     repeat: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     input_scale = float(entry["input_scale"])
     host_report, checkpoint_path = _massif_artifact_paths(
         profile_root=profile_root,
@@ -355,10 +356,10 @@ def _collect_massif_entry(
 
 def profile(
     *,
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     global_error: str,
     task_info: TaskInfo,
-    derived_image: Optional[str],
+    derived_image: str | None,
     cpu: int,
     mem: int,
     payload_file: str,
@@ -366,7 +367,7 @@ def profile(
     output_dir: str,
     repeat: int,
     resume_existing: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if global_error or not derived_image:
         error = global_error or "massif_not_found"
         profiled_entries = [

@@ -17,12 +17,18 @@ def test_loading_info_preserves_return_contract_and_restores_on_failure():
             return (instance, info) if output_loading_info else instance
 
     descriptor = Model.__dict__["from_pretrained"]
+    checks = []
+
+    def load_and_fail():
+        nonlocal checks
+        with capture_loading_quality("transformers_pipeline") as checks:
+            assert isinstance(Model.from_pretrained(), Model)
+            assert isinstance(Model.from_pretrained(output_loading_info=True), tuple)
+            raise ValueError("downstream")
+
     with patch.dict(sys.modules, {"transformers": SimpleNamespace(PreTrainedModel=Model)}):
         with pytest.raises(ValueError, match="downstream"):
-            with capture_loading_quality("transformers_pipeline") as checks:
-                assert isinstance(Model.from_pretrained(), Model)
-                assert isinstance(Model.from_pretrained(output_loading_info=True), tuple)
-                raise ValueError("downstream")
+            load_and_fail()
     assert (Model.__dict__["from_pretrained"]) is (descriptor)
     assert ({item["code"] for item in checks}) == ({"weights_reinitialized", "unused_checkpoint_weights"})
     assert (all(item["threshold"] == 0 for item in checks))

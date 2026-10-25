@@ -111,7 +111,7 @@ def test_offline_sdk_uses_cached_branch_without_transport(tmp_path, monkeypatch)
         hub.set_client_factory(_httpx_factory)
 
 
-@pytest.mark.parametrize("error_name,status", [
+@pytest.mark.parametrize(("error_name", "status"), [
     ("RepositoryNotFoundError", 401), ("GatedRepoError", 403),
     ("RevisionNotFoundError", 404), ("RemoteEntryNotFoundError", 404),
     ("BadRequestError", 400), ("DisabledRepoError", 403),
@@ -311,7 +311,8 @@ def test_real_hub_sdk_follows_mirror_hub_storage_chain(tmp_path, monkeypatch):
         assert visited[-1][2] is None
         evidence = observed_hf_provenance()
         assert evidence["requests"][-1]["endpoint_type"] == "storage"
-        assert "signature" not in str(evidence) and "hf_test_token" not in str(evidence)
+        assert "signature" not in str(evidence)
+        assert "hf_test_token" not in str(evidence)
     finally:
         hub.set_client_factory(_httpx_factory)
 
@@ -492,7 +493,8 @@ def test_real_hub_sdk_resumes_interrupted_stream_and_keeps_content_identity(tmp_
         if request.method == "HEAD":
             return httpx.Response(302, headers={"location": "https://us.aws.cdn.hf.co/file",
                 "x-repo-commit": commit, "x-linked-etag": etag, "x-linked-size": "6"})
-        assert request.method == "GET" and request.url.host == "us.aws.cdn.hf.co"
+        assert request.method == "GET"
+        assert request.url.host == "us.aws.cdn.hf.co"
         if request.headers.get("range") is None:
             assert sum(item.method == "GET" for item in requests) == 1
             return httpx.Response(200, stream=InterruptedStream(), headers={"content-length": "6"})

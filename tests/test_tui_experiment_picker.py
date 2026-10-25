@@ -27,7 +27,7 @@ class PickerHarness(App):
         return translate(text, self.language)
 
 
-@pytest.mark.parametrize('size', ((80, 24), (120, 30)))
+@pytest.mark.parametrize('size', [(80, 24), (120, 30)])
 async def test_search_select_actions_and_disabled_resume(size):
     from acprof.tui.experiment_picker import PickerChoice, SearchPickerScreen
     class Harness(App):
@@ -76,7 +76,7 @@ async def test_close_cancels_loading_and_releases_guard_after_worker_finishes():
         assert (screen) not in (app.screen_stack)
         assert (busy) == ([True, False])
 @pytest.mark.parametrize('choices_case', range(2), ids=['()', '(candidate,)'])
-@pytest.mark.parametrize('language,empty,unmatched', (('zh', '尚无本地实验记录，请检查搜索目录。', '没有匹配项，请修改搜索词。'), ('en', 'No local experiment records yet. Check the search directories.', 'No matches. Change the search terms.')))
+@pytest.mark.parametrize(('language', 'empty', 'unmatched'), [('zh', '尚无本地实验记录，请检查搜索目录。', '没有匹配项，请修改搜索词。'), ('en', 'No local experiment records yet. Check the search directories.', 'No matches. Change the search terms.')])
 async def test_empty_catalog_and_unmatched_query_have_distinct_messages(choices_case, language, empty, unmatched):
     candidate = PickerChoice('fixture', ('demo/model',), 'fixture details', 'demo/model', frozenset({'view'}))
     choices = tuple(((), (candidate,)))[choices_case]
@@ -207,7 +207,7 @@ async def test_scope_omits_stale_paths_but_keeps_explicit_deep_scan_roots():
                 assert (close.region.bottom) <= (size[1])
             assert (await pilot.click('#picker-close'))
 
-@pytest.mark.parametrize('language,expected', (('zh', '搜索范围: 无可用目录'), ('en', 'Search roots: No available directories')))
+@pytest.mark.parametrize(('language', 'expected'), [('zh', '搜索范围: 无可用目录'), ('en', 'Search roots: No available directories')])
 async def test_scope_reports_when_no_search_directory_exists(language, expected):
     with tempfile.TemporaryDirectory() as temporary:
         missing = Path(temporary) / 'deleted-results'

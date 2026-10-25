@@ -11,7 +11,7 @@ class TestSolidScrollBarRender:
         rendered = SolidScrollBarRender.render_bar(**kwargs)
         return [segment for segment in Console().render(rendered) if segment.text != "\n"]
 
-    @pytest.mark.parametrize('back_hex,thumb_hex', (('#243746', '#77c5d5'), ('#edf3fa', '#3b5c95')))
+    @pytest.mark.parametrize(("back_hex", "thumb_hex"), [('#243746', '#77c5d5'), ('#edf3fa', '#3b5c95')])
     def test_thumb_is_contiguous_and_keeps_click_and_drag_targets(self, back_hex, thumb_hex):
         back, thumb = Color.parse(back_hex), Color.parse(thumb_hex)
         cells = self.render_cells(
@@ -26,7 +26,7 @@ class TestSolidScrollBarRender:
             assert not (cell.style.reverse)
             assert (cell.style.bgcolor) == (thumb if action == "grab" else back)
 
-    @pytest.mark.parametrize('position', (-100, 0, 0.125, 20, 40.5, 60, 80, 1000))
+    @pytest.mark.parametrize('position', [-100, 0, 0.125, 20, 40.5, 60, 80, 1000])
     def test_scroll_range_reaches_both_ends_and_clamps_overscroll(self, position):
         starts = []
         cells = self.render_cells(size=20, virtual_size=100, window_size=20, position=position)
@@ -44,8 +44,8 @@ class TestSolidScrollBarRender:
         assert (starts) == (sorted(starts))
 
     @pytest.mark.parametrize('position_case', range(2), ids=['0', 'virtual - window'])
-    @pytest.mark.parametrize('virtual,window', ((100000, 1), (100, 99)))
-    @pytest.mark.parametrize('size', (1, 2, 10))
+    @pytest.mark.parametrize(("virtual", "window"), [(100000, 1), (100, 99)])
+    @pytest.mark.parametrize('size', [1, 2, 10])
     def test_small_tracks_keep_a_draggable_thumb_and_scroll_direction(self, position_case, virtual, window, size):
         position = tuple((0, virtual - window))[position_case]
         cells = self.render_cells(size=size, virtual_size=virtual, window_size=window, position=position)
@@ -55,7 +55,7 @@ class TestSolidScrollBarRender:
         if size > 1:
             assert ("scroll_down" if position == 0 else "scroll_up") in (actions)
 
-    @pytest.mark.parametrize('vertical', (True, False))
+    @pytest.mark.parametrize('vertical', [True, False])
     def test_horizontal_and_vertical_thickness_and_renderer_integration(self, vertical):
         console = Console(width=12, height=12)
         width, height = (3, 12) if vertical else (12, 3)
@@ -74,7 +74,7 @@ class TestSolidScrollBarRender:
             assert (all(row == colors[0] for row in colors))
             assert (colors[0].count(Color.parse("#ffbb66"))) == (4)
 
-    @pytest.mark.parametrize('virtual,window', ((100, 100), (100, 101), (0, 0), (100, 0)))
+    @pytest.mark.parametrize(("virtual", "window"), [(100, 100), (100, 101), (0, 0), (100, 0)])
     def test_non_scrollable_or_empty_track_has_no_interactive_thumb(self, virtual, window):
         cells = self.render_cells(size=12, virtual_size=virtual, window_size=window, position=200)
         assert (len(cells)) == (12)

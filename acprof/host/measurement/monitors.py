@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from contextlib import ExitStack
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from acprof.monitors.interfaces import (
     CPUStopResult,

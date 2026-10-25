@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from acprof.model_evidence import pinned_revision
 from acprof.tui.experiment_catalog import ExperimentRecord

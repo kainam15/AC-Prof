@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
@@ -49,7 +49,7 @@ CUDA124_NLP_TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu124"
 class ImageInfo:
     tag: str
     name: str = ""
-    runtime_environment: Dict[str, Any] = field(default_factory=dict)
+    runtime_environment: dict[str, Any] = field(default_factory=dict)
 
 
 def configure_runtime_profile(task_info: Any, *, torch_index_url: str | None = None) -> RuntimeProfile:
@@ -374,7 +374,7 @@ def build_runtime_image(task_info: Any, project_dir: str):
     return ImageInfo(tag=final_id, name=name, runtime_environment=manifest)
 
 
-def _parse_cuda_version(raw: str) -> Optional[Tuple[int, int]]:
+def _parse_cuda_version(raw: str) -> tuple[int, int] | None:
     match = re.search(r"(\d+)\.(\d+)", str(raw))
     if not match:
         return None
@@ -382,7 +382,7 @@ def _parse_cuda_version(raw: str) -> Optional[Tuple[int, int]]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _host_cuda_version() -> Optional[Tuple[int, int]]:
+def _host_cuda_version() -> tuple[int, int] | None:
     override = runtime_build_overrides()["ACPROF_HOST_CUDA_VERSION"]
     if override:
         return _parse_cuda_version(override)
@@ -443,7 +443,7 @@ def prepare_image(
     return image
 
 
-def require_image_identity(image: str, runtime_environment: Dict[str, Any]) -> None:
+def require_image_identity(image: str, runtime_environment: dict[str, Any]) -> None:
     """Verify recorded image identity before post-hoc collection; never rebuild it."""
 
     identity = inspect_identity(image)

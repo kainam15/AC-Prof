@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 from acprof.host.command import run_command
 from acprof.host.profiling.tools.tool_discovery import find_nsys_importer
@@ -28,7 +28,7 @@ def command_detail(result: Any, limit: int = 2000) -> str:
     return detail[:limit]
 
 
-def _inspect_execution_image(image_ref: str) -> Optional[Dict[str, Any]]:
+def _inspect_execution_image(image_ref: str) -> dict[str, Any] | None:
     result = run_command(
         ["docker", "image", "inspect", image_ref, "--format", "{{json .}}"],
         check=False,
@@ -69,7 +69,7 @@ def require_execution_image(image_tag: str, tool: str) -> str:
     return base["id"]
 
 
-def get_massif_version(derived_image: Optional[str]) -> str:
+def get_massif_version(derived_image: str | None) -> str:
     if not derived_image:
         return "unknown"
     try:
@@ -85,7 +85,7 @@ def get_massif_version(derived_image: Optional[str]) -> str:
     return output.splitlines()[-1].strip() if output else "unknown"
 
 
-def get_nsys_version(nsys_bin: Optional[str]) -> str:
+def get_nsys_version(nsys_bin: str | None) -> str:
     if not nsys_bin:
         return "unknown"
     try:

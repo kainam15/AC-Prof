@@ -17,7 +17,7 @@ from acprof.tui.result_controller import ResultController
 from acprof.tui.slash_controller import SlashController
 
 
-@pytest.mark.parametrize(("attribute", "owner", "method"), (
+@pytest.mark.parametrize(("attribute", "owner", "method"), [
     ("configuration", ConfigurationController, "collect_config"),
     ("configuration", ConfigurationController, "refresh_command_preview"),
     ("configuration", ConfigurationController, "save_ui_settings"),
@@ -32,7 +32,7 @@ from acprof.tui.slash_controller import SlashController
     ("results", ResultController, "execute_report_read"),
     ("profiles", ProfileController, "profile_run_button"),
     ("slash", SlashController, "slash_command_submitted"),
-))
+])
 def test_business_controller_has_one_explicit_owner(tmp_path, attribute, owner, method):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     controller = getattr(app, attribute)

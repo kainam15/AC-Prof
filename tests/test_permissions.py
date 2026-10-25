@@ -64,7 +64,7 @@ class TestPermissionSetup:
         plan = permissions.build_permission_plan(('perf',))
         (self.root / 'perf').write_bytes(b'\x7fELFchanged-after-review')
         with patch.object(permissions, 'run_command') as run:
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="System executables changed"):
                 permissions.execute_permission_plan(plan, backup_path=self.root / 'backup.json')
         run.assert_not_called()
 

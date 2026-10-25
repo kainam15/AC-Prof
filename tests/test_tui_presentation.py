@@ -69,8 +69,8 @@ class TestTuiPresentation:
             assert (sample.value) == ("20.1256789"), "显示不能丢失已保存的小数精度"
 
     @pytest.mark.parametrize('name_case', range(6), ids=["('warmup', '次' if language == 'zh' else 'runs')", "('repeat', '次' if language == 'zh' else 'runs')", "('sample-hz', 'Hz')", "('idle-seconds', 's')", "('idle-cooldown-seconds', 's')", "('request-timeout-seconds', 's')"])
-    @pytest.mark.parametrize('language', ('zh', 'en'))
-    @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_parameter_units_remain_outside_editable_inputs_across_resize_and_languages(self, name_case, language, size):
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
@@ -157,7 +157,7 @@ def test_unknown_image_size_keeps_real_zero_and_translates():
     assert (format_bytes(0)) == ("0 B")
 
 
-@pytest.mark.parametrize("value,expected", [
+@pytest.mark.parametrize(("value", "expected"), [
     (794, "794 B"), (985, "985 B"), (999, "999 B"),
     (1_000, "1.00 KB"), (999_999, "1000 KB"),
     (1_000_000, "1.00 MB"), (708_390_484, "708 MB"), (999_999_999, "1000 MB"),

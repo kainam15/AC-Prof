@@ -20,7 +20,8 @@ def test_lock_refresh_runs_only_on_main_and_is_not_self_merging():
     commands = "\n".join(step.get("run", "") for step in job["steps"])
     assert "gh pr create" in commands
     assert "gh workflow run ci.yml" in commands
-    assert "gh pr merge" not in commands and "gh release" not in commands
+    assert "gh pr merge" not in commands
+    assert "gh release" not in commands
 
 
 def test_lock_refresh_generates_and_verifies_coordinated_artifacts():

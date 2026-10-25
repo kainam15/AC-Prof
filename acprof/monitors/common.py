@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, run_command
 from acprof.monitors.sampling import (

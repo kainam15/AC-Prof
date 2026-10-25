@@ -107,7 +107,7 @@ class TestDiffusionRuntime:
             feature_extractor=None, requires_safety_checker=False,
         )
 
-    @pytest.mark.parametrize('instruct', (False, True))
+    @pytest.mark.parametrize('instruct', [False, True])
     def test_tiny_native_image_pipelines_load_offline_and_generate_seeded_images(self, instruct):
         import torch
 
@@ -154,7 +154,7 @@ class TestDiffusionRuntime:
         assert (metadata["output_length"]) == (5)
         assert ("frames") not in (metadata)
 
-    @pytest.mark.parametrize('root_layout', (False, True))
+    @pytest.mark.parametrize('root_layout', [False, True])
     def test_tiny_ddpm_runs_offline_with_native_resolution_and_step_scales(self, root_layout):
         import torch
         from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel
@@ -225,7 +225,7 @@ class TestDiffusionRuntime:
             assert ("video") in (parameters)
             assert ("num_frames") not in (parameters)
 
-    @pytest.mark.parametrize('task', ('text-to-video', 'video-to-video'))
+    @pytest.mark.parametrize('task', ['text-to-video', 'video-to-video'])
     def test_tiny_native_video_generation_and_task_conversion(self, task):
         from diffusers import TextToVideoSDPipeline, UNet3DConditionModel
 

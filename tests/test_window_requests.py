@@ -37,7 +37,8 @@ def test_request_order_and_summary_are_preserved():
     progress = WindowRequestProgress()
     _collect(progress, request, limit=2)
     assert [item[1] for item in ids] == ["case_r0:0", "case_r0:1"]
-    assert progress.count == 2 and progress.elapsed_s == 0.5
+    assert progress.count == 2
+    assert progress.elapsed_s == 0.5
     assert progress.latencies == [0.25, 0.25]
     assert progress.payload_sizes == [15.0, 15.0]
     assert progress.output_lengths == [4.0, 4.0]

@@ -4,7 +4,8 @@ import math
 import os
 import sys
 from collections import defaultdict
-from typing import Sequence, SupportsFloat, SupportsIndex, cast
+from collections.abc import Sequence
+from typing import SupportsFloat, SupportsIndex, cast
 
 from acprof.artifacts import (
     atomic_write,
@@ -206,7 +207,7 @@ def _read_sidecar_groups(csv_path: str, expected_rows: int) -> list[str]:
         return []
 
     groups = []
-    with open(sidecar_path, "r", encoding="utf-8") as f:
+    with open(sidecar_path, encoding="utf-8") as f:
         for line_number, line in enumerate(f, start=1):
             raw = line.strip()
             if not raw:
@@ -287,7 +288,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         group_id = req_id.split(":", 1)[0]
         group_records[group_id].append(record)
 
-    with open(in_csv, "r", encoding="utf-8", newline="") as f:
+    with open(in_csv, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         fields = reader.fieldnames
         rows = list(reader)

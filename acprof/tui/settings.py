@@ -35,7 +35,7 @@ class UiPreferences:
     show_command_bar: bool = True
     language: str = "zh"
 
-    def validate(self) -> "UiPreferences":
+    def validate(self) -> UiPreferences:
         _validate_field_types(asdict(self), UiPreferences, message_id('ui.0902'))
         if self.language not in UI_LANGUAGES:
             raise ValueError(message_id('ui.0903'))
@@ -54,7 +54,7 @@ class TuiSettings:
     last_result_dir: str = ""
     last_result_csv: str = ""
 
-    def validate(self, *, project_dir: Path) -> "TuiSettings":
+    def validate(self, *, project_dir: Path) -> TuiSettings:
         if not isinstance(self.ui, UiPreferences):
             raise ValueError(message_id('ui.0906'))
         ui = self.ui.validate()

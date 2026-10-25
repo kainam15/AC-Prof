@@ -36,7 +36,7 @@ class TestUltravoxDependencyFlow:
             apply_model_contract(task, read_text, resolve_repository=lookup)
         return task, lookup
 
-    @pytest.mark.parametrize("name,digest", [
+    @pytest.mark.parametrize(("name", "digest"), [
         pytest.param(name, digest, id=name)
         for name, digest in sorted(json.loads((FIXTURE / "source_sha256.json").read_text()).items())
     ])

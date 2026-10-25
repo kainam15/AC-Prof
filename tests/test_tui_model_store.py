@@ -13,7 +13,7 @@ from acprof.experiment import RunConfig
 from acprof.tui.model_store import ModelStoreScreen
 
 
-@pytest.mark.parametrize('language,size', (('zh', (80, 24)), ('en', (120, 40))))
+@pytest.mark.parametrize(('language', 'size'), [('zh', (80, 24)), ('en', (120, 40))])
 async def test_locked_preview_shows_capacity_then_closes_before_unlock(language, size):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

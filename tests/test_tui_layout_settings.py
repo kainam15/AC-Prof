@@ -72,7 +72,7 @@ class TestTuiLayoutSettings:
         assert (await pilot.click("#save-run-default", offset=(3, 1)))
         await pilot.pause()
 
-    @pytest.mark.parametrize('size', ((120, 30), (80, 24), (150, 45)))
+    @pytest.mark.parametrize('size', [(120, 30), (80, 24), (150, 45)])
     async def test_action_bar_stays_reachable_and_advanced_settings_click_works(self, size):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=size) as pilot:
@@ -106,8 +106,8 @@ class TestTuiLayoutSettings:
             for button_id in ("restore-ui-defaults", "save-ui-settings"):
                 self.assert_button_reachable(app, button_id)
 
-    @pytest.mark.parametrize('show_command_bar', (False, True))
-    @pytest.mark.parametrize('size', ((120, 40), (80, 24), (150, 45)))
+    @pytest.mark.parametrize('show_command_bar', [False, True])
+    @pytest.mark.parametrize('size', [(120, 40), (80, 24), (150, 45)])
     async def test_action_buttons_survive_resize_and_command_bar_visibility(self, show_command_bar, size):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(150, 45)) as pilot:
@@ -186,7 +186,7 @@ class TestTuiLayoutSettings:
             assert (len(settings_tab.query(".ui-preference"))) == (5)
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("run-form")
 
-    @pytest.mark.parametrize('size', ((120, 30), (80, 24), (150, 45)))
+    @pytest.mark.parametrize('size', [(120, 30), (80, 24), (150, 45)])
     async def test_monitor_keeps_log_and_stop_button_reachable(self, size):
         config = RunConfig(model="demo/model")
         app = AcprofTui(config, settings_path=self.settings_path)
@@ -362,7 +362,7 @@ class TestTuiModelMemory:
             )
             yield
 
-    @pytest.mark.parametrize('kind', ('run', 'probe'))
+    @pytest.mark.parametrize('kind', ['run', 'probe'])
     async def test_confirmed_run_and_probe_restore_model_without_saving_other_edits(self, kind):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         original = self.settings_path.read_bytes()
@@ -436,7 +436,7 @@ class TestTuiModelMemory:
         assert (saved) == (TuiSettings(last_model="demo/first"))
         assert (AcprofTui(settings_path=self.settings_path).configuration.initial_config) == (RunConfig.smoke("demo/first"))
 
-    @pytest.mark.parametrize('corrupt', (False, True))
+    @pytest.mark.parametrize('corrupt', [False, True])
     async def test_write_failure_or_corrupt_file_does_not_block_launch(self, corrupt):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         if corrupt:
@@ -457,7 +457,7 @@ class TestTuiModelMemory:
                 assert (save.call_count) == (0 if corrupt else 1)
             assert (self.settings_path.read_bytes()) == (original)
 
-    @pytest.mark.parametrize('remember_run', (False, True))
+    @pytest.mark.parametrize('remember_run', [False, True])
     async def test_explicit_settings_saves_preserve_last_model(self, remember_run):
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         config = RunConfig.smoke("demo/edited")
@@ -604,7 +604,7 @@ class TestTuiModelMemory:
                         await pilot.pause()
                     execute.assert_called_once()
 
-    @pytest.mark.parametrize('corrupt', (False, True))
+    @pytest.mark.parametrize('corrupt', [False, True])
     async def test_result_memory_failure_does_not_prevent_summary(self, corrupt):
         csv_path = self.write_result()
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
@@ -657,7 +657,7 @@ class TestTuiMainSettings:
             PROJECT_DIR,
         )
 
-    @pytest.mark.parametrize('model', ('', 'demo/latest'))
+    @pytest.mark.parametrize('model', ['', 'demo/latest'])
     @pytest.mark.parametrize('cli_case', range(6))
     def test_cli_explicit_arguments_override_saved_defaults_without_rewriting_them(self, model, cli_case):
         settings, warning = load_settings(self.settings_path, PROJECT_DIR)

@@ -74,8 +74,8 @@ def test_input_plan_identity_changes_with_model_revision_but_not_repeat_count():
     assert input_identity(repeated) == input_identity(base)
 
 
-@pytest.mark.parametrize("repeat,formal_windows,flow_check", ((1, 4, True), (2, 8, True), (3, 12, False)))
-@pytest.mark.parametrize("language", ("zh", "en"))
+@pytest.mark.parametrize(('repeat', 'formal_windows', 'flow_check'), [(1, 4, True), (2, 8, True), (3, 12, False)])
+@pytest.mark.parametrize("language", ["zh", "en"])
 def test_summary_distinguishes_planned_windows_per_condition_from_total(repeat, formal_windows, flow_check, language):
     from acprof.tui.i18n import translate
     from acprof.tui.run_planning import plan_summary

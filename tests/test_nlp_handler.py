@@ -217,7 +217,7 @@ class TestNLPTaskCompatibility:
         metadata = self.handler.get_scale_metadata(ctx, {"query": "one two three"})
         assert (metadata["max_effective_input_scale"]) == (5)
 
-    @pytest.mark.parametrize('task', ('sentence-similarity', 'text-ranking'))
+    @pytest.mark.parametrize('task', ['sentence-similarity', 'text-ranking'])
     def test_pair_tasks_reject_absent_candidates(self, task):
         with pytest.raises(ValueError, match="documents"):
             self.handler.preprocess(self.context(task), {"query": "a"})

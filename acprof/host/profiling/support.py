@@ -7,8 +7,9 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Sequence
+from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write, read_input_scale_plan
 
@@ -28,7 +29,7 @@ def format_scale_value(scale: float) -> str:
     return f"{value:g}"
 
 
-def parse_last_json_line(text: str) -> Dict[str, Any]:
+def parse_last_json_line(text: str) -> dict[str, Any]:
     for line in reversed((text or "").splitlines()):
         line = line.strip()
         if not line:
@@ -44,7 +45,7 @@ def parse_last_json_line(text: str) -> Dict[str, Any]:
 
 def load_input_scale_plan_entries(
     input_scale_plan_file: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     if not input_scale_plan_file:
         raise ValueError("input_scale_plan_file is required for compute profiling")
     if not os.path.isfile(input_scale_plan_file):
@@ -59,7 +60,7 @@ def load_input_scale_plan_entries(
             f"invalid input scale plan (missing entries): {input_scale_plan_file}"
         )
 
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for idx, entry in enumerate(raw_entries):
         if not isinstance(entry, dict):
             raise ValueError(
@@ -123,7 +124,7 @@ def profiler_container_command(
     profile_root: str,
     tool_mount_roots: Sequence[str],
     requires_gpu_counters: bool = False,
-) -> Iterator[List[str]]:
+) -> Iterator[list[str]]:
     from acprof.host.model_store import acquire_mount
     from acprof.installation import resource_root
 
@@ -192,7 +193,7 @@ def profiler_container_command(
         yield cmd
 
 
-def profile_runner_args(entry: Dict[str, Any], repeat: int, mode: str) -> List[str]:
+def profile_runner_args(entry: dict[str, Any], repeat: int, mode: str) -> list[str]:
     return [
         "python", "-m", "acprof.container.compute_profile_runner",
         "--payload-file", CONTAINER_INPUT_SCALE_PLAN_FILE,
@@ -202,7 +203,7 @@ def profile_runner_args(entry: Dict[str, Any], repeat: int, mode: str) -> List[s
     ]
 
 
-def write_profile_json(path: str, payload: Dict[str, Any]) -> None:
+def write_profile_json(path: str, payload: dict[str, Any]) -> None:
     """Publish legacy profiler JSON (including unavailable NaN) after collection."""
     atomic_write(path, lambda stream: json.dump(payload, stream, ensure_ascii=True, indent=2))
 
@@ -225,15 +226,15 @@ def relative_artifact(path: str, output_dir: str) -> str:
     return os.path.relpath(os.path.abspath(path), os.path.abspath(output_dir))
 
 
-def docker_env(cmd: Sequence[str], name: str, value: str) -> List[str]:
+def docker_env(cmd: Sequence[str], name: str, value: str) -> list[str]:
     if not cmd:
         return []
     return [*cmd[:-1], "-e", f"{name}={value}", cmd[-1]]
 
 
-def execution_thread_environment(cmd: Sequence[str]) -> List[str]:
+def execution_thread_environment(cmd: Sequence[str]) -> list[str]:
     """Keep execution probes aligned with the normal matrix runtime config."""
-    filtered: List[str] = []
+    filtered: list[str] = []
     index = 0
     while index < len(cmd):
         value = str(cmd[index])

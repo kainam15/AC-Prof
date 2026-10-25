@@ -1,7 +1,7 @@
 """AC-Prof - Configuration & Constants."""
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from acprof.extensions import CATALOG
 
@@ -16,11 +16,11 @@ class ScalingConfig:
     csv_field: str = "input_scale"
     description: str = ""
 
-SCALING_DIMENSIONS: Dict[str, ScalingConfig] = {
+SCALING_DIMENSIONS: dict[str, ScalingConfig] = {
     family: ScalingConfig(**{**values, "values": list(values["values"])})
     for family, values in CATALOG.family_scaling().items()
 }
-DEFAULT_TASK_PARAMS: Dict[str, Dict[str, Any]] = CATALOG.family_task_params()
+DEFAULT_TASK_PARAMS: dict[str, dict[str, Any]] = CATALOG.family_task_params()
 
 # ─────────────────────────────────────────────
 # 默认资源矩阵

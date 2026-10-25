@@ -152,7 +152,7 @@ def test_source_changed_during_execution_invalidates_evidence(suite):
     assert 'changed during' in report['provenance_error']
 
 
-@pytest.mark.parametrize("source, args", [
+@pytest.mark.parametrize(("source", "args"), [
     ("def test_ok():\n    pass\n", ["--pattern", "test_missing*.py"]),
     ("def test_ok():\n    pass\n", ["--shard-count", "4", "--shard-index", "3"]),
     ("raise RuntimeError('collection failure')\n", []),

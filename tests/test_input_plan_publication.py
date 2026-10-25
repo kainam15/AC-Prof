@@ -91,7 +91,7 @@ def _assert_old_plan_preserved(path, mode):
     assert list(path.parent.glob(f".{path.name}.*.tmp")) == []
 
 
-@pytest.mark.parametrize("newline", ("\n", "\r\n"), ids=("lf", "crlf"))
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=("lf", "crlf"))
 def test_publication_preserves_exact_historical_bytes_and_digest(
     existing_plan, task_info, monkeypatch, newline,
 ):
@@ -107,8 +107,8 @@ def test_publication_preserves_exact_historical_bytes_and_digest(
     assert artifacts.read_input_scale_plan(path)["entries"] == _entries()
 
 
-@pytest.mark.parametrize("newline", ("\n", "\r\n"), ids=("lf", "crlf"))
-@pytest.mark.parametrize("limit_delta", (0, -1), ids=("exact_limit", "newline_exceeds_limit"))
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=("lf", "crlf"))
+@pytest.mark.parametrize("limit_delta", [0, -1], ids=("exact_limit", "newline_exceeds_limit"))
 def test_publication_size_limit_includes_platform_newlines(
     existing_plan, task_info, monkeypatch, newline, limit_delta,
 ):
@@ -130,7 +130,7 @@ def test_publication_size_limit_includes_platform_newlines(
 
 
 @pytest.mark.parametrize(
-    "invalid", ("unsupported", "circular", "nan", "positive_infinity", "negative_infinity"),
+    "invalid", ["unsupported", "circular", "nan", "positive_infinity", "negative_infinity"],
 )
 def test_serialization_failure_preserves_existing_plan(
     existing_plan, task_info, invalid,
@@ -165,7 +165,7 @@ def test_oversized_plan_is_rejected_before_publication(existing_plan, task_info)
     _assert_old_plan_preserved(path, mode)
 
 
-@pytest.mark.parametrize("failure", ("file_fsync", "replace"))
+@pytest.mark.parametrize("failure", ["file_fsync", "replace"])
 def test_publication_io_failure_preserves_existing_plan(
     existing_plan, task_info, monkeypatch, failure,
 ):
@@ -211,7 +211,7 @@ def _stub_generator(monkeypatch, generate):
     ))
 
 
-@pytest.mark.parametrize("failure", ("generation", "serialization"))
+@pytest.mark.parametrize("failure", ["generation", "serialization"])
 def test_failed_planner_retains_existing_plan(
     existing_plan, task_info, monkeypatch, failure,
 ):

@@ -219,13 +219,11 @@ class TestLatencyModelReport:
         )
         with open(
             os.path.join(model_output_dir, analysis_latency_report.LATENCY_MODEL_REPORT),
-            "r",
             encoding="utf-8",
         ) as f:
             report = json.load(f)
         with open(
             os.path.join(model_output_dir, analysis_latency_report.LATENCY_MODEL_RESIDUALS),
-            "r",
             encoding="utf-8",
             newline="",
         ) as f:
@@ -685,7 +683,7 @@ class TestLatencyModelReport:
             df = pd.read_csv(csv_path)
             analysis_latency_report.write_latency_model_report(df, plotting_data.read_static_meta(csv_path), tmp)
             report, residual_rows = self._read_artifacts(tmp)
-            with open(residuals_path, "r", encoding="utf-8") as f:
+            with open(residuals_path, encoding="utf-8") as f:
                 residual_text = f.read()
 
         assert (report["status"]) == ("skipped")

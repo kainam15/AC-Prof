@@ -14,7 +14,7 @@ from acprof.failures import Failure, RuntimeFailure
 from acprof.tui.progress import RunProgressTracker
 
 
-@pytest.mark.parametrize('status', (401, 403, 429))
+@pytest.mark.parametrize('status', [401, 403, 429])
 def test_hub_access_errors_preserve_http_status_through_exception_chains(status):
     import requests
     from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
@@ -71,7 +71,7 @@ def test_compatibility_report_publication_is_durable(tmp_path):
     assert (tmp_path / "REPORT.md").read_text(encoding="utf-8").startswith("# Compatibility report\n")
 
 
-@pytest.mark.parametrize('plan', ({'total_selected_bytes': 150}, {'selected_bytes': None}))
+@pytest.mark.parametrize('plan', [{'total_selected_bytes': 150}, {'selected_bytes': None}])
 def test_budget_uses_selected_files_and_never_claims_measured_oom(plan):
     from acprof.analysis.compatibility import result_status
     from acprof.resource_budget import assess_resource_budget
@@ -99,13 +99,13 @@ def test_recorded_result_report_preserves_warnings_and_legacy_unknown():
         assert (result_status(report["rows"][1])) == ("full_success_quality_unknown")
         assert (before) == ({path: path.read_bytes() for path in before})
 
-@pytest.mark.parametrize('content', (
+@pytest.mark.parametrize('content', [
     '{',
     '[]',
     '{"full_profile_complete": NaN}',
     '{"full_profile_complete": 1e999}',
     json.dumps({"padding": "x" * (4 * 1024 * 1024)}),
-))
+])
 def test_recorded_result_report_marks_invalid_artifact_inconclusive(tmp_path, content):
     from acprof.analysis.compatibility import report_results, result_status
     source = tmp_path / 'fixture'
@@ -126,14 +126,14 @@ def test_recorded_result_report_marks_invalid_artifact_inconclusive(tmp_path, co
     assert (tmp_path / 'report' / 'coverage.json').is_file()
 
 
-@pytest.mark.parametrize(('name', 'content'), (
+@pytest.mark.parametrize(('name', 'content'), [
     ('runtime_failures.json', '{"failures": {}}'),
     ('runtime_failures.json', '{"failures": [{}]}'),
     ('runtime_validation.json', '{"devices": []}'),
     ('runtime_validation.json', '{"devices": {"off": {"failure": {"reason_code": "invalid"}}}}'),
     ('model_resolution.json', '{"failure": []}'),
     ('model_resolution.json', '{"failure": {"reason_code": "invalid"}}'),
-))
+])
 def test_recorded_result_report_rejects_invalid_nested_evidence(tmp_path, name, content):
     from acprof.analysis.compatibility import report_results, result_status
     source = tmp_path / 'fixture'

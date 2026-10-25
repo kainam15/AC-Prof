@@ -35,7 +35,7 @@ class TestContainerRecovery:
             return subprocess.CompletedProcess(command, remove_code, '', 'permission denied' if remove_code else '')
         return recover_abandoned_containers(self.owner, execute)
 
-    @pytest.mark.parametrize('running', (True, False))
+    @pytest.mark.parametrize('running', [True, False])
     def test_current_owner_residue_blocks_new_start_without_removing_it(self, running):
         state = {'Running': running, 'Status': 'running' if running else 'exited'}
         with pytest.raises(ContainerCleanupError) as raised:

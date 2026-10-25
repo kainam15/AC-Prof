@@ -41,11 +41,11 @@ def test_complete_native_evidence_is_accepted(tmp_path):
     assert len(result["cases"]) == len(report["cases"])
 
 
-@pytest.mark.parametrize("tamper", (
+@pytest.mark.parametrize("tamper", [
     "wrong_commit", "failed_matrix", "not_native", "wsl", "partial",
     "missing_case", "modified_revision", "cpu_only", "failed_case",
     "missing_energy", "no_gpu_mode", "no_perf_rows", "no_audit",
-))
+])
 def test_bad_hardware_artifacts_never_unlock_release(tmp_path, tamper):
     matrix_file, report = fixture(tmp_path)
     case = report["cases"][0]
@@ -87,7 +87,8 @@ def test_hardware_workflow_is_weekly_and_never_exposes_fork_prs():
     job = hardware["jobs"]["profile"]
     assert "refs/heads/main" in job["if"]
     tracked = next(step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", ""))
-    assert "git rev-parse HEAD" in tracked and "git diff --quiet" in tracked
+    assert "git rev-parse HEAD" in tracked
+    assert "git diff --quiet" in tracked
     script = next(step for step in job["steps"] if "VALIDATION_PRESET" in step.get("env", {}))
     assert "pinned-matrix" in script["env"]["VALIDATION_PRESET"]
     assert "off,on" in script["env"]["VALIDATION_GPUS"]
@@ -101,7 +102,8 @@ def test_release_requires_hardware_proof_before_both_publications():
     gate = jobs["hardware-gate"]
     assert gate["permissions"] == {"contents": "read", "actions": "read"}
     script = next(step["run"] for step in gate["steps"] if "hardware-runs.tsv" in step.get("run", ""))
-    assert "head_sha" in script and "head_branch" in script
+    assert "head_sha" in script
+    assert "head_branch" in script
     assert 'run["event"] in ("schedule", "workflow_dispatch")' in script
     assert "scripts/verify_hardware_evidence.py" in script
     assert 'exit 1' in script

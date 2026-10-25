@@ -56,7 +56,7 @@ sys.addaudithook(protect_production_lock)
     def test_headless_runner_mounts_once_and_records_completed_screen(self):
         self.run_validation([sys.executable, "-c", "print('validation child finished')"])
 
-    @pytest.mark.parametrize('returncode', (0, 7))
+    @pytest.mark.parametrize('returncode', [0, 7])
     def test_completion_before_monitor_refresh_keeps_output_and_exit_code(self, returncode):
         # Complete in the launch callback, before Textual can render the monitor.
         runner = '''import runpy, sys

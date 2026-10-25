@@ -23,8 +23,8 @@ def test_failed_run_recovery_does_not_repeat_a_consumed_rebuild(tmp_path):
     assert "--rebuild-image" not in pending.command
 
 
-@pytest.mark.parametrize("kind", ("run", "probe"))
-@pytest.mark.parametrize("size,language", (((80, 24), "zh"), ((120, 30), "en"), ((150, 45), "zh")))
+@pytest.mark.parametrize("kind", ["run", "probe"])
+@pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 30), "en"), ((150, 45), "zh")])
 async def test_rebuild_is_reachable_once_and_not_saved(tmp_path, kind, size, language):
     path = tmp_path / "settings.json"
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=path)
@@ -63,7 +63,7 @@ async def test_rebuild_is_reachable_once_and_not_saved(tmp_path, kind, size, lan
     assert not restored.run_defaults.rebuild_image
 
 
-@pytest.mark.parametrize("stage", ("image", "runtime"))
+@pytest.mark.parametrize("stage", ["image", "runtime"])
 async def test_failed_image_preparation_exposes_explicit_rebuild(tmp_path, stage):
     replies = []
     event = {"stage": stage, "request": {"id": 1, "kind": "error", "detail": "invalid image"}}

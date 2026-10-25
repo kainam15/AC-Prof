@@ -97,8 +97,8 @@ class TestTuiProfileTools:
                 command = launch.call_args.args[0].command
                 assert (command[command.index("--tools") + 1]) == ("nsys,massif")
 
-    @pytest.mark.parametrize('language', ('en', 'zh'))
-    @pytest.mark.parametrize('size', ((150, 45), (120, 30), (80, 24)))
+    @pytest.mark.parametrize('language', ['en', 'zh'])
+    @pytest.mark.parametrize('size', [(150, 45), (120, 30), (80, 24)])
     async def test_options_fit_after_resize_and_language_change_and_lock_during_run(self, language, size):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:

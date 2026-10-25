@@ -256,7 +256,8 @@ def test_timeout_keeps_partial_requests_without_reusing_them_as_committed_window
     state.finish_case(str(case.csv), 1, 4, "off")
     record = state.data["cases"][str(case.csv.relative_to(state.directory))]
     assert record["case_attempt_id"] == attempt
-    assert record["status"] == "complete" and record["error_rows"] == 1
+    assert record["status"] == "complete"
+    assert record["error_rows"] == 1
     assert len(case.retained_requests.read_text().splitlines()) == 2
     assert calls["client"] == calls["container"] == 1
 

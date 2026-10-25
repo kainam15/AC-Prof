@@ -77,7 +77,7 @@ class TestPlatformRuntime:
         assert ('torch') not in (names)
         assert not (any(name.startswith('nvidia-') for name in names))
 
-    @pytest.mark.parametrize('runtime_type', ('example', 'torch'))
+    @pytest.mark.parametrize('runtime_type', ['example', 'torch'])
     def test_non_torch_profile_does_not_probe_torch_driver_or_read_overrides(self, runtime_type):
         from acprof.host.images.runtime import configure_runtime_profile
         platform = profiles.PlatformSpec('python-only', requirements_lock='unused')

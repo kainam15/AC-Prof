@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from acprof.capabilities import require_profiling_mode
 from acprof.config import (
@@ -74,7 +74,7 @@ class ClientConfig:
     input_scale_order: str = ""
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "ClientConfig":
+    def from_env(cls, env: Mapping[str, str] | None = None) -> ClientConfig:
         env = os.environ if env is None else env
         model_revision = env.get("MODEL_REVISION", "main")
         task_family = env.get("TASK_FAMILY", "nlp")

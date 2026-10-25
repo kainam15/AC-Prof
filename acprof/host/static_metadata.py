@@ -8,7 +8,7 @@ import platform
 import re
 import shutil
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.config import STATIC_META_FIELDS, STATIC_META_SCHEMA_VERSION
@@ -39,7 +39,7 @@ class StaticMeta:
     run_command: str
     model_download_url: str
     gpu: str
-    gpu_mem_total_bytes: Optional[int]
+    gpu_mem_total_bytes: int | None
     model_cache_bytes: int
     docker_image_bytes: int
     environment: str
@@ -50,63 +50,63 @@ class StaticMeta:
     image_id: str = ""
     image_name: str = ""
     model_storage_mode: str = "baked"
-    model_artifact_bytes: Optional[int] = None
-    runtime_image_bytes: Optional[int] = None
-    total_deployment_bytes: Optional[int] = None
-    runtime_environment: Dict[str, Any] = field(default_factory=dict)
-    runtime_validation: Dict[str, Any] = field(default_factory=dict)
-    latency_slo: Dict[str, Any] = field(
+    model_artifact_bytes: int | None = None
+    runtime_image_bytes: int | None = None
+    total_deployment_bytes: int | None = None
+    runtime_environment: dict[str, Any] = field(default_factory=dict)
+    runtime_validation: dict[str, Any] = field(default_factory=dict)
+    latency_slo: dict[str, Any] = field(
         default_factory=lambda: {"threshold_s": None, "source": "unconfigured"}
     )
-    gpu_device: Dict[str, Any] = field(default_factory=dict)
+    gpu_device: dict[str, Any] = field(default_factory=dict)
     profiling_mode: str = "full"
-    capability_report: Dict[str, Any] = field(default_factory=dict)
-    platform: Dict[str, Any] = field(default_factory=dict)
+    capability_report: dict[str, Any] = field(default_factory=dict)
+    platform: dict[str, Any] = field(default_factory=dict)
     collection_tier: str = "unknown"
     comparability_class: str = "unknown"
     environment_class: str = "unknown"
-    platform_runtime: Dict[str, Any] = field(default_factory=dict)
-    rapl_topology: Dict[str, Any] = field(default_factory=dict)
+    platform_runtime: dict[str, Any] = field(default_factory=dict)
+    rapl_topology: dict[str, Any] = field(default_factory=dict)
     cgroup_version: str = "unknown"
     cgroup_collection_mode: str = "unknown"
-    host_mem_total_bytes: Optional[int] = None
-    host_swap_total_bytes: Optional[int] = None
-    host_swap_used_bytes_at_start: Optional[int] = None
+    host_mem_total_bytes: int | None = None
+    host_swap_total_bytes: int | None = None
+    host_swap_used_bytes_at_start: int | None = None
     host_swap_type: str = "unknown"
-    host_vm_swappiness: Optional[int] = None
-    docker_storage_total_bytes: Optional[int] = None
-    docker_storage_available_bytes_at_start: Optional[int] = None
+    host_vm_swappiness: int | None = None
+    docker_storage_total_bytes: int | None = None
+    docker_storage_available_bytes_at_start: int | None = None
     docker_storage_filesystem: str = "unknown"
     docker_storage_device: str = "unknown"
     docker_storage_type: str = "unknown"
-    workload: Dict[str, Any] = field(default_factory=dict)
+    workload: dict[str, Any] = field(default_factory=dict)
     input_scale_plan_sha256: str = ""
     schema_version: int = STATIC_META_SCHEMA_VERSION
-    parameter_count: Optional[int] = None
-    parameter_bytes: Optional[int] = None
-    precision_dtype: Optional[str] = None
-    parameter_dtype_counts: Dict[str, int] = field(default_factory=dict)
-    inference_precision_by_device: Dict[str, str] = field(default_factory=dict)
-    static_flops: Optional[Dict[str, Any]] = None
-    static_macs: Optional[Dict[str, Any]] = None
-    input_format: Dict[str, Any] = field(default_factory=dict)
-    output_format: Dict[str, Any] = field(default_factory=dict)
-    quantized: Optional[bool] = None
-    quantization_method: Optional[str] = None
-    quantization_config: Dict[str, Any] = field(default_factory=dict)
-    model_license: Optional[str] = None
-    model_metadata_source: Optional[str] = None
+    parameter_count: int | None = None
+    parameter_bytes: int | None = None
+    precision_dtype: str | None = None
+    parameter_dtype_counts: dict[str, int] = field(default_factory=dict)
+    inference_precision_by_device: dict[str, str] = field(default_factory=dict)
+    static_flops: dict[str, Any] | None = None
+    static_macs: dict[str, Any] | None = None
+    input_format: dict[str, Any] = field(default_factory=dict)
+    output_format: dict[str, Any] = field(default_factory=dict)
+    quantized: bool | None = None
+    quantization_method: str | None = None
+    quantization_config: dict[str, Any] = field(default_factory=dict)
+    model_license: str | None = None
+    model_metadata_source: str | None = None
     model_source: str = "huggingface"
-    model_resolution: Dict[str, Any] = field(default_factory=dict)
-    compute_profile_tools: List[str] = field(default_factory=list)
+    model_resolution: dict[str, Any] = field(default_factory=dict)
+    compute_profile_tools: list[str] = field(default_factory=list)
     torch_profiler_eager_flop_semantics: str = ""
     torch_profiler_eager_attention_implementation: str = ""
-    torch_profiler_eager_repeat_cpu: Optional[int] = None
-    torch_profiler_eager_repeat_gpu: Optional[int] = None
+    torch_profiler_eager_repeat_cpu: int | None = None
+    torch_profiler_eager_repeat_gpu: int | None = None
     ncu_flop_semantics: str = ""
-    ncu_repeat: Optional[int] = None
-    ncu_fma_flop_weight: Optional[float] = None
-    ncu_metrics: List[str] = field(default_factory=list)
+    ncu_repeat: int | None = None
+    ncu_fma_flop_weight: float | None = None
+    ncu_metrics: list[str] = field(default_factory=list)
     torch_version: str = ""
     transformers_version: str = ""
     ncu_version: str = ""
@@ -114,21 +114,21 @@ class StaticMeta:
     gpu_sm_count: Any = None
     compute_profiles_retained: bool = False
     compute_profile_provenance: str = ""
-    execution_profile_schema_version: Optional[int] = None
-    execution_profile_tools: List[str] = field(default_factory=list)
+    execution_profile_schema_version: int | None = None
+    execution_profile_tools: list[str] = field(default_factory=list)
     massif_peak_semantics: str = ""
-    massif_repeat: Optional[int] = None
+    massif_repeat: int | None = None
     massif_version: str = ""
     massif_sampling_strategy: str = ""
-    massif_reference_cpu_cores: Optional[int] = None
-    massif_reference_mem_cap_gb: Optional[int] = None
+    massif_reference_cpu_cores: int | None = None
+    massif_reference_mem_cap_gb: int | None = None
     massif_reused_across_resource_cases: bool = False
     nsys_timeline_semantics: str = ""
-    nsys_repeat: Optional[int] = None
+    nsys_repeat: int | None = None
     nsys_version: str = ""
     nsys_sampling_strategy: str = ""
-    nsys_reference_cpu_cores: Optional[int] = None
-    nsys_reference_mem_cap_gb: Optional[int] = None
+    nsys_reference_cpu_cores: int | None = None
+    nsys_reference_mem_cap_gb: int | None = None
     nsys_reused_across_resource_cases: bool = False
     execution_profiles_retained: bool = False
     execution_profile_provenance: str = ""
@@ -177,7 +177,7 @@ def _get_gpu_name(device_index: int = 0) -> str:
     return "unknown"
 
 
-def _get_gpu_mem_total_bytes(device_index: int = 0) -> Optional[int]:
+def _get_gpu_mem_total_bytes(device_index: int = 0) -> int | None:
     """Detect host GPU total VRAM in bytes for static metadata."""
     try:
         import pynvml
@@ -216,7 +216,7 @@ def _get_gpu_mem_total_bytes(device_index: int = 0) -> Optional[int]:
     return total if total > 0 else None
 
 
-def _host_mem_total_bytes() -> Optional[int]:
+def _host_mem_total_bytes() -> int | None:
     """Return total physical host RAM in bytes when the OS exposes it."""
     try:
         page_size = int(os.sysconf("SC_PAGE_SIZE"))
@@ -228,7 +228,7 @@ def _host_mem_total_bytes() -> Optional[int]:
         pass
 
     try:
-        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+        with open("/proc/meminfo", encoding="utf-8") as f:
             for line in f:
                 if not line.startswith("MemTotal:"):
                     continue
@@ -245,9 +245,9 @@ def _host_swap_metadata(
     proc_meminfo_path: str = "/proc/meminfo",
     proc_swaps_path: str = "/proc/swaps",
     swappiness_path: str = "/proc/sys/vm/swappiness",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Snapshot host swap capacity, usage, backing type, and policy."""
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "host_swap_total_bytes": None,
         "host_swap_used_bytes_at_start": None,
         "host_swap_type": "unknown",
@@ -255,8 +255,8 @@ def _host_swap_metadata(
     }
 
     try:
-        meminfo: Dict[str, int] = {}
-        with open(proc_meminfo_path, "r", encoding="utf-8") as f:
+        meminfo: dict[str, int] = {}
+        with open(proc_meminfo_path, encoding="utf-8") as f:
             for line in f:
                 key, separator, raw_value = line.partition(":")
                 if not separator or key not in {"SwapTotal", "SwapFree"}:
@@ -281,7 +281,7 @@ def _host_swap_metadata(
     swap_total_kib = 0
     swap_used_kib = 0
     try:
-        with open(proc_swaps_path, "r", encoding="utf-8") as f:
+        with open(proc_swaps_path, encoding="utf-8") as f:
             for line in f:
                 parts = line.split()
                 if not parts:
@@ -323,7 +323,7 @@ def _host_swap_metadata(
             metadata["host_swap_type"] = "mixed"
 
     try:
-        with open(swappiness_path, "r", encoding="utf-8") as f:
+        with open(swappiness_path, encoding="utf-8") as f:
             swappiness = int(f.read().strip())
         if swappiness >= 0:
             metadata["host_vm_swappiness"] = swappiness
@@ -332,7 +332,7 @@ def _host_swap_metadata(
     return metadata
 
 
-def _docker_root_dir() -> Optional[str]:
+def _docker_root_dir() -> str | None:
     """Resolve the Docker daemon data directory without assuming a default."""
     try:
         result = host_command.run_command(['docker', 'info', '--format', '{{.DockerRootDir}}'], check=False)
@@ -344,7 +344,7 @@ def _docker_root_dir() -> Optional[str]:
     return root or None
 
 
-def _docker_mount_metadata(path: str) -> Tuple[str, str]:
+def _docker_mount_metadata(path: str) -> tuple[str, str]:
     """Return the source device and filesystem containing ``path``."""
     findmnt = shutil.which("findmnt")
     if not findmnt:
@@ -413,9 +413,9 @@ def _block_device_storage_type(device: str) -> str:
     return "unknown"
 
 
-def _docker_storage_metadata() -> Dict[str, Any]:
+def _docker_storage_metadata() -> dict[str, Any]:
     """Snapshot capacity and media metadata for Docker's backing filesystem."""
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "docker_storage_total_bytes": None,
         "docker_storage_available_bytes_at_start": None,
         "docker_storage_filesystem": "unknown",
@@ -447,7 +447,7 @@ def _docker_storage_metadata() -> Dict[str, Any]:
     return metadata
 
 
-def _cpu_power_metadata() -> Tuple[str, str]:
+def _cpu_power_metadata() -> tuple[str, str]:
     try:
         from acprof.monitors import energy_cpu
 
@@ -459,20 +459,20 @@ def _cpu_power_metadata() -> Tuple[str, str]:
         return "unavailable", "unavailable"
 
 
-def _read_sysfs_first_line(path: str) -> Optional[str]:
+def _read_sysfs_first_line(path: str) -> str | None:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             value = f.readline().strip()
     except OSError:
         return None
     return value or None
 
 
-def _summarize_cpu_policy_values(values: List[str]) -> str:
+def _summarize_cpu_policy_values(values: list[str]) -> str:
     if not values:
         return "unavailable"
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for value in values:
         counts[value] = counts.get(value, 0) + 1
 
@@ -490,7 +490,7 @@ def _detect_cpu_governor() -> str:
     except OSError:
         return "unavailable"
 
-    governors: List[str] = []
+    governors: list[str] = []
     for entry in entries:
         if not re.fullmatch(r"cpu\d+", entry):
             continue
@@ -503,7 +503,7 @@ def _detect_cpu_governor() -> str:
     return _summarize_cpu_policy_values(governors)
 
 
-def _map_boost_flag(value: Optional[str]) -> str:
+def _map_boost_flag(value: str | None) -> str:
     if value == "1":
         return "on"
     if value == "0":
@@ -526,7 +526,7 @@ def _detect_cpu_boost() -> str:
     return "unavailable"
 
 
-def _cpu_frequency_policy_metadata() -> Tuple[str, str]:
+def _cpu_frequency_policy_metadata() -> tuple[str, str]:
     return _detect_cpu_governor(), _detect_cpu_boost()
 
 
@@ -646,7 +646,7 @@ def collect_static_meta(
     compute_profile_enabled: bool = True,
     execution_profile_enabled: bool = False,
     profiling_mode: str = "full",
-    gpu_device: Optional[Dict[str, Any]] = None,
+    gpu_device: dict[str, Any] | None = None,
 ) -> StaticMeta:
     """Collect static metadata for the current model/image pair."""
     from acprof.capabilities import measurement_requested
@@ -735,7 +735,7 @@ def collect_static_meta(
         cpu_governor=cpu_governor,
         cpu_boost=cpu_boost,
     )
-    disabled_metadata: Dict[str, Any] = {}
+    disabled_metadata: dict[str, Any] = {}
     if not compute_profile_enabled:
         disabled_metadata.update({
             "compute_profile_tools": [],
@@ -784,10 +784,10 @@ def collect_static_meta(
 
 def enrich_static_meta(
     static_meta: StaticMeta,
-    metadata: Dict[str, Any],
+    metadata: dict[str, Any],
 ) -> StaticMeta:
     """Return static metadata enriched with recognized profiling fields."""
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     for field_name in STATIC_META_FIELDS:
         if field_name not in metadata:
             continue
@@ -814,9 +814,9 @@ def enrich_static_meta_from_input_plan(
 
 
 def _static_flops_from_compute_plan(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     static_meta: StaticMeta,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     profiles = plan.get("profiles", {})
     if not isinstance(profiles, dict):
         return None
@@ -832,7 +832,7 @@ def _static_flops_from_compute_plan(
         if not isinstance(entries, list):
             continue
 
-        values: List[Dict[str, Any]] = []
+        values: list[dict[str, Any]] = []
         seen_scales = set()
         for entry in entries:
             if not isinstance(entry, dict) or entry.get("error"):

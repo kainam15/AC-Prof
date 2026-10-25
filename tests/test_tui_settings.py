@@ -23,7 +23,7 @@ from acprof.tui.settings import (
 
 
 class TestTuiSettings:
-    @pytest.mark.parametrize("legacy_reuse", (False, True))
+    @pytest.mark.parametrize("legacy_reuse", [False, True])
     def test_old_image_preference_migrates_without_changing_experiment(self, legacy_reuse):
         self.write_payload({"version": SETTINGS_VERSION, "run_defaults": {
             "model": "demo/model", "cpus": "2", "skip_build": legacy_reuse,
@@ -96,7 +96,7 @@ class TestTuiSettings:
         assert (first.name) == ("tui.json")
         assert not (first.exists())
 
-    @pytest.mark.parametrize('configured', ('', 'relative/path'))
+    @pytest.mark.parametrize('configured', ['', 'relative/path'])
     def test_empty_or_relative_xdg_uses_home_config(self, configured):
         with patch.dict(os.environ, {"XDG_CONFIG_HOME": configured}):
             with patch("pathlib.Path.home", return_value=self.project):
@@ -154,7 +154,7 @@ class TestTuiSettings:
             save_settings(self.path, TuiSettings(run_defaults=RunConfig(cpus="0")), self.project)
         assert (self.path.read_bytes()) == (previous)
 
-    @pytest.mark.parametrize('raw', (b'{broken', b'\xff\xfe'))
+    @pytest.mark.parametrize('raw', [b'{broken', b'\xff\xfe'])
     def test_malformed_file_warns_without_overwriting_source(self, raw):
         self.path.parent.mkdir()
         self.path.write_bytes(raw)

@@ -32,7 +32,7 @@ class CatalogMessage(Message):
 
     msgid: str
 
-    def __new__(cls, msgid: str, *values: object) -> "CatalogMessage":
+    def __new__(cls, msgid: str, *values: object) -> CatalogMessage:
         template = SOURCE_BY_ID[msgid]  # Unknown IDs are developer errors.
         instance = cast(CatalogMessage, super().__new__(cls, template, *values))
         instance.msgid = msgid

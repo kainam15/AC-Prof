@@ -7,8 +7,9 @@ containers. Callbacks run synchronously before the next measurement starts.
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ ProfilerProgressCallback = Callable[[ProfilerProgress], None]
 
 
 def report_profiler_completion(
-    progress_callback: Optional[ProfilerProgressCallback],
+    progress_callback: ProfilerProgressCallback | None,
     *,
     profiler: str,
     profiles: Iterable[Mapping[str, Any]],

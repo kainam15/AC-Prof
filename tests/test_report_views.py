@@ -94,13 +94,13 @@ class TestReportView:
     @pytest.mark.parametrize('changes_case', range(9), ids=["{'mean': float('nan')}", "{'ci_low': float('inf')}", "{'ci_low': 1.0}", "{'ci_low': None}", "{'n_windows': True}", "{'n_windows': -1}", "{'n_windows': 0}", "{'mean': None}", "{'n_windows': 1}"])
     def test_invalid_numbers_intervals_and_counts_are_rejected(self, changes_case):
         changes = tuple(({'mean': float('nan')}, {'ci_low': float('inf')}, {'ci_low': 1.0}, {'ci_low': None}, {'n_windows': True}, {'n_windows': -1}, {'n_windows': 0}, {'mean': None}, {'n_windows': 1}))[changes_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="报告包含无效|报告的样本数与统计值不一致|报告置信区间无效"):
             self.read(dict(self.window, groups=[dict(self.group, **changes)]))
 
     @pytest.mark.parametrize('data_case', range(6), ids=["dict(schema_version=1, kind='ui_overhead', successful=False, error='interrupted'", 'dict(window, schema_version=2)', 'dict(window, schema_version=True)', "dict(window, filter='warmup=1')", "{'schema_version': 1, 'kind': 'audit'}", '[]'])
     def test_failed_unknown_and_truncated_reports_are_not_successful_views(self, data_case):
         data = tuple((dict(schema_version=1, kind='ui_overhead', successful=False, error='interrupted'), dict(self.window, schema_version=2), dict(self.window, schema_version=True), dict(self.window, filter='warmup=1'), {'schema_version': 1, 'kind': 'audit'}, []))[data_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="不支持的报告类型或版本|对照实验未完成或失败|报告的置信水平或窗口筛选口径不受支持"):
             self.read(data)
         self.path.write_text('{"schema_version":1,')
         with pytest.raises(ValueError, match="JSON"):

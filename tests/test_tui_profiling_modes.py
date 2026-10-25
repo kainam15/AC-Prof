@@ -25,8 +25,8 @@ async def test_late_refresh_timer_update_pauses_after_tabs_are_unmounted():
             app.images.refresh_timer.pause.assert_called()
             app.images.refresh_timer.reset.assert_not_called()
 
-@pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
-@pytest.mark.parametrize('language', ('zh', 'en'))
+@pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
+@pytest.mark.parametrize('language', ['zh', 'en'])
 async def test_mode_selector_updates_command_in_both_languages_and_sizes(size, language):
     with tempfile.TemporaryDirectory() as root:
         app = AcprofTui(RunConfig(model="test/model"), settings_path=Path(root) / "settings.json")

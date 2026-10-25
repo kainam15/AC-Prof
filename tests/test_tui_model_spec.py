@@ -11,7 +11,7 @@ from acprof.tui.commands import build_probe_command
 from acprof.tui.settings import TuiSettings, load_settings, save_settings
 
 
-@pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
+@pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
 async def test_declaration_input_reaches_run_probe_and_saved_defaults(size):
     root = Path(__file__).resolve().parents[1]
     path = "examples/multimodal/ultravox.model.json"

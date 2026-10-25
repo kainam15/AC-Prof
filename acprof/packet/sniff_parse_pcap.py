@@ -3,7 +3,7 @@ import json
 import math
 import sys
 from collections import Counter
-from typing import Sequence
+from collections.abc import Sequence
 
 from acprof.host.command import run_command
 

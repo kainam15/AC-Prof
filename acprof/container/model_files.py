@@ -10,8 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from pathlib import PurePosixPath
-from typing import Any, Callable
+from typing import Any
 
 PLAN_VERSION = 1
 PLAN_FILENAME = "model_download_plan.json"

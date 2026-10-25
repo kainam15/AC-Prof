@@ -12,7 +12,7 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from acprof.workloads import WorkloadGenerator, register_generator
 
@@ -28,7 +28,7 @@ TASK_SCALE_TYPES = {
 SPEC_KEYS = {"schema_version", "task", "feature_dim", "input_scales", "seed", "provenance"}
 
 
-def positive_integer(value: Any, name: str, maximum: Optional[int] = None) -> int:
+def positive_integer(value: Any, name: str, maximum: int | None = None) -> int:
     if (isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or value <= 0 or int(value) != value
             or (maximum is not None and value > maximum)):
@@ -39,7 +39,7 @@ def positive_integer(value: Any, name: str, maximum: Optional[int] = None) -> in
 
 class StructuredWorkloadGenerator(WorkloadGenerator):
     def __init__(self, model_id: str, task_type: str, batch_size: int,
-                 workload_spec_path: Optional[str] = None, model_feature_dim: Optional[int] = None):
+                 workload_spec_path: str | None = None, model_feature_dim: int | None = None):
         if task_type not in TASK_FEATURE_DIMS:
             raise ValueError(f"unsupported structured task: {task_type!r}")
         super().__init__(model_id, task_type, positive_integer(batch_size, "batch_size"))
@@ -49,7 +49,7 @@ class StructuredWorkloadGenerator(WorkloadGenerator):
         self.seed = 12345
         self._scales = [8.0, 32.0, 128.0, 512.0] if task_type == "graph-ml" else [1.0, 8.0, 32.0, 128.0]
         self._spec_sha256 = None
-        self._provenance: Dict[str, Any] = {"source": "synthetic", "generator": "python_random_uniform"}
+        self._provenance: dict[str, Any] = {"source": "synthetic", "generator": "python_random_uniform"}
         if workload_spec_path:
             raw = Path(workload_spec_path).read_bytes()
             spec = json.loads(raw)
@@ -79,13 +79,13 @@ class StructuredWorkloadGenerator(WorkloadGenerator):
             self._provenance = copy.deepcopy(provenance)
             self._spec_sha256 = hashlib.sha256(raw).hexdigest()
 
-    def _rows(self, count: int, batch_index: int) -> List[List[float]]:
+    def _rows(self, count: int, batch_index: int) -> list[list[float]]:
         rng = random.Random(self.seed + batch_index)
         return [[rng.uniform(-1.0, 1.0) for _ in range(self.feature_dim)] for _ in range(count)]
 
-    def generate(self, scale_value: float) -> Dict[str, Any]:
+    def generate(self, scale_value: float) -> dict[str, Any]:
         count = positive_integer(scale_value, "input_scale", self._max_scale)
-        payload: Dict[str, Any] = {"input_scale": count, "batch_size": self.batch_size}
+        payload: dict[str, Any] = {"input_scale": count, "batch_size": self.batch_size}
         if self.task_type == "graph-ml":
             graphs = []
             for index in range(self.batch_size):
@@ -104,7 +104,7 @@ class StructuredWorkloadGenerator(WorkloadGenerator):
         count = positive_integer(scale_value, "input_scale", self._max_scale)
         return f"{TASK_SCALE_TYPES[self.task_type]}{count}"
 
-    def effective_input_scale(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> float:
+    def effective_input_scale(self, scale_value: float, payload: dict[str, Any] | None = None) -> float:
         if payload is None:
             return float(positive_integer(scale_value, "input_scale", self._max_scale))
         if self.task_type == "graph-ml":
@@ -124,16 +124,16 @@ class StructuredWorkloadGenerator(WorkloadGenerator):
     def max_input_scale(self) -> float:
         return float(self._max_scale)
 
-    def default_input_scales(self) -> Optional[List[float]]:
+    def default_input_scales(self) -> list[float] | None:
         return list(self._scales)
 
-    def plan_metadata(self) -> Dict[str, Any]:
+    def plan_metadata(self) -> dict[str, Any]:
         return {"task": self.task_type, "feature_dim": self.feature_dim, "seed": self.seed,
                 "input_scale_type": TASK_SCALE_TYPES[self.task_type],
                 "construction": "bidirectional_ring" if self.task_type == "graph-ml" else "independent_dense_rows",
                 "workload_spec_sha256": self._spec_sha256, "provenance": copy.deepcopy(self._provenance)}
 
-    def input_metadata(self, scale_value: float, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def input_metadata(self, scale_value: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if payload is None:
             payload = self.generate(scale_value)
         count = int(self.effective_input_scale(scale_value, payload))

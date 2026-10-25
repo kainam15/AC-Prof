@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +135,7 @@ DEFAULT_PROFILES = {
 }
 
 
-@lru_cache(maxsize=None)
+@cache
 def locked_transformers_version(environment: DependencyEnvironment, *, lock_path: Path | None = None) -> str | None:
     """Read the Transformers pin from the host resource or explicitly staged image lock."""
     from acprof.installation import resource_root

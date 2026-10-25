@@ -15,7 +15,7 @@ class TestMultimodalWorkload:
     def generator(self, task, spec=None, batch=1):
         return get_generator("multimodal", "example/model", task, batch, workload_spec_path=spec)
 
-    @pytest.mark.parametrize('task', ('image-text-to-text', 'visual-question-answering', 'document-question-answering', 'visual-document-retrieval'))
+    @pytest.mark.parametrize('task', ['image-text-to-text', 'visual-question-answering', 'document-question-answering', 'visual-document-retrieval'])
     def test_image_tasks_share_reproducible_scene_and_document_annotations(self, task):
         gen = self.generator(task)
         payload = gen.generate(224)
@@ -75,7 +75,7 @@ class TestMultimodalWorkload:
             self.generator("image-text-to-text", batch=2)
         gen = self.generator("image-text-to-text")
         scale = tuple((0, -1, float('nan'), 1.5, True))[scale_case]
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="resolution_px must be a positive integer"):
             gen.generate(scale)
         with tempfile.TemporaryDirectory() as tmp:
             spec = Path(tmp) / "invalid.json"
@@ -94,12 +94,12 @@ class TestMultimodalWorkload:
             assert (small["params"]["return_audio"])
             assert (gen.plan_metadata()["scale_modality"]) == ("audio")
 
-    @pytest.mark.parametrize('extra', ({'audio_path': 'unused.wav'}, {'video_frames': ['unused.png']}, {'image_resolution': 128}))
+    @pytest.mark.parametrize('extra', [{'audio_path': 'unused.wav'}, {'video_frames': ['unused.png']}, {'image_resolution': 128}])
     def test_manifest_rejects_unused_assets_and_active_axis_fixed_values(self, extra):
         with tempfile.TemporaryDirectory() as tmp:
             spec = Path(tmp) / "invalid.json"
             spec.write_text(json.dumps({"schema_version": 1, **extra}))
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="fields require modality|not fixed on the active scale axis"):
                 self.generator("image-text-to-text", str(spec))
         gen = self.generator("image-text-to-text")
         assert ("image_resolution") not in (gen.plan_metadata()["fixed_media"])

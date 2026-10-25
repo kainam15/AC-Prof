@@ -61,7 +61,7 @@ class TestONNXHandler:
             with pytest.raises(ValueError, match='fixed|shape'):
                 handler.preprocess(ctx, {'input_scale': 2, 'features': [[1.] * 4] * 2})
 
-    @pytest.mark.parametrize('filenames', ([], ['a.onnx', 'b.onnx']))
+    @pytest.mark.parametrize('filenames', [[], ['a.onnx', 'b.onnx']])
     def test_missing_or_ambiguous_artifact_is_explicit(self, filenames):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

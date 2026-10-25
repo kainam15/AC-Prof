@@ -393,7 +393,7 @@ class TestImageManagement:
         assert [item.image_id for item in outcomes] == [FINAL, WEIGHTS]
         assert all(item.success for item in outcomes)
 
-    @pytest.mark.parametrize("in_use", (False, True))
+    @pytest.mark.parametrize("in_use", [False, True])
     def test_unselected_descendant_keeps_parent_without_expanding_confirmed_scope(self, in_use):
         if in_use:
             self.docker.containers["kept"] = dict(Image=FINAL, Name="/kept", State=dict(Status="exited"))

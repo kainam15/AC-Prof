@@ -46,7 +46,7 @@ def test_isolated_environment_does_not_create_absent_plugin_state():
         assert isolated_environment() == {}
 
 
-@pytest.mark.parametrize("module_name,class_name", FIXTURES)
+@pytest.mark.parametrize(("module_name", "class_name"), FIXTURES)
 @pytest.mark.parametrize("interrupted", [False, True], ids=["success", "interrupt"])
 def test_real_fixture_keeps_snapshot_session_teardown_usable(tmp_path, module_name, class_name, interrupted):
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")

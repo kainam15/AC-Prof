@@ -7,13 +7,16 @@ from __future__ import annotations
 
 import os
 import platform
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Mapping
 
 
-class EnvironmentClass(str, Enum):
+class EnvironmentClass(StrEnum):
+    __str__ = Enum.__str__
+    __format__ = Enum.__format__
+
     NATIVE_LINUX = "native_linux"
     WSL2 = "wsl2"
     VM = "vm"
@@ -22,7 +25,10 @@ class EnvironmentClass(str, Enum):
     UNKNOWN = "unknown"
 
 
-class SupportStatus(str, Enum):
+class SupportStatus(StrEnum):
+    __str__ = Enum.__str__
+    __format__ = Enum.__format__
+
     SUPPORTED = "supported"
     PARTIAL = "partial"
     UNSUPPORTED = "unsupported"

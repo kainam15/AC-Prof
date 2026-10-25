@@ -18,7 +18,7 @@ from acprof.runtime_profiles import select_runtime_profile
 from acprof.workloads import get_generator
 
 
-@pytest.mark.parametrize('class_name', ('ChronosPipeline', 'ChronosBoltPipeline', 'Chronos2Pipeline'))
+@pytest.mark.parametrize('class_name', ['ChronosPipeline', 'ChronosBoltPipeline', 'Chronos2Pipeline'])
 def test_configuration_dispatches_all_generations_without_trial_loads(class_name):
     pipeline = type(class_name, (), {})()
     loader = Mock(return_value=pipeline)
@@ -52,7 +52,7 @@ def test_native_univariate_forecast_list_preserves_batch_and_horizon():
     np.testing.assert_equal(output[:, 0, 0], [1., 2.])
 
 
-@pytest.mark.parametrize('scales', ('4', None))
+@pytest.mark.parametrize('scales', ['4', None])
 def test_embedding_parameters_survive_public_manual_and_auto_input_planning(scales):
     from acprof.host import input_plan
     task = TaskInfo(model_id="unseen/encoder", pipeline_tag="feature-extraction", task_family="nlp",

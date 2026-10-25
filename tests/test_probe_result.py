@@ -68,5 +68,5 @@ def test_unrelated_or_changed_probe_artifacts_are_rejected(probe_evidence, chang
         else:
             payload["schema_version"] = 99
         write_probe_summary(path, payload)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Probe completion event disagrees|Probe summary|unsupported largest-scale probe summary version"):
         inspect_probe_result(snapshot, config, project, pid, started)

@@ -58,7 +58,7 @@ def test_static_identity_changes_with_evidence_but_not_runtime():
 
 def test_bare_auto_model_does_not_prove_a_task():
     task = candidate(hub={"transformers_info": {"auto_model": "AutoModel"}})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="task semantics are unknown"):
         require_resolved_candidate(task)
 
 def test_custom_pipeline_loader_hint_cannot_supply_missing_task_semantics():
@@ -69,7 +69,7 @@ def test_custom_pipeline_loader_hint_cannot_supply_missing_task_semantics():
         require_resolved_candidate(task)
     assert not (task.model_resolution["candidates"])
 
-@pytest.mark.parametrize('config', ({}, {'custom_pipelines': {'custom-task': {'impl': 'pipeline.CustomPipeline', 'pt': ['AutoModelForCausalLM']}}}))
+@pytest.mark.parametrize('config', [{}, {'custom_pipelines': {'custom-task': {'impl': 'pipeline.CustomPipeline', 'pt': ['AutoModelForCausalLM']}}}])
 def test_generic_tag_conflicts_without_matching_custom_pipeline_loader(config):
     task = candidate(tag="text-generation", config=config, hub={
         "transformers_info": {"auto_model": "AutoModel", "pipeline_tag": "feature-extraction"},
@@ -77,7 +77,7 @@ def test_generic_tag_conflicts_without_matching_custom_pipeline_loader(config):
     with pytest.raises(ValueError, match="conflict"):
         require_resolved_candidate(task)
 
-@pytest.mark.parametrize('config,hub', (({'architectures': ['BertForMaskedLM']}, {}), ({}, {'transformers_info': {'auto_model': 'AutoModelForMaskedLM'}})))
+@pytest.mark.parametrize(("config", "hub"), [({'architectures': ['BertForMaskedLM']}, {}), ({}, {'transformers_info': {'auto_model': 'AutoModelForMaskedLM'}})])
 def test_incompatible_declared_head_requires_explicit_resolution(config, hub):
     task = candidate(tag="text-generation", config=config, hub=hub)
     with pytest.raises(ValueError, match="conflict|ambiguous"):
@@ -111,7 +111,7 @@ def test_library_loader_tag_does_not_override_a_compatible_workload(tag_case):
     assert (hint["value"]) == (library_tag)
     assert (hint["reason"])
 
-@pytest.mark.parametrize('tag,library_tag,loader', (('summarization', 'translation', 'AutoModelForSeq2SeqLM'), ('text-ranking', 'zero-shot-classification', 'AutoModelForSequenceClassification'), ('text-ranking', 'text-generation', 'AutoModelForCausalLM'), ('summarization', 'text2text-generation', 'AutoModelForMaskedLM'), ('summarization', 'text2text-generation', None)))
+@pytest.mark.parametrize(("tag", "library_tag", "loader"), [('summarization', 'translation', 'AutoModelForSeq2SeqLM'), ('text-ranking', 'zero-shot-classification', 'AutoModelForSequenceClassification'), ('text-ranking', 'text-generation', 'AutoModelForCausalLM'), ('summarization', 'text2text-generation', 'AutoModelForMaskedLM'), ('summarization', 'text2text-generation', None)])
 def test_shared_loader_does_not_erase_two_distinct_task_declarations(tag, library_tag, loader):
     task = candidate(tag=tag, hub={"transformers_info": {
         "pipeline_tag": library_tag, "auto_model": loader,
@@ -119,7 +119,7 @@ def test_shared_loader_does_not_erase_two_distinct_task_declarations(tag, librar
     with pytest.raises(ValueError, match="conflict"):
         require_resolved_candidate(task)
 
-@pytest.mark.parametrize('architecture,loader,library_tag', (('BertModel', 'AutoModel', 'feature-extraction'), ('MPNetForMaskedLM', 'AutoModelForMaskedLM', 'fill-mask'), ('Qwen3ForCausalLM', 'AutoModelForCausalLM', 'text-generation')))
+@pytest.mark.parametrize(("architecture", "loader", "library_tag"), [('BertModel', 'AutoModel', 'feature-extraction'), ('MPNetForMaskedLM', 'AutoModelForMaskedLM', 'fill-mask'), ('Qwen3ForCausalLM', 'AutoModelForCausalLM', 'text-generation')])
 def test_sentence_transformer_modules_establish_the_encoder_interface(architecture, loader, library_tag):
     task = candidate(tag="sentence-similarity", config={"architectures": [architecture]}, hub={
         "transformers_info": {"auto_model": loader, "pipeline_tag": library_tag},
@@ -144,11 +144,11 @@ def test_native_registry_reverse_lookup_resolves_architecture():
                         task.model_resolution["provenance"]["observations"]))
 
 
-@pytest.mark.parametrize("architecture,model_type,expected", (
+@pytest.mark.parametrize(("architecture", "model_type", "expected"), [
     ("GPT2LMHeadModel", "gpt2", "text-generation"),
     ("ElectraForPreTraining", "electra", "replaced-token-detection"),
     ("BertForPreTraining", "bert", "unknown"),
-))
+])
 def test_pretraining_registry_does_not_infer_unrelated_protocols(architecture, model_type, expected):
     task = candidate(config={"architectures": [architecture], "model_type": model_type})
     assert task.pipeline_tag == expected
