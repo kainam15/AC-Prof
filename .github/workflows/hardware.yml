@@ -37,7 +37,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, acprof]
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           clean: false # 专用主机复用已准备的 .venv 和本地验证产物。
       - name: 拒绝与触发提交不一致的已跟踪代码
@@ -78,7 +78,7 @@ jobs:
           fi
           uv run --locked --no-default-groups --group test python scripts/check_hardware.py "${selection[@]}" --gpus "$VALIDATION_GPUS" \
             --output-dir "internal-testing/hardware-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/measurements"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: hardware
