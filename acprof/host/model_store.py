@@ -505,10 +505,14 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
             plan = existing
         targets = []
         escape = {"[": "[[]", "*": "[*]", "?": "[?]"}
-        for repo in repository_plans(plan):
+        for repo, budget in zip(repository_plans(plan), sources, strict=True):
             offline = existing is not None or all(cached_file(root, repo, f) for f in repo["files"])
             source = repo.get("source", "huggingface")
+            from acprof.host.download_progress import DownloadReporter
+            progress = DownloadReporter(repo["model_id"], source, repo["selected_bytes"],
+                                        budget.cached_bytes, len(repo["files"]))
             def download(endpoint):
+                progress.start_attempt()
                 if source == "modelscope":
                     from acprof.model_repository import modelscope_file, modelscope_snapshot
                     if not offline:
@@ -516,18 +520,25 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                             modelscope_file(repo["model_id"], record["path"], repo["model_revision"], root,
                                             sha256=record["lfs_sha256"])
                     return str(modelscope_snapshot(root, repo["model_id"], repo["model_revision"])), endpoint
+                progress_kwargs = {"tqdm_class": progress.tqdm_class()} if progress.enabled else {}
                 target = snapshot_download(repo_id=repo["model_id"], revision=repo["model_revision"],
                     cache_dir=str(root / "hf"), endpoint=endpoint,
                     allow_patterns=["".join(escape.get(c, c) for c in f["path"]) for f in repo["files"]],
-                    local_files_only=offline)
+                    local_files_only=offline, **progress_kwargs)
                 return target, endpoint
-            if offline or source == "modelscope":
-                target, endpoint = download(repo["endpoint"])
-            else:
-                choices = list(dict.fromkeys([repo["endpoint"], *hf_endpoints()]))
-                target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
-            # Verification happens before any runtime or formal measurement starts.
-            verify_download(target, repo)
+            try:
+                if offline or source == "modelscope":
+                    target, endpoint = download(repo["endpoint"])
+                else:
+                    choices = list(dict.fromkeys([repo["endpoint"], *hf_endpoints()]))
+                    target, endpoint = try_hf_endpoints(repo["model_id"], download, endpoints=choices)
+                progress.finish("verifying")
+                # Verification happens before any runtime or formal measurement starts.
+                verify_download(target, repo)
+            except BaseException as exc:
+                progress.finish("cancelled" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed")
+                raise
+            progress.finish("complete")
             if not existing:
                 repo["source"] = source
                 repo["endpoint"] = endpoint

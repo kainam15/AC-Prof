@@ -25,7 +25,7 @@ license = "Apache-2.0 AND CC-BY-4.0"
 license-files = ["LICENSE", "NOTICE", "licenses/CC-BY-4.0.txt"]
 dependencies = [
     "requests>=2.31,<3",
-    "huggingface-hub>=1.0,<2",
+    "huggingface-hub>=1.28,<2",
     "modelscope-hub>=0.1.9,<0.2",
     "packaging>=25,<27",
     # Hub clients inherit system SOCKS proxies through HTTPX's optional transport.
