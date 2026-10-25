@@ -11,6 +11,21 @@
 | 字段 | 单位 | 来源 | 窗口 | 适用范围 | 类型 |
 | --- | --- | --- | --- | --- | --- |
 | `environment_class` | `text` | `platform_identity` | `experiment` | `all` | `text` |
+| `runtime_kind` | `text` | `execution_runtime` | `experiment` | `all` | `text` |
+| `runtime_id` | `text` | `immutable_runtime_artifact` | `experiment` | `all` | `text` |
+| `resource_limit_source` | `text` | `verified_runtime_limits` | `case` | `all` | `text` |
+| `resource_scope` | `text` | `collector_contract` | `case` | `all` | `text` |
+| `environment_sharing` | `text` | `allocation_evidence` | `case` | `all` | `text` |
+| `gpu_metric_scope` | `text` | `collector_contract` | `case` | `gpu` | `text` |
+| `process_resource_error` | `text` | `psutil` | `request_window` | `all` | `text` |
+| `process_resource_status` | `text` | `psutil` | `request_window` | `all` | `text` |
+| `gpu_utilization_status` | `text` | `nvml_selected_device` | `request_window` | `all` | `text` |
+| `gpu_memory_status` | `text` | `nvml_selected_device` | `request_window` | `all` | `text` |
+| `process_startup_s` | `s` | `managed_process_to_ready` | `case_startup` | `all` | `number` |
+| `process_cpu_time_s` | `s/window` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_cpu_util_avg_pct` | `% one logical CPU` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_rss_avg_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `process_rss_peak_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
 | `cpu_cores` | `core` | `protocol` | `case` | `all` | `number` |
 | `mem_cap_gb` | `GiB` | `protocol` | `case` | `all` | `number` |
 | `gpu_mode` | `text` | `protocol` | `case` | `gpu` | `text` |

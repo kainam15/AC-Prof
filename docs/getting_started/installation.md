@@ -83,11 +83,13 @@ runtime、模型 revision 和环境身份。发布版本与 Git Tag 的对应规
 ### 1. 检查主机环境
 
 AC-Prof 的 FULL 采集要求 Native Linux、本机 Docker Engine 和统一 cgroup v2。
-WSL2 支持开发及 basic/PARTIAL 采集，仍需发行版内的 Docker Engine 和 cgroup v2，详见 [WSL2](../platforms/wsl2.md)。
-Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采集环境。
+无 Docker 的 Linux VM 或 GPU 容器可选择 `--runtime process --profiling-mode basic`，
+使用 uv 管理的隔离 Python 环境和进程级指标；前提、TUI 操作及验证边界见 [Linux Runtime](../platforms/linux-runtimes.md)。
+WSL2 支持开发及 basic/PARTIAL 采集；Docker 路径需发行版内的 Docker Engine 和 cgroup v2，详见 [WSL2](../platforms/wsl2.md)。
+Docker Desktop 与远程 Docker daemon 不能用于 Docker 采集；Windows 和 macOS 不能作为采集主机。
 当前推荐并验证的是 Ubuntu 24.04。
 
-必需条件：
+Docker 路径必需条件：
 
 - Python 3.12+；uv 可按需准备，standalone 已内置。
 - 当前用户可以直接访问 `unix:///var/run/docker.sock`，无需使用 `sudo docker`。
@@ -102,6 +104,7 @@ Docker Desktop、远程 Docker daemon、Windows 和 macOS 不能作为实验采�
 
 ```bash
 acprof doctor --profiling-mode basic
+acprof doctor --runtime process --profiling-mode basic
 acprof doctor --profiling-mode full --gpus on
 ```
 

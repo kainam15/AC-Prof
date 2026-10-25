@@ -5,7 +5,7 @@
 
 **English** · [简体中文](docs/i18n/README_zh-CN.md)
 
-AC-Prof profiles containerized AI model inference across CPU, memory, GPU, and input-size configurations. It prepares Docker runtimes, mounts shared model weights read-only, and produces reproducible measurements and analysis artifacts. Compatible models can be profiled without changing their code.
+AC-Prof profiles AI model inference across CPU, memory, GPU, and input-size configurations. It prepares Docker or isolated Process runtimes, reuses pinned model weights, and produces reproducible measurements and analysis artifacts. Compatible models can be profiled without changing their code.
 
 ## What AC-Prof does
 
@@ -35,7 +35,7 @@ uv tool upgrade acprof
 
 For a GitHub Release wheel or Linux standalone binary, see the [latest release](https://github.com/kainam15/AC-Prof/releases/latest) and the [installation guide](docs/getting_started/installation.md#github-release-fallback) for checksum verification.
 
-Collection requires a suitable Linux host with a local Docker Engine and cgroup v2. Native Linux x86_64 is the FULL measurement platform; WSL2 has limited basic/PARTIAL support. See [host requirements](docs/getting_started/installation.md#1-检查主机环境).
+Native Linux x86_64 with local Docker and cgroup v2 remains the FULL measurement platform. Current source builds also provide basic collection through Process Runtime on Linux without Docker or root. Process CPU/RSS, inherited limits, and shared-device GPU metrics retain separate evidence and comparison rules. Cloud GPU deployments still require platform-specific validation. See [Linux runtimes](docs/platforms/linux-runtimes.md) and [host requirements](docs/getting_started/installation.md#1-检查主机环境).
 
 ### Develop from source
 
@@ -52,7 +52,7 @@ uv run acprof tui
 
 See [developer setup](docs/development/distribution.md#本地开发环境) and [testing](docs/development/testing.md) for the full workflow.
 
-Current source builds reuse verified model images automatically and build missing ones. Use `--rebuild-image` or the TUI's advanced image options for a one-time rebuild; Docker cache may still be used. See [image preparation](docs/models/images.md#构建复用和验证).
+Docker Runtime reuses verified model images automatically and builds missing ones. Use `--rebuild-image` or the TUI's advanced image options for a one-time rebuild; Docker cache may still be used. For Process, choose basic mode and inherited CPU/memory limits in the TUI. See [image preparation](docs/models/images.md#构建复用和验证) and [runtime selection](docs/platforms/linux-runtimes.md#选择与准备).
 
 The TUI tracks collection and probe progress through structured events. After a collection exits, it verifies the saved experiment identity and audits the result before reporting success; a successful process exit alone is insufficient.
 

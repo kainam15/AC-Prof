@@ -5,7 +5,7 @@
 
 [English](../../README.md) · **简体中文**
 
-AC-Prof 用于分析容器化 AI 模型在不同 CPU、内存、GPU 配置和输入规模下的推理表现。它自动准备 Docker 运行环境、只读挂载共享模型权重，并生成可复现的测量和分析产物。兼容的模型无需修改模型代码即可采集。
+AC-Prof 用于分析 AI 模型在不同 CPU、内存、GPU 配置和输入规模下的推理表现。它自动准备 Docker 或隔离的 Process 运行环境、复用固定版本的模型权重，并生成可复现的测量和分析产物。兼容的模型无需修改模型代码即可采集。
 
 ## AC-Prof 能做什么
 
@@ -35,7 +35,7 @@ uv tool upgrade acprof
 
 如需从 GitHub Release 下载 Wheel 或 Linux standalone，可查看[最新正式版](https://github.com/kainam15/AC-Prof/releases/latest)，并按[安装说明](../getting_started/installation.md#github-release-fallback)校验文件哈希。
 
-实验采集需要满足要求的 Linux 主机、本机 Docker Engine 和 cgroup v2。Native Linux x86_64 支持符合前置条件的 FULL 测量；WSL2 仅有受限的 basic/PARTIAL 支持。详见[主机要求](../getting_started/installation.md#1-检查主机环境)。
+Native Linux x86_64、本机 Docker 和 cgroup v2 仍是 FULL 测量的基准。当前源码也提供无需 Docker 或 root 的 Linux Process basic 采集。Process CPU/RSS、继承限制和共享设备 GPU 指标保留独立证据及比较规则；云 GPU 环境仍需对应平台实测。详见 [Linux Runtime](../platforms/linux-runtimes.md)和[主机要求](../getting_started/installation.md#1-检查主机环境)。
 
 ### 开发者快速开始
 
@@ -52,7 +52,7 @@ uv run acprof tui
 
 完整流程见[开发环境](../development/distribution.md#本地开发环境)和[测试指南](../development/testing.md)。
 
-当前源码默认复用通过校验的模型镜像，缺失时自动构建。需要单次重建时，使用 `--rebuild-image` 或 TUI 的“镜像高级操作”；仍可使用 Docker 缓存。详见[镜像准备](../models/images.md#构建复用和验证)。
+Docker Runtime 默认复用通过校验的模型镜像，缺失时自动构建。需要单次重建时，使用 `--rebuild-image` 或 TUI 的“镜像高级操作”；仍可使用 Docker 缓存。Process 在 TUI 中选择 basic 和继承 CPU/内存限制。详见[镜像准备](../models/images.md#构建复用和验证)和 [Runtime 选择](../platforms/linux-runtimes.md#选择与准备)。
 
 TUI 通过结构化事件显示采集与探测进度。采集进程退出后，会核对已保存的实验身份并审计结果，再判断是否成功；仅有正常退出码不足以证明采集成功。
 

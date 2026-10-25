@@ -5,9 +5,11 @@ WSL2 是 AC-Prof 的一等开发平台，也是 `PARTIAL` 采集平台。Native 
 native_linux，但不会因此成为完整 full 画像；WSL2 结果始终属于 wsl2。
 
 第一阶段只开放已有 basic collector 和功能验证路径，不开放全部硬件或独立 profiler。
-需要 WSL 发行版内的本机 Docker Engine、Linux x86_64 和统一 cgroup v2。Docker Desktop
+Docker 路径需要 WSL 发行版内的本机 Docker Engine、Linux x86_64 和统一 cgroup v2。Docker Desktop
 及远程 daemon 仍会被拒绝：当前采集器必须看到同一 daemon 的容器 PID、cgroup 与挂载路径。
 CUDA 本身支持 Docker Desktop 不表示 AC-Prof 的这些主机观测条件已经成立。
+无本机 Docker 时可显式选择 Process basic，其内核前提、进程指标与资源限制规则见
+[Linux Runtime](linux-runtimes.md)；该路径仍保留 WSL2/PARTIAL 身份，尚需 WSL2 实机验收。
 
 ## 能力与缺失值
 
@@ -42,8 +44,8 @@ acprof run --model <model-id> --profiling-mode basic \
   --compute-profile-tool none --execution-profile-tool none --dram-energy off
 ```
 
-GPU 配置另需 Windows NVIDIA driver、WSL CUDA 支持及发行版内 NVIDIA Container Toolkit；
-使用 `--gpus on` 后仍需完成真实容器推理验证。doctor 只检查前置条件，不会下载模型或运行采集。
+GPU 配置另需 Windows NVIDIA driver 与 WSL CUDA 支持；Docker 路径还需发行版内 NVIDIA Container Toolkit。
+使用 `--gpus on` 后仍需在选定 Runtime 中完成真实推理验证。doctor 只检查前置条件，不会下载模型或运行采集。
 TUI 顶栏显示 `WSL2 / PARTIAL`；确认页列出计划采集、语义受限与缺失指标。
 
 测试统一使用 pytest，按[测试指南](../development/testing.md)安装开发依赖；WSL 默认命令为：
@@ -78,8 +80,8 @@ GPU driver 版本；单项探测失败保留 null 与错误原因。GPU 设备�
 `gpu_device`、`runtime_environment` 字段。所有这些探测只发生在准备阶段，不进入测量窗口。
 
 缺少环境身份的旧结果读取为 `unknown`，不从当前主机、发行版名称或 Linux kernel 猜测。
-`vm/cloud/container_host` 保留独立枚举；当前不自动推断 VM/cloud 类型，也不赋予 FULL。
-`native_linux` 表示当前检测未发现 WSL/container 信号的 Linux；不能单凭该标签证明物理隔离。
+`vm/cloud/container_host` 保留独立枚举；hypervisor 信号可识别 VM，但不按云厂商名称推断能力，也不赋予 FULL。
+`native_linux` 表示当前检测未发现 WSL/container/hypervisor 信号的 Linux；不能单凭该标签证明物理隔离。
 
 `audit --compare` 在 same-hardware 和 cross-hardware 下都检查 comparability_class。
 Native/WSL、未知身份或冲突身份不能产生性能比较结论；能耗一方缺失显示 `not comparable`。

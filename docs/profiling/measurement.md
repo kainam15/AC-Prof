@@ -111,8 +111,11 @@ completed request count 归一化，不能把窗口总能耗直接解释为 J/re
 ## Profiling mode 与能力证据
 
 `profiling_mode=full` 为默认，保留原有 native Linux、本机 Docker、cgroup v2、RAPL、硬件 instructions
-和抓包要求。`basic` 允许 Native Linux 或 WSL2，但仍需本机 Docker 和 cgroup v2，仅要求 application latency、throughput、容器 CPU/memory；
-能耗、PMU、packet latency 不请求、不启动、数值保持 `nan`。两种模式不能混作同一画像。
+和抓包要求。`basic` 允许 Native Linux、WSL2 及受限 Linux VM/容器。
+Docker 路径仍需本机 daemon 与 cgroup v2，要求 application latency、throughput、容器 CPU/memory；
+Process 路径要求 application latency、throughput，并按权限采集进程树 CPU/RSS 与设备 GPU 遥测。
+能耗、PMU、packet latency 在 basic 中不请求、不启动、数值保持 `nan`。
+两种模式不能混作同一画像；Runtime、资源控制和指标归属也必须匹配，见 [Linux Runtime](../platforms/linux-runtimes.md)。
 Torch、NCU、Massif、Nsys 仍是显式选择的额外工具，`full` 不意味着自动开启全部工具。
 
 `--dram-energy auto` 在 full 中尝试 DRAM，作为可选能力记录；缺失不改变原有 full 必需项。

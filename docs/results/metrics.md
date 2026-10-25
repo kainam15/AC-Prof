@@ -12,6 +12,10 @@
 
 ## 采集能力概览
 
+Process basic 使用独立的 `process_cpu_*` / `process_rss_*` 字段；`auto` 资源上限保留为空。
+Runtime 身份、实际限制来源、GPU 整卡范围及缺失状态见 [Runtime 指标口径](../platforms/linux-runtimes.md#资源与指标口径)。
+这些字段不能替换 Docker 的 cgroup 指标，也不改变其历史定义。
+
 以下为项目可采集的指标范围；实际列值取决于 [profiling mode](../profiling/measurement.md#profiling-mode-与能力证据)、设备和显式启用的工具。
 
 - 性能：application / packet-level latency、P50/P90/P95、标准差/CV/IQR/最大值、吞吐量、每任务尺度单位及每百万像素延迟、每 CPU core 吞吐，以及容器启动、server setup、CUDA 初始化、模型加载、ready wait 和首次推理的冷启动分解。

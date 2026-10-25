@@ -12,7 +12,7 @@
 | **profiling/** · 采集 | [采集协议](profiling/protocol.md) · [能耗测量](profiling/energy.md) · [Profiler](profiling/profilers.md) |
 | **results/** · 结果 | [指标与分析](results/metrics.md) · [自动生成字段登记表](results/metric_reference.md) |
 | **development/** · 开发 | [架构](development/architecture.md) · [测试](development/testing.md) · [发行包](development/distribution.md) · [历史来源](development/history.md) |
-| **platforms/** · 平台 | [WSL2](platforms/wsl2.md) |
+| **platforms/** · 平台 | [Linux Runtime 与云环境](platforms/linux-runtimes.md) · [WSL2](platforms/wsl2.md) |
 | **i18n/** · 翻译 | [简体中文 README](i18n/README_zh-CN.md) |
 
 [项目首页](../README.md) 负责介绍和安装入口，不复制使用手册。

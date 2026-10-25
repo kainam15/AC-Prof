@@ -8,6 +8,7 @@
 
 - [采集生命周期与冷启动](lifecycle.md)：生命周期、清理、测量边界及冷启动。
 - [测量协议与输入契约](measurement.md)：不变量、运行模式、startup probe 与 workload。
+- [Linux Runtime](../platforms/linux-runtimes.md)：Docker/Process 生命周期、指标范围、资源限制证据与可比性。
 - [实验产物结构与恢复](artifacts.md)：目录格式、manifest 和恢复约束。
 - [实验元数据与失败证据](metadata.md)：静态元数据、错误证据、采集历史与输入规模。
 - [实验行数与时间预算](sizing.md)：CSV 行数、请求数和耗时估算。

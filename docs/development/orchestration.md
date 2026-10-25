@@ -9,6 +9,12 @@
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
 | `docker_runtime` | 推理服务容器的所有权、启停、ready 检查及原有冷启动分段 |
+| `runtimes/contracts` / `runtimes/service` | 统一执行契约、Runtime dispatch、客户端执行证据；编排不依赖 Docker 生命周期细节 |
+| `runtimes/docker` / `runtimes/process` | 原 Docker adapter 与无 Docker 的受管理服务；启动就绪和停止清理均由 adapter 完整持有 |
+| `runtimes/environment` / `runtimes/validation` | 隔离 Python 环境、锁校验、模型准备、测量前真实推理验证 |
+| `runtimes/process_control` / `runtimes/supervisor` | 控制管道、subreaper、PID 身份、清理和恢复证据；不参与采样 |
+| `runtimes/resources` / `runtimes/capabilities` | 继承分配与实施限制分离、逐项能力证据；全部在测量外运行 |
+| `monitors/process_usage` | psutil 观测进程树 CPU/RSS、可选整卡 NVML；与 Docker cgroup 字段分开 |
 | `container_state` | Docker inspect 状态证据、启动失败与运行期 OOM 解释；不拥有容器生命周期 |
 | `images.identity` / `gpu_device` | 镜像、容器、payload 共用的模型名称 token；GPU mode 归一化及选定设备身份 |
 | `images.environment` | 平台与依赖环境的内容缓存、安装配方指纹、完整清单和标签核验；主构建及容器 CI 共用 |
@@ -57,7 +63,7 @@
 `gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
 不为降低 private API 计数机械公开所有助手函数。
 
-`docker_runtime` 是输入规划的下层；`static_metadata` 引用 runtime、输入计划类型和
+`runtimes/service` 是输入规划的下层，Docker adapter 继续使用 `docker_runtime`；`static_metadata` 引用 runtime、输入计划类型和
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
 两类 profiler 单向依赖 `profiling.support`，TaskInfo 只在类型检查时导入；
 解析与工具查找使用 `profilers/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的

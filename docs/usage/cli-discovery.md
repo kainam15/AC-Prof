@@ -11,13 +11,15 @@
 ### `acprof doctor`
 
 `doctor` 只检查环境，不下载模型、启动容器、安装工具或修改权限。
-检查覆盖 Native Linux / WSL2 x86_64、cgroup v2、本机 Docker、Buildx、安装资源与输出目录。
+检查按 Runtime 分开：Docker 检查 cgroup v2、本机 daemon 和 Buildx；Process 检查 Linux、uv、procfs、
+可施加的资源限制与逐项可选采集能力。两条路径都检查安装资源与输出目录。
 输出 Environment、Collection tier、Native benchmark 和按指标的支持策略；WSL2 使用 `--profiling-mode basic`。
 `full` 另外检查 RAPL、perf instructions、抓包工具和网卡；`--gpus on` 检查 NVIDIA driver
-和 Docker NVIDIA runtime。模型下载、容器 GPU、任务输出与正式测量仍由实际运行验证。
+及选定 Runtime 的 GPU 前提。模型下载、GPU 推理、任务输出与正式测量仍由实际运行验证。
 
 | 参数 | 默认 | 作用 |
 | --- | --- | --- |
+| `--runtime auto/docker/process` | `auto` | 按 run 的相同规则选择执行方式并展示依据 |
 | `--profiling-mode basic/full` | `full` | 与主流程保持相同的必需能力范围 |
 | `--gpus off/on` | `off` | 是否检查 NVIDIA 主机和 runtime |
 | `--sniff-iface` | `docker0` | full 模式抓包网卡 |
@@ -25,8 +27,9 @@
 | `--json` | 关闭 | 输出包含 `ready`、`checks`、`scope` 的 JSON |
 
 退出码为 `0`（必要检查通过）、`1`（必要条件缺失）、`2`（参数错误）。
-检查状态是 `available`、`unavailable`、`not_requested` 或 `warning`；
+检查状态保留 `available`、`unavailable`、`unsupported`、`permission_denied`、`error`、`not_requested` 或 `warning`；
 `available` 不等于真实 workload 的 `verified`。低磁盘余量为提示，不自动删除镜像。
+Process 可选指标缺失不会使必要检查失败，JSON 中的 `required` 表明该项是否影响 `ready`。
 `doctor` 不检测所有模型的联网和容量需求，`run` 仍在正式采集前执行权威 preflight。
 
 以下参数表对应 `acprof run`。示例命令见[运行指南](experiments.md#运行正式实验)，

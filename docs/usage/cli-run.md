@@ -12,16 +12,22 @@
 | `--task-family` | auto | 覆盖任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `--backend` | auto | 覆盖声明清单中的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`、`onnxruntime`。 |
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](../models/pipelines.md#本地模型声明与自定义-pipeline)。 |
-| `--profiling-mode` | `full` | `full` 保留 Native Linux 的 RAPL、perf 和 packet latency 必需条件；`basic` 要求 application latency、吞吐、容器 CPU/内存，跳过能耗、PMU、抓包，允许 WSL2 PARTIAL。两者均要求本机 Docker 和 cgroup v2；不自动降级，见 [WSL2](../platforms/wsl2.md)。 |
-| `--cpus` | `1,2,4,8` | CPU core 限制列表。 |
+| `--runtime` | `auto` | 优先选择可用的本机 Docker；Linux basic 在 Docker 不可用时选择 Process。可显式覆盖，完整规则见 [Linux Runtime](../platforms/linux-runtimes.md#选择与准备)。 |
+| `--profiling-mode` | `full` | `full` 保留 Native Linux Docker 的 RAPL、perf 和 packet latency 必需条件；`basic` 采集 application latency、吞吐及对应 Runtime 的资源指标，跳过能耗、PMU、抓包。Process 当前只提供 basic；显式 full 不自动降级。 |
+| `--cpus` | `auto` | Docker 展开为原有 `1,2,4,8`；Process 继承当前限制，数值列表需要可验证的 cgroup 配额。 |
 | `--cpuset-cpus` | 空 | 可选固定 CPU ID/范围，如 `0-3,8`，应用于正式采集和 startup probe；留空保留原有配额调度。规范化集合参与恢复身份，采样前核验实际 affinity。 |
-| `--mems` | `2,4,8,16` | Memory cap GB 列表。 |
+| `--mems` | `auto` | Docker 展开为原有 `2,4,8,16`；Process 继承当前限制，数值列表需要可验证的 cgroup 内存限制，单位 GiB。 |
 | `--gpus` | `off,on` | GPU mode 列表。`on` 只向容器暴露选定的物理 GPU。 |
 | `--gpu-device` | 环境变量或 `0` | 单个主机 GPU index 或完整 UUID，优先级为此参数、`ACPROF_GPU_DEVICE`、`DEVICE_INDEX`、`0`。运行前解析并固定 UUID；不接受 `all`、设备列表或 MIG。`acprof probe` 使用同样的环境变量，post-hoc GPU 补采使用原实验记录的 UUID。 |
 | `--prune-startup-oom` / `--no-prune-startup-oom` | enabled | 正式矩阵前，用最低选中 CPU、内存升序执行独立 startup probe，只启动并等待 `/ready`，不产生性能结果。仅 Docker 确认启动 OOM 的连续低内存前缀用于剪枝；遇到 ready、timeout、CUDA OOM 或普通错误即停止扩展。所有被剪枝 case 标为 `inferred_not_measured`。禁用后逐格正式尝试。 |
 | `--matrix-order` | `seeded` | `seeded` 用版本化的确定性 hash 排序资源 case，并用每个 case 的独立派生 seed 排列 input scale；`declared` 保持资源参数与物化输入尺度的顺序。probe 完成后将实际顺序冻结到 `metadata/matrix_plan.json`。 |
 | `--matrix-seed` | `0` | 整数 seed；相同实验身份、probe 结论、算法版本和 seed 生成相同计划。resume 校验并复用已冻结顺序，不重新排序；不能在原目录改变 seed 或 order。 |
 | `--dram-energy` | `auto` | `full` 中独立采集可用的 DRAM RAPL 域；缺失或不可读时保持 `nan`，不因此使 full 失败。`off` 不采集，`required` 要求所有选中 package 的 DRAM 都可用且取得有效测量；不能与 `basic` 同用。DRAM 不加入 container-attributed energy。 |
+
+GPU device 表格中的主机序号规则适用于 Docker。Process 的数字为 `CUDA_VISIBLE_DEVICES` 内的可见序号，
+不会扩大可见设备范围；记录 CUDA UUID 与共享状态，NVML 指标不可用不等于 GPU 推理不可用。
+Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-image`、独立 profiler、
+`probe` 最小内存诊断和已有服务负载重放仍要求 Docker。
 
 ### 请求窗口与采样
 | 参数 | 默认值 | 说明 |
