@@ -23,7 +23,7 @@ async def test_locked_preview_shows_capacity_then_closes_before_unlock(language,
                 try:
                     app.query_one('#ui-language', Select).value = language
                     app.query_one('#model-store', Input).value = str(root)
-                    app.open_model_store()
+                    app.preflight.open_model_store()
                     await pilot.pause()
                     assert isinstance(app.screen, ModelStoreScreen)
                     screen = app.screen
@@ -34,7 +34,7 @@ async def test_locked_preview_shows_capacity_then_closes_before_unlock(language,
                     status = screen.query_one('#store-status', Static)
                     assert (status.region.y) >= (0)
                     assert (status.region.bottom) <= (screen.query_one('#store-close', Button).region.y)
-                    assert (app._is_busy())
+                    assert (app.is_busy())
                     if language == 'zh':
                         assert (await pilot.click('#store-close'))
                     else:
@@ -43,7 +43,7 @@ async def test_locked_preview_shows_capacity_then_closes_before_unlock(language,
                     await pilot.pause()
                     assert (holder.poll()) is None, 'cache owner must still be holding the lock'
                     assert not isinstance(app.screen, ModelStoreScreen)
-                    assert not (app._is_busy())
+                    assert not (app.is_busy())
                 finally:
                     holder.stdin.close()
                     await app.workers.wait_for_complete()
@@ -66,17 +66,17 @@ async def test_closing_retains_busy_state_until_the_reader_releases_resources():
         async with app.run_test(size=(80, 24)) as pilot:
             try:
                 app.query_one('#model-store', Input).value = str(root)
-                app.open_model_store()
+                app.preflight.open_model_store()
                 await pilot.pause()
                 assert (started.is_set())
                 assert (await pilot.click('#store-close'))
                 await pilot.pause()
                 assert (acknowledged.is_set())
                 assert isinstance(app.screen, ModelStoreScreen)
-                assert (app._is_busy())
+                assert (app.is_busy())
             finally:
                 release.set()
                 await app.workers.wait_for_complete()
             await pilot.pause()
             assert not isinstance(app.screen, ModelStoreScreen)
-            assert not (app._is_busy())
+            assert not (app.is_busy())

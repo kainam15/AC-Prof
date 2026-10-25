@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import partial
 from threading import Event
 from typing import TYPE_CHECKING
 
-from textual import on, work
+from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.message_pump import MessagePump
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Static
+from textual.worker import Worker
 
 from acprof.experiment import build_run_command
 from acprof.messages import message
@@ -69,104 +70,100 @@ class RecoveryScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-class RecoveryActions(MessagePump):
-    _recovery_request: Event | None
-    _recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None
-    def _review_run_destination(self, pending: PendingLaunch, *, record=None,
-                                confirmed: bool = False) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        if not self._allow_operation("run"):
-            return
-        token = self._recovery_request = Event()
-        self._read_jobs.add(token)
-        self._set_busy(True)
-        self._execute_recovery_review(pending, record, token, confirmed)
+class RecoveryController:
+    """Own recovery state and operations; the App owns lifecycle and scheduling."""
 
-    @work(thread=True, group="recovery", exit_on_error=False)
-    def _execute_recovery_review(self, pending: PendingLaunch, record: ExperimentRecord | None,
+    def __init__(self, app: AcprofTui) -> None:
+        self.app = app
+        self.recovery_request: Event | None = None
+        self.recovery_after_check: tuple[PendingLaunch, ExperimentRecord | None] | None = None
+
+    def review_run_destination(self, pending: PendingLaunch, *, record=None,
+                                confirmed: bool = False) -> None:
+        if not self.app.allow_operation("run"):
+            return
+        token = self.recovery_request = Event()
+        self.app.read_jobs.add(token)
+        self.app.set_busy(True)
+        self.execute_recovery_review(pending, record, token, confirmed)
+
+    def execute_recovery_review(self, pending: PendingLaunch, record: ExperimentRecord | None, token: Event, confirmed: bool) -> Worker[None]:
+        """Schedule this operation on the owning App worker manager."""
+        return self.app.run_worker(
+            partial(self._execute_recovery_review_worker, pending, record, token, confirmed),
+            name="execute_recovery_review", thread=True, group='recovery', exit_on_error=False,
+        )
+
+    def _execute_recovery_review_worker(self, pending: PendingLaunch, record: ExperimentRecord | None,
                                  token: Event, confirmed: bool) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
         try:
-            review, error = review_recovery(pending, record=record, project_dir=PROJECT_DIR,
-                                            python_executable=PYTHON_EXECUTABLE), ""
+            review, error = review_recovery(pending, record=record, project_dir=self.app.project_dir,
+                                            python_executable=self.app.python_executable), ""
         except Exception as exc:
             review, error = None, error_message(exc)
-        self._safe_process_callback(self._show_recovery_review, pending, token, confirmed, review, error)
+        self.app.process.safe_process_callback(self.show_recovery_review, pending, token, confirmed, review, error)
 
-    def _show_recovery_review(self, pending: PendingLaunch, token: Event, confirmed: bool,
+    def show_recovery_review(self, pending: PendingLaunch, token: Event, confirmed: bool,
                               review: RecoveryReview | None, error: str) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        self._read_jobs.discard(token)
-        if not self.is_running or self._ui_closing:
+        self.app.read_jobs.discard(token)
+        if not self.app.is_running or self.app.ui_closing:
             return
-        self._set_busy(self._is_busy())
-        if token is not self._recovery_request or token.is_set():
+        self.app.set_busy(self.app.is_busy())
+        if token is not self.recovery_request or token.is_set():
             return
-        self._recovery_request = None
+        self.recovery_request = None
         if error:
-            self.notify(error, severity="error", timeout=10)
+            self.app.notify(error, severity="error", timeout=10)
             return
         if pending.config is None:
-            self.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+            self.app.notify("恢复实验缺少运行配置", severity="error", timeout=10)
             return
         if review is None or (confirmed and pending.config.resume and review.resume is not None):
             launch = pending if review is None else review.resume
             if launch is None or launch.config is None:
-                self.notify("恢复实验缺少运行配置", severity="error", timeout=10)
+                self.app.notify("恢复实验缺少运行配置", severity="error", timeout=10)
                 return
-            self._apply_config(launch.config)
-            if self._preflight_run_reason():
-                self._recovery_after_check = (launch, review.record if review else None)
-                self.action_quick_check()
+            self.app.configuration.apply_config(launch.config)
+            if self.app.preflight.preflight_run_reason():
+                self.recovery_after_check = (launch, review.record if review else None)
+                self.app.preflight.quick_check()
             else:
-                self._launch(launch)
+                self.app.launch(launch)
             return
-        self._picker_open = True
-        self._set_busy(True)
-        self.push_screen(RecoveryScreen(review), lambda action: self._recovery_selected(review, action))
+        self.app.catalog.picker_open = True
+        self.app.set_busy(True)
+        self.app.push_screen(RecoveryScreen(review), lambda action: self.recovery_selected(review, action))
 
-    def _finish_recovery_check(self) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        pending = self._recovery_after_check
-        self._recovery_after_check = None
+    def finish_recovery_check(self) -> None:
+        pending = self.recovery_after_check
+        self.recovery_after_check = None
         if pending is None:
             return
         launch, record = pending
         try:
             # Resume belongs to the confirmed launch, not the editable form.
-            if launch.config is None or self._collect_config() != replace(launch.config, resume=False):
-                self.notify("配置已变化；已取消本次恢复启动。", severity="warning")
+            if launch.config is None or self.app.configuration.collect_config() != replace(launch.config, resume=False):
+                self.app.notify("配置已变化；已取消本次恢复启动。", severity="warning")
                 return
         except ValueError:
             return
-        if self._allow_collection():
-            self._review_run_destination(launch, record=record, confirmed=True)
+        if self.app.preflight.allow_collection():
+            self.review_run_destination(launch, record=record, confirmed=True)
 
-    def _recovery_selected(self, review: RecoveryReview, action: str | None) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        self._picker_closed()
+    def recovery_selected(self, review: RecoveryReview, action: str | None) -> None:
+        self.app.catalog.picker_closed()
         if action is not None:
             pending = review.resume if action == "resume" else review.restart
             if pending is not None:
                 # Re-read immediately before launch: a modal may outlive its snapshot.
-                self._review_run_destination(pending, record=review.record if action == "resume" else None,
+                self.review_run_destination(pending, record=review.record if action == "resume" else None,
                                              confirmed=True)
 
-    @on(Button.Pressed, "#review-run-recovery")
     def review_failed_run(self) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        from acprof.tui.app import PROJECT_DIR, PYTHON_EXECUTABLE
-        if not self._allow_operation("run"):
+        if not self.app.allow_operation("run"):
             return
-        config = self._active_run_config
+        config = self.app.active_run_config
         if config is not None:
             config = replace(config, rebuild_image=False)
-            command = build_run_command(config, project_dir=PROJECT_DIR, python_executable=PYTHON_EXECUTABLE)
-            self._review_run_destination(PendingLaunch(tuple(command), "run", config))
+            command = build_run_command(config, project_dir=self.app.project_dir, python_executable=self.app.python_executable)
+            self.review_run_destination(PendingLaunch(tuple(command), "run", config))

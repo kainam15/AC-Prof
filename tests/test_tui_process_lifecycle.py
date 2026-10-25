@@ -45,19 +45,19 @@ def test_callback_failure_keeps_live_process_busy_and_does_not_finish():
         process = Mock(pid=987654, stdout=io.StringIO("output\n"))
         process.poll.return_value = None
         process.wait.side_effect = subprocess.TimeoutExpired("collector", 5)
-        app._process_started = Mock(side_effect=RuntimeError("callback failed"))
-        app._process_finished = Mock()
+        app.process_started = Mock(side_effect=RuntimeError("callback failed"))
+        app.process_finished = Mock()
         app.call_from_thread = lambda callback, *args: callback(*args)
-        app._deliver_process_callback = lambda token, callback, *args: callback(*args)
+        app.process.deliver_process_callback = lambda token, callback, *args: callback(*args)
         with (
             patch("subprocess.Popen", return_value=process),
             patch("os.killpg"),
-            patch.object(app, "_watch_failed_process", create=True),
-            patch.object(app, "_process_cleanup_incomplete", create=True),
+            patch.object(app.process, 'watch_failed_process'),
+            patch.object(app, 'process_cleanup_incomplete'),
         ):
-            AcprofTui._execute_command.__wrapped__(app, ["collector"], "run", config=None)
-        assert (app._is_busy()), "live collector must remain owned"
-        app._process_finished.assert_not_called()
+            app.process._execute_command_worker(["collector"], "run", config=None)
+        assert (app.is_busy()), "live collector must remain owned"
+        app.process_finished.assert_not_called()
 
 def test_ignoring_signals_retains_process_and_measurement_lock_until_reaped():
     with tempfile.TemporaryDirectory() as directory:
@@ -105,7 +105,7 @@ def test_unmount_uses_cleanup_and_prevents_late_launch():
         app = AcprofTui(settings_path=Path(directory) / "settings.json")
         asyncio.run(app.on_unmount())
         with pytest.raises(RuntimeError, match="closing"):
-            app._lifecycle.start(["unused"], cwd=directory, env={})
+            app.lifecycle.start(["unused"], cwd=directory, env={})
 
 def test_missing_group_does_not_release_an_unreaped_process():
     manager = ProcessLifecycle(interrupt_timeout=0, terminate_timeout=0)
@@ -125,13 +125,13 @@ async def test_cleanup_timeout_keeps_stop_enabled_and_start_disabled():
             await pilot.pause()
             process = Mock(pid=12345)
             process.poll.return_value = None
-            app._lifecycle.process = process
-            app._process_kind = "run"
-            app._process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
-            assert (app._is_busy())
+            app.lifecycle.process = process
+            app.process_kind = "run"
+            app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
+            assert (app.is_busy())
             assert (app.query_one("#start-run", Button).disabled)
             assert not (app.query_one("#stop-run", Button).disabled)
             assert ("清理未完成") in (str(app.query_one("#status-stage", Static).render()))
             assert ("12345") in (str(app.query_one("#status-detail", Static).render()))
             process.poll.return_value = 0
-            app._lifecycle.release(process)
+            app.lifecycle.release(process)

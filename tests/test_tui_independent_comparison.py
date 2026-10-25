@@ -85,12 +85,12 @@ class TestIndependentReport:
         assert ('"cleanup_status": "incomplete"') in (row.detail)
         assert ("owned-id") in (row.detail)
         source.write_text(json.dumps({"schema_version": 2, "kind": "independent_experiment_comparison"}))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="不支持的报告类型或版本|Unsupported report type or version"):
             read_report(source)
         source, report = self.report()
         report.update(schema_version=2, scope="selected_sample_only; no_formal_measurement")
         source.write_text(json.dumps(report))
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="不支持的报告类型或版本|Unsupported report type or version"):
             read_report(source)
 
 
@@ -109,7 +109,7 @@ class TestIndependentComparisonUi:
             app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=root / "settings.json")
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
-                app._activate_tab("reports-tab")
+                app.activate_tab("reports-tab")
                 app.query_one("#comparison-options", Collapsible).collapsed = False
                 app.query_one("#comparison-left", Input).value = str(left)
                 app.query_one("#comparison-right", Input).value = str(right)
@@ -119,7 +119,7 @@ class TestIndependentComparisonUi:
                 button = app.query_one("#report-compare", Button)
                 button.scroll_visible(animate=False, immediate=True)
                 await pilot.pause()
-                with patch.object(app, "_launch") as launch:
+                with patch.object(app, 'launch') as launch:
                     assert (await pilot.click(button))
                     await pilot.pause()
                     launch.assert_called_once()
@@ -130,8 +130,8 @@ class TestIndependentComparisonUi:
                     assert ("compare") in (command)
                     assert (command[command.index("--purpose") + 1]) == ("resource-scaling")
                     launch.reset_mock()
-                    app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
-                    app.compare_experiments_button()
+                    app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+                    app.results.compare_experiments_button()
                     launch.assert_not_called()
 
     async def test_comparison_runs_public_cli_and_opens_incompatible_report(self):
@@ -143,11 +143,11 @@ class TestIndependentComparisonUi:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=fixture.fixture.root / "settings.json")
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("reports-tab")
+            app.activate_tab("reports-tab")
             app.query_one("#comparison-left", Input).value = str(left)
             app.query_one("#comparison-right", Input).value = str(right)
-            with patch.object(app, "notify") as notify:
-                app.compare_experiments_button()
+            with patch.object(app, 'notify') as notify:
+                app.results.compare_experiments_button()
                 for _ in range(2):
                     await app.workers.wait_for_complete()
                     await pilot.pause()
@@ -158,6 +158,6 @@ class TestIndependentComparisonUi:
             assert (payload["kind"]) == ("independent_experiment_comparison")
             assert (payload["status"]) == ("incompatible")
             assert ("not comparable") in (str(app.query_one("#report-table", DataTable).get_row_at(0)[0]))
-            assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == (Stage.COMPLETED)
+            assert not (app.is_busy())
+            assert (app.latest_snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")

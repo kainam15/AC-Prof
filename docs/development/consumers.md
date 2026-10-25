@@ -13,6 +13,8 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 
 `analysis/model.py` 将历史或当前 CSV 转成统一长表、配置汇总和 Summary，不导入绘图库，
 不回写采集产物。`metric_registry.py` 同时维护采集单位与展示方向、分组、聚合等语义；
+展示信息直接声明在各 `Metric` 上；行组装字段由内部 `row_group` / `row_order` 和工具元数据派生，
+不再在 client 中重复列出整组名称。内部分组不写入 `Metric.to_dict()`，保持 CSV 顺序及已有指标元数据。
 分析专用派生量独立于 `CSV_FIELDS`。`cli/report.py` 负责参数与测量锁，
 `plotting/report.py` 按需加载 Plotly 并内嵌 HTML/CSS/JavaScript；`view_model.js` 集中处理
 baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该入口复用现有 CSV 和布局协议，
@@ -43,20 +45,32 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`app` 保留顶层 UI 状态、采集启动决策、最终结果、测量窗口呈现、终止及退出清理；
-`process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_actions.ProcessWorkerActions`
-独立负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
-worker 通过 App 的 `_project_dir` 读取当前工作根目录，不额外缓存路径或覆盖子进程所有权；
+`AcprofTui` 只继承终端光标适配 `BarCursorApp`；12 个业务 controller 通过明确属性组合，
+不继承 Textual `MessagePump`，也不把业务方法复制到 App 命名空间。
+App 保留进程启动、停止及退出清理，正式测量快照、全局操作互斥、页面导航和 Textual 事件入口。
+配置、镜像、预检、结果、恢复和选择器各自拥有本职责的状态；共享进程及 `read_jobs` 只有 App 一个拥有者。
+`process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_controller.ProcessController`
+负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
+controller 通过 App 的 `project_dir` 与 `python_executable` 读取当前路径；不缓存或复制进程所有权。
 正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
-`views` 使用页面构建函数输出 TabPane 子树。
-`localization_actions.LocalizationActions` 只处理 UI 文案登记、翻译和语言切换，
-通过现有 Textual MRO 提供 `tr/notify` 等操作；`app` 仍拥有首屏、业务状态和页面生命周期，
-不把日志原文、命令参数或实验事件交给翻译模块。
-`configuration_actions` 管理表单、字段校验、保存偏好与预览，`experiment_actions` 负责预设、采集/探测确认与最近路径记忆，实际 `_launch` 仍在 App。
-`preflight_actions` 管理启动检测与模型准备弹窗，`result_actions` 管理异步摘要/报告读取、取消 token 和只读展示，`profile_actions` 管理补采操作，`slash_actions` 分发快捷命令。
-各 mixin 继承 Textual `MessagePump`，由 `AcprofTui` 的 MRO 集成事件处理，用户可见消息和工作线程的身份检查沿用原契约。
-对原先依赖 `acprof.tui.app` 的测试/可替换依赖（环境检测、预检、设置保存、摘要与报告读取）由 App 的窄方法转交；工作目录/解释器由 App 属性读取，不在 mixin 中缓存路径。
-职责拆分不会更改原始进度、CSV、resume、进程树所有权或测量窗口行为；可参考 [Textual MessagePump 分发实现](https://github.com/Textualize/textual/blob/main/src/textual/message_pump.py)（MIT），只借鉴框架契约，不复制实现。
+`views` 以已注解的 `AcprofTui` 组合页面，通过 `app.configuration` 与 `app.localization` 读取相应能力。
+`localization_controller.LocalizationController` 拥有 UI 文案登记、翻译和语言切换状态；
+App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原始日志、CLI 参数或实验事件。
+`configuration_controller` 管理表单、字段校验、设置保存、最近路径和预览；
+`experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
+`preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
+`profile_controller` 管理补采，`slash_controller` 分发快捷命令。
+所有 `@on` 入口在 App 中按原事件顺序显式调用所属 controller；快捷键保留 Textual 的 `action_*` 入口。
+业务调用使用具体类型的 `app.configuration.collect_config()` 等路径；没有字符串方法转发、
+全量 App Protocol、新增 cast 或 `assert isinstance(self, AcprofTui)` 类型断言。
+普通 controller 的线程任务用 `App.run_worker(partial(...))` 提交；保留原 group、thread、exclusive
+和 exit_on_error 配置，所有 worker 仍归属同一个 App 生命周期。
+这遵循 [Textual 8.2.8 的 work 实现](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/_work_decorator.py)
+及 [组件数据流指南](https://textual.textualize.io/guide/widgets/#data-flow)（MIT）；只使用既有 API，
+不新增调度器、后台事件循环或运行依赖。弹窗仍使用原生类型化结果和已有消息契约。
+环境检测由 `platform` 提供；预检、设置保存、摘要与报告读取在实际 controller 模块中导入。
+测试按实际查找位置替换依赖；不保留 App 的旧静态代理或尚未发布的 mixin 兼容入口。
+本次边界调整不更改进度事件、CSV、resume、进程树所有权或测量窗口语义。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
@@ -67,7 +81,7 @@ worker 通过 App 的 `_project_dir` 读取当前工作根目录，不额外缓�
 将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
 `run_planning` 只计算准备阶段的配置、窗口和假设耗时摘要；实际档位由既有 host 输入计划经有界准备消息传入，不轮询产物。
 `commands` 复用原来的命令构造函数，另持有 `PendingLaunch`、结果路径与 plot/stats/compare/profile 启动参数准备；
-`app` 继续持有控件、busy/measurement 状态和进程生命周期；各 action mixin 操作 App 持有的控件与请求 token，不另起 controller 或私有状态副本。
+`app` 继续持有控件、busy/measurement 状态和进程生命周期；controller 通过 App 的准入检查操作控件，并管理各自的请求 token。
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
 `run_results` 在子进程退出后关联现有 `run_state.run_id/attempts/pid` 与启动前快照，并调用 `audit_result`；
 manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当前运行成功证据，不另写结果协议。
@@ -133,9 +147,9 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 及 [Worker 实现](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py) 的取消与 UI 回传边界（MIT，当前已有依赖）；
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
-`catalog_actions` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
+`catalog_controller` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
 `recovery` 在启动前读取原实验，复用 `host.run_state.validate_resume` 检查身份与产物；
-`recovery_actions` 统一承接开始采集、历史选择和失败监控页，提供准备重试、续跑或自动新建实验。
+`recovery_controller` 统一承接开始采集、历史选择和失败监控页，提供准备重试、续跑或自动新建实验。
 确认后重新核验记录；需要切换采集模式时复用现有环境预检，配置变化或过期 worker 不得启动进程。
 准备重试的证据归档由持有目录锁的 `RunState` 完成，TUI 的评估及目录分配始终只读。
 流程借鉴 [Ray Tune 的恢复与重启区分](https://github.com/ray-project/ray/blob/master/python/ray/tune/tuner.py)
@@ -145,20 +159,24 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 父子路径合并只用于摘要，不改变有深度上限和实验目录边界的实际扫描入口。借鉴
 [pytest 的 collection 路径规范化](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/main.py)（MIT）思路，
 使用标准库 `pathlib` 与已有 Textual worker 实现，不复制其扫描策略、不新增依赖或测量期活动。
-根级 `acprof.run_args` 集中维护 CLI、共享配置与 TUI 使用的纯参数声明、下载参数和冻结参数序列化；
-它只依赖低层常量与 argparse，不反向导入 CLI。CLI 的 `download_args` 仅负责执行时应用环境变量。
+根级 `acprof.run_options.RunOptions` 是共享配置字段、默认值、CLI 元数据和 run/probe 适用性的唯一声明；
+`RunConfig` 继承这些字段并负责验证与预设，两个 parser 和命令构造器消费同一 schema。
+`acprof.run_args` 保留高级参数及冻结参数序列化；CLI 的 `download_args` 仅负责执行时应用环境变量。
+新增共享字段无需再同步表单配置、run/probe parser 和命令字段名单。
+该方式参考 [Transformers HfArgumentParser](https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py)
+的 dataclass 字段与 metadata 设计，使用标准库实现，不引入 Transformers 主机依赖。
 `run_args.arguments_from_options` 从同一 parser 定义序列化冻结参数；`RunConfig.extra_options` 仅保留未显式映射的公共选项，
 复用不丢失 seed、SLO 等条件，续跑继续交给既有 RunState 校验。索引不作为新的身份或权威数据库。
 设计参考 [MLflow RunInfo](https://github.com/mlflow/mlflow/blob/master/mlflow/entities/run_info.py) 对 run_id 与 artifact_uri 的分离
 （Apache-2.0），以及 [Textual Input suggester](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/suggester.py)
 和原生 ModalScreen/DataTable（MIT）。只借鉴稳定身份、局部搜索与原生事件模式，不引入 MLflow、数据库或新依赖。
-`model_candidates` 复用 runtime profile 路由、依赖锁与 Model Store entry 验证；`model_actions` 把候选回填原 ModelInput，
+`model_candidates` 复用 runtime profile 路由、依赖锁与 Model Store entry 验证；`model_controller` 把候选回填原 ModelInput，
 runtime/host/device/资源条件不完整或变化时降为需要重新验证。扫描与至多一次平台探测只在空闲 worker 中执行，
 不读取权重内容、不自动下载，也不凭历史成功跳过正式准备验证。
-`images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_actions.ImageActions` 收纳镜像页事件、渲染及 Docker worker。
-`ImageActions` 继承 Textual 的 `MessagePump`，通过原生事件继承和 `@work` 保留调度；`AcprofTui` 持有状态、计时器和进程管理器，配置模块仍不提前加载 Textual。
+`images` 提供镜像树、筛选、摘要与折叠详情、层引用和可滚动的删除确认；`ImageDetailPanel` 按镜像/层身份维护展开状态，将用户信息、完整依赖和诊断依据分组。`views` 构建三个视图，`image_controller.ImageController` 收纳镜像页事件、渲染及 Docker worker。
+`ImageController` 拥有清单、选择、计时器和存储弹窗状态，App 显式路由事件；Docker worker 通过 App 调度，配置模块仍不提前加载 Textual。
 `storage.StorageSpaceScreen` 展示可滚动的存储空间弹窗；`host.image_management.read_storage` 读取固定 Docker 连接的分类汇总和可核验的本机数据目录文件系统。
-存储 worker 由 `ImageActions` 管理，打开和手动刷新时才查询；关闭弹窗不取消尚在执行的 Docker 子进程，查询完成前保持与采集互斥。
+存储 worker 由 `ImageController` 管理，打开和手动刷新时才查询；关闭弹窗不取消尚在执行的 Docker 子进程，查询完成前保持与采集互斥。
 `ImageWorkspace` 按可用空间分配列表和详情高度；`ImageDetailResizeHandle` 使用 Textual 鼠标捕获和屏幕坐标处理上下拖动，也支持聚焦后按键调整。
 两侧各保留至少三行，手动高度仅存于控件的本次会话，窗口缩小不覆盖偏好。拖动只触发布局更新；禁用、隐藏、窗口缩放、失去捕获或按 `Esc` 时释放鼠标，沿用镜像控件的任务互斥，不增加后台扫描或定时器。
 `table.ResizableDataTable` 为统计报告和镜像管理的表格提供统一表头边界拖动，按稳定 column key 在控件内保留本次会话的手动列宽。

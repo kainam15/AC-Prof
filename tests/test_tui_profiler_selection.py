@@ -50,7 +50,7 @@ async def test_profiler_checkboxes_update_preview_preflight_and_restore(tmp_path
         assert not app.query_one("#ncu-profiler", Checkbox).value
         assert not app.query_one("#massif-profiler", Checkbox).value
         assert app.query_one("#nsys-profiler", Checkbox).value
-        assert app._collect_config() == config
+        assert app.configuration.collect_config() == config
 
         ncu = app.query_one("#ncu-profiler", Checkbox)
         ncu.scroll_visible(animate=False, immediate=True)
@@ -58,11 +58,11 @@ async def test_profiler_checkboxes_update_preview_preflight_and_restore(tmp_path
         await pilot.press("space")
         await pilot.pause(0.15)
         assert ncu.value
-        assert app._collect_config().compute_profile_tool == "both"
-        assert app._preflight_config().compute_profile_tool == "both"
+        assert app.configuration.collect_config().compute_profile_tool == "both"
+        assert app.preflight.preflight_config().compute_profile_tool == "both"
         preview = str(app.query_one("#command-preview", Static).render())
         assert "--compute-profile-tool both" in preview
-        command = build_run_command(app._collect_config(), project_dir=Path.cwd())
+        command = build_run_command(app.configuration.collect_config(), project_dir=Path.cwd())
         assert command[command.index("--execution-profile-tool") + 1] == "nsys"
 
         if language == "en":
@@ -70,7 +70,7 @@ async def test_profiler_checkboxes_update_preview_preflight_and_restore(tmp_path
         else:
             assert "GPU 内核" in ncu.label.plain
 
-        app._apply_config(config)
+        app.configuration.apply_config(config)
         await pilot.pause()
         assert not ncu.value
-        assert app._collect_config() == config
+        assert app.configuration.collect_config() == config

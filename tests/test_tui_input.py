@@ -212,8 +212,8 @@ class TestTuiInput:
                 assert ("\x1b[6 q") in (driver.output[-1])
                 driver.stop_application_mode()
                 assert (driver.output[-2:]) == (["\x1b[?25l\x1b[0 q", "STOP"])
-                with patch.object(app, "_reset_input_cursor", side_effect=OSError):
-                    with pytest.raises(OSError):
+                with patch.object(app, "_reset_input_cursor", side_effect=OSError("cursor reset failed")):
+                    with pytest.raises(OSError, match="cursor reset failed"):
                         driver.stop_application_mode()
                 assert (driver.output[-1]) == ("STOP")
 
@@ -306,19 +306,19 @@ class TestTuiInput:
                 try:
                     app._sync_input_cursor()
                     assert (app._input_cursor_timer) is not None
-                    app._consume_process_line(
+                    app.consume_process_line(
                         "", ProgressSnapshot(measurement_active=True), False,
                     )
                     assert (app._input_cursor_timer) is None
                     assert (app._input_cursor_visible)
                     app._toggle_input_cursor()
                     assert (app._input_cursor_visible)
-                    app._consume_process_line(
+                    app.consume_process_line(
                         "", ProgressSnapshot(measurement_active=False), False,
                     )
                     assert (app._input_cursor_timer) is not None
                     app.set_input_cursor_blink_enabled(False)
-                    app._set_busy(False)
+                    app.set_busy(False)
                     assert (app._input_cursor_blink_enabled)
                 finally:
                     app._reset_input_cursor()

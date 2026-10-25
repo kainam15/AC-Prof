@@ -15,15 +15,15 @@ async def test_late_refresh_timer_update_pauses_after_tabs_are_unmounted():
         app = AcprofTui(RunConfig(model="test/model"), settings_path=Path(root) / "settings.json")
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._image_refresh_timer.pause()
-            app._image_refresh_timer = Mock()
+            app.images.refresh_timer.pause()
+            app.images.refresh_timer = Mock()
             try:
                 await app.query_one("#main-tabs", TabbedContent).remove()
-                app._sync_image_refresh_timer()
+                app.images.sync_image_refresh_timer()
             finally:
-                app._form_ready = False
-            app._image_refresh_timer.pause.assert_called()
-            app._image_refresh_timer.reset.assert_not_called()
+                app.form_ready = False
+            app.images.refresh_timer.pause.assert_called()
+            app.images.refresh_timer.reset.assert_not_called()
 
 @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
 @pytest.mark.parametrize('language', ('zh', 'en'))
@@ -43,7 +43,7 @@ async def test_mode_selector_updates_command_in_both_languages_and_sizes(size, l
             await pilot.pause()
             assert (control.value) == ("basic")
             assert (control.region.height) > (0)
-            config = app._collect_config()
+            config = app.configuration.collect_config()
             assert (config.profiling_mode) == ("basic")
             command = build_run_command(config, project_dir=Path.cwd())
             assert (command[command.index("--profiling-mode") + 1]) == ("basic")

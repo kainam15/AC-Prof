@@ -65,8 +65,8 @@ class TestModelInput:
                 await pilot.pause()
                 app.query_one('#model', Input).value = 'unlisted/new-model'
                 await pilot.pause()
-                assert (app._collect_config().model) == ('unlisted/new-model')
-                assert (app._collect_config().revision) == ('')
+                assert (app.configuration.collect_config().model) == ('unlisted/new-model')
+                assert (app.configuration.collect_config().revision) == ('')
 
     @pytest.mark.parametrize("manual_revision", ("", "user-branch"))
     async def test_changing_source_clears_only_the_candidate_revision(self, manual_revision):
@@ -91,7 +91,7 @@ class TestModelInput:
                 source.focus()
                 await pilot.press('enter', 'end', 'enter')
                 await pilot.pause()
-                effective = app._collect_config()
+                effective = app.configuration.collect_config()
                 assert effective.model == record.model_id
                 assert effective.model_source == 'modelscope'
                 assert effective.revision == manual_revision
@@ -107,9 +107,9 @@ class TestModelInput:
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=root / 'settings.json')
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
-            with patch('acprof.tui.model_actions.scan_experiments') as scan:
-                app.open_model_candidates()
+            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+            with patch('acprof.tui.model_controller.scan_experiments') as scan:
+                app.models.open_model_candidates()
                 await pilot.pause()
                 scan.assert_not_called()
             assert not isinstance(app.screen, SearchPickerScreen)
@@ -143,7 +143,7 @@ class TestModelInput:
                 await pilot.press('escape')
                 await pilot.pause()
                 assert (app.query_one('#model', Input).value) == ('asdf')
-                app.ui_preferences = replace(app.ui_preferences, language='en')
+                app.configuration.preferences = replace(app.configuration.preferences, language='en')
                 app.query_one('#model', Input).focus()
                 await pilot.press('f4')
                 await app.workers.wait_for_complete()

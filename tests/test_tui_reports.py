@@ -44,16 +44,16 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
-            app._open_report(str(source))
+            app.results.open_report(str(source))
             await self.finish_workers(app, pilot)
             table = app.query_one("#report-table", DataTable)
             for language, title in (("zh", "模型"), ("en", "Model")):
-                app.ui_preferences = replace(app.ui_preferences, language=language)
-                app._apply_ui_preferences()
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
                 await pilot.pause()
                 assert (str(next(iter(table.columns.values())).label)) == (title)
                 assert ([str(cell) for cell in table.get_row_at(0)]) == (["fixture/sam2", "inconclusive", "compatibility_budget_exhausted"])
-                assert not (app._latest_snapshot.measurement_active)
+                assert not (app.latest_snapshot.measurement_active)
         assert (source.read_bytes()) == (original)
 
     async def test_v2_statistics_use_plots_directory(self):
@@ -65,8 +65,8 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            with patch.object(app, "_launch") as launch:
-                app._launch_stats(str(csv_path))
+            with patch.object(app, 'launch') as launch:
+                app.results.launch_stats(str(csv_path))
             launch.assert_called_once()
             command = launch.call_args.args[0].command
             assert ("--output-dir") in (command)
@@ -80,7 +80,7 @@ class TestTuiReports:
         await pilot.pause()
         tabs = app.query_one("#main-tabs", TabbedContent)
         assert ("reports-tab") in ([pane.id for pane in tabs.query(TabPane)]), "TUI 应提供统计报告页，让用户查看已有报告和计算窗口统计"
-        app._activate_tab("reports-tab")
+        app.activate_tab("reports-tab")
         await pilot.pause()
 
     async def finish_workers(self, app, pilot):
@@ -119,7 +119,7 @@ class TestTuiReports:
             assert (table.row_count) == (3)
             cells = [str(cell) for cell in table.get_row_at(0)]
             assert ("20 ms") in (cells)
-            assert not (app._is_busy())
+            assert not (app.is_busy())
             assert not (app.query_one("#start-run", Button).disabled)
         assert (self.csv_path.read_bytes()) == (original)
 
@@ -138,11 +138,11 @@ class TestTuiReports:
             saved = existing.read_bytes()
             modified = existing.stat().st_mtime_ns
             for language, expected in (("zh", "已有相同报告"), ("en", "Identical report already exists")):
-                app.ui_preferences = replace(app.ui_preferences, language=language)
-                app._apply_ui_preferences()
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
                 source.value = str(self.csv_path)
                 await pilot.pause()
-                with patch.object(app, "notify", wraps=app.notify) as notify:
+                with patch.object(app, 'notify', wraps=app.notify) as notify:
                     assert (await pilot.click("#report-calculate"))
                     await self.finish_workers(app, pilot)
                 assert (Path(str(source.value))) == (existing)
@@ -153,7 +153,7 @@ class TestTuiReports:
                 assert (any(expected in text and str(existing) in text for text in notices)), notices
                 assert (app.query_one("#report-table", DataTable).row_count) == (3)
                 assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")
-                assert not (app._is_busy())
+                assert not (app.is_busy())
         assert (self.csv_path.read_bytes()) == (original)
 
     @pytest.mark.parametrize('size', ((80, 24), (120, 30), (150, 45)))
@@ -164,8 +164,8 @@ class TestTuiReports:
             await self.open_tab(app, pilot)
             table = app.query_one("#report-table", DataTable)
             for language in ("zh", "en"):
-                app.ui_preferences = replace(app.ui_preferences, language=language)
-                app._apply_ui_preferences()
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
                 await pilot.pause()
                 assert (len(table.columns)) == (0)
                 inset = table.content_region.offset - table.region.offset
@@ -209,8 +209,8 @@ class TestTuiReports:
             table.focus()
             await pilot.pause()
             await pilot.press("right", "left", "down")
-            app.ui_preferences = replace(app.ui_preferences, language="en")
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language="en")
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
             assert (source.value) == (str(report))
             assert ("Uncertain direction") in ([str(cell) for cell in table.get_row_at(0)])
@@ -235,7 +235,7 @@ class TestTuiReports:
                 await self.finish_workers(app, pilot)
                 assert (app.query_one("#report-table", DataTable).row_count) == (0)
                 assert ("报告读取失败") in (str(app.query_one("#report-status", Static).content))
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 assert not (app.query_one("#report-open", Button).disabled)
 
     async def test_measurement_blocks_report_io_and_statistics_including_slash_commands(self):
@@ -243,10 +243,10 @@ class TestTuiReports:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#report-source", Input).value = str(self.csv_path)
-            app._process_kind = "run"
-            app._latest_snapshot = ProgressSnapshot(measurement_active=True)
-            app._set_busy(True)
-            with patch.object(app, "_execute_command") as execute:
+            app.process_kind = "run"
+            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.set_busy(True)
+            with patch.object(app.process, 'execute_command') as execute:
                 for selector in ("#report-open", "#report-calculate", "#report-source"):
                     assert (app.query_one(selector).disabled)
                 for command in ("/stats", "/report"):
@@ -258,24 +258,24 @@ class TestTuiReports:
                     await pilot.pause()
                 execute.assert_not_called()
                 assert not (list(app.workers))
-            app._process_kind = ""
-            app._latest_snapshot = ProgressSnapshot()
-            app._set_busy(False)
+            app.process_kind = ""
+            app.latest_snapshot = ProgressSnapshot()
+            app.set_busy(False)
             assert not (app.query_one("#report-open", Button).disabled)
 
     async def test_current_result_follows_completed_run_but_preserves_an_explicit_report_path(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
-            app._run_result = RunResult(True, True, result_csv=str(self.csv_path))
-            app._process_finished("run", 0, ProgressSnapshot(final_csv=str(self.csv_path)), "")
+            app.run_result = RunResult(True, True, result_csv=str(self.csv_path))
+            app.process_finished("run", 0, ProgressSnapshot(final_csv=str(self.csv_path)), "")
             await app.workers.wait_for_complete()
             await pilot.pause()
             source = app.query_one("#report-source", Input)
             assert (source.value) == (str(self.csv_path))
             assert not (list(app.workers))
             source.value = str(self.overhead_report())
-            app._remember_last_used(result_csv=str(self.directory / "another.csv"))
+            app.configuration.remember_last_used(result_csv=str(self.directory / "another.csv"))
             assert (source.value.endswith("开销.json"))
 
     async def test_failed_statistics_returns_to_reports_and_reenables_controls(self):
@@ -289,5 +289,5 @@ class TestTuiReports:
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")
             assert ("统计未完成") in (str(app.query_one("#report-status", Static).content))
             assert (app.query_one("#report-table", DataTable).row_count) == (0)
-            assert not (app._is_busy())
+            assert not (app.is_busy())
             assert not (app.query_one("#report-calculate", Button).disabled)

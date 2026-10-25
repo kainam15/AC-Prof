@@ -10,6 +10,9 @@ sys.path.insert(0, str(ROOT))
 from acprof.experiment import RunConfig  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.app import AcprofTui  # noqa: E402 -- 脚本先设置仓库导入路径。
 from acprof.tui.commands import PendingLaunch  # noqa: E402 -- 脚本先设置仓库导入路径。
+from acprof.tui.preflight_controller import (  # noqa: E402 -- 脚本先设置仓库导入路径。
+    PreflightController,
+)
 
 
 def main():
@@ -20,19 +23,24 @@ def main():
     payload = json.loads(args.command.read_text())
     config = RunConfig(**payload["config"])
 
-    class ValidationTui(AcprofTui):
-        def _show_quick_check(self, checks, error, token):
-            if token is not self._check_request:
+    class ValidationPreflight(PreflightController):
+        def show_quick_check(self, checks, error, token):
+            if token is not self.check_request:
                 return
-            super()._show_quick_check(checks, error, token)
-            reason = self._preflight_run_reason()
+            super().show_quick_check(checks, error, token)
+            reason = self.preflight_run_reason()
             if reason:
-                self.call_after_refresh(self._process_finished, "run", 1, None, self.tr(reason))
+                self.app.call_after_refresh(self.app.process_finished, "run", 1, None, self.app.tr(reason))
             else:
-                self.call_after_refresh(self._launch, PendingLaunch(tuple(payload["command"]), "run", config))
+                self.app.call_after_refresh(self.app.launch, PendingLaunch(tuple(payload["command"]), "run", config))
 
-        def _process_finished(self, kind, returncode, snapshot, launch_error):
-            super()._process_finished(kind, returncode, snapshot, launch_error)
+    class ValidationTui(AcprofTui):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.preflight = ValidationPreflight(self)
+
+        def process_finished(self, kind, returncode, snapshot, launch_error):
+            super().process_finished(kind, returncode, snapshot, launch_error)
             self.call_after_refresh(
                 self._save_finished_screen, returncode if not launch_error else 1, time.monotonic() + 10,
             )
@@ -43,7 +51,7 @@ def main():
             if not self.query_one("#monitor-tab").display or not self.query_one("#run-log").region:
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Monitor log did not render before the final screenshot")
-                self._activate_tab("monitor-tab")
+                self.activate_tab("monitor-tab")
                 self.refresh(layout=True)
                 self.call_after_refresh(self._save_finished_screen, returncode, deadline)
                 return

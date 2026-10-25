@@ -44,12 +44,12 @@ class TestTuiStorage:
 
     async def load_images(self, app, pilot):
         await pilot.pause()
-        app.action_show_images()
+        app.images.show_images()
         await pilot.pause()
         await app.workers.wait_for_complete()
-        app._image_refresh_timer.pause()
+        app.images.refresh_timer.pause()
         await pilot.pause()
-        assert not (app._is_busy())
+        assert not (app.is_busy())
         # 树首次聚焦公共环境；选择最后一个模型节点用于勾选回归。
         await pilot.click("#image-view-list")
         table = app.query_one("#image-table", DataTable)
@@ -59,7 +59,7 @@ class TestTuiStorage:
     @staticmethod
     def snapshot(app):
         return DockerStorage(
-            app._image_inventory.connection, app._image_inventory.daemon_id, "/var/lib/docker",
+            app.images.inventory.connection, app.images.inventory.daemon_id, "/var/lib/docker",
             DiskSpace(512 * 1024**3, 384 * 1024**3, 128 * 1024**3),
             tuple(StorageUsage(kind, used * 1024**3, reclaim * 1024**3) for kind, used, reclaim in (
                 ("Images", 46, 18), ("Containers", 3, 1), ("Local Volumes", 12, 2), ("Build Cache", 9, 9),
@@ -85,7 +85,7 @@ class TestTuiStorage:
             await pilot.click("#image-model")
             snapshot = self.snapshot(app)
             updated = replace(snapshot, disk=DiskSpace(512 * 1024**3, 256 * 1024**3, 256 * 1024**3))
-            with patch("acprof.tui.image_actions.read_storage", side_effect=[
+            with patch("acprof.tui.image_controller.read_storage", side_effect=[
                 snapshot, ImageManagementError("Docker 操作失败", "permission denied"), updated,
             ]) as read:
                 await self.open_storage(app, pilot)
@@ -124,7 +124,7 @@ class TestTuiStorage:
                 assert (read.call_count) == (3)
                 await pilot.press("escape")
                 await pilot.pause()
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 assert not (self.docker.removals)
 
     @pytest.mark.parametrize('width,height', ((80, 24), (120, 30), (150, 45)))
@@ -134,9 +134,9 @@ class TestTuiStorage:
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
             snapshot = self.snapshot(app)
-            with patch("acprof.tui.image_actions.read_storage", return_value=snapshot) as read:
-                app.ui_preferences = replace(app.ui_preferences, language=language)
-                app._apply_ui_preferences()
+            with patch("acprof.tui.image_controller.read_storage", return_value=snapshot) as read:
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
                 await pilot.resize_terminal(80, 24)
                 await pilot.pause()
                 entry = app.query_one("#image-storage", Button)
@@ -172,7 +172,7 @@ class TestTuiStorage:
                 await pilot.press("tab", "enter")
                 await pilot.pause()
                 assert (len(app.screen_stack)) == (1)
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 # Each parameter opens one dialog; the old two-language loop
                 # accumulated one read per opening.
                 read.assert_called_once()
@@ -190,64 +190,64 @@ class TestTuiStorage:
                     raise TimeoutError("test worker was not released")
                 return snapshot
 
-            with patch("acprof.tui.image_actions.read_storage", side_effect=slow_read) as read:
+            with patch("acprof.tui.image_controller.read_storage", side_effect=slow_read) as read:
                 try:
                     assert (await pilot.click("#image-storage"))
                     await pilot.pause()
                     assert (await asyncio.to_thread(entered.wait, 2))
                     assert (app.screen.query_one("#storage-refresh", Button).disabled)
-                    app.refresh_storage()
+                    app.images.refresh_storage()
                     assert (read.call_count) == (1)
                     await pilot.press("escape")
                     await pilot.pause()
                     assert (len(app.screen_stack)) == (1)
-                    assert (app._is_busy())
+                    assert (app.is_busy())
                     assert (app.query_one("#start-run", Button).disabled)
-                    with patch("acprof.tui.image_actions.list_images") as inventory:
-                        app.refresh_images()
+                    with patch("acprof.tui.image_controller.list_images") as inventory:
+                        app.images.refresh_images()
                         inventory.assert_not_called()
                 finally:
                     release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 assert not (app.query_one("#start-run", Button).disabled)
 
     async def test_measurement_prevents_storage_query(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await self.load_images(app, pilot)
-            app._latest_snapshot = ProgressSnapshot(measurement_active=True)
-            app._set_busy(True)
-            with patch("acprof.tui.image_actions.read_storage") as read:
-                app.open_storage()
+            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.set_busy(True)
+            with patch("acprof.tui.image_controller.read_storage") as read:
+                app.images.open_storage()
                 await pilot.pause()
                 assert (app.query_one("#image-storage", Button).disabled)
                 assert (len(app.screen_stack)) == (1)
                 read.assert_not_called()
-            app._latest_snapshot = ProgressSnapshot()
-            app._set_busy(False)
+            app.latest_snapshot = ProgressSnapshot()
+            app.set_busy(False)
 
     async def test_changed_selection_references_show_unknown_reclaim_without_deletion(self):
         app = self.make_app()
         async with app.run_test(size=(150, 45)) as pilot:
             await self.load_images(app, pilot)
             await pilot.click("#image-model")
-            selected = set(app._selected_image_ids)
+            selected = set(app.images.selected_ids)
             self.docker.images[FINAL]["RepoTags"].append("changed:tag")
-            with patch("acprof.tui.image_actions.read_storage", return_value=self.snapshot(app)):
+            with patch("acprof.tui.image_controller.read_storage", return_value=self.snapshot(app)):
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))
                 assert ("未知") in (selection)
                 assert ("≈") not in (selection)
                 status = self.rendered(app.screen.query_one("#storage-status", Static))
                 assert ("所选镜像或引用已改变") in (status)
-                assert (app._selected_image_ids) == (selected)
+                assert (app.images.selected_ids) == (selected)
                 assert not (self.docker.removals)
                 await pilot.press("escape")
                 await pilot.pause()
-                app.ui_preferences = replace(app.ui_preferences, language="en")
-                app._apply_ui_preferences()
+                app.configuration.preferences = replace(app.configuration.preferences, language="en")
+                app.configuration.apply_ui_preferences()
                 await pilot.pause()
                 await self.open_storage(app, pilot)
                 selection = self.rendered(app.screen.query_one("#storage-selection", Static))

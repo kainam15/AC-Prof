@@ -143,8 +143,9 @@ module = [
     "acprof.pixel_metrics",
     "acprof.source_identity",
     "acprof.tui.commands",
-    "acprof.tui.experiment_actions",
-    "acprof.tui.profile_actions",
+    "acprof.tui.experiment_controller",
+    "acprof.tui.profile_controller",
+    "acprof.run_options",
     "acprof.tui.settings",
 ]
 disallow_any_generics = true

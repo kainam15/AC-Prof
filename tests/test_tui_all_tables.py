@@ -38,10 +38,10 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("reports-tab")
-            app._report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
+            app.activate_tab("reports-tab")
+            app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
-            app._render_report_view()
+            app.results.render_report_view()
             await pilot.pause()
             table = app.query_one("#report-table", DataTable)
             column = table.ordered_columns[0]
@@ -50,19 +50,19 @@ class TestAllTables:
             start = (column.get_render_width(table) - 1, 0)
             await drag(pilot, table, start, 5)
             assert (table.columns[column.key].width) == (width + 5)
-            app._render_report_view()
+            app.results.render_report_view()
             await pilot.pause()
             assert (table.columns[column.key].width) == (width + 5)
             await pilot.mouse_down(table, offset=header_offset(table))
             assert (app.mouse_captured) is (table)
-            app._latest_snapshot = ProgressSnapshot(measurement_active=True)
-            app._set_busy(True)
+            app.latest_snapshot = ProgressSnapshot(measurement_active=True)
+            app.set_busy(True)
             await pilot.pause()
             assert (app.mouse_captured) is None
             await pilot.mouse_up(table, offset=(start[0] + 8, 0))
             assert (table.columns[column.key].width) == (width + 5)
-            app._latest_snapshot = ProgressSnapshot()
-            app._set_busy(False)
+            app.latest_snapshot = ProgressSnapshot()
+            app.set_busy(False)
             await drag(pilot, table, header_offset(table), 3)
             assert (table.columns[column.key].width) == (width + 8)
 
@@ -70,17 +70,17 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("reports-tab")
-            app._report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
+            app.activate_tab("reports-tab")
+            app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
-            app._render_report_view()
+            app.results.render_report_view()
             await pilot.pause()
             table = app.query_one("#report-table", DataTable)
             width = table.ordered_columns[0].get_render_width(table) - 2 * table.cell_padding
             await drag(pilot, table, (width + 1, 0), 5)
             assert (table.ordered_columns[0].width) == (width + 5)
-            app.ui_preferences = replace(app.ui_preferences, language="en")
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language="en")
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
             assert (table.ordered_columns[0].width) == (width + 5)
 
@@ -88,7 +88,7 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.action_show_images()
+            app.images.show_images()
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -102,13 +102,13 @@ class TestAllTables:
             await drag(pilot, header, start, -8)
             assert (tree.render_line(0).text.index("100 B")) == (before - 8)
             assert (tree.root.children[0].is_expanded)
-            assert not (app._selected_image_ids)
+            assert not (app.images.selected_ids)
 
     async def test_tree_columns_align_and_scroll_together_after_manual_resize(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.action_show_images()
+            app.images.show_images()
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -150,17 +150,17 @@ class TestAllTables:
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            app._report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
+            app.results.report_view = ReportView(Path("example.json"), "统计", ("指标", "均值"),
                                           (ReportRow(("Latency", "20 ms"), "来源"),), "说明")
-            app._render_report_view()
-            app.action_show_images()
+            app.results.render_report_view()
+            app.images.show_images()
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
-            app._activate_tab(tab)
+            app.activate_tab(tab)
             await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()

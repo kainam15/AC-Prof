@@ -51,14 +51,14 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
                     await pilot.pause()
             await asyncio.wait_for(ready(), timeout=10)
             await pilot.pause()
-            pid = app._lifecycle.process.pid
-            assert app._preparation_screen is None
+            pid = app.lifecycle.process.pid
+            assert app.preflight.preparation_screen is None
             assert await pilot.click("#stop-run")
             await pilot.pause()
             assert await pilot.click("#confirm-yes")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
-            assert app._lifecycle.process is None
+            assert app.lifecycle.process is None
             assert app.query_one(TabbedContent).active == "monitor-tab"
             assert "任务已由用户终止" in app.query_one("#run-log", SelectableLog).text
             assert not app.query_one("#start-run", Button).disabled
@@ -107,7 +107,7 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
             async with app.run_test(size=(80, 24)) as pilot:
                 async def wait_for_request(request_id):
                     async def wait():
-                        while app._preparation_request is None or app._preparation_request[1] != request_id:
+                        while app.preflight.preparation_request is None or app.preflight.preparation_request[1] != request_id:
                             await pilot.pause()
                         await pilot.pause()
                     await asyncio.wait_for(wait(), timeout=15)
@@ -115,19 +115,19 @@ async def test_start_button_keeps_real_child_alive_through_answer_and_retry():
                 assert (await pilot.click("#start-run"))
                 await pilot.pause()
                 await wait_for_request(1)
-                pid = app._lifecycle.process.pid
+                pid = app.lifecycle.process.pid
                 app.screen.query_one("#preparation-answer-0", Select).value = "fill-mask"
                 assert (await pilot.click("#preparation-apply"))
                 await wait_for_request(2)
-                assert (app._lifecycle.process.pid) == (pid)
-                assert (app._latest_snapshot.interface_status) == ("passed")
-                assert (app._latest_snapshot.runtime_status) == ("failed")
-                assert (app._latest_snapshot.measurement_status) == ("not_started")
+                assert (app.lifecycle.process.pid) == (pid)
+                assert (app.latest_snapshot.interface_status) == ("passed")
+                assert (app.latest_snapshot.runtime_status) == ("failed")
+                assert (app.latest_snapshot.measurement_status) == ("not_started")
                 assert (await pilot.click("#preparation-continue"))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-                assert (app._lifecycle.process) is None
-                assert (app._latest_snapshot.runtime_status) == ("passed")
+                assert (app.lifecycle.process) is None
+                assert (app.latest_snapshot.runtime_status) == ("passed")
                 assert (f"WORKFLOW_DONE {pid}") in (app.query_one("#run-log", SelectableLog).text)
                 assert ("ACPROF_PREPARATION") not in (app.query_one("#run-log", SelectableLog).text)
                 launch.assert_called_once()
@@ -142,10 +142,10 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
         async with app.run_test(size=size) as pilot:
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
-            app._lifecycle.process = process
+            app.lifecycle.process = process
             try:
-                with patch.object(app, "_launch") as launch:
-                    handler = app._preparation_event
+                with patch.object(app, 'launch') as launch:
+                    handler = app.preflight.preparation_event
                     handler({"version": 1, "stage": "resolution", "status": "waiting", "request": {
                         "id": 1, "kind": "review", "detail": "", "questions": [
                             {"path": "task", "value": None, "options": ["fill-mask", "text-generation"], "reason": "two candidates"},
@@ -173,7 +173,7 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
                     assert ('"action": "retry"') in (process.stdin.getvalue())
                     launch.assert_not_called()
             finally:
-                app._lifecycle.process = None
+                app.lifecycle.process = None
 async def test_model_lookup_error_is_translated_in_preparation_dialog():
     from acprof.host.model_errors import ModelLookupError
     from acprof.tui.preparation import PreparationScreen
@@ -205,14 +205,14 @@ async def test_preparation_completion_preserves_stop_confirmation(tmp_path, size
     process.poll.return_value = None
     async with app.run_test(size=size) as pilot:
         base = app.screen
-        app._lifecycle.process = process
-        app._process_kind = "run"
+        app.lifecycle.process = process
+        app.process_kind = "run"
         try:
-            app._set_busy(True)
-            app._activate_tab("monitor-tab")
+            app.set_busy(True)
+            app.activate_tab("monitor-tab")
             stop = app.query_one("#stop-run", Button)
             stop.focus()
-            app._show_preparation({"stage": "runtime", "status": "running"})
+            app.preflight.show_preparation({"stage": "runtime", "status": "running"})
             await pilot.pause()
             preparation = app.screen
             await pilot.press("ctrl+x", "tab")
@@ -223,31 +223,31 @@ async def test_preparation_completion_preserves_stop_confirmation(tmp_path, size
             assert focused is not None
 
             if completion == "runtime":
-                app._preparation_event({"stage": "runtime", "status": "passed"})
+                app.preflight.preparation_event({"stage": "runtime", "status": "passed"})
             else:
-                app._lifecycle.process = None
-                app._process_finished("run", 1, None, "")
+                app.lifecycle.process = None
+                app.process_finished("run", 1, None, "")
             await pilot.pause()
 
             assert app.screen is confirmation
             assert confirmation.focused is focused
-            assert not app._stop_requested
+            assert not app.stop_requested
             assert await pilot.click("#confirm-no")
             await pilot.pause()
             assert app.screen is base
             assert preparation not in app.screen_stack
             assert confirmation not in app.screen_stack
-            assert app._preparation_screen is None
+            assert app.preflight.preparation_screen is None
             assert app.screen.focused is not None
             assert app.screen.focused.screen is base
             if completion == "runtime":
                 assert app.screen.focused is stop
-                assert app._lifecycle.process is process
+                assert app.lifecycle.process is process
             else:
                 assert not app.query_one("#start-run", Button).disabled
         finally:
-            app._lifecycle.process = None
-            app._process_kind = ""
+            app.lifecycle.process = None
+            app.process_kind = ""
 
 
 async def test_completed_preparation_preserves_nested_dialog_replies_and_new_preparation(tmp_path):
@@ -257,7 +257,7 @@ async def test_completed_preparation_preserves_nested_dialog_replies_and_new_pre
     responses = []
     async with app.run_test(size=(80, 24)) as pilot:
         base = app.screen
-        app._show_preparation({"stage": "runtime", "status": "running"})
+        app.preflight.show_preparation({"stage": "runtime", "status": "running"})
         await pilot.pause()
         previous = app.screen
         first = ConfirmActionScreen("First", "Keep this decision", "Confirm")
@@ -265,8 +265,8 @@ async def test_completed_preparation_preserves_nested_dialog_replies_and_new_pre
         second = ConfirmActionScreen("Second", "Keep this decision too", "Confirm")
         await app.push_screen(second, lambda answer: responses.append(("second", answer)))
         await pilot.pause()
-        app._close_preparation()
-        app._close_preparation()
+        app.preflight.close_preparation()
+        app.preflight.close_preparation()
         await pilot.pause()
         assert app.screen is second
         assert responses == []
@@ -274,12 +274,12 @@ async def test_completed_preparation_preserves_nested_dialog_replies_and_new_pre
         # A completed screen can still have queued messages while covered.
         previous.update_event({"stage": "runtime", "status": "running"})
         previous.action_cancel()
-        assert not app._stop_requested
-        app._show_preparation({"stage": "resolution", "status": "running"})
+        assert not app.stop_requested
+        app.preflight.show_preparation({"stage": "resolution", "status": "running"})
         await pilot.pause()
         current = app.screen
         assert current is not previous
-        app._close_preparation()
+        app.preflight.close_preparation()
         await pilot.pause()
         assert app.screen is second
         assert await pilot.click("#confirm-yes")

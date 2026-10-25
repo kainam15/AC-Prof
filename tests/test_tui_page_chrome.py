@@ -26,7 +26,7 @@ class TestTuiPageChrome:
             RunConfig.smoke("demo/model"),
             settings_path=Path(str(temporary)) / "tui.json",
         )
-        refresh = patch.object(self.app, "refresh_images")
+        refresh = patch.object(self.app.images, 'refresh_images')
         refresh.start()
         self._request.addfinalizer(partial(refresh.stop))
 
@@ -55,9 +55,9 @@ class TestTuiPageChrome:
         app = self.app
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.resize_terminal(*size)
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_ui_preferences()
-            app._activate_tab(page)
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
+            app.activate_tab(page)
             await pilot.pause()
             pane = app.query_one("#" + page)
             button = app.query_one("#" + primary, Button)
@@ -79,14 +79,14 @@ class TestTuiPageChrome:
                 if action.display:
                     self.assert_reachable(action)
             # Footer remains anchored when the global command box is hidden.
-            app.ui_preferences = replace(app.ui_preferences, show_command_bar=False)
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=False)
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
             assert (button.region.bottom) == (pane.region.bottom)
             self.assert_reachable(button)
             self.assert_actions_aligned(pane, secondary, button)
-            app.ui_preferences = replace(app.ui_preferences, show_command_bar=True)
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, show_command_bar=True)
+            app.configuration.apply_ui_preferences()
 
     def assert_color_family(self, color, family):
         hue, saturation, _ = colorsys.rgb_to_hsv(*(channel / 255 for channel in color.rgb))
@@ -106,7 +106,7 @@ class TestTuiPageChrome:
         async with app.run_test(size=(120, 30)) as pilot:
             app.theme = theme
             await pilot.pause()
-            app._activate_tab(page)
+            app.activate_tab(page)
             button = app.query_one(selector, Button)
             button.disabled = False
             await pilot.pause()
@@ -128,7 +128,7 @@ class TestTuiPageChrome:
             button.disabled = False
             await pilot.pause()
             assert (button.styles.color) == (original)
-            app._activate_tab("plot-tab")
+            app.activate_tab("plot-tab")
             await pilot.pause()
             normal = app.query_one("#summarize-results", Button)
             foreground = app.current_theme.foreground
@@ -142,18 +142,18 @@ class TestTuiPageChrome:
     async def test_ready_success_and_failure_feedback_have_semantic_colors(self, stage, family):
         app = self.app
         async with app.run_test(size=(80, 24)) as pilot:
-            app._activate_tab("monitor-tab")
-            app._render_snapshot(ProgressSnapshot(stage=stage))
+            app.activate_tab("monitor-tab")
+            app.render_snapshot(ProgressSnapshot(stage=stage))
             await pilot.pause()
             self.assert_color_family(app.query_one("#status-stage").styles.color, family)
-            app._activate_tab("settings-tab")
+            app.activate_tab("settings-tab")
             await pilot.pause()
             assert (await pilot.click("#save-ui-settings"))
             await pilot.pause()
             status = app.query_one("#settings-status", Static)
             assert ("已保存") in (str(status.content))
             self.assert_color_family(status.styles.color, "green")
-            with patch("acprof.tui.app.save_settings", side_effect=OSError("read only")):
+            with patch("acprof.tui.configuration_controller.save_settings", side_effect=OSError("read only")):
                 assert (await pilot.click("#save-ui-settings"))
                 await pilot.pause()
             assert ("保存失败") in (str(status.content))
@@ -161,31 +161,31 @@ class TestTuiPageChrome:
 
     async def test_confirmation_keeps_the_action_color_and_cancel_does_not_launch(self):
         app = self.app
-        with patch.object(app, "_launch") as launch:
+        with patch.object(app, 'launch') as launch:
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.press("f5")
                 await pilot.pause()
                 launch.assert_called_once()
                 launch.reset_mock()
-                app._activate_tab("profile-tab")
-                app.query_one("#result-dir", Input).value = str(app.settings_path.parent)
+                app.activate_tab("profile-tab")
+                app.query_one("#result-dir", Input).value = str(app.configuration.settings_path.parent)
                 await pilot.pause()
                 assert (await pilot.click("#profile-run"))
                 await pilot.pause()
                 self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "yellow")
                 await pilot.press("escape")
-                app._process_kind = "run"
+                app.process_kind = "run"
                 process = Mock()
                 process.poll.return_value = None
-                app._lifecycle.process = process
+                app.lifecycle.process = process
                 try:
-                    app._set_busy(True)
+                    app.set_busy(True)
                     app.action_request_stop()
                     await pilot.pause()
                     self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "red")
                     await pilot.press("escape")
                 finally:
-                    app._lifecycle.process = None
+                    app.lifecycle.process = None
                 launch.assert_not_called()
-                app._process_kind = ""
-                app._set_busy(False)
+                app.process_kind = ""
+                app.set_busy(False)

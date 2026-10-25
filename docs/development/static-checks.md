@@ -19,16 +19,17 @@
 Textual 框架动态事件和 subclass 关键字的局部类型例外仍保留在对应实现旁，未启用
 全局 `ignore_errors`；未来逐模块收紧 `Any` 和未注解函数，不通过跳过函数体提高覆盖率。
 
-TUI 的事件处理以多个 `MessagePump` Mixin 组成最终 `AcprofTui`，单个 Mixin
-无法直接看到其他 Mixin 与最终 App 的方法/状态。只在确实访问组合控制器的函数体内使用
-`if TYPE_CHECKING: assert isinstance(self, AcprofTui)` 声明完整控制器依赖：
-它不执行运行时导入或断言，mypy 却会继续检查实际成员及其参数/返回值，
-避免全局 `ignore_errors` 或将不存在的属性都声明为 `Any`。将通用逻辑移出 Mixin 时，
-应优先改为独立参数及可复用的 `Protocol`，而不是扩散对完整 App 的依赖。
-弹窗和小部件只通过 Textual 的泛型 `self.app` 获取宿主，
-其实际使用的翻译与候选操作在 `acprof/tui/app_contracts.py` 中定义最小 `Protocol`，
-并由静态接口检查验证最终 `AcprofTui` 满足要求。
-未来将继续把已验证的接口升级为具体参数、返回值、`TypedDict` 或 Protocol，并在对应模块上收紧规则。
+TUI 的业务能力使用具体类型的 controller 组合；每个 controller 显式接收 `AcprofTui`，
+其拥有的状态在构造函数初始化。跨职责调用写明 `app.configuration`、`app.results`、
+`app.preflight` 等接收方，mypy 会检查实际方法名、参数与返回值。
+App 仅保留 Textual 事件/快捷键入口及进程、测量和退出生命周期；不通过业务 MRO、
+`if TYPE_CHECKING: assert isinstance(self, AcprofTui)`、动态方法查找或宽泛 Protocol 获取隐式成员。
+普通 controller 的 worker 直接提交给 App 的 worker manager；工作线程函数和启动方法均保留明确签名。
+弹窗和小部件通过 Textual 的泛型 `self.app` 获取宿主时，继续使用
+`acprof/tui/app_contracts.py` 的三个小型接口；候选选择与镜像文案接口暴露具体 controller，
+静态接口检查验证真实 App 满足这些要求。这里的既有框架类型边界不用于业务 controller 内部。
+测试 mock 位于实际所属模块或 `app.<controller>`，不使用 `create=True` 增补已删除的业务接口。
+未来收紧 `Any` 和未注解函数仍按模块推进；不能通过跳过函数体或增加 ignore 掩盖接口错误。
 
 GitHub Actions 的 `types` job 在 Python 3.12 中同时安装项目依赖和 `typing` 组：
 

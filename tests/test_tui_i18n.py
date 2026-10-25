@@ -139,10 +139,10 @@ class TestTuiLanguage:
         return AcprofTui(config, settings_path=self.settings_path)
 
     async def switch(self, app, pilot, language):
-        app.action_show_settings()
+        app.configuration.show_settings()
         app.query_one("#ui-language", Select).value = language
         await pilot.pause()
-        assert (app.ui_preferences.language) == (language)
+        assert (app.configuration.preferences.language) == (language)
 
     async def test_language_selector_accepts_keyboard_choices_in_both_directions(self):
         app = self.make_app(RunConfig.smoke("demo/model"))
@@ -156,13 +156,13 @@ class TestTuiLanguage:
             assert (app.query_one("#ui-language", Select).expanded)
             await pilot.press("end", "enter")
             await pilot.pause()
-            assert (app.ui_preferences.language) == ("en")
+            assert (app.configuration.preferences.language) == ("en")
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("English")
             await pilot.click("#ui-language", offset=(4, 1))
             assert (app.query_one("#ui-language", Select).expanded)
             await pilot.press("home", "enter")
             await pilot.pause()
-            assert (app.ui_preferences.language) == ("zh")
+            assert (app.configuration.preferences.language) == ("zh")
             assert (app.query_one("#ui-language SelectCurrent #label", Static).content) == ("简体中文")
             assert (app.query_one("#run-preset", Select).value) == ("smoke")
             assert not (self.settings_path.exists())
@@ -172,19 +172,19 @@ class TestTuiLanguage:
         app = self.make_app(config)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app.open_run_settings()
+            app.configuration.open_run_settings()
             model = app.query_one("#model", Input)
             model.value = "等待/{模型}"
             model.cursor_position = 2
             await pilot.pause()
             # This test preserves an already rendered preview; debounce timing
             # is covered by the form interaction tests.
-            app._cancel_preview_timer()
-            app._refresh_command_preview(notify=False, sync_preset=True)
-            command = build_run_command(app._collect_config(), project_dir=PROJECT_DIR)
+            app.configuration.cancel_preview_timer()
+            app.configuration.refresh_command_preview(notify=False, sync_preset=True)
+            command = build_run_command(app.configuration.collect_config(), project_dir=PROJECT_DIR)
             preview = app.query_one("#command-preview", Static).content
             preset = app.query_one("#run-preset", Select).value
-            app._activate_tab("monitor-tab")
+            app.activate_tab("monitor-tab")
             log = app.query_one("#run-log", SelectableLog)
             log.write("\n".join(f"等待 原始日志 {index}" for index in range(100)))
             await pilot.pause()
@@ -197,13 +197,13 @@ class TestTuiLanguage:
                 stage=Stage.CASE_COMPLETED, current_case=1, completed_cases=1, total_cases=2,
                 cpu="1", mem="4", gpu="on", detail=message("正在准备 case {0}/{1}", 1, 2),
             )
-            app._latest_snapshot = snapshot
-            app._render_snapshot(snapshot)
+            app.latest_snapshot = snapshot
+            app.render_snapshot(snapshot)
             summary = ResultSummary(3, 2, 1, 1, 2, groups=(dict(cpu_cores=1, mem_cap_gb=4,
                 gpu_mode="off", input_scale=64, environment_class="unknown", metric="latency_app_s",
                 mean=0.02, unit="s", n_windows=1, reason="insufficient_windows"),))
-            with patch("acprof.tui.app.summarize_result_csv", return_value=summary) as read_results:
-                app._update_result_summary("read-once.csv", notify=False)
+            with patch("acprof.tui.result_controller.summarize_result_csv", return_value=summary) as read_results:
+                app.results.update_result_summary("read-once.csv", notify=False)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 remembered = self.settings_path.read_bytes()
@@ -216,13 +216,13 @@ class TestTuiLanguage:
             assert (app.query_one("#run-preset", Select).value) == (preset)
             assert (app.query_one("#gpus", Select).value) == ("on,off")
             assert (app.query_one("#ui-theme SelectCurrent #label", Static).content) == ("Graphite · Dark (Default)")
-            assert (build_run_command(app._collect_config(), project_dir=PROJECT_DIR)) == (command)
+            assert (build_run_command(app.configuration.collect_config(), project_dir=PROJECT_DIR)) == (command)
             assert (app.query_one("#command-preview", Static).content) == (preview)
             assert (app.query_one("#experiment-pages", ContentSwitcher).current) == ("advanced-form")
             assert (str(app.query_one("#open-run-settings", Button).label)) == ("Basic settings")
             assert (app.query_one("#status-stage", Static).content) == ("Case completed")
             assert (app.query_one("#status-stage").has_class("stage-success"))
-            assert (app._latest_snapshot) is (snapshot)
+            assert (app.latest_snapshot) is (snapshot)
             assert (app.query_one("#status-case", Static).content) == ("Current 1 · Done 1/2")
             assert (app.query_one("#status-resource", Static).content) == ("CPU=1  MEM=4GB  GPU=on")
             assert ((log.text, log.selection, log.scroll_y)) == ((old_text, old_selection, old_scroll))
@@ -242,7 +242,7 @@ class TestTuiLanguage:
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             await self.switch(app, pilot, "en")
-            app._remember_last_used(model="demo/latest")
+            app.configuration.remember_last_used(model="demo/latest")
             saved, warning = load_settings(self.settings_path, PROJECT_DIR)
             assert not (warning)
             assert (saved.ui.language) == ("zh")
@@ -252,14 +252,14 @@ class TestTuiLanguage:
         restarted = self.make_app()
         async with restarted.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            assert (restarted.ui_preferences.language) == ("en")
+            assert (restarted.configuration.preferences.language) == ("en")
             assert (str(restarted.query_one("#start-run", Button).label)) == ("Start run")
             assert (restarted.query_one("#model", Input).value) == ("demo/latest")
-            assert (restarted._saved_settings.run_defaults) == (defaults)
+            assert (restarted.configuration.saved_settings.run_defaults) == (defaults)
             await pilot.press("f2")
             assert (await pilot.click("#restore-ui-defaults"))
             await pilot.pause()
-            assert (restarted.ui_preferences.language) == ("zh")
+            assert (restarted.configuration.preferences.language) == ("zh")
             assert (restarted.query_one("#ui-language", Select).value) == ("zh")
             assert (load_settings(self.settings_path, PROJECT_DIR)[0].ui.language) == ("en")
 
@@ -270,27 +270,27 @@ class TestTuiLanguage:
             await self.switch(app, pilot, "en")
             app.query_one("#mems", Input).value = "oops"
             await pilot.pause()
-            app._refresh_command_preview(notify=False)
+            app.configuration.refresh_command_preview(notify=False)
             assert ("Memory list must be comma-separated integers") in (app.query_one("#config-summary", Static).content)
-            app.action_request_run()
+            app.experiments.request_run()
             await pilot.pause()
             assert (any(n.title == "Invalid configuration" and "Memory list" in n.message for n in app._notifications))
             app.query_one("#mems", Input).value = "4"
             await pilot.pause()
-            app.action_request_probe()
+            app.experiments.request_probe()
             await pilot.pause()
             assert (str(app.screen.query_one("#confirm-no", Button).label)) == ("Cancel")
             assert (str(app.screen.query_one("#confirm-yes", Button).label)) == ("Start probe")
             assert ("Memory candidates: 4GB") in (app.screen.query_one("#confirm-message", Static).content)
             await pilot.press("escape")
-            app._check_request = object()
-            app._show_quick_check([PreflightCheck(message("原生 Linux"), "ok", message("统一层级可用"))], "", app._check_request)
+            app.preflight.check_request = object()
+            app.preflight.show_quick_check([PreflightCheck(message("原生 Linux"), "ok", message("统一层级可用"))], "", app.preflight.check_request)
             log = app.query_one("#run-log", SelectableLog)
             assert ("Native Linux") not in (log.text)
             assert not (app.query_one("#environment-status").display)
-            app._consume_process_line("等待 原始子进程输出 {raw}", None, False)
+            app.consume_process_line("等待 原始子进程输出 {raw}", None, False)
             assert ("等待 原始子进程输出 {raw}") in (log.text)
-            app._process_started(123, "probe")
+            app.process_started(123, "probe")
             assert ("probe process started, PID=123") in (log.text)
 
     @pytest.mark.parametrize('language', ('en', 'zh'))
@@ -332,18 +332,18 @@ class TestTuiLanguage:
                         assert (region.right) <= (widget.parent.content_region.right), widget_id
                         assert (region.x) >= (widget.parent.content_region.x), widget_id
             if language == "en":
-                for (widget, attribute), source in app._localized_text.items():
+                for (widget, attribute), source in app.localization.localized_text.items():
                     rendered = widget.content if attribute == "content" else getattr(widget, attribute)
                     assert (re.search(r"[\u4e00-\u9fff]", str(rendered))) is None, (widget, attribute)
-                for widget in app._localized_selects:
+                for widget in app.localization.localized_selects:
                     displayed = widget.query_one("SelectCurrent #label", Static).content
                     assert (re.search(r"[\u4e00-\u9fff]", str(displayed))) is None, widget
-            app._process_kind = "run"
-            app._set_busy(True)
+            app.process_kind = "run"
+            app.set_busy(True)
             assert (app.query_one("#ui-language", Select).disabled)
             app.query_one("#ui-language", Select).value = "zh" if language == "en" else "en"
             await pilot.pause()
-            assert app.ui_preferences.language == language
-            app._process_kind = ""
-            app._set_busy(False)
+            assert app.configuration.preferences.language == language
+            app.process_kind = ""
+            app.set_busy(False)
             assert not (app.query_one("#ui-language", Select).disabled)

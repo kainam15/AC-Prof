@@ -42,8 +42,8 @@ class TestTuiLogView:
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            app._activate_tab("monitor-tab")
-            app._render_snapshot(ProgressSnapshot(
+            app.activate_tab("monitor-tab")
+            app.render_snapshot(ProgressSnapshot(
                 stage=Stage.MEASURING, current_case=1, total_cases=32,
                 measurement_active=True,
                 interface_status="passed", runtime_status="passed", measurement_status="running",
@@ -68,7 +68,7 @@ class TestTuiLogView:
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._activate_tab("monitor-tab")
+            app.activate_tab("monitor-tab")
             await pilot.pause()
             log = app.query_one("#run-log", SelectableLog)
             panel = app.query_one("#log-panel", LogPanel)
@@ -94,10 +94,10 @@ class TestTuiLogView:
             process = Mock()
             process.poll.return_value = None
             with patch("acprof.tui.process.subprocess.Popen", side_effect=AssertionError("unexpected process")), patch.object(
-                app._lifecycle, "process", process
+                app.lifecycle, "process", process
             ):
-                app._process_started(12345, "test")
-                app._consume_process_line("[build] second line", None, False)
+                app.process_started(12345, "test")
+                app.consume_process_line("[build] second line", None, False)
                 await pilot.pause()
                 assert (app.query_one("#run-log", SelectableLog)) is (log)
                 assert ("[build] second line") in (log.text)
@@ -171,7 +171,7 @@ class TestTuiLogView:
         app = self.make_app()
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("monitor-tab")
+            app.activate_tab("monitor-tab")
             await pilot.pause()
             log = app.query_one("#run-log", SelectableLog)
             log.wrap = False

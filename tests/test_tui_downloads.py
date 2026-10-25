@@ -73,10 +73,10 @@ async def test_network_reports_display_units_and_preserve_input_json(tmp_path, d
     async with app.run_test(size=(80, 24)) as pilot:
         app.query_one("#ui-language", Select).value = "en"
         await pilot.pause()
-        app._network_preflight_report(line)
+        app.preflight.network_preflight_report(line)
         payload = {"category": "model", "verified_new_payload_bytes": 708_390_484,
                    "cache_savings_bytes": 794, "wire_bytes": None}
-        app._network_download_report("[network-download] " + json.dumps(payload))
+        app.preflight.network_download_report("[network-download] " + json.dumps(payload))
         content = app.query_one("#network-download-summary", Static).content
         assert "Expected download: 708 MB" in content
         assert "Verified new payload: 708 MB" in content
@@ -112,7 +112,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 await pilot.press(*"5GB")
                 app.query_one("#model-store", Input).value = str(root)
                 app.query_one("#model-store-max", Input).value = "100GB"
-                config = app._collect_config()
+                config = app.configuration.collect_config()
                 for builder in (build_run_command, build_probe_command):
                     command = builder(config, project_dir=project)
                     assert (command[command.index("--max-download") + 1]) == ("5GB")
@@ -129,7 +129,7 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 assert isinstance(app.screen, ModelStoreScreen)
-                assert (app._is_busy())
+                assert (app.is_busy())
                 for identifier in ("store-close", "store-refresh", "store-prune"):
                     control = app.screen.query_one(f"#{identifier}", Button)
                     assert (control.region.right) <= (size[0])
@@ -152,10 +152,10 @@ async def test_budget_settings_and_prune_confirmation_in_both_languages(size, la
                 assert (applications[0].kwargs["approved_entries"]) == ({"old"})
                 await pilot.click("#store-close")
                 await pilot.pause()
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 prune.reset_mock()
-                app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
-                app.open_model_store()
+                app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+                app.preflight.open_model_store()
                 assert not isinstance(app.screen, ModelStoreScreen)
                 prune.assert_not_called()
-                app._latest_snapshot = replace(app._latest_snapshot, measurement_active=False)
+                app.latest_snapshot = replace(app.latest_snapshot, measurement_active=False)

@@ -27,7 +27,7 @@ async def test_submit_reveals_and_focuses_each_error_then_clears_its_reason(size
                 if isinstance(container, Collapsible):
                     container.collapsed = True
             await pilot.pause()
-            with patch.object(app, "_launch") as launch:
+            with patch.object(app, 'launch') as launch:
                 assert (await pilot.click("#start-run"))
                 await pilot.pause()
             launch.assert_not_called()

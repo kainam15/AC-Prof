@@ -432,20 +432,20 @@ class TestTuiApp:
             assert ("--cpus 1,2,4,8") in (preset_preview)
             assert ("--compute-profile-tool none") in (preset_preview)
 
-            app.action_request_probe()
+            app.experiments.request_probe()
             await pilot.pause()
             assert isinstance(app.screen, ConfirmActionScreen)
-            assert (app._pending_launch) is not None
-            assert (app._pending_launch.kind) == ("probe")
+            assert (app.experiments.pending_launch) is not None
+            assert (app.experiments.pending_launch.kind) == ("probe")
             assert ("内存候选：2GB,4GB,8GB,16GB（从小到大）") in (app.screen.message)
             assert ("OOM 时自动尝试下一档") in (app.screen.message)
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, ConfirmActionScreen)
 
-            app.action_quick_check()
-            with patch.object(app, "_launch") as launch:
-                app.action_request_run()
+            app.preflight.quick_check()
+            with patch.object(app, 'launch') as launch:
+                app.experiments.request_run()
                 await pilot.pause()
                 launch.assert_called_once()
                 assert launch.call_args.args[0].kind == "run"
@@ -465,7 +465,7 @@ class TestTuiApp:
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
-            app._launch(
+            app.launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
                     "run",
@@ -474,11 +474,11 @@ class TestTuiApp:
             )
             for _ in range(40):
                 await pilot.pause(0.05)
-                if not app._is_busy():
+                if not app.is_busy():
                     break
-            assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == (Stage.FAILED)
-            assert (app._latest_snapshot.completed_cases) == (0)
+            assert not (app.is_busy())
+            assert (app.latest_snapshot.stage) == (Stage.FAILED)
+            assert (app.latest_snapshot.completed_cases) == (0)
 
     async def test_measurement_failure_keeps_multiline_diagnostic(self):
         lines = [
@@ -500,12 +500,12 @@ class TestTuiApp:
         )
         app = AcprofTui(RunConfig.smoke('demo/model'))
         async with app.run_test(size=(120, 30)) as pilot:
-            app._launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))
+            app.launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))
             for _ in range(60):
                 await pilot.pause(0.05)
-                if not app._is_busy():
+                if not app.is_busy():
                     break
-            assert not (app._is_busy())
+            assert not (app.is_busy())
             log = app.query_one('#run-log', SelectableLog).text.splitlines()
             for line in lines[2:6]:
                 assert (line) in (log)
@@ -541,7 +541,7 @@ class TestTuiApp:
         app = AcprofTui(config)
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
-            app._launch(
+            app.launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
                     "probe",
@@ -550,15 +550,15 @@ class TestTuiApp:
             )
             for _ in range(40):
                 await pilot.pause(0.05)
-                if not app._is_busy():
+                if not app.is_busy():
                     break
 
-            assert not (app._is_busy())
-            assert (app._latest_snapshot.stage) == (Stage.PROBE_COMPLETED)
-            assert ("最低可用内存 4GB") in (app._latest_snapshot.detail)
-            assert ("单次请求 4.321s") in (app._latest_snapshot.detail)
-            assert Path(app._latest_snapshot.probe_summary).is_file()
-            assert Path(app._latest_snapshot.probe_summary).name == "largest_scale_probe.json"
+            assert not (app.is_busy())
+            assert (app.latest_snapshot.stage) == (Stage.PROBE_COMPLETED)
+            assert ("最低可用内存 4GB") in (app.latest_snapshot.detail)
+            assert ("单次请求 4.321s") in (app.latest_snapshot.detail)
+            assert Path(app.latest_snapshot.probe_summary).is_file()
+            assert Path(app.latest_snapshot.probe_summary).name == "largest_scale_probe.json"
 
     async def test_elapsed_timer_skips_during_measurement(self):
         """Elapsed ticker must not cause widget updates during measurement."""
@@ -577,7 +577,7 @@ class TestTuiApp:
         app = AcprofTui(RunConfig.smoke("demo/model"))
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
-            app._launch(
+            app.launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
                     "run",
@@ -585,14 +585,14 @@ class TestTuiApp:
                 )
             )
             # The elapsed timer should be active during the run.
-            assert (app._elapsed_timer) is not None
+            assert (app.elapsed_timer) is not None
             for _ in range(40):
                 await pilot.pause(0.05)
-                if not app._is_busy():
+                if not app.is_busy():
                     break
             # After completion the timer is stopped.
-            assert (app._elapsed_timer) is None
-            assert not (app._is_busy())
+            assert (app.elapsed_timer) is None
+            assert not (app.is_busy())
 
     async def test_run_updates_status_and_log_without_monitor_charts(self):
         """Removing monitor charts must preserve launch and completion updates."""
@@ -612,7 +612,7 @@ class TestTuiApp:
                     "print('Profiling complete!', flush=True)",
                 )
             )))
-            app._launch(
+            app.launch(
                 PendingLaunch(
                     (sys.executable, "-u", "-c", script),
                     "run",
@@ -622,9 +622,9 @@ class TestTuiApp:
             await pilot.pause(0.1)
             for _ in range(40):
                 await pilot.pause(0.05)
-                if not app._is_busy():
+                if not app.is_busy():
                     break
-            assert not (app._is_busy())
+            assert not (app.is_busy())
             assert (app.query_one("#status-stage", Static).content) == ("失败")
             assert (app.query_one("#status-case", Static).content) == ("当前 1 · 已完成 0/1")
             log = app.query_one("#run-log", SelectableLog).text
@@ -639,14 +639,14 @@ class TestTuiApp:
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             stage_widget = app.query_one("#status-stage", Static)
-            app._render_snapshot(ProgressSnapshot(stage=Stage.COMPLETED))
+            app.render_snapshot(ProgressSnapshot(stage=Stage.COMPLETED))
             await pilot.pause()
             assert (stage_widget.has_class("stage-success"))
-            app._render_snapshot(ProgressSnapshot(stage=Stage.FAILED))
+            app.render_snapshot(ProgressSnapshot(stage=Stage.FAILED))
             await pilot.pause()
             assert (stage_widget.has_class("stage-error"))
             assert not (stage_widget.has_class("stage-success"))
-            app._render_snapshot(ProgressSnapshot(stage=Stage.MEASURING))
+            app.render_snapshot(ProgressSnapshot(stage=Stage.MEASURING))
             await pilot.pause()
             assert (stage_widget.has_class("stage-measuring"))
 
@@ -656,7 +656,7 @@ class TestTuiApp:
         async with app.run_test(size=(140, 48)) as pilot:
             await pilot.pause()
             input_widget = app.query_one("#slash-command", Input)
-            with patch.object(app, "notify") as notify:
+            with patch.object(app, 'notify') as notify:
                 input_widget.focus()
                 input_widget.value = f"/{command}"
                 await pilot.press("enter")

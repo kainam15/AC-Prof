@@ -84,8 +84,8 @@ workflow.run("model", fail)
             await pilot.click("#source-confirm")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
-            assert app._lifecycle.process is None
-            config = app._collect_config()
+            assert app.lifecycle.process is None
+            config = app.configuration.collect_config()
             assert (config.model_source, config.model) == ("modelscope", "new/model")
             assert not config.resume
             assert "modelscope-" in config.output_dir

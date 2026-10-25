@@ -55,7 +55,7 @@ class TestTuiResultTools:
             await pilot.pause()
             assert (app.query_one("#result-csv", Input).value) == (str(self.csv_path))
 
-            with patch.object(app, "_execute_command") as execute:
+            with patch.object(app.process, 'execute_command') as execute:
                 assert (await pilot.click("#plot-results", offset=(2, 1)))
                 await pilot.pause()
                 execute.assert_called_once()
@@ -68,7 +68,7 @@ class TestTuiResultTools:
                     "#summarize-results, #plot-results, #profile-dry-run, #profile-run, .profile-tool"
                 ))
                 assert (all(widget.disabled for widget in controls))
-                app._process_finished("plot", 0, None, "")
+                app.process_finished("plot", 0, None, "")
                 await pilot.pause()
                 assert (all(not widget.disabled for widget in controls))
 

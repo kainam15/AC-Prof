@@ -31,13 +31,13 @@ class TestTuiInteraction:
                 await super()._close_all()
                 # A timer callback may already be queued when shutdown removes
                 # the form. Deliver it here without depending on clock timing.
-                self._sync_form_state()
+                self.configuration.sync_form_state()
 
         app = ClosingPreviewApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._configuration_changed()
-            assert (app._preview_timer) is not None
+            app.configuration.configuration_changed()
+            assert (app.configuration.preview_timer) is not None
 
     async def test_pending_elapsed_tick_is_safe_during_shutdown(self):
         class ClosingElapsedApp(AcprofTui):
@@ -48,25 +48,25 @@ class TestTuiInteraction:
                 # before on_unmount runs, without depending on timer timing.
                 await self.query_one("#status-elapsed").remove()
                 try:
-                    self._tick_elapsed()
+                    self.tick_elapsed()
                 finally:
                     await super()._close_all()
 
         app = ClosingElapsedApp(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._process_kind = "probe"
-            app._started_monotonic = time.monotonic() - 2
-            app._elapsed_timer = app.set_interval(60, app._tick_elapsed)
+            app.process_kind = "probe"
+            app.started_monotonic = time.monotonic() - 2
+            app.elapsed_timer = app.set_interval(60, app.tick_elapsed)
             with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
-                app._tick_elapsed()
+                app.tick_elapsed()
                 update.assert_called_once()
-        assert (app._elapsed_timer) is None
+        assert (app.elapsed_timer) is None
 
     async def test_rapid_clicks_are_not_discarded_by_button_active_effect(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
-            app._activate_tab("settings-tab")
+            app.activate_tab("settings-tab")
             await pilot.pause()
             button = app.query_one("#restore-ui-defaults", Button)
             # Deliver two Click events in the same event-loop turn. Pilot
@@ -83,7 +83,7 @@ class TestTuiInteraction:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause(0.1)
-            with patch.object(app, "_collect_config", wraps=app._collect_config) as collect:
+            with patch.object(app.configuration, 'collect_config', wraps=app.configuration.collect_config) as collect:
                 app.query_one("#cpus", Input).value = "1,2"
                 app.query_one("#cpus", Input).value = "1,3"
                 app.query_one("#model", Input).value = "demo/latest"
@@ -100,12 +100,12 @@ class TestTuiInteraction:
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause(0.1)
             with patch.object(
-                app, "_refresh_command_preview", wraps=app._refresh_command_preview
+                app.configuration, 'refresh_command_preview', wraps=app.configuration.refresh_command_preview
             ) as refresh:
-                app._apply_config(RunConfig.main_matrix("demo/model"), preset="main")
+                app.configuration.apply_config(RunConfig.main_matrix("demo/model"), preset="main")
                 await pilot.pause(0.12)
                 assert (refresh.call_count) == (1)
-            assert (app._preview_timer) is None
+            assert (app.configuration.preview_timer) is None
             assert (app.query_one("#run-preset", Select).value) == ("main")
             assert (app.query_one("#cpus", Input).value) == ("1,2,4,8")
 
@@ -113,11 +113,11 @@ class TestTuiInteraction:
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause(0.1)
-            with patch.object(app, "_refresh_command_preview") as refresh:
-                app._configuration_changed()
-                assert (app._preview_timer) is not None
-                app._set_busy(True)
-                assert (app._preview_timer) is None
+            with patch.object(app.configuration, 'refresh_command_preview') as refresh:
+                app.configuration.configuration_changed()
+                assert (app.configuration.preview_timer) is not None
+                app.set_busy(True)
+                assert (app.configuration.preview_timer) is None
                 await pilot.pause(0.12)
                 refresh.assert_not_called()
             controls = list(app.query(
@@ -126,7 +126,7 @@ class TestTuiInteraction:
             ))
             assert (controls)
             assert (all(control.disabled for control in controls))
-            app._set_busy(False)
+            app.set_busy(False)
             assert (all(not control.disabled for control in controls))
 
     async def test_measurement_pauses_elapsed_timer_and_resumes_after_window(self):
@@ -134,21 +134,21 @@ class TestTuiInteraction:
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause()
             timer = Mock()
-            app._elapsed_timer = timer
-            with patch.object(app, "_render_snapshot"):
-                app._consume_process_line(
+            app.elapsed_timer = timer
+            with patch.object(app, 'render_snapshot'):
+                app.consume_process_line(
                     "", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True
                 )
                 timer.pause.assert_called_once_with()
                 timer.resume.assert_not_called()
                 with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
-                    app._tick_elapsed()
+                    app.tick_elapsed()
                     update.assert_not_called()
-                app._consume_process_line(
+                app.consume_process_line(
                     "", ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), True
                 )
                 timer.resume.assert_called_once_with()
-            app._elapsed_timer = None
+            app.elapsed_timer = None
 
 
 @pytest.mark.parametrize('frozen', (False, True))

@@ -42,30 +42,30 @@ class TestTuiPresentation:
             sample = app.query_one("#sample-hz", Input)
             assert (await pilot.click(sample))
             await pilot.press("ctrl+a", *"20.1256789")
-            config = app._collect_config()
+            config = app.configuration.collect_config()
             assert ((config.warmup, config.repeat, config.sample_hz)) == ((3, 7, 20.1256789))
             command = build_run_command(config, project_dir=PROJECT_DIR)
             for flag, value in (("--warmup", "3"), ("--repeat", "7"), ("--sample-hz", "20.1256789")):
                 assert (command[command.index(flag) + 1]) == (value)
             warmup.value = "-1"
             with pytest.raises(RunConfigError, match="Warmup"):
-                app._collect_config()
+                app.configuration.collect_config()
             warmup.value = "3"
             repeat.value = "0"
             with pytest.raises(RunConfigError, match="Repeat"):
-                app._collect_config()
+                app.configuration.collect_config()
             repeat.value = "7"
             app.query_one("#advanced-form").scroll_end(animate=False, immediate=True)
             await pilot.pause()
             assert (await pilot.click("#save-run-default"))
             await pilot.pause()
-            saved, warning = load_settings(app.settings_path, PROJECT_DIR)
+            saved, warning = load_settings(app.configuration.settings_path, PROJECT_DIR)
             assert (warning) == ("")
             assert (saved.run_defaults) == (config)
             assert saved.run_defaults is not None
-            app._apply_config(RunConfig.smoke("demo/model"), preset="smoke")
+            app.configuration.apply_config(RunConfig.smoke("demo/model"), preset="smoke")
             assert ((warmup.value, repeat.value)) == (("0", "1"))
-            app._apply_config(saved.run_defaults)
+            app.configuration.apply_config(saved.run_defaults)
             assert (sample.value) == ("20.1256789"), "显示不能丢失已保存的小数精度"
 
     @pytest.mark.parametrize('name_case', range(6), ids=["('warmup', '次' if language == 'zh' else 'runs')", "('repeat', '次' if language == 'zh' else 'runs')", "('sample-hz', 'Hz')", "('idle-seconds', 's')", "('idle-cooldown-seconds', 's')", "('request-timeout-seconds', 's')"])
@@ -78,8 +78,8 @@ class TestTuiPresentation:
             await pilot.pause()
             assert (len(app.query("#repeat"))) == (1), "Repeat 应有独立的输入框"
             await pilot.resize_terminal(*size)
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
             (name, unit) = tuple((('warmup', '次' if language == 'zh' else 'runs'), ('repeat', '次' if language == 'zh' else 'runs'), ('sample-hz', 'Hz'), ('idle-seconds', 's'), ('idle-cooldown-seconds', 's'), ('request-timeout-seconds', 's')))[name_case]
             field = app.query_one("#" + name, Input)
             field.scroll_visible(animate=False, immediate=True)
@@ -92,36 +92,36 @@ class TestTuiPresentation:
             assert (await pilot.click(field))
             assert (app.focused) is (field)
             assert (unit) not in (field.value)
-            app._set_busy(True)
+            app.set_busy(True)
             assert (app.query_one("#warmup", Input).disabled)
             assert (app.query_one("#repeat", Input).disabled)
-            app._set_busy(False)
+            app.set_busy(False)
             assert not (app.query_one("#repeat", Input).disabled)
 
     async def test_monitor_distinguishes_no_case_from_missing_case_resources(self):
         app = self.app
         async with app.run_test() as pilot:
-            app._render_snapshot(ProgressSnapshot())
+            app.render_snapshot(ProgressSnapshot())
             assert (str(app.query_one("#status-elapsed", Static).content)) == ("—")
             assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=—  MEM=—  GPU=—")
-            app._latest_snapshot = ProgressSnapshot(current_case=1, total_cases=2, cpu="2")
-            app._render_snapshot(app._latest_snapshot)
+            app.latest_snapshot = ProgressSnapshot(current_case=1, total_cases=2, cpu="2")
+            app.render_snapshot(app.latest_snapshot)
             assert (str(app.query_one("#status-resource", Static).content)) == ("CPU=2  MEM=未知  GPU=未知")
-            app.ui_preferences = replace(app.ui_preferences, language="en")
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language="en")
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
             assert ("MEM=Unknown") in (str(app.query_one("#status-resource", Static).content))
 
     async def test_loading_report_indicator_is_cleared_on_failure(self):
         app = self.app
         async with app.run_test() as pilot:
-            with patch.object(app, "_execute_report_read"):
-                app._open_report(str(self.directory / "report.json"))
-                assert (app._is_busy())
+            with patch.object(app.results, 'execute_report_read'):
+                app.results.open_report(str(self.directory / "report.json"))
+                assert (app.is_busy())
                 assert (str(app.query_one("#report-status", Static).content).startswith("…"))
-                app._show_report(None, "broken JSON", app._report_request)
+                app.results.show_report(None, "broken JSON", app.results.report_request)
                 await pilot.pause()
-                assert not (app._is_busy())
+                assert not (app.is_busy())
                 text = str(app.query_one("#report-status", Static).content)
                 assert ("报告读取失败") in (text)
                 assert ("…") not in (text)
@@ -131,15 +131,15 @@ class TestTuiPresentation:
         item = ManagedImage("sha256:base", ("acprof-platform-cpu:base",), 0, "", "base", acprof=True)
         layer = ImageLayer("chain", "diff", None, (item.image_id,))
         inventory = ImageInventory(DockerConnection((), "local"), "daemon", (item,), (layer,))
-        with patch.object(app, "refresh_images"):
+        with patch.object(app.images, 'refresh_images'):
             async with app.run_test(size=(120, 30)) as pilot:
-                app._activate_tab("images-tab")
-                app._image_inventory = inventory
-                app._render_images()
+                app.activate_tab("images-tab")
+                app.images.inventory = inventory
+                app.images.render_images()
                 await pilot.pause()
                 for language, unknown in (("zh", "未知"), ("en", "Unknown")):
-                    app.ui_preferences = replace(app.ui_preferences, language=language)
-                    app._apply_ui_preferences()
+                    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                    app.configuration.apply_ui_preferences()
                     await pilot.pause()
                     cells = [str(cell) for cell in app.query_one("#image-table", DataTable).get_row_at(0)]
                     assert (cells[2:6]) == (["0 B", unknown, "0", unknown])

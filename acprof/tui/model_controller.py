@@ -4,10 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from textual import on
-from textual.message_pump import MessagePump
 from textual.suggester import SuggestFromList
-from textual.widgets import Button, Input as TextualInput, Select
+from textual.widgets import Input as TextualInput, Select
 
 from acprof.experiment import RunConfigError
 from acprof.model_evidence import pinned_revision
@@ -20,26 +18,26 @@ if TYPE_CHECKING:
     from acprof.tui.app import AcprofTui
 
 
-class ModelActions(MessagePump):
-    _candidate_pin: tuple[str, str, str] | None
-    _picker_open: bool
-    @on(Button.Pressed, '#model-candidates')
+class ModelController:
+    """Own models state and operations; the App owns lifecycle and scheduling."""
+
+    def __init__(self, app: AcprofTui) -> None:
+        self.app = app
+        self.candidate_pin: tuple[str, str, str] | None = None
+
     def open_model_candidates(self) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        if not self._allow_operation('catalog'):
+        if not self.app.allow_operation('catalog'):
             return
-        from acprof.tui.app import PROJECT_DIR
         try:
-            config = self._collect_config(allow_empty_model=True)
+            config = self.app.configuration.collect_config(allow_empty_model=True)
         except RunConfigError as exc:
-            self._show_config_error(exc)
+            self.app.configuration.show_config_error(exc)
             return
         from acprof.host.model_store import store_root
-        roots, token = self._catalog_roots(), object()
+        roots, token = self.app.catalog.catalog_roots(), object()
         cache_root = Path(config.model_store).expanduser() if config.model_store else store_root()
         if not cache_root.is_absolute():
-            cache_root = PROJECT_DIR / cache_root
+            cache_root = self.app.project_dir / cache_root
         models: set[str] = set()
         def loader(cancelled):
             from acprof.tui.model_candidates import (
@@ -78,42 +76,36 @@ class ModelActions(MessagePump):
             candidates.extend(cached)
             models.update(candidate.model_id for candidate in candidates)
             return tuple(model_choice(candidate) for candidate in candidates), tuple(warnings)
-        self._picker_open = True
-        self._set_busy(True)
-        self.push_screen(SearchPickerScreen('模型候选', ('模型', 'Revision', '验证状态', '设备'), loader,
-            query=self._input('model'), actions=('use', 'view'), scope=(*roots, cache_root), project_dir=PROJECT_DIR,
+        self.app.catalog.picker_open = True
+        self.app.set_busy(True)
+        self.app.push_screen(SearchPickerScreen('模型候选', ('模型', 'Revision', '验证状态', '设备'), loader,
+            query=self.app.configuration.input('model'), actions=('use', 'view'), scope=(*roots, cache_root), project_dir=self.app.project_dir,
             empty_message='尚无本地模型记录，可直接输入 Hugging Face 模型 ID。',
-            loading_changed=lambda busy: self._picker_loading(token, busy)),
-            lambda choice: self._model_candidate_selected(choice, models))
+            loading_changed=lambda busy: self.app.catalog.picker_loading(token, busy)),
+            lambda choice: self.model_candidate_selected(choice, models))
 
-    def _model_candidate_selected(self, choice, models: set[str]) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        self._picker_closed()
-        if choice is None or not self._allow_operation('catalog'):
+    def model_candidate_selected(self, choice, models: set[str]) -> None:
+        self.app.catalog.picker_closed()
+        if choice is None or not self.app.allow_operation('catalog'):
             return
-        self.query_one('#model', Input).suggester = SuggestFromList(sorted(models), case_sensitive=False)
+        self.app.query_one('#model', Input).suggester = SuggestFromList(sorted(models), case_sensitive=False)
         action, candidate = choice
         if action == 'use':
-            self._candidate_pin = (candidate.model_id, candidate.model_source, candidate.revision)
-            self.query_one('#model', Input).value = candidate.model_id
-            self.query_one('#model-source', Select).value = candidate.model_source
-            self.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
-            self._refresh_command_preview()
-            self.notify(message_id('ui.0150', candidate.reason))
+            self.candidate_pin = (candidate.model_id, candidate.model_source, candidate.revision)
+            self.app.query_one('#model', Input).value = candidate.model_id
+            self.app.query_one('#model-source', Select).value = candidate.model_source
+            self.app.query_one('#revision', Input).value = candidate.revision if pinned_revision(candidate.revision) else ''
+            self.app.configuration.refresh_command_preview()
+            self.app.notify(message_id('ui.0150', candidate.reason))
         elif action == 'view' and candidate.record:
-            self._view_experiment(candidate.record)
+            self.app.catalog.view_experiment(candidate.record)
         elif action == 'view' and candidate.report:
-            self._activate_tab('reports-tab')
-            self._open_report(str(candidate.report))
+            self.app.activate_tab('reports-tab')
+            self.app.results.open_report(str(candidate.report))
 
-    @on(Input.Changed, '#model')
-    @on(Select.Changed, '#model-source')
     def candidate_identity_changed(self, event: TextualInput.Changed | Select.Changed) -> None:
-        if TYPE_CHECKING:
-            assert isinstance(self, AcprofTui)
-        selected = getattr(self, '_candidate_pin', None)
-        if selected and (self._input('model'), self._select('model-source')) != selected[:2]:
-            if self._input('revision') == selected[2]:
-                self.query_one('#revision', Input).value = ''
-            self._candidate_pin = None
+        selected = self.candidate_pin
+        if selected and (self.app.configuration.input('model'), self.app.configuration.select('model-source')) != selected[:2]:
+            if self.app.configuration.input('revision') == selected[2]:
+                self.app.query_one('#revision', Input).value = ''
+            self.candidate_pin = None

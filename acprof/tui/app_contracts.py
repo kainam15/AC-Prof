@@ -1,12 +1,13 @@
-"""Typed host interfaces for TUI widgets mounted under the AC-Prof app.
-
-Widgets see Textual's generic ``App`` through ``self.app``. These protocols
-name the capabilities they use without importing the composed controller.
-"""
+"""Small typed capabilities exposed to Textual widgets through their App."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, cast
+
+if TYPE_CHECKING:
+    from acprof.tui.app import AcprofTui
+    from acprof.tui.localization_controller import LocalizationController
+    from acprof.tui.model_controller import ModelController
 
 
 class TranslatableApp(Protocol):
@@ -14,21 +15,16 @@ class TranslatableApp(Protocol):
 
 
 class CandidatePickerApp(Protocol):
-    def open_model_candidates(self) -> None: ...
+    models: ModelController
 
 
 class ImageDetailApp(Protocol):
-    def _localized_widget(self, widget: Widget) -> Widget: ...
-    def _set_text(self, widget: Widget, source: str, attribute: str = "content") -> None: ...
+    localization: LocalizationController
 
 
 if TYPE_CHECKING:
-    from textual.widget import Widget
-
-    from acprof.tui.app import AcprofTui
-
     def _check_composed_app_contracts(app: AcprofTui) -> tuple[TranslatableApp, CandidatePickerApp, ImageDetailApp]:
-        """Ensure the final controller provides every widget contract."""
+        """Check the real controller attributes, including their method types."""
         return app, app, app
 
 
@@ -38,10 +34,10 @@ def translated_app(app: object) -> TranslatableApp:
 
 
 def candidate_picker_app(app: object) -> CandidatePickerApp:
-    """Type the model-picker action provided by the enclosing TUI app."""
+    """Type the model controller owned by the enclosing TUI app."""
     return cast(CandidatePickerApp, app)
 
 
 def image_detail_app(app: object) -> ImageDetailApp:
-    """Type localization methods provided by the enclosing TUI app."""
+    """Type the localization controller owned by the enclosing TUI app."""
     return cast(ImageDetailApp, app)

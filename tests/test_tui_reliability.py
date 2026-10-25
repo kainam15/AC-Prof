@@ -186,11 +186,11 @@ class TestTuiReliability:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch.object(app, "_execute_quick_check"), patch.object(app, "_launch") as launch:
-                app.action_quick_check()
+            with patch.object(app.preflight, 'execute_quick_check'), patch.object(app, 'launch') as launch:
+                app.preflight.quick_check()
                 assert (app.query_one("#start-run", Button).disabled)
                 assert (app.query_one("#stop-run", Button).disabled)
-                app._activate_tab("run-tab")
+                app.activate_tab("run-tab")
                 await pilot.pause()
                 await pilot.click("#start-run")
                 await pilot.press("f5")
@@ -201,21 +201,21 @@ class TestTuiReliability:
                 await pilot.pause()
                 launch.assert_not_called()
                 assert (len(app.screen_stack)) == (1)
-                app._show_quick_check([], "preflight failed", app._check_request)
+                app.preflight.show_quick_check([], "preflight failed", app.preflight.check_request)
                 assert (app.query_one("#start-run", Button).disabled)
-                assert not (app._is_busy())
+                assert not (app.is_busy())
 
     async def test_failed_attempt_does_not_promote_old_csv(self):
         app = self.make_app()
-        config = app.initial_config
+        config = app.configuration.initial_config
         path = config.result_csv(self.directory)
         write_csv(path)
         original = path.read_bytes()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch.object(app, "_execute_command"), patch("acprof.tui.app.summarize_result_csv", wraps=summarize_result_csv) as read:
-                app._launch(PendingLaunch(("collector",), "run", config))
-                app._process_finished("run", 2, None, "")
+            with patch.object(app.process, 'execute_command'), patch("acprof.tui.result_controller.summarize_result_csv", wraps=summarize_result_csv) as read:
+                app.launch(PendingLaunch(("collector",), "run", config))
+                app.process_finished("run", 2, None, "")
                 await pilot.pause()
                 read.assert_not_called()
                 assert ("本次未产生结果") in (str(app.query_one("#result-summary", Static).content))
@@ -236,49 +236,49 @@ class TestTuiReliability:
             return ReportView(path, "test", (), (), "")
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.app.read_report", side_effect=read):
-                app._open_report(str(a))
+            with patch("acprof.tui.result_controller.read_report", side_effect=read):
+                app.results.open_report(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
-                first_token = app._report_request
+                first_token = app.results.report_request
                 assert first_token is not None
-                app._open_report(str(b))
+                app.results.open_report(str(b))
                 assert first_token.is_set()
                 for _ in range(100):
                     await pilot.pause()
-                    if app._report_view is not None:
+                    if app.results.report_view is not None:
                         break
                     await asyncio.sleep(0.01)
                 release.set()
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert (app._report_view) is not None
-            assert app._report_view is not None
-            assert (app._report_view.source) == (b)
+            assert (app.results.report_view) is not None
+            assert app.results.report_view is not None
+            assert (app.results.report_view.source) == (b)
             assert (finished) == ([b, a])
 
     async def test_zero_exit_without_completion_evidence_is_not_success(self):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._process_kind = "run"
-            with patch.object(app, "notify") as notify:
-                app._process_finished("run", 0, None, "")
+            app.process_kind = "run"
+            with patch.object(app, 'notify') as notify:
+                app.process_finished("run", 0, None, "")
             assert ("任务已完成") not in ([str(call.args[0]) for call in notify.call_args_list])
-            assert (app._latest_snapshot.stage) == (Stage.FAILED)
+            assert (app.latest_snapshot.stage) == (Stage.FAILED)
 
     async def test_final_result_audit_does_not_offer_a_stop_action(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._process_kind = "run"  # Child exited; its result audit still owns the task.
-            app._set_busy(True)
+            app.process_kind = "run"  # Child exited; its result audit still owns the task.
+            app.set_busy(True)
             assert (app.query_one("#start-run", Button).disabled)
             assert (app.query_one("#stop-run", Button).disabled)
             app.action_request_stop()
             assert (len(app.screen_stack)) == (1)
-            assert not (app._stop_requested)
-            app._consume_process_line("Profiling complete!", ProgressSnapshot(stage=Stage.COMPLETED), True)
-            assert (app._latest_snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
+            assert not (app.stop_requested)
+            app.consume_process_line("Profiling complete!", ProgressSnapshot(stage=Stage.COMPLETED), True)
+            assert (app.latest_snapshot.stage) == (Stage.VERIFYING_ARTIFACT)
 
     async def test_background_summary_keeps_ui_responsive_and_only_shows_latest_selection(self):
         app = self.make_app()
@@ -296,13 +296,13 @@ class TestTuiReliability:
             return summarize_result_csv(path, **kwargs)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.app.summarize_result_csv", side_effect=read):
-                app._update_result_summary(str(a))
+            with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read):
+                app.results.update_result_summary(str(a))
                 assert (await asyncio.to_thread(started.wait, 2))
                 assert ("正在读取") in (str(app.query_one("#result-summary", Static).content))
                 await pilot.press("f2")
                 await pilot.pause()
-                app._update_result_summary(str(b))
+                app.results.update_result_summary(str(b))
                 for _ in range(100):
                     await pilot.pause()
                     if "40 ms" in str(app.query_one("#result-summary", Static).content):
@@ -315,61 +315,61 @@ class TestTuiReliability:
                 await pilot.pause()
             assert (str(b)) in (str(app.query_one("#result-summary", Static).content))
             assert (str(a)) not in (str(app.query_one("#result-summary", Static).content))
-            assert not (app._is_busy())
+            assert not (app.is_busy())
 
     async def test_cancelled_and_failed_reads_release_controls(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._update_result_summary(str(self.directory / "missing.csv"))
+            app.results.update_result_summary(str(self.directory / "missing.csv"))
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert ("无法读取结果") in (str(app.query_one("#result-summary", Static).content))
-            assert not (app._is_busy())
-            with patch.object(app, "_execute_summary_read"):
-                app._update_result_summary("cancel.csv")
-                token = app._summary_request
+            assert not (app.is_busy())
+            with patch.object(app.results, 'execute_summary_read'):
+                app.results.update_result_summary("cancel.csv")
+                token = app.results.summary_request
                 assert token is not None
-                app._cancel_result_reads()
+                app.results.cancel_result_reads()
                 assert (token.is_set())
-                assert (app._is_busy())
-                app._show_result_summary(Path("cancel.csv"), token, None, "cancelled", True)
+                assert (app.is_busy())
+                app.results.show_result_summary(Path("cancel.csv"), token, None, "cancelled", True)
             assert ("读取已取消") in (str(app.query_one("#result-summary", Static).content))
-            assert not (app._is_busy())
+            assert not (app.is_busy())
 
-            with patch.object(app, "_execute_report_read"):
-                app._open_report(str(self.directory / "cancel.json"))
-                report_token = app._report_request
+            with patch.object(app.results, 'execute_report_read'):
+                app.results.open_report(str(self.directory / "cancel.json"))
+                report_token = app.results.report_request
                 assert report_token is not None
-                app._cancel_result_reads()
+                app.results.cancel_result_reads()
                 assert report_token.is_set()
-                app._show_report(None, "cancelled", report_token)
-            assert not (app._is_busy())
+                app.results.show_report(None, "cancelled", report_token)
+            assert not (app.is_busy())
 
     async def test_late_checks_and_shutdown_callbacks_do_not_touch_widgets(self):
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch.object(app, "_execute_quick_check"):
-                app.action_quick_check()
-                token = app._check_request
-                app._show_quick_check([], "old error", object())
-                assert (app._check_running)
-                app._show_quick_check([], "", token)
-                assert not (app._is_busy())
+            with patch.object(app.preflight, 'execute_quick_check'):
+                app.preflight.quick_check()
+                token = app.preflight.check_request
+                app.preflight.show_quick_check([], "old error", object())
+                assert (app.preflight.check_running)
+                app.preflight.show_quick_check([], "", token)
+                assert not (app.is_busy())
             app.action_request_quit()
             callback = Mock(side_effect=AssertionError("unmounted UI access"))
-            app._deliver_ui_callback(callback)
+            app.process.deliver_ui_callback(callback)
             callback.assert_not_called()
             await asyncio.wait_for(app._task, timeout=5)
         with patch.object(app, app.query_one.__name__, side_effect=AssertionError("unmounted UI access")):
-            app._show_quick_check([], "late error", token)
-            app._show_result_summary(self.directory, object(), None, "late error", False)
-            app._show_report(None, "late error", object())
+            app.preflight.show_quick_check([], "late error", token)
+            app.results.show_result_summary(self.directory, object(), None, "late error", False)
+            app.results.show_report(None, "late error", object())
 
     async def test_child_attempt_is_audited_then_updates_current_result(self):
         app = self.make_app()
-        directory = app.initial_config.result_dir(self.directory)
+        directory = app.configuration.initial_config.result_dir(self.directory)
         script = f'''
 import csv, json, os
 from pathlib import Path
@@ -394,21 +394,21 @@ print("Profiling complete!", flush=True)
 '''
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.pause()
-            app._launch(PendingLaunch((sys.executable, "-u", "-c", script), "run", app.initial_config))
+            app.launch(PendingLaunch((sys.executable, "-u", "-c", script), "run", app.configuration.initial_config))
             for _ in range(3):
                 await app.workers.wait_for_complete()
                 await pilot.pause()
-            assert (app._latest_snapshot.stage) == (Stage.COMPLETED)
+            assert (app.latest_snapshot.stage) == (Stage.COMPLETED)
             assert (app.query_one("#result-csv", Input).value) == (str(directory / "result_layers.json"))
             assert ("20 ms") in (str(app.query_one("#result-summary", Static).content))
-            assert not (app._is_busy())
+            assert not (app.is_busy())
 
     async def test_quit_during_summary_read_does_not_wait_for_io_or_apply_late_data(self):
         path = self.directory / "slow.csv"
         write_csv(path)
         started, release, delivered = threading.Event(), threading.Event(), threading.Event()
         app = self.make_app()
-        original_callback = app._safe_process_callback
+        original_callback = app.process.safe_process_callback
 
         def read(*args, **kwargs):
             started.set()
@@ -421,15 +421,15 @@ print("Profiling complete!", flush=True)
             finally:
                 delivered.set()
 
-        with patch("acprof.tui.app.summarize_result_csv", side_effect=read), patch.object(
-            app, "_safe_process_callback", side_effect=deliver,
+        with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read), patch.object(
+            app.process, 'safe_process_callback', side_effect=deliver,
         ):
             try:
                 async with app.run_test(size=(120, 30)) as pilot:
                     await pilot.pause()
-                    app._update_result_summary(str(path))
+                    app.results.update_result_summary(str(path))
                     assert (await asyncio.to_thread(started.wait, 5))
-                    assert (app._is_busy())
+                    assert (app.is_busy())
                     app.action_request_quit()
                     await asyncio.wait_for(app._task, timeout=5)
                     assert not (delivered.is_set()), "退出不应等待 CSV 线程返回"
@@ -452,15 +452,15 @@ print("Profiling complete!", flush=True)
             return summarize_result_csv(path, **kwargs)
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            with patch("acprof.tui.app.summarize_result_csv", side_effect=read):
-                app._update_result_summary(str(path))
+            with patch("acprof.tui.result_controller.summarize_result_csv", side_effect=read):
+                app.results.update_result_summary(str(path))
                 await pilot.press("f2")
                 assert (app.query_one("#main-tabs", TabbedContent).active) == ("settings-tab")
                 await app.workers.wait_for_complete()
                 await pilot.pause()
             assert ("有效窗口 100000") in (str(app.query_one("#result-summary", Static).content))
             assert ("10 ms") in (str(app.query_one("#result-summary", Static).content))
-            assert not (app._is_busy())
+            assert not (app.is_busy())
 
     async def test_preset_labels_and_quiet_unselected_checks_in_both_languages_and_sizes(self):
         from acprof.tui.diagnostics import PreflightCheck
@@ -469,28 +469,28 @@ print("Profiling complete!", flush=True)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             for language in ("zh", "en"):
-                app.ui_preferences = replace(app.ui_preferences, language=language)
-                app._apply_ui_preferences()
+                app.configuration.preferences = replace(app.configuration.preferences, language=language)
+                app.configuration.apply_ui_preferences()
                 for width, height in ((80, 24), (120, 30), (150, 45)):
                     await pilot.resize_terminal(width, height)
-                    app._apply_config(RunConfig.smoke("demo/model"), preset="smoke")
+                    app.configuration.apply_config(RunConfig.smoke("demo/model"), preset="smoke")
                     app.query_one("#output-dir", Input).value = "results/changed"
-                    app._refresh_command_preview(notify=False, sync_preset=True)
+                    app.configuration.refresh_command_preview(notify=False, sync_preset=True)
                     label = app.query_one("#run-preset SelectCurrent #label", Static)
                     assert ("adjusted") not in (str(label.content))
                     assert ("已调整") not in (str(label.content))
                     app.query_one("#cpus", Input).value = "2"
-                    app._refresh_command_preview(notify=False, sync_preset=True)
+                    app.configuration.refresh_command_preview(notify=False, sync_preset=True)
                     assert (app.query_one("#run-preset", Select).value) == ("smoke")
                     assert ("已调整" if language == "zh" else "adjusted") in (str(label.content))
-                    with patch.object(app, "_execute_quick_check"):
-                        app.action_quick_check()
-                        app._show_quick_check([PreflightCheck("Docker", "ok", "ready"),
-                            PreflightCheck("CPU RAPL", "not_requested", "basic", "not_requested")], "", app._check_request)
+                    with patch.object(app.preflight, 'execute_quick_check'):
+                        app.preflight.quick_check()
+                        app.preflight.show_quick_check([PreflightCheck("Docker", "ok", "ready"),
+                            PreflightCheck("CPU RAPL", "not_requested", "basic", "not_requested")], "", app.preflight.check_request)
                     await pilot.pause()
                     assert ("CPU RAPL") not in (app.query_one("#run-log", SelectableLog).text)
                     assert not (app.query_one("#environment-status").display)
                     assert (app.query_one("#main-tabs", TabbedContent).active) == ("run-tab")
                     assert (app.query_one("#run-form").region.height) > (0)
                     assert (app.query_one("#stop-run", Button).disabled)
-                    app.action_clear_log()
+                    app.results.clear_log()

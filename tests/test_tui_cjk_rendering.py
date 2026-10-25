@@ -86,14 +86,14 @@ async def test_toast_survives_button_borders_language_changes_and_resize(size, l
         app = AcprofTui(
             RunConfig.smoke("demo/model"), settings_path=Path(directory) / "tui.json",
         )
-        with patch.object(app, "refresh_images"):
+        with patch.object(app.images, 'refresh_images'):
             async with app.run_test(size=(80, 24), notifications=True) as pilot:
                 await pilot.pause()
                 app.clear_notifications()
-                app.ui_preferences = replace(
-                    app.ui_preferences, language=language, show_command_bar=False,
+                app.configuration.preferences = replace(
+                    app.configuration.preferences, language=language, show_command_bar=False,
                 )
-                app._apply_ui_preferences()
+                app.configuration.apply_ui_preferences()
                 await pilot.pause()
                 app.notify("已恢复完整默认配置", timeout=60)
                 await pilot.pause()
@@ -111,7 +111,7 @@ async def test_toast_survives_button_borders_language_changes_and_resize(size, l
 async def test_titled_notifications_on_confirmation_screen_keep_text_and_cancel(size):
     with tempfile.TemporaryDirectory() as directory:
         app = AcprofTui(settings_path=Path(directory) / "tui.json")
-        with patch.object(app, "_launch") as launch:
+        with patch.object(app, 'launch') as launch:
             async with app.run_test(size=(81, 24), notifications=True) as pilot:
                 await pilot.pause()
                 app.clear_notifications()

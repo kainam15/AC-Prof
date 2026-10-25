@@ -43,8 +43,8 @@ async def test_start_existing_experiment_reviews_preparation_retry(saved_prepara
     config, directory = saved_preparation
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    app.ui_preferences = replace(app.ui_preferences, language=language)
-    with patch.object(app, "_launch") as launch:
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    with patch.object(app, 'launch') as launch:
         async with app.run_test(size=size) as pilot:
             assert await pilot.click("#start-run")
             await app.workers.wait_for_complete()
@@ -74,7 +74,7 @@ async def test_changed_source_offers_new_experiment_and_keeps_original(saved_pre
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     monkeypatch.setattr(run_state, "host_identity", lambda _: {"source_sha256": "changed"})
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    with patch.object(app, "_launch") as launch:
+    with patch.object(app, 'launch') as launch:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")
             await app.workers.wait_for_complete()
@@ -98,24 +98,24 @@ async def test_changed_source_offers_new_experiment_and_keeps_original(saved_pre
 async def test_recovery_cancel_never_launches_or_changes_form(saved_preparation, tmp_path):
     config, _directory = saved_preparation
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    with patch.object(app, "_launch") as launch:
+    with patch.object(app, 'launch') as launch:
         async with app.run_test(size=(80, 24)) as pilot:
-            before = app._collect_config()
+            before = app.configuration.collect_config()
             await pilot.click("#start-run")
             await app.workers.wait_for_complete()
             await pilot.pause()
             launch.assert_not_called()
             await pilot.press("escape")
             await pilot.pause()
-            assert app._collect_config() == before
-            assert not app._read_jobs
+            assert app.configuration.collect_config() == before
+            assert not app.read_jobs
             assert not app.query_one("#start-run", Button).disabled
 
 
 async def test_confirmation_rechecks_source_before_launch(saved_preparation, tmp_path, monkeypatch):
     config, _directory = saved_preparation
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    with patch.object(app, "_launch") as launch:
+    with patch.object(app, 'launch') as launch:
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")
             await app.workers.wait_for_complete()
@@ -136,23 +136,23 @@ async def test_recovery_launch_requires_successful_preflight_and_unchanged_form(
     # Restoring a different profiling mode requires fresh environment checks.
     app = AcprofTui(replace(config, profiling_mode="full"), settings_path=tmp_path / "settings.json")
     record = scan_experiments([directory], max_depth=0).records[0]
-    with patch.object(app, "_launch") as launch:
+    with patch.object(app, 'launch') as launch:
         async with app.run_test(size=(80, 24)) as pilot:
-            with patch.object(app, "_execute_quick_check") as check:
-                app._resume_experiment(record)
+            with patch.object(app.preflight, 'execute_quick_check') as check:
+                app.catalog.resume_experiment(record)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 await pilot.click("#recovery-resume")
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 check.assert_called_once()
-                assert app._recovery_after_check is not None
+                assert app.recovery.recovery_after_check is not None
                 launch.assert_not_called()
                 if outcome == "edited":
                     app.query_one("#repeat", Input).value = str(config.repeat + 1)
                     await pilot.pause()
                 token = check.call_args.args[1]
-                app._show_quick_check([], "preflight failed" if outcome == "failed" else "", token)
+                app.preflight.show_quick_check([], "preflight failed" if outcome == "failed" else "", token)
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 if outcome == "success":
@@ -163,7 +163,7 @@ async def test_recovery_launch_requires_successful_preflight_and_unchanged_form(
                     assert pending.config.result_dir(Path.cwd()) == directory
                 else:
                     launch.assert_not_called()
-                assert app._recovery_after_check is None
+                assert app.recovery.recovery_after_check is None
 
 
 def test_review_checks_active_writer_and_completed_experiment(saved_preparation):
@@ -221,17 +221,17 @@ async def test_cancel_or_close_discards_delayed_review(saved_preparation, tmp_pa
             finished.set()
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     try:
-        with patch.object(app, "_launch") as launch, patch("acprof.tui.recovery_actions.review_recovery", slow_review):
+        with patch.object(app, 'launch') as launch, patch("acprof.tui.recovery_controller.review_recovery", slow_review):
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.click("#start-run")
                 assert await asyncio.to_thread(started.wait, 3)
-                assert app._read_jobs
+                assert app.read_jobs
                 assert app.query_one("#start-run", Button).disabled
                 if close_ui:
                     app.action_request_quit()
                 else:
-                    app._cancel_result_reads()
-                    assert app._read_jobs  # Reading owns the guard until the worker exits.
+                    app.results.cancel_result_reads()
+                    assert app.read_jobs  # Reading owns the guard until the worker exits.
                 release.set()
                 try:
                     await app.workers.wait_for_complete()
@@ -241,7 +241,7 @@ async def test_cancel_or_close_discards_delayed_review(saved_preparation, tmp_pa
                 launch.assert_not_called()
                 if not close_ui:
                     await pilot.pause()
-                    assert not app._read_jobs
+                    assert not app.read_jobs
                     assert not app.query_one("#start-run", Button).disabled
     finally:
         release.set()
@@ -251,9 +251,9 @@ async def test_failed_run_exposes_recovery_action_without_promising_resume(saved
     config, _directory = saved_preparation
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
-        app._active_run_config = config
-        app._process_finished("run", 1, None, "")
-        app._activate_tab("monitor-tab")
+        app.active_run_config = config
+        app.process_finished("run", 1, None, "")
+        app.activate_tab("monitor-tab")
         await pilot.pause()
         assert app.query_one("#run-recovery-actions").display
         assert "使用相同参数续跑" not in str(app.query_one("#status-detail", Static).content)

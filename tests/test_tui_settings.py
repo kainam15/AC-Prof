@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 from dataclasses import replace
 from functools import partial
@@ -10,6 +11,7 @@ import pytest
 
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.experiment import RunConfig
+from acprof.tui.i18n import message_id
 from acprof.tui.settings import (
     SETTINGS_VERSION,
     TuiSettings,
@@ -243,7 +245,18 @@ class TestTuiSettings:
             TuiSettings(run_defaults=RunConfig(sample_hz=10 ** 400)),
         )
         settings = tuple(invalid)[settings_case]
-        with pytest.raises(ValueError):
+        expected = (
+            message_id('ui.0913', message_id('ui.0902'), 'log_wrap'),
+            message_id('ui.0903'),
+            message_id('ui.0905'),
+            message_id('ui.0907'),
+            message_id('ui.0908'),
+            message_id('ui.0908'),
+            message_id('ui.0913', message_id('ui.0910'), 'rebuild_image'),
+            message_id('ui.0913', message_id('ui.0910'), 'repeat'),
+            '[sample_hz]',
+        )[settings_case]
+        with pytest.raises(ValueError, match=re.escape(expected)):
             save_settings(self.path, settings, self.project)
         assert not (self.path.parent.exists())
 

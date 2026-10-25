@@ -54,7 +54,7 @@ class TestTuiColor:
     def test_cli_color_mode_applies_before_rendering(self, mode, expected):
         with patch.dict(
             os.environ, {"TERM": "xterm-256color"}, clear=True,
-        ), patch("acprof.tui.app.default_settings_path", return_value=self.settings_path), patch(
+        ), patch("acprof.tui.configuration_controller.default_settings_path", return_value=self.settings_path), patch(
             "acprof.tui.app.AcprofTui.run", autospec=True,
         ) as run:
             main(["--color-system", mode])

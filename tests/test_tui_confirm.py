@@ -33,7 +33,7 @@ class TestTuiConfirm:
     async def test_mouse_highlight_only_lasts_while_hovering_confirmation(self, theme, size):
         app = self.make_app()
         app.theme = theme
-        with patch.object(app, "_launch") as launch:
+        with patch.object(app, 'launch') as launch:
             async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 assert (await pilot.click("#probe-largest"))
@@ -67,14 +67,14 @@ class TestTuiConfirm:
                 assert (await pilot.click(cancel))
                 await pilot.pause()
                 assert not isinstance(app.screen, ConfirmActionScreen)
-                assert (app._pending_launch) is None
+                assert (app.experiments.pending_launch) is None
                 launch.assert_not_called()
 
     async def test_keyboard_can_select_cancel_or_confirm_after_opening_dialog(self):
         app = self.make_app()
-        with patch.object(app, "_launch") as launch:
+        with patch.object(app, 'launch') as launch:
             async with app.run_test(size=(120, 30)) as pilot:
-                app.action_request_probe()
+                app.experiments.request_probe()
                 await pilot.pause()
                 dialog = app.screen
                 assert isinstance(dialog, ConfirmActionScreen)
@@ -98,18 +98,18 @@ class TestTuiConfirm:
                 await pilot.press("enter")
                 await pilot.pause()
                 assert not isinstance(app.screen, ConfirmActionScreen)
-                assert (app._pending_launch) is None
+                assert (app.experiments.pending_launch) is None
                 launch.assert_not_called()
 
-                app.action_request_probe()
+                app.experiments.request_probe()
                 await pilot.pause()
                 await pilot.press("escape")
                 await pilot.pause()
                 assert not isinstance(app.screen, ConfirmActionScreen)
-                assert (app._pending_launch) is None
+                assert (app.experiments.pending_launch) is None
                 launch.assert_not_called()
 
-                app.action_request_probe()
+                app.experiments.request_probe()
                 await pilot.pause()
                 await pilot.press("tab", "tab")
                 await pilot.pause()
@@ -117,13 +117,13 @@ class TestTuiConfirm:
                 await pilot.press("enter")
                 await pilot.pause()
                 assert not isinstance(app.screen, ConfirmActionScreen)
-                assert (app._pending_launch) is None
+                assert (app.experiments.pending_launch) is None
                 launch.assert_called_once()
                 assert (launch.call_args.args[0].kind) == ("probe")
 
     async def test_mouse_can_confirm_without_prior_keyboard_selection(self):
         app = self.make_app()
-        with patch.object(app, "_launch") as launch:
+        with patch.object(app, 'launch') as launch:
             async with app.run_test(size=(120, 30)) as pilot:
                 await pilot.pause()
                 assert (await pilot.click("#probe-largest"))
@@ -131,6 +131,6 @@ class TestTuiConfirm:
                 assert (await pilot.click("#confirm-yes"))
                 await pilot.pause()
                 assert not isinstance(app.screen, ConfirmActionScreen)
-                assert (app._pending_launch) is None
+                assert (app.experiments.pending_launch) is None
                 launch.assert_called_once()
                 assert (launch.call_args.args[0].kind) == ("probe")

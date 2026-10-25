@@ -83,7 +83,7 @@ class TestTuiEnvironment:
                 assert not (screen.query_one('#close-environment-settings', Button).disabled)
             await pilot.press('escape')
             await pilot.pause()
-            assert not (app._is_busy())
+            assert not (app.is_busy())
 
     async def test_permission_check_uses_measurement_lock_and_ignores_unmounted_callback(self):
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
@@ -118,8 +118,8 @@ class TestTuiEnvironment:
         app = AcprofTui(RunConfig.smoke('demo/model'), settings_path=self.root / 'tui.json')
         async with app.run_test(size=(150, 45)) as pilot:
             await pilot.resize_terminal(*size)
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
             await pilot.press('f2')
             await pilot.pause()
             await self.open_connections(app, pilot)
@@ -161,7 +161,7 @@ class TestTuiEnvironment:
             assert ('hf_testonly') not in (status)
             await pilot.press('escape')
             await pilot.pause()
-            assert not (app._is_busy())
+            assert not (app.is_busy())
             await self.open_connections(app, pilot)
             assert (app.screen.query_one('#env-hf-token', Input).value) == ('hf_testonly')
 
@@ -177,8 +177,8 @@ class TestTuiEnvironment:
             await pilot.pause()
             assert not ((self.root / '.env.local').exists())
             assert ('HF_TOKEN') not in (os.environ)
-            app._process_kind = 'run'
-            app._set_busy(True)
+            app.process_kind = 'run'
+            app.set_busy(True)
             assert (app.query_one('#open-environment-settings', Button).disabled)
-            app._process_kind = ''
-            app._set_busy(False)
+            app.process_kind = ''
+            app.set_busy(False)

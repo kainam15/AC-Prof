@@ -30,7 +30,7 @@ async def test_declaration_input_reaches_run_probe_and_saved_defaults(size):
             app.query_one("#ui-language", Select).value = "en"
             await pilot.pause()
             assert (app.query_one("#model-spec", Input).value) == (path)
-            config = app._collect_config()
+            config = app.configuration.collect_config()
             for builder in (build_run_command, build_probe_command):
                 command = builder(config, project_dir=root)
                 assert (command[command.index("--model-spec") + 1]) == (path)
@@ -38,7 +38,7 @@ async def test_declaration_input_reaches_run_probe_and_saved_defaults(size):
             restored, warning = load_settings(settings_path, root)
             assert (warning) == ("")
             assert (restored.run_defaults.model_spec) == (path)
-            app._apply_config(restored.run_defaults)
+            app.configuration.apply_config(restored.run_defaults)
             assert (field.value) == (path)
 
 def test_missing_declaration_is_reported_before_command_execution():

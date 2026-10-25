@@ -75,10 +75,10 @@ class TestCatalogWorkflow:
             self.fixture.record(f'batch-{i}', model=f'demo/other-{i}', run_id=f'run-{i}', status='complete')
         config = replace(RunConfig.smoke('demo/model'), output_dir=str(root))
         app = AcprofTui(config, settings_path=root / 'settings.json')
-        app.ui_preferences = replace(app.ui_preferences, language='en')
+        app.configuration.preferences = replace(app.configuration.preferences, language='en')
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
-            app._activate_tab('plot-tab')
+            app.activate_tab('plot-tab')
             await pilot.pause()
             button = app.query_one('#choose-result-csv', Button)
             assert (await pilot.click(button))
@@ -97,17 +97,17 @@ class TestCatalogWorkflow:
             await pilot.pause()
             assert ('resource_limit') in (str(app.query_one('#result-summary', Static).content))
             record = scan_experiments([path]).records[0]
-            app._experiment_selected('result-csv', ('reuse', record))
+            app.catalog.experiment_selected('result-csv', ('reuse', record))
             await pilot.pause()
-            reused = app._collect_config()
+            reused = app.configuration.collect_config()
             assert not (reused.resume)
             assert (reused.extra_options['matrix_seed']) == (71)
             assert (reused.revision) == ('a' * 40)
             assert (reused.output_dir) != (str(path.parent))
             assert (app.query_one('#run-preset', Select).value) == ('custom')
             assert ('--matrix-seed 71') in (str(app.query_one('#command-preview', Static).content))
-            with patch.object(app, '_launch') as launch:
-                app._experiment_selected('result-csv', ('resume', record))
+            with patch.object(app, 'launch') as launch:
+                app.catalog.experiment_selected('result-csv', ('resume', record))
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 launch.assert_not_called()
@@ -129,12 +129,12 @@ class TestCatalogWorkflow:
             await pilot.pause()
             record = scan_experiments([path]).records[0]
             for target in ('result-csv', 'result-dir', 'report-source', 'comparison-left', 'comparison-right'):
-                app._experiment_selected(target, ('select', record))
+                app.catalog.experiment_selected(target, ('select', record))
                 expected = path / 'result_layers.json' if target == 'result-csv' else path
                 assert (app.query_one('#' + target, Input).value) == (str(expected))
-            app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
-            with patch('acprof.tui.catalog_actions.scan_experiments') as scan:
-                app._open_experiment_picker('result-csv')
+            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
+            with patch('acprof.tui.catalog_controller.scan_experiments') as scan:
+                app.catalog.open_experiment_picker('result-csv')
                 await pilot.pause()
                 scan.assert_not_called()
             assert not isinstance(app.screen, SearchPickerScreen)

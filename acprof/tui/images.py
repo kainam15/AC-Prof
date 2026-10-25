@@ -343,19 +343,19 @@ class ImageDetailPanel(VerticalScroll):
     def compose(self) -> ComposeResult:
         app = image_detail_app(self.app)
         with Horizontal(id="image-detail-heading"):
-            yield app._localized_widget(Static("", id="image-detail-title", markup=False))
-            yield app._localized_widget(Static("", id="image-detail-created", markup=False))
-        yield app._localized_widget(Static(
+            yield app.localization.localized_widget(Static("", id="image-detail-title", markup=False))
+            yield app.localization.localized_widget(Static("", id="image-detail-created", markup=False))
+        yield app.localization.localized_widget(Static(
             "选择一行查看镜像摘要；展开分组查看详情。", id="image-detail", markup=False,
         ))
         for group, content, title in (("dependencies", "dependency", "依赖清单"),
                                        ("metadata", "metadata", "镜像信息"),
                                        ("diagnostics", "diagnostic", "诊断信息")):
-            with app._localized_widget(Collapsible(
+            with app.localization.localized_widget(Collapsible(
                 title=title, collapsed=True, id="image-" + group,
                 collapsed_symbol=COLLAPSED_SYMBOL, expanded_symbol=EXPANDED_SYMBOL,
             )):
-                yield app._localized_widget(Static("", id=f"image-{content}-detail", markup=False))
+                yield app.localization.localized_widget(Static("", id=f"image-{content}-detail", markup=False))
 
     def on_mount(self) -> None:
         self.show_empty("选择一行查看镜像摘要；展开分组查看详情。")
@@ -368,17 +368,17 @@ class ImageDetailPanel(VerticalScroll):
         self.query_one("#image-detail-heading", Horizontal).display = bool(title)
         heading = self.query_one("#image-detail-title", Static)
         heading.display = bool(title)
-        app._set_text(heading, title)
+        app.localization.set_text(heading, title)
         created_label = self.query_one("#image-detail-created", Static)
         created_label.display = created is not None
         if created is not None:
-            app._set_text(created_label, message_id('ui.0346', image_created_text(created)))
-        app._set_text(self.query_one("#image-detail", Static), summary)
+            app.localization.set_text(created_label, message_id('ui.0346', image_created_text(created)))
+        app.localization.set_text(self.query_one("#image-detail", Static), summary)
         for group in self.query(Collapsible):
             section_title, content = sections.get(group.id or "", ("", ""))
             group.display = bool(section_title)
-            app._set_text(group, section_title, "title")
-            app._set_text(group.query_one("Contents > Static", Static), content)
+            app.localization.set_text(group, section_title, "title")
+            app.localization.set_text(group.query_one("Contents > Static", Static), content)
             if changed:
                 group.collapsed = True
         if changed:

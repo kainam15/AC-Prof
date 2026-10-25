@@ -21,24 +21,24 @@ async def test_start_waiting_state_is_translated_without_covering_monitor():
         )
         app = AcprofTui(config, settings_path=Path(temporary) / "settings.json")
         async with app.run_test(size=(120, 30)) as pilot:
-            app.ui_preferences = replace(app.ui_preferences, language="en")
-            app._apply_ui_preferences()
+            app.configuration.preferences = replace(app.configuration.preferences, language="en")
+            app.configuration.apply_ui_preferences()
             await pilot.pause()
-            with patch.object(app, "_execute_command"):
+            with patch.object(app.process, 'execute_command'):
                 await pilot.press("f5")
                 await app.workers.wait_for_complete()
                 await pilot.pause()
                 assert app.screen.id == "_default"
                 assert app.query_one("#main-tabs").active == "monitor-tab"
-                assert app._preparation_screen is None
+                assert app.preflight.preparation_screen is None
                 assert app.query_one("#status-stage", Static).content == "Starting"
                 assert app.query_one("#status-detail", Static).content == "Creating subprocess"
-                app._process_kind = ""
+                app.process_kind = ""
 
 def test_first_launch_without_saved_configuration_is_a_small_smoke():
     with tempfile.TemporaryDirectory() as temporary:
         app = AcprofTui(settings_path=Path(temporary) / "settings.json")
-        assert (app.initial_config) == (RunConfig.smoke())
+        assert (app.configuration.initial_config) == (RunConfig.smoke())
 
 @pytest.mark.parametrize("legacy_mode", ("mirror-only", "mirror-preferred", "official"))
 async def test_changing_presets_preserves_effective_download_constraints(legacy_mode):
@@ -52,7 +52,7 @@ async def test_changing_presets_preserves_effective_download_constraints(legacy_
             for preset in ("main", "smoke"):
                 app.query_one("#run-preset", Select).value = preset
                 await pilot.pause()
-                effective = app._collect_config()
+                effective = app.configuration.collect_config()
                 assert (effective.max_download) == ("5GB")
                 assert effective.download_mode == "auto"
                 assert effective.model_source == "modelscope"
@@ -77,7 +77,7 @@ async def test_selecting_smoke_builds_basic_cpu_command_and_preserves_notificati
             await pilot.press("enter", "home", "down", "enter")
             await pilot.pause()
             assert (preset.value) == ("smoke")
-            command = build_run_command(app._collect_config(), project_dir=Path.cwd())
+            command = build_run_command(app.configuration.collect_config(), project_dir=Path.cwd())
             for option, value in (("--profiling-mode", "basic"), ("--gpus", "off"),
                                   ("--notify", "wecom"), ("--repeat-in-window", "1")):
                 assert (command[command.index(option) + 1]) == (value)
@@ -87,13 +87,13 @@ def test_cli_first_run_overrides_saved_full_matrix_without_rewriting_settings():
         path = Path(temporary) / "settings.json"
         save_settings(path, TuiSettings(run_defaults=RunConfig(model="saved/model")), Path.cwd())
         original = path.read_bytes()
-        with patch("acprof.tui.app.default_settings_path", return_value=path), patch(
+        with patch("acprof.tui.configuration_controller.default_settings_path", return_value=path), patch(
             "textual.app.App.run", autospec=True,
         ) as run:
             main(["--model", "google-bert/bert-base-uncased", "--preset", "smoke",
                   "--output-dir", "results/first run"])
         app = run.call_args.args[0]
-        command = build_run_command(app.initial_config, project_dir=Path.cwd())
+        command = build_run_command(app.configuration.initial_config, project_dir=Path.cwd())
         assert (command[command.index("--profiling-mode") + 1]) == ("basic")
         assert (command[command.index("--output-dir") + 1]) == ("results/first run")
         assert (path.read_bytes()) == (original)
@@ -103,11 +103,11 @@ def test_starting_without_overrides_preserves_saved_full_matrix():
         path = Path(temporary) / "settings.json"
         config = RunConfig(model="saved/model", cpus="2,4", output_dir="results/saved")
         save_settings(path, TuiSettings(run_defaults=config), Path.cwd())
-        with patch("acprof.tui.app.default_settings_path", return_value=path), patch(
+        with patch("acprof.tui.configuration_controller.default_settings_path", return_value=path), patch(
             "textual.app.App.run", autospec=True,
         ) as run:
             main([])
-        assert (run.call_args.args[0].initial_config) == (config)
+        assert (run.call_args.args[0].configuration.initial_config) == (config)
 
 @pytest.mark.parametrize('size,language', (((80, 24), 'zh'), ((120, 30), 'en'), ((150, 45), 'zh')))
 async def test_prepared_scales_update_summary_outside_measurement_in_both_languages(size, language):
@@ -115,10 +115,10 @@ async def test_prepared_scales_update_summary_outside_measurement_in_both_langua
         config = RunConfig.smoke("openai/whisper-tiny")
         app = AcprofTui(config, settings_path=Path(temporary) / "settings.json")
         async with app.run_test(size=size) as pilot:
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_ui_preferences()
-            app._active_run_config = config
-            app._preparation_event({"stage": "input", "status": "passed",
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.configuration.apply_ui_preferences()
+            app.active_run_config = config
+            app.preflight.preparation_event({"stage": "input", "status": "passed",
                 "input_plan": {"scales": [1.0], "scale_type": "duration_s"}})
             await pilot.pause()
             assert ("1 s") in (app.query_one("#input-scales", Input).placeholder)
@@ -127,19 +127,19 @@ async def test_prepared_scales_update_summary_outside_measurement_in_both_langua
             button = app.query_one("#start-run", Button)
             assert (summary.region.bottom) <= (app.query_one("#run-actions").region.y)
             assert (app.get_widget_at(button.region.x + 3, button.region.y + 1)[0]) is (button)
-            app._latest_snapshot = replace(app._latest_snapshot, measurement_active=True)
+            app.latest_snapshot = replace(app.latest_snapshot, measurement_active=True)
             with pytest.raises(RuntimeError, match="measurement window"):
-                app._preparation_event({"input_plan": {"scales": [2.0], "scale_type": "duration_s"}})
+                app.preflight.preparation_event({"input_plan": {"scales": [2.0], "scale_type": "duration_s"}})
 
 
 async def test_revision_edit_invalidates_prepared_scales_but_repeat_edit_keeps_them(tmp_path):
     config = replace(RunConfig.smoke("demo/model"), revision="v1",
                      input_scale_policy="auto", repeat=3)
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    with patch.object(app, "_execute_command") as execute:
+    with patch.object(app.process, 'execute_command') as execute:
         async with app.run_test(size=(120, 30)) as pilot:
-            app._active_run_config = app._collect_config()
-            app._preparation_event({"stage": "input", "status": "passed",
+            app.active_run_config = app.configuration.collect_config()
+            app.preflight.preparation_event({"stage": "input", "status": "passed",
                 "input_plan": {"scales": [8.0, 16.0], "scale_type": "seq_length"}})
             await pilot.pause()
             summary = app.query_one("#run-plan-summary", Static)
@@ -152,7 +152,7 @@ async def test_revision_edit_invalidates_prepared_scales_but_repeat_edit_keeps_t
             app.query_one("#repeat", Input).focus()
             await pilot.press("end", "ctrl+u", "4")
             await pilot.pause()
-            assert app._collect_config().repeat == 4
+            assert app.configuration.collect_config().repeat == 4
             assert "输入 2 档 (tokens)" in str(summary.content)
             assert "正式 8 窗口" in str(summary.content)
             assert scales.placeholder == "8,16 tokens"
@@ -160,13 +160,13 @@ async def test_revision_edit_invalidates_prepared_scales_but_repeat_edit_keeps_t
             app.query_one("#revision", Input).focus()
             await pilot.press("end", "ctrl+u", "v", "2")
             await pilot.pause()
-            assert app._collect_config().revision == "v2"
+            assert app.configuration.collect_config().revision == "v2"
             assert "输入 待解析 档" in str(summary.content)
             assert "正式 待解析 窗口" in str(summary.content)
             assert scales.placeholder == "留空：自动范围 · 单位待解析"
 
-            app._active_run_config = app._collect_config()
-            app._preparation_event({"stage": "input", "status": "passed",
+            app.active_run_config = app.configuration.collect_config()
+            app.preflight.preparation_event({"stage": "input", "status": "passed",
                 "input_plan": {"scales": [4.0, 12.0, 24.0], "scale_type": "seq_length"}})
             await pilot.pause()
             assert "输入 3 档 (tokens)" in str(summary.content)

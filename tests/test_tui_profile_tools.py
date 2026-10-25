@@ -32,7 +32,7 @@ class TestTuiProfileTools:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("profile-tab")
+            app.activate_tab("profile-tab")
             app.query_one("#result-dir", Input).value = str(self.result_dir)
             await pilot.pause()
             checkboxes = list(app.query("#profile-tools Checkbox"))
@@ -45,7 +45,7 @@ class TestTuiProfileTools:
             await pilot.press("space")
             await pilot.pause()
 
-            with patch.object(app, "_launch") as launch:
+            with patch.object(app, 'launch') as launch:
                 await self.click_visible(app, pilot, "#profile-dry-run")
                 launch.assert_called_once()
                 planned = launch.call_args.args[0]
@@ -56,7 +56,7 @@ class TestTuiProfileTools:
                 launch.reset_mock()
                 await self.click_visible(app, pilot, "#profile-run")
                 assert isinstance(app.screen, ConfirmActionScreen)
-                pending = app._pending_launch
+                pending = app.experiments.pending_launch
                 assert (pending.command[pending.command.index("--tools") + 1]) == ("nsys,massif")
                 assert ("--dry-run") not in (pending.command)
                 launch.assert_not_called()
@@ -65,7 +65,7 @@ class TestTuiProfileTools:
 
             for tool in ("torch", "ncu"):
                 await self.click_visible(app, pilot, f"#profile-tool-{tool}")
-            prepared = app._profile_command(dry_run=True)
+            prepared = app.profiles.profile_command(dry_run=True)
             assert prepared is not None
             command, result_path = prepared
             assert (result_path) == (self.result_dir)
@@ -75,17 +75,17 @@ class TestTuiProfileTools:
         app = self.make_app()
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            app._activate_tab("profile-tab")
+            app.activate_tab("profile-tab")
             app.query_one("#result-dir", Input).value = str(self.result_dir)
             await pilot.pause()
             assert (len(app.query("#profile-tools Checkbox"))) == (4)
             for tool in ("torch", "ncu"):
                 await self.click_visible(app, pilot, f"#profile-tool-{tool}")
-            with patch.object(app, "_launch") as launch, patch.object(app, "notify") as notify:
+            with patch.object(app, 'launch') as launch, patch.object(app, 'notify') as notify:
                 for button in ("profile-dry-run", "profile-run"):
                     await self.click_visible(app, pilot, f"#{button}")
                     launch.assert_not_called()
-                    assert (app._pending_launch) is None
+                    assert (app.experiments.pending_launch) is None
                     assert ("请至少勾选一个补采工具") in (str(notify.call_args))
                 command_input = app.query_one("#slash-command", Input)
                 command_input.value = f"/profile {self.result_dir} nsys,massif"
@@ -104,10 +104,10 @@ class TestTuiProfileTools:
         async with app.run_test(size=(150, 45)) as pilot:
             assert (len(app.query("#profile-tools Checkbox"))) == (4)
             await pilot.resize_terminal(*size)
-            app.action_show_settings()
+            app.configuration.show_settings()
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
-            app._activate_tab("profile-tab")
+            app.activate_tab("profile-tab")
             await pilot.pause()
             for tool in ("torch", "ncu", "nsys", "massif"):
                 box = app.query_one(f"#profile-tool-{tool}", Checkbox)
@@ -123,7 +123,7 @@ class TestTuiProfileTools:
                 assert (await pilot.click(box, offset=(2, 1)))
                 await pilot.pause()
                 assert (box.value) == (not previous)
-            app._set_busy(True)
+            app.set_busy(True)
             assert (all(box.disabled for box in app.query("#profile-tools Checkbox")))
-            app._set_busy(False)
+            app.set_busy(False)
             assert (all(not box.disabled for box in app.query("#profile-tools Checkbox")))
