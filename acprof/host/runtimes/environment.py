@@ -22,10 +22,22 @@ def host_abi() -> dict:
 
 
 def installed_packages(python: str) -> dict:
-    result = run_command([python, "-I", "-c",
+    result = run_command([python, "-I", "-B", "-c",
         "import importlib.metadata as m,json;print(json.dumps({d.metadata['Name'].lower().replace('_','-'):d.version for d in m.distributions()}))"],
         check=True, timeout=30)
     return json.loads(result.stdout)
+
+
+def installed_tree_digest(root: Path) -> str:
+    """Detect package edits or added import hooks even when versions match."""
+    files = {}
+    for path in sorted(root.rglob("*")):
+        name = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            files[name] = "symlink:" + os.readlink(path)
+        elif path.is_file():
+            files[name] = file_sha256(path)
+    return content_digest(files)
 
 
 def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
@@ -39,7 +51,7 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
         raise ValueError("Process dependency locks currently target Linux x86_64")
     lock = project / declaration.requirements_lock
     records = read_python_lock(lock)
-    identity = {"schema_version": 1, "kind": "process", "host_abi": abi,
+    identity = {"schema_version": 2, "kind": "process", "host_abi": abi,
                 "python": declaration.platform.python_version, "artifacts": records,
                 "service_sha256": source_fingerprint(project, service_sources(project), scope="process-service-v1")}
     key = content_digest(identity)
@@ -75,6 +87,7 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
                 shutil.copyfile(path, destination)
             manifest = {"identity": identity, "environment_id": key, "packages": actual,
                         "interpreter_sha256": file_sha256(python),
+                        "installed_tree_sha256": installed_tree_digest(staging / "venv"),
                         "system_packages": "host_managed; validated by import and inference",
                         "isolation": "python_environment; not a security or network sandbox"}
             atomic_write_json(staging / "manifest.json", manifest)
@@ -90,6 +103,8 @@ def verify_environment(root: Path, manifest: dict) -> None:
         raise ValueError("Process environment packages changed; refuse reuse")
     if file_sha256(root / "venv/bin/python") != manifest["interpreter_sha256"]:
         raise ValueError("Process interpreter changed; refuse reuse")
+    if installed_tree_digest(root / "venv") != manifest.get("installed_tree_sha256"):
+        raise ValueError("installed Process environment files changed or lack integrity evidence; refuse reuse")
     code = root / "code"
     if source_fingerprint(code, service_sources(code), scope="process-service-v1") != identity["service_sha256"]:
         raise ValueError("Process environment service code changed; refuse reuse")
