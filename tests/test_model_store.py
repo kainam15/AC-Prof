@@ -227,6 +227,14 @@ class TestModelStore:
                 model_store.prepare_model(self.task, self.plan, self.root)
             download.assert_not_called()
 
+    def test_model_only_budget_stops_store_download_even_without_total_cap(self):
+        with patch.dict(os.environ, {"ACPROF_MAX_DOWNLOAD": "", "ACPROF_MODEL_MAX_DOWNLOAD": "0"}), patch(
+            "huggingface_hub.snapshot_download"
+        ) as download:
+            with pytest.raises(DownloadPolicyError, match="ACPROF_MODEL_MAX_DOWNLOAD"):
+                model_store.prepare_model(self.task, self.plan, self.root)
+            download.assert_not_called()
+
     def test_cache_change_after_preflight_cannot_increase_download(self):
         with patch("huggingface_hub.snapshot_download") as download:
             with pytest.raises(DownloadPolicyError, match="缓存自预检后已变化"):

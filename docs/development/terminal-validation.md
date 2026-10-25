@@ -71,7 +71,11 @@ Headless 能检查布局、键盘路径和输出状态；SVG、tmux 与真实 VS
 checkpoint SHA；它们是随机权重接口样例，验证采集链路，不代表生产模型质量或完整模型兼容性。
 GitHub Actions 在同一个专用 self-hosted job 内先完成离线故障回归，再运行
 `scripts/prepare_hardware.py` 准备当前源码指纹对应的 Docker 平台、依赖环境、模型镜像及
-Model Store。准备阶段允许缺失产物的拉取或构建，每个模型最多下载 4GB，超时或磁盘不足会失败，
+Model Store。准备阶段允许缺失产物的拉取或构建；通过 `ACPROF_MODEL_MAX_DOWNLOAD=4GB` 限制
+每个模型未缓存的权重下载量（不包含 Docker 镜像、依赖和元数据流量）。
+由于 GHCR 的 OCI 镜像体积可能无法预先确定，准备阶段不设置 `ACPROF_MAX_DOWNLOAD` 总预算，
+允许拉取或本机构建依赖镜像；**不能将模型权重上限理解为总流量上限**。
+总预算仍保持未知大小即拒绝下载的语义；超时或磁盘不足会失败，
 **不会自动清理已有镜像或缓存**。准备阶段持有同用户的测量锁，不与其他 AC-Prof 正式采集并行。
 所有 case 完成后才原子写出 `preparation/prepared-matrix.json`（固定 40 位 revision）；
 准备失败时只保留 `preparation/preparation.json` 中的失败证据，不会启动正式测量。

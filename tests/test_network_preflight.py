@@ -56,6 +56,72 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
     assert logged == report
 
 
+
+def test_model_only_budget_allows_cached_model_with_unknown_oci_size(tmp_path):
+    """Regression for hardware run #2: GHCR manifest may have no size."""
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    plan = {"selected_bytes": 989_138, "endpoint": "https://hf-mirror.com"}
+    model = DownloadSource("model", plan["endpoint"], 0, cached_bytes=989_138, cache_status="hit")
+    oci = DownloadSource("oci", "https://ghcr.io/demo/runtime", None, cache_status="miss")
+    settings = {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": ""}
+    with (
+        patch.dict("os.environ", settings, clear=True),
+        patch("acprof.host.model_store.model_sources", return_value=[model]),
+        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.network_preflight.runtime_sources", return_value=(
+            [oci], {"platform_local": False, "will_attempt_ghcr_pull": True},
+        )),
+        patch("acprof.host.static_metadata._docker_storage_metadata", return_value={}),
+    ):
+        report = preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
+
+    assert report["expected_download_bytes"] is None  # OCI is still unknown, not zero.
+    assert report["max_download_bytes"] is None
+    assert report["model_max_download_bytes"] == 4_000_000_000
+    assert report["runtime"]["will_attempt_ghcr_pull"]
+    with pytest.raises(DownloadPolicyError, match="未知大小"):
+        enforce_download_budget(report, "4GB")
+
+
+@pytest.mark.parametrize("model_bytes", [None, 4_000_000_001])
+def test_model_only_budget_blocks_unknown_or_oversized_model_before_oci(tmp_path, model_bytes):
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    plan = {"selected_bytes": model_bytes, "endpoint": "https://hf-mirror.com"}
+    with (
+        patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": ""}, clear=True),
+        patch("acprof.host.model_store.model_sources", return_value=[
+            DownloadSource("model", plan["endpoint"], model_bytes),
+        ]),
+        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.probe_model_download") as probe,
+        patch("acprof.host.network_preflight.runtime_sources") as runtime,
+        pytest.raises(DownloadPolicyError, match="ACPROF_MODEL_MAX_DOWNLOAD"),
+    ):
+        preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
+    probe.assert_not_called()
+    runtime.assert_not_called()
+
+
+def test_total_budget_remains_strict_with_unknown_oci_size(tmp_path):
+    task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40)
+    plan = {"selected_bytes": 2, "endpoint": "https://hf-mirror.com"}
+    with (
+        patch.dict("os.environ", {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB", "ACPROF_MAX_DOWNLOAD": "4GB"}, clear=True),
+        patch("acprof.host.model_store.model_sources", return_value=[
+            DownloadSource("model", plan["endpoint"], 0, cached_bytes=2),
+        ]),
+        patch("acprof.host.model_store.require_space", return_value={"free_bytes": 35_000_000_000}),
+        patch("acprof.host.model_store.probe_model_download", return_value=[]),
+        patch("acprof.host.network_preflight.runtime_sources", return_value=(
+            [DownloadSource("oci", "https://ghcr.io/demo/runtime", None)],
+            {"platform_local": False},
+        )),
+        patch("acprof.host.static_metadata._docker_storage_metadata", return_value={}),
+        pytest.raises(DownloadPolicyError, match="未知大小"),
+    ):
+        preflight(task, PROFILES["nlp-cpu"], tmp_path, plan, root=tmp_path / "cache")
+
 def test_route_totals_do_not_treat_unknown_as_zero():
     report = summarize_downloads([DownloadSource("model", "https://hf-mirror.com", 100),
                                  DownloadSource("oci", "https://ghcr.io/repo", 50),

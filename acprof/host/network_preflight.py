@@ -188,6 +188,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
 
 def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dict:
     from acprof.host.model_store import (
+        enforce_model_download_budgets,
         model_sources,
         probe_model_download,
         require_space,
@@ -196,15 +197,17 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dic
     from acprof.network_policy import parse_bytes
     models = model_sources(model_plan, root)
     disk = require_space(model_plan, root)
-    enforce_download_budget(summarize_downloads(models), os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    enforce_model_download_budgets(summarize_downloads(models))
     probes = probe_model_download(model_plan, root)
     models = model_sources(model_plan, root)  # Probe may have selected another Hub entry.
+    enforce_model_download_budgets(summarize_downloads(models))
     sources, runtime = runtime_sources(profile, Path(project_dir))
     report = summarize_downloads([*models, *sources])
     report["runtime"] = runtime
     report["disk"] = disk
     report["network_probe"] = probes
     report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    report["model_max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MODEL_MAX_DOWNLOAD"))
     report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
     from acprof.host.static_metadata import _docker_storage_metadata
     report["docker_storage"] = _docker_storage_metadata()
@@ -220,7 +223,7 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dic
         workflow = PreparationWorkflow(interactive=True)
         summary = {key: report[key] for key in (
             "expected_download_bytes", "network", "public_egress", "network_probe", "runtime", "disk",
-            "max_download_bytes", "model_store_path", "docker_storage", "model",
+            "max_download_bytes", "model_max_download_bytes", "model_store_path", "docker_storage", "model",
         )}
         workflow.ask("image", "review", resolved=True, questions=[], download_report=summary)
     return report

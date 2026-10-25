@@ -63,6 +63,16 @@ def test_save_config_roundtrips_literal_quotes_and_shell_text_without_evaluation
         env_utils.load_project_env(root, environ=loaded)
         assert (loaded['HF_TOKEN']) == (value)
 
+def test_model_download_budget_can_be_saved_and_invalid_budget_is_rejected(tmp_path):
+    env = {}
+    env_utils.save_project_env(tmp_path, {"ACPROF_MODEL_MAX_DOWNLOAD": "4GB"}, environ=env)
+    assert env["ACPROF_MODEL_MAX_DOWNLOAD"] == "4GB"
+    assert env_utils.configurable_env_values(tmp_path, environ={})["ACPROF_MODEL_MAX_DOWNLOAD"] == "4GB"
+    original = (tmp_path / ".env.local").read_text()
+    with pytest.raises(ValueError, match="下载容量格式"):
+        env_utils.save_project_env(tmp_path, {"ACPROF_MODEL_MAX_DOWNLOAD": "unbounded?"}, environ=env)
+    assert (tmp_path / ".env.local").read_text() == original
+
 def test_save_config_refuses_symlinks_and_external_edits():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

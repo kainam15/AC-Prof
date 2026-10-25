@@ -18,7 +18,8 @@ from acprof.hf_endpoints import hf_endpoints
 
 CONFIGURABLE_ENV_KEYS = (
     "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE",
-    "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
+    "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD",
+    "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
     "ACPROF_WECOM_WEBHOOK_URL",
 )
 _ENV_ALIASES = {
@@ -112,7 +113,7 @@ def save_project_env(
         updates[key] = value.strip()
     hf_endpoints({**os.environ, **updates})
     from acprof.network_policy import parse_bytes
-    for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
+    for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
         parse_bytes(updates.get(key))
     if updates.get("ACPROF_WECOM_WEBHOOK_URL"):
         from acprof.notifications import NotificationConfigError, validate_wecom_webhook_url

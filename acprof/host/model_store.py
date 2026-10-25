@@ -474,6 +474,15 @@ def require_space(plan: dict, root: Path | None = None) -> dict:
     return report
 
 
+def enforce_model_download_budgets(plan: dict) -> None:
+    """Bound model payloads independently of OCI size, without changing total-budget policy."""
+    enforce_download_budget(plan, os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    try:
+        enforce_download_budget(plan, os.environ.get("ACPROF_MODEL_MAX_DOWNLOAD"))
+    except DownloadPolicyError as exc:
+        raise DownloadPolicyError(f"ACPROF_MODEL_MAX_DOWNLOAD: {exc}") from exc
+
+
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     from huggingface_hub import snapshot_download
 
@@ -488,7 +497,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         if any(size is None for size in sizes):
             raise DownloadPolicyError("Model Store 文件大小未知；无法预估下载预算")
         needed = sum(size for size in sizes if size is not None)
-        enforce_download_budget({"expected_download_bytes": needed}, os.environ.get("ACPROF_MAX_DOWNLOAD"))
+        enforce_model_download_budgets({"expected_download_bytes": needed})
         if planned_download_bytes is not None and needed > planned_download_bytes:
             raise DownloadPolicyError("Model Store 缓存自预检后已变化；尚未下载权重，请重新预检")
         existing = read_entry(key, root)

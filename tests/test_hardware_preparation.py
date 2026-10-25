@@ -177,7 +177,8 @@ def test_hardware_workflow_prepares_before_offline_measurement():
     assert preparation < measurement
     assert stages[preparation]["env"]["ACPROF_REQUIRE_PREPARED_IMAGE"] == "0"
     assert stages[preparation]["env"]["HF_HUB_OFFLINE"] == "0"
-    assert stages[preparation]["env"]["ACPROF_MAX_DOWNLOAD"] == "4GB"
+    assert stages[preparation]["env"]["ACPROF_MAX_DOWNLOAD"] == ""
+    assert stages[preparation]["env"]["ACPROF_MODEL_MAX_DOWNLOAD"] == "4GB"
     assert "prepared-matrix.json" in stages[measurement]["run"]
     assert "examples/hardware-validation.json" not in stages[measurement]["run"]
     assert job["runs-on"] == ["self-hosted", "linux", "x64", "acprof"]

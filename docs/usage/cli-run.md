@@ -81,6 +81,7 @@
 | `--model-source` | `huggingface` | `huggingface`、`modelscope`；不同来源独立记录身份，不静默替换。 |
 | `--download-mode` | `auto` | 高级/兼容参数：`auto`、`mirror-only`、`mirror-preferred`、`official`；显式参数优先于 `HF_DOWNLOAD_MODE`，TUI 固定使用 `auto`。 |
 | `--max-download` | 不设上限 | 下载前核验全部批量 payload 预算，例如 `5GB`、`5GiB`；`0` 只允许缓存命中。任何来源大小未知或总量超限时，在 pull/build/权重下载前停止。环境变量为 `ACPROF_MAX_DOWNLOAD`。 |
+| `ACPROF_MODEL_MAX_DOWNLOAD` | 不设上限 | 独立的模型权重剩余下载预算（如 `4GB`），在预检和 Model Store 实际下载前均验证；不限制 OCI 镜像、Python/Debian 依赖或元数据流量。与总预算同时设置时两个限制均须满足；此项仅为环境变量。 |
 | `--model-store` | `~/.cache/acprof/model-store` | 单份主机模型目录，对应 `ACPROF_MODEL_STORE`；运行容器只读挂载。 |
 | `--model-store-max` | 不设上限 | Model Store 容量上限，对应 `ACPROF_MODEL_STORE_MAX`；超限须先显式清理。 |
 | `--model-download-policy` | `auto` | `auto` 按已覆盖的加载器规则筛选文件，未知结构保留完整快照并记录原因；`full` 下载固定 commit 的完整仓库。策略进入镜像指纹，不能相互误复用。采集和探测入口均支持。 |
