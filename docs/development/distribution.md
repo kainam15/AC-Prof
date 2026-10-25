@@ -49,6 +49,7 @@ Python 依赖范围由 `pyproject.toml` 声明；CI 同时验证已锁定环境�
 安装 `pyproject.toml` 中 `tool.uv.required-version` 指定的 uv 版本；当前工具链使用 0.13.5。
 已有 standalone uv 可运行 `uv self update 0.13.5`，其他安装渠道按各自方式更新。
 项目要求 Python ≥3.12，`.python-version` 默认选择 3.12；CI 保留 3.12 / 3.13 回归。
+显式支持 classifier 目前也限定为 3.12 / 3.13；3.14 尚未取得对应 CI 证据，未作支持声明。
 uv 可按需下载解释器，不要求开发者预先安装或激活 `.venv`。
 
 ```bash
@@ -261,6 +262,9 @@ flowchart TD
     Build["uv build / python-dist"] --> Verify["verify-dist"]
     Verify --> Standalone["standalone"]
     Standalone --> Gate
+    Verify --> Risk["release-risk: 依赖风险结论"]
+    Standalone --> Risk
+    Risk --> Gate
     Hardware["main 上的同提交硬件证据"] --> HardwareGate["hardware-gate"]
     HardwareGate --> Gate
     Gate --> Release["GitHub Release"]
@@ -314,7 +318,25 @@ PyPI 项目描述来自同一制品的 README，metadata 的 Changelog 链接指
 实验 `static_meta.json` 中的 `platform_runtime.acprof_version` 保存执行包版本，源码开发态另外保留
 `git_commit`，模型/runtime 身份按原协议记录；历史缺失版本保持未知，见[环境身份与能力支持](../profiling/measurement.md#环境身份与能力支持)。
 
-Release 附带 `verification.json`，记录源码 SHA、CI run 和已验证的硬件证据。
+Release 附带 `verification.json`，记录源码 SHA、CI run、依赖风险结论和已验证的硬件证据。
+`release-risk` 审计通过发行验证的 wheel／sdist 实际安装环境、standalone 构建环境及
+全部注册的 Python runtime wheel 锁。依赖快照绑定对应制品哈希，结论同时绑定 commit、
+`uv.lock`、`dockerfiles/locks/` 内容及豁免策略哈希；发布前重读快照和原始扫描报告，重新
+计算风险决定并核对全部身份，失败时 GitHub Release
+和 PyPI 都不执行。原始报告、输入 pins 与验证快照随 `dependency-audit-evidence.tar.gz`
+发布，结构化结论为 `release-risk.json`。普通分支依赖审计仍采用报告／告警语义。
+
+pip-audit 不提供充分的 severity／可达性证据，因此门禁不推断不可达：已知漏洞无论新旧，
+以及部分未评估包，都需要有效豁免；缺失、无效、包版本／覆盖不符或全部未评估的报告
+直接失败。`.github/release-risk.json` 默认为空豁免列表；每条豁免必须包含精确
+`scope`、`package`、`version`、`finding`（advisory ID／alias 或 `unassessed`）、
+`decision`（`risk_accepted`／`not_affected`）、`reason`、`owner`、UTC 日期 `expires`
+和审查 `evidence`。不允许通配符，未评估包只能显式接受风险，不能写成已确认不受影响；
+到期豁免会在扫描与发布两阶段失败。新增门禁不表示当前依赖已无漏洞。
+
+该门禁的扫描范围是 Python 包；OCI／系统库、未来安装器重新解析出的版本与模型
+checkpoint 明确列为未覆盖，不计作安全结论。OCI 镜像身份与 Grype 证据另见
+[运行时安全基线](runtime-security.md#oci-与系统层)。
 `hardware-gate` 要求同一 SHA 在 main 上成功执行 `hardware.yml`，对应 `hardware` artifact
 仍可下载，且通过固定 CPU/GPU 矩阵、Native Linux 身份及正式测量指标核验；
 缺失、过期或不完整均阻止 GitHub Release 和 PyPI 发布。该门禁只证明对应 artifact

@@ -25,6 +25,7 @@ def test_publish_requires_same_revision_ci_and_distribution(publisher):
     needs = jobs[publisher]['needs']
     needs = [needs] if isinstance(needs, str) else needs
     assert ({'build', 'verify-dist', 'standalone'} <= set(needs))
+    assert 'release-risk' in needs, 'both publishers must consume same-artifact dependency risk'
     verification = [jobs[name] for name in needs if jobs[name].get('uses') == './.github/workflows/ci.yml']
     assert (len(verification)) == (1), 'publish must wait for same-commit reusable CI'
     assert ('always()') not in (jobs[publisher].get('if', ''))
@@ -33,6 +34,17 @@ def test_regression_workflow_exposes_reusable_entrypoint():
     ci = yaml.load((ROOT / '.github/workflows/ci.yml').read_text(), Loader=yaml.BaseLoader)
     assert ('workflow_call') in (ci['on'])
     assert ({'lint', 'host', 'onnx-cpu', 'runtime'} <= ci['jobs'].keys())
+
+
+def test_python_support_classifiers_have_host_ci_evidence():
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    declared = {value.rsplit(" :: ", 1)[-1] for value in project["project"]["classifiers"]
+                if value.startswith("Programming Language :: Python :: 3.")}
+    ci = yaml.load((ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader)
+    matrix = ci["jobs"]["host"]["strategy"]["matrix"]
+    assert declared <= set(matrix["python"])
 
 
 def test_release_reusable_ci_caller_grants_nested_job_permissions():
@@ -88,8 +100,10 @@ def test_pypi_uses_oidc_and_the_same_built_artifact_as_github():
     assert ('pypi') in (jobs)
     pypi = jobs['pypi']
     assert (pypi['environment']['name']) == ('pypi')
-    assert (pypi['permissions']) == ({'id-token': 'write'})
-    assert not (any('checkout@' in step.get('uses', '') for step in pypi['steps']))
+    assert (pypi['permissions']) == ({'id-token': 'write', 'contents': 'read'})
+    assert any('checkout@' in step.get('uses', '') for step in pypi['steps'])
+    risk_check = next(step['run'] for step in pypi['steps'] if 'scripts/release_risk.py verify' in step.get('run', ''))
+    assert '--python-only' in risk_check
     action = next(step for step in pypi['steps'] if step.get('uses', '').startswith('pypa/gh-action-pypi-publish@'))
     assert re.search(r'@[0-9a-f]{40}$', action['uses'])
     assert not (action.get('with', {}).get('skip-existing', False))

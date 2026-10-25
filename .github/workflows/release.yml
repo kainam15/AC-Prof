@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'uv.lock', '.python-version', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'tests/test_release_gate.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/workflows/release.yml', '.github/workflows/ci.yml']
+    paths: ['acprof/**', 'dockerfiles/**', 'assets/**', 'examples/**', 'uv.lock', '.python-version', 'pyproject.toml', 'packaging/**', 'scripts/check_distribution.py', 'scripts/release_risk.py', 'scripts/check_dependency_audit.py', 'tests/test_release*.py', 'tests/test_hatch_build.py', 'README.md', 'LICENSE', 'NOTICE', 'licenses/**', '.dockerignore', '.github/release-risk.json', '.github/workflows/release.yml', '.github/workflows/ci.yml']
   workflow_dispatch:
 
 permissions:
@@ -225,9 +225,51 @@ jobs:
           name: hardware-proof
           path: hardware-proof.json
 
+  release-risk:
+    needs: [build, verify-dist, standalone]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-dist
+          path: dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: standalone-dist
+          path: dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distribution-evidence
+          path: distribution-evidence/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: standalone-evidence
+          path: distribution-evidence/
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version-file: pyproject.toml
+          python-version: '3.12'
+      - run: uv sync --locked --only-group audit
+      - name: 核对待发布制品并审计实际依赖快照与 runtime 锁
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS && sha256sum --check STANDALONE-SHA256SUMS)
+          uv run --locked --only-group audit python scripts/release_risk.py scan \
+            --commit "$RELEASE_COMMIT" --dist dist --evidence-dir distribution-evidence \
+            --output-dir release-risk
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: release-risk-evidence
+          path: release-risk/
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [build, verify, verify-dist, standalone, hardware-gate]
+    needs: [build, verify, verify-dist, standalone, hardware-gate, release-risk]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -258,6 +300,19 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: hardware-proof
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-risk-evidence
+          path: release-risk/
+      - name: 再次核对发布风险身份并保留审计证据
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 scripts/release_risk.py verify --commit "$RELEASE_COMMIT" --dist dist \
+            --proof release-risk/release-risk.json
+          cp release-risk/release-risk.json dist/release-risk.json
+          tar -czf dist/dependency-audit-evidence.tar.gz -C release-risk .
+          (cd dist && sha256sum release-risk.json dependency-audit-evidence.tar.gz >> SHA256SUMS)
       - name: 记录已验证的同提交硬件证据
         run: |
           uv run --locked --only-group build python - <<'EOPY'
@@ -276,7 +331,8 @@ jobs:
                              'run_url': os.environ['GITHUB_SERVER_URL'] + '/'
                                         + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/'
                                         + os.environ['GITHUB_RUN_ID']},
-                      'hardware': hardware}
+                      'hardware': hardware,
+                      'dependency_risk': json.loads(Path('dist/release-risk.json').read_text())}
           Path('dist/verification.json').write_text(json.dumps(evidence, indent=2) + '\n')
           Path('verification-notes.md').write_text(
               'Validation scope is recorded in verification.json.\n\n'
@@ -293,7 +349,7 @@ jobs:
 
   pypi:
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: [build, verify, verify-dist, standalone, hardware-gate]
+    needs: [build, verify, verify-dist, standalone, hardware-gate, release-risk]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
@@ -301,11 +357,23 @@ jobs:
       url: https://pypi.org/project/acprof/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: python-dist
           path: dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-risk-evidence
+          path: release-risk/
+      - name: 核对 wheel 与 sdist 的依赖风险身份
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 scripts/release_risk.py verify --commit "$RELEASE_COMMIT" --dist dist \
+            --proof release-risk/release-risk.json --python-only
       - name: 核对制品并仅暂存 wheel 与 sdist
         run: |
           cd dist

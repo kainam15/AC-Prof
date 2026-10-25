@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,7 @@ import tarfile
 import tempfile
 import zipfile
 from email.parser import BytesParser
+from importlib.metadata import distributions
 from pathlib import Path
 
 
@@ -158,7 +160,18 @@ print(json.dumps({'root': str(root), 'files': len(files), 'fingerprint': expecte
         assert float(rows[0]["latency_s"]) == 0.25, rows
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps({"successful": True, "checks": evidence}, indent=2) + "\n")
+        dependencies = sorted(
+            ({"name": item.metadata["Name"], "version": item.version} for item in distributions()),
+            key=lambda item: item["name"].lower(),
+        )
+        artifact_sha256 = {}
+        for kind, artifact in (("wheel", args.wheel), ("sdist", args.sdist), ("standalone", args.binary)):
+            if artifact is not None:
+                with artifact.open("rb") as stream:
+                    artifact_sha256[kind] = hashlib.file_digest(stream, "sha256").hexdigest()
+        args.report.write_text(json.dumps({"successful": True, "checks": evidence,
+                                          "artifact_sha256": artifact_sha256,
+                                          "python": sys.version, "dependencies": dependencies}, indent=2) + "\n")
     print(f"Distribution smoke passed: {len(evidence)} checks from an empty workspace")
     return 0
 
