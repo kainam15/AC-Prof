@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -98,7 +99,9 @@ class TestTuiLogView:
             ):
                 app.process_started(12345, "test")
                 app.consume_process_line("[build] second line", None, False)
-                await pilot.pause()
+                async with asyncio.timeout(2):
+                    while "[build] second line" not in log.text:
+                        await pilot.pause()
                 assert (app.query_one("#run-log", SelectableLog)) is (log)
                 assert ("[build] second line") in (log.text)
                 log.selection = Selection((0, 0), (0, len("[build] first line")))

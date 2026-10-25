@@ -103,6 +103,9 @@ class LocalizationController:
                 for key, bindings in self.source_bindings.items()
             }
             self.app.refresh_bindings()
+            self.app.logs.refresh_status()
+            if self.app.preflight.latest_download is not None and not self.app.latest_snapshot.measurement_active:
+                self.app.preflight.download_progress(self.app.preflight.latest_download)
             if self.app.results.report_view is not None:
                 self.app.results.render_report_view()
             self.app.images.render_images()

@@ -57,6 +57,7 @@ from acprof.tui.image_controller import ImageController
 from acprof.tui.input import BarCursorApp, BarCursorInput as Input
 from acprof.tui.localization_controller import LocalizationController
 from acprof.tui.log import SelectableLog
+from acprof.tui.log_controller import LogController
 from acprof.tui.model_controller import ModelController
 from acprof.tui.preflight_controller import PreflightController
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
@@ -165,6 +166,7 @@ class AcprofTui(BarCursorApp):
         self.models = ModelController(self)
         self.catalog = CatalogController(self)
         self.process = ProcessController(self)
+        self.logs = LogController(self)
         self.slash = SlashController(self)
         for palette in THEME_CATALOG:
             self.register_theme(Theme(**palette.theme_kwargs()))
@@ -313,6 +315,7 @@ class AcprofTui(BarCursorApp):
             return
         if not self.allow_operation("run"):
             return
+        self.logs.flush()
         if pending.kind in {"run", "probe"}:
             with self.prevent(Checkbox.Changed):
                 self.query_one("#rebuild-image", Checkbox).value = False
@@ -339,6 +342,7 @@ class AcprofTui(BarCursorApp):
         self.stop_requested = False
         self.preflight.preparation_cancelled = False
         self.latest_snapshot = ProgressSnapshot(stage=Stage.STARTING, detail="正在创建子进程")
+        self.preflight.reset_download()
         self.set_busy(True)
         self.activate_tab("monitor-tab")
         # Moving focus away from inputs stops the native cursor's blink timer.
@@ -410,8 +414,7 @@ class AcprofTui(BarCursorApp):
     def show_deferred_lines(self, lines: tuple[str, ...]) -> None:
         log = self.query_one("#run-log", SelectableLog)
         log.write(self.localization.tr(message_id('ui.0784')))
-        for line in lines:
-            log.write(line)
+        log.write("\n".join(lines))
 
     def write_log(self, line: str) -> None:
         self.query_one("#run-log", SelectableLog).write(self.localization.tr(line))
@@ -433,13 +436,13 @@ class AcprofTui(BarCursorApp):
                 "已有相同报告：{0}" if self.results.stats_report_reused else "统计报告已保存：{0}",
                 self.results.stats_report_path,
             ))
-        if line:
-            self.query_one("#run-log", SelectableLog).write(line)
         if snapshot is not None:
             if self.process_kind == "run" and snapshot.stage is Stage.COMPLETED:
                 snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
             was_measuring = self.latest_snapshot.measurement_active
             self.latest_snapshot = snapshot
+            if was_measuring != snapshot.measurement_active:
+                self.logs.suspend(snapshot.measurement_active)
             self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
             self.images.sync_image_refresh_timer()
             if self.elapsed_timer is not None:
@@ -449,6 +452,8 @@ class AcprofTui(BarCursorApp):
                     self.elapsed_timer.resume()
             if state_changed:
                 self.render_snapshot(snapshot)
+        if line:
+            self.logs.append(line)
 
     @staticmethod
     def format_elapsed(seconds: float) -> str:
@@ -458,6 +463,7 @@ class AcprofTui(BarCursorApp):
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
+        self.logs.stage_changed(snapshot)
         from acprof.tui.preparation import phase_summary
         self.localization.set_text(self.query_one("#status-preparation", Static), phase_summary(snapshot))
         elapsed = (
@@ -491,6 +497,8 @@ class AcprofTui(BarCursorApp):
         snapshot: ProgressSnapshot | None,
         launch_error: str,
     ) -> None:
+        # The child has exited; flush preparation output before its final outcome.
+        self.logs.suspend(False)
         if kind == "stats" and returncode == 0 and not launch_error and self.results.stats_report_path is None:
             launch_error = "统计进程未返回报告路径"
         if kind == "probe" and returncode == 0 and not launch_error and not self.stop_requested:
@@ -619,6 +627,8 @@ class AcprofTui(BarCursorApp):
             self.latest_snapshot = ProgressSnapshot(stage=stage, detail=detail)
             self.render_snapshot(self.latest_snapshot)
 
+        self.preflight.finish_download(cancelled=self.stop_requested)
+        self.logs.flush()
         self.active_command = ()
         self.process_kind = ""
         self.stop_requested = False
@@ -849,6 +859,37 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '#copy-log')
     def on_configuration_copy_log_selection(self) -> None:
         self.configuration.copy_log_selection()
+
+    @on(SelectableLog.Updated)
+    def on_log_updated(self) -> None:
+        self.logs.refresh_status()
+
+    @on(Input.Changed, '#log-search')
+    @on(Select.Changed, '#log-level')
+    @on(Checkbox.Changed, '#log-details')
+    def on_log_view_changed(self) -> None:
+        self.logs.view_changed()
+
+    @on(Button.Pressed, '#log-next')
+    @on(Input.Submitted, '#log-search')
+    def on_log_next(self) -> None:
+        self.logs.find()
+
+    @on(Button.Pressed, '#log-previous')
+    def on_log_previous(self) -> None:
+        self.logs.find(previous=True)
+
+    @on(Button.Pressed, '#copy-log-all')
+    def on_log_copy_all(self) -> None:
+        self.logs.copy_all()
+
+    @on(Button.Pressed, '#log-tools')
+    def on_log_tools(self) -> None:
+        self.logs.toggle_tools()
+
+    @on(Button.Pressed, '#export-log')
+    def on_log_export(self) -> None:
+        self.logs.export()
 
     @on(Button.Pressed, '#follow-log')
     def on_configuration_follow_latest_log(self) -> None:

@@ -1,4 +1,5 @@
 import ast
+import asyncio
 import re
 import tempfile
 from dataclasses import replace
@@ -289,6 +290,9 @@ class TestTuiLanguage:
             assert ("Native Linux") not in (log.text)
             assert not (app.query_one("#environment-status").display)
             app.consume_process_line("等待 原始子进程输出 {raw}", None, False)
+            async with asyncio.timeout(2):
+                while "等待 原始子进程输出 {raw}" not in log.text:
+                    await pilot.pause()
             assert ("等待 原始子进程输出 {raw}") in (log.text)
             app.process_started(123, "probe")
             assert ("probe process started, PID=123") in (log.text)

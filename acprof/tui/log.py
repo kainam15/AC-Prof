@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from collections.abc import Sequence
 
+from rich.text import Text
 from textual import events
 from textual.binding import Binding
+from textual.geometry import Offset
 from textual.message import Message
 from textual.scrollbar import ScrollDown, ScrollTo, ScrollUp
 from textual.widgets import TextArea
 from textual.widgets.text_area import EditResult, Selection
+
+from acprof.tui.log_records import DETAIL, LEVEL, LogRecords, LogRow
 
 
 class SelectableLog(TextArea):
@@ -22,6 +27,20 @@ class SelectableLog(TextArea):
     """
 
     BINDINGS = [Binding("ctrl+a", "select_all", "全选日志", show=False)]
+    COMPONENT_CLASSES = {"log--info", "log--success", "log--warn", "log--error", "log--debug", "log--match"}
+    DEFAULT_CSS = """
+    SelectableLog {
+        .log--info { color: $primary; }
+        .log--success { color: $success; }
+        .log--warn { color: $warning; }
+        .log--error { color: $error; }
+        .log--debug { color: $text-muted; }
+        .log--match { background: $warning; color: $background; text-style: bold; }
+    }
+    """
+
+    class Updated(Message):
+        """Retention, filtering or search changed (never posted while suspended)."""
 
     class FollowChanged(Message):
         """The user paused following, or explicitly returned to the latest output."""
@@ -39,6 +58,8 @@ class SelectableLog(TextArea):
         self,
         *,
         max_lines: int = 5000,
+        max_bytes: int = 8 * 1024 * 1024,
+        details: bool = True,
         wrap: bool = True,
         id: str | None = None,
         classes: str | None = None,
@@ -48,6 +69,14 @@ class SelectableLog(TextArea):
         self._has_entries = False
         self._following = True
         self._max_lines = self._validate_max_lines(max_lines)
+        self.records = LogRecords(self._max_lines, self._validate_max_lines(max_bytes))
+        self._rows: list[LogRow] = []
+        self.level_filter = "ALL"
+        self.details = details
+        self.search_query = ""
+        self.suspended = False
+        self._matches: list[tuple[int, int, int]] = []
+        self._match_index = -1
         super().__init__(
             read_only=True,
             soft_wrap=wrap,
@@ -76,7 +105,9 @@ class SelectableLog(TextArea):
     @max_lines.setter
     def max_lines(self, value: int) -> None:
         self._max_lines = self._validate_max_lines(value)
-        self._trim_and_restore()
+        self.records.max_lines = self._max_lines
+        self.records.trim()
+        self._sync_view()
 
     @property
     def wrap(self) -> bool:
@@ -91,7 +122,71 @@ class SelectableLog(TextArea):
     @property
     def lines(self) -> Sequence[str]:
         """Retained original lines; visual wrapping never inserts newlines here."""
-        return self.document.lines if self._has_entries else ()
+        return tuple(record.raw for record in self.records.records)
+
+    @property
+    def raw_text(self) -> str:
+        return self.records.raw_text
+
+    @property
+    def discarded_lines(self) -> int:
+        return self.records.discarded
+
+    @property
+    def match_count(self) -> int:
+        return len(self._matches)
+
+    def set_view(self, *, level: str | None = None, details: bool | None = None, query: str | None = None) -> None:
+        if self.suspended:
+            return
+        if level is not None:
+            if level not in {"ALL", "INFO", "WARN", "ERROR", "DEBUG"}:
+                raise ValueError("unknown log level")
+            self.level_filter = level
+        if details is not None:
+            self.details = details
+        if query is not None:
+            self.search_query = query
+        self._match_index = -1
+        self._sync_view()
+
+    def set_suspended(self, suspended: bool) -> None:
+        was_suspended = self.suspended
+        self.suspended = suspended
+        if was_suspended and not suspended:
+            self._sync_view()
+
+    def find_match(self, *, previous: bool = False) -> bool:
+        if self.suspended or not self._matches:
+            return False
+        if self._match_index < 0:
+            self._match_index = len(self._matches) - 1 if previous else 0
+        else:
+            self._match_index = (self._match_index + (-1 if previous else 1)) % len(self._matches)
+        row, start, end = self._matches[self._match_index]
+        self.selection = Selection((row, start), (row, end))
+        self.scroll_cursor_visible(center=True, animate=False)
+        return True
+
+    def get_line(self, line_index: int) -> Text:
+        line = super().get_line(line_index)
+        if line_index >= len(self._rows):
+            return line
+        record = self._rows[line_index].record
+        category = "success" if record.success else record.level.lower()
+        style = self.get_component_rich_style(f"log--{category}")
+        if record.level in {"WARN", "ERROR", "DEBUG"} or record.success:
+            line.stylize(style)
+        else:
+            for match in LEVEL.finditer(line.plain[:80]):
+                line.stylize(style, match.start(), match.end())
+        if record.level not in {"WARN", "ERROR"}:
+            for match in DETAIL.finditer(line.plain):
+                line.stylize(self.get_component_rich_style("log--debug"), match.start(), match.end())
+        if self.search_query:
+            for match in re.finditer(re.escape(self.search_query), line.plain, re.I):
+                line.stylize(self.get_component_rich_style("log--match"), match.start(), match.end())
+        return line
 
     @property
     def following(self) -> bool:
@@ -196,7 +291,7 @@ class SelectableLog(TextArea):
             self.call_after_refresh(self._scroll_tail_if_following)
 
     def _scroll_tail_if_following(self) -> None:
-        if self.following and self.is_mounted:
+        if self.following and self.is_mounted and not self.suspended:
             self.scroll_end(animate=False, immediate=True, x_axis=False)
 
     def follow_tail(self) -> None:
@@ -207,75 +302,74 @@ class SelectableLog(TextArea):
         if self.is_mounted:
             self.call_after_refresh(self._scroll_tail_if_following)
 
-    def _trim_lines(self) -> tuple[int, int]:
-        remove_count = max(0, self.document.line_count - self.max_lines)
-        if not remove_count:
-            return 0, 0
-        removed_rows = self.wrapped_document.location_to_offset((remove_count, 0)).y
-        self.delete((0, 0), (remove_count, 0), maintain_selection_offset=False)
-        return remove_count, removed_rows
+    def _sync_view(self) -> None:
+        if self.suspended:
+            return
+        rows = self.records.project(level=self.level_filter, details=self.details, query=self.search_query)
+        old_rows = self._rows
+        selection = self.selection
+        scroll_x, scroll_y = self.scroll_x, self.scroll_y
+        top, _ = self.wrapped_document.offset_to_location(Offset(0, int(scroll_y)))
+        within_row = scroll_y - self.wrapped_document.location_to_offset((top, 0)).y
+        sequences = [row.record.sequence for row in rows]
 
-    def _restore_after_write(
-        self,
-        selection: Selection,
-        scroll_x: float,
-        scroll_y: float,
-        removed_lines: int,
-        removed_rows: int,
-    ) -> None:
         def relocate(location: tuple[int, int]) -> tuple[int, int]:
             row, column = location
-            return (0, 0) if row < removed_lines else (row - removed_lines, column)
+            if not rows or row >= len(old_rows):
+                return (0, 0)
+            index = min(bisect_left(sequences, old_rows[row].record.sequence), len(rows) - 1)
+            return index, min(column, len(rows[index].text))
 
-        self.selection = Selection(relocate(selection.start), relocate(selection.end))
-        # No undo history may retain output that the user asked us to discard.
-        self.history.clear()
-        if not self.following:
-            self.scroll_to(
-                x=scroll_x,
-                y=max(0, scroll_y - removed_rows),
-                animate=False,
-                immediate=True,
-                force=True,
-            )
-
-    def _trim_and_restore(self) -> None:
-        selection = self.selection
-        scroll_x, scroll_y = self.scroll_x, self.scroll_y
         self._mutating_log = True
         try:
-            removed_lines, removed_rows = self._trim_lines()
-            self._restore_after_write(
-                selection, scroll_x, scroll_y, removed_lines, removed_rows
-            )
+            # Retention removes the head; normal appends only edit the tail.
+            # Searching/filtering may rebuild the projection, never the raw history.
+            removed = bisect_left([row.record.sequence for row in old_rows], sequences[0]) if rows else len(old_rows)
+            if removed:
+                if removed < len(old_rows):
+                    self.delete((0, 0), (removed, 0), maintain_selection_offset=False)
+                else:
+                    super().clear()
+            remaining = old_rows[removed:]
+            common = 0
+            for old, new in zip(remaining, rows, strict=False):
+                if old != new:
+                    break
+                common += 1
+            self._rows = rows
+            if common < len(remaining):
+                if common == len(rows) and common:
+                    start = (common - 1, len(rows[-1].text))
+                else:
+                    start = (common, 0)
+                self.replace("\n".join(row.text for row in rows[common:]), start, self.document.end,
+                             maintain_selection_offset=False)
+            elif common < len(rows):
+                self.insert(("\n" if remaining else "") + "\n".join(row.text for row in rows[common:]),
+                            self.document.end, maintain_selection_offset=False)
+            self._has_entries = bool(rows)
+            self.selection = Selection(relocate(selection.start), relocate(selection.end))
+            self.history.clear()
+            # TextArea caches rendered strips; a query can change styles without an edit.
+            self._line_cache.clear()
+            if not self.following:
+                anchor = relocate((top, 0))
+                self.scroll_to(x=scroll_x, y=self.wrapped_document.location_to_offset(anchor).y + within_row,
+                               animate=False, immediate=True, force=True)
         finally:
             self._mutating_log = False
-        self._scroll_tail_if_following()
-
-    def write(self, content: str) -> SelectableLog:
-        """Append an entry without changing a reader's selection or scroll anchor."""
-        selection = self.selection
-        scroll_x, scroll_y = self.scroll_x, self.scroll_y
-        # A caller-provided final newline terminates this entry. Preserve any
-        # additional blank lines, while avoiding a duplicated line separator.
-        entry = content.removesuffix("\n")
-        self._mutating_log = True
-        try:
-            self.insert(
-                ("\n" if self._has_entries else "") + entry,
-                self.document.end,
-                maintain_selection_offset=True,
-            )
-            self._has_entries = True
-            removed_lines, removed_rows = self._trim_lines()
-            self._restore_after_write(
-                selection, scroll_x, scroll_y, removed_lines, removed_rows
-            )
-        finally:
-            self._mutating_log = False
+        self._matches = [(row, match.start(), match.end()) for row, item in enumerate(rows)
+                         for match in re.finditer(re.escape(self.search_query), item.text, re.I)] if self.search_query else []
+        self.refresh()
         self._scroll_tail_if_following()
         if self.following and self.is_mounted:
             self.call_after_refresh(self._scroll_tail_if_following)
+        self.post_message(self.Updated())
+
+    def write(self, content: str) -> SelectableLog:
+        """Retain original text and update the projection without stealing selection."""
+        self.records.append(content)
+        self._sync_view()
         return self
 
     def clear(self) -> EditResult:
@@ -284,10 +378,15 @@ class SelectableLog(TextArea):
         try:
             result = super().clear()
             self._has_entries = False
+            self.records = LogRecords(self.max_lines, self.records.max_bytes)
+            self._rows = []
+            self._matches = []
+            self._match_index = -1
         finally:
             self._mutating_log = False
         self._set_following(True)
         self.scroll_home(animate=False, immediate=True)
+        self.post_message(self.Updated())
         return result
 
     def clear_log(self) -> SelectableLog:
@@ -296,7 +395,7 @@ class SelectableLog(TextArea):
         return self
 
     def copy_selection(self) -> bool:
-        """Copy selected original text; return whether there was a selection."""
+        """Copy selected display text; raw copy remains independent of folding."""
         if not self.selected_text:
             return False
         self.app.copy_to_clipboard(self.selected_text)
@@ -304,7 +403,7 @@ class SelectableLog(TextArea):
 
     def copy_all(self) -> bool:
         """Copy all retained original text, including real line separators."""
-        if not self._has_entries:
+        if not self.records.records:
             return False
-        self.app.copy_to_clipboard(self.text)
+        self.app.copy_to_clipboard(self.raw_text)
         return True

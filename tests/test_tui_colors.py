@@ -10,6 +10,7 @@ from textual.strip import Strip
 from tui_fixtures import AcprofTui
 
 from acprof.cli.tui import main
+from acprof.tui.log import SelectableLog
 
 
 class TestTuiColor:
@@ -72,6 +73,10 @@ async def test_no_color_still_converts_the_rendered_frame_to_grayscale(no_color)
     ):
         app = AcprofTui(settings_path=Path(directory) / "tui.json")
         async with app.run_test(size=(105, 27)) as pilot:
+            app.activate_tab('monitor-tab')
+            raw = '[INFO] preparing\n[SUCCESS] cache hit\n[WARN] retry\n[ERROR] failed'
+            log = app.query_one('#run-log', SelectableLog)
+            log.write(raw)
             await pilot.pause()
             colors = {
                 color.get_truecolor()
@@ -81,3 +86,5 @@ async def test_no_color_still_converts_the_rendered_frame_to_grayscale(no_color)
             }
             assert (colors)
             assert (all(len(set(rgb)) == 1 for rgb in colors)) == (no_color)
+            assert log.copy_all()
+            assert app.clipboard == raw

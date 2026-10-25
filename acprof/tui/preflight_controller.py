@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING
 from textual.widgets import Button, Static
 from textual.worker import Worker
 
+from acprof.download_events import DownloadProgress
 from acprof.experiment import RunConfig
 from acprof.host.run_state import MeasurementLock
 from acprof.messages import join_messages, message
@@ -47,6 +49,25 @@ class PreflightController:
         self.preparation_cancelled = False
         self.pending_source_change: dict[str, str] | None = None
         self.preparation_request: tuple[subprocess.Popen[str], int] | None = None
+        self.latest_download: DownloadProgress | None = None
+
+    def reset_download(self) -> None:
+        self.latest_download = None
+        self.app.query_one("#download-progress", Static).display = False
+
+    def download_progress(self, progress: DownloadProgress) -> None:
+        if self.app.latest_snapshot.measurement_active:
+            raise RuntimeError("download progress inside measurement window")
+        from acprof.tui.downloads import live_download_summary
+        self.latest_download = progress
+        widget = self.app.query_one("#download-progress", Static)
+        widget.display = True
+        widget.update(live_download_summary(progress, self.app.localization.tr))
+
+    def finish_download(self, *, cancelled: bool) -> None:
+        if self.latest_download is not None and self.latest_download.state in {"downloading", "verifying"}:
+            self.download_progress(replace(self.latest_download, state="cancelled" if cancelled else "failed",
+                                           rate_bytes_s=None))
 
     def show_environment_status(self) -> None:
         lines = []

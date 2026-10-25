@@ -42,6 +42,7 @@ class ProcessController:
                 run_before = RunArtifacts.read(config.result_dir(self.app.project_dir))
             except (OSError, ValueError, RuntimeError):
                 pass  # CLI reports invalid history; it cannot become current results.
+        from acprof.download_events import parse_event as parse_download_event
         from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
         tracker = RunProgressTracker() if kind in {"run", "probe"} else None
         suppressed_lines = 0
@@ -70,6 +71,12 @@ class ProcessController:
             assert process.stdout is not None
             for raw_line in process.stdout:
                 line = raw_line.rstrip("\r\n")
+                download = parse_download_event(line)
+                if download is not None:
+                    if tracker is not None and tracker.snapshot.measurement_active:
+                        raise ValueError("download progress inside measurement window")
+                    deliver(self.app.preflight.download_progress, download)
+                    continue
                 before = tracker.snapshot if tracker is not None else None
                 snapshot = tracker.feed(line) if tracker is not None else None
                 state_changed = snapshot != before if snapshot is not None else False
@@ -102,6 +109,9 @@ class ProcessController:
                     and snapshot is not None
                     and not snapshot.measurement_active
                 ):
+                    # Release the log rendering gate before replaying diagnostics.
+                    deliver(self.app.consume_process_line, "", snapshot, state_changed)
+                    state_changed = False
                     if deferred_important_lines:
                         deliver(
                             self.app.show_deferred_lines,

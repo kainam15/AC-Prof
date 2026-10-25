@@ -470,7 +470,20 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                 yield app.localization.localized_widget(Static("尚未启动", id="status-detail", markup=False))
 
             yield Static("", id="status-preparation", markup=False)
+            yield Static("", id="download-progress", markup=False)
             with LogPanel(id="log-panel"):
+                with Horizontal(id="log-controls"):
+                    yield app.localization.localized_select(
+                        [("全部级别", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],
+                        value="ALL", allow_blank=False, id="log-level", classes="log-control",
+                    )
+                    yield app.localization.localized_widget(Input(placeholder="搜索保留日志", id="log-search", classes="log-control"))
+                    yield app.localization.localized_widget(Button("↑", id="log-previous", classes="log-control", compact=True, tooltip="上一个匹配"))
+                    yield app.localization.localized_widget(Button("↓", id="log-next", classes="log-control", compact=True, tooltip="下一个匹配"))
+                    yield app.localization.localized_widget(Checkbox("详情", id="log-details", classes="log-control"))
+                    yield app.localization.localized_widget(Button("复制原文", id="copy-log-all", classes="log-control", compact=True))
+                    yield app.localization.localized_widget(Button("导出", id="export-log", classes="log-control", compact=True))
+                yield Static("", id="log-status", markup=False)
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):
                         yield app.localization.localized_widget(Button("复制选区", id="copy-log", classes="log-tool"))
@@ -478,6 +491,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                         yield app.localization.localized_widget(Button("放大日志", id="expand-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("返回监控", id="restore-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("清空日志", id="clear-log", classes="log-tool"))
+                        yield app.localization.localized_widget(Button("筛选 / 搜索", id="log-tools", classes="log-tool log-control"))
                     with Horizontal(classes="action-primary"):
                         yield app.localization.localized_widget(Button(
                             "终止任务", id="stop-run", classes="log-tool",
@@ -487,6 +501,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     id="run-log",
                     max_lines=app.configuration.preferences.log_max_lines,
                     wrap=app.configuration.preferences.log_wrap,
+                    details=False,
                 )
             with Horizontal(id="run-recovery-actions"):
                 yield app.localization.localized_widget(Button("恢复 / 重试", id="review-run-recovery"))

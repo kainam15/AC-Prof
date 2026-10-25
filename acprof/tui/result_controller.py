@@ -25,7 +25,6 @@ from acprof.tui.commands import (
 from acprof.tui.diagnostics import summarize_result_csv
 from acprof.tui.i18n import error_message, message_id
 from acprof.tui.input import BarCursorInput as Input
-from acprof.tui.log import SelectableLog
 from acprof.tui.presentation import CALCULATING
 from acprof.tui.reports import ReportView, read_report
 
@@ -50,7 +49,7 @@ class ResultController:
         self.clear_log()
 
     def clear_log(self) -> None:
-        self.app.query_one("#run-log", SelectableLog).clear_log()
+        self.app.logs.clear()
 
     def result_source_changed(self) -> None:
         if self.app.form_ready:

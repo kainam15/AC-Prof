@@ -45,7 +45,7 @@ dry-run、已有数据完整性判断、计划复用、备份和发布顺序沿�
 
 ## TUI 与兼容维护
 
-`AcprofTui` 只继承终端光标适配 `BarCursorApp`；12 个业务 controller 通过明确属性组合，
+`AcprofTui` 只继承终端光标适配 `BarCursorApp`；业务 controller 通过明确属性组合，
 不继承 Textual `MessagePump`，也不把业务方法复制到 App 命名空间。
 App 保留进程启动、停止及退出清理，正式测量快照、全局操作互斥、页面导航和 Textual 事件入口。
 配置、镜像、预检、结果、恢复和选择器各自拥有本职责的状态；共享进程及 `read_jobs` 只有 App 一个拥有者。
@@ -60,6 +60,14 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
 `preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
 `profile_controller` 管理补采，`slash_controller` 分发快捷命令。
+`log_controller` 管理日志批量展示、搜索、筛选和保留原文导出；`log_records` 保留有界原文并生成可逆的显示投影，
+`SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
+扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
+`host.download_progress` 通过 `huggingface_hub` 的 `tqdm_class` 扩展采集准备期进度，
+`download_events` 是与正式事件独立的有界消息协议，`preflight_controller` 将其展示为独立下载区域。
+最低 Hub 版本 1.28 包含 [重试计数修复](https://github.com/huggingface/huggingface_hub/pull/4209)、
+[Xet 双流进度](https://github.com/huggingface/huggingface_hub/pull/4400) 和聚合回调；依赖继续采用 Apache-2.0 许可。
+仅借鉴与调用上游扩展点，不复制下载器、全局 monkey patch 或轮询缓存目录；Docker 运行锁不随主机 SDK 变更。
 所有 `@on` 入口在 App 中按原事件顺序显式调用所属 controller；快捷键保留 Textual 的 `action_*` 入口。
 业务调用使用具体类型的 `app.configuration.collect_config()` 等路径；没有字符串方法转发、
 全量 App Protocol、新增 cast 或 `assert isinstance(self, AcprofTui)` 类型断言。

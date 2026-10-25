@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
+from acprof.download_events import DownloadProgress
 from acprof.messages import message
 from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN, format_byte_fields, format_bytes
@@ -54,3 +55,21 @@ def download_result_summary(report: dict) -> str:
     return message_id('ui.0081', report["category"],
                    format_bytes(report["verified_new_payload_bytes"]), format_bytes(report["cache_savings_bytes"]),
                    format_bytes(report.get("wire_bytes")))
+
+
+def live_download_summary(progress: DownloadProgress, translate: Callable[[str], str]) -> str:
+    states = {"downloading": "ui.0938", "verifying": "ui.0939", "complete": "ui.0940",
+              "failed": "ui.0941", "cancelled": "ui.0942"}
+    percent = (f"{progress.completed_bytes / progress.total_bytes:.0%}"
+               if progress.completed_bytes is not None and progress.total_bytes else UNKNOWN)
+    speed = format_bytes(int(progress.rate_bytes_s)) + "/s" if progress.rate_bytes_s is not None else UNKNOWN
+    lines = [message_id('ui.0943', progress.model, message_id(states[progress.state]), progress.attempt),
+             message_id('ui.0944',
+                     format_bytes(progress.completed_bytes), format_bytes(progress.total_bytes), percent,
+                     progress.files_completed, progress.files_total, format_bytes(progress.cached_bytes)),
+             message_id('ui.0945', format_bytes(progress.transferred_bytes), speed)]
+    if progress.detail == 'retry_cache_baseline_unknown':
+        lines.append(message_id('ui.0949'))
+    elif progress.detail:
+        lines.append(message_id('ui.0946', progress.detail))
+    return "\n".join(translate(line) for line in lines)

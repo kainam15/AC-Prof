@@ -56,6 +56,8 @@ Current source builds reuse verified model images automatically and build missin
 
 The TUI tracks collection and probe progress through structured events. After a collection exits, it verifies the saved experiment identity and audits the result before reporting success; a successful process exit alone is insufficient.
 
+The monitor offers colored log levels, literal search, a detailed view, and copying or exporting retained original text. Model downloads have a separate byte-progress display that distinguishes cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
+
 ## Documentation
 
 | Goal | Guide |
