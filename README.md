@@ -60,6 +60,8 @@ The monitor offers colored log levels, literal search, a detailed view, and copy
 
 Download confirmation shows capacity, cache, sources, network status, Runtime state and the Model Store path directly. Before confirmation, a bounded model GET probe reads up to 256 KiB in total, within the download budget; zero budget skips GET. Full downloads begin only after confirmation. A passing probe does not guarantee the complete transfer. See [download preflight](docs/usage/tui-experiments.md#下载与磁盘预检).
 
+CSV headers and result directories exist before inference starts. Each completed measurement window appends to the root module CSVs; completion freezes an immutable snapshot. Use AC-Prof readers for a consistent committed view, including during recovery and postprocessing. See [live results and recovery](docs/profiling/artifacts.md#实时提交与后处理).
+
 ### Generate an interactive report
 
 Run `acprof tui` → **Reports** → **Select experiment** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.

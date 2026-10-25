@@ -26,6 +26,11 @@
 | `process_cpu_util_avg_pct` | `% one logical CPU` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
 | `process_rss_avg_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
 | `process_rss_peak_bytes` | `byte` | `psutil_observed_process_tree` | `request_window` | `all` | `number` |
+| `run_id` | `text` | `protocol` | `run` | `all` | `text` |
+| `case_id` | `text` | `protocol` | `case` | `all` | `text` |
+| `case_attempt_id` | `text` | `protocol` | `case_attempt` | `all` | `text` |
+| `window_id` | `text` | `protocol` | `request_window` | `all` | `text` |
+| `packet_status` | `text` | `pcap` | `request_window` | `all` | `text` |
 | `cpu_cores` | `core` | `protocol` | `case` | `all` | `number` |
 | `mem_cap_gb` | `GiB` | `protocol` | `case` | `all` | `number` |
 | `gpu_mode` | `text` | `protocol` | `case` | `gpu` | `text` |

@@ -45,35 +45,40 @@ Runtime 身份、实际限制来源、GPU 整卡范围及缺失状态见 [Runtim
 
 ### 分层结果 CSV（唯一正式结果）
 
-新实验完成后生成 `result_layers.json`，指向 `result_generations/<generation>/` 中的
-`summary.csv`、`performance.csv`、`resources.csv`、`energy.csv`、`network.csv`。
-如果 profiler 有记录，则在该 generation 的 `profiling/` 下生成对应的
-`torch_profiler.csv`、`ncu.csv`、`nsys.csv`、`massif.csv`；未运行且没有有效数据的分析器不写空表。
+新实验准备阶段即生成 `result_layers.json` 与根目录的 `summary.csv`、`performance.csv`、
+`resources.csv`、`energy.csv`、`network.csv`，以及 `profiling/` 下的四个 profiler CSV。
+CSV 从完整表头开始，每个窗口结束后追加对应模块。未运行的 profiler 只有表头，没有数据行。
 
-- 每个分层文件保留 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx` 六个测量身份字段；基础层与 summary 一一对应，profiler 可按实际采集记录稀疏输出。
+- 每个分层文件共享资源/计划键 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx`，并共享 `runtime_kind` 与 `run_id/case_id/case_attempt_id/window_id`。基础层与 summary 一一对应，profiler 只输出实际采集记录。
 - 除身份字段外，每个指标只有一个所属层，分类从 `metric_registry.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
-- `result_layers.json` 的 schema v2 记录 generation、模块路径、字段、行数和文件哈希；`acprof results verify <目录>` 检查文件损坏、归属和关联键。缺失字段或无效关联不以 `0` 填补。已有 schema v1 的固定路径分层结果继续只读兼容；新发布一律使用 v2，不改写原有文件。
+- schema v3 清单记录统一提交序号、模块路径、字段、行数、已提交字节偏移及 SHA256。`acprof results verify <目录>` 检查已提交前缀、字段归属与关联键；不会把未提交尾部当成测量。历史 schema v1/v2 仍可读取，不自动转换已有结果。
 - `acprof results export <分层目录> <新文件.csv>` 在显式请求时重建完整宽表，拒绝覆盖既有文件；日常采集和分析不生成它。
-- 分层 CSV 是唯一正式存储。Posthoc 补采生成完整的新快照，保持上一代的文件不变；不再兼容旧实验的宽表目录。
+- 根 CSV 是可恢复的实时投影，原始窗口 receipt 与显式派生记录提供可追溯来源。Posthoc 仅替换受影响模块，完成后重新冻结快照；旧快照保持不变。
+
+运行中可用 `read_result_csv(ArtifactLayout.discover(root).result_csv)` 获取完整逻辑宽表，
+初始化后合法返回完整字段和空行列表。`read_result_csv_snapshot` 将内容与同一次锁定的清单
+SHA256 绑定。读取会短暂等待提交；普通 CSV 查看器不参与锁，可能看到部分模块先更新。
+提交和恢复协议见[实时提交与后处理](../profiling/artifacts.md#实时提交与后处理)。
 
 #### 不可变结果快照
 
-generation 是各层字段、行数与内容 SHA256 的确定性摘要。同一结果重复发布复用同一 generation，
-不重写现有文件或相同的清单。发布先在临时目录写完并同步所有层，再原子安装 generation 目录，
-最后原子替换根目录 `result_layers.json`。写层、安装目录或提交清单之前失败，读者仍可读取上一份完整结果；
-如果替换清单之后目录同步失败，操作仍报错，但完整的新快照可能已生效。现有损坏的 generation 会被明确拒绝，
-不会静默用新数据覆盖修复。
+完成实验或调用 `ResultWriter.freeze()` 时，按字段、行数及内容 SHA256 生成确定性 generation，
+在 `result_generations/<generation>/` 保存不可变 CSV；相同内容复用同一 generation。
+先持久化全部快照文件与快照清单，再通过统一 commit 发布 `snapshot` 引用和 `state=complete`。
+根 CSV 与快照使用不同 inode，后续追加或模块替换不会改写已发布快照。
+替换清单后目录同步失败仍报错，但新提交可能已生效，恢复必须按实际 HEAD 判断。
+损坏的不可变 generation 明确拒绝，不用新数据静默覆盖。
 
-读者按一次读取的清单访问不可变文件；文件的 SHA256 与 CSV 解析使用同一次字节读取。
-并发发布各自准备完整快照，以最后一次清单原子替换为准，不会混合两代的 CSV；需要读取后修改的
-Posthoc 仍必须持有实验目录锁，不能把这一规则用作并发合并指标的机制。
+schema v3 采集使用独占 writer lease，读者与提交使用独立的短期 publication lock。
+历史 schema v2 的读者仍按一次清单访问不可变文件。Posthoc 继续持有实验目录锁并核对输入身份，
+不能同时修改同一实验。所有 CSV 哈希与解析均使用同一次读取的字节。
 旧 generation 与发布中断留下的未引用 generation 不自动删除，以免影响进行中的读取或恢复证据。
 这会增加多次补采后的磁盘占用；自动垃圾回收不属于当前协议。
 
 这一原子快照的范围是清单及其引用的结果层集合。`static_meta.json` 与采集历史仍分别发布，
-Posthoc 失败时通过备份恢复；它们不属于同一次清单切换。Posthoc 获得目录锁后会重读结果、
+Posthoc 通过持久化恢复记录协调元数据与结果，失败后按最后提交恢复；它们不属于同一次清单切换。Posthoc 获得目录锁后会重读结果、
 元数据、输入计划和历史，与锁前准备的数据比较；发生变化就停止，避免旧输入覆盖另一轮补采的结果。
-普通只读分析并未共同持有该写入锁，因此在补采发布期间仍可能短暂读到新元数据与旧 generation。
+普通只读分析并未共同持有该目录写入锁，因此在补采发布期间仍可能短暂读到新元数据与旧提交。
 需要同时依据结果、元数据与历史作结论时，应在补采完成后读取；当前协议不承诺整个实验目录的原子事务。
 
 `audit.valid` 表示已有聚合结果、计划及元数据检查通过，不代表逐一验证了全部原始样本的哈希。

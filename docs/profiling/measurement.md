@@ -86,12 +86,17 @@ GPU 的 `capabilities` 分别记录能量总值、功率样本和功率峰值能
 **不是整个采集进程的内存上限**。截断不会改变当次 CSV 聚合值，但不再具备从保存子集精确重算
 全部原始指标的能力。将采集 buffer 改为流式聚合，需要按 CPU、GPU、resource 各自算法另做数值与开销验证。
 
-所有 collector 停止后，client 原子写入 telemetry，持久化 request journal、sniff-group sidecar
-及 CSV 行，最后在 `raw/windows/<case_id>/<case_attempt_id>/` 原子提交不可变 receipt。
-receipt 保存原始 client 行、请求记录、各自内容 hash、telemetry 文件 SHA256，以及当时的投影位置。
-这是单写入者的提交标记协议，不宣称多文件事务：崩溃后多出的 CSV/sidecar 尾部、无 receipt 的
-telemetry 都是未提交证据。超时或取消后的可用原样本可以保留为未提交文件，不成为成功窗口。
-PCAP/补采可在之后重建 CSV 投影，receipt 中的原始 client 观测保持不变。
+所有 collector 停止后，client 持久化 request journal、telemetry 和 schema v2 receipt，
+随后更新 case 工作投影并同步追加根目录模块 CSV，最后发布统一结果 commit。
+receipt 保存原始 client 行、请求记录、各自内容 hash、telemetry SHA256 及窗口顺序；
+结果 CSV 丢失可从它恢复。无 receipt 的 telemetry 与请求尾部仍不是已完成窗口。
+超时或取消后的可用样本保留为未提交诊断，不伪造成成功测量。
+历史 schema v1 receipt 保留原先最后发布的语义。PCAP/补采保存显式派生字段，原始观测不改写。
+
+client 在同步持久化完成后才进入下一窗口，没有后台刷盘线程。新增目录的父目录条目也要同步，
+避免仅同步文件而在崩溃后丢失整层路径。首次恢复可校验、重放旧记录，正常追加不读取或重算旧窗口。
+恢复的新运行使用独立 attempt，必要的预热单独记录在 `raw/recovery_warmup/`，不追加测量行；
+它不代表跨重启连续测量。详见[实时提交与后处理](artifacts.md#实时提交与后处理)。
 
 `acprof.window_records.read_window_record` 校验 schema、文件名与窗口身份、记录内容 hash、
 请求/行 hash，以及关联 telemetry 的 hash 和身份；整个结果根移动后相对引用仍然有效。

@@ -75,7 +75,7 @@ uv run python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e \
 
 ## 查看结果
 
-上面的 basic 示例将主要产物写入 `results/first-run/google-bert--bert-base-uncased/`；TUI 运行时请使用界面显示的实际输出路径。实验完成后生成 `result_layers.json` 及独立模块 CSV；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
+上面的 basic 示例将主要产物写入 `results/first-run/google-bert--bert-base-uncased/`；TUI 运行时请使用界面显示的实际输出路径。准备阶段就创建 `result_layers.json` 和全部模块表头，每个完成窗口同步追加数据，完成实验时冻结快照；详细文件树和字段归属见[产物结构](../profiling/artifacts.md#artifact-layout-v2)与[结果阅读指南](../results/metrics.md#从结果目录开始)。
 
 可先只读校验结果，再生成适用的图表和离线报告：
 
@@ -96,7 +96,7 @@ acprof report results/first-run/google-bert--bert-base-uncased/
 
 中断后使用原命令加 `--resume`，或在 TUI 的“恢复 / 重试”检查页选择“继续实验”（准备阶段为“重试准备”）。
 从实验选择器、失败监控页或对原输出目录点击“开始采集”均可进入检查页。系统会核对原参数、
-镜像和输入计划，保留完成的 case，并备份后重新测量中断的 case。新实验应选择新的输出目录；
+镜像和输入计划，保留完成的 case；新格式从可信 receipt 恢复中断 case，仅采集剩余窗口并记录新的 attempt。新实验应选择新的输出目录；
 已有产物不会被默认覆盖。符合当前产物协议的实验没有恢复状态文件时仍可绘图、补采，主实验恢复约定见
 [结果完整性与断点续跑](../profiling/artifacts.md#结果完整性与断点续跑)。
 
