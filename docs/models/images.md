@@ -137,8 +137,10 @@ export ACPROF_DEPENDENCY_BUILD_NETWORK=host
 不支持任意自定义 Docker network 值。
 再次启动同一实验须使用新的空输出目录，不能把镜像构建中断误报为 Native profiling 已通过。
 
-发布 workflow 先发布平台，再由环境 job 拉取相同父层；避免各 job 重建平台后产生互不匹配的环境键。
+发布 workflow 先发布平台，再发布环境。`scripts/publish_runtime_images.py --push` 使用 Docker Buildx 轻量读取 GHCR 的 OCI manifest 与镜像配置（不下载文件系统层），核对完整内容指纹标签、`linux/amd64`、manifest SHA256、不可变 config digest（Docker image ID）以及环境对平台层链的继承关系。**匹配时跳过构建和推送**，缺少精确指纹 Tag 时才调用现有锁定构建与完整包清单验证；新构建推送后再次确认远端 image ID。无权限、网络超时、元数据损坏或标签不匹配必须失败，不把这些情况当作缺失而重建/覆盖。环境只在缺失需要构建时拉取已发布的平台镜像并核对不可变 ID。
+这属于远端 OCI 身份核验，不是重新执行容器内安装包审计；首次发布时的完整依赖清单验证仍由既有本地构建实现。内容指纹不包含单纯的项目版本 Tag，依赖、平台、配方不变时后续版本可复用同一 GHCR 内容镜像，`evidence/*.json` 记录 `reused`、`pushed` 和 manifest digest。
 发布脚本复用现有构建和清单验证，不将“已发布依赖”视为 GPU/模型推理通过。
+远端轻量查询参考 [Docker Buildx imagetools inspect](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/) 的 `.Image` / `.Manifest` 接口，以及 [go-containerregistry/crane config](https://github.com/google/go-containerregistry/blob/main/cmd/crane/doc/crane_config.md) 的分层元数据读取思路；此处沿用已安装的 Docker Buildx，不增加新的发行依赖。
 发布权限、资产和验证方式见[发行包说明](../development/distribution.md#发布入口与范围)。
 
 ### 镜像分类与复用
