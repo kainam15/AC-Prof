@@ -33,7 +33,7 @@ jobs:
       readme: ${{ steps.paths.outputs.readme == 'true' }}
       metric: ${{ steps.paths.outputs.metric == 'true' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: (github.event_name == 'push' || github.event_name == 'pull_request') && !inputs.force_full && !startsWith(github.ref, 'refs/tags/')
       - name: 识别文档与代码改动
         if: (github.event_name == 'push' || github.event_name == 'pull_request') && !inputs.force_full && !startsWith(github.ref, 'refs/tags/')
@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -169,7 +169,7 @@ jobs:
         python: ['3.12', '3.13']
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -206,13 +206,13 @@ jobs:
           uv run --locked --no-default-groups --group test acprof tui --help
           uv run --locked --no-default-groups --group test python -m compileall -q acprof scripts packaging
           git diff --check
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: host-${{ matrix.python }}-${{ matrix.shard }}
           path: evidence/
       - name: 上传 Python 3.12 coverage 分片
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && matrix.python == '3.12'
         with:
           name: coverage-3.12-${{ matrix.shard }}
@@ -225,7 +225,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -233,14 +233,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --only-group test
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: host-*
           path: evidence/shards
           merge-multiple: false
       - name: 校验两个 Python 版本的完整测试证据
         run: uv run --locked --only-group test python scripts/aggregate_test_reports.py evidence/shards --shard-count "$HOST_TEST_SHARDS" --report evidence/host-summary.json
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-3.12-*
           path: evidence/coverage-shards
@@ -257,7 +257,7 @@ jobs:
           uv run --locked --only-group test python -m coverage xml -o evidence/coverage/coverage.xml
           uv run --locked --only-group test python -m coverage json -o evidence/coverage/coverage.json
           uv run --locked --only-group test python -m coverage html -d evidence/coverage/html
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-baseline-3.12
           path: evidence/coverage/
@@ -265,7 +265,7 @@ jobs:
           if-no-files-found: error
       - name: 核对关键测量路径的分支覆盖率下限
         run: uv run --locked --only-group test python scripts/check_critical_coverage.py --report evidence/coverage/coverage.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: host-summary
@@ -277,7 +277,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -323,7 +323,7 @@ jobs:
           env -u PYTHONPATH "$RUNNER_TEMP/acprof-sdist-wheel/bin/python" -I "$RUNNER_TEMP/check_distribution.py" --wheel "$RUNNER_TEMP"/sdist-wheel-dist/*.whl --report "$GITHUB_WORKSPACE/evidence/sdist-wheel.json" 2>&1 | tee "$GITHUB_WORKSPACE/evidence/sdist-wheel.log"
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: wheel
@@ -337,7 +337,7 @@ jobs:
     env:
       UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/internal-testing/browser-venv
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -359,7 +359,7 @@ jobs:
           mkdir -p evidence/browser
           uv run --locked --only-group browser python scripts/run_tests.py --pattern test_report_browser.py \
             --report evidence/browser/tests.json --require-no-skips 2>&1 | tee evidence/browser/tests.log
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: report-browser
@@ -372,7 +372,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -390,7 +390,7 @@ jobs:
           TZ: UTC
           PYTHONHASHSEED: '0'
           ACPROF_SNAPSHOT_OUTPUT_DIR: evidence/svg
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: tui-snapshots
@@ -401,7 +401,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -413,7 +413,7 @@ jobs:
         run: uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile onnxruntime-cpu --basic-e2e --output-dir evidence/onnx-cpu
         env:
           ACPROF_WECOM_WEBHOOK_URL: ''
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: onnx-cpu
@@ -439,7 +439,7 @@ jobs:
           - families: ''
             profile: custom-multimodal-cpu
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           version-file: pyproject.toml
@@ -459,7 +459,7 @@ jobs:
             uv run --locked --no-default-groups --group runtime-tools python scripts/check_runtime.py --profile multimodal-transformers5104-cpu --test-pattern test_audio_generation_runtime.py --output-dir evidence/audio-transformers5 || runtime_check_status=1
           fi
           exit "$runtime_check_status"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: runtime-${{ strategy.job-index }}
