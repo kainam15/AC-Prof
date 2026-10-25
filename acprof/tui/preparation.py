@@ -10,7 +10,7 @@ from acprof.host.model_errors import ModelLookupError
 from acprof.messages import message
 from acprof.preparation_events import encode_reply
 from acprof.tui.app_contracts import translated_app
-from acprof.tui.downloads import download_fields, download_summary
+from acprof.tui.downloads import download_summary
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -119,9 +119,9 @@ class PreparationScreen(ModalScreen):
             yield Label(tr("下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
-                    values = download_fields(report) if download else request.get("fields", {})
-                    fields = "\n".join(f"✓ {tr(name)}    {tr('未知') if value is None else tr(value) if download else value}"
-                                       for name, value in values.items())
+                    values = request.get("fields", {})
+                    fields = download_summary(report, tr) if download else "\n".join(
+                        f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
                     yield Static(fields, id="preparation-fields", markup=False)
                     if download:
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
@@ -138,10 +138,9 @@ class PreparationScreen(ModalScreen):
                                 yield Label(question["path"])
                                 yield review_input(question, identifier=f"preparation-advanced-{index}", translate=tr)
                             yield Button(tr("重新解析"), id="preparation-revise")
-                    summary = download_summary(report, tr) if download else request.get("summary")
+                    summary = None if download else request.get("summary")
                     if summary and summary.strip():
-                        with Collapsible(title=tr("高级详情"), id="preparation-advanced-details", collapsed=True):
-                            yield Static(summary, markup=False)
+                        yield Static(summary, id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):

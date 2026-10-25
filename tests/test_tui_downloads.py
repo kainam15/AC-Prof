@@ -34,7 +34,7 @@ def download_report():
 
 
 def test_download_summary_formats_sizes_without_mutating_report(download_report):
-    from acprof.tui.downloads import download_fields, download_summary
+    from acprof.tui.downloads import download_summary
 
     original = deepcopy(download_report)
     summary = download_summary(download_report, lambda value: translate(value, "en"))
@@ -45,9 +45,8 @@ def test_download_summary_formats_sizes_without_mutating_report(download_report)
         "Docker available space: 33.0 GB", "ext4", "/dev/nvme1n1p3", "hf-mirror.com",
     ):
         assert expected in summary
-    assert download_fields(download_report) == {
-        "预计下载": "708 MB", "可用空间": "33.0 GB", "模型来源": "huggingface",
-    }
+    assert "{\"" not in summary
+    assert "platform_local" not in summary
     assert download_report == original
 
 
@@ -64,6 +63,16 @@ def test_download_summary_keeps_unknown_distinct_from_zero_and_unlimited():
     assert "Docker storage: Unknown" in summary
     report["max_download_bytes"] = None
     assert "Effective download budget: Unlimited" in download_summary(report, lambda value: translate(value, "en"))
+
+
+def test_unknown_download_origin_remains_translatable_alongside_known_hosts():
+    from acprof.tui.downloads import download_summary
+
+    report = {"sources": [{"category": "python", "url": ""},
+                          {"category": "python", "url": "https://files.pythonhosted.org/wheel"}]}
+    english = download_summary(report, lambda value: translate(value, "en"))
+    assert "Python dependencies sources: files.pythonhosted.org, Unknown" in english
+    assert "未知" not in english
 
 
 async def test_network_reports_display_units_and_preserve_input_json(tmp_path, download_report):

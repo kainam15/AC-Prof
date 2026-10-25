@@ -58,6 +58,8 @@ The TUI tracks collection and probe progress through structured events. After a 
 
 The monitor offers colored log levels, literal search, a detailed view, and copying or exporting retained original text. Model downloads have a separate byte-progress display that distinguishes cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
 
+Download confirmation shows capacity, cache, sources, network status, Runtime state and the Model Store path directly. Before confirmation, a bounded model GET probe reads up to 256 KiB in total, within the download budget; zero budget skips GET. Full downloads begin only after confirmation. A passing probe does not guarantee the complete transfer. See [download preflight](docs/usage/tui-experiments.md#下载与磁盘预检).
+
 ### Generate an interactive report
 
 Run `acprof tui` → **Reports** → **Select experiment** → **Generate HTML**. The page shows the full output path, window counts, and data quality limitations. Choose **Open HTML** on a local graphical desktop, or **Export / Remote access** → **Export HTML** to copy it to a new file. Each generation preserves older reports; collection completion never generates HTML automatically.

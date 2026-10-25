@@ -31,13 +31,17 @@ async def test_review_omits_empty_advanced_details(tmp_path, summary):
     ("zh", (150, 45), 890_152_505),
     ("en", (80, 24), None),
 ])
-async def test_download_review_details_expand_and_confirmation_remains_reachable(tmp_path, language, size, download_size):
+async def test_download_review_is_direct_and_confirmation_remains_reachable(tmp_path, language, size, download_size):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     replies = []
     report = {"expected_download_bytes": download_size,
               "disk": {"free_bytes": 41_370_132_480},
               "model": {"endpoint": "https://hf-mirror.com"},
-              "runtime": {"detail": "long runtime detail " * 200}}
+              "model_store_path": "/models/" + "long-path/" * 30,
+              "runtime": {"source_mode": "build", "will_attempt_ghcr_pull": False},
+              "network_probe": [{"category": "model", "status": "failed", "method": "HEAD+GET",
+                                 "source": "https://hf-mirror.com", "final_host": "cdn.hf.co",
+                                 "reason": "http-403", "http_status": 403, "received_bytes": 0}]}
     event = {"stage": "image", "status": "waiting", "request": {
         "id": 1, "kind": "review", "resolved": True, "questions": [], "download_report": report,
     }}
@@ -64,35 +68,24 @@ async def test_download_review_details_expand_and_confirmation_remains_reachable
         fields = screen.query_one("#preparation-fields", Static)
         assert ("预计下载" if language == "zh" else "Expected download") in fields.content
         assert ("Unknown" if download_size is None else "890 MB") in fields.content
-        assert "Docker storage" not in fields.content
         assert not list(screen.query("#preparation-detail"))
-        details = screen.query_one("#preparation-advanced-details", Collapsible)
-        assert details.collapsed
-        assert str(details.title) == ("高级详情" if language == "zh" else "Advanced details")
-        assert await pilot.click("#preparation-advanced-details CollapsibleTitle")
-        await pilot.pause()
-        assert not details.collapsed
-        content = details.query_one("Contents > Static", Static)
-        assert content.content == download_summary(report, app.tr)
-        assert content.styles.color == fields.styles.color
+        assert not list(screen.query(Collapsible))
+        assert fields.content == download_summary(report, app.tr)
+        assert "403" in fields.content
+        assert "cdn.hf.co" in fields.content
+        assert "source_mode" not in fields.content
         scroll = screen.query_one("#preparation-scroll", VerticalScroll)
         scroll.scroll_end(animate=False, immediate=True)
         await pilot.pause()
         assert scroll.scroll_y > 0
-        assert content.region.bottom <= scroll.content_region.bottom
         for button in actions:
             assert button.region.width > 0
             assert button.region.height > 0
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.resize_terminal(80, 24)
         await pilot.pause()
-        title = details.query_one("CollapsibleTitle")
-        title.focus()
-        title.scroll_visible(animate=False, immediate=True)
+        scroll.scroll_home(animate=False, immediate=True)
         await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert details.collapsed
         assert await pilot.click("#preparation-continue")
         await pilot.pause()
         assert replies == [{"action": "confirm"}]

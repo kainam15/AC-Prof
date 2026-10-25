@@ -35,7 +35,7 @@ Smoke 的 `--input-scale-policy minimal` 在任务解析后从现有 workload �
 修改 CPU、输入规模、重复次数等参数后显示“预设名 · 已调整”，恢复原参数后恢复原标签。
 切换预设只修改实验参数，保留下载预算、下载源、Model Store 路径与容量、输出目录、模型声明和通知选择。
 恢复检查页使用原实验参数；若要调整参数，编辑表单后选择“新建实验”。后端仍核对完整恢复身份，不混用旧计划。
-启动确认显示预算和缓存位置；传输权重前的下载确认显示预计下载量、有效预算和实际 Model Store 路径。
+启动确认显示预算和缓存位置；下载确认直接显示容量、有效预算、Model Store 路径、分类来源与网络状态，无需展开详情。确认前会先执行至多 256 KiB 的限量模型 GET，计入预算；完整下载需确认。详见[下载与磁盘预检](tui-experiments.md#下载与磁盘预检)。
 
 `--output-dir` 覆盖预设或已保存配置中的输出目录，例如
 `acprof tui --model google-bert/bert-base-uncased --preset smoke --output-dir results/my-first-run`。
