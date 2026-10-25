@@ -93,7 +93,7 @@ class WindowCounterSnapshots:
     pids: dict[str, float] | None = None
 
 
-def _nan_result(resource_usage_iters: int = 0) -> ResourceUsageResult:
+def empty_resource_result(resource_usage_iters: int = 0) -> ResourceUsageResult:
     nan = float("nan")
     return ResourceUsageResult(
         resource_usage_iters=resource_usage_iters,
@@ -333,10 +333,10 @@ def reduce_resource_samples(
     min_cpu_interval_s: float = 0.0,
 ) -> ResourceUsageResult:
     if not samples:
-        return _nan_result(0)
+        return empty_resource_result(0)
 
     samples = sorted(samples, key=lambda sample: sample.timestamp)
-    result = _nan_result(len(samples))
+    result = empty_resource_result(len(samples))
 
     cpu_interval_utils: list[float] = []
     cpu_elapsed_s = 0.0

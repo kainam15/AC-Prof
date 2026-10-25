@@ -289,11 +289,6 @@
     {
       "source": "acprof.monitors.resource_usage",
       "target": "acprof.monitors.resource_metrics",
-      "symbol": "_nan_result"
-    },
-    {
-      "source": "acprof.monitors.resource_usage",
-      "target": "acprof.monitors.resource_metrics",
       "symbol": "_normalize_pstate"
     },
     {

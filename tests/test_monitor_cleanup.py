@@ -35,7 +35,7 @@ class TestMonitorCleanup:
             window_logs = []
             monitor = Mock()
             monitor.start.side_effect = lambda: events.append("start")
-            monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics._nan_result(), "", [])
+            monitor.stop.side_effect = lambda: (events.append("stop") or resource_metrics.empty_resource_result(), "", [])
             monitor.close.side_effect = lambda: events.append("close")
             runner = ClientRunner(ClientConfig(out_csv=str(Path(directory) / "case.csv"),
                 warmup=0, repeat=1, repeat_in_window=1, use_mips=False, gpu_mode="off"))
@@ -160,7 +160,7 @@ class TestMonitorCleanup:
             cpu.idle_power_w = 1.0
             cpu.stop.return_value = (energy_cpu._nan_result(), "", [])
             resource = Mock()
-            resource.stop.return_value = (resource_metrics._nan_result(), "", [])
+            resource.stop.return_value = (resource_metrics.empty_resource_result(), "", [])
             monitors = {"cpu": cpu, "resource": resource}
             name, operation = fault.split(".")
             getattr(monitors[name], operation).side_effect = RuntimeError(f"{fault} failed")

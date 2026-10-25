@@ -182,10 +182,10 @@ class ResourceUsageMonitor:
 
     def stop(self) -> ResourceStopResult:
         if not self.available:
-            return ResourceStopResult(resource_metrics._nan_result(), self._error_message(), [])
+            return ResourceStopResult(resource_metrics.empty_resource_result(), self._error_message(), [])
 
         if self._t_start is None:
-            return ResourceStopResult(resource_metrics._nan_result(0), self._error_message(), [])
+            return ResourceStopResult(resource_metrics.empty_resource_result(0), self._error_message(), [])
 
         self._t_end = time.perf_counter()
         window_counters_end = self._read_window_counter_snapshots()

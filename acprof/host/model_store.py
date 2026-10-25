@@ -52,6 +52,11 @@ class ModelStoreMount:
         self.args = args
         self._lock = lock
 
+    @property
+    def pass_fds(self) -> tuple[int, ...]:
+        """A Process supervisor retains the GC lease until descendant cleanup."""
+        return (self._lock.fileno(),) if self._lock is not None else ()
+
     def close(self) -> None:
         with _RETAINED_MOUNTS_LOCK:
             if self._lock is not None:

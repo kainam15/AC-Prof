@@ -120,6 +120,7 @@ def _startup_timing() -> dict:
 def ready():
     return jsonify({
         "status": "ok",
+        "service_token": os.getenv("ACPROF_SERVICE_TOKEN", ""),
         "model_id": MODEL_ID,
         "model_revision": MODEL_REVISION,
         "device": device,
@@ -206,4 +207,12 @@ def meta():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8002)
+    if os.getenv("ACPROF_SERVER_FD"):
+        from werkzeug.serving import make_server
+        descriptor = int(os.environ["ACPROF_SERVER_FD"])
+        server = make_server("127.0.0.1", int(os.environ["ACPROF_SERVER_PORT"]), app,
+                             threaded=True, fd=descriptor)
+        os.close(descriptor)
+        server.serve_forever()
+    else:
+        app.run(host="0.0.0.0", port=8002)

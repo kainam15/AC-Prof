@@ -40,7 +40,7 @@ class Collector:
             raise RuntimeError("stop failed")
         if self.fault == "malformed_result":
             return (None, "missing sample list")
-        result = resource_metrics._nan_result()
+        result = resource_metrics.empty_resource_result()
         result.container_cpu_util_avg_pct = 25.0
         result.container_mem_usage_avg_bytes = 1024.0
         return result, self.warning, []

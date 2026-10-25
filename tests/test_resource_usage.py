@@ -427,7 +427,7 @@ class TestResourceUsageMonitor:
                 assert (getattr(readers, name)) is None, name
 
     def test_window_counter_metrics_calculate_deltas_and_psi_stalls(self) -> None:
-        result = resource_metrics._nan_result(2)
+        result = resource_metrics.empty_resource_result(2)
         start = resource_metrics.WindowCounterSnapshots(
             cpu_throttle={
                 "nr_periods": 100.0,

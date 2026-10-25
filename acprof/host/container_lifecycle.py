@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
+from acprof.host.runtimes.contracts import RuntimeCleanupError
 
 LIFECYCLE_LABEL = "org.acprof.container.lifecycle"
 OWNER_PREFIX = "org.acprof.owner."
@@ -22,7 +23,9 @@ REMOVE_TIMEOUT_S = 30
 INSPECT_TIMEOUT_S = DOCKER_INSPECT_TIMEOUT_S
 
 
-class ContainerCleanupError(RuntimeError):
+
+
+class ContainerCleanupError(RuntimeCleanupError):
     """An owned container is still present or cannot be proven absent."""
 
     def __init__(self, identifier: str, operations: list[dict], *, final_state="unknown",
