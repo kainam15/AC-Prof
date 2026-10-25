@@ -20,7 +20,7 @@ standalone 从 wheel 收集同一份 dist-info 元数据。wheel 的 Docker 构�
 
 | 候选边界 | 当前依赖与约束 |
 | --- | --- |
-| core | requests、Hugging Face Hub/socksio；numpy 与 Pillow 也被确定性 workload/input preparation 使用，不能简单归入 analysis |
+| core | requests、Hugging Face Hub、httpx[socks]（继承系统 SOCKS 代理）；numpy 与 Pillow 也被确定性 workload/input preparation 使用，不能简单归入 analysis |
 | TUI | Textual 可在命令路由处惰性加载；完整默认安装仍必须带上它 |
 | analysis | pandas、matplotlib、Plotly；只读分析与绘图已有模块边界，但 core-only 发行还需要完整的缺依赖提示与安装测试 |
 | GPU | nvidia-ml-py；CPU 路径已有可选加载，但 GPU capability 与错误提示仍须单独验收 |

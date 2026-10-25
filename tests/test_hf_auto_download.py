@@ -22,6 +22,22 @@ def test_safe_url_preserves_authority_without_secrets(url, expected):
     assert safe_url(url) == expected
 
 
+@pytest.mark.parametrize("scheme", ["socks5", "socks5h"])
+def test_hub_client_supports_inherited_socks_proxy_without_network(monkeypatch, scheme):
+    from acprof.hf_transport import _httpx_factory
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
+    monkeypatch.setenv("ALL_PROXY", f"{scheme}://127.0.0.1:1080")
+    # Constructing the real transport loads HTTPX's optional SOCKS dependency.
+    # No request is sent; an unavailable proxy must not affect client creation.
+    with _httpx_factory() as client:
+        assert client.trust_env
+        assert not client.is_closed
+    assert client.is_closed
+
+
 def test_offline_hub_api_blocks_network_before_endpoint_fallback(monkeypatch):
     import huggingface_hub as hub
     from huggingface_hub import constants
