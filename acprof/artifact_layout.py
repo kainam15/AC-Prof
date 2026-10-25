@@ -129,6 +129,32 @@ class ArtifactLayout:
         """Logical result reference (layer manifest, not a wide CSV)."""
         return self.path("result_layers.json")
 
+    def layer_csv(self, layer: str) -> Path:
+        from acprof.result_layers import LAYER_FILES
+        return self.contained(LAYER_FILES[layer])
+
+    def result_store_path(self, relative: str) -> Path:
+        return self.contained(Path(".acprof/result_store") / relative)
+
+    def result_update_path(self, update_id: str) -> Path:
+        return self.contained(f"raw/result_updates/{update_id}.json")
+
+    def window_records_root(self, case_id: str) -> Path:
+        return self.contained(f"raw/windows/{case_id}")
+
+    def window_evidence_path(self, kind: str, identity: dict) -> Path:
+        from acprof.window_records import window_filename
+        if kind not in {"windows", "telemetry"} or not _CASE_ID.fullmatch(identity["case_id"]):
+            raise ValueError("Invalid window evidence identity")
+        if not _ATTEMPT_ID.fullmatch(identity["case_attempt_id"]):
+            raise ValueError("Invalid window evidence attempt")
+        return self.contained(f"raw/{kind}/{identity['case_id']}/{identity['case_attempt_id']}/{window_filename(identity['window_id'])}")
+
+    def recovery_warmup_path(self, case_id: str, attempt_id: str, scale_label: str) -> Path:
+        import hashlib
+        name = hashlib.sha256(scale_label.encode()).hexdigest()[:24]
+        return self.contained(f"raw/recovery_warmup/{case_id}/{attempt_id}/{name}.json")
+
     @property
     def plots_dir(self) -> Path:
         return self.path("plots") if self.layout_version == 2 else self.root
@@ -138,6 +164,8 @@ class ArtifactLayout:
         if self.layout_version != 2:
             raise ValueError("Only new v2 experiments may be initialized")
         allowed = {MANIFEST_NAME, ".acprof/result.lock", *allowed_files}
+        from acprof.result_store.initialization import initial_files
+        allowed.update(initial_files(self))
         allowed_dirs = {".acprof", "metadata", "raw", "plots", "logs", "debug"}
         for name in allowed:
             allowed_dirs.update(p.as_posix() for p in Path(name).parents if p != Path("."))
@@ -163,6 +191,8 @@ class ArtifactLayout:
             from acprof.artifacts import atomic_write_json
             atomic_write_json(manifest, _manifest())
         self.path("collection_history.json").parent.mkdir(parents=True, exist_ok=True)
+        from acprof.result_store.initialization import initialize_results
+        initialize_results(self)
 
     def case(self, model_id: str, cpu: int, mem: int, gpu: str) -> CaseArtifacts:
         case_id = resource_case_id(cpu, mem, gpu)
@@ -223,6 +253,11 @@ class CaseArtifacts:
 
     def telemetry(self, attempt_id: str) -> Path:
         return self.attempt_directory("telemetry", attempt_id)
+
+    def completed_result(self, digest: str) -> Path:
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Invalid case result digest")
+        return self.layout.contained(f"raw/case_results/{self.case_id}/{digest}.csv")
 
     @property
     def requests(self) -> Path:

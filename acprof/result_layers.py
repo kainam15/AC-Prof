@@ -75,7 +75,7 @@ def layer_identity_fields(fields: Sequence[str]) -> tuple[str, ...]:
 
     Historical files without runtime_kind keep their original layer headers.
     """
-    return (*KEY_FIELDS, *(["runtime_kind"] if "runtime_kind" in fields else []))
+    return (*KEY_FIELDS, *(name for name in ("runtime_kind", "run_id", "case_id", "case_attempt_id", "window_id") if name in fields))
 
 
 def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
@@ -91,7 +91,7 @@ def layer_fields(fields: Sequence[str]) -> dict[str, list[str]]:
     return mapping
 
 
-def _has_evidence(value: object) -> bool:
+def has_layer_evidence(value: object) -> bool:
     return str(value).strip().lower() not in {"", "nan", "none", "null", "compute_profile_disabled"}
 
 
@@ -146,6 +146,10 @@ def result_layer_paths(root: str | Path, manifest: Mapping) -> dict[str, Path]:
     The returned paths have not yet been checked against their content digests.
     """
     root = _result_root(root)
+    if manifest.get("schema_version") == 3:
+        from acprof.artifact_layout import ArtifactLayout
+        from acprof.result_store.protocol import validate_manifest
+        return validate_manifest(ArtifactLayout.discover(root), dict(manifest))
     version = manifest.get("schema_version")
     if (type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS
             or not isinstance(manifest.get("layers"), dict)
@@ -237,16 +241,11 @@ def publish_result_layers(wide_path: str | Path, *, output_dir: str | Path | Non
     return publish_result_rows(snapshot.fields, snapshot.rows, root, source=snapshot)
 
 
-def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]], root: str | Path,
+def prepare_result_snapshot(fields: Sequence[str], rows: Sequence[Mapping[str, str]], root: str | Path,
                         *, source=None) -> dict:
-    """Publish an immutable generation, then atomically switch its manifest.
-
-    Concurrent complete publications use last-manifest-replacement-wins semantics;
-    no layer belonging to an earlier reader is overwritten. Read-modify-write
-    operations such as Posthoc still require the experiment directory lock.
-    """
+    """Create a verified immutable generation without switching the live manifest."""
     root = _result_root(root)
-    manifest_path = _safe_path(root, MANIFEST_NAME)
+    _safe_path(root, MANIFEST_NAME)
     if not rows:
         raise ResultValidationError("cannot partition empty result")
     assigned = layer_fields(fields)
@@ -262,7 +261,7 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
             {name: row.get(name, "nan") for name in names}
             for row in rows
             if layer not in PROFILER_LAYERS
-            or any(_has_evidence(row.get(name, "")) for name in names if name not in identity)
+            or any(has_layer_evidence(row.get(name, "")) for name in names if name not in identity)
         ]
         if layer in PROFILER_LAYERS and not selected:
             continue
@@ -289,16 +288,38 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
     # Check the manifest path again after staging; existing generations are
     # retained even when this last publication fails or a later writer wins.
     _safe_path(root, MANIFEST_NAME)
-    if manifest_path.is_file() and read_json_object(manifest_path) == manifest:
-        return manifest
-    atomic_write_json(manifest_path, manifest)
     return manifest
+
+
+def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]], root: str | Path,
+                        *, source=None) -> dict:
+    """Explicit immutable snapshot import; live acquisition uses ResultWriter."""
+    path = _safe_path(_result_root(root), MANIFEST_NAME)
+    def publish():
+        manifest = prepare_result_snapshot(fields, rows, root, source=source)
+        if not path.is_file() or read_json_object(path) != manifest:
+            atomic_write_json(path, manifest)
+        return manifest
+
+    if path.is_file() and read_json_object(path).get("schema_version") == 3:
+        from acprof.result_store.protocol import publication_lock
+        from acprof.result_store.writer import ResultWriter
+        with ResultWriter(path.parent) as writer:
+            if writer.manifest["row_count"]:
+                raise ResultValidationError("cannot replace incremental measurements with a snapshot import")
+            with publication_lock(writer.layout, exclusive=True):
+                return publish()
+    return publish()
 
 
 def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]]]:
     """Read a full logical result from independently hashed partition CSVs."""
     root = _result_root(root)
     manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest")
+    if manifest.get("schema_version") == 3:
+        from acprof.result_store.reader import read_snapshot
+        snapshot = read_snapshot(root)
+        return snapshot.fields, snapshot.rows
     paths = result_layer_paths(root, manifest)
     wide_fields = manifest["wide_fields"]
     source_name = manifest.get("source_name")

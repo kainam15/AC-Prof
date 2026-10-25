@@ -108,6 +108,11 @@ def _duplicate_digest(record: ExperimentRecord, cancelled: Callable[[], bool], b
     digest = hashlib.sha256(json.dumps({'state': record.state, 'metadata': record.metadata, 'validation': record.validation, 'failures': record.failures}, sort_keys=True).encode())
     manifest_path = record.directory / 'result_layers.json'
     if manifest_path.is_file():
+        from acprof.artifacts import read_json_object
+        if read_json_object(manifest_path).get('schema_version') == 3:
+            from acprof.result_store.reader import committed_content_digest
+            digest.update(committed_content_digest(record.directory, cancelled=cancelled, budget=budget).encode())
+            return digest.hexdigest()
         # Hash the full immutable snapshot, not just the manifest: equal
         # metadata must never mask a changed or missing result layer.
         from acprof.artifacts import loads_finite_json

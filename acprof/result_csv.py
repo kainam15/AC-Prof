@@ -106,7 +106,7 @@ class _DigestingRawReader(io.RawIOBase):
         return size
 
 
-def _parse_result_csv(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None
+def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *, allow_empty=False
                       ) -> tuple[list[str], list[dict[str, str]]]:
     reader = csv.DictReader(stream, strict=True)
     fields = list(reader.fieldnames or [])
@@ -132,7 +132,7 @@ def _parse_result_csv(stream: Iterable[str], path: Path, expected: Iterable[Meas
         if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
             row["environment_class"] = "unknown"
         rows.append(cast(dict[str, str], row))
-    if not rows:
+    if not rows and not allow_empty:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
     if expected is not None:
         planned = set(expected)
@@ -169,7 +169,7 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
             raise ResultValidationError("layered measurement plan mismatch")
         return fields, rows
     with path.open(encoding="utf-8-sig", newline="") as stream:
-        return _parse_result_csv(stream, path, expected)
+        return parse_result_stream(stream, path, expected)
 
 
 def open_result_text(path: str | Path):
@@ -196,6 +196,13 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     """Parse the CSV once while hashing its exact source bytes."""
     path = Path(path).resolve()
     if path.name == "result_layers.json":
+        from acprof.artifacts import read_json_object
+        if read_json_object(path).get("schema_version") == 3:
+            from acprof.result_store.reader import read_snapshot
+            snapshot = read_snapshot(path.parent)
+            if expected is not None and {measurement_key(row) for row in snapshot.rows} != set(expected):
+                raise ResultValidationError("layered measurement plan mismatch")
+            return snapshot
         fields, rows = read_result_csv(path, expected=expected)
         layer_digest = _file_sha256(path)
         if not result_csv_snapshot_unchanged(ResultCsvSnapshot(path, fields, rows, layer_digest)):
@@ -205,7 +212,7 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            fields, rows = _parse_result_csv(stream, path, expected)
+            fields, rows = parse_result_stream(stream, path, expected)
     return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest.hexdigest())
 
 
@@ -219,7 +226,8 @@ def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
             fields, rows = read_result_layers(snapshot.path.parent)
         except (ValueError, OSError, csv.Error):
             return False
-        return fields == snapshot.fields and rows == snapshot.rows
+        return (fields == snapshot.fields and rows == snapshot.rows
+                and _file_sha256(snapshot.path) == snapshot.sha256)
     return True
 
 
@@ -264,8 +272,14 @@ def merge_result_csvs(paths: Sequence[str], destination: str, *,
                 f"measurement plan mismatch: missing={len(planned - keys)}, unexpected={len(keys - planned)}"
             )
     if Path(destination).name == "result_layers.json":
-        from acprof.result_layers import publish_result_rows
-        publish_result_rows(fields, rows, Path(destination).parent)
+        from acprof.artifacts import read_json_object
+        if Path(destination).is_file() and read_json_object(destination).get("schema_version") == 3:
+            from acprof.result_store.writer import ResultWriter
+            with ResultWriter(Path(destination).parent) as writer:
+                writer.update_rows(rows, reason="validated case consolidation", state="processing")
+        else:
+            from acprof.result_layers import publish_result_rows
+            publish_result_rows(fields, rows, Path(destination).parent)
     else:
         def write(stream):
             writer = csv.DictWriter(stream, fieldnames=fields, restval="nan")

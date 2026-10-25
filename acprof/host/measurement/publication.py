@@ -7,7 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.config import (
@@ -18,6 +18,9 @@ from acprof.window_records import (
     commit_window_record,
     prepare_window_telemetry,
 )
+
+if TYPE_CHECKING:
+    from acprof.result_store.writer import ResultWriter
 
 
 def reconcile_sniff_group_sidecar(csv_path: str | Path, sidecar_path: str | Path) -> None:
@@ -134,6 +137,7 @@ def _append_row(
     publication: WindowPublicationContext | None = None,
     telemetry_evidence: dict[str, Any] | None = None,
     request_record: dict[str, Any] | None = None,
+    result_writer: ResultWriter | None = None,
 ) -> None:
     out = {k: row.get(k, "") for k in CSV_FIELDS}
     if str(out.get("status") or "").strip().lower() == "error" and not str(
@@ -142,6 +146,8 @@ def _append_row(
         raise RuntimeError("refusing to write status=error without an error diagnostic")
     reference = None
     if publication is not None and sniff_group_id:
+        out.update(publication.identity(sniff_group_id))
+    if publication is not None and sniff_group_id:
         if telemetry_evidence is None:
             raise RuntimeError("measured window publication requires request and telemetry evidence")
         if publication.record_path(sniff_group_id).exists():
@@ -149,6 +155,12 @@ def _append_row(
         reference = prepare_window_telemetry(publication, sniff_group_id, telemetry_evidence)
         if request_record is None:
             raise RuntimeError("measured window publication requires a durable request record")
+        if result_writer is not None:
+            commit_window_record(
+                publication, window_id=sniff_group_id, row=out, request_record=request_record,
+                telemetry_reference=reference, projections={},
+                sequence=result_writer.manifest["sequence"] + 1,
+            )
     csv_start = f.tell() if publication is not None else None
     sidecar_start = sidecar_f.tell() if publication is not None else None
     _append_sniff_group(sidecar_f, sniff_group_id)
@@ -157,7 +169,9 @@ def _append_row(
     os.fsync(f.fileno())
     if diag_f is not None and idle_diag_record is not None:
         _append_idle_diag(diag_f, idle_diag_record)
-    if reference is not None and publication is not None and request_record is not None:
+    if result_writer is not None and publication is not None and sniff_group_id:
+        result_writer.append_window(publication.record_path(sniff_group_id))
+    elif reference is not None and publication is not None and request_record is not None:
         record_parent = publication.record_path(sniff_group_id).parent
         commit_window_record(
             publication, window_id=sniff_group_id, row=out,

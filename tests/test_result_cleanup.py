@@ -3,6 +3,7 @@ from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.result_cleanup import cleanup_intermediate_results
+from acprof.result_layers import publish_result_rows
 
 
 def test_flat_case_cleanup_preserves_final_csv(tmp_path: Path):
@@ -44,8 +45,8 @@ def test_v2_cleanup_retains_request_evidence(tmp_path: Path):
     case.pcap.write_bytes(b"pcap")
     case.latency.write_text("{}\n")
     merged = layout.result_csv
-    merged.parent.mkdir(parents=True, exist_ok=True)
-    merged.write_text("status\nok\n")
+    fields = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx", "status"]
+    publish_result_rows(fields, [dict(zip(fields, ["1", "4", "off", "1", "0", "0", "ok"], strict=True))], tmp_path)
 
     cleanup_intermediate_results([str(case.csv)], str(tmp_path), str(merged))
 

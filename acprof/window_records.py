@@ -1,9 +1,8 @@
-"""Immutable window receipts committed after mutable CSV/journal projections.
+"""Immutable authority for completed measurement windows.
 
-This is a small single-writer file protocol, not a cross-file transaction.
-Unreferenced telemetry or a CSV tail after a crash is not a committed window.
-CSV/PCAP postprocessing may change the projection; the original client row and
-request payload remain immutable in the receipt.
+Schema 2 receipts precede their disposable CSV projections. Schema 1 retains
+the historical case publication order. Neither a telemetry file alone nor a CSV
+tail constitutes a receipt. Postprocessing never mutates the original row.
 """
 from __future__ import annotations
 
@@ -64,8 +63,8 @@ def prepare_window_telemetry(context: WindowPublicationContext, window_id: str,
 def commit_window_record(context: WindowPublicationContext, *, window_id: str,
                          row: Mapping[str, Any], request_record: dict[str, Any],
                          telemetry_reference: dict[str, Any],
-                         projections: dict[str, Any]) -> dict[str, Any]:
-    """The caller must fsync request, sidecar and CSV writes before this call."""
+                         projections: dict[str, Any], sequence: int | None = None) -> dict[str, Any]:
+    """Persist verified measurement authority; schema 1 requires prior projections."""
     identity = context.identity(window_id)
     request = request_record.get("record")
     if not isinstance(request, dict) or request.get("sniff_group_id") != window_id:
@@ -89,6 +88,11 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
         "projections": {**projections, "request_journal": journal},
         "projection_semantics": "publication_time_only; later postprocessing may rebuild CSV",
     }
+    if sequence is not None:
+        if type(sequence) is not int or sequence < 1:
+            raise ValueError("invalid window publication sequence")
+        record.update(schema_version=2, sequence=sequence,
+                      projection_semantics="immutable_authority_before_result_projection")
     record["content_sha256"] = content_hash(record)
     payload = canonical_bytes(record) + b"\n"
     if destination.exists():
@@ -107,8 +111,10 @@ def read_window_record(path: str | Path, *, verify_evidence: bool = True) -> dic
     try:
         record = loads_finite_json(source.read_text(encoding="utf-8"))
         if (not isinstance(record, dict) or type(record.get("schema_version")) is not int
-                or record.get("schema_version") != WINDOW_RECORD_SCHEMA_VERSION):
+                or record.get("schema_version") not in {WINDOW_RECORD_SCHEMA_VERSION, 2}):
             raise ValueError("unsupported window record schema")
+        if record["schema_version"] == 2 and (type(record.get("sequence")) is not int or record["sequence"] < 1):
+            raise ValueError("invalid window publication sequence")
         body = {key: value for key, value in record.items() if key != "content_sha256"}
         if content_hash(body) != record.get("content_sha256"):
             raise ValueError("window record content hash mismatch")

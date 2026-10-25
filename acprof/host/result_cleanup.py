@@ -21,6 +21,11 @@ def cleanup_intermediate_results(csv_paths: list[str], output_dir: str, final_cs
         return
 
     layout = ArtifactLayout.discover(output_dir)
+    from acprof.artifacts import read_json_object
+    if Path(final_csv).name == "result_layers.json":
+        manifest = read_json_object(final_csv)
+        if manifest.get("schema_version") == 3 and (manifest.get("state") != "complete" or not manifest.get("snapshot")):
+            raise ValueError("cannot clean intermediate evidence before the result snapshot is complete")
     targets: set[str] = set()
     for csv_path in csv_paths:
         if layout.layout_version == 2:

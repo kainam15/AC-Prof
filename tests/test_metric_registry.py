@@ -16,6 +16,7 @@ def test_historical_field_order_is_unchanged():
                       'environment_sharing', 'gpu_metric_scope', 'process_resource_status', 'process_resource_error',
                       'gpu_utilization_status', 'gpu_memory_status', 'process_startup_s',
                       'process_cpu_time_s', 'process_cpu_util_avg_pct', 'process_rss_avg_bytes', 'process_rss_peak_bytes'})
+    additions.update({'run_id', 'case_id', 'case_attempt_id', 'window_id', 'packet_status'})
     historical_fields = [name for name in CSV_FIELDS if name not in additions and not name.startswith('dram_')]
     assert (hashlib.sha256(json.dumps(historical_fields).encode()).hexdigest()) == ("1422b14ebaa48586573923cea2d33f615e6dc180d099cdf773678f453e3268f3")
 

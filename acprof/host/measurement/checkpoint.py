@@ -1,8 +1,8 @@
 """Immutable, verified inputs for retrying postprocessing without inference.
 
 The caller owns the result-directory lock and has stopped every sampler and
-packet capture before publishing. A checkpoint is a whole case attempt; partial
-attempts are never joined across container cold starts or warmup sequences.
+packet capture before publishing. Schema 2 can include resumed windows from
+separate attempts; it retains their identities and independent PCAP segments.
 """
 from __future__ import annotations
 
@@ -67,21 +67,34 @@ def _validate_processing(value: Any) -> None:
         raise ValueError("Invalid packet parser port")
 
 
+def _receipt_paths(case: CaseArtifacts, attempt_id: str, csv_path: Path) -> set[Path]:
+    from acprof.window_records import window_filename
+    paths = set(case.window_records(attempt_id).glob("*.json"))
+    with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        for row in csv.DictReader(stream):
+            if row.get("window_id", "").lower() not in {"", "nan", "none"}:
+                path = case.window_records(row["case_attempt_id"]) / window_filename(row["window_id"])
+                if not path.is_file():
+                    raise ValueError("Measured CSV contains a row without a committed window receipt")
+                paths.add(path)
+    return paths
+
+
 def _verify_window_coverage(case: CaseArtifacts, attempt_id: str, run_id: str,
                             csv_path: Path) -> list[dict[str, Any]]:
-    from acprof.window_records import verify_case_window_records
+    from acprof.window_records import read_window_record
 
-    records = verify_case_window_records(case.window_records(attempt_id),
-                                        run_id=run_id, case_attempt_id=attempt_id)
+    records = [read_window_record(path) for path in sorted(_receipt_paths(case, attempt_id, csv_path))]
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
         rows = {measurement_key(row): row for row in csv.DictReader(stream)}
     seen = set()
     for record in records:
-        if record["identity"]["case_id"] != case.case_id:
+        if record["identity"]["case_id"] != case.case_id or record["identity"]["run_id"] != run_id:
             raise ValueError("Window receipt belongs to another case")
         from acprof.window_records import window_filename
-        expected_telemetry = case.telemetry(attempt_id) / window_filename(record["identity"]["window_id"])
-        actual_telemetry = case.window_records(attempt_id) / record["telemetry"]["path"]
+        record_attempt = record["identity"]["case_attempt_id"]
+        expected_telemetry = case.telemetry(record_attempt) / window_filename(record["identity"]["window_id"])
+        actual_telemetry = case.window_records(record_attempt) / record["telemetry"]["path"]
         if actual_telemetry.resolve() != expected_telemetry.resolve():
             raise ValueError("Window telemetry belongs to another case attempt")
         case.layout.contained(expected_telemetry.relative_to(case.layout.root))
@@ -162,7 +175,7 @@ def _verify_projections(csv_path: Path, files: dict[str, Path], records: list[di
 
 
 def publish_measurement_checkpoint(case: CaseArtifacts, *, run_id: str, attempt_id: str,
-                                   processing: dict, expected) -> dict:
+                                   processing: dict, expected, capture_segments=()) -> dict:
     """Copy durable raw inputs, then publish one immutable checkpoint directory."""
     _validate_processing(processing)
     read_result_csv(case.csv, expected=expected)
@@ -193,10 +206,22 @@ def publish_measurement_checkpoint(case: CaseArtifacts, *, run_id: str, attempt_
         _verify_window_coverage(case, attempt_id, run_id, staging / "measurement.csv")
         _verify_projections(staging / "measurement.csv", {key: staging / _FILE_NAMES[key] for key in files},
                             window_records, case_incomplete=processing["case_incomplete"])
-        receipts = [_evidence(case, path) for path in sorted(case.window_records(attempt_id).glob("*.json"))]
+        receipts = [_evidence(case, path) for path in sorted(_receipt_paths(case, attempt_id, case.csv))]
         payload = {"schema_version": CHECKPOINT_SCHEMA, "run_id": run_id, "case_id": case.case_id,
                    "case_attempt_id": attempt_id, "processing": processing, "files": files,
                    "window_records": receipts}
+        if capture_segments or any(record["schema_version"] == 2 for record in window_records):
+            segments = []
+            for index, source in enumerate(capture_segments):
+                source = case.layout.contained(Path(source).relative_to(case.layout.root))
+                target = staging / f"capture-{index}.pcap"
+                shutil.copyfile(source, target)
+                with target.open("rb") as stream:
+                    os.fsync(stream.fileno())
+                segments.append({"path": (destination / target.name).relative_to(case.layout.root).as_posix(),
+                                 "size": target.stat().st_size, "sha256": file_sha256(target)})
+            payload.update(schema_version=2, capture_segments=segments,
+                           continuity="separate_runtime_attempts", window_resume_protocol="window-v1")
         atomic_write_json(staging / "checkpoint.json", payload)
         sync_directory(staging)
         os.rename(staging, destination)
@@ -220,7 +245,7 @@ def read_measurement_checkpoint(case: CaseArtifacts, reference: dict, *, run_id:
     if path != directory / "checkpoint.json":
         raise ValueError("Measurement checkpoint belongs to another case attempt")
     payload = read_json_object(path, label="measurement checkpoint")
-    if (type(payload.get("schema_version")) is not int or payload["schema_version"] != CHECKPOINT_SCHEMA
+    if (type(payload.get("schema_version")) is not int or payload["schema_version"] not in {CHECKPOINT_SCHEMA, 2}
             or payload.get("run_id") != run_id or payload.get("case_id") != case.case_id
             or payload.get("case_attempt_id") != attempt_id):
         raise ValueError("Measurement checkpoint identity mismatch")
@@ -236,10 +261,14 @@ def read_measurement_checkpoint(case: CaseArtifacts, reference: dict, *, run_id:
         raise ValueError("Invalid measurement window references")
     _require_inputs(payload["processing"], files, has_receipts=bool(records))
     verified_paths = {_verify_file(case, entry) for entry in records}
-    observed_paths = set(case.window_records(attempt_id).glob("*.json"))
+    csv_path = case.layout.contained(files["csv"]["path"])
+    observed_paths = _receipt_paths(case, attempt_id, csv_path)
     if len(verified_paths) != len(records) or verified_paths != observed_paths:
         raise ValueError("Measurement window receipt set changed")
-    csv_path = case.layout.contained(files["csv"]["path"])
+    if payload["schema_version"] == 2:
+        for index, segment in enumerate(payload["capture_segments"]):
+            if _verify_file(case, segment) != directory / f"capture-{index}.pcap":
+                raise ValueError("Capture segment belongs to another checkpoint")
     read_result_csv(csv_path, expected=expected)
     window_records = _verify_window_coverage(case, attempt_id, run_id, csv_path)
     _verify_projections(csv_path, {key: case.layout.contained(value["path"]) for key, value in files.items()},

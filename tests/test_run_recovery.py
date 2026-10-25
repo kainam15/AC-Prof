@@ -55,7 +55,8 @@ class TestRunRecovery(RunRecoveryFixture):
         self.invoke(case=with_samples)
         assert ({p.name for p in self.directory.iterdir() if p.is_file()}) == (
             {"static_meta.json", "capability_report.json",
-             "result_manifest.json", "quality_checks.json", "result_layers.json"})
+             "result_manifest.json", "quality_checks.json", "result_layers.json",
+             "summary.csv", "performance.csv", "resources.csv", "energy.csv", "network.csv"})
         from acprof.result_layers import read_result_layers
         fields, rows = read_result_layers(self.directory)
         assert len(rows) == 2
@@ -242,14 +243,19 @@ class TestRunRecovery(RunRecoveryFixture):
         assert stat.S_IFREG in synced_types
         assert any(path == backup_root or path.is_relative_to(backup_root) for path in synced_directories)
 
-    def test_changed_completed_case_is_rejected(self):
+    def test_changed_case_projection_is_restored_without_remeasurement(self):
         self.interrupt_after_first()
         source = self.directory / ".acprof/work/cases/1c_4g_off/result.csv"
         source.write_bytes(source.read_bytes() + b"corrupt,row\n")
-        before = source.read_bytes()
+        self.invoke("--resume")
+        assert self.calls == [2]
+
+    def test_changed_case_authority_is_rejected(self):
+        self.interrupt_after_first()
+        source = next((self.directory / "raw/case_results/1c_4g_off").glob("*.csv"))
+        source.write_bytes(source.read_bytes() + b"corrupt,row\n")
         with pytest.raises(SystemExit):
             self.invoke("--resume")
-        assert (source.read_bytes()) == (before)
         assert (self.calls) == ([])
 
     def test_directory_lock_rejects_second_writer_and_releases_on_exit(self):

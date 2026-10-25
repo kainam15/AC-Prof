@@ -203,7 +203,7 @@ class ClientRunner:
             )
 
         for idx in range(self.config.auto_warmup_requests):
-            req_id = f"{self.config.case_name}_{scale_label}_auto_warmup{idx}"
+            req_id = f"{self.config.request_namespace}_{scale_label}_auto_warmup{idx}"
             self._one_request(scale_value, req_id=req_id, payload_override=payload_override)
 
         print(
@@ -405,7 +405,9 @@ class ClientRunner:
             diag_context = open(diag_path, sidecar_mode, encoding="utf-8")
         else:
             diag_context = nullcontext(None)
-        with open(self.config.out_csv, "a", newline="", encoding="utf-8") as f, open(
+        from acprof.result_store.writer import ResultWriter
+        result_context = ResultWriter(self.config.result_root) if self.config.result_root else nullcontext(None)
+        with result_context as result_writer, open(self.config.out_csv, "a", newline="", encoding="utf-8") as f, open(
             sniff_groups_path,
             sidecar_mode,
             encoding="utf-8",
@@ -450,18 +452,36 @@ class ClientRunner:
             for scale_entry in self.input_scale_entries:
                 scale_val = float(scale_entry["input_scale"])
                 payload_override = scale_entry.get("payload")
+                from acprof.result_csv import measurement_key
+                def planned_key(warmup, repeat_idx):
+                    return measurement_key({"cpu_cores": self.config.cpu_cores, "mem_cap_gb": self.config.mem_cap_gb,
+                                            "gpu_mode": self.config.gpu_mode, "input_scale": str(scale_val),
+                                            "warmup": warmup, "repeat_idx": repeat_idx, "runtime_kind": self.config.runtime_kind})
+                planned = [(1, idx) for idx in range(self.config.warmup)] + [(0, idx) for idx in range(self.config.repeat)]
+                completed = {planned_key(w, idx) for w, idx in planned
+                             if result_writer is not None and planned_key(w, idx) in result_writer.rows}
+                if len(completed) == len(planned):
+                    continue
                 repeat_request_limit = self._prepare_repeat_window(
                     scale_val,
                     str(scale_entry["scale_label"]),
                     payload_override,
                 )
+                if completed:
+                    from acprof.host.measurement.window_recovery import prepare_resumed_scale
+                    prepare_resumed_scale(self.config, scale_entry, completed, result_writer, self._one_request)
                 for idx in range(self.config.warmup + self.config.repeat):
                     warmup_flag = 1 if idx < self.config.warmup else 0
                     repeat_idx = idx if warmup_flag else (idx - self.config.warmup)
+                    if completed and planned_key(warmup_flag, repeat_idx) in completed:
+                        continue
 
                     result = windows.execute(
                         WindowSpec(scale_entry, repeat_request_limit, warmup_flag, repeat_idx),
                         requests_f,
+                    )
+                    result.row["packet_status"] = (
+                        "pending" if measurement_requested(self.config.profiling_mode, "packet_latency") else "not_requested"
                     )
                     client_publication._append_row(
                         writer,
@@ -474,6 +494,7 @@ class ClientRunner:
                         publication=publication,
                         telemetry_evidence=result.telemetry_evidence,
                         request_record=result.request_record,
+                        result_writer=result_writer,
                     )
 
     def run_cli(self) -> None:

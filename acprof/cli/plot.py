@@ -28,6 +28,9 @@ def main(argv=None):
         return
 
     csv_path = args[0] if args else CSV_PATH
+    layout = ArtifactLayout.discover(csv_path) if os.path.isdir(csv_path) else ArtifactLayout.from_csv(csv_path)
+    if os.path.isdir(csv_path):
+        csv_path = str(layout.result_csv)
     all_status_df = plotting_data.prepare_df(csv_path, only_ok=False)
     df = all_status_df.copy()
     if ONLY_OK and "status" in df.columns:
@@ -50,7 +53,7 @@ def main(argv=None):
 
     xlabel = scale_type
 
-    output_dir = str(ArtifactLayout.from_csv(csv_path).plots_dir)
+    output_dir = str(layout.plots_dir)
     if static_meta.get("runtime_kind") == "process":
         from acprof.plotting.process import plot_process_results
         target = plot_process_results(df, output_dir, xlabel=xlabel)

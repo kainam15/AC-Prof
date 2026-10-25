@@ -14,7 +14,7 @@ def failed_preparation(tmp_path, monkeypatch):
     state = run_state.RunState(directory, {"model": "demo/model", "repeat": 5},
                                resume=False, project_dir=tmp_path)
     (directory / "metadata/interface_validation.json").write_text('{"status":"cancelled"}')
-    (directory / "logs").mkdir()
+    (directory / "logs").mkdir(exist_ok=True)
     (directory / "logs/interface_validation.log").write_text("original interrupted probe\n")
     state.close("failed")
     return directory

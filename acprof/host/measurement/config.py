@@ -68,6 +68,7 @@ class ClientConfig:
     case_attempt_id: str = ""
     window_records_dir: str = ""
     telemetry_dir: str = ""
+    result_root: str = ""
     idle_seconds: float = 20.0
     device_index: int = 0
     gpu_device_uuid: str = ''
@@ -77,6 +78,11 @@ class ClientConfig:
     compute_profile_plan_file: str = ''
     execution_profile_plan_file: str = ''
     input_scale_order: str = ""
+
+    @property
+    def request_namespace(self) -> str:
+        """Include the runtime attempt in every captured request, including preparation."""
+        return f"{self.case_name}_{self.case_attempt_id}" if self.result_root else self.case_name
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ClientConfig:
@@ -187,6 +193,7 @@ class ClientConfig:
             case_attempt_id=env.get("ACPROF_CASE_ATTEMPT_ID", ""),
             window_records_dir=env.get("ACPROF_WINDOW_RECORDS_DIR", ""),
             telemetry_dir=env.get("ACPROF_TELEMETRY_DIR", ""),
+            result_root=env.get("ACPROF_RESULT_ROOT", ""),
             idle_seconds=idle_seconds,
             device_index=device_index,
             gpu_device_uuid=gpu_device_uuid,

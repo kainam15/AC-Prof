@@ -394,6 +394,7 @@ class _CaseExecution:
             "ACPROF_CASE_ATTEMPT_ID": self.attempt_id,
             "ACPROF_WINDOW_RECORDS_DIR": str(self.case.window_records(self.attempt_id)),
             "ACPROF_TELEMETRY_DIR": str(self.case.telemetry(self.attempt_id)),
+            "ACPROF_RESULT_ROOT": str(self.case.layout.root) if self.run_state is not None else "",
             "IDLE_SECONDS": str(measurement.idle_seconds),
             "IDLE_COOLDOWN_SECONDS": str(measurement.idle_cooldown_seconds),
             "IDLE_DEBUG": "1" if measurement.idle_debug else "0",
@@ -504,10 +505,15 @@ class _CaseExecution:
         sniff_runtime: PacketLatencyRuntime | None,
     ) -> None:
         try:
+            from acprof.host.measurement.window_recovery import archived_captures
+            record = (self.run_state.data["cases"][str(self.case.csv.relative_to(self.case.layout.root))]
+                      if self.run_state is not None else {})
+            segments = archived_captures(self.case, record)
             _finalize_case(
                 capture_available, sniff_runtime, outcome.incomplete, outcome.completed_rows,
                 outcome.reason, str(self.case.pcap), str(self.case.latency), self.out_csv,
                 self.require_packet_latency, self.measurement.profiling_mode, self.request.gpu,
+                **({"capture_segments": segments} if segments else {}),
             )
         except BaseException:
             if self.run_state is not None:
@@ -558,7 +564,9 @@ def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -
         print(f"[resume] Retrying postprocessing from completed measurement: {case.case_id}")
         _finalize_case(context["capture_available"], runtime, context["case_incomplete"], context["completed_rows_before_failure"],
                        context["incomplete_case_reason"], pcap, str(case.latency), out_csv,
-                       context["require_packet_latency"], context["profiling_mode"], context["gpu"])
+                       context["require_packet_latency"], context["profiling_mode"], context["gpu"],
+                       **({"capture_segments": [case.layout.contained(item["path"]) for item in checkpoint["capture_segments"]]}
+                          if checkpoint.get("capture_segments") else {}))
         status = "error" if context["case_incomplete"] else _case_result_status(out_csv)
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, KeyboardInterrupt) else "error"
@@ -607,7 +615,7 @@ def _stop_capture(process) -> None:
         process.wait(timeout=5)
 
 
-def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu) -> None:
+def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, completed_rows_before_failure, incomplete_case_reason, pcap_file, lat_json, out_csv, require_packet_latency, profiling_mode, gpu, *, capture_segments=()) -> None:
     """Derive and validate results after acquisition is durably checkpointed."""
     if capture_available:
         if case_incomplete and completed_rows_before_failure == 0:
@@ -646,6 +654,10 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
                 and "requests" in latency_payload
                 else latency_payload
             )
+            if capture_segments:
+                from acprof.host.measurement.packet_segments import merge_capture_segments
+                latency_payload = merge_capture_segments(latency_payload, capture_segments, SERVER_PORT)
+                latency_records = latency_payload["requests"]
             if not isinstance(latency_records, dict) or not latency_records:
                 raise _packet_latency_error(
                     "pcap parser did not find matching request latency records"

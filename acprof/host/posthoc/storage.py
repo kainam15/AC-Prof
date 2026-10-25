@@ -211,6 +211,10 @@ def _commit_layer_result_files(context: ResultContext, *, fieldnames, rows, stat
 
     original_manifest = read_json_object(context.result_csv, label="result layers")
     result_layer_paths(context.result_dir, original_manifest)
+    if original_manifest.get("schema_version") == 3:
+        from acprof.host.posthoc.incremental import commit_incremental
+        commit_incremental(context, rows=rows, static_meta=static_meta, collection_history=collection_history)
+        return
     replaced: list[Path] = []
     with tempfile.TemporaryDirectory(prefix=".posthoc-layers-", dir=context.result_dir) as temporary:
         stage = Path(temporary)

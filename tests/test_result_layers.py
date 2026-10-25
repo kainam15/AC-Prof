@@ -53,10 +53,12 @@ def wide_csv(tmp_path):
 def test_field_ownership_is_total_and_profiler_specific():
     fields = layer_fields(CSV_FIELDS)
     owned = [field for names in fields.values() for field in names if field not in
-             {"cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx", "runtime_kind"}]
+             {"cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx", "runtime_kind",
+              "run_id", "case_id", "case_attempt_id", "window_id"}]
     assert len(owned) == len(set(owned))
     assert set(owned) == set(CSV_FIELDS) - {
-        "cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx", "runtime_kind"}
+        "cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx", "runtime_kind",
+        "run_id", "case_id", "case_attempt_id", "window_id"}
     assert field_layer("gpu_kernel_launch_count_per_request_ncu") == "ncu"
     assert field_layer("compute_profile_error_nsys") == "nsys"
     assert field_layer("cpu_heap_peak_total_bytes_massif") == "massif"

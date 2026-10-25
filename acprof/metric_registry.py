@@ -60,6 +60,11 @@ _DECLARATIONS = (
     Metric('process_rss_avg_bytes', 'byte', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=2, label='进程 RSS 平均用量', group='Memory'),
     Metric('process_rss_peak_bytes', 'byte', 'psutil_observed_process_tree', 'request_window', row_group='process_usage', row_order=3, label='进程 RSS 峰值用量', group='Memory', summary=True, aggregation='max'),
     # 资源配置、输入、输出与网络。
+    Metric('run_id', 'text', 'protocol', 'run', kind='text'),
+    Metric('case_id', 'text', 'protocol', 'case', kind='text'),
+    Metric('case_attempt_id', 'text', 'protocol', 'case_attempt', kind='text'),
+    Metric('window_id', 'text', 'protocol', 'request_window', kind='text'),
+    Metric('packet_status', 'text', 'pcap', 'request_window', kind='text'),
     Metric('cpu_cores', 'core', 'protocol', 'case'),
     Metric('mem_cap_gb', 'GiB', 'protocol', 'case'),
     Metric('gpu_mode', 'text', 'protocol', 'case', applicability='gpu', kind='text'),

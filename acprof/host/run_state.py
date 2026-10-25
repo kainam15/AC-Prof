@@ -17,7 +17,13 @@ from typing import TextIO
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write_json, file_sha256, replace_file_durably, sync_directory
+from acprof.artifacts import (
+    atomic_write_json,
+    file_sha256,
+    read_json_object,
+    replace_file_durably,
+    sync_directory,
+)
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
@@ -196,7 +202,14 @@ def recovery_phase(directory: str | Path, data: dict) -> str:
     layout = ArtifactLayout.discover(directory)
     if data.get("status") == "complete":
         return "complete"
-    if (data.get("runtime") or data.get("cases") or layout.result_csv.exists()
+    has_rows = layout.result_csv.exists()
+    if has_rows:
+        try:
+            manifest = read_json_object(layout.result_csv)
+        except ValueError as exc:
+            raise RunStateError(f"测量结果清单无效，不能按准备失败重试：{exc}") from exc
+        has_rows = manifest.get("schema_version") != 3 or manifest.get("row_count", 0) > 0
+    if (data.get("runtime") or data.get("cases") or has_rows
             or any(layout.root.glob("result_case_*.csv"))
             or any((layout.root / ".acprof/work/cases").glob("*/result.csv"))):
         return "measurement"
@@ -204,7 +217,7 @@ def recovery_phase(directory: str | Path, data: dict) -> str:
 
 
 def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Path,
-                    options: dict | None = None) -> str:
+                    options: dict | None = None, repair: bool = False) -> str:
     """Read-only checks shared by recovery review and the locked writer.
 
     Image availability and live hardware preflight remain the runner's responsibility.
@@ -235,6 +248,10 @@ def validate_resume(directory: str | Path, data: dict, *, project_dir: str | Pat
     complete = phase == "complete"
     if not data.get("runtime") and phase != "preparation":
         raise RunStateError(message("已有测量证据但缺少冻结运行环境，不能按准备失败重试。"))
+    if repair:
+        # This branch is used only by the locked runner, after run identity checks.
+        from acprof.host.measurement.window_recovery import repair_result_projections
+        repair_result_projections(layout, data)
     # Completed CSVs may have documented posthoc changes; preserve that contract.
     if complete:
         read_result_csv(layout.result_csv, expected=_expected(data))
@@ -336,7 +353,7 @@ class RunState:
             attempt = {"started_at": utc_now(), "pid": os.getpid(), "resume": resume}
             if resume:
                 self.data = load_run_state(self.directory)
-                phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options)
+                phase = validate_resume(self.directory, self.data, project_dir=project_dir, options=options, repair=True)
                 if options.get("runtime") == "process":
                     from acprof.host.runtimes.process_control import verify_process_cleanup
                     verify_process_cleanup(self.directory / "logs")
@@ -357,7 +374,8 @@ class RunState:
                     self.layout.initialize(allowed_files=prepared)
                 except ValueError as exc:
                     raise RunStateError(str(exc)) from exc
-                self.data = {"schema_version": 1, "layout_version": 2, "run_id": uuid4().hex, "created_at": utc_now(),
+                result_identity = read_json_object(self.layout.result_csv)["run_id"]
+                self.data = {"schema_version": 1, "layout_version": 2, "run_id": result_identity, "created_at": utc_now(),
                              "status": "preparing", "options": options, "host": host_identity(project_dir),
                              "cases": {}, "artifacts": {}, "attempts": []}
             self.data["attempts"].append(attempt)
@@ -510,8 +528,10 @@ class RunState:
         previous_attempts = list(record.get("previous_attempts", []))
         previous = {name: value for name, value in record.items() if name != "previous_attempts"}
         if existing:
-            backup = self.layout.path("interrupted_cases") / case.case_id / uuid4().hex
-            backup.mkdir(parents=True)
+            archived = record.get("status") == "archived" and bool(record.get("backup"))
+            backup = (self.layout.contained(record["backup"]) if archived else
+                      self.layout.path("interrupted_cases") / case.case_id / uuid4().hex)
+            backup.mkdir(parents=True, exist_ok=bool(archived))
             backup_directories: set[Path] = set()
             # Preserve every source before removing any file, including partial PCAPs.
             for source in existing:
@@ -520,6 +540,10 @@ class RunState:
                     raise RunStateError(f"不支持的 case 产物类型：{source}")
                 # Raw samples and idle diagnostics share case IDs; retain provenance.
                 target = backup / source.relative_to(self.directory)
+                if archived:
+                    if not target.is_file() or file_sha256(target) != file_sha256(source):
+                        raise RunStateError(f"Interrupted archive disagrees with its remaining projection: {source}")
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
                 with target.open("rb") as stream:
@@ -527,7 +551,7 @@ class RunState:
                 backup_directories.add(target.parent)
             for directory in sorted(backup_directories, key=lambda path: len(path.parts), reverse=True):
                 _sync_directory_chain(directory, self.directory)
-            self.data["cases"][filename] = {"status": "archived", "backup": str(backup.relative_to(self.directory))}
+            self.data["cases"][filename] = {**record, "status": "archived", "backup": str(backup.relative_to(self.directory))}
             previous["backup"] = str(backup.relative_to(self.directory))
             self.save()
             for source in existing:
@@ -542,6 +566,13 @@ class RunState:
         }
         self.save()
         path.parent.mkdir(parents=True, exist_ok=True)
+        from acprof.host.measurement.window_recovery import is_incremental, restore_case_windows
+        if is_incremental(self.layout):
+            count = (restore_case_windows(case, run_id=self.data["run_id"], expected=self.expected(cpu, mem, gpu))
+                     if self.layout.window_records_root(case.case_id).exists() else 0)
+            self.data["cases"][filename]["restored_windows"] = count
+            self.data["cases"][filename]["resume_semantics"] = "window-v1; runtime segments have separate attempts"
+            self.save()
         return None
 
     def case_attempt_id(self, path: str) -> str:
@@ -566,9 +597,12 @@ class RunState:
         from acprof.host.measurement.checkpoint import publish_measurement_checkpoint
         key = str(Path(path).relative_to(self.directory))
         record = self.data["cases"][key]
+        case = self.layout.case_from_csv(path)
+        from acprof.host.measurement.window_recovery import archived_captures
         reference = publish_measurement_checkpoint(
-            self.layout.case_from_csv(path), run_id=self.data["run_id"],
+            case, run_id=self.data["run_id"],
             attempt_id=record["case_attempt_id"], processing=processing,
+            capture_segments=archived_captures(case, record),
             expected=self.expected(cpu, mem, gpu),
         )
         record.update(status="measured", measurement_status="complete", measured_at=utc_now(),
@@ -620,6 +654,9 @@ class RunState:
         if status == "running":
             record["processing_attempts"] = record.get("processing_attempts", 0) + 1
         self.save()
+        if status == "failed":
+            from acprof.host.measurement.window_recovery import mark_packet_processing_failed
+            mark_packet_processing_failed(self.layout, self.layout.case_from_csv(path).case_id)
 
     def record_case_cleanup(self, path: str, status: str) -> None:
         if status not in {"complete", "failed"}:
@@ -634,6 +671,21 @@ class RunState:
         case.retain_requests()
         key = str(Path(path).relative_to(self.directory))
         record = self.data["cases"].get(key, {})
+        from acprof.host.measurement.window_recovery import is_incremental
+        if is_incremental(self.layout):
+            from acprof.result_store.protocol import reference, write_bytes
+            from acprof.result_store.writer import ResultWriter
+            evidence = []
+            if record.get("measurement_checkpoint"):
+                evidence.append({name: record["measurement_checkpoint"][name] for name in ("path", "sha256")})
+            with ResultWriter(self.directory) as writer:
+                writer.update_rows(rows, reason="case packet processing and diagnostics", evidence=evidence)
+            completed = case.completed_result(file_sha256(path))
+            if not completed.exists():
+                write_bytes(completed, Path(path).read_bytes())
+            if file_sha256(completed) != file_sha256(path):
+                raise RunStateError("Immutable case result changed")
+            record["case_result"] = reference(self.layout, completed)
         self.data["cases"][key] = {
             **record, "processing_status": "complete",
             "measurement_status": "complete" if record.get("measurement_status") == "complete" else "not_measured",
@@ -644,6 +696,11 @@ class RunState:
 
     def finish(self, final_csv: str) -> None:
         _, rows = read_result_csv(final_csv, expected=self.expected())
+        from acprof.host.measurement.window_recovery import is_incremental
+        if is_incremental(self.layout):
+            from acprof.result_store.writer import ResultWriter
+            with ResultWriter(self.directory) as writer:
+                writer.freeze()
         self.data.update(status="complete", completed_at=utc_now(), result_sha256=file_sha256(final_csv),
                          row_count=len(rows), outcome="partial" if any(row.get("status") == "error" for row in rows) else "ok")
         self.save()

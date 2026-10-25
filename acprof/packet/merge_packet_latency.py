@@ -305,6 +305,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         if not gid and idx < len(sidecar_groups):
             gid = sidecar_groups[idx]
         if gid and gid in group_records and group_records[gid]:
+            if "packet_status" in r:
+                r["packet_status"] = "ok"
             records = group_records[gid]
             latencies = [record.get("latency_s", float("nan")) for record in records]
             r["latency_s"] = _fmt_float(_mean(latencies))
@@ -346,6 +348,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             cpu_mips_packet = _compute_cpu_mips(r, lat)
             if math.isfinite(cpu_mips_packet):
                 r["cpu_mips_packet"] = _fmt_float(cpu_mips_packet)
+        elif "packet_status" in r:
+            r["packet_status"] = "unavailable" if gid else "not_applicable"
 
     fields = order_csv_fields(field for field in fields if field != SNIFF_GROUP_FIELD)
     for r in rows:

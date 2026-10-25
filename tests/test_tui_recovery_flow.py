@@ -33,7 +33,7 @@ def saved_preparation(tmp_path, monkeypatch):
     directory = config.result_dir(Path.cwd())
     state = run_state.RunState(directory, run_state.run_options(args), resume=False, project_dir=Path.cwd())
     state.close("failed")
-    (directory / "logs").mkdir()
+    (directory / "logs").mkdir(exist_ok=True)
     (directory / "logs/interface_validation.log").write_text("interrupted preparation\n")
     return config, directory
 

@@ -114,6 +114,18 @@ def sync_directory(directory: Path) -> None:
         os.close(directory_fd)
 
 
+def create_durable_directory(directory: Path) -> None:
+    """Persist newly created directory entries before publishing files below them."""
+    missing = []
+    ancestor = directory.absolute()
+    while not ancestor.exists():
+        missing.append(ancestor)
+        ancestor = ancestor.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    for created in missing:
+        sync_directory(created.parent)
+
+
 def replace_file_durably(source: str | Path, destination: str | Path) -> None:
     """Publish an already-written file and make the rename durable on POSIX."""
     source_path = Path(source)
@@ -133,7 +145,7 @@ def atomic_write(
     default_mode: int = 0o644,
 ) -> None:
     destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    create_durable_directory(destination.parent)
     mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else default_mode
     temporary = None
     try:

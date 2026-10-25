@@ -80,7 +80,7 @@ class WindowExecutor:
         self.gpu_idle_history: list[float] = []
 
     def execute(self, spec: WindowSpec, requests_stream: TextIO) -> WindowResult:
-        group_id = spec.group_id(self.config.case_name)
+        group_id = spec.group_id(self.config.request_namespace)
         observations = WindowObservations()
         progress = WindowRequestProgress()
         metrics = WindowMetrics(

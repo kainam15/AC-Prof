@@ -19,6 +19,7 @@ from acprof.host.detect import detect_task
 from acprof.host.model_inspection import explain_resolution
 from acprof.model_spec import task_model_spec
 from acprof.preparation_events import MAX_MESSAGE
+from acprof.result_csv import read_result_csv
 
 
 def events(output):
@@ -53,7 +54,9 @@ class TestCollectionWorkflow:
                 self.run.invoke(validation=lambda **kwargs: validate({"text": "hello"}))
         handler.predict.assert_called_once()
         assert self.run.calls == []
-        assert not list(self.run.directory.rglob("*.csv"))
+        fields, rows = read_result_csv(self.run.directory / "result_layers.json")
+        assert fields
+        assert rows == []
 
     def test_start_resolves_and_validates_before_measurement_without_questions(self):
         output = io.StringIO()
