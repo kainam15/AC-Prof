@@ -164,6 +164,10 @@ def _httpx_factory(*, transport=None):
 
     class HubClient(httpx.Client):
         def send(self, request, **kwargs):
+            if request.extensions.get("acprof_probe"):
+                # The bounded probe closes redirects itself; automatic redirect
+                # handling may drain an arbitrarily large GET response body.
+                return super().send(request, **kwargs)
             # Hub 1.x versions before upstream #4739 only follow relative HEAD
             # redirects and discard their query. Follow Hub HEADs here, stopping
             # at storage so the SDK can read x-linked-etag/size on the redirect.

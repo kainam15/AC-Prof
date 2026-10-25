@@ -4,16 +4,20 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
 from acprof.host import command as host_command
+from acprof.host.download_probe import failure_reason, probe_allowance, probe_record
 from acprof.host.images.environment import (
     DEFAULT_RUNTIME_REGISTRY,
     platform_fingerprint,
@@ -46,22 +50,68 @@ class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def artifact_size(url: str) -> int | None:
     """HEAD only; no artifact GET is permitted during estimation."""
+    return probe_artifact(url)[1]
+
+
+def probe_artifact(url: str, *, category: str = "python") -> tuple[dict, int | None]:
+    report = probe_record(category, url, "HEAD")
+    report["scope"] = "host metadata only; BuildKit network and complete payload not verified"
+    if not url:
+        report["reason"] = "source-unknown"
+        return report, None
+    started = time.monotonic()
     handlers = [urllib.request.ProxyHandler({})] if is_direct_artifact_mirror(url) else []
     opener = urllib.request.build_opener(*handlers, PolicyRedirectHandler())
     try:
         request = urllib.request.Request(url, headers={"User-Agent": DEPENDENCY_USER_AGENT}, method="HEAD")
         with opener.open(request, timeout=8) as response:
             size = response.headers.get("Content-Length")
-            return int(size) if size and size.isdecimal() else None
-    except (OSError, ValueError):
-        return None
+            report.update(status="passed", final_host=urlsplit(response.url).hostname, http_status=response.status)
+            return report, int(size) if size and size.isdecimal() else None
+    except (OSError, ValueError) as exc:
+        report.update(status="failed", reason=failure_reason(exc, phase="HEAD"),
+                      http_status=getattr(exc, "code", None),
+                      final_host=urlsplit(getattr(exc, "url", "")).hostname)
+        return report, None
+    finally:
+        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
 
 
-def registry_manifest(reference: str) -> dict | None:
+def probe_runtime_downloads(sources: list[DownloadSource], existing: list[dict] | None = None) -> list[dict]:
+    """One representative HEAD per required package origin; OCI is inspected by Docker."""
+    reports = []
+    seen = {(item["category"], urlsplit(item["source"]).netloc) for item in existing or []}
+    for source in sources:
+        key = (source.category, urlsplit(source.url).netloc)
+        if source.category not in {"python", "debian"} or source.cache_status == "hit" or key in seen:
+            continue
+        seen.add(key)
+        report, _ = probe_artifact(source.url, category=source.category)
+        reports.append(report)
+    return reports
+
+
+def registry_manifest(reference: str, *, evidence: list[dict] | None = None) -> dict | None:
     """OCI metadata only; returns compressed upper bound and Docker config ID."""
+    entry = reference.split("/")[0]
+    host = entry if "/" in reference and ("." in entry or ":" in entry or entry == "localhost") else "registry-1.docker.io"
+    report = probe_record("oci", "https://" + host, "manifest")
+    report.update(status="failed", reason="manifest-unavailable",
+                  scope="Docker manifest only; layer transfer and final storage host not verified")
+    started = time.monotonic()
     try:
         result = host_command.run_command(['docker', 'manifest', 'inspect', '--verbose', reference], timeout=20, check=False)
         if result.returncode:
+            stderr = result.stderr.lower()
+            status = re.search(r"\b(401|403|404|429|5\d\d)\b", stderr)
+            if status:
+                report.update(reason="http-" + status[1], http_status=int(status[1]))
+            elif "timeout" in stderr or "timed out" in stderr:
+                report["reason"] = "timeout"
+            elif "certificate" in stderr or "tls" in stderr:
+                report["reason"] = "tls"
+            elif "no such host" in stderr or "lookup" in stderr:
+                report["reason"] = "dns"
             return None
         data = json.loads(result.stdout)
         if isinstance(data, list):
@@ -86,9 +136,17 @@ def registry_manifest(reference: str) -> dict | None:
         image_id = config.get("digest")
         if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
             return None
+        report.update(status="passed", reason=None)
         return {"bytes": sum(item["size"] for item in entries), "image_id": image_id}
-    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        report["reason"] = "timeout"
         return None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    finally:
+        report["elapsed_seconds"] = round(time.monotonic() - started, 4)
+        if evidence is not None:
+            evidence.append(report)
 
 
 def _recorded_artifact_sizes(path: Path) -> dict[tuple[str, str], int | None]:
@@ -111,9 +169,13 @@ def _recorded_artifact_sizes(path: Path) -> dict[tuple[str, str], int | None]:
 
 
 def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=artifact_size,
-                    manifest_probe=registry_manifest) -> tuple[list[DownloadSource], dict]:
+                    manifest_probe=None) -> tuple[list[DownloadSource], dict]:
     from acprof.host.images.runtime import inspect_identity
     inspect = inspect or inspect_identity
+    evidence: list[dict] = []
+    if manifest_probe is None:
+        def manifest_probe(reference):
+            return registry_manifest(reference, evidence=evidence)
     identity = environment_identity(profile.environment, project_dir)
     policy = os.environ.get("ACPROF_RUNTIME_IMAGE_SOURCE", "auto")
     if policy not in {"auto", "pull", "build"}:
@@ -122,7 +184,7 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     local = inspect(f"acprof-platform-{profile.environment.platform.platform_id}:{platform_key[:20]}")
     result = []
     summary: dict[str, Any] = {"source_mode": policy, "platform_local": local is not None, "environment_local": False,
-               "will_attempt_ghcr_pull": False, "alternatives": {}}
+               "will_attempt_ghcr_pull": False, "alternatives": {}, "network_probe": evidence}
     platform_id = local["image_id"] if local else None
     if not local and policy != "build":
         ref = registry_reference("platform", platform_key)
@@ -186,7 +248,38 @@ def runtime_sources(profile, project_dir: Path, *, inspect=None, size_probe=arti
     return result, summary
 
 
-def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dict:
+def process_sources(task, project_dir: Path) -> tuple[list[DownloadSource], dict]:
+    """uv consumes the original lock URLs; BuildKit mirror options do not apply."""
+    from acprof.host.runtimes.environment import environment_plan, verify_environment
+    root, identity, declaration = environment_plan(task, project_dir)
+    target = root / content_digest(identity)
+    summary = {"kind": "process", "source_mode": "build", "environment_local": False,
+               "will_attempt_ghcr_pull": False, "network_probe": []}
+    if target.exists():
+        manifest = read_json_object(target / "manifest.json", label="Process environment")
+        if manifest["identity"] != identity:
+            raise ValueError("cached Process environment identity changed")
+        verify_environment(target, manifest)
+        summary["environment_local"] = True
+        return [], summary
+    metadata = (project_dir / declaration.requirements_lock).with_suffix(".artifacts.json")
+    sizes = _recorded_artifact_sizes(metadata) if metadata.is_file() else {}
+    sources = [DownloadSource("python", item["url"], sizes.get((item["url"], item["sha256"])),
+                              detail="uv exact lock; package cache unknown until installation")
+               for item in identity["artifacts"]]
+    uv = shutil.which("uv")
+    if uv is None:
+        raise RuntimeError("Process preparation requires uv")
+    interpreter = host_command.run_command([uv, "python", "find", "--no-python-downloads", "--offline",
+                                            declaration.platform.python_version], check=False, timeout=10)
+    if interpreter.returncode:
+        sources.append(DownloadSource("python", "", None,
+                                      detail="uv Python interpreter source and size not verified"))
+    return sources, summary
+
+
+def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
+              runtime_plan: tuple[list[DownloadSource], dict] | None = None) -> dict:
     from acprof.host.model_store import (
         enforce_model_download_budgets,
         model_sources,
@@ -198,32 +291,45 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None) -> dic
     models = model_sources(model_plan, root)
     disk = require_space(model_plan, root)
     enforce_model_download_budgets(summarize_downloads(models))
-    probes = probe_model_download(model_plan, root)
+    sources, runtime = runtime_sources(profile, Path(project_dir)) if runtime_plan is None else runtime_plan
+    planned = summarize_downloads([*models, *sources])
+    enforce_download_budget(planned, os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    allowance = probe_allowance(summarize_downloads(models)["expected_download_bytes"], planned["expected_download_bytes"])
+    print(f"[network-probe] HEAD + limited model GET; at most {allowance} payload bytes; "
+          "no cache writes; complete downloads require confirmation in interactive mode", flush=True)
+    probes = probe_model_download(model_plan, root, max_bytes=allowance)
     models = model_sources(model_plan, root)  # Probe may have selected another Hub entry.
-    enforce_model_download_budgets(summarize_downloads(models))
-    sources, runtime = runtime_sources(profile, Path(project_dir))
+    probe_bytes = sum(item.get("received_bytes", 0) for item in probes)
+    model_bytes = summarize_downloads(models)["expected_download_bytes"]
+    enforce_model_download_budgets({"expected_download_bytes": None if model_bytes is None else model_bytes + probe_bytes})
     report = summarize_downloads([*models, *sources])
     report["runtime"] = runtime
     report["disk"] = disk
-    report["network_probe"] = probes
+    report["network_probe"] = [*probes, *runtime.get("network_probe", []),
+                               *probe_runtime_downloads(sources, runtime.get("network_probe"))]
+    report["probe_payload_bytes"] = probe_bytes
+    report["probe_byte_limit"] = allowance
     report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
     report["model_max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MODEL_MAX_DOWNLOAD"))
     report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
     from acprof.host.static_metadata import _docker_storage_metadata
-    report["docker_storage"] = _docker_storage_metadata()
+    report["docker_storage"] = {} if runtime.get("kind") == "process" else _docker_storage_metadata()
     report["model"] = {"model_id": task.model_id, "revision": task.model_revision,
         "source": model_plan.get("source", "huggingface"),
         "total_bytes": model_plan.get("total_selected_bytes", model_plan["selected_bytes"]),
         "cached_bytes": sum(s.cached_bytes for s in models), "endpoint": model_plan["endpoint"]}
-    report["metadata_traffic"] = "small API/HEAD/config requests precede bulk budget; no weights, wheel or OCI layers"
+    report["metadata_traffic"] = "API/HEAD/config metadata excluded; bounded model GET included in payload budget; no wheel or OCI layers"
     print("[network-preflight] " + json.dumps(report, ensure_ascii=False), flush=True)
-    enforce_download_budget(report, os.environ.get("ACPROF_MAX_DOWNLOAD"))
+    expected = report["expected_download_bytes"]
+    enforce_download_budget({"expected_download_bytes": None if expected is None else expected + report["probe_payload_bytes"]},
+                            os.environ.get("ACPROF_MAX_DOWNLOAD"))
     if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1" and report["expected_download_bytes"] != 0:
         from acprof.host.collection_workflow import PreparationWorkflow
         workflow = PreparationWorkflow(interactive=True)
         summary = {key: report[key] for key in (
             "expected_download_bytes", "network", "public_egress", "network_probe", "runtime", "disk",
             "max_download_bytes", "model_max_download_bytes", "model_store_path", "docker_storage", "model",
+            "sources", "probe_payload_bytes", "probe_byte_limit",
         )}
         workflow.ask("image", "review", resolved=True, questions=[], download_report=summary)
     return report

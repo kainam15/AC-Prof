@@ -20,6 +20,8 @@ CLI、doctor 和 TUI 在依赖准备前通过短生命周期 helper 验证进程
 
 准备阶段按现有 runtime profile 的完整 wheel 哈希锁创建独立 Python 环境，复制服务代码，
 固定模型 revision，并复用 ModelStore 下载与校验。随后执行接口检查、输入规划及每个请求设备上的真实推理验证。
+安装依赖和完整下载模型前，Process 与 Docker 共用[下载预检与确认](../models/model-store.md)：
+模型先 HEAD 和限量 GET，依赖按实际 uv lock URL 做来源检查；取消下载确认不会运行安装器。
 缓存默认位于 `~/.cache/acprof/process-environments`，可通过 `ACPROF_PROCESS_STORE` 调整；
 依赖版本、已安装文件树、服务代码、Python 解释器及模型身份参与复用校验；版本号未变的依赖代码修改也会拒绝复用。
 文件树哈希只在准备/恢复阶段计算，不进入测量窗口。

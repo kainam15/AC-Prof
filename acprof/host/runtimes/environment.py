@@ -40,7 +40,8 @@ def installed_tree_digest(root: Path) -> str:
     return content_digest(files)
 
 
-def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
+def environment_plan(task, project_dir: str | Path):
+    """Read the same immutable identity for planning and installation, without writes."""
     profile = select_runtime_profile(task)
     if profile.environment is None:
         raise ValueError("selected profile has no dependency lock")
@@ -54,8 +55,16 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
     identity = {"schema_version": 2, "kind": "process", "host_abi": abi,
                 "python": declaration.platform.python_version, "artifacts": records,
                 "service_sha256": source_fingerprint(project, service_sources(project), scope="process-service-v1")}
-    key = content_digest(identity)
     root = Path(os.environ.get("ACPROF_PROCESS_STORE", "~/.cache/acprof/process-environments")).expanduser().resolve()
+    return root, identity, declaration
+
+
+def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
+    root, identity, declaration = environment_plan(task, project_dir)
+    project = Path(project_dir)
+    records = identity["artifacts"]
+    lock = project / declaration.requirements_lock
+    key = content_digest(identity)
     root.mkdir(parents=True, exist_ok=True)
     target = root / key
     with (root / (key + ".lock")).open("a+b") as lock_stream:
@@ -114,13 +123,18 @@ def prepare_process(task, project_dir, output_dir, *, rebuild=False, timeout_sec
     if rebuild:
         raise ValueError("--rebuild-image applies to Docker; Process environments are immutable")
     from acprof.host.model_store import plan_model, prepare_model, store_root, verify_entry
+    from acprof.host.network_preflight import preflight, process_sources
     from acprof.host.runtimes.validation import probe_interface
+    plan = plan_model(task)
+    network_plan = preflight(task, select_runtime_profile(task), project_dir, plan,
+                             runtime_plan=process_sources(task, Path(project_dir)))
     root, environment = prepare_environment(task, project_dir)
     probe_interface(task, root, environment, output_dir, timeout_seconds=timeout_seconds)
-    plan = plan_model(task)
-    record = {**prepare_model(task, plan), "host_path": str(store_root())}
+    planned_bytes = sum(source["estimated_bytes"] for source in network_plan["sources"] if source["category"] == "model")
+    record = {**prepare_model(task, plan, planned_download_bytes=planned_bytes), "host_path": str(store_root())}
     task.model_store = record
     manifest = {**environment, "model_store": record, "model_download": record["model_download"],
+                "network_preflight": network_plan,
                 "runtime_kind": "process", "logs_dir": str(Path(output_dir).absolute() / "logs"),
                 "build_fingerprint": content_digest({"environment": environment["environment_id"],
                                                      "model": record["plan_sha256"]})}

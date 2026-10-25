@@ -7,6 +7,7 @@
 | 模块 | 职责 |
 | --- | --- |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
+| `network_preflight` / `download_probe` | Docker/Process 下载计划与确认、来源元数据检查及共享预算的限量 GET；复用 HF transport，全部在准备阶段执行 |
 | `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
 | `docker_runtime` | 推理服务容器的所有权、启停、ready 检查及原有冷启动分段 |
 | `runtimes/contracts` / `runtimes/service` | 统一执行契约、Runtime dispatch、客户端执行证据；编排不依赖 Docker 生命周期细节 |

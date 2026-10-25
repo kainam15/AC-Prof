@@ -45,7 +45,7 @@ def test_download_confirmation_preserves_raw_bytes(tmp_path, capsys, download_by
     request = events[-1]["request"]
     assert request["resolved"] is True
     assert request["questions"] == []
-    assert "sources" not in request["download_report"]
+    assert request["download_report"]["sources"][0]["category"] == "model"
     assert request["download_report"]["expected_download_bytes"] == download_bytes
     assert request["download_report"]["disk"]["free_bytes"] == 41_370_132_480
     assert report["expected_download_bytes"] == download_bytes

@@ -398,6 +398,8 @@ class TestDomesticPyPIArtifactMirror:
         url = "https://mirrors.cloud.tencent.com/pypi/packages/abc/sample.whl"
         response = BytesIO(b"")
         response.headers = {"Content-Length": "12345"}
+        response.url = url
+        response.status = 200
         opener = SimpleNamespace(open=Mock(return_value=response))
         with patch("urllib.request.build_opener", return_value=opener) as build:
             assert artifact_size(url) == 12345
@@ -534,6 +536,8 @@ class TestAdditionalDomesticArtifactMirrors:
         monkeypatch.setenv("HTTPS_PROXY", "http://charged-vpn.example:7897")
         response = BytesIO(b"")
         response.headers = {"Content-Length": "777"}
+        response.url = url
+        response.status = 200
         opener = SimpleNamespace(open=Mock(return_value=response))
         with patch("urllib.request.build_opener", return_value=opener) as build:
             assert artifact_size(url) == 777

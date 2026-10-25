@@ -351,7 +351,7 @@ def test_failure_stage_and_final_storage_host_are_preserved(reason, monkeypatch)
     assert "not-in-provenance" not in str(error.value.to_dict())
 
 
-def test_light_probe_follows_storage_with_head_only_and_cache_skips_all_io(tmp_path, monkeypatch):
+def test_zero_allowance_probe_keeps_head_and_cache_skips_all_io(tmp_path, monkeypatch):
     import huggingface_hub as hub
 
     from acprof.hf_transport import _httpx_factory, configure_hf_transport
@@ -373,7 +373,7 @@ def test_light_probe_follows_storage_with_head_only_and_cache_skips_all_io(tmp_p
     hub.set_client_factory(lambda: _httpx_factory(transport=httpx.MockTransport(respond)))
     try:
         with patch("acprof.host.model_store.configure_hf_transport"):
-            report = probe_model_download(plan, tmp_path)
+            report = probe_model_download(plan, tmp_path, max_bytes=0)
             assert report[0]["method"] == "HEAD"
             assert visited == [("HEAD", "hf-mirror.com"), ("HEAD", "cas-bridge.xethub.hf.co")]
             visited.clear()

@@ -398,30 +398,45 @@ def model_sources(plan: dict, root: Path | None = None) -> list[DownloadSource]:
     return result
 
 
-def probe_model_download(plan: dict, root: Path | None = None) -> list[dict]:
-    """HEAD a missing artifact through storage; no GET and no availability cache."""
+def probe_model_download(plan: dict, root: Path | None = None, *, max_bytes: int | None = None,
+                         timeout: float = 8) -> list[dict]:
+    """HEAD and bounded GET of missing artifacts; never populate the cache."""
     from urllib.parse import quote
 
-    from huggingface_hub.utils import build_hf_headers, get_session
+    from acprof.hf_download import HfDownloadError
+    from acprof.host.download_probe import ProbeBudget, probe_allowance, probe_hf_file, probe_record
 
     root = root or store_root()
+    missing_repositories = [(repo, [item for item in repo["files"] if cached_file(root, repo, item) is None])
+                            for repo in repository_plans(plan)]
+    sizes = [item.get("size") for _, missing in missing_repositories for item in missing]
+    expected = sum(sizes) if all(type(size) is int for size in sizes) else None
+    allowance = probe_allowance(expected, expected)
+    budget = ProbeBudget(allowance if max_bytes is None else min(allowance, max(0, max_bytes)))
     reports = []
-    for repo in repository_plans(plan):
-        missing = [item for item in repo["files"] if cached_file(root, repo, item) is None]
-        if not missing or repo.get("source", "huggingface") != "huggingface":
+    for repo, missing in missing_repositories:
+        if not missing:
+            continue
+        if repo.get("source", "huggingface") != "huggingface":
+            report = probe_record("model", repo["endpoint"], "none")
+            report.update(model_id=repo["model_id"], reason="unsupported-source")
+            reports.append(report)
             continue
         configure_hf_transport()
         sample = max(missing, key=lambda item: item.get("size") or 0)
         def probe(endpoint):
             url = f"{endpoint}/{repo['model_id']}/resolve/{repo['model_revision']}/{quote(sample['path'])}"
-            with get_session().stream("HEAD", url, headers=build_hf_headers(), follow_redirects=True, timeout=8) as response:
-                response.raise_for_status()
+            report, error = probe_hf_file(url, budget, timeout=timeout)
+            report.update(model_id=repo["model_id"], sample_file=sample["path"], endpoint=endpoint)
+            reports.append(report)
+            if error is not None and report["reason"] != "offline":
+                raise error
             return endpoint
-        endpoint = try_hf_endpoints(repo["model_id"], probe,
-                                   endpoints=list(dict.fromkeys([repo["endpoint"], *hf_endpoints()])))
-        reports.append({"model_id": repo["model_id"], "method": "HEAD", "sample_file": sample["path"],
-                        "scope": "one missing file; not a permanent availability verdict",
-                        "transport": observed_hf_provenance()})
+        try:
+            endpoint = try_hf_endpoints(repo["model_id"], probe,
+                                       endpoints=list(dict.fromkeys([repo["endpoint"], *hf_endpoints()])))
+        except HfDownloadError:
+            continue  # Report each failed attempt on the confirmation page.
         repo["endpoint"] = endpoint
         seal_plan(repo)
     seal_plan(plan)

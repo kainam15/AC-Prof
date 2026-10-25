@@ -10,11 +10,22 @@ Hub endpoint 和 storage endpoint 分别处理。镜像可以重定向到官方 
 
 `network_policy.py` 的新报告使用 schema v2，记录 URL、host、category、cache 状态、估算和实际 bytes。应用层连接只区分 `direct-socket` 与 `explicit-proxy`；实际公网出口为 `unknown`／`externally-managed`，上游透明代理、VPN、NAT 由系统网络负责。OCI 的网络由 Docker 管理，不依据主机应用代理推断出口。不再产生 DIRECT／PROXY 流量分摊或预计 VPN 流量；历史报告保持原样。安装 AC-Prof 之前的 uv bootstrap 不属于 runtime 下载预算。
 
-所有新构建先完成 Network Preflight：模型文件列表、总量、本地已有量、待下载量与 endpoint；Model Store 剩余空间和容量；平台/环境本地 image 命中、是否尝试 GHCR、OCI manifest 的压缩总量上界；精确 Python/Debian artifacts 的大小。HF 选一个待下载文件执行 HEAD probe，沿可信重定向检查存储可达性，不请求权重正文；完整缓存跳过该 probe。一次 CDN 失败只影响当前尝试，可重新预检／重试。BuildKit 缓存无法从主机可靠读取时显示 `unknown`，按完整制品大小保守估计；HEAD 或 manifest 不能给出大小时保留 `null`，不当作零。`expected_download_bytes` 在批量下载前显示，并随 runtime 元数据保存。
+Docker 新构建和 Process 准备在安装依赖及下载完整模型前完成 Network Preflight：模型文件列表、缓存、待下载量、endpoint、Model Store 空间，以及 Runtime 下载来源。Docker 查询缺失平台/环境的 OCI manifest，记录压缩大小上界；本地环境命中时跳过无须访问的来源。Process 按实际 uv lock URL 规划 Python 依赖，不套用 BuildKit 镜像设置；完整环境通过既有身份和内容校验后跳过依赖网络检查。uv interpreter 未就绪且无法确定其制品时保留来源/大小未验证。
+
+HF 从每个缺文件的仓库选择一个代表性大文件，先 HEAD，再对固定 revision 执行流式 Range GET；所有仓库、备用入口和失败尝试共享 **256 KiB 响应体读取上限**。沿用 SDK client、认证、系统代理及可信重定向检查；逐跳关闭响应，不读取重定向正文。服务器忽略 Range 时仍提前关闭流，不下载整个文件。每次 raw read 前为 HTTPX HTTP/1.1 的 64 KiB 缓冲保留余量，因此实际探测量可能小于上限；剩余预算不足一次 read 时跳过 GET。读取设置单次 timeout 和总耗时检查，输出 HTTP 状态、目标 host、接收 bytes、耗时和 DNS/TLS/连接超时/读取超时/HTTP/中断/重定向原因。完整模型缓存零请求；探测数据不落盘，不创建缓存条目或性能结果。ModelScope 的限量传输探测暂记“未验证”，不把未测试来源标为通过。
+
+Python/Debian 对每个待用来源执行代表性 HEAD；Docker manifest 通过现有 Docker 命令及认证配置读取。二者只证明元数据可达，**不证明 Docker/BuildKit 内部网络或完整制品传输成功**。BuildKit/uv 制品缓存不可可靠确认时仍为 `unknown`，按完整大小保守估计；大小未知保留 `null`。失败证据直接进入下载确认页，用户可终止或明确确认后尝试正式下载，不能绕过预算。`expected_download_bytes` 表示完整下载计划，`probe_payload_bytes` 单独记录已读取探测正文，并一起参与预算核对；报告保存在 Runtime 元数据，测量窗口不执行探测。
 
 HF 的合理传输路径全部失败时显示失败阶段（Hub／redirect／storage）、DNS／TLS／HTTP／timeout 等原因及最终 host，提供重试、诊断和“改用 ModelScope”。仓库、revision、文件不存在或访问受限时保留对应模型错误，提示修正身份或权限，不统一包装成 VPN 问题。`HF_HUB_OFFLINE` 启用时仍在请求发送前阻止联网，已有完整缓存可继续使用。切换需要用户明确确认 ModelScope 模型 ID 和 revision，生成独立实验配置；不会自动复制同名模型或静默替换 source。`huggingface` 与 `modelscope` 是不同来源，同名、同 revision 文本不证明内容一致。ModelScope 使用官方轻量 `modelscope-hub` SDK；分支／tag 由 `git ls-remote` 固定为仓库 commit，文件按该 commit 下载并校验 SHA256，支持 SDK 的 partial／resume。主机需安装 Git，私有仓库还需自行配置相应 Git 认证；也可直接指定完整 commit SHA。ModelScope 能下载不等于 AC-Prof 支持其所有推理架构；已有显式 HF 依赖继续保留 HF 来源。
 
-`--max-download 5GB`（十进制）或 `5GiB`（二进制）约束本次计划的批量 payload。总量未知或超限会在任何权重下载、OCI pull 或 dependency build 前退出；API、HEAD 和受限配置 JSON 查询是计划所需的小额流量，不是零流量预检。它不是 TCP/TLS 开销和失败重传的精确线速账单。预算模式下 GHCR 失败不继续未规划的本机构建；需显式选择 `ACPROF_RUNTIME_IMAGE_SOURCE=build` 后重新预检。GHCR 未被禁用，国内 OCI registry 可通过现有 `ACPROF_RUNTIME_REGISTRY` 显式选择，仍核验完整身份。
+`--max-download 5GB`（十进制）或 `5GiB`（二进制）约束本次计划的批量 payload 及限量模型 GET。先为完整下载预留预算，再使用余量探测；总预算或模型预算为零时不发送模型 GET。总量未知或超限在 payload 传输、OCI pull 或 dependency build 前退出；API、HEAD 和受限配置 JSON 查询仍产生元数据流量。响应体上限不是 TCP/TLS、内核预读及失败重传的精确线速账单。预算模式下 GHCR 失败不继续未规划的本机构建；需显式选择 `ACPROF_RUNTIME_IMAGE_SOURCE=build` 后重新预检。GHCR 未被禁用，国内 OCI registry 可通过现有 `ACPROF_RUNTIME_REGISTRY` 显式选择，仍核验完整身份。
+
+探测设计参考 [aria2 dry-run 的 HEAD 检查](https://github.com/aria2/aria2/blob/master/src/CreateRequestCommand.cc)、
+[HTTPX 流式响应及显式关闭](https://github.com/encode/httpx/blob/master/httpx/_models.py)、
+[HTTPcore HTTP/1.1 有界读取](https://github.com/encode/httpcore/blob/master/httpcore/_sync/http11.py)
+与 [HTTPX PR #2148](https://github.com/encode/httpx/pull/2148) 的流取消清理问题。
+aria2 为 GPL-2.0-or-later，HTTPX/HTTPcore 为 BSD-3-Clause；仅借鉴检查、限量读取和关闭资源的思想，
+不复制下载器代码、不新增依赖，使用现有锁定版本并通过本地 HTTP 服务验证边界。
 
 Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 更改。`hf/` 与 `modelscope/` 按来源隔离权重缓存；`entries/<id>/hf/` 是供离线 loader 使用的相对链接视图，目录名不代表模型 source。各依赖保留独立 `refs/main`，避免不同 revision 互相覆盖。清单固定 source、model ID、完整 commit、文件大小、每文件 SHA256 与计划 SHA256。历史 HF entry 身份保持兼容；ModelScope entry 加入 source，不与同名 HF entry 混用。entry 身份不包含 CPU/GPU/profile，筛选器与 catalog 的变更会失效旧 entry。
 
