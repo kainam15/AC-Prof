@@ -210,6 +210,12 @@ execution_profile_s ≈ 实际 input scale 数 × (
 Nsys 还需生成和解析 timeline；repeat 参数会进一步增加工作量。默认保留的原始报告
 也需要磁盘空间，使用 `full` 前可先用单个资源配置与尺度估算。
 
+关闭原始报告保留时，只有确认 profile 目录删除成功后才剥离路径并发布
+`compute_profiles_retained=false`／`execution_profiles_retained=false`。删除失败会终止
+本次 plan 发布，并报告可能发生部分删除的目录；残留文件不能当作完整 raw profile。
+已有 plan 会在删除前移到同目录的 `.invalidated-<id>` 文件，保留其原始字节用于审计，
+常规读取器不会再把它作为有效证据。处理权限问题后重新运行对应采集／补采。
+
 ### MFLOPS / compute profiling 字段全是 `nan`
 
 - 默认 `--compute-profile-tool none` 不采 FLOP，因此这些字段为 `nan` 属于预期结果。显式启用 `both` 后，Torch eager 与 NCU 是独立 probe；先分别查看 `compute_profile_error_torch_profiler_eager` 和 `compute_profile_error_ncu`，一个失败不会令另一套指标或主实验失败。

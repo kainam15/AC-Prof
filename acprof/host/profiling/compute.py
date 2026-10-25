@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -12,6 +11,7 @@ from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.cleanup import discard_profile_artifacts
 from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
@@ -428,8 +428,8 @@ def collect_compute_profile_plan(
     plan_path = str(layout.path(COMPUTE_PROFILE_PLAN_NAME))
 
     if not keep_profiles:
+        discard_profile_artifacts(profile_root, plan_path)
         _strip_discarded_profile_paths(profiles)
-        shutil.rmtree(profile_root, ignore_errors=True)
 
     write_profile_json(plan_path, plan)
     print(f"[compute] Compute profile plan: {plan_path}")

@@ -10,13 +10,13 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import shutil
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any
 
 from acprof.host.detect import TaskInfo
+from acprof.host.profiling.cleanup import discard_profile_artifacts
 from acprof.host.profiling.progress import (
     ProfilerProgressCallback,
     report_profiler_completion,
@@ -540,8 +540,8 @@ def collect_execution_profile_plan(
         "profiles": profiles,
     }
     if not options.keep_profiles and plan.enabled_tools:
+        discard_profile_artifacts(workspace.profile_root, workspace.plan_path)
         _strip_artifact_paths(profiles)
-        shutil.rmtree(workspace.profile_root, ignore_errors=True)
     write_profile_json(workspace.plan_path, payload)
     print(f"[execution] Execution profile plan: {workspace.plan_path}")
     return workspace.plan_path
