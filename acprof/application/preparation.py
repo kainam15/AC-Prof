@@ -270,29 +270,33 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             workflow.emit("execution_profile", "running")
             try:
                 from acprof.host.execution_profile import (
+                    ExecutionProfileOptions,
+                    ExecutionProfileRequest,
+                    ProfilerSampling,
                     collect_execution_profile_plan,
                 )
 
                 execution_profile_plan_file = collect_execution_profile_plan(
-                    task_info=task_info,
-                    image_tag=image_info.tag,
-                    cpu_list=cpu_list,
-                    mem_list=mem_list,
-                    gpu_list=gpu_list,
-                    output_dir=output_dir,
-                    input_scale_plan_file=planned_input_scales.plan_file,
-                    project_dir=project_dir,
-                    tool_mode=args.execution_profile_tool,
-                    massif_sampling=args.massif_sampling,
-                    massif_reference_cpu=args.massif_reference_cpu,
-                    massif_reference_mem=args.massif_reference_mem,
-                    massif_repeat=args.massif_repeat,
-                    nsys_sampling=args.nsys_sampling,
-                    nsys_reference_cpu=args.nsys_reference_cpu,
-                    nsys_reference_mem=args.nsys_reference_mem,
-                    nsys_repeat=args.nsys_repeat,
-                    nsys_root=args.nsys_root,
-                    keep_profiles=args.keep_execution_profiles,
+                    ExecutionProfileRequest(
+                        task_info=task_info, image_tag=image_info.tag,
+                        cpu_list=cpu_list, mem_list=mem_list, gpu_list=gpu_list,
+                        output_dir=output_dir,
+                        input_scale_plan_file=planned_input_scales.plan_file,
+                    ),
+                    options=ExecutionProfileOptions(
+                        tool_mode=args.execution_profile_tool,
+                        massif=ProfilerSampling(
+                            sampling=args.massif_sampling, repeat=args.massif_repeat,
+                            reference_cpu=args.massif_reference_cpu,
+                            reference_mem=args.massif_reference_mem,
+                        ),
+                        nsys=ProfilerSampling(
+                            sampling=args.nsys_sampling, repeat=args.nsys_repeat,
+                            reference_cpu=args.nsys_reference_cpu,
+                            reference_mem=args.nsys_reference_mem,
+                        ),
+                        nsys_root=args.nsys_root, keep_profiles=args.keep_execution_profiles,
+                    ),
                     progress_callback=(
                         notices.notify_profiler
                         if notices.active()

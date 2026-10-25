@@ -22,12 +22,19 @@ def test_matrix_canonical_values_and_elapsed():
     assert format_elapsed(3661) == "1h 1m 1s"
 
 
-@pytest.mark.parametrize("override", [
-    {"cpus": ""}, {"mems": "0"}, {"gpus": "sometimes"}, {"gpus": "on,on"},
-    {"cpus": "1,1"}, {"warmup": -1}, {"repeat": 0},
-    {"execution_profile_tool": "massif", "massif_sampling": "per-scale", "massif_reference_cpu": 8},
-    {"execution_profile_tool": "nsys", "nsys_sampling": "per-scale", "nsys_reference_mem": 16},
+@pytest.mark.parametrize(("override", "error"), [
+    ({"cpus": ""}, "resource lists must be non-empty"),
+    ({"mems": "0"}, "resource lists must be non-empty"),
+    ({"gpus": "sometimes"}, "resource lists must be non-empty"),
+    ({"gpus": "on,on"}, "resource lists must not contain duplicate cases"),
+    ({"cpus": "1,1"}, "resource lists must not contain duplicate cases"),
+    ({"warmup": -1}, "--warmup must be >= 0 and --repeat must be > 0"),
+    ({"repeat": 0}, "--warmup must be >= 0 and --repeat must be > 0"),
+    ({"execution_profile_tool": "massif", "massif_sampling": "per-scale", "massif_reference_cpu": 8},
+     "--massif-reference-cpu=8 must be present"),
+    ({"execution_profile_tool": "nsys", "nsys_sampling": "per-scale", "nsys_reference_mem": 16},
+     "--nsys-reference-mem=16 must be present"),
 ])
-def test_invalid_matrix_aborts_before_runtime_preparation(override):
-    with pytest.raises(ValueError):
+def test_invalid_matrix_aborts_before_runtime_preparation(override, error):
+    with pytest.raises(ValueError, match=error):
         resource_matrix(options(**override))

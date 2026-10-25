@@ -224,3 +224,29 @@ hook，等待计入既有窗口，窗口外验证仍在独立进程。`runtime_s
 或 Ryuk 常驻容器；具体退出、恢复与旧容器处理见[排障](../usage/troubleshooting.md#中断后残留容器或端口占用)。
 CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采样时机；各自的 `_nan_result`、
 `_result_from_samples` 保留能量积分、窗口计数和缺失值语义，不按同名强行合并。
+
+### 单 case 请求与独立 profiler 编排
+
+`run_single_case` 接收四类冻结配置：`CaseRequest` 描述任务、镜像、资源与目录，
+`CaseWorkload` 描述请求次数和超时，`CaseMeasurement` 描述采样与采集策略，
+`CasePlans` 引用准备阶段已生成的输入和 profiler 计划。`RunState` 作为显式执行依赖传入，
+不混入配置对象。调用方创建这些对象；内部接口不保留展开全部参数的旧入口。
+
+单次 `_CaseExecution` 拥有该 case 的容器和 tcpdump 进程，并分别处理启动、客户端环境、
+客户端失败、测量完成检查点、结果后处理和清理。只有客户端调用位于原有
+`measurement_boundary` 内；环境构建、抓包解析、结果校验和持久化保持在窗口外。
+恢复已完成测量的 case 直接进入后处理，不启动新容器或重新采样。
+OOM、请求超时和 readiness 失败继续保留已完成行与原有错误证据；
+抓包停止失败仍执行容器回收，清理失败保留原始执行错误并发布原有 cleanup sidecar。
+
+`collect_execution_profile_plan` 接收 `ExecutionProfileRequest`、
+`ExecutionProfileOptions` 和独立进度回调。两个工具各自使用 `ProfilerSampling` 描述
+采样策略、重复次数和参考资源；与该实现无关的旧 `project_dir` 参数已移除。
+资源规范化、工具环境准备、独立工具执行、资源网格展开和 JSON 发布分别实现。
+Massif/Nsys 仍按原顺序独立执行，工具不可用时保留原有诊断条目；
+扩展到未直接测量的资源 case 时保留来源 CPU、内存和采样策略，持久化 schema 不变。
+
+设计参考 [HTTPX 的 Request 与 Client.send 边界](https://github.com/encode/httpx/blob/master/httpx/_client.py)
+及其异常时关闭响应和认证流程的所有权，以及
+[pytest 的 setup/call/teardown 阶段编排](https://github.com/pytest-dev/pytest/blob/main/src/_pytest/runner.py)。
+这里只借鉴类型化请求、阶段结果与资源所有权，不增加依赖、重试或新的测量行为。

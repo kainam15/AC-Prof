@@ -1261,18 +1261,26 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         assert (captured_env["CONTAINER_NAME"]) == ("case_google-bert--bert-base-uncased_1c_4g_off")
@@ -1313,19 +1321,27 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64",
-                compute_profile_plan_file="results/test-unit/compute_profile_plan.json",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                    compute_profile_plan_file='results/test-unit/compute_profile_plan.json',
+                ),
             )
 
         assert (captured_env["COMPUTE_PROFILE_PLAN_FILE"]) == ("results/test-unit/compute_profile_plan.json")
@@ -1366,21 +1382,27 @@ class TestDetectEnvironment:
             side_effect=fake_run,
         ):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64",
-                execution_profile_plan_file=(
-                    "results/test-unit/execution_profile_plan.json"
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
                 ),
-                require_packet_latency=False,
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                    execution_profile_plan_file='results/test-unit/execution_profile_plan.json',
+                ),
             )
 
         assert (captured_env["EXECUTION_PROFILE_PLAN_FILE"]) == ("results/test-unit/execution_profile_plan.json")
@@ -1415,20 +1437,28 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64",
-                idle_cooldown_seconds=4.5,
-                idle_debug=True,
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    idle_cooldown_seconds=4.5,
+                    idle_debug=True,
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         assert (captured_env["IDLE_DEBUG"]) == ("1")
@@ -1469,20 +1499,28 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=0,
-                repeat_window_seconds=10.0,
-                request_timeout_seconds=123.5,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=0,
+                    repeat_window_seconds=10.0,
+                    request_timeout_seconds=123.5,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         assert (captured_env["REPEAT_IN_WINDOW"]) == ("0")
@@ -1520,19 +1558,27 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=self.output_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1000,
-                repeat_window_seconds=10.0,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=self.output_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1000,
+                    repeat_window_seconds=10.0,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         assert (captured_env["REPEAT_IN_WINDOW"]) == ("1000")
@@ -1580,18 +1626,26 @@ class TestDetectEnvironment:
                 RuntimeFailure if recorded_failure else orchestrator.EnergyProfilingError
             ) as raised:
                 orchestrator.run_single_case(
-                    task_info=task_info,
-                    cpu=1,
-                    mem=4,
-                    gpu="on",
-                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                    output_dir=self.output_dir,
-                    project_dir=".",
-                    warmup=0,
-                    repeat=1,
-                    repeat_in_window=0,
-                    input_scales="64",
-                    require_packet_latency=False,
+                    orchestrator.CaseRequest(
+                        task_info=task_info,
+                        cpu=1,
+                        mem=4,
+                        gpu='on',
+                        image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                        output_dir=self.output_dir,
+                        project_dir='.',
+                    ),
+                    workload=orchestrator.CaseWorkload(
+                        warmup=0,
+                        repeat=1,
+                        repeat_in_window=0,
+                    ),
+                    measurement=orchestrator.CaseMeasurement(
+                        require_packet_latency=False,
+                    ),
+                    plans=orchestrator.CasePlans(
+                        input_scales='64',
+                    ),
                 )
             if recorded_failure:
                 assert (raised.value.failure) == (recorded_failure)
@@ -1679,18 +1733,26 @@ class TestDetectEnvironment:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=2,
-                mem=2,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64,128,256",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=2,
+                    mem=2,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64,128,256',
+                ),
             )
 
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
@@ -1753,18 +1815,26 @@ class TestDetectEnvironment:
         ):
             with pytest.raises(orchestrator.MIPSProfilingError):
                 orchestrator.run_single_case(
-                    task_info=task_info,
-                    cpu=1,
-                    mem=4,
-                    gpu="off",
-                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                    output_dir=self.output_dir,
-                    project_dir=".",
-                    warmup=0,
-                    repeat=1,
-                    repeat_in_window=1,
-                    input_scales="64",
-                    require_packet_latency=False,
+                    orchestrator.CaseRequest(
+                        task_info=task_info,
+                        cpu=1,
+                        mem=4,
+                        gpu='off',
+                        image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                        output_dir=self.output_dir,
+                        project_dir='.',
+                    ),
+                    workload=orchestrator.CaseWorkload(
+                        warmup=0,
+                        repeat=1,
+                        repeat_in_window=1,
+                    ),
+                    measurement=orchestrator.CaseMeasurement(
+                        require_packet_latency=False,
+                    ),
+                    plans=orchestrator.CasePlans(
+                        input_scales='64',
+                    ),
                 )
 
     def test_client_error_context_rejects_nonfinite_json(self, tmp_path, capsys) -> None:
@@ -1837,19 +1907,27 @@ class TestDetectEnvironment:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=1,
-                repeat=2,
-                repeat_in_window=0,
-                request_timeout_seconds=120.0,
-                input_scales="64,128",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=1,
+                    repeat=2,
+                    repeat_in_window=0,
+                    request_timeout_seconds=120.0,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64,128',
+                ),
             )
 
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
@@ -1943,18 +2021,26 @@ class TestDetectEnvironment:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=1,
-                repeat_in_window=1,
-                input_scales="64,128",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=1,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64,128',
+                ),
             )
 
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
@@ -1991,16 +2077,22 @@ class TestDetectEnvironment:
             ),
         ):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=2,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=1,
-                repeat=2,
-                input_scales="85,170",
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=2,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=1,
+                    repeat=2,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='85,170',
+                ),
             )
 
             with open(csv_path, "r", encoding="utf-8", newline="") as f:
@@ -2054,18 +2146,26 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=3,
-                repeat_in_window=1,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=3,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         assert (csv_path.endswith(".csv"))
@@ -2099,18 +2199,26 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="on",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=3,
-                repeat_in_window=1,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='on',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=3,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         message = stdout.getvalue()
@@ -2151,18 +2259,26 @@ class TestDetectEnvironment:
             "acprof.host.orchestrator.stop_container_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
-                task_info=task_info,
-                cpu=1,
-                mem=4,
-                gpu="off",
-                image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                output_dir=tmp_dir,
-                project_dir=".",
-                warmup=0,
-                repeat=3,
-                repeat_in_window=1,
-                input_scales="64",
-                require_packet_latency=False,
+                orchestrator.CaseRequest(
+                    task_info=task_info,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                    output_dir=tmp_dir,
+                    project_dir='.',
+                ),
+                workload=orchestrator.CaseWorkload(
+                    warmup=0,
+                    repeat=3,
+                    repeat_in_window=1,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    require_packet_latency=False,
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='64',
+                ),
             )
 
         message = stdout.getvalue()
@@ -2251,17 +2367,23 @@ class TestDetectEnvironment:
         ):
             with pytest.raises(packet_capture.PacketLatencyError) as raised:
                 orchestrator.run_single_case(
-                    task_info=task_info,
-                    cpu=1,
-                    mem=4,
-                    gpu="off",
-                    image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-                    output_dir=self.output_dir,
-                    project_dir=".",
-                    warmup=0,
-                    repeat=1,
-                    repeat_in_window=1,
-                    input_scales="64",
+                    orchestrator.CaseRequest(
+                        task_info=task_info,
+                        cpu=1,
+                        mem=4,
+                        gpu='off',
+                        image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                        output_dir=self.output_dir,
+                        project_dir='.',
+                    ),
+                    workload=orchestrator.CaseWorkload(
+                        warmup=0,
+                        repeat=1,
+                        repeat_in_window=1,
+                    ),
+                    plans=orchestrator.CasePlans(
+                        input_scales='64',
+                    ),
                 )
 
         message = str(raised.value)

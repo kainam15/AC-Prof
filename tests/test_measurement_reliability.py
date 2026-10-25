@@ -132,11 +132,26 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
         "acprof.host.orchestrator.stop_container_session"
     ), patch("acprof.host.command.run_command", side_effect=fake_run):
         path = orchestrator.run_single_case(
-            task_info=task_info, cpu=1, mem=4, gpu="off",
-            image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
-            output_dir=str(tmp_path), project_dir=".",
-            warmup=1, repeat=2, repeat_in_window=1, input_scales="64,128",
-            require_packet_latency=False,
+            orchestrator.CaseRequest(
+                task_info=task_info,
+                cpu=1,
+                mem=4,
+                gpu='off',
+                image_info=runtime_images.ImageInfo(tag='acprof-test:latest'),
+                output_dir=str(tmp_path),
+                project_dir='.',
+            ),
+            workload=orchestrator.CaseWorkload(
+                warmup=1,
+                repeat=2,
+                repeat_in_window=1,
+            ),
+            measurement=orchestrator.CaseMeasurement(
+                require_packet_latency=False,
+            ),
+            plans=orchestrator.CasePlans(
+                input_scales='64,128',
+            ),
         )
 
     with open(path, newline="", encoding="utf-8") as stream:

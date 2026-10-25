@@ -66,8 +66,23 @@ def test_case_cleanup_failure_cannot_emit_success():
         stack.enter_context(patch.object(orchestrator, "stop_container_session", side_effect=RuntimeError("cleanup failed")))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         with pytest.raises(RuntimeError, match="cleanup failed"):
-            orchestrator.run_single_case(task, 1, 4, "off", ImageInfo("fixture"), directory,
-                                         directory, profiling_mode="basic", input_scales="1")
+            orchestrator.run_single_case(
+                orchestrator.CaseRequest(
+                    task_info=task,
+                    cpu=1,
+                    mem=4,
+                    gpu='off',
+                    image_info=ImageInfo('fixture'),
+                    output_dir=directory,
+                    project_dir=directory,
+                ),
+                measurement=orchestrator.CaseMeasurement(
+                    profiling_mode='basic',
+                ),
+                plans=orchestrator.CasePlans(
+                    input_scales='1',
+                ),
+            )
         assert (emitted.call_args.kwargs["status"]) == ("error")
 
 def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
@@ -92,8 +107,23 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
             stack.enter_context(patch.object(orchestrator, name, return_value=result))
         stack.enter_context(patch("acprof.host.command.run_command", side_effect=failed_client))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
-        orchestrator.run_single_case(task, 1, 4, "off", ImageInfo("fixture"), directory,
-                                     directory, profiling_mode="basic", input_scales="1")
+        orchestrator.run_single_case(
+            orchestrator.CaseRequest(
+                task_info=task,
+                cpu=1,
+                mem=4,
+                gpu='off',
+                image_info=ImageInfo('fixture'),
+                output_dir=directory,
+                project_dir=directory,
+            ),
+            measurement=orchestrator.CaseMeasurement(
+                profiling_mode='basic',
+            ),
+            plans=orchestrator.CasePlans(
+                input_scales='1',
+            ),
+        )
         assert (emitted.call_args.kwargs["status"]) == ("error")
 
 

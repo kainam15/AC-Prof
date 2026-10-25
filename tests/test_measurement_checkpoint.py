@@ -202,14 +202,19 @@ def test_checkpoint_rejects_invalid_uncommitted_terminal_request(tmp_path, entry
     else:
         terminal["error"] = "   "
     path.write_text("".join(json.dumps(request) + "\n" for request in requests))
+    error = (
+        "Request journal disagrees with committed window receipts"
+        if invalid == "duplicate"
+        else "Uncommitted request does not match a planned failed window"
+    )
     if entrypoint == "read":
         raw = path.read_bytes()
         payload["files"]["requests"].update(sha256=hashlib.sha256(raw).hexdigest(), size=len(raw))
         reference = _rewrite_checkpoint(case, reference, payload)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=error):
             _read(case, reference, expected=expected)
     else:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=error):
             _publish(case, processing, expected=expected)
         assert not case.attempt_directory("measurements", ATTEMPT).exists()
 
@@ -217,7 +222,7 @@ def test_checkpoint_rejects_invalid_uncommitted_terminal_request(tmp_path, entry
 def test_uncommitted_terminal_request_requires_incomplete_case(tmp_path):
     case, _, _, processing, expected = _partial_fixture(tmp_path)
     processing.update(case_incomplete=False, incomplete_case_reason="")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Uncommitted request does not match a planned failed window"):
         _publish(case, processing, expected=expected)
     assert not case.attempt_directory("measurements", ATTEMPT).exists()
 
@@ -479,13 +484,15 @@ def test_removing_a_receipt_reference_cannot_hide_existing_committed_windows(tmp
         _read(case, reference)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("capture_available", "true"), ("completed_rows_before_failure", -1),
-    ("server_port", 0), ("profiling_mode", "unknown"),
+@pytest.mark.parametrize(("field", "value", "error"), [
+    ("capture_available", "true", "Invalid processing flag: capture_available"),
+    ("completed_rows_before_failure", -1, "Invalid completed measurement count"),
+    ("server_port", 0, "Invalid packet parser port"),
+    ("profiling_mode", "unknown", "profiling.mode"),
 ])
-def test_processing_contract_is_checked_before_publication(tmp_path, field, value):
+def test_processing_contract_is_checked_before_publication(tmp_path, field, value, error):
     case, _, _, processing = _fixture(tmp_path)
     processing[field] = value
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=error):
         _publish(case, processing)
     assert not case.attempt_directory("measurements", ATTEMPT).exists()

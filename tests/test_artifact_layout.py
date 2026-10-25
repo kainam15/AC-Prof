@@ -103,7 +103,7 @@ class TestArtifactLayout:
             target = root / "unrelated.txt"
             target.write_text("preserve")
             case.requests.symlink_to(target)
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="must not contain symlinks"):
                 case.retain_requests()
             assert (target.read_text()) == ("preserve")
             assert (case.requests.is_symlink())
@@ -146,7 +146,7 @@ class TestArtifactLayout:
             original = json.loads(path.read_text())
             payload = tuple(({**original, 'layout_version': 99}, {**original, 'schema_version': True}, {**original, 'metadata': '../elsewhere'}, {'layout_version': 2}, []))[payload_case]
             path.write_text(json.dumps(payload))
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="top-level JSON value must be an object|Unsupported or inconsistent result manifest"):
                 ArtifactLayout.discover(root)
 
     def test_new_layout_rejects_occupied_directory_without_moving_data(self):
@@ -167,21 +167,45 @@ class TestArtifactLayout:
             layout.initialize()
             (root / "metadata").rmdir()
             (root / "metadata").symlink_to(Path(temporary), target_is_directory=True)
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="Artifact path (?:escapes|must stay inside) the result directory"):
                 layout.path(name)
 
     def test_startup_error_is_written_directly_into_case_work_directory(self):
         from acprof.host.detect import TaskInfo
-        from acprof.host.orchestrator import run_single_case
+        from acprof.host.orchestrator import (
+            CaseMeasurement,
+            CasePlans,
+            CaseRequest,
+            CaseWorkload,
+            run_single_case,
+        )
         from acprof.host.runtime_images import ImageInfo
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()
             with patch("acprof.host.orchestrator.start_container_session", side_effect=RuntimeError("startup failed")), \
                  redirect_stdout(io.StringIO()):
-                output = run_single_case(TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline", "transformers", "a" * 40, "manual"),
-                                         1, 4, "off", ImageInfo(tag="sha256:" + "b" * 64), str(root), temporary,
-                                         warmup=0, repeat=1, input_scales="64", profiling_mode="basic")
+                output = run_single_case(
+                    CaseRequest(
+                        task_info=TaskInfo('org/model', 'fill-mask', 'nlp', 'transformers_pipeline', 'transformers', 'a' * 40, 'manual'),
+                        cpu=1,
+                        mem=4,
+                        gpu='off',
+                        image_info=ImageInfo(tag='sha256:' + 'b' * 64),
+                        output_dir=str(root),
+                        project_dir=temporary,
+                    ),
+                    workload=CaseWorkload(
+                        warmup=0,
+                        repeat=1,
+                    ),
+                    measurement=CaseMeasurement(
+                        profiling_mode='basic',
+                    ),
+                    plans=CasePlans(
+                        input_scales='64',
+                    ),
+                )
             assert (Path(output)) == (root / ".acprof/work/cases/1c_4g_off/result.csv")
             assert (list(root.glob("result_case_*"))) == ([])
             with Path(output).open() as stream:

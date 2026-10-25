@@ -59,10 +59,14 @@ def test_missing_runtime_cannot_reclassify_measurement_as_preparation(failed_pre
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text("partial measurement\n")
     original = path.read_bytes()
-    with pytest.raises(run_state.RunStateError, match="测量"):
-        resumed = run_state.RunState(failed_preparation, {"model": "demo/model", "repeat": 5},
-                                     resume=True, project_dir=tmp_path)
-        resumed.close()
+    resumed = None
+    try:
+        with pytest.raises(run_state.RunStateError, match="测量"):
+            resumed = run_state.RunState(failed_preparation, {"model": "demo/model", "repeat": 5},
+                                         resume=True, project_dir=tmp_path)
+    finally:
+        if resumed is not None:
+            resumed.close()
     assert path.read_bytes() == original
 
 

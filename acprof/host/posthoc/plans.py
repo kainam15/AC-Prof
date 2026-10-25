@@ -26,7 +26,6 @@ from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
     POSTHOC_DIRNAME,
-    PROJECT_DIR,
     SUPPORTED_TOOLS,
     TOOL_ERROR_FIELD,
     TOOL_GPU_MODES,
@@ -418,7 +417,12 @@ def _collect_execution_plan(
     nsys_root: Optional[str],
     resume_existing_profiles: bool = True,
 ) -> Dict[str, Any]:
-    from acprof.host.execution_profile import collect_execution_profile_plan
+    from acprof.host.execution_profile import (
+        ExecutionProfileOptions,
+        ExecutionProfileRequest,
+        ProfilerSampling,
+        collect_execution_profile_plan,
+    )
 
     mode = TOOL_GPU_MODES[tool][0]
     cases = context.cases_for_mode(mode)
@@ -428,26 +432,24 @@ def _collect_execution_plan(
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         plan_path = collect_execution_profile_plan(
-            task_info=context.task_info,
-            image_tag=context.image_tag,
-            cpu_list=cpus,
-            mem_list=mems,
-            gpu_list=[mode],
-            output_dir=str(output_dir),
-            input_scale_plan_file=str(context.input_scale_plan_path),
-            project_dir=str(PROJECT_DIR),
-            tool_mode=tool,
-            massif_sampling=massif_sampling,
-            massif_reference_cpu=massif_reference_cpu,
-            massif_reference_mem=massif_reference_mem,
-            massif_repeat=massif_repeat,
-            nsys_sampling=nsys_sampling,
-            nsys_reference_cpu=nsys_reference_cpu,
-            nsys_reference_mem=nsys_reference_mem,
-            nsys_repeat=nsys_repeat,
-            nsys_root=nsys_root,
-            keep_profiles=True,
-            resume_existing_profiles=resume_existing_profiles,
+            ExecutionProfileRequest(
+                task_info=context.task_info, image_tag=context.image_tag,
+                cpu_list=cpus, mem_list=mems, gpu_list=[mode], output_dir=str(output_dir),
+                input_scale_plan_file=str(context.input_scale_plan_path),
+            ),
+            options=ExecutionProfileOptions(
+                tool_mode=tool,
+                massif=ProfilerSampling(
+                    sampling=massif_sampling, repeat=massif_repeat,
+                    reference_cpu=massif_reference_cpu, reference_mem=massif_reference_mem,
+                ),
+                nsys=ProfilerSampling(
+                    sampling=nsys_sampling, repeat=nsys_repeat,
+                    reference_cpu=nsys_reference_cpu, reference_mem=nsys_reference_mem,
+                ),
+                nsys_root=nsys_root, keep_profiles=True,
+                resume_existing_profiles=resume_existing_profiles,
+            ),
         )
     except ValueError as exc:
         raise PosthocError(str(exc)) from exc

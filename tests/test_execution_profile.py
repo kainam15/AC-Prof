@@ -515,16 +515,19 @@ heap_tree=peak
             wraps=nsys.profile,
         ) as profile_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
-                task_info=_task_info(),
-                image_tag="acprof-test:latest",
-                cpu_list=[1, 2],
-                mem_list=[4, 8],
-                gpu_list=["off", "on"],
-                output_dir=tmp,
-                input_scale_plan_file=_write_input_scale_plan(tmp),
-                project_dir=os.path.dirname(os.path.dirname(__file__)),
-                tool_mode="both",
-                keep_profiles=False,
+                execution_profile.ExecutionProfileRequest(
+                    task_info=_task_info(),
+                    image_tag='acprof-test:latest',
+                    cpu_list=[1, 2],
+                    mem_list=[4, 8],
+                    gpu_list=['off', 'on'],
+                    output_dir=tmp,
+                    input_scale_plan_file=_write_input_scale_plan(tmp),
+                ),
+                execution_profile.ExecutionProfileOptions(
+                    tool_mode='both',
+                    keep_profiles=False,
+                ),
                 progress_callback=events.append,
             )
             with open(plan_path, "r", encoding="utf-8") as plan_file:
@@ -581,18 +584,25 @@ heap_tree=peak
             wraps=nsys.profile,
         ) as profile_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
-                task_info=_task_info(),
-                image_tag="acprof-test:latest",
-                cpu_list=[1, 2],
-                mem_list=[4, 8],
-                gpu_list=["off", "on"],
-                output_dir=tmp,
-                input_scale_plan_file=_write_input_scale_plan(tmp),
-                project_dir=os.path.dirname(os.path.dirname(__file__)),
-                tool_mode="both",
-                massif_sampling="full",
-                nsys_sampling="full",
-                keep_profiles=False,
+                execution_profile.ExecutionProfileRequest(
+                    task_info=_task_info(),
+                    image_tag='acprof-test:latest',
+                    cpu_list=[1, 2],
+                    mem_list=[4, 8],
+                    gpu_list=['off', 'on'],
+                    output_dir=tmp,
+                    input_scale_plan_file=_write_input_scale_plan(tmp),
+                ),
+                execution_profile.ExecutionProfileOptions(
+                    tool_mode='both',
+                    keep_profiles=False,
+                    massif=execution_profile.ProfilerSampling(
+                        sampling='full',
+                    ),
+                    nsys=execution_profile.ProfilerSampling(
+                        sampling='full',
+                    ),
+                ),
                 progress_callback=failing_callback,
             )
             with open(plan_path, "r", encoding="utf-8") as plan_file:
@@ -641,17 +651,24 @@ heap_tree=peak
             nsys, "_collect_nsys_entry", side_effect=lambda **kwargs: collect_sample("Nsys", **kwargs),
         ):
             plan_path = execution_profile.collect_execution_profile_plan(
-                task_info=_task_info(),
-                image_tag="acprof-test:latest",
-                cpu_list=[1, 2],
-                mem_list=[4, 8],
-                gpu_list=["off", "on"],
-                output_dir=tmp,
-                input_scale_plan_file=_write_input_scale_plan(tmp),
-                project_dir=os.path.dirname(os.path.dirname(__file__)),
-                tool_mode="both",
-                massif_sampling="full",
-                nsys_sampling="full",
+                execution_profile.ExecutionProfileRequest(
+                    task_info=_task_info(),
+                    image_tag='acprof-test:latest',
+                    cpu_list=[1, 2],
+                    mem_list=[4, 8],
+                    gpu_list=['off', 'on'],
+                    output_dir=tmp,
+                    input_scale_plan_file=_write_input_scale_plan(tmp),
+                ),
+                execution_profile.ExecutionProfileOptions(
+                    tool_mode='both',
+                    massif=execution_profile.ProfilerSampling(
+                        sampling='full',
+                    ),
+                    nsys=execution_profile.ProfilerSampling(
+                        sampling='full',
+                    ),
+                ),
                 progress_callback=completed,
             )
             with open(plan_path, "r", encoding="utf-8") as plan_file:
@@ -720,16 +737,19 @@ heap_tree=peak
             "acprof.host.execution_profile.find_nsys_executable",
         ) as find_nsys:
             plan_path = execution_profile.collect_execution_profile_plan(
-                task_info=_task_info(),
-                image_tag="acprof-test:latest",
-                cpu_list=[1],
-                mem_list=[4],
-                gpu_list=["off", "on"],
-                output_dir=tmp,
-                input_scale_plan_file=_write_input_scale_plan(tmp),
-                project_dir=os.path.dirname(os.path.dirname(__file__)),
-                tool_mode="none",
-                keep_profiles=True,
+                execution_profile.ExecutionProfileRequest(
+                    task_info=_task_info(),
+                    image_tag='acprof-test:latest',
+                    cpu_list=[1],
+                    mem_list=[4],
+                    gpu_list=['off', 'on'],
+                    output_dir=tmp,
+                    input_scale_plan_file=_write_input_scale_plan(tmp),
+                ),
+                execution_profile.ExecutionProfileOptions(
+                    tool_mode='none',
+                    keep_profiles=True,
+                ),
                 progress_callback=events.append,
             )
             with open(plan_path, "r", encoding="utf-8") as plan_file:
@@ -755,15 +775,18 @@ heap_tree=peak
         with tempfile.TemporaryDirectory() as tmp:
             events = []
             plan_path = execution_profile.collect_execution_profile_plan(
-                task_info=_task_info(),
-                image_tag="acprof-test:latest",
-                cpu_list=[1],
-                mem_list=[4],
-                gpu_list=[gpu_mode],
-                output_dir=tmp,
-                input_scale_plan_file=_write_input_scale_plan(tmp),
-                project_dir=os.path.dirname(os.path.dirname(__file__)),
-                tool_mode=tool_mode,
+                execution_profile.ExecutionProfileRequest(
+                    task_info=_task_info(),
+                    image_tag='acprof-test:latest',
+                    cpu_list=[1],
+                    mem_list=[4],
+                    gpu_list=[gpu_mode],
+                    output_dir=tmp,
+                    input_scale_plan_file=_write_input_scale_plan(tmp),
+                ),
+                execution_profile.ExecutionProfileOptions(
+                    tool_mode=tool_mode,
+                ),
                 progress_callback=events.append,
             )
             with open(plan_path, "r", encoding="utf-8") as plan_file:

@@ -12,7 +12,8 @@ def test_preparation_plan_event_rejects_invalid_or_unbounded_scales(scales_case)
     plan = {"scales": [1.0], "scale_type": "duration_s"}
     assert (parse_event(encode_event("input", "passed", input_plan=plan))["input_plan"]) == (plan)
     scales = tuple(([], [0], [True], [float('inf')], [1] * 10001))[scales_case]
-    with pytest.raises(ValueError):
+    error = "Out of range float values" if scales_case == 3 else "invalid preparation input plan"
+    with pytest.raises(ValueError, match=error):
         encode_event("input", "passed", input_plan={"scales": scales, "scale_type": "duration_s"})
 
 @pytest.mark.parametrize('number', ['NaN', '1e999'])

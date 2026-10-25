@@ -9,8 +9,8 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from acprof.artifact_layout import ArtifactLayout
@@ -61,6 +61,10 @@ from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
 from acprof.progress_events import emit_event, measurement_boundary
+
+if TYPE_CHECKING:
+    from acprof.host.docker_runtime import RunningContainer
+    from acprof.host.run_state import RunState
 
 _LOG = logging.getLogger(__name__)
 
@@ -124,168 +128,239 @@ def _assert_packet_latency_csv_complete(
         )
 
 
+@dataclass(frozen=True)
+class CaseRequest:
+    """Identity, resources, and locations for one container execution."""
+
+    task_info: TaskInfo
+    cpu: int
+    mem: int
+    gpu: str
+    image_info: ImageInfo
+    output_dir: str
+    project_dir: str
+    cpuset_cpus: str = ""
+
+
+@dataclass(frozen=True)
+class CaseWorkload:
+    """Request counts and deadlines, independent of host collector settings."""
+
+    batch_size: int = 1
+    warmup: int = 2
+    repeat: int = 5
+    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW
+    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS
+    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+
+
+@dataclass(frozen=True)
+class CaseMeasurement:
+    """Collector policy for a case; no mutable execution state."""
+
+    sample_hz: float = 20.0
+    idle_seconds: float = DEFAULT_IDLE_SECONDS
+    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
+    idle_debug: bool = False
+    sniff_iface: str = "docker0"
+    require_packet_latency: bool = True
+    profiling_mode: str = "full"
+    dram_energy: str = "auto"
+    sampling_policy: str = "burst"
+    raw_sample_limit: int = 100000
+
+
+@dataclass(frozen=True)
+class CasePlans:
+    """Previously prepared plans consumed by the measured client."""
+
+    input_scales: Optional[str] = None
+    input_scale_plan_file: Optional[str] = None
+    compute_profile_plan_file: Optional[str] = None
+    execution_profile_plan_file: Optional[str] = None
+    input_scale_order: Optional[List[float]] = None
+
+
+@dataclass(frozen=True)
+class _ClientOutcome:
+    incomplete: bool = False
+    completed_rows: int = 0
+    reason: str = ""
+
+
 def run_single_case(
-    task_info: TaskInfo,
-    cpu: int,
-    mem: int,
-    gpu: str,
-    image_info: ImageInfo,
-    output_dir: str,
-    project_dir: str,
-    batch_size: int = 1,
-    warmup: int = 2,
-    repeat: int = 5,
-    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW,
-    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS,
-    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    sample_hz: float = 20.0,
-    idle_seconds: float = DEFAULT_IDLE_SECONDS,
-    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS,
-    idle_debug: bool = False,
-    sniff_iface: str = "docker0",
-    input_scales: Optional[str] = None,
-    input_scale_plan_file: Optional[str] = None,
-    compute_profile_plan_file: Optional[str] = None,
-    execution_profile_plan_file: Optional[str] = None,
-    require_packet_latency: bool = True,
-    profiling_mode: str = "full",
-    input_scale_order: Optional[List[float]] = None,
-    dram_energy: str = "auto",
-    cpuset_cpus: str = "",
-    sampling_policy: str = "burst",
-    raw_sample_limit: int = 100000,
-    run_state=None,
+    request: CaseRequest,
+    workload: CaseWorkload = CaseWorkload(),
+    measurement: CaseMeasurement = CaseMeasurement(),
+    plans: CasePlans = CasePlans(),
+    *,
+    run_state: RunState | None = None,
 ) -> str:
-    """Run one profiling case and return result CSV path."""
+    """Validate a case request and execute its owned container lifecycle."""
     from acprof.cpu_affinity import normalize_cpu_set
-    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
     from acprof.monitors.sampling import sampling_policy as require_sampling_policy
-    sampling_policy = require_sampling_policy(sampling_policy)
-    if type(raw_sample_limit) is not int or raw_sample_limit < 2:
+
+    request = replace(request, cpuset_cpus=normalize_cpu_set(request.cpuset_cpus))
+    measurement = replace(
+        measurement, sampling_policy=require_sampling_policy(measurement.sampling_policy)
+    )
+    if type(measurement.raw_sample_limit) is not int or measurement.raw_sample_limit < 2:
         raise ValueError("raw_sample_limit must be an integer of at least 2")
-    require_profiling_mode(profiling_mode)
-    request_timeout_seconds = float(request_timeout_seconds)
-    if (
-        request_timeout_seconds <= 0.0
-        or not math.isfinite(request_timeout_seconds)
-    ):
+    require_profiling_mode(measurement.profiling_mode)
+    timeout = float(workload.request_timeout_seconds)
+    if timeout <= 0.0 or not math.isfinite(timeout):
         raise ValueError("request_timeout_seconds must be a finite value > 0")
-    model_tag = model_token(task_info.model_id)
-    case_name = f"case_{model_tag}_{cpu}c_{mem}g_{gpu}"
-    container_name = case_name
+    workload = replace(workload, request_timeout_seconds=timeout)
+    return _CaseExecution(request, workload, measurement, plans, run_state).run()
 
-    host_port = service_port(cpu, mem)
-    case = ArtifactLayout.discover(output_dir).case(task_info.model_id, cpu, mem, gpu)
-    case.csv.parent.mkdir(parents=True, exist_ok=True)
-    out_csv = str(case.csv)
-    idle_diag_path = str(case.idle)
-    pcap_file = str(case.pcap)
-    lat_json = str(case.latency)
-    client_error_path = str(case.sidecar("client_error"))
-    if run_state is not None:
-        checkpoint = run_state.processing_checkpoint(out_csv, cpu, mem, gpu)
-        if checkpoint is not None:
-            return _resume_case_processing(case, checkpoint, run_state, case_name)
-    run_id = run_state.data["run_id"] if run_state is not None else uuid4().hex
-    attempt_id = run_state.case_attempt_id(out_csv) if run_state is not None else uuid4().hex
 
-    print(f"\n{'='*60}")
-    print(f"[case] {case_name}")
-    print(f"  CPU={cpu}, MEM={mem}GB, GPU={gpu}")
-    print(f"  Port: {host_port}")
-    print(f"{'='*60}")
+class _CaseExecution:
+    """Own the container and capture process across a single case attempt."""
 
-    try:
-        os.remove(client_error_path)
-    except FileNotFoundError:
-        pass
-
-    emit_event("case_started", case_name)
-    try:
-        session = start_container_session(
-            task_info=task_info,
-            cpu=cpu,
-            mem=mem,
-            gpu=gpu,
-            image_info=image_info,
-            container_name=container_name,
-            log_prefix="[case]",
-            request_timeout_seconds=request_timeout_seconds,
-            cpuset_cpus=cpuset_cpus,
+    def __init__(
+        self,
+        request: CaseRequest,
+        workload: CaseWorkload,
+        measurement: CaseMeasurement,
+        plans: CasePlans,
+        run_state: RunState | None,
+    ) -> None:
+        self.request = request
+        self.workload = workload
+        self.measurement = measurement
+        self.plans = plans
+        self.run_state = run_state
+        self.case = ArtifactLayout.discover(request.output_dir).case(
+            request.task_info.model_id, request.cpu, request.mem, request.gpu
         )
-    except ContainerCleanupError as exc:
-        from acprof.artifacts import atomic_write_json
-        atomic_write_json(case.sidecar("cleanup_error"), exc.to_dict())
-        emit_event("case_finished", case_name, status="error")
-        raise
-    except RuntimeError as exc:
-        error = f"container_start_failed: {exc}"
-        print(f"[case] {error}", file=sys.stderr)
-        _write_case_error_csv(
-            task_info=task_info,
-            out_csv=out_csv,
-            cpu=cpu,
-            mem=mem,
-            gpu=gpu,
-            warmup=warmup,
-            repeat=repeat,
-            repeat_in_window=repeat_in_window,
-            input_scales=input_scales,
-            error=error,
+        self.out_csv = str(self.case.csv)
+        self.case_name = (
+            f"case_{model_token(request.task_info.model_id)}_"
+            f"{request.cpu}c_{request.mem}g_{request.gpu}"
         )
-        emit_event("case_finished", case_name, status="error")
-        return out_csv
-    except BaseException as exc:
-        emit_event("case_finished", case_name, status="cancelled" if isinstance(exc, KeyboardInterrupt) else "error")
-        raise
+        self.require_packet_latency = measurement.require_packet_latency and measurement_requested(
+            measurement.profiling_mode, "packet_latency"
+        )
+        self.capture: subprocess.Popen[bytes] | None = None
+        self.status = "error"
+        self.run_id = ""
+        self.attempt_id = ""
 
-    container_name = session.name
-    base_url = session.base_url
-    tcpdump_proc = None
-    case_incomplete = False
-    completed_rows_before_failure = 0
-    incomplete_case_reason = ""
-    case_status = "error"
-    require_packet_latency = require_packet_latency and measurement_requested(profiling_mode, "packet_latency")
-    try:
-        if run_state is not None:
-            run_state.bind_case_container(out_csv, session.container_id)
-        record_case_conditions(output_dir, case.case_id, session, cpuset_cpus=cpuset_cpus)
-        sniff_runtime = _resolve_packet_latency_runtime(
-            project_dir=project_dir, pcap_file=pcap_file, sniff_iface=sniff_iface,
-        ) if measurement_requested(profiling_mode, "packet_latency") else None
-        if sniff_runtime is not None:
-            print(f"[sniff] Starting tcpdump on {sniff_iface} via {sniff_runtime.mode}")
+    def run(self) -> str:
+        self.case.csv.parent.mkdir(parents=True, exist_ok=True)
+        if self.run_state is not None:
+            checkpoint = self.run_state.processing_checkpoint(
+                self.out_csv, self.request.cpu, self.request.mem, self.request.gpu
+            )
+            if checkpoint is not None:
+                return _resume_case_processing(self.case, checkpoint, self.run_state, self.case_name)
+        self.run_id = self.run_state.data["run_id"] if self.run_state is not None else uuid4().hex
+        self.attempt_id = (
+            self.run_state.case_attempt_id(self.out_csv)
+            if self.run_state is not None else uuid4().hex
+        )
+        print(f"\n{'='*60}")
+        print(f"[case] {self.case_name}")
+        print(f"  CPU={self.request.cpu}, MEM={self.request.mem}GB, GPU={self.request.gpu}")
+        print(f"  Port: {service_port(self.request.cpu, self.request.mem)}")
+        print(f"{'='*60}")
+        try:
+            os.remove(self.case.sidecar("client_error"))
+        except FileNotFoundError:
+            pass
+        emit_event("case_started", self.case_name)
+        session = self._start_container()
+        if session is None:
+            return self.out_csv
+        try:
+            if self.run_state is not None:
+                self.run_state.bind_case_container(self.out_csv, session.container_id)
+            record_case_conditions(
+                self.request.output_dir, self.case.case_id, session,
+                cpuset_cpus=self.request.cpuset_cpus,
+            )
+            sniff_runtime = self._start_capture()
+            outcome = self._run_client(session)
+            capture_available = self.capture is not None
+            if self.capture is not None:
+                time.sleep(1.0)
+                _stop_capture(self.capture)
+                time.sleep(0.2)
+                self.capture = None
+            self._checkpoint_measurement(session, outcome, capture_available)
+            self._finalize(outcome, capture_available, sniff_runtime)
+            self.status = "error" if outcome.incomplete else _case_result_status(self.out_csv)
+        except KeyboardInterrupt:
+            _LOG.debug("case cancelled: %s", self.case_name)
+            self.status = "cancelled"
+            raise
+        finally:
+            self._cleanup(session, sys.exc_info()[1])
+        print(f"[case] Done. Output: {self.out_csv}")
+        return self.out_csv
+
+    def _start_container(self) -> RunningContainer | None:
+        try:
+            return start_container_session(
+                task_info=self.request.task_info,
+                cpu=self.request.cpu, mem=self.request.mem, gpu=self.request.gpu,
+                image_info=self.request.image_info, container_name=self.case_name,
+                log_prefix="[case]", request_timeout_seconds=self.workload.request_timeout_seconds,
+                cpuset_cpus=self.request.cpuset_cpus,
+            )
+        except ContainerCleanupError as exc:
+            from acprof.artifacts import atomic_write_json
+
+            atomic_write_json(self.case.sidecar("cleanup_error"), exc.to_dict())
+            emit_event("case_finished", self.case_name, status="error")
+            raise
+        except RuntimeError as exc:
+            error = f"container_start_failed: {exc}"
+            print(f"[case] {error}", file=sys.stderr)
+            self._write_error(error)
+            emit_event("case_finished", self.case_name, status="error")
+            return None
+        except BaseException as exc:
+            emit_event(
+                "case_finished", self.case_name,
+                status="cancelled" if isinstance(exc, KeyboardInterrupt) else "error",
+            )
+            raise
+
+    def _start_capture(self) -> PacketLatencyRuntime | None:
+        runtime = _resolve_packet_latency_runtime(
+            project_dir=self.request.project_dir, pcap_file=str(self.case.pcap),
+            sniff_iface=self.measurement.sniff_iface,
+        ) if measurement_requested(self.measurement.profiling_mode, "packet_latency") else None
+        if runtime is not None:
+            print(f"[sniff] Starting tcpdump on {self.measurement.sniff_iface} via {runtime.mode}")
             try:
-                tcpdump_proc = subprocess.Popen(
-                    sniff_runtime.tcpdump_cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                self.capture = subprocess.Popen(
+                    runtime.tcpdump_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             except OSError as exc:
                 raise _packet_latency_error("failed to start tcpdump", repr(exc)) from exc
             time.sleep(0.3)
-            if require_packet_latency and tcpdump_proc.poll() is not None:
+            if self.require_packet_latency and self.capture.poll() is not None:
                 raise _packet_latency_error(
                     "tcpdump exited before workload started",
-                    f"command={' '.join(sniff_runtime.tcpdump_cmd)}",
+                    f"command={' '.join(runtime.tcpdump_cmd)}",
                 )
+        elif self.require_packet_latency:
+            raise _packet_latency_error("tcpdump/tshark runtime could not be resolved")
+        elif measurement_requested(self.measurement.profiling_mode, "packet_latency"):
+            print("[sniff] tcpdump/tshark unavailable, skipping packet-level latency")
         else:
-            if require_packet_latency:
-                raise _packet_latency_error(
-                    "tcpdump/tshark runtime could not be resolved"
-                )
-            if measurement_requested(profiling_mode, "packet_latency"):
-                print("[sniff] tcpdump/tshark unavailable, skipping packet-level latency")
-            else:
-                print(f"[sniff] packet_latency=not_requested (profiling_mode={profiling_mode})")
+            print(f"[sniff] packet_latency=not_requested (profiling_mode={self.measurement.profiling_mode})")
+        return runtime
 
-        print("[case] Running workload...")
-        scales_str = input_scales or serialize_input_scales(
+    def _client_environment(self, session: RunningContainer) -> Dict[str, str]:
+        request, workload, measurement, plans = self.request, self.workload, self.measurement, self.plans
+        task_info = request.task_info
+        scales = plans.input_scales or serialize_input_scales(
             resolve_input_scales(task_info.task_family, input_scales=None)
         )
-
-        client_env = {
+        environment = {
             **os.environ,
             "MODEL_ID": task_info.model_id,
             "MODEL_REVISION": task_info.model_revision,
@@ -293,205 +368,166 @@ def run_single_case(
             "TASK_FAMILY": task_info.task_family,
             "PIPELINE_TAG": task_info.pipeline_tag,
             "RUNTIME_BACKEND": task_info.runtime_backend,
-            "IMAGE_TAG": image_info.tag,
-            "CPU_CORES": str(cpu),
-            "MEM_CAP_GB": str(mem),
-            "GPU_MODE": gpu,
-            "BASE_URL": base_url,
-            "ENDPOINT": "/predict",
-            "BATCH_SIZE": str(batch_size),
-            "WARMUP": str(warmup),
-            "REPEAT": str(repeat),
-            "REPEAT_IN_WINDOW": str(repeat_in_window),
-            "REPEAT_WINDOW_SECONDS": str(repeat_window_seconds),
-            "REQUEST_TIMEOUT_SECONDS": f"{request_timeout_seconds:g}",
+            "IMAGE_TAG": request.image_info.tag,
+            "CPU_CORES": str(request.cpu), "MEM_CAP_GB": str(request.mem), "GPU_MODE": request.gpu,
+            "BASE_URL": session.base_url, "ENDPOINT": "/predict",
+            "BATCH_SIZE": str(workload.batch_size), "WARMUP": str(workload.warmup),
+            "REPEAT": str(workload.repeat), "REPEAT_IN_WINDOW": str(workload.repeat_in_window),
+            "REPEAT_WINDOW_SECONDS": str(workload.repeat_window_seconds),
+            "REQUEST_TIMEOUT_SECONDS": f"{workload.request_timeout_seconds:g}",
             **cold_start_client_env(session),
-            "OUT_CSV": out_csv,
-            "CASE_NAME": case_name,
-            "CONTAINER_NAME": container_name,
-            "USE_MIPS": "1" if measurement_requested(profiling_mode, "cpu_instructions") else "0",
-            "PROFILING_MODE": profiling_mode,
-            "DRAM_ENERGY": dram_energy,
-            "INPUT_SCALE_ORDER": json.dumps(input_scale_order) if input_scale_order is not None else "",
-            "SAMPLE_HZ": str(sample_hz),
-            "ACPROF_SAMPLING_POLICY": sampling_policy,
-            "ACPROF_RAW_SAMPLE_LIMIT": str(raw_sample_limit),
-            "ACPROF_RUN_ID": run_id,
-            "ACPROF_CASE_ID": case.case_id,
-            "ACPROF_CASE_ATTEMPT_ID": attempt_id,
-            "ACPROF_WINDOW_RECORDS_DIR": str(case.window_records(attempt_id)),
-            "ACPROF_TELEMETRY_DIR": str(case.telemetry(attempt_id)),
-            "IDLE_SECONDS": str(idle_seconds),
-            "IDLE_COOLDOWN_SECONDS": str(idle_cooldown_seconds),
-            "IDLE_DEBUG": "1" if idle_debug else "0",
-            "IDLE_DIAG_PATH": idle_diag_path if idle_debug else "",
-            "CLIENT_ERROR_PATH": client_error_path,
+            "OUT_CSV": self.out_csv, "CASE_NAME": self.case_name, "CONTAINER_NAME": session.name,
+            "USE_MIPS": "1" if measurement_requested(measurement.profiling_mode, "cpu_instructions") else "0",
+            "PROFILING_MODE": measurement.profiling_mode, "DRAM_ENERGY": measurement.dram_energy,
+            "INPUT_SCALE_ORDER": json.dumps(plans.input_scale_order) if plans.input_scale_order is not None else "",
+            "SAMPLE_HZ": str(measurement.sample_hz),
+            "ACPROF_SAMPLING_POLICY": measurement.sampling_policy,
+            "ACPROF_RAW_SAMPLE_LIMIT": str(measurement.raw_sample_limit),
+            "ACPROF_RUN_ID": self.run_id, "ACPROF_CASE_ID": self.case.case_id,
+            "ACPROF_CASE_ATTEMPT_ID": self.attempt_id,
+            "ACPROF_WINDOW_RECORDS_DIR": str(self.case.window_records(self.attempt_id)),
+            "ACPROF_TELEMETRY_DIR": str(self.case.telemetry(self.attempt_id)),
+            "IDLE_SECONDS": str(measurement.idle_seconds),
+            "IDLE_COOLDOWN_SECONDS": str(measurement.idle_cooldown_seconds),
+            "IDLE_DEBUG": "1" if measurement.idle_debug else "0",
+            "IDLE_DIAG_PATH": str(self.case.idle) if measurement.idle_debug else "",
+            "CLIENT_ERROR_PATH": str(self.case.sidecar("client_error")),
             "DEVICE_INDEX": str(session.gpu_device.get("index", 0)),
             "GPU_DEVICE_UUID": str(session.gpu_device.get("uuid", "")),
-            "INPUT_SCALES": scales_str,
-            "INPUT_SCALE_PLAN_FILE": input_scale_plan_file or "",
-            "COMPUTE_PROFILE_PLAN_FILE": compute_profile_plan_file or "",
-            "EXECUTION_PROFILE_PLAN_FILE": execution_profile_plan_file or "",
+            "INPUT_SCALES": scales,
+            "INPUT_SCALE_PLAN_FILE": plans.input_scale_plan_file or "",
+            "COMPUTE_PROFILE_PLAN_FILE": plans.compute_profile_plan_file or "",
+            "EXECUTION_PROFILE_PLAN_FILE": plans.execution_profile_plan_file or "",
         }
-        # The host-side client never sends notifications.  Keep the webhook
-        # credential out of the measured subprocess environment entirely.
-        client_env.pop("ACPROF_WECOM_WEBHOOK_URL", None)
+        # Keep notification credentials out of the measured subprocess.
+        environment.pop("ACPROF_WECOM_WEBHOOK_URL", None)
+        return environment
 
-        with measurement_boundary(case_name):
-            client_result = host_command.run_command(module_command('acprof.host.client'), check=False, capture_output=False, env=client_env)
-
-        if client_result.returncode != 0:
-            runtime_oom_error = container_runtime_oom_error(
-                container_name,
-                mem,
-                client_result.returncode,
+    def _run_client(self, session: RunningContainer) -> _ClientOutcome:
+        print("[case] Running workload...")
+        environment = self._client_environment(session)
+        with measurement_boundary(self.case_name):
+            result = host_command.run_command(
+                module_command('acprof.host.client'), check=False,
+                capture_output=False, env=environment,
             )
-            if runtime_oom_error is not None:
-                case_incomplete = True
-                incomplete_case_reason = "runtime OOM"
-                print(f"[case][WARN] {runtime_oom_error}", file=sys.stderr)
-                completed_rows_before_failure, _ = _write_case_error_csv(
-                    task_info=task_info,
-                    out_csv=out_csv,
-                    cpu=cpu,
-                    mem=mem,
-                    gpu=gpu,
-                    warmup=warmup,
-                    repeat=repeat,
-                    repeat_in_window=repeat_in_window,
-                    input_scales=input_scales,
-                    error=runtime_oom_error,
-                    preserve_existing=True,
-                    annotate_existing_error_rows=True,
-                )
-            elif client_result.returncode == CLIENT_REQUEST_TIMEOUT_EXIT_CODE:
-                case_incomplete = True
-                incomplete_case_reason = "request timeout"
-                timeout_context = _load_client_error_context(client_error_path)
-                timeout_context.setdefault(
-                    "request_timeout_s",
-                    request_timeout_seconds,
-                )
-                timeout_s = _timeout_context_float(
-                    timeout_context.get("request_timeout_s"),
-                    request_timeout_seconds,
-                )
-                error = (
-                    "client_request_timeout: connect/read inactivity exceeded "
-                    f"{timeout_s:g}s; incomplete and later rows will be marked "
-                    "individually"
-                )
-                print(f"[case][WARN] {error}", file=sys.stderr)
-                completed_rows_before_failure, _ = _write_case_error_csv(
-                    task_info=task_info,
-                    out_csv=out_csv,
-                    cpu=cpu,
-                    mem=mem,
-                    gpu=gpu,
-                    warmup=warmup,
-                    repeat=repeat,
-                    repeat_in_window=repeat_in_window,
-                    input_scales=input_scales,
-                    error=error,
-                    preserve_existing=True,
-                    timeout_context=timeout_context,
-                )
-            else:
-                from acprof.artifact_layout import case_sidecar
-                from acprof.failures import Failure, RuntimeFailure, read_runtime_failures
-                failure_path = case_sidecar(out_csv, "runtime_failures")
-                if failure_path.is_file():
-                    failures = read_runtime_failures(failure_path)
-                    if failures:
-                        raise RuntimeFailure(Failure(**failures[-1]))
-                if client_result.returncode == MIPS_EXIT_CODE:
-                    raise MIPSProfilingError(
-                        "client.py exited because MIPS profiling failed; review the "
-                        "[mips][ERROR] output above for the perf remediation steps."
-                    )
-                raise EnergyProfilingError(
-                    "client.py exited with code "
-                    f"{client_result.returncode}; aborting profiling matrix. "
-                    "Review the client output above for the energy stability diagnostic."
-                )
-
-        ready_failure = _client_ready_failure(out_csv)
+        outcome = self._client_failure(session, result.returncode) if result.returncode else _ClientOutcome()
+        ready_failure = _client_ready_failure(self.out_csv)
         if ready_failure is not None:
-            case_incomplete = True
-            incomplete_case_reason = "client readiness failed"
             print(f"[case][WARN] {ready_failure}", file=sys.stderr)
-            completed_rows_before_failure, _ = _write_case_error_csv(
-                task_info=task_info,
-                out_csv=out_csv,
-                cpu=cpu,
-                mem=mem,
-                gpu=gpu,
-                warmup=warmup,
-                repeat=repeat,
-                repeat_in_window=repeat_in_window,
-                input_scales=input_scales,
-                error=ready_failure,
-                preserve_existing=False,
-            )
+            completed, _ = self._write_error(ready_failure, preserve_existing=False)
+            outcome = _ClientOutcome(True, completed, "client readiness failed")
+        return outcome
 
-        capture_available = tcpdump_proc is not None
-        if tcpdump_proc is not None:
-            time.sleep(1.0)
-            _stop_capture(tcpdump_proc)
-            time.sleep(0.2)
-            tcpdump_proc = None
-        if run_state is not None:
-            run_state.checkpoint_measurement(
-                out_csv, cpu, mem, gpu, container_id=session.container_id,
-                processing={"capture_available": capture_available,
-                            "case_incomplete": case_incomplete,
-                            "completed_rows_before_failure": completed_rows_before_failure,
-                            "incomplete_case_reason": incomplete_case_reason,
-                            "require_packet_latency": require_packet_latency,
-                            "profiling_mode": profiling_mode, "gpu": gpu, "server_port": SERVER_PORT},
+    def _client_failure(self, session: RunningContainer, returncode: int) -> _ClientOutcome:
+        oom = container_runtime_oom_error(session.name, self.request.mem, returncode)
+        if oom is not None:
+            print(f"[case][WARN] {oom}", file=sys.stderr)
+            completed, _ = self._write_error(
+                oom, preserve_existing=True, annotate_existing_error_rows=True,
             )
-            run_state.record_case_processing(out_csv, "running")
+            return _ClientOutcome(True, completed, "runtime OOM")
+        if returncode == CLIENT_REQUEST_TIMEOUT_EXIT_CODE:
+            context = _load_client_error_context(str(self.case.sidecar("client_error")))
+            context.setdefault("request_timeout_s", self.workload.request_timeout_seconds)
+            timeout = _timeout_context_float(context.get("request_timeout_s"), self.workload.request_timeout_seconds)
+            error = (
+                "client_request_timeout: connect/read inactivity exceeded "
+                f"{timeout:g}s; incomplete and later rows will be marked individually"
+            )
+            print(f"[case][WARN] {error}", file=sys.stderr)
+            completed, _ = self._write_error(error, preserve_existing=True, timeout_context=context)
+            return _ClientOutcome(True, completed, "request timeout")
+        from acprof.artifact_layout import case_sidecar
+        from acprof.failures import Failure, RuntimeFailure, read_runtime_failures
+
+        failure_path = case_sidecar(self.out_csv, "runtime_failures")
+        if failure_path.is_file():
+            failures = read_runtime_failures(failure_path)
+            if failures:
+                raise RuntimeFailure(Failure(**failures[-1]))
+        if returncode == MIPS_EXIT_CODE:
+            raise MIPSProfilingError(
+                "client.py exited because MIPS profiling failed; review the "
+                "[mips][ERROR] output above for the perf remediation steps."
+            )
+        raise EnergyProfilingError(
+            f"client.py exited with code {returncode}; aborting profiling matrix. "
+            "Review the client output above for the energy stability diagnostic."
+        )
+
+    def _write_error(
+        self, error: str, *, preserve_existing: bool = False,
+        annotate_existing_error_rows: bool = False,
+        timeout_context: Dict[str, Any] | None = None,
+    ) -> Tuple[int, int]:
+        return _write_case_error_csv(
+            task_info=self.request.task_info, out_csv=self.out_csv,
+            cpu=self.request.cpu, mem=self.request.mem, gpu=self.request.gpu,
+            warmup=self.workload.warmup, repeat=self.workload.repeat,
+            repeat_in_window=self.workload.repeat_in_window,
+            input_scales=self.plans.input_scales, error=error,
+            preserve_existing=preserve_existing,
+            annotate_existing_error_rows=annotate_existing_error_rows,
+            timeout_context=timeout_context,
+        )
+
+    def _checkpoint_measurement(
+        self, session: RunningContainer, outcome: _ClientOutcome, capture_available: bool,
+    ) -> None:
+        if self.run_state is None:
+            return
+        self.run_state.checkpoint_measurement(
+            self.out_csv, self.request.cpu, self.request.mem, self.request.gpu,
+            container_id=session.container_id,
+            processing={
+                "capture_available": capture_available, "case_incomplete": outcome.incomplete,
+                "completed_rows_before_failure": outcome.completed_rows,
+                "incomplete_case_reason": outcome.reason,
+                "require_packet_latency": self.require_packet_latency,
+                "profiling_mode": self.measurement.profiling_mode,
+                "gpu": self.request.gpu, "server_port": SERVER_PORT,
+            },
+        )
+        self.run_state.record_case_processing(self.out_csv, "running")
+
+    def _finalize(
+        self, outcome: _ClientOutcome, capture_available: bool,
+        sniff_runtime: PacketLatencyRuntime | None,
+    ) -> None:
         try:
             _finalize_case(
-                capture_available, sniff_runtime, case_incomplete, completed_rows_before_failure,
-                incomplete_case_reason, pcap_file, lat_json, out_csv,
-                require_packet_latency, profiling_mode, gpu,
+                capture_available, sniff_runtime, outcome.incomplete, outcome.completed_rows,
+                outcome.reason, str(self.case.pcap), str(self.case.latency), self.out_csv,
+                self.require_packet_latency, self.measurement.profiling_mode, self.request.gpu,
             )
         except BaseException:
-            if run_state is not None:
-                run_state.record_case_processing(out_csv, "failed")
+            if self.run_state is not None:
+                self.run_state.record_case_processing(self.out_csv, "failed")
             raise
-        case_status = "error" if case_incomplete else _case_result_status(out_csv)
-    except KeyboardInterrupt:
-        _LOG.debug("case cancelled: %s", case_name)
-        case_status = "cancelled"
-        raise
-    finally:
-        run_error = sys.exc_info()[1]
+
+    def _cleanup(self, session: RunningContainer, run_error: BaseException | None) -> None:
         try:
             try:
-                if tcpdump_proc is not None and tcpdump_proc.poll() is None:
-                    _stop_capture(tcpdump_proc)
+                if self.capture is not None and self.capture.poll() is None:
+                    _stop_capture(self.capture)
             finally:
                 stop_container_session(session, log_prefix="[case]")
-                if run_state is not None:
-                    run_state.record_case_cleanup(out_csv, "complete")
+                if self.run_state is not None:
+                    self.run_state.record_case_cleanup(self.out_csv, "complete")
         except BaseException as exc:
-            _LOG.debug("case cleanup failed: case=%s error_type=%s", case_name, type(exc).__name__)
-            case_status = "error"
-            if run_state is not None:
-                run_state.record_case_cleanup(out_csv, "failed")
+            _LOG.debug("case cleanup failed: case=%s error_type=%s", self.case_name, type(exc).__name__)
+            self.status = "error"
+            if self.run_state is not None:
+                self.run_state.record_case_cleanup(self.out_csv, "failed")
             if isinstance(exc, ContainerCleanupError):
                 from acprof.artifacts import atomic_write_json
+
                 exc.run_error = run_error or exc.run_error
-                atomic_write_json(case.sidecar("cleanup_error"), exc.to_dict())
+                atomic_write_json(self.case.sidecar("cleanup_error"), exc.to_dict())
             raise
         finally:
-            emit_event("case_finished", case_name, status=case_status)
-
-    print(f"[case] Done. Output: {out_csv}")
-    return out_csv
-
+            emit_event("case_finished", self.case_name, status=self.status)
 
 def _resume_case_processing(case, checkpoint: dict, run_state, case_name: str) -> str:
     """Retry only derivation from a verified whole-case measurement snapshot."""
@@ -1053,16 +1089,29 @@ def run_matrix(
             emit_event("case_skipped", case_name, status="oom_pruned")
         else:
             csv_path = run_single_case(
-                task_info=task_info, cpu=cpu, mem=mem, gpu=gpu, image_info=image_info,
-                output_dir=output_dir, project_dir=project_dir, batch_size=batch_size,
-                warmup=warmup, repeat=repeat, repeat_in_window=repeat_in_window,
-                repeat_window_seconds=repeat_window_seconds, request_timeout_seconds=request_timeout_seconds,
-                sample_hz=sample_hz, idle_seconds=idle_seconds, idle_cooldown_seconds=idle_cooldown_seconds,
-                idle_debug=idle_debug, sniff_iface=sniff_iface, input_scales=input_scales,
-                input_scale_plan_file=input_scale_plan_file, compute_profile_plan_file=compute_profile_plan_file,
-                execution_profile_plan_file=execution_profile_plan_file, profiling_mode=profiling_mode,
-                input_scale_order=case["input_scales"], dram_energy=dram_energy, cpuset_cpus=cpuset_cpus,
-                sampling_policy=sampling_policy, raw_sample_limit=raw_sample_limit, run_state=run_state)
+                CaseRequest(
+                    task_info=task_info, cpu=cpu, mem=mem, gpu=gpu, image_info=image_info,
+                    output_dir=output_dir, project_dir=project_dir, cpuset_cpus=cpuset_cpus,
+                ),
+                workload=CaseWorkload(
+                    batch_size=batch_size, warmup=warmup, repeat=repeat,
+                    repeat_in_window=repeat_in_window, repeat_window_seconds=repeat_window_seconds,
+                    request_timeout_seconds=request_timeout_seconds,
+                ),
+                measurement=CaseMeasurement(
+                    sample_hz=sample_hz, idle_seconds=idle_seconds,
+                    idle_cooldown_seconds=idle_cooldown_seconds, idle_debug=idle_debug,
+                    sniff_iface=sniff_iface, profiling_mode=profiling_mode, dram_energy=dram_energy,
+                    sampling_policy=sampling_policy, raw_sample_limit=raw_sample_limit,
+                ),
+                plans=CasePlans(
+                    input_scales=input_scales, input_scale_plan_file=input_scale_plan_file,
+                    compute_profile_plan_file=compute_profile_plan_file,
+                    execution_profile_plan_file=execution_profile_plan_file,
+                    input_scale_order=case["input_scales"],
+                ),
+                run_state=run_state,
+            )
         if run_state is not None and csv_path and not cached_case:
             run_state.finish_case(csv_path, cpu, mem, gpu)
         if csv_path:

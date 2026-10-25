@@ -14,9 +14,9 @@ class TestRunRecovery(RunRecoveryFixture):
         self.build(request, tmp_path)
     def test_cpu_set_reaches_cases_and_changed_set_refuses_resume(self):
         seen = []
-        def capture(**kwargs):
-            seen.append(kwargs["cpuset_cpus"])
-            return self.write_case(**kwargs)
+        def capture(request, **kwargs):
+            seen.append(request.cpuset_cpus)
+            return self.write_case(request, **kwargs)
         with patch("acprof.application.run.os.sched_getaffinity", return_value={0, 1, 2}):
             self.invoke("--cpuset-cpus", "2,0-1", case=capture)
             assert (seen) == (["0-2", "0-2"])
@@ -25,9 +25,9 @@ class TestRunRecovery(RunRecoveryFixture):
                 self.invoke("--cpuset-cpus", "0-1", "--resume")
 
     def test_resume_archives_promoted_samples_and_idle_without_name_collisions(self):
-        def interrupted(**kwargs):
-            path = self.write_case(**kwargs)
-            if kwargs["cpu"] == 2:
+        def interrupted(request, **kwargs):
+            path = self.write_case(request, **kwargs)
+            if request.cpu == 2:
                 raw = self.directory / "raw/requests/2c_4g_off.jsonl"
                 raw.parent.mkdir(parents=True, exist_ok=True)
                 raw.write_text('{"previous_attempt":true}\n')
@@ -47,8 +47,8 @@ class TestRunRecovery(RunRecoveryFixture):
                           "debug/idle/2c_4g_off.jsonl": {"idle_diagnostic": True}})
 
     def test_completed_v2_result_keeps_only_primary_files_and_retains_request_samples(self):
-        def with_samples(**kwargs):
-            path = Path(self.write_case(**kwargs))
+        def with_samples(request, **kwargs):
+            path = Path(self.write_case(request, **kwargs))
             path.with_name("requests.jsonl").write_text('{"schema_version":1,"latency_app_s":[0.1]}\n')
             path.with_name("sniff_groups.jsonl").write_text('{"sniff_group_id":"fixture"}\n')
             return str(path)
@@ -72,11 +72,11 @@ class TestRunRecovery(RunRecoveryFixture):
 
     def test_seeded_resume_reuses_frozen_order_without_plan_generation(self):
         seen = []
-        def interrupted(**kwargs):
-            seen.append(kwargs['cpu'])
+        def interrupted(request, **kwargs):
+            seen.append(request.cpu)
             if len(seen) == 2:
                 raise KeyboardInterrupt()
-            return self.write_case(**kwargs)
+            return self.write_case(request, **kwargs)
         with pytest.raises(KeyboardInterrupt):
             self.invoke('--matrix-order', 'seeded', '--matrix-seed', '37', case=interrupted)
         path = self.directory / 'metadata/matrix_plan.json'
@@ -115,9 +115,9 @@ class TestRunRecovery(RunRecoveryFixture):
         from acprof.analysis.audit import audit_result
         from acprof.failures import Failure
         failure = Failure("predict", "inference_failed", "fixture failure").to_dict()
-        def interrupted(**kwargs):
-            path = self.write_case(**kwargs)
-            if kwargs["cpu"] == 2:
+        def interrupted(request, **kwargs):
+            path = self.write_case(request, **kwargs)
+            if request.cpu == 2:
                 Path(path).with_name("requests.jsonl").write_text('{"partial":true}\n')
                 Path(path).with_name("runtime_failures.json").write_text(json.dumps({"failures": [failure]}))
                 Path(path).with_name("cleanup_error.json").write_text('{"status":"incomplete","final_state":"unknown"}')
@@ -282,7 +282,11 @@ class TestRunRecovery(RunRecoveryFixture):
         from acprof.host.run_state import RunState, RunStateError
         first = RunState(self.directory, {}, resume=False, project_dir=str(Path(__file__).resolve().parents[1]))
         self._request.addfinalizer(partial(first.close))
-        with pytest.raises(RunStateError):
-            second = RunState(self.directory.parent / "other", {}, resume=False,
-                              project_dir=str(Path(__file__).resolve().parents[1]))
-            second.close()
+        second = None
+        try:
+            with pytest.raises(RunStateError):
+                second = RunState(self.directory.parent / "other", {}, resume=False,
+                                  project_dir=str(Path(__file__).resolve().parents[1]))
+        finally:
+            if second is not None:
+                second.close()

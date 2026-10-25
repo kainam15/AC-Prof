@@ -396,7 +396,9 @@ class TestRunNotificationLifecycle:
             side_effect=lambda **kwargs: collect(("CPU Torch", "GPU Torch", "NCU"), **kwargs),
         ) as compute, patch(
             "acprof.host.execution_profile.collect_execution_profile_plan",
-            side_effect=lambda **kwargs: collect(("Massif", "Nsys"), **kwargs),
+            side_effect=lambda request, options, **kwargs: collect(
+                ("Massif", "Nsys"), output_dir=request.output_dir, **kwargs,
+            ),
         ) as execution, patch(
             "acprof.host.orchestrator.run_matrix", side_effect=run_matrix,
         ), redirect_stdout(io.StringIO()):
@@ -426,9 +428,9 @@ class TestRunNotificationLifecycle:
         order = []
         progress_events = []
 
-        def fake_case(**kwargs):
-            order.append(("case", kwargs["cpu"], kwargs["gpu"]))
-            return f"/tmp/{kwargs['cpu']}-{kwargs['gpu']}.csv"
+        def fake_case(request, **kwargs):
+            order.append(("case", request.cpu, request.gpu))
+            return f"/tmp/{request.cpu}-{request.gpu}.csv"
 
         def progress(event):
             order.append(("progress", event.cpu, event.gpu))

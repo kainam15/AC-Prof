@@ -71,9 +71,9 @@ class TestStartupProbe:
                 raise container_state.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})
             return self.session
 
-        def formal(**kwargs):
+        def formal(request, **kwargs):
             assert ((Path(directory) / 'matrix_plan.json').is_file())
-            assert (kwargs['mem']) == (4)
+            assert (request.mem) == (4)
             return ''
 
         with tempfile.TemporaryDirectory() as directory, \

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -85,11 +86,18 @@ def measured_case(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator.subprocess, "Popen", lambda *a, **k: Capture())
     monkeypatch.setattr(orchestrator.time, "sleep", lambda *a: None)
     monkeypatch.setattr(orchestrator.host_command, "run_command", client)
-    arguments = {"task_info": TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline",
-                                      "transformers", "a" * 40, "manual"),
-                 "image_info": ImageInfo(tag="sha256:" + "b" * 64), "cpu": 1, "mem": 4, "gpu": "off",
-                 "output_dir": str(state.directory), "project_dir": ".", "input_scales": "64",
-                 "warmup": 0, "repeat": 1, "profiling_mode": "full", "run_state": state}
+    arguments = {
+        "request": orchestrator.CaseRequest(
+            task_info=TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline",
+                               "transformers", "a" * 40, "manual"),
+            image_info=ImageInfo(tag="sha256:" + "b" * 64), cpu=1, mem=4, gpu="off",
+            output_dir=str(state.directory), project_dir=".",
+        ),
+        "workload": orchestrator.CaseWorkload(warmup=0, repeat=1),
+        "measurement": orchestrator.CaseMeasurement(profiling_mode="full"),
+        "plans": orchestrator.CasePlans(input_scales="64"),
+        "run_state": state,
+    }
     yield state, case, calls, arguments
     state.close()
 
@@ -238,13 +246,13 @@ def test_timeout_keeps_partial_requests_without_reusing_them_as_committed_window
     monkeypatch.setattr(orchestrator, "container_runtime_oom_error", lambda *args: None)
     monkeypatch.setattr(orchestrator, "_finalize_case", fail_postprocessing)
     with pytest.raises(RuntimeError, match="packet parser interrupted"):
-        orchestrator.run_single_case(**{**arguments, "repeat": 2})
+        orchestrator.run_single_case(**{**arguments, "workload": replace(arguments["workload"], repeat=2)})
     attempt = state.case_attempt_id(str(case.csv))
     checkpoint = state.processing_checkpoint(str(case.csv), 1, 4, "off")
     assert checkpoint["processing"]["case_incomplete"] is True
     assert len(checkpoint["window_records"]) == 1
     monkeypatch.setattr(orchestrator, "_finalize_case", lambda *args: None)
-    orchestrator.run_single_case(**{**arguments, "repeat": 2})
+    orchestrator.run_single_case(**{**arguments, "workload": replace(arguments["workload"], repeat=2)})
     state.finish_case(str(case.csv), 1, 4, "off")
     record = state.data["cases"][str(case.csv.relative_to(state.directory))]
     assert record["case_attempt_id"] == attempt
@@ -287,10 +295,52 @@ def test_cleanup_debt_is_verified_before_retrying_only_postprocessing(measured_c
 def test_sampling_identity_is_forwarded_before_client_start(measured_case, monkeypatch):
     state, case, calls, arguments = measured_case
     monkeypatch.setattr(orchestrator, "_finalize_case", lambda *args: None)
-    orchestrator.run_single_case(**arguments, sampling_policy="skip", raw_sample_limit=50)
+    orchestrator.run_single_case(**{
+        **arguments,
+        "measurement": replace(arguments["measurement"], sampling_policy="skip", raw_sample_limit=50),
+    })
     env = calls["env"]
     assert env["ACPROF_SAMPLING_POLICY"] == "skip"
     assert env["ACPROF_RAW_SAMPLE_LIMIT"] == "50"
     assert env["ACPROF_RUN_ID"] == state.data["run_id"]
     assert env["ACPROF_CASE_ID"] == case.case_id
     assert env["ACPROF_CASE_ATTEMPT_ID"] == state.case_attempt_id(str(case.csv))
+
+
+def test_client_cancellation_and_capture_failure_still_release_container(measured_case, monkeypatch):
+    state, case, calls, arguments = measured_case
+    client_error = KeyboardInterrupt("client interrupted")
+    cleanup_error = ContainerCleanupError("c" * 64, [], final_state="present")
+    capture_stops = []
+    events = []
+
+    def interrupted(*args, **kwargs):
+        raise client_error
+
+    def broken_capture(process):
+        capture_stops.append(process)
+        raise RuntimeError("capture close failed")
+
+    def broken_container(*args, **kwargs):
+        calls["cleanup"] += 1
+        raise cleanup_error
+
+    monkeypatch.setattr(orchestrator.host_command, "run_command", interrupted)
+    monkeypatch.setattr(orchestrator, "_stop_capture", broken_capture)
+    monkeypatch.setattr(orchestrator, "stop_container_session", broken_container)
+    monkeypatch.setattr(orchestrator, "emit_event", lambda kind, detail, **values: events.append((kind, values)))
+    with pytest.raises(ContainerCleanupError) as caught:
+        orchestrator.run_single_case(**arguments)
+
+    assert caught.value is cleanup_error
+    assert caught.value.run_error is client_error
+    assert len(capture_stops) == 1
+    assert calls["container"] == calls["cleanup"] == 1
+    record = state.data["cases"][str(case.csv.relative_to(state.directory))]
+    # Before a measurement checkpoint, cleanup ownership remains pending;
+    # the sidecar retains the failure for the next whole-case recovery.
+    assert record["cleanup_status"] == "pending"
+    assert record["cleanup_container_id"] == "c" * 64
+    assert record["measurement_status"] != "complete"
+    assert case.sidecar("cleanup_error").is_file()
+    assert events[-1] == ("case_finished", {"status": "error"})

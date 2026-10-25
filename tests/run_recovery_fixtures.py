@@ -31,11 +31,11 @@ class RunRecoveryFixture:
         self.image = ImageInfo(tag="sha256:" + "b" * 64)
         self.calls = []
 
-    def write_case(self, **kwargs):
-        self.calls.append(kwargs["cpu"])
-        path = self.directory / f'.acprof/work/cases/{kwargs["cpu"]}c_4g_off/result.csv'
+    def write_case(self, request, **kwargs):
+        self.calls.append(request.cpu)
+        path = self.directory / f'.acprof/work/cases/{request.cpu}c_4g_off/result.csv'
         row = dict.fromkeys(CSV_FIELDS, "nan")
-        row.update(cpu_cores=str(kwargs["cpu"]), mem_cap_gb="4", gpu_mode="off",
+        row.update(cpu_cores=str(request.cpu), mem_cap_gb="4", gpu_mode="off",
                    input_scale="64", warmup="0", repeat_idx="0", status="ok", error="",
                    latency_app_s="0.1", latency_s="0.09", throughput_samples_per_s="10",
                    container_cpu_util_avg_pct="0", container_mem_usage_avg_bytes="1024",
@@ -95,11 +95,11 @@ class RunRecoveryFixture:
             run_cli.main()
 
     def assert_missing_required_measurements_rejected(self, mode):
-        def missing_memory(**kwargs):
-            path = Path(self.write_case(**kwargs))
+        def missing_memory(request, **kwargs):
+            path = Path(self.write_case(request, **kwargs))
             with path.open() as stream:
                 rows = list(csv.DictReader(stream))
-            if kwargs["cpu"] == 2:
+            if request.cpu == 2:
                 rows[-1]["container_mem_usage_avg_bytes"] = "nan"
             with path.open("w", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
@@ -119,10 +119,10 @@ class RunRecoveryFixture:
         assert (state["artifacts"]["static_meta.json"]) == (hashlib.sha256((self.directory / "static_meta.json").read_bytes()).hexdigest())
 
     def interrupt_after_first(self):
-        def interrupted(**kwargs):
-            if kwargs["cpu"] == 2:
+        def interrupted(request, **kwargs):
+            if request.cpu == 2:
                 raise KeyboardInterrupt()
-            return self.write_case(**kwargs)
+            return self.write_case(request, **kwargs)
         with pytest.raises(KeyboardInterrupt):
             self.invoke(case=interrupted)
         self.calls.clear()
