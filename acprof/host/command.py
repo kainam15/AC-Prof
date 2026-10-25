@@ -79,7 +79,8 @@ def _signal_group(pid: int, sig: signal.Signals) -> None:
         pass  # The whole group already exited.
 
 
-def _run_process_group(argv, *, check, capture_output, timeout, **kwargs):
+def _run_process_group(argv: list[str], *, check: bool, capture_output: bool,
+                       timeout: float | None, **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Own a POSIX command tree with bounded termination, including cancellation."""
     if os.name != "posix":
         raise ValueError("process-group commands require POSIX")

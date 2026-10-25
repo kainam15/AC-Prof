@@ -3,13 +3,13 @@
 GPU_GREEN = (0.18, 0.62, 0.28)
 GPU_LIGHT_GREEN = (0.49, 0.78, 0.53)
 BYTES_PER_GIB = 1024 ** 3
-CPU_FIXED_COLORS = {
+CPU_FIXED_COLORS: dict[float, tuple[float, float, float]] = {
     1: (0.12, 0.47, 0.71),
     2: (0.93, 0.69, 0.13),
     4: (0.84, 0.15, 0.16),
     8: (0.58, 0.40, 0.74),
 }
-MEM_FIXED_COLORS = {
+MEM_FIXED_COLORS: dict[float, tuple[float, float, float]] = {
     2: (0.12, 0.47, 0.71),
     4: (0.93, 0.69, 0.13),
     8: (0.84, 0.15, 0.16),
