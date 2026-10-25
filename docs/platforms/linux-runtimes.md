@@ -109,6 +109,8 @@ Docker adapter 调用原有生命周期；Process 通过独立 supervisor 和控
 
 上述 Process Smoke 的主机仍安装 Docker；验收命令通过限制 PATH 和配置不可用 socket 隔离该入口，
 不等价于 AutoDL、无 Docker 镜像或 GPU 实例实测。故障回归覆盖控制进程取消/异常退出、后代进程回收与缺失权限。
+同一小型 ONNX 还已完成 Docker basic 与生产 TUI headless 的真实子进程验收；两条路径均通过结果审计。
+Process 的首次准备和后续缓存复用均通过文件完整性核验。Headless 证据不代表用户 SSH/IDE 终端已验收。
 
 ## 参考与取舍
 
