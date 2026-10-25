@@ -139,7 +139,7 @@ class ProcessLimits:
                 raise RuntimeError("Process memory limit verification failed")
         if self.affinity:
             from acprof.cpu_affinity import parse_cpu_set
-            if not os.sched_getaffinity(pid) <= parse_cpu_set(self.affinity):
+            if os.sched_getaffinity(pid) != parse_cpu_set(self.affinity):
                 raise RuntimeError("Process affinity verification failed")
         self.verified = True
 
