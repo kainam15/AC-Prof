@@ -42,8 +42,12 @@ Hypothesis 可用于同步 pytest 测试，并使用 `python -m pytest <文件>`
 弹窗覆盖、实际拖动表格之后、测量中、清理未完成、中英文 WSL2 模型检测等待，以及中英文模型确认对话框；
 覆盖 `80×24`、`120×30`、`150×45`。
 通用场景固定 Native Linux 身份，WSL2 场景固定 PARTIAL，避免基线随运行测试的主机变化。
+预检完成后的计划摘要必须保留当前表单的输入尺度、预热和正式窗口数；
+Runtime 解析结果只更新运行方式，不能把预检专用配置的默认值写入实验摘要。
 WSL2 检测等待场景通过 F5 启动模拟受控任务，在 Monitor 内显示接口阶段和原始日志，
 不打开被动 Preparation Modal；截图前验证测量未开始、日志可见且停止按钮可用。
+准备日志经 `LogController.flush()` 显式提交后再截图，不依赖 250 ms 批处理定时器是否已触发；
+只固定日志控制器的阶段计时，不修改 Textual 事件循环的时钟。
 模型确认场景从上述等待状态接收明确的 review 请求后打开 Preparation Modal，核对模型字段、
 中英文确认标签、按钮无遮挡与 Tab 可达；确认请求绑定当前模拟进程和 request ID。
 基线在 `tests/visual/__snapshots__/`。测试隔离设置、固定主题和显示路径，不启动采集或外部服务。
@@ -68,6 +72,7 @@ uv run pytest tests/visual
 不能只设置 `measurement_active=True` 而让阶段状态保留 `not_started`。
 测量中和清理未完成的场景还须模拟由应用管理、`poll()` 返回 `None` 的进程，
 并隔离停止操作；截取前断言停止按钮可用，不启动真实采集或向真实进程发送信号。
+清理超时未确认测量结束时，状态区须显示失败详情，原文须保留，日志仍暂停重绘且无刷新定时器。
 
 先查看 pytest 提供的 SVG unified diff 与 `ACPROF_SNAPSHOT_OUTPUT_DIR` 中的实际截图；
 有意变更时人工审阅并更新相应的 `tests/visual/__snapshots__` SVG 文件。

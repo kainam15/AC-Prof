@@ -1,6 +1,7 @@
 """Fixed rendering fixtures; run only in the pinned snapshot environment."""
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -44,6 +45,8 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.platform.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
+    # Freeze stage-log durations without changing Textual's event-loop clock.
+    monkeypatch.setattr("acprof.tui.log_controller.time", SimpleNamespace(monotonic=lambda: 1.0))
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
     monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
     app.configuration.preferences = replace(app.configuration.preferences, theme="acprof-graphite", language=language)
@@ -70,6 +73,9 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             snapshot = tracker.feed(encode_event("interface", "running"))
             app.consume_process_line("Checking model interface...", snapshot, True)
             app.preflight.preparation_event({"stage": "interface", "status": "running"})
+            # Capture the completed preparation batch, not the 250 ms timer's
+            # incidental position relative to the screenshot.
+            app.logs.flush()
             await pilot.pause()
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
             assert app.screen.id == "_default"
@@ -149,6 +155,12 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
             app.consume_process_line("", snapshot, True)
             if scene == "cleanup-incomplete":
                 app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
+                detail = app.query_one("#status-detail", Static).content
+                assert isinstance(detail, str)
+                assert "SIGTERM timeout" in detail
+                assert "SIGTERM timeout" in app.query_one("#run-log", SelectableLog).raw_text
+            assert app.query_one("#run-log", SelectableLog).suspended
+            assert app.logs.timer is None
             assert not app.query_one("#stop-run", Button).disabled
             app.clear_notifications()
         await pilot.pause()
