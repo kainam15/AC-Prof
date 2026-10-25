@@ -314,6 +314,7 @@ class PreflightController:
         self.checks = tuple(checks)
         self.error = error
         self.app.set_busy(False)
-        if self.checked_config is not None:
-            self.app.configuration.update_plan_summary(self.checked_config)
+        # Preflight only retains diagnostic fields, not the user's workload or
+        # window counts. Re-read the editable form with the resolved runtime.
+        self.app.configuration.refresh_command_preview(notify=False)
         self.app.recovery.finish_recovery_check()

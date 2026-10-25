@@ -34,6 +34,60 @@ class TestStartupPreflight:
         await asyncio.wait_for(app.workers.wait_for_complete(), 10)
         await pilot.pause()
 
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    @pytest.mark.parametrize("runtime", ["docker", "process"])
+    async def test_completed_preflight_preserves_smoke_plan(self, language, runtime):
+        app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
+        checks = [PreflightCheck("Runtime", "ok", "ready", runtime_kind=runtime)]
+        with patch("acprof.tui.preflight_controller.quick_preflight", return_value=checks):
+            async with app.run_test(size=(120, 30)) as pilot:
+                await self.finish_check(app, pilot)
+                summary = app.query_one("#run-plan-summary", Static).content
+                assert isinstance(summary, str)
+                runtime_label = "运行方式：" if language == "zh" else "Runtime: "
+                assert f"{runtime_label}{runtime}" in summary
+                assert ("预热 0 / 正式 1 窗口" if language == "zh" else
+                        "0 warmup / 1 measured windows") in summary
+                assert ("最小单一尺度" if language == "zh" else "Smallest single scale") in (
+                    app.query_one("#input-scales", Input).placeholder
+                )
+                config = app.configuration.collect_config(allow_empty_model=True)
+                assert (config.input_scale_policy, config.warmup, config.repeat) == ("minimal", 0, 1)
+
+    @pytest.mark.parametrize("repeat", [7, 0], ids=["edited-plan", "invalid-plan"])
+    async def test_preflight_completion_uses_edits_made_while_checking(self, repeat):
+        release = threading.Event()
+
+        def slow_check(*_args, **_kwargs):
+            if not release.wait(10):
+                raise TimeoutError("test did not release diagnostics")
+            return [PreflightCheck("Runtime", "ok", "ready", runtime_kind="docker")]
+
+        app = self.make_app()
+        with patch("acprof.tui.preflight_controller.quick_preflight", side_effect=slow_check):
+            async with app.run_test(size=(120, 30)) as pilot:
+                try:
+                    await pilot.pause()
+                    assert app.preflight.check_running
+                    app.configuration.apply_config(replace(
+                        RunConfig.smoke("fixture/model"), input_scales="16,32", warmup=3, repeat=repeat,
+                    ))
+                finally:
+                    release.set()
+                await self.finish_check(app, pilot)
+                summary = app.query_one("#run-plan-summary", Static).content
+                command = app.query_one("#command-preview", Static).content
+                assert isinstance(summary, str)
+                assert isinstance(command, str)
+                if repeat:
+                    assert "输入 2 档" in summary
+                    assert "预热 6 / 正式 14 窗口" in summary
+                    assert "--repeat 7" in command
+                else:
+                    assert "配置尚未完成" in command
+                    assert "每条件计划 5 个正式窗口" not in summary
+
     async def test_startup_is_once_async_and_success_is_silent(self):
         release = threading.Event()
 
