@@ -22,7 +22,7 @@ from acprof.tui.views import ConfirmActionScreen
 pytestmark = pytest.mark.visual
 
 
-@pytest.mark.parametrize("language,size,scene", [
+@pytest.mark.parametrize(("language", "size", "scene"), [
     ("zh", (80, 24), "form"),
     ("en", (120, 30), "form"),
     ("zh", (150, 45), "form"),
@@ -41,12 +41,12 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
     monkeypatch.setattr("acprof.tui.app.PROJECT_DIR", Path("/workspace"))
     monkeypatch.setattr("acprof.tui.app.PYTHON_EXECUTABLE", Path("/usr/bin/python"))
     environment = Environment("wsl2" if scene in {"wsl-preparation", "wsl-review"} else "native_linux")
-    monkeypatch.setattr("acprof.tui.app.detect_environment", lambda: environment)
+    monkeypatch.setattr("acprof.platform.detect_environment", lambda: environment)
     monkeypatch.setattr("acprof.tui.diagnostics.detect_environment", lambda: environment)
-    monkeypatch.setattr("acprof.tui.app.quick_preflight", lambda *args, **kwargs: [])
+    monkeypatch.setattr("acprof.tui.preflight_controller.quick_preflight", lambda *args, **kwargs: [])
     app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
-    monkeypatch.setattr(app, "_execute_command", lambda *args, **kwargs: None)
-    app.ui_preferences = replace(app.ui_preferences, theme="acprof-graphite", language=language)
+    monkeypatch.setattr(app.process, "execute_command", lambda *args, **kwargs: None)
+    app.configuration.preferences = replace(app.configuration.preferences, theme="acprof-graphite", language=language)
 
     async def prepare(pilot):
         await pilot.pause()
@@ -55,32 +55,33 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         app.clear_notifications()
         app.set_input_cursor_blink_enabled(False)
         if scene in {"wsl-preparation", "wsl-review"}:
-            monkeypatch.setattr(app, "_format_elapsed", lambda _seconds: "00:00:01")
+            monkeypatch.setattr(app, "format_elapsed", lambda _seconds: "00:00:01")
             await pilot.press("f5")
             await app.workers.wait_for_complete()
             await pilot.pause()
-            assert app._process_kind == "run"
-            assert app._active_run_config.profiling_mode == "basic"
+            assert app.process_kind == "run"
+            assert app.active_run_config.profiling_mode == "basic"
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app._lifecycle, "process", process)
-            monkeypatch.setattr(app._lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
-            app._process_started(process.pid, "run")
+            monkeypatch.setattr(app.lifecycle, "process", process)
+            monkeypatch.setattr(app.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            app.process_started(process.pid, "run")
             tracker = RunProgressTracker()
             snapshot = tracker.feed(encode_event("interface", "running"))
-            app._consume_process_line("Checking model interface...", snapshot, True)
-            app._preparation_event({"stage": "interface", "status": "running"})
+            app.consume_process_line("Checking model interface...", snapshot, True)
+            app.preflight.preparation_event({"stage": "interface", "status": "running"})
             await pilot.pause()
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
             assert app.screen.id == "_default"
-            assert app._preparation_screen is None
+            assert app.preflight.preparation_screen is None
             assert app.query_one("#status-stage", Static).content == app.tr("正在确认模型接口…")
-            assert app._latest_snapshot.interface_status == "running"
-            assert app._latest_snapshot.runtime_status == "not_started"
-            assert not app._latest_snapshot.measurement_active
+            assert app.latest_snapshot.interface_status == "running"
+            assert app.latest_snapshot.runtime_status == "not_started"
+            assert not app.latest_snapshot.measurement_active
             log = app.query_one("#run-log", SelectableLog)
             assert "Checking model interface..." in log.text
-            assert log.region.width > 0 and log.region.height > 0
+            assert log.region.width > 0
+            assert log.region.height > 0
             assert app.get_widget_at(log.content_region.x + 1, log.content_region.y + 1)[0] is log
             assert not app.query_one("#stop-run", Button).disabled
             if scene == "wsl-review":
@@ -89,30 +90,31 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                            "fields": {"model": "fixture/model", "revision": "a" * 40,
                                       "task": "fill-mask", "backend": "transformers_pipeline"}}
                 snapshot = tracker.feed(encode_event("resolution", "waiting", request=request))
-                app._consume_process_line("Model fields require confirmation.", snapshot, True)
-                app._preparation_event({"stage": "resolution", "status": "waiting", "request": request})
+                app.consume_process_line("Model fields require confirmation.", snapshot, True)
+                app.preflight.preparation_event({"stage": "resolution", "status": "waiting", "request": request})
                 await pilot.pause()
                 assert isinstance(app.screen, PreparationScreen)
-                assert app._preparation_request == (process, 1)
-                assert app._latest_snapshot.interface_status == "waiting"
-                assert not app._latest_snapshot.measurement_active
+                assert app.preflight.preparation_request == (process, 1)
+                assert app.latest_snapshot.interface_status == "waiting"
+                assert not app.latest_snapshot.measurement_active
                 assert "fixture/model" in app.screen.query_one("#preparation-fields", Static).content
                 confirm = app.screen.query_one("#preparation-continue", Button)
                 assert str(confirm.label) == ("确定" if language == "zh" else "Confirm")
                 for identifier in ("preparation-cancel", "preparation-continue"):
                     button = app.screen.query_one(f"#{identifier}", Button)
                     assert not button.disabled
-                    assert button.region.width > 0 and button.region.height > 0
+                    assert button.region.width > 0
+                    assert button.region.height > 0
                     assert app.get_widget_at(button.region.x + 1, button.region.y + 1)[0] is button
                 await pilot.press("tab")
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
         elif scene == "resized-table":
-            app._report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
+            app.results.report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
                 (ReportRow(("Application latency", "25 ms", "ok"), "Fixed fixture"),), "Fixed fixture")
-            app._render_report_view()
-            app._activate_tab("reports-tab")
+            app.results.render_report_view()
+            app.activate_tab("reports-tab")
             await pilot.pause()
             table = app.query_one("#report-table", ResizableDataTable)
             # This scene verifies the drag result, without a timing-dependent
@@ -129,24 +131,24 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
         elif scene in {"measuring", "cleanup-incomplete"}:
             process = Mock(pid=12345, returncode=None)
             process.poll.return_value = None
-            monkeypatch.setattr(app._lifecycle, "process", process)
-            monkeypatch.setattr(app._lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
-            app._process_kind = "run"
-            app._active_command = ("acprof", "run")
-            app._pending_launch = None
+            monkeypatch.setattr(app.lifecycle, "process", process)
+            monkeypatch.setattr(app.lifecycle, "stop", lambda **kwargs: StopResult(12345, 0))
+            app.process_kind = "run"
+            app.active_command = ("acprof", "run")
+            app.experiments.pending_launch = None
             snapshot = ProgressSnapshot(
                 stage=Stage.MEASURING, detail="Fixed measurement window",
                 current_case=1, total_cases=4, cpu="2", mem="4", gpu="off", measurement_active=True,
                 interface_status="passed", runtime_status="passed", measurement_status="running",
             )
-            app._set_busy(True)
+            app.set_busy(True)
             await pilot.pause()
-            app._activate_tab("monitor-tab")
+            app.activate_tab("monitor-tab")
             await pilot.pause()
             assert app.query_one("#main-tabs", TabbedContent).active == "monitor-tab"
-            app._consume_process_line("", snapshot, True)
+            app.consume_process_line("", snapshot, True)
             if scene == "cleanup-incomplete":
-                app._process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
+                app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
             assert not app.query_one("#stop-run", Button).disabled
             app.clear_notifications()
         await pilot.pause()

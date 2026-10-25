@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_library_imports_are_silent_and_do_not_configure_root_logging():
     modules = ["orchestrator", "posthoc.service", "preflight", "client",
-               "execution_profile", "input_plan", "largest_scale_probe", "profilers.ncu"]
+               "profiling.execution", "input_plan", "largest_scale_probe", "profiling.tools.ncu"]
     result = subprocess.run([sys.executable, "-c", (
         "import importlib, logging; before = list(logging.getLogger().handlers); "
         f"[importlib.import_module('acprof.host.' + m) for m in {modules!r}]; "

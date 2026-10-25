@@ -36,7 +36,7 @@ def task_info(tag="image-text-to-text", family="unknown"):
     )
 
 
-@pytest.mark.parametrize('tag,family,batch_size', (('image-to-text', 'nlp', 1), ('video-classification', 'unknown', 1), ('image-to-text', 'cv', 2)))
+@pytest.mark.parametrize(("tag", "family", "batch_size"), [('image-to-text', 'nlp', 1), ('video-classification', 'unknown', 1), ('image-to-text', 'cv', 2)])
 @pytest.mark.parametrize('module_case', range(2), ids=['run', 'probe'])
 def test_run_and_probe_reject_unsupported_tasks_before_build_or_results(tag, family, batch_size, module_case):
     module = tuple((run, probe))[module_case]
@@ -99,7 +99,7 @@ def test_manual_override_can_correct_hub_metadata():
         info = detect.detect_task("example/model", override_tag="image-classification")
     assert ((info.pipeline_tag, info.task_family)) == (("image-classification", "cv"))
 
-@pytest.mark.parametrize('architecture', ('BlipForConditionalGeneration', 'Blip2ForConditionalGeneration', 'InstructBlipForConditionalGeneration', 'VisionEncoderDecoderModel'))
+@pytest.mark.parametrize('architecture', ['BlipForConditionalGeneration', 'Blip2ForConditionalGeneration', 'InstructBlipForConditionalGeneration', 'VisionEncoderDecoderModel'])
 def test_blip_architecture_fallback_does_not_treat_images_as_nlp(architecture):
     with tempfile.TemporaryDirectory() as tmp:
         config = Path(tmp) / "snapshots" / ("a" * 40) / "config.json"
@@ -109,7 +109,7 @@ def test_blip_architecture_fallback_does_not_treat_images_as_nlp(architecture):
             info = detect._detect_from_config("example/caption-model")
     assert ((info.pipeline_tag, info.task_family)) == (("image-to-text", "cv"))
 
-@pytest.mark.parametrize('task,family', (('fill-mask', 'nlp'), ('text-generation', 'nlp'), ('image-classification', 'cv'), ('object-detection', 'cv'), ('image-to-text', 'cv'), ('automatic-speech-recognition', 'audio'), ('time-series-forecasting', 'timeseries'), ('text-to-image', 'diffusion')))
+@pytest.mark.parametrize(("task", "family"), [('fill-mask', 'nlp'), ('text-generation', 'nlp'), ('image-classification', 'cv'), ('object-detection', 'cv'), ('image-to-text', 'cv'), ('automatic-speech-recognition', 'audio'), ('time-series-forecasting', 'timeseries'), ('text-to-image', 'diffusion')])
 def test_supported_families_remain_available_and_wrong_family_is_actionable(task, family):
     require_task_support(task_info(task, family))
     with pytest.raises(TaskSupportError) as caught:
@@ -144,9 +144,9 @@ def test_progress_preserves_unsupported_task_and_points_to_remedies():
     assert ("log") in (translate(state.detail, "en"))
 
 
-@pytest.mark.parametrize('language', ('zh', 'en'))
-@pytest.mark.parametrize('kind', ('run', 'probe'))
-@pytest.mark.parametrize('size', ((80, 24), (120, 30)))
+@pytest.mark.parametrize('language', ['zh', 'en'])
+@pytest.mark.parametrize('kind', ['run', 'probe'])
+@pytest.mark.parametrize('size', [(80, 24), (120, 30)])
 async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(language, kind, size):
     with pytest.raises(TaskSupportError) as caught:
         require_task_support(task_info())
@@ -159,35 +159,35 @@ async def test_run_and_probe_keep_actionable_failure_visible_in_both_languages(l
         app = AcprofTui(config, settings_path=Path(tmp) / "tui.json")
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            app.ui_preferences = replace(app.ui_preferences, language=language)
-            app._apply_language()
-            with patch.object(app, "_execute_command"):
-                app._launch(PendingLaunch(("unused",), kind, config))
+            app.configuration.preferences = replace(app.configuration.preferences, language=language)
+            app.localization.apply_language()
+            with patch.object(app.process, "execute_command"):
+                app.launch(PendingLaunch(("unused",), kind, config))
             await pilot.pause()
             tracker = RunProgressTracker()
             for line in lines:
                 previous = tracker.snapshot
                 state = tracker.feed(line)
-                app._consume_process_line(line, state, previous != state)
+                app.consume_process_line(line, state, previous != state)
             with patch.object(app, "notify") as notify, patch.object(
-                app, "_update_result_summary"
+                app.results, "update_result_summary"
             ) as read_old_results:
-                app._process_finished(kind, 2, tracker.snapshot, "")
+                app.process_finished(kind, 2, tracker.snapshot, "")
             await pilot.pause()
-            assert (app._latest_snapshot.stage) == (Stage.TASK_UNSUPPORTED)
+            assert (app.latest_snapshot.stage) == (Stage.TASK_UNSUPPORTED)
             assert (app.query_one("#status-stage", Static).content) == ("任务不支持" if language == "zh" else "Unsupported task")
             stage = app.query_one("#status-stage", Static)
             assert (stage.region.width) > (0)
             assert (stage.region.height) > (0)
             assert (stage.region.bottom) < (size[1])
             assert (stage.is_on_screen)
-            assert ("image-text-to-text") in (app._latest_snapshot.detail)
+            assert ("image-text-to-text") in (app.latest_snapshot.detail)
             assert ("解决办法") in (app.query_one("#run-log", SelectableLog).text)
             assert ("处理办法" if language == "zh" else "Remedies:") in (app.query_one("#run-log", SelectableLog).text.splitlines()[-1])
             assert ("image-text-to-text") in (str(notify.call_args.args[0]))
             assert not (app.query_one("#start-run", Button).disabled)
             assert not (app.query_one("#probe-largest", Button).disabled)
-            assert (app._latest_snapshot.completed_cases) == (0)
-            assert not (app._latest_snapshot.measurement_active)
+            assert (app.latest_snapshot.completed_cases) == (0)
+            assert not (app.latest_snapshot.measurement_active)
             read_old_results.assert_not_called()
             assert (old_csv.read_text(encoding="utf-8")) == ("existing measurement\n")

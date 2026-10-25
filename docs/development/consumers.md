@@ -161,6 +161,7 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 使用标准库 `pathlib` 与已有 Textual worker 实现，不复制其扫描策略、不新增依赖或测量期活动。
 根级 `acprof.run_options.RunOptions` 是共享配置字段、默认值、CLI 元数据和 run/probe 适用性的唯一声明；
 `RunConfig` 继承这些字段并负责验证与预设，两个 parser 和命令构造器消费同一 schema。
+命令参数及 TUI 命令预览按共享字段的声明顺序生成；参数含义与历史配置格式保持一致。
 `acprof.run_args` 保留高级参数及冻结参数序列化；CLI 的 `download_args` 仅负责执行时应用环境变量。
 新增共享字段无需再同步表单配置、run/probe parser 和命令字段名单。
 该方式参考 [Transformers HfArgumentParser](https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py)

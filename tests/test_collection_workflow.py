@@ -66,7 +66,7 @@ class TestCollectionWorkflow:
         assert not (any(item.get("request") for item in records))
         assert (self.run.calls) == ([1, 2])
 
-    @pytest.mark.parametrize("rebuild", (False, True))
+    @pytest.mark.parametrize("rebuild", [False, True])
     def test_cli_prepares_image_with_requested_policy(self, rebuild):
         policies = []
         def prepare(_task, _root, *, reuse_existing):
@@ -126,7 +126,7 @@ class TestCollectionWorkflow:
         assert (json.loads(failures[0].read_text())["status"]) == ("error")
         assert (json.loads((self.run.directory / "metadata/runtime_validation.json").read_text())["status"]) == ("ok")
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_validation_failure_archive_rejects_untrusted_report(self, case):
         from acprof.artifact_layout import ArtifactLayout
 
@@ -140,7 +140,7 @@ class TestCollectionWorkflow:
             raw = b'{"status":"error","padding":"' + b"x" * MAX_JSON_ARTIFACT_BYTES + b'"}'
         report.write_bytes(raw)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid runtime validation JSON|runtime validation exceeds"):
             retain_validation_failure(str(root))
 
         assert not list((root / "logs/runtime-attempts").glob("*"))
@@ -194,7 +194,7 @@ class TestCollectionWorkflow:
         assert ([item["status"] for item in runtime]) == (["passed"])
         assert (self.run.calls) == ([2])
 
-    @pytest.mark.parametrize("case", ("nonfinite", "oversized"))
+    @pytest.mark.parametrize("case", ["nonfinite", "oversized"])
     def test_resume_rejects_untrusted_static_metadata_before_measurement(self, case):
         self.run.interrupt_after_first()
         meta_path = self.run.directory / "static_meta.json"
@@ -217,7 +217,7 @@ class TestCollectionWorkflow:
         assert self.run.calls == calls_before
 
     def test_resume_does_not_treat_resource_limit_as_successful_validation(self):
-        def interrupted(**_kwargs):
+        def interrupted(request, **_kwargs):
             raise KeyboardInterrupt()
 
         with pytest.raises(KeyboardInterrupt):
@@ -277,7 +277,7 @@ class TestCollectionWorkflow:
             workflow.resolve(self.args())
         ask.assert_called_once()
 
-    @pytest.mark.parametrize("corruption", ("nonfinite", "top_level", "oversized"))
+    @pytest.mark.parametrize("corruption", ["nonfinite", "top_level", "oversized"])
     def test_invalid_decision_cache_is_ignored_before_review(self, corruption):
         task = contracts.TestModelContract().discover(
             contracts.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]')
@@ -348,7 +348,7 @@ class TestCollectionWorkflow:
             with pytest.raises(ValueError, match="non-finite number"):
                 workflow.ask("runtime", "error", detail="missing file")
 
-    @pytest.mark.parametrize("stage", ("image", "runtime"))
+    @pytest.mark.parametrize("stage", ["image", "runtime"])
     def test_rebuild_request_is_explicit_and_invalidates_preparation(self, stage):
         from acprof.host.collection_workflow import RebuildEnvironment
 
