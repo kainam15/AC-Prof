@@ -1388,7 +1388,7 @@ class TestResourceUsageCsvPlot:
                     {
                         "cpu_cores": "1",
                         "mem_cap_gb": "4",
-                        "gpu_mode": "unknown",
+                        "gpu_mode": "OFF",
                         "input_scale": "64",
                         "warmup": "0",
                         "status": "ok",

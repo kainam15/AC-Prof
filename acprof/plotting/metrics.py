@@ -11,6 +11,7 @@ from matplotlib.figure import Figure
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 
+from acprof.analysis.inputs import resource_coordinate
 from acprof.plotting.config import (
     GPU_GREEN,
     MEM_COLORED_METRICS,
@@ -54,8 +55,8 @@ def plot_metric(
         print(f"[skip] {metric} all NaN")
         return
 
-    cpu_values = sorted(int(value) for value in agg_df["cpu_cores"].unique())
-    mem_values = sorted(int(value) for value in agg_df["mem_cap_gb"].unique())
+    cpu_values = sorted(resource_coordinate(value) for value in agg_df["cpu_cores"].unique())
+    mem_values = sorted(resource_coordinate(value) for value in agg_df["mem_cap_gb"].unique())
     cpu_colors = build_cpu_base_colors(cpu_values)
     cpu_rank_map = {cpu: index for index, cpu in enumerate(cpu_values)}
     mem_rank_map = {mem: index for index, mem in enumerate(mem_values)}
@@ -63,7 +64,7 @@ def plot_metric(
 
     configs = sorted(
         {
-            (int(row.cpu_cores), int(row.mem_cap_gb), bool(row.gpu_on))
+            (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on))
             for row in agg_df.itertuples(index=False)
         },
         key=_sort_key,
@@ -118,8 +119,8 @@ def plot_metric(
 
 def _overview_config_legend(
     fig: Figure,
-    configs: list[tuple[int, int, bool]],
-    config_colors: dict[tuple[int, int, bool], tuple[float, float, float]],
+    configs: list[tuple[float, float, bool]],
+    config_colors: dict[tuple[float, float, bool], tuple[float, float, float]],
     *,
     column_limit: int,
 ) -> Legend:
@@ -602,14 +603,14 @@ def plot_cold_start_bar(
         print("[skip] cold_start_s all NaN")
         return
 
-    cpu_values = sorted(int(value) for value in agg_df["cpu_cores"].unique())
-    mem_values = sorted(int(value) for value in agg_df["mem_cap_gb"].unique())
+    cpu_values = sorted(resource_coordinate(value) for value in agg_df["cpu_cores"].unique())
+    mem_values = sorted(resource_coordinate(value) for value in agg_df["mem_cap_gb"].unique())
     cpu_colors = build_cpu_base_colors(cpu_values)
     mem_rank_map = {mem: index for index, mem in enumerate(mem_values)}
 
     configs = sorted(
         [
-            (int(row.cpu_cores), int(row.mem_cap_gb), bool(row.gpu_on), row.config, float(row.cold_start_s))
+            (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on), row.config, float(row.cold_start_s))
             for row in agg_df.itertuples(index=False)
         ],
         key=lambda item: _sort_key(item[:3]),

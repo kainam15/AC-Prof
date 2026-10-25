@@ -9,6 +9,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+from acprof.analysis.inputs import resource_coordinate
 from acprof.plotting.config import (
     COLD_START_PHASE_SPECS,
     FEASIBILITY_STATE_INDEX,
@@ -142,8 +143,8 @@ def plot_resource_feasibility_heatmap(
         print("[skip] No resource feasibility data")
         return False
 
-    cpu_values = sorted(int(value) for value in summary["cpu_cores"].dropna().unique())
-    mem_values = sorted(int(value) for value in summary["mem_cap_gb"].dropna().unique())
+    cpu_values = sorted(resource_coordinate(value) for value in summary["cpu_cores"].dropna().unique())
+    mem_values = sorted(resource_coordinate(value) for value in summary["mem_cap_gb"].dropna().unique())
     scale_values = sorted(float(value) for value in summary["input_scale"].dropna().unique())
     mode_values = [
         mode
@@ -508,8 +509,8 @@ def plot_latency_energy_pareto(
         squeeze=False,
     )
     flat_axes = list(axes.flat)
-    cpu_values = sorted(int(value) for value in pareto_df["cpu_cores"].unique())
-    mem_values = sorted(int(value) for value in pareto_df["mem_cap_gb"].unique())
+    cpu_values = sorted(resource_coordinate(value) for value in pareto_df["cpu_cores"].unique())
+    mem_values = sorted(resource_coordinate(value) for value in pareto_df["mem_cap_gb"].unique())
     cpu_colors = build_cpu_base_colors(cpu_values)
     for panel_index, input_scale in enumerate(scale_values):
         axis = flat_axes[panel_index]
@@ -520,8 +521,8 @@ def plot_latency_energy_pareto(
         energy_values = scale_df[energy_column].to_numpy(dtype=float)
         frontier_mask = _pareto_frontier_mask(latency_values, energy_values)
         for point_index, point in enumerate(scale_df.itertuples(index=False)):
-            cpu = int(point.cpu_cores)
-            mem = int(point.mem_cap_gb)
+            cpu = resource_coordinate(point.cpu_cores)
+            mem = resource_coordinate(point.mem_cap_gb)
             gpu_on = bool(point.gpu_on)
             marker = "o" if gpu_on else "s"
             axis.scatter(

@@ -3,6 +3,13 @@
 [← 返回专题目录](metrics.md)
 
 ## 绘图入口
+
+分析与绘图入口允许正有限的小数 CPU／内存坐标；配置键、残差 CSV、标签与拟合曲线
+保留解析后的数值，不截断为整数。采集矩阵本身仍只接受正整数资源配置。
+残差 `input_scale` 使用可往返恢复 Python `float` 的表示，显示格式不用于身份匹配。
+普通 CSV 的 `gpu_mode` 接受 `on/off` 以及既有 `1/0`、`true/false`、`yes/no`、
+`gpu/cpu` 别名（忽略大小写与首尾空格）；缺失或未知值会在状态过滤和分组之前报错，
+不会静默丢掉对应行。正式分层结果仍要求规范的 `on/off` 身份。
 ```bash
 acprof plot \
   results/smoke/google-bert--bert-base-uncased/result_all.csv

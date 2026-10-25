@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-GPU_MODE_ON_VALUES = {"on", "1", "1.0", "true", "yes", "gpu"}
-GPU_MODE_OFF_VALUES = {"off", "0", "0.0", "false", "no", "cpu"}
+from acprof.analysis.inputs import normalize_gpu_mode
+
 LATENCY_MODEL_FEATURES = {
     "cpu": [
         "intercept",
@@ -94,14 +94,7 @@ LATENCY_MODEL_MIN_VALIDATION_POINTS = 4
 
 
 def _hardware_model_name(gpu_mode: object) -> str:
-    if pd.isna(gpu_mode):
-        raise ValueError("gpu_mode contains a missing value")
-    normalized = str(gpu_mode).strip().lower()
-    if normalized in GPU_MODE_ON_VALUES:
-        return "gpu"
-    if normalized in GPU_MODE_OFF_VALUES:
-        return "cpu"
-    raise ValueError(f"unsupported gpu_mode value: {gpu_mode!r}")
+    return "gpu" if normalize_gpu_mode(gpu_mode) == "on" else "cpu"
 
 
 def _format_input_scale_knot(input_scale: float) -> str:

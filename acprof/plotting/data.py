@@ -5,10 +5,7 @@ import os
 
 import pandas as pd
 
-from acprof.analysis.latency_model import (
-    GPU_MODE_OFF_VALUES,
-    GPU_MODE_ON_VALUES,
-)
+from acprof.analysis.inputs import normalize_gpu_mode, resource_coordinate
 from acprof.metric_registry import NUMERIC_FIELDS
 from acprof.pixel_metrics import (
     PIXEL_COUNT_FIELDS,
@@ -20,8 +17,8 @@ from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_
 
 
 def make_config_label(row) -> str:
-    cpu = int(row["cpu_cores"])
-    mem = int(row["mem_cap_gb"])
+    cpu = resource_coordinate(row["cpu_cores"])
+    mem = resource_coordinate(row["mem_cap_gb"])
     if is_gpu_on(row["gpu_mode"]):
         label = f"GPU+CPU{cpu}+Mem{mem}"
     else:
@@ -30,15 +27,17 @@ def make_config_label(row) -> str:
 
 
 def is_gpu_on(gpu_mode: object) -> bool:
-    return str(gpu_mode).strip().lower() in GPU_MODE_ON_VALUES
+    return normalize_gpu_mode(gpu_mode) == "on"
 
 
 def is_gpu_off(gpu_mode: object) -> bool:
-    return str(gpu_mode).strip().lower() in GPU_MODE_OFF_VALUES
+    return normalize_gpu_mode(gpu_mode) == "off"
 
 
 def build_plot_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     """Split plot inputs into CPU-only, GPU-only, and comparison groups."""
+    df = df.copy()
+    df["gpu_mode"] = df["gpu_mode"].map(normalize_gpu_mode)
     if "environment_class" in df.columns:
         groups = []
         for environment, subset in df.groupby("environment_class", dropna=False):
@@ -120,13 +119,16 @@ def prepare_df(
 
     from acprof.result_csv import open_result_text
     with open_result_text(csv_path) as stream:
-        df = pd.read_csv(stream, skipinitialspace=True)
+        df = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip")
     df.columns = [str(col).strip() for col in df.columns]
     from acprof.result_csv import require_current_fields
     require_current_fields(df.columns)
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].map(lambda value: value.strip() if isinstance(value, str) else value)
+
+    if "gpu_mode" in df:
+        df["gpu_mode"] = df["gpu_mode"].map(normalize_gpu_mode)
 
     static_meta = read_static_meta(csv_path)
     environment = recorded_identity(static_meta)["environment_class"]

@@ -5,6 +5,7 @@ import colorsys
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from acprof.analysis.inputs import resource_coordinate
 from acprof.plotting.config import (
     CPU_FIXED_COLORS,
     GPU_GREEN,
@@ -12,12 +13,12 @@ from acprof.plotting.config import (
 )
 
 
-def _sort_key(config: tuple[int, int, bool]) -> tuple[int, int, int]:
+def _sort_key(config: tuple[float, float, bool]) -> tuple[int, float, float]:
     cpu, mem, gpu_on = config
     return 0 if gpu_on else 1, cpu, mem
 
 
-def build_cpu_base_colors(cpu_values: list[int]) -> dict[int, tuple[float, float, float]]:
+def build_cpu_base_colors(cpu_values: list[float]) -> dict[float, tuple[float, float, float]]:
     color_map = plt.get_cmap("tab10")
     cpu_colors = {}
     for index, cpu in enumerate(cpu_values):
@@ -56,8 +57,8 @@ def shade_for_cpu(
 
 
 def build_gpu_mixed_colors(
-    configs: list[tuple[int, int, bool]],
-) -> dict[tuple[int, int, bool], tuple[float, float, float]]:
+    configs: list[tuple[float, float, bool]],
+) -> dict[tuple[float, float, bool], tuple[float, float, float]]:
     gpu_configs = [config for config in configs if config[2]]
     gpu_cpus = sorted({cpu for cpu, _, gpu_on in gpu_configs if gpu_on})
     if not gpu_configs:
@@ -70,7 +71,7 @@ def build_gpu_mixed_colors(
     }
 
 
-def color_for_mem(mem: int, mem_rank: int) -> tuple[float, float, float]:
+def color_for_mem(mem: float, mem_rank: int) -> tuple[float, float, float]:
     if mem in MEM_FIXED_COLORS:
         return MEM_FIXED_COLORS[mem]
 
@@ -81,24 +82,24 @@ def color_for_mem(mem: int, mem_rank: int) -> tuple[float, float, float]:
 def _configurations_with_colors(
     agg_df: pd.DataFrame,
 ) -> tuple[
-    list[tuple[int, int, bool]],
-    dict[tuple[int, int, bool], tuple[float, float, float]],
+    list[tuple[float, float, bool]],
+    dict[tuple[float, float, bool], tuple[float, float, float]],
 ]:
     """Return sorted configurations and the standard color for each one."""
-    cpu_values = sorted(int(value) for value in agg_df["cpu_cores"].unique())
-    mem_values = sorted(int(value) for value in agg_df["mem_cap_gb"].unique())
+    cpu_values = sorted(resource_coordinate(value) for value in agg_df["cpu_cores"].unique())
+    mem_values = sorted(resource_coordinate(value) for value in agg_df["mem_cap_gb"].unique())
     cpu_colors = build_cpu_base_colors(cpu_values)
     mem_rank_map = {mem: index for index, mem in enumerate(mem_values)}
     configs = sorted(
         {
-            (int(row.cpu_cores), int(row.mem_cap_gb), bool(row.gpu_on))
+            (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb), bool(row.gpu_on))
             for row in agg_df.itertuples(index=False)
         },
         key=_sort_key,
     )
     has_cpu_series = any(not gpu_on for _, _, gpu_on in configs)
     gpu_mixed_colors = build_gpu_mixed_colors(configs) if has_cpu_series else {}
-    colors: dict[tuple[int, int, bool], tuple[float, float, float]] = {}
+    colors: dict[tuple[float, float, bool], tuple[float, float, float]] = {}
     for cpu, mem, gpu_on in configs:
         if gpu_on and has_cpu_series:
             colors[(cpu, mem, gpu_on)] = gpu_mixed_colors[(cpu, mem, gpu_on)]

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
+from acprof.analysis.inputs import resource_coordinate
 from acprof.analysis.latency_model import (
     LATENCY_MODEL_FEATURES,
     _model_feature_names,
@@ -64,7 +65,7 @@ def plot_latency_model_residuals(
         print(f"[skip] Cannot find {residuals_path}")
         return False
 
-    residual_df = pd.read_csv(residuals_path, skipinitialspace=True)
+    residual_df = pd.read_csv(residuals_path, skipinitialspace=True, float_precision="round_trip")
     required_columns = {
         "hardware_model",
         "input_scale",
@@ -421,7 +422,7 @@ def plot_latency_model_fit_curves(
         print(f"[skip] Cannot find {report_path}")
         return False
 
-    residual_df = pd.read_csv(residuals_path, skipinitialspace=True)
+    residual_df = pd.read_csv(residuals_path, skipinitialspace=True, float_precision="round_trip")
     required_columns = {
         "hardware_model",
         "cpu_cores",
@@ -510,8 +511,8 @@ def plot_latency_model_fit_curves(
         print("[skip] No fitted CPU/GPU latency models available for curve plot")
         return False
 
-    cpu_values = sorted(int(value) for value in residual_df["cpu_cores"].unique())
-    mem_values = sorted(int(value) for value in residual_df["mem_cap_gb"].unique())
+    cpu_values = sorted(resource_coordinate(value) for value in residual_df["cpu_cores"].unique())
+    mem_values = sorted(resource_coordinate(value) for value in residual_df["mem_cap_gb"].unique())
     cpu_colors = build_cpu_base_colors(cpu_values)
     mem_rank_map = {mem: index for index, mem in enumerate(mem_values)}
     line_styles = ("-", "--", "-.", ":")
@@ -523,7 +524,7 @@ def plot_latency_model_fit_curves(
         squeeze=False,
     )
     axes = list(axes_grid.flat)
-    legend_entries: dict[tuple[int, int], Line2D] = {}
+    legend_entries: dict[tuple[float, float], Line2D] = {}
     hardware_titles = {
         "cpu": "CPU-off model",
         "gpu": "GPU-on model",
@@ -536,7 +537,7 @@ def plot_latency_model_fit_curves(
         model = fitted_models[hardware_model]
         configurations = sorted(
             {
-                (int(row.cpu_cores), int(row.mem_cap_gb))
+                (resource_coordinate(row.cpu_cores), resource_coordinate(row.mem_cap_gb))
                 for row in hardware_df.itertuples(index=False)
             }
         )
