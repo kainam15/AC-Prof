@@ -417,10 +417,14 @@ class AcprofTui(BarCursorApp):
             self.localization.tr(message_id('ui.0783', count))
         )
 
-    def show_deferred_lines(self, lines: tuple[str, ...]) -> None:
+    def show_deferred_lines(self, lines: tuple[str, ...], discarded_entries: int = 0,
+                            oversized_entries: int = 0) -> None:
         log = self.query_one("#run-log", SelectableLog)
         log.write(self.localization.tr(message_id('ui.0784')))
-        log.write("\n".join(lines))
+        if discarded_entries:
+            log.write(self.localization.tr(message_id("ui.2143", discarded_entries, oversized_entries)))
+        if lines:
+            log.write("\n".join(lines))
 
     def write_log(self, line: str) -> None:
         self.query_one("#run-log", SelectableLog).write(self.localization.tr(line))

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from textual.timer import Timer
 from textual.widgets import Checkbox, Select, Static
 
+from acprof.tui.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
@@ -21,12 +22,16 @@ if TYPE_CHECKING:
 class LogController:
     def __init__(self, app: AcprofTui) -> None:
         self.app = app
-        self.pending: list[str] = []
-        self.pending_size = 0
+        self.pending = BoundedLogBuffer(max_entries=5000, max_bytes=8 * 1024 * 1024,
+                                        max_entry_bytes=1024 * 1024)
         self.timer: Timer | None = None
         self.stage: Stage | None = None
         self.stage_started = time.monotonic()
         self.tools_open = False
+
+    @property
+    def pending_size(self) -> int:
+        return self.pending.byte_size
 
     @property
     def log(self) -> SelectableLog:
@@ -34,7 +39,6 @@ class LogController:
 
     def append(self, line: str) -> None:
         self.pending.append(line)
-        self.pending_size += len(line.encode("utf-8"))
         if self.log.suspended:
             return
         if len(self.pending) >= 128 or self.pending_size >= 64 * 1024:
@@ -62,9 +66,14 @@ class LogController:
         if not self.app.is_running or self.app.ui_closing or self.log.suspended:
             return
         if self.pending:
-            self.log.write("\n".join(self.pending))
+            batch = self.pending.snapshot()
+            if batch.discarded_entries:
+                self.log.write(self.app.localization.tr(message_id(
+                    "ui.2143", batch.discarded_entries, batch.oversized_entries,
+                )))
+            if batch.entries:
+                self.log.write("\n".join(batch.entries))
             self.pending.clear()
-            self.pending_size = 0
 
     def suspend(self, measuring: bool) -> None:
         if measuring and self.timer is not None:
@@ -83,7 +92,6 @@ class LogController:
             self.timer.stop()
             self.timer = None
         self.pending.clear()
-        self.pending_size = 0
         self.log.clear_log()
 
     def view_changed(self) -> None:

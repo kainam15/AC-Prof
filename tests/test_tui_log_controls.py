@@ -13,6 +13,36 @@ from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_measurement_warning_flood_is_bounded_and_reports_omissions(tmp_path, language):
+    from acprof.tui.diagnostic_buffer import BoundedLogBuffer
+
+    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=(80, 24)) as pilot:
+        log = app.query_one("#run-log", SelectableLog)
+        app.logs.pending = BoundedLogBuffer(max_entries=4, max_bytes=256, max_entry_bytes=64)
+        app.consume_process_line("", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True)
+        before = log.text
+        with patch.object(log, "_sync_view", side_effect=AssertionError("rendered during measurement")):
+            for text in ("[WARN] first", "[WARN] a", "[WARN] b", "[WARN] c", "[WARN] last", "x" * 65):
+                app.logs.append(text)
+            assert len(app.logs.pending) == 4
+            assert app.logs.pending_size <= 256
+            assert app.logs.timer is None
+            await pilot.pause(0.3)
+            assert log.text == before
+        app.consume_process_line("", ProgressSnapshot(stage=Stage.CLEANING_CASE), True)
+        await pilot.pause()
+        assert "[WARN] first" in log.raw_text
+        assert "[WARN] last" in log.raw_text
+        assert "[WARN] a\n" not in log.raw_text
+        assert ("省略 2 条" if language == "zh" else "omitted 2 log records") in log.raw_text
+        assert ("其中 1 条" if language == "zh" else "including 1 oversized") in log.raw_text
+        app.logs.flush()  # A new stage summary may have queued after the deferred batch.
+        assert not app.logs.pending
+
+
 @pytest.mark.parametrize(('size', 'language'), [((80, 24), 'zh'), ((80, 24), 'en'), ((120, 30), 'en')])
 async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, language):
     app = AcprofTui(RunConfig.smoke('example/test'), settings_path=tmp_path / 'settings.json')

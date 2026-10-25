@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from textual.worker import Worker
 
+from acprof.tui.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.progress import RunProgressTracker
 from acprof.tui.run_results import RunArtifacts, RunResult, inspect_probe_result, inspect_run_result
 
@@ -46,7 +47,7 @@ class ProcessController:
         from acprof.preparation_events import PREFIX, parse_event as parse_preparation_event
         tracker = RunProgressTracker() if kind in {"run", "probe"} else None
         suppressed_lines = 0
-        deferred_important_lines: list[str] = []
+        deferred_important_lines = BoundedLogBuffer()
         process: subprocess.Popen[str] | None = None
         launch_error = ""
         returncode = 1
@@ -86,7 +87,7 @@ class ProcessController:
                     or line.startswith("Traceback")
                 )
                 # perf and tracebacks emit untagged continuation lines. Retain
-                # the complete diagnostic until the next structured log entry.
+                # diagnostic context until the next structured log entry, within bounds.
                 if line.startswith("["):
                     diagnostic_continuation = important
                 elif important:
@@ -113,10 +114,9 @@ class ProcessController:
                     deliver(self.app.consume_process_line, "", snapshot, state_changed)
                     state_changed = False
                     if deferred_important_lines:
-                        deliver(
-                            self.app.show_deferred_lines,
-                            tuple(deferred_important_lines),
-                        )
+                        batch = deferred_important_lines.snapshot()
+                        deliver(self.app.show_deferred_lines, batch.entries,
+                                batch.discarded_entries, batch.oversized_entries)
                         deferred_important_lines.clear()
                     if suppressed_lines:
                         deliver(
@@ -150,7 +150,8 @@ class ProcessController:
             if process is not None and process.poll() is None:
                 # Keep both ownership and the output reader until exit. A failed
                 # UI callback must not orphan a collector or block its pipe.
-                self.watch_failed_process(process, kind, final_snapshot, launch_error, run_before, token)
+                self.watch_failed_process(process, kind, final_snapshot, launch_error, run_before, token,
+                                          deferred_important_lines, suppressed_lines)
             else:
                 if process is not None:
                     if process.stdout is not None:
@@ -168,7 +169,9 @@ class ProcessController:
                 if suppressed_lines:
                     self.safe_process_callback(self.app.show_suppressed_count, suppressed_lines)
                 if deferred_important_lines:
-                    self.safe_process_callback(self.app.show_deferred_lines, tuple(deferred_important_lines))
+                    batch = deferred_important_lines.drain()
+                    self.safe_process_callback(self.app.show_deferred_lines, batch.entries,
+                                               batch.discarded_entries, batch.oversized_entries)
                 self.safe_process_callback(
                     self.app.process_finished, kind, returncode, final_snapshot, launch_error,
                 )
@@ -203,18 +206,23 @@ class ProcessController:
         if self.app.is_running and self.app.form_ready and not self.app.ui_closing:
             callback(*args)
 
-    def watch_failed_process(self, process, kind, snapshot, error, before, token) -> Worker[None]:
+    def watch_failed_process(self, process, kind, snapshot, error, before, token,
+                             deferred: BoundedLogBuffer | None = None, suppressed_lines: int = 0) -> Worker[None]:
         """Schedule this operation on the owning App worker manager."""
         return self.app.run_worker(
-            partial(self._watch_failed_process_worker, process, kind, snapshot, error, before, token),
+            partial(self._watch_failed_process_worker, process, kind, snapshot, error, before, token,
+                    deferred, suppressed_lines),
             name="watch_failed_process", thread=True, group='process-reap', exit_on_error=False,
         )
 
-    def _watch_failed_process_worker(self, process, kind, snapshot, error, before, token) -> None:
+    def _watch_failed_process_worker(self, process, kind, snapshot, error, before, token,
+                                     deferred: BoundedLogBuffer | None = None, suppressed_lines: int = 0) -> None:
+        if deferred is None:
+            deferred = BoundedLogBuffer()
         try:
             if process.stdout is not None:
-                for _ in process.stdout:
-                    pass
+                for line in process.stdout:
+                    deferred.append(line.rstrip("\r\n"))
         except (OSError, ValueError):
             pass
         process.wait()
@@ -223,6 +231,14 @@ class ProcessController:
         if self.app.lifecycle.release(process):
             if kind == "run" and before is not None:
                 self.inspect_finished_run(before, process.pid, token)
+            if suppressed_lines:
+                self.safe_process_callback(self.deliver_process_callback, token,
+                                           self.app.show_suppressed_count, suppressed_lines)
+            if deferred:
+                batch = deferred.drain()
+                self.safe_process_callback(self.deliver_process_callback, token, self.app.show_deferred_lines,
+                                           batch.entries, batch.discarded_entries, batch.oversized_entries)
             self.safe_process_callback(
+                self.deliver_process_callback, token,
                 self.app.process_finished, kind, process.returncode, snapshot, error,
             )
