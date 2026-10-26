@@ -163,7 +163,7 @@ async def test_review_and_error_actions_reply_without_relaunch_at_all_sizes(lang
                     }})
                     await pilot.pause()
                     assert not (list(app.screen.query(Select)))
-                    detail = app.screen.query_one("#preparation-traceback", Static).content
+                    detail = app.screen.query_one("#preparation-traceback", SelectableLog).text
                     assert isinstance(detail, str)
                     assert ("ultravox_config.py") in (detail)
                     button = app.screen.query_one("#preparation-continue", Button)

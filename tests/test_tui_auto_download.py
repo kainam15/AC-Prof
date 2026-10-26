@@ -4,40 +4,59 @@ import sys
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, Collapsible, Input, Select, Static
+from rich.cells import cell_len
+from textual.widgets import Button, Collapsible, Input, Select, Static, Tooltip
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
+from acprof.tui.log import SelectableLog
 from acprof.tui.preparation import ModelSourceScreen, PreparationScreen
 from acprof.tui.process import ProcessLifecycle
 
 
-@pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 40), "en"), ((160, 48), "zh")])
-async def test_failure_actions_keep_diagnostics_folded_and_require_source_confirmation(tmp_path, size, language):
+@pytest.mark.parametrize(("size", "language", "stage"), [
+    ((80, 24), "zh", "model"), ((120, 40), "en", "model"), ((160, 48), "zh", "model"),
+    ((80, 24), "en", "model"), ((80, 24), "en", "runtime"),
+])
+async def test_failure_actions_show_details_and_require_source_confirmation(tmp_path, size, language, stage):
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
+    app.TOOLTIP_DELAY = 0.01
     replies = []
-    event = {"stage": "model", "status": "failed", "request": {"id": 1, "kind": "error",
+    event = {"stage": stage, "status": "failed", "request": {"id": 1, "kind": "error",
         "detail": "Traceback: diagnostic-only", "download_error": {"source": "huggingface", "model_id": "demo/model",
         "attempts": [{"stage": "storage", "reason": "TLS", "host": "us.aws.cdn.hf.co"}]}}}
-    async with app.run_test(size=size) as pilot:
+    async with app.run_test(size=size, tooltips=True) as pilot:
         app.query_one("#ui-language", Select).value = language
         assert not app.query("#download-mode")
         screen = PreparationScreen(event, respond=replies.append)
         app.push_screen(screen)
         await pilot.pause()
-        assert screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert not screen.query("#preparation-show-diagnostics")
+        log = screen.query_one("#preparation-traceback", SelectableLog)
+        assert "Traceback: diagnostic-only" in log.text
+        assert '"host": "us.aws.cdn.hf.co"' in log.text
         body = str(screen.query_one("#preparation-detail", Static).content)
         assert "Traceback" not in body
         assert "storage / TLS" in body
         assert "us.aws.cdn.hf.co" in body
-        for identifier in ("preparation-continue", "preparation-show-diagnostics", "preparation-modelscope"):
+        identifiers = ["preparation-cancel", "preparation-continue", "preparation-modelscope"]
+        if stage == "runtime":
+            identifiers.append("preparation-rebuild")
+        for identifier in identifiers:
             button = screen.query_one("#" + identifier, Button)
             assert button.region.width > 0
+            assert cell_len(str(button.label)) <= button.content_region.width
             assert button.region.right <= size[0]
             assert button.region.bottom <= size[1]
             assert app.get_widget_at(*button.region.center)[0] is button
-        await pilot.click("#preparation-show-diagnostics")
-        assert not screen.query_one("#preparation-diagnostics", Collapsible).collapsed
+        assert await pilot.hover("#preparation-modelscope")
+        await pilot.pause(app.TOOLTIP_DELAY + 0.05)
+        tooltip = screen.query_one(Tooltip)
+        assert tooltip.display
+        assert "ModelScope" in str(tooltip.content)
+        assert "revision" in str(tooltip.content)
+        assert screen.region.contains_region(tooltip.region)
         await pilot.click("#preparation-modelscope")
         await pilot.pause()
         assert isinstance(app.screen, ModelSourceScreen)

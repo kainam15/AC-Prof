@@ -73,11 +73,9 @@ async def test_failed_image_preparation_exposes_explicit_rebuild(tmp_path, stage
         await app.push_screen(screen)
         await pilot.pause()
         details = screen.query_one("#preparation-diagnostics", Collapsible)
-        assert await pilot.click(details.query_one("CollapsibleTitle"))
-        await pilot.pause()
+        assert not details.collapsed
         rebuild = screen.query_one("#preparation-rebuild")
-        rebuild.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
+        assert rebuild.parent is screen.query_one("#preparation-actions")
         assert await pilot.click(rebuild)
         await pilot.pause()
         assert replies == [{"action": "rebuild"}]

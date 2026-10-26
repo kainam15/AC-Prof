@@ -12,6 +12,7 @@ from acprof.tui.app_contracts import translated_app
 from acprof.tui.downloads import download_sections
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
+from acprof.tui.log import SelectableLog
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
 
@@ -59,10 +60,12 @@ class PreparationScreen(ModalScreen):
     BINDINGS = [("escape", "cancel", "终止任务")]
     DEFAULT_CSS = """
     PreparationScreen { align: center middle; }
+    /* Native tooltips anchor to the mouse; clear the full three-row button. */
+    PreparationScreen > Tooltip { offset-y: -100%; margin: -3 0 0 0; }
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 0 1; }
-    #preparation-dialog.download-confirmation { height: 90%; }
-    .download-confirmation #preparation-scroll { max-height: 100%; }
+    #preparation-dialog.download-confirmation, #preparation-dialog.preparation-failure { height: 90%; }
+    .download-confirmation #preparation-scroll, .preparation-failure #preparation-scroll { max-height: 100%; }
     #preparation-title { height: auto; text-style: bold; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
@@ -72,8 +75,19 @@ class PreparationScreen(ModalScreen):
     }
     #preparation-download-note { color: $text-muted; margin-top: 1; }
     #preparation-detail, #preparation-error { color: $error; }
+    #preparation-diagnostics { height: 1fr; padding: 0; }
+    #preparation-diagnostics.-collapsed { height: auto; }
+    #preparation-diagnostics > Contents { height: 1fr; padding: 0; }
+    #preparation-traceback { height: 1fr; min-height: 3; border: round $panel;
+        padding: 0 1; background: transparent; background-tint: transparent; }
+    #preparation-traceback:focus { border: round $accent; }
+    #preparation-traceback .text-area--selection { background: $accent; color: $background; }
     #preparation-actions { height: 3; }
     #preparation-actions Button { min-width: 10; width: 1fr; }
+    .preparation-failure #preparation-actions Button { width: auto; }
+    .preparation-failure #preparation-actions #preparation-continue { width: 1fr; }
+    #preparation-actions.extra-action { height: 6; layout: grid; grid-size: 2; grid-rows: 3; }
+    .preparation-failure #preparation-actions.extra-action Button { width: 1fr; }
     """
 
     def __init__(self, event: dict, *, respond=None):
@@ -113,7 +127,9 @@ class PreparationScreen(ModalScreen):
         report = request.get("download_report")
         download = review and report is not None
         title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
-        with Vertical(id="preparation-dialog", classes="download-confirmation" if download else ""):
+        with Vertical(id="preparation-dialog", classes=(
+            "download-confirmation" if download else "preparation-failure" if failed else ""
+        )):
             yield Label(tr("下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
@@ -147,29 +163,42 @@ class PreparationScreen(ModalScreen):
                         yield Static(summary, id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
-                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=True):
+                    with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=False):
+                        detail = request.get("detail", "")
                         if failure := download_failure(request):
                             import json
-                            yield Static(json.dumps(failure, ensure_ascii=False, indent=2), markup=False)
-                        yield Static(request.get("detail", ""), id="preparation-traceback", markup=False)
-                        if self.event["stage"] in {"image", "runtime"}:
-                            yield Button(tr("重新准备环境"), id="preparation-rebuild")
+                            detail = json.dumps(failure, ensure_ascii=False, indent=2) + "\n\n" + detail
+                        log = SelectableLog(id="preparation-traceback", max_lines=max(1, len(detail.splitlines())))
+                        log.write(detail)
+                        yield log
                 else:
                     yield Static(tr(STAGE_LABELS.get(self.event["stage"], "正在确认模型能否正常运行…")), id="preparation-stage", markup=False)
                     yield Static(tr("首次使用可能需要准备模型，请稍候。"), markup=False)
                 yield Static("", id="preparation-error", markup=False)
-            with Horizontal(id="preparation-actions"):
-                yield Button(tr("返回配置" if failed else "终止任务"), id="preparation-cancel")
+            with Horizontal(id="preparation-actions", classes=(
+                "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
+            )):
+                yield Button(tr("返回配置" if failed else "终止任务"), id="preparation-cancel",
+                             tooltip=tr(message_id("ui.2157")) if failed else None)
                 if review:
                     if not ready:
                         yield Button(tr("应用字段"), id="preparation-apply", variant="primary")
                     yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
                                  disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
-                    yield Button(tr("重试"), id="preparation-continue", variant="primary")
-                    yield Button(tr("查看诊断"), id="preparation-show-diagnostics")
+                    yield Button(tr("重试"), id="preparation-continue", variant="primary",
+                                 tooltip=tr(message_id("ui.2158")))
+                    if self.event["stage"] in {"image", "runtime"}:
+                        yield Button(tr("重新准备环境"), id="preparation-rebuild",
+                                     tooltip=tr(message_id("ui.2159")))
                     if download_failure(request):
-                        yield Button(tr("改用 ModelScope"), id="preparation-modelscope")
+                        yield Button(tr("改用 ModelScope"), id="preparation-modelscope",
+                                     tooltip=tr(message_id("ui.2160")))
+
+    @on(SelectableLog.Updated)
+    def details_updated(self, event: SelectableLog.Updated) -> None:
+        # This static failure log does not update the Monitor's log counters.
+        event.stop()
 
     def send(self, result):
         if self.sending or self._close_requested:
@@ -220,10 +249,6 @@ class PreparationScreen(ModalScreen):
     @on(Button.Pressed, "#preparation-rebuild")
     def rebuild(self):
         self.send({"action": "rebuild"})
-
-    @on(Button.Pressed, "#preparation-show-diagnostics")
-    def show_diagnostics(self):
-        self.query_one("#preparation-diagnostics", Collapsible).collapsed = False
 
     @on(Button.Pressed, "#preparation-modelscope")
     def switch_modelscope(self):

@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    "ui.2157": '打开终止确认；确认后停止当前任务并清理资源，保留已写入的结果。',
+    "ui.2158": '使用当前配置重试失败阶段，按现有规则复用已准备的环境和输入。',
+    "ui.2159": '重新准备运行环境和输入，再验证模型；Docker 镜像会重新构建，可使用构建缓存。',
+    "ui.2160": '填写并确认 ModelScope 模型 ID 和 revision；确认后终止当前准备，返回新实验配置。',
     "ui.2144": '下载概览',
     "ui.2145": '运行环境与来源',
     "ui.2146": '网络预检',
@@ -76,7 +80,6 @@ SOURCE_BY_ID: dict[str, str] = {
     "ui.0009": '失败阶段：{0} / {1}',
     "ui.0010": '最终失败 host：{0}',
     "ui.0011": '请配置自己的系统 VPN/代理后重试，或显式选择 ModelScope 模型。',
-    "ui.0012": '查看诊断',
     "ui.0013": '改用 ModelScope',
     "ui.0014": '确认切换来源',
     "ui.0015": 'revision（留空使用默认分支）',
@@ -1048,6 +1051,10 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    "ui.2157": 'Open the stop confirmation; confirming stops the current task and cleans up resources, preserving saved results.',
+    "ui.2158": 'Retry the failed stage with the current configuration, reusing prepared environments and inputs where valid.',
+    "ui.2159": 'Prepare the runtime environment and inputs again, then validate the model. Docker images are rebuilt; build cache may be reused.',
+    "ui.2160": 'Enter and confirm a ModelScope model ID and revision; confirming stops preparation and returns to configuration for a new experiment.',
     "ui.2144": 'Download overview',
     "ui.2145": 'Runtime and sources',
     "ui.2146": 'Network preflight',
@@ -1122,7 +1129,6 @@ ENGLISH_BY_ID: dict[str, str] = {
     "ui.0009": 'Failure stage: {0} / {1}',
     "ui.0010": 'Final failed host: {0}',
     "ui.0011": 'Configure your system VPN/proxy and retry, or explicitly choose a ModelScope model.',
-    "ui.0012": 'Diagnostics',
     "ui.0013": 'Use ModelScope',
     "ui.0014": 'Confirm source change',
     "ui.0015": 'Revision (blank uses the default branch)',
