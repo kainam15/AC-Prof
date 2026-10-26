@@ -194,8 +194,6 @@ async def test_monitor_renders_real_interface_completion(interface_check, capsys
         snapshot = tracker.feed('ACPROF_EVENT {"version":1,"event":"measurement_started","case_id":"a"}')
         app.consume_process_line("", snapshot, True)
         await pilot.pause()
-        text = "".join(segment.text for segment in Console(width=widget.content_size.width).render(widget.render()))
-        assert ("接口解析" if language == "zh" else "Interface") not in text
-        assert text.count("进行中" if language == "zh" else "Running") == 1
+        assert not widget.display
         assert app.latest_snapshot.measurement_active
         assert app.latest_snapshot.interface_status == "passed"
