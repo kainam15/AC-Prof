@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    "ui.2177": '错误原因：{0}',
     "ui.2173": '选择采集任务',
     "ui.2174": '采集任务',
     "ui.2175": '任务声明来源',
@@ -1067,6 +1068,7 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    "ui.2177": 'Error: {0}',
     "ui.2173": 'Select tasks',
     "ui.2174": 'Tasks to collect',
     "ui.2175": 'Task declaration sources',

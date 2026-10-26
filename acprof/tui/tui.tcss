@@ -245,7 +245,14 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 }
 #status-grid .status-label { color: $text-muted; }
 #status-detail { height: 1; text-overflow: ellipsis; }
-#status-preparation { height: auto; padding: 0 2; }
+#status-preparation { display: none; height: auto; padding: 0 2; }
+.case-status, .resource-status, .elapsed-status, .error-count { display: none; }
+#monitor-error {
+    display: none; height: auto; max-height: 7; margin: 0 2;
+    padding: 0 1; border-left: solid $error; overflow-y: auto;
+}
+#monitor-error-reason { height: auto; color: $error; text-style: bold; }
+#monitor-error-log { height: auto; }
 #download-progress {
     display: none; height: auto; max-height: 8; padding: 0 1; margin: 0 1;
     border-left: solid $accent; overflow-y: auto;
@@ -373,6 +380,7 @@ AcprofTui.short #bottom-panel.command-hidden { height: 0; }
 AcprofTui.short .section-title { margin: 0 0 1 0; }
 AcprofTui.short .page-header { margin-bottom: 0; }
 AcprofTui.short #download-progress { max-height: 5; }
+AcprofTui.short #monitor-error { max-height: 4; }
 AcprofTui.short #report-detail { max-height: 3; margin-top: 0; }
 AcprofTui.short #confirm-dialog { padding: 0 2; }
 /* Keep the image detail groups visible alongside the fixed footer at 80x24. */

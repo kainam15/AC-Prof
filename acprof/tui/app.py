@@ -59,6 +59,7 @@ from acprof.tui.localization_controller import LocalizationController
 from acprof.tui.log import SelectableLog
 from acprof.tui.log_controller import LogController
 from acprof.tui.model_controller import ModelController
+from acprof.tui.monitor import MonitorPhase, monitor_phase
 from acprof.tui.preflight_controller import PreflightController
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
@@ -452,6 +453,9 @@ class AcprofTui(BarCursorApp):
             if self.process_kind == "run" and snapshot.stage is Stage.COMPLETED:
                 snapshot = replace(snapshot, stage=Stage.VERIFYING_ARTIFACT, detail="进程已报告完成，等待本次产物核验。")
             was_measuring = self.latest_snapshot.measurement_active
+            if (monitor_phase(snapshot) is MonitorPhase.PREPARATION
+                    and monitor_phase(self.latest_snapshot) is not MonitorPhase.PREPARATION):
+                self.preflight.reset_download()
             self.latest_snapshot = snapshot
             if was_measuring != snapshot.measurement_active:
                 self.logs.suspend(snapshot.measurement_active)
@@ -478,6 +482,22 @@ class AcprofTui(BarCursorApp):
         self.logs.stage_changed(snapshot)
         from acprof.tui.progress_widgets import PreparationStatus
         self.query_one("#status-preparation", PreparationStatus).update_snapshot(snapshot)
+        phase = monitor_phase(snapshot)
+        for selector, visible in (
+            (".case-status", phase is MonitorPhase.MEASUREMENT and snapshot.total_cases > 0),
+            (".resource-status", phase is MonitorPhase.MEASUREMENT and snapshot.current_case > 0),
+            (".elapsed-status", bool(self.started_monotonic)),
+            (".error-count", bool(snapshot.errors or snapshot.warnings)),
+            (".detail-status", bool(snapshot.detail) and (
+                snapshot.stage is Stage.WAITING or snapshot.detail != message_id('ui.0697')
+            )),
+        ):
+            for widget in self.query(selector):
+                widget.display = visible
+        self.query_one("#download-progress").display = (
+            phase is MonitorPhase.PREPARATION and self.preflight.latest_download is not None
+        )
+        self.logs.refresh_error(snapshot, boundary=True)
         elapsed = (
             self.format_elapsed(time.monotonic() - self.started_monotonic)
             if self.started_monotonic
@@ -881,6 +901,7 @@ class AcprofTui(BarCursorApp):
     @on(SelectableLog.Updated)
     def on_log_updated(self) -> None:
         self.logs.refresh_status()
+        self.logs.refresh_error(self.latest_snapshot)
 
     @on(Input.Changed, '#log-search')
     @on(Select.Changed, '#log-level')

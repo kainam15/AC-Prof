@@ -53,6 +53,9 @@ class LogController:
         elapsed = f"{now - self.stage_started:.1f}"
         previous = self.stage
         self.stage, self.stage_started = snapshot.stage, now
+        if snapshot.stage is Stage.STARTING:
+            self.log.records.error_context.clear()
+            self.log.records.continuation = ""
         if previous is not None and previous is not Stage.WAITING and not snapshot.measurement_active:
             level = ("SUCCESS" if snapshot.stage in {Stage.COMPLETED, Stage.PROBE_COMPLETED} else
                      "ERROR" if snapshot.stage in {Stage.FAILED, Stage.PROBE_FAILED, Stage.CLEANUP_INCOMPLETE} else
@@ -127,6 +130,40 @@ class LogController:
             len(log.records.records), log.document.line_count if log.text else 0,
             log.match_count, log.discarded_lines,
         ))
+
+    def refresh_error(self, snapshot: ProgressSnapshot, *, boundary: bool = False) -> None:
+        """Pin diagnosis separately without filtering or moving the user's log view."""
+        if not self.app.is_running or self.app.ui_closing or not self.app.form_ready:
+            return
+        if snapshot.measurement_active:
+            # A cleanup boundary already redraws the stage. Show its reason once,
+            # but do not inspect or replay logs until the process actually exits.
+            if boundary and snapshot.stage is Stage.CLEANUP_INCOMPLETE:
+                self.render_error(snapshot.detail, "")
+            return
+        batch = self.log.records.error_context.snapshot()
+        reason = ""
+        if snapshot.failure:
+            reason = f"{snapshot.failure['reason_code']}: {snapshot.failure['detail']}"
+        elif batch.entries:
+            reason = batch.entries[-1]
+        elif snapshot.stage in {Stage.FAILED, Stage.PROBE_FAILED, Stage.CLEANUP_INCOMPLETE, Stage.TASK_UNSUPPORTED}:
+            reason = snapshot.detail
+        elif snapshot.runtime_status == "failed" or snapshot.interface_status == "failed":
+            reason = snapshot.detail
+        excerpt = "\n".join(batch.entries)
+        if batch.discarded_entries:
+            excerpt += "\n" + self.app.localization.tr(message_id(
+                "ui.2143", batch.discarded_entries, batch.oversized_entries,
+            ))
+        self.render_error(reason, excerpt)
+
+    def render_error(self, reason: str, excerpt: str) -> None:
+        panel = self.app.query_one("#monitor-error")
+        panel.display = bool(reason or excerpt)
+        self.app.localization.set_text(self.app.query_one("#monitor-error-reason", Static),
+                                       message_id("ui.2177", reason) if reason else "")
+        self.app.query_one("#monitor-error-log", Static).update(excerpt)
 
     def copy_all(self) -> None:
         if self.app.latest_snapshot.measurement_active:

@@ -23,6 +23,7 @@ from acprof.messages import join_messages, message
 from acprof.tui import run_form, run_planning
 from acprof.tui.diagnostics import PreflightCheck, quick_preflight
 from acprof.tui.i18n import message_id
+from acprof.tui.monitor import MonitorPhase, monitor_phase
 from acprof.tui.views import EnvironmentPreflightScreen
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ class PreflightController:
         from acprof.tui.progress_widgets import DownloadProgressPanel
         self.latest_download = progress
         widget = self.app.query_one("#download-progress", DownloadProgressPanel)
-        widget.display = True
+        widget.display = monitor_phase(self.app.latest_snapshot) is MonitorPhase.PREPARATION
         widget.update_progress(progress)
 
     def finish_download(self, *, cancelled: bool) -> None:

@@ -57,8 +57,10 @@ class TestTuiLogView:
             assert (log.content_region.height) >= (5)
             preparation = app.query_one("#status-preparation", Static)
             rendered = "".join(segment.text for segment in Console(width=size[0]).render(preparation.render()))
-            for label in ("接口解析", "运行验证", "测量", "通过", "进行中"):
+            for label in ("测量", "进行中"):
                 assert label in rendered
+            for label in ("接口解析", "运行验证", "未开始"):
+                assert label not in rendered
             assert (preparation.region.height) > (0)
             assert (preparation.region.y) == (app.query_one("#status-grid").region.bottom)
             assert (log.region.y) == (preparation.region.bottom)

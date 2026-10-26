@@ -104,6 +104,7 @@ class LocalizationController:
             }
             self.app.refresh_bindings()
             self.app.logs.refresh_status()
+            self.app.logs.refresh_error(self.app.latest_snapshot)
             self.app.query_one("#status-preparation").refresh(layout=True)
             if self.app.preflight.latest_download is not None and not self.app.latest_snapshot.measurement_active:
                 self.app.preflight.download_progress(self.app.preflight.latest_download)

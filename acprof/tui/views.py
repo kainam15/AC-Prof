@@ -26,7 +26,7 @@ from acprof.tui.i18n import LANGUAGE_OPTIONS, message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.model_input import ModelInput
-from acprof.tui.presentation import NOT_APPLICABLE, format_input_number
+from acprof.tui.presentation import format_input_number
 from acprof.tui.progress_widgets import DownloadProgressPanel, PreparationStatus
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.run_form import PRESET_OPTIONS
@@ -465,22 +465,25 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
             with Grid(id="status-grid", classes="page-header"):
                 yield app.localization.localized_widget(Static("阶段", classes="status-label"))
                 yield app.localization.localized_widget(Static("等待", id="status-stage", markup=False))
-                yield app.localization.localized_widget(Static("运行时间", classes="status-label"))
-                yield app.localization.localized_widget(Static(NOT_APPLICABLE, id="status-elapsed", markup=False))
+                yield app.localization.localized_widget(Static("运行时间", classes="status-label elapsed-status"))
+                yield app.localization.localized_widget(Static("", id="status-elapsed", classes="elapsed-status", markup=False))
 
-                yield app.localization.localized_widget(Static("Case", classes="status-label"))
-                yield app.localization.localized_widget(Static("0/0", id="status-case", markup=False))
-                yield app.localization.localized_widget(Static("资源", classes="status-label"))
-                yield app.localization.localized_widget(Static("CPU=—  MEM=—  GPU=—", id="status-resource", markup=False))
+                yield app.localization.localized_widget(Static("Case", classes="status-label case-status"))
+                yield app.localization.localized_widget(Static("", id="status-case", classes="case-status", markup=False))
+                yield app.localization.localized_widget(Static("资源", classes="status-label resource-status"))
+                yield app.localization.localized_widget(Static("", id="status-resource", classes="resource-status", markup=False))
 
-                yield app.localization.localized_widget(Static("警告 / 错误", classes="status-label"))
-                yield app.localization.localized_widget(Static("0 / 0", id="status-errors", markup=False))
-                yield app.localization.localized_widget(Static("详情", classes="status-label"))
-                yield app.localization.localized_widget(Static("尚未启动", id="status-detail", markup=False))
+                yield app.localization.localized_widget(Static("警告 / 错误", classes="status-label error-count"))
+                yield app.localization.localized_widget(Static("", id="status-errors", classes="error-count", markup=False))
+                yield app.localization.localized_widget(Static("详情", classes="status-label detail-status"))
+                yield app.localization.localized_widget(Static("尚未启动", id="status-detail", classes="detail-status", markup=False))
 
             yield PreparationStatus(id="status-preparation")
             yield DownloadProgressPanel(id="download-progress")
             with LogPanel(id="log-panel"):
+                with VerticalScroll(id="monitor-error"):
+                    yield Static("", id="monitor-error-reason", markup=False)
+                    yield Static("", id="monitor-error-log", markup=False)
                 with Horizontal(id="log-controls"):
                     yield app.localization.localized_select(
                         [("全部级别", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],

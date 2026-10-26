@@ -8,6 +8,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import takewhile
 
+from acprof.tui.diagnostic_buffer import BoundedLogBuffer
+
 ANSI = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
 LEVEL = re.compile(r"(?:^|\[)(DEBUG|INFO|SUCCESS|WARNING|WARN|ERROR|CRITICAL)(?:\]|\s*:|\s+-\s+|\s)", re.I)
 PREFIX = re.compile(r"^(?:\d{4}-\d\d-\d\d[ T][\d:.,+Z-]+\s+)?(?:\[[^\]]+\]\s*)*")
@@ -51,12 +53,18 @@ class LogRecords:
         self.sequence = 0
         self.scope = 0
         self.continuation = ""
+        # A small independent excerpt survives INFO floods and raw-history eviction.
+        # It is presentation evidence only, never a run or measurement signal.
+        self.error_context = BoundedLogBuffer(max_entries=12, max_bytes=16 * 1024,
+                                              max_entry_bytes=4 * 1024)
         self._projection: _Projection | None = None
         self._pending: list[LogRecord] = []
 
     def append(self, content: str) -> None:
         for raw in content.removesuffix("\n").split("\n"):
             record = self.classify(raw)
+            if record.level == "ERROR" and record.source != "phase" and not record.text.startswith("ACPROF_FAILURE "):
+                self.error_context.append(record.text)
             size = len(raw.encode("utf-8")) + 1
             if size > self.max_bytes:
                 self.discarded += 1

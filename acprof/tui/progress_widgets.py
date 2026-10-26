@@ -12,6 +12,7 @@ from textual.widgets import Static
 from acprof.download_events import DownloadProgress
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.i18n import message_id
+from acprof.tui.monitor import visible_statuses
 from acprof.tui.presentation import UNKNOWN, format_bytes
 from acprof.tui.progress import ProgressSnapshot
 
@@ -43,6 +44,7 @@ class PreparationStatus(ProgressSummary):
 
     def update_snapshot(self, snapshot: ProgressSnapshot) -> None:
         self.snapshot = snapshot
+        self.display = bool(visible_statuses(snapshot))
         self.refresh(layout=True)
 
     def render(self) -> RenderableType:
@@ -56,11 +58,11 @@ class PreparationStatus(ProgressSummary):
         snapshot = self.snapshot
         table = Table.grid(padding=(0, 3))
         cells = []
-        for label, status in ((message_id('ui.2155'), snapshot.interface_status),
-                              (message_id('ui.2156'), snapshot.runtime_status),
-                              (message_id('ui.2154'), snapshot.measurement_status)):
+        for label, status in visible_statuses(snapshot):
             value, role = states[status]
-            cells.append(self.metric(label, value, role))
+            cells.append(self.metric(message_id(label), value, role))
+        if not cells:
+            return Text()
         table.add_row(*cells)
         return table
 
@@ -94,8 +96,8 @@ class DownloadProgressContent(ProgressSummary):
         heading.add_column(ratio=1, overflow="fold")
         heading.add_column()
         heading.add_row(Text(progress.model, self.get_component_rich_style("progress--value"),
-                             overflow="fold", no_wrap=False), Text.assemble(
-            self.text(message_id(state), role), " · ", self.text(message_id('ui.2153', progress.attempt), "label")))
+                             overflow="fold", no_wrap=False),
+                        self.text(message_id(state), role) if progress.state != "complete" else Text())
 
         known = progress.completed_bytes is not None and progress.total_bytes > 0
         percent = (f"{progress.completed_bytes / progress.total_bytes:.0%}"
@@ -117,17 +119,23 @@ class DownloadProgressContent(ProgressSummary):
         else:
             progress_row.add_row(amount)
 
-        speed = format_bytes(int(progress.rate_bytes_s)) + "/s" if progress.rate_bytes_s is not None else UNKNOWN
         metrics = Table.grid(expand=True, padding=(0, 2))
         # Compact columns leave room for logs even in an 80 x 24 terminal.
         metrics.add_column(ratio=1)
         metrics.add_column(ratio=1)
         metrics.add_column(ratio=1)
-        metrics.add_row(self.metric(message_id('ui.2148'), f"{progress.files_completed}/{progress.files_total}"),
-                        self.metric(message_id('ui.2149'), format_bytes(progress.cached_bytes)),
-                        self.metric(message_id('ui.2152'), UNKNOWN, "label"))
-        metrics.add_row(self.metric(message_id('ui.2150'), format_bytes(progress.transferred_bytes)),
-                        self.metric(message_id('ui.2151'), speed, "active" if progress.rate_bytes_s is not None else "label"))
+        cells = []
+        if progress.files_total:
+            cells.append(self.metric(message_id('ui.2148'), f"{progress.files_completed}/{progress.files_total}"))
+        if progress.cached_bytes is not None:
+            cells.append(self.metric(message_id('ui.2149'), format_bytes(progress.cached_bytes)))
+        if progress.transferred_bytes is not None:
+            cells.append(self.metric(message_id('ui.2150'), format_bytes(progress.transferred_bytes)))
+        if progress.rate_bytes_s is not None:
+            speed = format_bytes(int(progress.rate_bytes_s)) + "/s"
+            cells.append(self.metric(message_id('ui.2151'), speed, "active"))
+        for start in range(0, len(cells), 3):
+            metrics.add_row(*cells[start:start + 3])
         parts: list[RenderableType] = [heading, progress_row, metrics]
         if progress.detail:
             detail = (message_id('ui.0949') if progress.detail == 'retry_cache_baseline_unknown'

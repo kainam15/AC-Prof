@@ -45,7 +45,7 @@ async def test_download_metrics_and_colored_states_fit_monitor(tmp_path, size, l
         text, segments = rendered(panel)
         for value in ("BAAI/bge-m3", "238 MB", "4.59 GB", "5%", "28/30", "49.4 MB", "178 MB", "13.5 MB/s"):
             assert value in text
-        assert ("剩余时间" if language == "zh" else "ETA") in text
+        assert ("剩余时间" if language == "zh" else "ETA") not in text
         assert len({segment.style.color for segment in segments if segment.style and segment.style.color}) >= 3
         phase_text, phase_segments = rendered(phases)
         assert ("接口解析" if language == "zh" else "Interface") in phase_text
@@ -59,7 +59,7 @@ async def test_download_metrics_and_colored_states_fit_monitor(tmp_path, size, l
 
         colors = []
         for state, label in (("downloading", "下载中" if language == "zh" else "Downloading"),
-                             ("complete", "模型文件已校验" if language == "zh" else "Model files verified"),
+                             ("verifying", "正在校验" if language == "zh" else "Verifying"),
                              ("failed", "下载或校验失败" if language == "zh" else "Download or verification failed")):
             app.preflight.download_progress(replace(progress, state=state))
             await pilot.pause()
@@ -113,21 +113,22 @@ async def test_progress_refreshes_language_and_theme_without_translating_model(t
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("monitor-tab")
-        app.consume_process_line("", ProgressSnapshot(interface_status="passed"), True)
-        progress = DownloadProgress("待确认", "huggingface", "complete", 1_000, 0, 1_000, 1_000, None, 2, 2)
+        app.consume_process_line("", ProgressSnapshot(interface_status="running"), True)
+        progress = DownloadProgress("待确认", "huggingface", "downloading", 1_000, 0, 1_000, 1_000, None, 2, 2)
         app.preflight.download_progress(progress)
         await pilot.pause()
         panel = app.query_one("#download-progress", DownloadProgressPanel)
         _, before = rendered(panel)
-        old_color = next(segment.style.color for segment in before if "模型文件已校验" in segment.text)
+        old_color = next(segment.style.color for segment in before if "下载中" in segment.text)
         app.query_one("#ui-language", Select).value = "en"
         app.query_one("#ui-theme", Select).value = "acprof-light"
         await pilot.pause()
         assert app.theme == "acprof-light"
         text, after = rendered(panel)
         assert "待确认" in text
-        assert "Model files verified" in text
+        assert "Downloading" in text
+        assert "Attempt" not in text
         assert "100%" in text
         assert "Interface:" in rendered(app.query_one("#status-preparation", Static))[0]
-        assert old_color != next(segment.style.color for segment in after if "Model files verified" in segment.text)
+        assert old_color != next(segment.style.color for segment in after if "Downloading" in segment.text)
         assert app.preflight.latest_download == progress
