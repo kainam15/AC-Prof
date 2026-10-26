@@ -297,6 +297,22 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                                     getattr(task_info, "model_spec", {}) else "metadata"}}
 
 
+def resolve_task_backends(task_info: Any, tasks: list[dict], *, override_backend: str = "") -> dict[str, str]:
+    """Resolve the actual loader of each interface, not the Hub's generic task backend."""
+    backends: dict[str, str] = {}
+    for interface in sorted({item["interface"] for item in tasks}):
+        if interface == task_info.pipeline_tag and not override_backend:
+            backend = task_info.runtime_backend
+        else:
+            decision = discover_model_candidates(task_info, override_tag=interface,
+                                                 override_backend=override_backend or None)
+            backend = decision["selection"].get("backend")
+        if not backend or backend == "unknown":
+            raise ValueError(f"no runnable backend for declared inference interface: {interface}")
+        backends[interface] = backend
+    return backends
+
+
 def discover_declared_tasks(task_info: Any) -> dict:
     """Collect explicit workload declarations without loading weights or model code."""
     from acprof.extensions import CATALOG
@@ -379,7 +395,11 @@ def discover_declared_tasks(task_info: Any) -> dict:
                 item["evidence"] = list(dict.fromkeys([*item["evidence"], *generic["evidence"]]))
             del found[identifier]
     tasks = sorted(found.values(), key=lambda item: item["task_id"])
-    return {"schema_version": 1, "status": "selection_required" if len(tasks) > 1 or conflicts else
-            "ready" if tasks else "needs_configuration", "tasks": tasks, "unresolved": unresolved,
-            "conflicts": conflicts, "inferred": list(config.get("architectures") or []),
+    from acprof.inference_groups import group_inference_tasks
+    profiles = group_inference_tasks(tasks, backend=resolve_task_backends(task_info, tasks))
+    return {"schema_version": 1, "status": "selection_required" if len(profiles) > 1 or conflicts else
+            "ready" if profiles else "needs_configuration", "tasks": tasks,
+            "profiles": [dict(profile_id=item["task_id"], **item["execution_profile"]) for item in profiles],
+            "unresolved": unresolved, "conflicts": conflicts,
+            "inferred": list(config.get("architectures") or []),
             "model_revision": task_info.model_revision}

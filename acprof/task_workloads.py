@@ -39,6 +39,20 @@ CORPORA = {
 
 
 def task_label(task: dict, *, language: str = "zh_CN") -> str:
+    profile = task.get("execution_profile")
+    if profile:
+        interface = profile["signature"]["interface"]
+        names = {
+            "text-generation": ("Autoregressive text generation", "自回归文本生成"),
+            "text2text-generation": ("Seq2Seq text generation", "Seq2Seq 文本生成"),
+            "text-classification": ("Text classification", "文本分类推理"),
+        }
+        label = names.get(interface, (interface, interface))[1 if language.startswith("zh") else 0]
+        params = profile["signature"].get("generation", {})
+        beam = f" · Beam ×{params['num_beams']}" if params.get("num_beams", 1) > 1 else ""
+        count = len(profile["semantic_task_ids"])
+        uses = f" · {count} 种用途" if language.startswith("zh") else f" · {count} use cases"
+        return label + beam + uses
     config = task["config"]
     if task["kind"] == "translation":
         index = 1 if language.startswith("zh") else 0
@@ -155,7 +169,13 @@ def validate_generation(params: dict) -> None:
 
 
 def task_fingerprint(task: dict) -> str:
-    return content_digest({key: task[key] for key in ("task_id", "interface", "kind", "config")})
+    identity = {key: task[key] for key in ("task_id", "interface", "kind", "config")}
+    # A grouped benchmark must also bind the complete semantic-task snapshot:
+    # the exemplar alone is insufficient to prove resume/input provenance.
+    for key in ("execution_profile", "semantic_tasks"):
+        if key in task:
+            identity[key] = task[key]
+    return content_digest(identity)
 
 
 def workload_manifest(task: dict) -> dict:

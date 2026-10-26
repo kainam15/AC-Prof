@@ -72,8 +72,19 @@ class TaskCollection:
             raise ValueError("task collection model identity changed")
         if config.revision and config.revision not in {task.model_revision, task.requested_revision}:
             raise ValueError("task collection revision changed")
-        if config.tasks and config.tasks != "all" and set(config.tasks.split(",")) != {item["task_id"] for item in task.selected_tasks}:
-            raise ValueError("task collection selection changed")
+        if config.tasks and config.tasks != "all":
+            requested = [name.strip() for name in config.tasks.split(",")]
+            profiles = {item["task_id"]: item for item in task.selected_tasks}
+            semantics = {member["task_id"] for item in task.selected_tasks
+                         for member in item.get("semantic_tasks", [item])}
+            if (not requested or len(set(requested)) != len(requested)
+                    or set(requested) - (profiles.keys() | semantics)):
+                raise ValueError("task collection selection changed")
+            expanded = {task_id for name in requested for task_id in (
+                [member["task_id"] for member in profiles[name].get("semantic_tasks", [profiles[name]])]
+                if name in profiles else [name])}
+            if expanded != semantics:
+                raise ValueError("task collection selection changed")
         if configuration_identity(config, task) != data["configuration"]:
             raise ValueError("task collection configuration changed; use the original options")
         for selected, recorded in zip(task.selected_tasks, data["tasks"], strict=True):

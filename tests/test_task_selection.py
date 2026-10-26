@@ -25,32 +25,62 @@ def declared_model():
     return task
 
 
+def two_profile_model():
+    task = declared_model()
+    task.model_config["task_specific_params"]["summarization"]["num_beams"] = 4
+    task.task_discovery = discover_declared_tasks(task)
+    assert len(task.task_discovery["profiles"]) == 2
+    return task
+
+
 def options(**kwargs):
     return SimpleNamespace(task="", tasks="", task_family="", backend="", model_spec="", **kwargs)
 
 
-def test_noninteractive_multiple_tasks_require_explicit_selection():
+def test_semantic_tasks_share_one_profile_without_prompt():
+    result = select_tasks(declared_model(), options(), PreparationWorkflow())
+    assert len(result.selected_tasks) == 1
+    assert result.selected_tasks[0]["execution_profile"]["semantic_task_ids"] == [
+        "summarization", "translation_en_to_de"]
+
+
+def test_noninteractive_independent_profiles_require_explicit_selection():
     with pytest.raises(ValueError, match="--tasks"):
-        select_tasks(declared_model(), options(), PreparationWorkflow())
+        select_tasks(two_profile_model(), options(), PreparationWorkflow())
 
 
-def test_selecting_all_preserves_separate_task_ids():
+def test_selecting_all_semantics_runs_one_profile():
     args = options()
     args.tasks = "all"
     result = select_tasks(declared_model(), args, PreparationWorkflow())
-    assert [item["task_id"] for item in result.selected_tasks] == ["summarization", "translation_en_to_de"]
+    assert len(result.selected_tasks) == 1
+    assert len(result.selected_tasks[0]["semantic_tasks"]) == 2
+    assert result.selected_tasks[0]["config"]["generation"]["max_new_tokens"] == 64
 
 
-def test_interactive_selection_waits_then_runs_only_chosen_task(monkeypatch, capsys):
+def test_explicit_semantic_subset_changes_input_provenance_not_matrix_count():
+    args = options()
+    args.tasks = "translation_en_to_de"
+    chosen = select_tasks(declared_model(), args, PreparationWorkflow())
+    assert len(chosen.selected_tasks) == 1
+    assert chosen.selected_tasks[0]["execution_profile"]["representative_task_id"] == "translation_en_to_de"
+    assert chosen.selected_tasks[0]["config"]["prefix"] == "translate English to German: "
+
+
+def test_interactive_selection_waits_then_runs_only_chosen_profile(monkeypatch, capsys):
+    task = two_profile_model()
+    profile = next(item["profile_id"] for item in task.task_discovery["profiles"]
+                   if "translation_en_to_de" in item["semantic_task_ids"])
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"id": 1, "action": "answer",
-                                                          "answers": {"tasks": ["translation_en_to_de"]}}) + "\n"))
-    result = select_tasks(declared_model(), options(), PreparationWorkflow(interactive=True))
-    assert [item["task_id"] for item in result.selected_tasks] == ["translation_en_to_de"]
+                                                          "answers": {"tasks": [profile]}}) + "\n"))
+    result = select_tasks(task, options(), PreparationWorkflow(interactive=True))
+    assert [item["task_id"] for item in result.selected_tasks] == [profile]
+    assert result.selected_tasks[0]["execution_profile"]["semantic_task_ids"] == ["translation_en_to_de"]
     assert '"kind": "multi"' in capsys.readouterr().out
 
 
 def test_cancel_does_not_apply_or_cache_a_choice(monkeypatch):
-    task = declared_model()
+    task = two_profile_model()
     monkeypatch.setattr("sys.stdin", io.StringIO('{"id": 1, "action": "cancel"}\n'))
     with pytest.raises(PreparationInterrupted, match="cancelled"):
         select_tasks(task, options(), PreparationWorkflow(interactive=True))
@@ -91,6 +121,32 @@ def test_reusing_frozen_workload_keeps_manual_semantics(tmp_path):
     assert result.selected_tasks[0]["config"]["prefix"] == "answer this: "
 
 
+def test_workload_override_reclassifies_effective_execution_group(tmp_path):
+    task = two_profile_model()
+    spec = tmp_path / "beam.json"
+    spec.write_text(json.dumps({"schema_version": 1, "params": {"num_beams": 4}}))
+    args = options(workload_spec=str(spec))
+    result = select_tasks(task, args, PreparationWorkflow())
+    assert len(result.selected_tasks) == 1
+    group = result.selected_tasks[0]
+    assert group["execution_profile"]["signature"]["generation"]["num_beams"] == 4
+    assert set(group["execution_profile"]["semantic_task_ids"]) == {
+        "summarization", "translation_en_to_de"}
+
+
+def test_frozen_group_rejects_compute_override(tmp_path):
+    from acprof.inference_groups import group_inference_tasks
+    from acprof.task_workloads import workload_manifest
+    task = declared_model()
+    group = group_inference_tasks(task.task_discovery["tasks"], backend=task.runtime_backend)[0]
+    spec = tmp_path / "frozen-group.json"
+    frozen = workload_manifest(group)
+    frozen["params"]["num_beams"] = 4
+    spec.write_text(json.dumps(frozen))
+    with pytest.raises(ValueError, match="frozen inference profile"):
+        select_tasks(task, options(workload_spec=str(spec)), PreparationWorkflow())
+
+
 def test_explicit_summary_without_metadata_uses_semantic_workload():
     task = declared_model()
     task.task_discovery = {"tasks": [], "conflicts": []}
@@ -120,7 +176,7 @@ def test_application_does_not_prepare_weights_or_collect_before_task_confirmatio
             'acprof.host.runtimes.selection.select_runtime',
             return_value=RuntimeSelection('auto', 'docker', 'test')), pytest.raises(
                 PreparationInterrupted if interactive else ValueError):
-        app.run(config, prepared_task=declared_model())
+        app.run(config, prepared_task=two_profile_model())
     preparation.assert_not_called()
     matrix.assert_not_called()
     notices.activate.assert_not_called()

@@ -28,7 +28,10 @@ def t5_task():
 def test_t5_discovers_four_distinct_workloads_without_architecture_inventions(t5_task):
     original = copy.deepcopy(t5_task)
     found = discover_declared_tasks(t5_task)
-    assert found["status"] == "selection_required"
+    assert found["status"] == "ready"  # Four use cases share one Seq2Seq execution path.
+    assert len(found["profiles"]) == 1
+    assert set(found["profiles"][0]["semantic_task_ids"]) == {
+        "translation_en_to_de", "translation_en_to_fr", "translation_en_to_ro", "summarization"}
     assert {task["task_id"] for task in found["tasks"]} == {
         "translation_en_to_de", "translation_en_to_fr", "translation_en_to_ro", "summarization"}
     assert {task["interface"] for task in found["tasks"]} == {"text2text-generation"}
@@ -37,6 +40,22 @@ def test_t5_discovers_four_distinct_workloads_without_architecture_inventions(t5
     assert german["config"]["generation"]["num_beams"] == 4
     assert "config.task_specific_params.translation_en_to_de" in german["evidence"]
     assert t5_task == original
+
+
+def test_group_uses_real_backend_not_the_original_hub_pipeline(t5_task):
+    from types import SimpleNamespace
+
+    from acprof.host.collection_workflow import PreparationWorkflow
+    from acprof.host.task_selection import select_tasks
+
+    discovery = discover_declared_tasks(t5_task)
+    assert len(discovery["profiles"]) == 1
+    assert discovery["profiles"][0]["signature"]["backend"] == "transformers_model"
+    t5_task.task_discovery = discovery
+    options = SimpleNamespace(task="", tasks="", task_family="", backend="", model_spec="", workload_spec="")
+    resolved = select_tasks(t5_task, options, PreparationWorkflow())
+    assert resolved.runtime_backend == "transformers_model"
+    assert resolved.selected_tasks[0]["execution_profile"]["signature"]["backend"] == resolved.runtime_backend
 
 
 def test_light_metadata_preserves_explicit_task_and_loader_declarations(t5_task):

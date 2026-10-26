@@ -10,14 +10,17 @@ from acprof.application.task_runs import TaskCollection
 from acprof.experiment import RunConfig
 from acprof.host.detect import TaskInfo
 from acprof.host.runtimes.selection import RuntimeSelection
+from acprof.inference_groups import group_inference_tasks
 from acprof.task_workloads import parse_task
 
 
 def selected_model():
     task = TaskInfo("fixture/model", "text2text-generation", "nlp", "transformers_model",
                     "transformers", "b" * 40, "hub_api", model_config={"is_encoder_decoder": True})
-    task.selected_tasks = [parse_task(name, {}, encoder_decoder=True, source="fixture") for name in
-                           ("translation_en_to_de", "summarization")]
+    task.selected_tasks = group_inference_tasks([
+        parse_task("translation_en_to_de", {}, encoder_decoder=True, source="fixture"),
+        parse_task("summarization", {"num_beams": 4}, encoder_decoder=True, source="fixture"),
+    ], backend=task.runtime_backend)
     return task
 
 
@@ -36,10 +39,26 @@ def test_task_failure_does_not_skip_the_next_task_and_results_are_separate(tmp_p
     assert outcome.status == "failed"
     assert len(seen) == 2
     assert seen[0][0].result_dir(tmp_path) != seen[1][0].result_dir(tmp_path)
-    assert seen[0][1].selected_tasks[0]["task_id"] == "translation_en_to_de"
-    assert seen[1][1].selected_tasks[0]["task_id"] == "summarization"
+    assert {part[1].selected_tasks[0]["execution_profile"]["signature"]["generation"]["num_beams"]
+            for part in seen} == {1, 4}
     assert collection.manifest["tasks"][0]["status"] == "failed"
     assert collection.manifest["tasks"][1]["status"] == "ok"
+
+
+def test_related_semantic_tasks_execute_one_matrix_with_frozen_provenance(tmp_path):
+    task = selected_model()
+    original = [parse_task(name, {}, encoder_decoder=True, source="fixture") for name in
+                ("translation_en_to_de", "summarization")]
+    task.selected_tasks = group_inference_tasks(original, backend=task.runtime_backend)
+    assert len(task.selected_tasks) == 1
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path))
+    collection = TaskCollection(config, task)
+    executed = []
+    result = collection.run(lambda child, resolved: executed.append((child, resolved)) or RunOutcome("ok"))
+    assert result.status == "ok"
+    assert len(executed) == 1
+    assert len(collection.manifest["task_snapshot"]["selected_tasks"][0]["semantic_tasks"]) == 2
+    assert executed[0][0].tasks.startswith("text2text-generation-")
 
 
 def test_resume_reuses_frozen_task_selection_and_workload(tmp_path):
@@ -53,6 +72,33 @@ def test_resume_reuses_frozen_task_selection_and_workload(tmp_path):
     replay = []
     restored.run(lambda config, task: replay.append(config) or RunOutcome("ok"))
     assert [config.workload_spec for config in recorded] == [config.workload_spec for config in replay]
+
+
+def test_resume_restricts_explicit_semantic_subset(tmp_path):
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path),
+                     tasks="translation_en_to_de,summarization")
+    task = selected_model()
+    task.selected_tasks = group_inference_tasks([
+        parse_task("translation_en_to_de", {}, encoder_decoder=True, source="fixture"),
+        parse_task("summarization", {}, encoder_decoder=True, source="fixture"),
+    ], backend=task.runtime_backend)
+    collection = TaskCollection(config, task)
+    collection.run(lambda config, task: RunOutcome("ok"))
+    assert TaskCollection.restore(replace(config, resume=True)).task.selected_tasks == task.selected_tasks
+    with pytest.raises(ValueError, match="selection changed"):
+        TaskCollection.restore(replace(config, resume=True, tasks="translation_en_to_de"))
+
+
+def test_resume_accepts_original_mixed_profile_and_semantic_selection(tmp_path):
+    task = selected_model()
+    translation = next(item for item in task.selected_tasks
+                       if item["execution_profile"]["semantic_task_ids"] == ["translation_en_to_de"])
+    config = replace(RunConfig.smoke("fixture/model"), output_dir=str(tmp_path),
+                     tasks=f"{translation['task_id']},summarization")
+    collection = TaskCollection(config, task)
+    collection.run(lambda config, task: RunOutcome("ok"))
+    restored = TaskCollection.restore(replace(config, resume=True))
+    assert restored.task.selected_tasks == task.selected_tasks
 
 
 def test_resume_rejects_changed_task_options(tmp_path):
@@ -72,7 +118,7 @@ def test_resume_after_interrupt_prepares_tasks_that_never_started(tmp_path):
     seen = []
     result = restored.run(lambda config, task: seen.append(task.selected_tasks[0]['task_id']) or RunOutcome('ok'))
     assert result.status == 'ok'
-    assert seen == ['translation_en_to_de', 'summarization']
+    assert seen == [item['task_id'] for item in first.task.selected_tasks]
 
 
 @pytest.mark.parametrize("cleanup_fails", [False, True])
