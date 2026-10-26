@@ -16,8 +16,10 @@ Docker build context 忽略 `tests/`、`docs/`、pytest/mypy/Ruff 缓存、覆�
 可缓存的 Python 镜像仍在 root 构建阶段安装已锁定依赖，不需要运行时安装权限。
 非 root 运行须分别验收 CPU 模型 `/ready`、`/predict`、CUDA 设备和 GPU profiler；
 这些基础 smoke **不能替代** 当前源码指纹对应的 CPU/GPU 完整采集与正式测量窗口验收。
-Docker bridge 保留本机回环地址端口映射；直接改成 `--network none` 或 internal network 会破坏
-现有 HTTP 测量链路。模型离线加载不等于 Docker 层级的出站网络封锁。
+Docker bridge 保留本机回环地址端口映射。`--network none` 无法承载现有 HTTP 测量链路；
+internal bridge 仍可能允许访问宿主网关上的服务，且不能假设它保留现有端口发布行为。
+模型离线加载不等于 Docker 层级的出站网络封锁。
+阻断非必要主动外联的候选策略、独立验收与接入边界见[测量容器出站隔离](../profiling/egress.md)。
 标准推理容器还使用 `--cap-drop=ALL` 和 `no-new-privileges`，不赋予额外 Linux capabilities；
 CPU/GPU 正式推理所需的具体能力由运行时验证核对。独立的 profiler 工具容器
 （如 NCU/nsys）有自己的权限与能力限制，不能将普通推理成功当作 GPU profiler 的验证通过。
