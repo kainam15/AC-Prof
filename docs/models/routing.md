@@ -4,28 +4,42 @@
 
 ## 任务发现与选择
 
-工作负载和推理接口分开记录。例如 `translation_en_to_de` 与 `summarization` 都可以通过
-`text2text-generation` 执行，但输入模板、生成参数、身份和结果各自独立。发现阶段只读取同一
-固定 revision 的轻量元数据，包括 `task_specific_params`、Hub 任务标签与 `acprof_model.json`；
-不下载权重、不导入模型代码，也不从模型卡正文的能力介绍推断任务。架构与 AutoModel 类型仅作为
-接口约束。未知接口、缺少语言方向或无法解析的参数保留为 unresolved，冲突要求显式选择。
+模型声明的应用任务与性能采集的推理配置分开记录。翻译语言、摘要、问答、提示词和模板描述输入
+用途；相同执行接口及解码计算配置仅测一套资源矩阵，不为每种语义用途重复采集。
+发现阶段只读取同一固定 revision 的轻量元数据，包括 `task_specific_params`、Hub 标签和模型
+声明；不下载权重或执行模型代码，也不根据架构推测 checkpoint 已训练的任务。
 
-一个明确任务自动继续，多个任务先暂停。TUI 可以选一个、多个或全部，也可返回配置，此时尚未
-下载权重、执行 Smoke 或正式测量。CLI 使用 `--tasks TASK_ID,TASK_ID` 或 `--tasks all`；省略时
-列出可选任务并退出。无明确任务时通过 `--task`、`--model-spec` 和必要的 `--workload-spec` 补充。
-不能凭架构支持范围宣称 checkpoint 已声明分类、回归或问答。
+`inference_groups` 根据实际推理接口、backend 与会影响计算路径的生成配置分组：
+Beam 数、采样/多返回序列、缓存与 logits 处理选项等改变执行配置；输入前缀、翻译方向、
+任务特定 `max_length` / `min_length` 则不产生新的采集组。生成组使用统一的
+`max_new_tokens=64` 默认预算，用户仍可用 workload 参数覆盖。
+这个预算是生成上限，实际输出 Token 数以 runtime 观测为准，不能视为保证输出 64 Token。
+组内保留全部应用任务声明及配置、来源和指纹，并选择一个稳定的真实输入模板执行基准。
+组签名记录所选接口解析后的真实 runtime backend，而非模型 Hub 原始用途标签所对应的旧 backend。
 
-`google-t5/t5-small` 声明英译德、英译法、英译罗马尼亚语与摘要四项。通用 `translation` /
-`text2text-generation` 标签合并为证据，不产生重复任务。每项记录
-`task_id/interface/kind/config/evidence/fingerprint`。生成参数优先级为用户 workload、任务声明、
-`generation_config.json`、AC-Prof 默认值；高优先级的长度写法替换继承的另一种写法，
-同一声明同时提供两者时 `max_new_tokens` 优先于 `max_length`。
-Encoder–Decoder 的 `max_length` 包含 decoder start token，Decoder-only 则包含输入 prompt，
-不会被误记为新增 token 数，原始参数和长度语义均保存。
+**一个推理组直接继续；多个独立推理组才暂停供用户选择。** TUI 可多选或全选推理组；
+CLI 的 `--tasks` 接受已声明的语义任务 ID、推理组 ID 或 `all`，相同执行配置自动合并。
+未选择而存在多个独立组时，非交互 CLI 显示可选组并退出。
+无明确任务时使用 `--task`、`--model-spec` 和必要的 `--workload-spec` 补充；证据冲突
+仍要求显式处理。不能凭架构支持范围宣称 checkpoint 已声明分类、回归或问答。
 
-翻译保留语言前缀，摘要与生成式问答分别使用正文和问题/上下文。内置文本是确定性合成样本，保存
-模板版本/哈希与 seed=0，不代表准确率数据集。非英语翻译来源需要显式输入文本；生成式分类、
-情感分析和回归需要明确前缀声明。无声明或需要覆盖语义时，可在 `--workload-spec` JSON 中写入：
+`google-t5/t5-small` 声明英译德、英译法、英译罗马尼亚语和摘要四项，默认只产生
+**一个 Seq2Seq 生成推理组**（声明中的 Beam ×4 一致）。任务专用长度和语言前缀作为
+`semantic_tasks` 原始证据保留，不触发四套完整采集。若另有 Greedy/采样模式或不同执行接口，
+它们形成独立组。通用 Pipeline 标签只补充证据，不凭空制造任务。
+
+应用任务保留 `task_id/interface/kind/config/evidence/fingerprint`；采集组增加
+`execution_profile.signature/semantic_task_ids/representative_task_id` 与完整
+`semantic_tasks` 快照。测量子任务使用稳定组 ID 和独立指纹。
+生成参数优先级：用户 workload 显式覆盖组的规范化生成参数；任务声明/模型默认值仍在
+应用任务证据中保留。Encoder–Decoder 的原始 `max_length` 包含 decoder start token，
+Decoder-only 包含 prompt，不能当作新增 Token 数；组的统一 `max_new_tokens` 则单独记录。
+
+翻译保留语言前缀，摘要与生成式问答分别使用正文和问题/上下文。组内选取一个确定性的
+代表输入，其余语义任务仍保留证据，可使用 `--tasks` 选择具体代表用途；选择同组多个用途
+不会额外重复采集。内置文本是确定性合成样本，保存模板版本/哈希与 seed=0，不是准确率数据集。
+非英语翻译来源需要显式输入文本；生成式分类、情感分析与回归要求声明相应前缀。
+无声明或需要覆盖语义时，可在 `--workload-spec` JSON 中写入：
 
 ```json
 {"schema_version": 1, "task_declaration": {"task_id": "generative-question-answering", "params": {"prefix": "question: When does the library open? context: ", "max_new_tokens": 32}}}
@@ -36,12 +50,14 @@ Encoder–Decoder 的 `max_length` 包含 decoder start token，Decoder-only 则
 
 原生 Seq2Seq 使用 `AutoTokenizer`、`AutoModelForSeq2SeqLM.generate()`，适用于项目锁定的
 Transformers 4.x / 5.x，不依赖 v5 已移除的翻译、摘要和 Text2Text Pipeline。
-每项独立验证加载、预处理、推理、输出解析与实际 token；Smoke 仅证明接口及样本 sanity，
-不证明准确率或可靠任务能力。一项失败后保留原因并继续其他已选任务，集合返回失败状态。
-权重缓存共享，但运行实例与冷启动加载独立。详见[任务产物与恢复](../profiling/artifacts.md#按任务保存与恢复)。
+每个推理组独立验证加载、预处理、推理、输出解析与实际 Token；Smoke 只能证明当前
+接口及样本可用，不证明其他应用用途的准确率。某组失败后保留原因并继续其他已选组。
+组间共享权重文件缓存，不共享需要独立测量的冷启动模型实例。
+详见[采集组产物与恢复](../profiling/artifacts.md#按任务保存与恢复)。
 
-设计借鉴 [lm-evaluation-harness TaskConfig / GroupConfig](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/task_guide.md)
-的任务配置与组管理，并核对 [Transformers v5 迁移指南](https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md)、
+输入用途借鉴 [lm-evaluation-harness TaskConfig / GroupConfig](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/task_guide.md)
+的任务配置与组管理；性能矩阵借鉴 [vLLM latency benchmark](https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/latency.py)
+对 input/output length、batch、beam 的区分，并核对 [Transformers v5 迁移指南](https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md)、
 [Issue #44509](https://github.com/huggingface/transformers/issues/44509) 和
 [PR #44510](https://github.com/huggingface/transformers/pull/44510)。只借鉴分工，不复制实现或引入
 评测框架依赖；发现与选择均位于测量窗口外。

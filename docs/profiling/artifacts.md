@@ -5,8 +5,8 @@
 ## 输出文件
 
 模型根目录为 `<output-dir>/<model-dir>/`；模型 ID 中的 `/` 替换为 `--`。
-新任务采集在其下按任务和 collection ID 隔离；历史实验仍按原路径读取与恢复。
-下表列出可能生成的文件；probe、补采、调试与绘图产物仅在执行对应操作时出现。
+新采集按**推理执行配置**和 collection ID 隔离，不能按翻译语种、摘要等语义用途反复执行
+同一完整矩阵。下表列出可能生成的文件；probe、补采、调试与绘图产物仅在执行对应操作时出现。
 
 ### 按任务保存与恢复
 
@@ -16,26 +16,26 @@
 │   ├── task_runs/<collection-id>.json
 │   └── task_workloads/<sha256>.json
 └── tasks/
-    ├── translation_en_to_de/<collection-id>/
-    ├── translation_en_to_fr/<collection-id>/
-    ├── translation_en_to_ro/<collection-id>/
-    └── summarization/<collection-id>/
+    └── text2text-generation-<profile-hash>/<collection-id>/
 ```
 
-每个任务目录内部继续采用下方 Artifact Layout v2，具有独立分层 CSV、`run_state.json`、输入
-计划、矩阵、原始窗口和 validation。重复运行生成新 collection ID。集合清单 schema v1 保存
-固定模型 revision、所选任务/证据/配置指纹、原始配置与各任务状态，不生成跨任务平均延迟或
-合并 CSV。输入计划、矩阵身份、`model_resolution.selected_task` 和实际 workload contract 保留
-任务身份。参数、batch、实际输入/输出 token、模板版本/哈希与 seed 由输入计划、静态 workload
-元数据及请求记录提供；未知观测保持 unavailable。
+`google-t5/t5-small` 的三种翻译方向与摘要在相同 Beam ×4 计算配置下自动归为一个
+Seq2Seq 推理组，仅生成一套测量结果。若模型还有 Greedy/采样或其他独立推理接口，
+才会另建目录。目录仍使用 Artifact Layout v2，包含独立分层 CSV、`run_state.json`、
+输入/矩阵计划与原始测量窗口。
 
-恢复集合时保持原参数，增加 `--resume --task-run-id <collection-id>`。仅有一个集合时可省略 ID；
-多个集合时必须指定。恢复读取冻结任务选择和 workload，拒绝配置、revision 或模板指纹变化；
-已完成任务不重测，未开始任务仍经过独立 Smoke。TUI 的历史实验选择器可按任务恢复。
-历史未采用任务子目录的实验保留原恢复协议。
+集合清单 schema v1 保存固定模型 revision、执行配置签名、所有已声明用途的证据/配置与
+指纹、代表输入及各推理组状态，不生成跨组平均延迟。对应 workload、输入计划及
+`model_resolution.selected_task` 保留完整 provenance。参数、batch、实际输入/输出 Token、
+模板版本/哈希与 seed 仍在输入计划及请求记录中保存；未知观测保持 unavailable。
 
-发现、选择、下载确认、集合清单写入均在正式窗口外。监控、冷启动和 profiler 隶属于当前任务的
-原有生命周期；缓存只共享固定模型文件，不共享运行中的模型实例。
+恢复集合使用原参数与 `--resume --task-run-id <collection-id>`；多个集合时必须指定 ID。
+恢复读取冻结组选择、所有用途及 workload，拒绝配置、revision、模板或组成员变化；
+已完成组不重测，未开始组按原方案执行 Smoke。历史按语义任务独立保存的集合仍由其
+冻结身份恢复，不会自动合并、改写或覆盖既有结果。
+
+发现、选择、下载确认和集合清单写入均在正式窗口之外。独立推理组具有独立冷启动和监控
+生命周期；仅共享固定模型文件缓存，不共享运行中的模型实例。
 
 ### Artifact Layout v2
 
