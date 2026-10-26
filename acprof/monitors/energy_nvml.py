@@ -216,11 +216,14 @@ class GPUEnergyMonitor:
         result.counter_start_mj = self._energy_start_mj
         result.counter_end_mj = energy_end_mj
         result.measurement_duration_s = duration_s
+        sampled_powers = [power for _, power in samples if math.isfinite(power)]
+        result.counter_envelope_valid_samples = len(sampled_powers)
+        result.counter_envelope_reason = "counter_unavailable"
         if self._energy_start_mj is not None and energy_end_mj is not None:
             delta_mj = energy_end_mj - self._energy_start_mj
             if delta_mj >= 0 and duration_s > 0:
                 counter_avg_w = delta_mj / 1000.0 / duration_s
-                sampled_powers = [power for _, power in samples if math.isfinite(power)]
+                result.counter_envelope_reason = "insufficient_valid_power_samples" if len(sampled_powers) < 3 else ""
                 # Some drivers return increasing but physically inconsistent
                 # cumulative readings. Compare against an independently
                 # sampled power envelope before accepting the counter. Leave
@@ -229,6 +232,8 @@ class GPUEnergyMonitor:
                     counter_avg_w > max(sampled_powers) * (1.0 + COUNTER_SAMPLE_POWER_TOLERANCE)
                     or counter_avg_w < min(sampled_powers) * (1.0 - COUNTER_SAMPLE_POWER_TOLERANCE)
                 ):
+                    result.counter_envelope_status = "rejected"
+                    result.counter_envelope_reason = "outside_sampled_power_envelope"
                     self._energy_error = (
                         "NVML cumulative energy rejected: counter average "
                         f"{counter_avg_w:.3f} W outside sampled-power envelope "
@@ -237,8 +242,11 @@ class GPUEnergyMonitor:
                         "using time-integrated power samples"
                     )
                 else:
+                    if len(sampled_powers) >= 3:
+                        result.counter_envelope_status = "passed"
                     apply_gpu_energy_counter(result)
             else:
+                result.counter_envelope_reason = "invalid_counter_or_duration"
                 self._energy_error = "cumulative energy counter decreased or window duration is invalid"
         # A cumulative workload measurement cannot be corrected with an
         # independently sampled idle baseline (or vice versa): the subtraction
@@ -323,6 +331,9 @@ class GPUEnergyMonitor:
                         "energy_source": result.energy_source,
                         "energy_fallback_reason": result.energy_fallback_reason,
                         "counter_sample_power_tolerance": COUNTER_SAMPLE_POWER_TOLERANCE,
+                        "counter_envelope_status": result.counter_envelope_status,
+                        "counter_envelope_reason": result.counter_envelope_reason,
+                        "counter_envelope_valid_samples": result.counter_envelope_valid_samples,
                         "control_source_reselected": self._control_source_reselected},
             "control": self.control_evidence if include_control else None,
         })

@@ -187,6 +187,9 @@ def _recompute_gpu(item: dict[str, Any]) -> dict[str, Any]:
     result.counter_end_mj = context["counter_end_mj"]
     result.measurement_duration_s = _number(context["measurement_duration_s"])
     result.energy_fallback_reason = context["energy_fallback_reason"]
+    result.counter_envelope_status = context.get("counter_envelope_status", "unknown")
+    result.counter_envelope_reason = context.get("counter_envelope_reason", "not_recorded")
+    result.counter_envelope_valid_samples = context.get("counter_envelope_valid_samples")
     source = context["energy_source"]
     if source == "nvml_total_energy":
         apply_gpu_energy_counter(result)

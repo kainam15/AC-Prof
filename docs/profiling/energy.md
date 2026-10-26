@@ -65,6 +65,15 @@ CSV 中两种能量最后再除以成功请求数；有效的零差值保留为�
 `gpu_idle_baseline_reselected_due_to_workload` 及未经修改的累计首尾数值。
 不得直接以功率积分的 workload 减去来源不同的累计计数 control。
 没有足够功率样本可交叉核对时继续保留原始来源及采样缺失警告，不假定累计值准确。
+telemetry 的 GPU `context` 另记 `counter_envelope_status`（`passed` / `rejected` / `not_checked`）、
+`counter_envelope_reason` 与 `counter_envelope_valid_samples`。不足 3 个有效功率样本时原因是
+`insufficient_valid_power_samples`（有效功率样本不足），不能一概解释为短窗口；计数器不可用
+或值／时长非法也明确记录未校验原因。通过包络不保证最终采用累计来源：matched control
+仍可要求两侧改用功率积分。状态字段不改变既有能耗数值、来源选择或 fallback reason。
+`--idle-debug` 侧车使用相应 `gpu_energy_` 前缀。历史 telemetry 缺少状态时 replay 记录
+`unknown` / `not_recorded`，样本数量为 `null`，不反推过去是否执行过校验。
+累计计数器单位及支持边界以 [NVIDIA NVML 官方 API 声明](https://github.com/NVIDIA/go-nvml/blob/main/pkg/nvml/nvml.h)
+为准；此处只是对已有采样的诊断记录，不新增 NVML 查询。
 不采用固定倍数修正累计能耗；采样积分仍有刷新率／功耗尖峰的不确定性，不能自动把结果视为科研验收通过。
 
 实现参考 [CodeCarbon 的 NVML 接口](https://github.com/mlco2/codecarbon/blob/master/codecarbon/core/gpu_nvidia.py)

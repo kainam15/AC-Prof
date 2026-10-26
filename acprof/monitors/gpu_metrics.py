@@ -20,6 +20,9 @@ class EnergyResult:
     counter_start_mj: int | None = None
     counter_end_mj: int | None = None
     measurement_duration_s: float = float("nan")
+    counter_envelope_status: str = "not_checked"
+    counter_envelope_reason: str = "not_measured"
+    counter_envelope_valid_samples: int | None = None
 
 
 def apply_gpu_energy_counter(result: EnergyResult) -> None:

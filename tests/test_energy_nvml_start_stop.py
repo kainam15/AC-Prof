@@ -323,3 +323,46 @@ def test_nvml_init_failure_returns_error_result() -> None:
     assert (samples) == ([])
     assert (result.energy_iters) == (0)
     assert (math.isnan(result.energy_total_j))
+
+
+@pytest.mark.parametrize('count', [0, 1, 2, 3, 4])
+@pytest.mark.parametrize('counter_energy', [40.0, 800.0])
+def test_counter_envelope_status_preserves_source_and_value(count, counter_energy):
+    with patch.object(energy_nvml.pynvml, 'nvmlInit'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetHandleByIndex', return_value='handle'
+    ), patch.object(energy_nvml.pynvml, 'nvmlDeviceGetName', return_value='GPU'), patch.object(
+        energy_nvml.pynvml, 'nvmlDeviceGetTotalEnergyConsumption', return_value=100000 + int(counter_energy * 1000)
+    ), patch.object(energy_nvml.time, 'perf_counter', return_value=2.0):
+        monitor = energy_nvml.GPUEnergyMonitor()
+        monitor._t_start = 0.0
+        monitor._energy_start_mj = 100000
+        monitor.samples = [(2 * index / max(1, count - 1), 20.0) for index in range(count)]
+        with patch.object(monitor, '_append_sample'):
+            result, _, _, _ = monitor.stop()
+    expected_status = 'not_checked' if count < 3 else 'passed' if counter_energy == 40 else 'rejected'
+    assert result.counter_envelope_status == expected_status
+    assert result.counter_envelope_valid_samples == count
+    assert result.counter_envelope_reason == ('insufficient_valid_power_samples' if count < 3 else '' if counter_energy == 40 else 'outside_sampled_power_envelope')
+    expected_source = 'power_integration' if expected_status == 'rejected' else 'nvml_total_energy'
+    assert result.energy_source == expected_source
+    assert result.energy_total_j == (40 if expected_source == 'power_integration' else counter_energy)
+    assert result.counter_start_mj == 100000
+    assert result.counter_end_mj == 100000 + counter_energy * 1000
+    raw = monitor.telemetry_snapshot()
+    for field in ['counter_envelope_status', 'counter_envelope_reason', 'counter_envelope_valid_samples']:
+        assert raw['context'][field] == getattr(result, field)
+
+    document = window_evidence(
+        identity={"run_id": "run", "case_id": "case", "case_attempt_id": "a1", "window_id": "w0"},
+        context={}, collectors={"gpu": raw},
+    )
+    replayed = recompute_window(document)["gpu"]
+    assert replayed["counter_envelope_status"] == expected_status
+    assert replayed["energy_total_j"] == result.energy_total_j
+    for field in ['counter_envelope_status', 'counter_envelope_reason', 'counter_envelope_valid_samples']:
+        document['collectors']['gpu']['context'].pop(field)
+    legacy = recompute_window(document)["gpu"]
+    assert legacy['counter_envelope_status'] == 'unknown'
+    assert legacy['counter_envelope_reason'] == 'not_recorded'
+    assert legacy['counter_envelope_valid_samples'] is None
+    assert legacy['energy_total_j'] == result.energy_total_j
