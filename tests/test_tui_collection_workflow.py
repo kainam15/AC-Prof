@@ -19,6 +19,42 @@ from acprof.tui.process import ProcessLifecycle
 from acprof.tui.progress import RunProgressTracker
 
 
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_automatic_interface_selection_reaches_runtime_without_modal(tmp_path, language):
+    script = textwrap.dedent('''
+        from types import SimpleNamespace
+        from acprof.host.collection_workflow import PreparationWorkflow
+        from acprof.host.detect import TaskInfo
+        from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+        task = TaskInfo("fixture/model", "unknown", "unknown", "unknown", "transformers",
+                        "a" * 40, "config_infer", model_config={"model_type": "bert",
+                        "architectures": ["BertForMaskedLM"]})
+        task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
+        args = SimpleNamespace(task="", tasks="", backend="", task_family="", model_spec="",
+                               revision="", batch_size=1, gpus="off")
+        workflow = PreparationWorkflow(interactive=True)
+        selected = workflow.resolve(args, initial=task)
+        assert len(selected.selected_tasks) == 1
+        workflow.emit("runtime", "running")
+        print("AUTO_INTERFACE_SELECTED", flush=True)
+    ''')
+    app = AcprofTui(RunConfig.smoke("fixture/model"), settings_path=tmp_path / "settings.json")
+    original = ProcessLifecycle.start
+    def launch(owner, _command, **kwargs):
+        return original(owner, [sys.executable, "-c", script], **kwargs)
+    with patch("acprof.tui.process.ProcessLifecycle.start", autospec=True, side_effect=launch):
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.query_one("#ui-language", Select).value = language
+            await pilot.pause()
+            await pilot.click("#start-run")
+            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
+            await pilot.pause()
+            app.logs.flush()
+            assert "AUTO_INTERFACE_SELECTED" in app.query_one("#run-log", SelectableLog).text
+            assert app.preflight.preparation_screen is None
+            assert not app.query_one("#start-run", Button).disabled
+
+
 async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_path):
     import os
 

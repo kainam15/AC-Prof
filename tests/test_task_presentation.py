@@ -30,8 +30,10 @@ def test_real_t5_metadata_and_effective_ngram_difference():
     assert ("generation", "no_repeat_ngram_size") not in values(view.common)
     by_kind = {group.purposes[0].kind: group for group in view.groups}
     summary, translation = by_kind["summarization"], by_kind["translation"]
-    assert values(summary.differences) == {("generation", "no_repeat_ngram_size"): (True, 3)}
-    assert values(translation.differences) == {("generation", "no_repeat_ngram_size"): (True, 0)}
+    assert values(summary.differences) == {("generation", "no_repeat_ngram_size"): (True, 3),
+                                           ("generation", "length_penalty"): (True, 2.0)}
+    assert values(translation.differences) == {("generation", "no_repeat_ngram_size"): (True, 0),
+                                               ("generation", "length_penalty"): (True, 1.0)}
     assert translation.purposes[0].directions == (("en", "de"), ("en", "fr"), ("en", "ro"))
     assert translation.representative["task_id"] == "translation_en_to_de"
     assert summary.representative["task_id"] == "summarization"
@@ -77,7 +79,9 @@ def test_no_candidates_single_and_identical_signatures(count):
 
 
 def test_override_is_compared_after_normalization_without_rewriting_declarations():
-    view = build_task_selection(t5_profiles(generation_override={"no_repeat_ngram_size": 0}))
+    partial = build_task_selection(t5_profiles(generation_override={"no_repeat_ngram_size": 0}))
+    assert len(partial.groups) == 2  # Beam scoring still differs.
+    view = build_task_selection(t5_profiles(generation_override={"no_repeat_ngram_size": 0, "length_penalty": 1.0}))
     assert len(view.groups) == 1
     assert view.groups[0].differences == ()
     assert [purpose.kind for purpose in view.groups[0].purposes] == ["summarization", "translation"]

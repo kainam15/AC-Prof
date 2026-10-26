@@ -28,6 +28,9 @@ _PARAMETERS: dict[ConfigPath, str] = {
     ("generation", "temperature"): "ui.2190",
     ("generation", "top_k"): "ui.2191",
     ("generation", "top_p"): "ui.2192",
+    ("generation", "repetition_penalty"): "ui.2230",
+    ("generation", "length_penalty"): "ui.2232",
+    ("operation",): "ui.2231",
 }
 
 

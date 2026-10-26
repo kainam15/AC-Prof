@@ -1,12 +1,11 @@
 """Task choice is a wrapping, explicit, cancellable preparation decision."""
-import json
 from functools import partial
 
 import pytest
 from rich.cells import cell_len
 from task_selection_fixtures import t5_profiles, t5_task
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Checkbox, Collapsible, Select, Static
+from textual.widgets import Button, Checkbox, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
@@ -127,16 +126,8 @@ async def test_long_unknown_parameters_details_and_resize_are_reachable(tmp_path
             await pilot.press("down", "space")
         assert len(selection.selected) == 6
         assert app.focused is cards[-1].query_one(Checkbox)
-        details = screen.query_one(".task-declarations", Collapsible)
-        details.scroll_visible(animate=False, immediate=True)
-        await pilot.pause()
-        details.query_one("CollapsibleTitle").focus()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert not details.collapsed
-        raw = list(details.query(Static))[-1].content
-        assert json.loads(raw) == profiles
-        assert "中文 [literal] <markup>" in raw
+        assert not screen.query(".task-declarations")
+        assert screen.query_one(".task-evidence-note", Static).content
         scroll = screen.query_one(VerticalScroll)
         scroll.scroll_end(animate=False, immediate=True)
         await pilot.pause()
@@ -159,7 +150,8 @@ def test_names_and_parameters_use_localized_templates_without_translating_raw_va
     assert format_parameter(ConfigField(("new.flag",), False), tr) == '["new.flag"] = false'
     assert format_parameter(ConfigField(("new.flag",), 0), tr) == '["new.flag"] = 0'
     assert format_parameter(ConfigField(("new.flag",), "开启 [bold]"), tr) == '["new.flag"] = "开启 [bold]"'
-    mixed = build_task_selection(t5_profiles(generation_override={"no_repeat_ngram_size": 0})).groups[0]
+    mixed = build_task_selection(t5_profiles(generation_override={"no_repeat_ngram_size": 0,
+                                                                "length_penalty": 1.0})).groups[0]
     assert group_label(mixed, tr) == labels["summarization"] + " / " + labels["translation"]
     member = mixed.profile["semantic_tasks"][0]
     member.update(kind="future-kind", task_id="future-task")

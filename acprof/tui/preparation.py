@@ -159,19 +159,9 @@ class PreparationScreen(ModalScreen):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
                     if request.get("detail"):
                         yield Static(request["detail"], id="preparation-detail", markup=False)
-                    if request.get("advanced"):
-                        with Collapsible(title=tr("高级修改"), collapsed=True):
-                            for index, question in enumerate(request["advanced"]):
-                                yield Label(question["path"])
-                                yield review_input(question, identifier=f"preparation-advanced-{index}", translate=tr)
-                            yield Button(tr("重新解析"), id="preparation-revise")
                     summary = None if download else request.get("summary")
                     if summary and summary.strip():
-                        if task_selection:
-                            with Collapsible(title=tr("任务声明来源"), collapsed=True):
-                                yield Static(summary, id="preparation-summary", markup=False)
-                        else:
-                            yield Static(summary, id="preparation-summary", markup=False)
+                        yield Static(tr(summary), id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=False):
@@ -254,16 +244,6 @@ class PreparationScreen(ModalScreen):
             error.display = True
             return
         self.send({"action": "answer", "answers": answers})
-
-    @on(Button.Pressed, "#preparation-revise")
-    def revise(self):
-        try:
-            overrides = review_answers(self, self.event["request"]["advanced"], prefix="preparation-advanced")
-            encode_reply(self.event["request"]["id"], "revise", overrides=overrides)
-        except (ValueError, TypeError) as exc:
-            self.query_one("#preparation-error", Static).update(str(exc))
-            return
-        self.send({"action": "revise", "overrides": overrides})
 
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):

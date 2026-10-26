@@ -1,12 +1,10 @@
 """Wrapping multi-select cards for complete inference-profile decisions."""
 from __future__ import annotations
 
-import json
-
 from rich.text import Text
 from textual import events
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Checkbox, Collapsible, Static
+from textual.widgets import Checkbox, Static
 
 from acprof.task_presentation import SelectionGroup, build_task_selection
 from acprof.tui.i18n import message_id
@@ -51,8 +49,6 @@ class TaskChoices(Vertical):
     DEFAULT_CSS = """
     TaskChoices { height: auto; }
     TaskChoices > Static { height: auto; }
-    TaskChoices > Collapsible { padding: 0; margin-top: 1; }
-    TaskChoices > Collapsible > Contents { padding: 0 1; }
     """
 
     def __init__(self, profiles: list[dict], *, translate: Translator, selected: list[str], **kwargs):
@@ -68,10 +64,7 @@ class TaskChoices(Vertical):
         yield Static(self.tr(message_id("ui.2206", common)), classes="task-common", markup=False)
         for group in view.groups:
             yield TaskChoice(group, self.tr, selected=group.task_id in self.initial_selected)
-        with Collapsible(title=self.tr(message_id("ui.2207")), collapsed=True, classes="task-declarations"):
-            yield Static(self.tr(message_id("ui.2208")), markup=False)
-            yield Static(json.dumps([group.profile for group in view.groups],
-                                    ensure_ascii=False, indent=2, sort_keys=True), markup=False)
+        yield Static(self.tr(message_id("ui.2208")), classes="task-evidence-note", markup=False)
 
     @property
     def selected(self) -> list[str]:

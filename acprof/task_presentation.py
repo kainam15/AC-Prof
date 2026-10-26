@@ -92,7 +92,16 @@ class TaskSelection:
 def build_task_selection(profiles: list[dict]) -> TaskSelection:
     """Build stable display data without changing IDs, provenance or grouping."""
     ordered = sorted(copy.deepcopy(profiles), key=lambda item: item["task_id"])
-    comparison = compare_configurations([item["execution_profile"]["signature"] for item in ordered])
+    configurations = []
+    for item in ordered:
+        signature = copy.deepcopy(item["execution_profile"]["signature"])
+        # Full protocols, component hashes and evidence belong in artifacts.
+        # The interface and effective generation parameters explain the choice.
+        execution = signature.pop("execution", {})
+        if execution:
+            signature["operation"] = execution["operation"]
+        configurations.append(signature)
+    comparison = compare_configurations(configurations)
     groups = []
     semantic_ids: set[str] = set()
     for profile, differences in zip(ordered, comparison.differences, strict=True):
