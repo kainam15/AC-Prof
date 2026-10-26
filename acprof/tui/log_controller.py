@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.timer import Timer
-from textual.widgets import Checkbox, Select, Static
+from textual.widgets import Select, Static
 
 from acprof.tui.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.i18n import message_id
@@ -102,8 +102,7 @@ class LogController:
             return
         self.flush()
         self.log.set_view(level=str(self.app.query_one("#log-level", Select).value),
-                          query=self.app.query_one("#log-search", Input).value,
-                          details=self.app.query_one("#log-details", Checkbox).value)
+                          query=self.app.query_one("#log-search", Input).value)
 
     def toggle_tools(self) -> None:
         if self.app.latest_snapshot.measurement_active:
@@ -114,9 +113,9 @@ class LogController:
         if self.tools_open:
             self.app.query_one("#log-search", Input).focus()
 
-    def find(self, *, previous: bool = False) -> None:
+    def find(self) -> None:
         if not self.app.latest_snapshot.measurement_active:
-            self.log.find_match(previous=previous)
+            self.log.find_match()
 
     def refresh_status(self) -> None:
         if (not self.app.is_running or self.app.ui_closing or not self.app.form_ready

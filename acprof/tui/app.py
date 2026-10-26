@@ -891,18 +891,12 @@ class AcprofTui(BarCursorApp):
 
     @on(Input.Changed, '#log-search')
     @on(Select.Changed, '#log-level')
-    @on(Checkbox.Changed, '#log-details')
     def on_log_view_changed(self) -> None:
         self.logs.view_changed()
 
-    @on(Button.Pressed, '#log-next')
     @on(Input.Submitted, '#log-search')
     def on_log_next(self) -> None:
         self.logs.find()
-
-    @on(Button.Pressed, '#log-previous')
-    def on_log_previous(self) -> None:
-        self.logs.find(previous=True)
 
     @on(Button.Pressed, '#copy-log-all')
     def on_log_copy_all(self) -> None:

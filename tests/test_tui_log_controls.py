@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from rich.console import Console
-from textual.widgets import Button, Checkbox, Static
+from textual.widgets import Button, Static
 from tui_fixtures import AcprofTui
 
 from acprof.download_events import DownloadProgress
@@ -67,13 +67,18 @@ async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, la
         assert app.focused is copy_all
         assert await pilot.click('#log-tools')
         await pilot.pause()
-        for selector in ('#log-search', '#copy-log-all', '#export-log', '#log-next', '#log-details'):
+        assert not app.query('#log-previous, #log-next, #log-details')
+        for selector in ('#log-level', '#log-search', '#copy-log-all', '#export-log'):
             widget = app.query_one(selector)
             assert widget.region.width > 0
             assert widget.region.height > 0
             assert 0 <= widget.region.x < widget.region.right <= size[0]
             assert 0 <= widget.region.y < widget.region.bottom <= size[1]
         await pilot.click('#log-search')
+        await pilot.press('tab')
+        assert app.focused.id == 'export-log'
+        await pilot.press('shift+tab')
+        assert app.focused.id == 'log-search'
         await pilot.press('h', 'i', 'd', 'd', 'e', 'n', 'enter')
         await pilot.pause()
         assert log.selected_text == 'hidden'
@@ -82,12 +87,12 @@ async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, la
         await pilot.pause()
         assert app.clipboard == '#1 0.2 hidden 模型'
         app.query_one('#log-search', Input).value = ''
-        app.query_one('#log-details', Checkbox).value = True
         await pilot.pause()
-        assert log.text == raw
+        assert log.text == '[INFO] start\n[WARN] retry  [×2]'
         assert await pilot.click('#copy-log-all')
         await pilot.pause()
-        assert app.clipboard == raw
+        assert app.clipboard == '[INFO] start\n[WARN] retry  [×2]'
+        assert log.raw_text == raw
 
 
 async def test_measurement_stops_pending_render_and_disallows_download_updates(tmp_path):
