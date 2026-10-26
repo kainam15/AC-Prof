@@ -23,10 +23,21 @@ CLI 的 `--tasks` 接受已声明的语义任务 ID、推理组 ID 或 `all`，�
 无明确任务时使用 `--task`、`--model-spec` 和必要的 `--workload-spec` 补充；证据冲突
 仍要求显式处理。不能凭架构支持范围宣称 checkpoint 已声明分类、回归或问答。
 
-`google-t5/t5-small` 声明英译德、英译法、英译罗马尼亚语和摘要四项，默认只产生
-**一个 Seq2Seq 生成推理组**（声明中的 Beam ×4 一致）。任务专用长度和语言前缀作为
-`semantic_tasks` 原始证据保留，不触发四套完整采集。若另有 Greedy/采样模式或不同执行接口，
-它们形成独立组。通用 Pipeline 标签只补充证据，不凭空制造任务。
+`google-t5/t5-small` 的[固定版本配置](https://huggingface.co/google-t5/t5-small/blob/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/config.json)
+声明英译德、英译法、英译罗马尼亚语和摘要四项，规范化后产生 **两个 Seq2Seq 采集组**。
+虽然都使用 Beam ×4、非采样和提前停止，摘要的 `no_repeat_ngram_size=3`，翻译采用
+默认值 `0`，计算签名不同。三个翻译方向共享一组，代表输入为 `translation_en_to_de`；
+摘要组使用 `summarization`。全选四项用途执行两套资源矩阵，不逐个测量三个翻译方向。
+任务专用长度和语言前缀作为 `semantic_tasks` 原始证据保留；通用 Pipeline 标签只补充证据。
+若用户显式将 `no_repeat_ngram_size` 统一覆盖为 `0`，四项声明才归为一个混合用途组。
+
+选择界面仅比较 `execution_profile.signature`，不从原始声明重新推断默认值或计算参数。
+共同参数在顶部显示一次，每组列出真实用途、全部差异和实际代表输入。
+嵌套对象按字段名、数组按索引稳定遍历，保留缺失、`null`、布尔与数值类型区别；
+未知字段使用完整路径和原始 JSON 值显示，不依赖参数名称白名单。
+用途标题由 `semantic_tasks.kind/config` 生成，混合用途全部列出，未知类型使用标准任务 ID。
+“完整任务声明与配置”保留有效配置、计算签名和全部原始声明，包括输入前缀、来源与指纹。
+这些展示计算只发生在准备阶段，不改变分组签名、执行矩阵、结果或 resume 协议。
 
 应用任务保留 `task_id/interface/kind/config/evidence/fingerprint`；采集组增加
 `execution_profile.signature/semantic_task_ids/representative_task_id` 与完整

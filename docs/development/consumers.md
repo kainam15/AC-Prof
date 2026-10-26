@@ -108,6 +108,16 @@ manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当�
 `host.collection_workflow` 在原采集进程内执行准备阶段和用户裁决；`tui.preparation` 只呈现未决项／错误，
 通过有界、带请求 ID 的 stdin 回复继续同一进程。`preparation_events` 定义独立的版本化准备消息，
 不复用正式测量边界事件，不依赖日志错误字符串决定是否询问。普通 CLI 保持非交互失败行为。
+任务选择由 `host.task_selection` 传递结构化推理组；`task_presentation` 只从规范化的
+`execution_profile.signature` 提取共同／差异字段，并从 `semantic_tasks` 构建用途和代表输入数据。
+它不重新分组、不推断默认值，不导入 Textual。`tui.task_labels` 负责统一数据的中英文格式化，
+`tui.task_choices` 负责可换行多选项、完整声明入口及键盘操作；回复只包含已有稳定组 ID。
+配置展示借鉴 [Transformers GenerationConfig](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/generation/configuration_utils.py)
+（Apache-2.0）的完整配置与展示差异分离；[PR #47953](https://github.com/huggingface/transformers/pull/47953)
+说明了默认值与显式覆盖的优先级风险，因此界面复用后端已生效的签名。
+布局依据 [Textual 8.2.8 SelectionList](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_selection_list.py)
+的单行限制与 [Issue #5418](https://github.com/Textualize/textual/issues/5418)，用现有 Checkbox、Static 和滚动容器组合，
+不覆盖框架内部绘制方法。只借鉴官方维护项目的分工，不复制源码或增加依赖；处理只在准备阶段发生。
 确认缓存保存于结果根目录之外的 `.model-contracts/`；静态身份变化使其失效，运行证据始终独立验证。
 重试只回到失败准备阶段；显式重建环境会连带重做输入与验证。退出和取消沿用原进程组清理机制。
 设计借鉴 [Transformers Pipeline 的唯一候选选择](https://github.com/huggingface/transformers/blob/v4.57.6/src/transformers/pipelines/__init__.py)
