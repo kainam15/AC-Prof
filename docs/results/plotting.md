@@ -110,4 +110,10 @@ CPU 模型除共同的二次 log input-scale 项外，还使用二次 log CPU �
 - resource configuration holdout：逐次完整留出一个 `(cpu_cores, mem_cap_gb)` 配置及其全部 input scale；
 - input scale holdout：仅使用较小尺度训练，完整留出最大 input scale，检验向前外推；至少需要 3 个尺度，保证留出最大值后训练侧仍有 2 个不同尺度。
 
+GPU resource configuration holdout 的内部 fold 仅在测试最大尺度超过训练最大尺度时拟合上尾校准；
+测试最大值等于训练上限时仍只使用样条预测，跳过校准不改变预测、fold 状态或汇总指标。
+正式模型及 input scale holdout 保留原校准行为。分组与行顺序遵循
+[scikit-learn LeaveOneGroupOut](https://github.com/scikit-learn/scikit-learn/blob/main/sklearn/model_selection/_split.py)
+的整组留出思路（BSD-3-Clause），沿用现有 NumPy 拟合，无新依赖或测量窗口开销。
+
 报告逐 CPU/GPU 模型给出 R²、MAE、RMSE、relative MAE、MAPE、SMAPE、非正预测数、系数、数值秩和训练范围。resource configuration holdout 要求 `R² >= 0.80`；两种验证都要求总体 `relative MAE <= 0.20`、总体 `MAPE <= 0.20`、任一留出资源配置的 `relative MAE` 与 `MAPE <= 0.30`、任一验证 case 的相对误差 `<= 0.30`，且预测有限为正。input scale holdout 的测试行全部处于同一个尺度，其 R² 只衡量该固定尺度内很小的资源配置差异，不能衡量尺度水位外推是否准确，因此仍在报告中保留但不作为质量门槛。全部适用门槛通过时顶层才写入 `status=ok` 和 `prediction_ready=true`；否则使用 `poor_fit`、`unvalidated` 或 `skipped`，不会把“求解成功”误报为“可用于预测”。

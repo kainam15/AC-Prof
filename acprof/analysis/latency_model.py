@@ -713,7 +713,16 @@ def _resource_configuration_validation(
             "train_test_group_overlap_count": fold_overlap_count,
         }
         try:
-            fold_model = _fit_log_latency_model(train_rows, hardware_model)
+            # Tail predictions activate strictly above the training maximum.
+            # LOCO often shares scales across configurations, so fitting its
+            # nested tail calibration cannot affect any held-out prediction.
+            calibrate_tail = hardware_model != "gpu" or (
+                max(float(row.input_scale) for row in test_rows)
+                > max(float(row.input_scale) for row in train_rows)
+            )
+            fold_model = _fit_log_latency_model(
+                train_rows, hardware_model, calibrate_gpu_upper_tail=calibrate_tail,
+            )
             if not (
                 LATENCY_MODEL_RESOURCE_FEATURES[hardware_model]
                 & set(fold_model["selected_feature_names"])
