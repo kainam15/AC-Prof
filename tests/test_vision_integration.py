@@ -83,9 +83,9 @@ def test_missing_diffusers_tag_uses_pinned_native_pipeline_class(pipeline, task)
         assert (result.model_revision) == ("a" * 40)
         assert download.call_args_list == [
             call(repo_id="example/model", filename="model_index.json", revision="a" * 40,
-                 endpoint="https://hf-mirror.com", dry_run=True),
+                 endpoint="https://hf-mirror.com", token=False, dry_run=True),
             call(repo_id="example/model", filename="model_index.json", revision="a" * 40,
-                 endpoint="https://hf-mirror.com"),
+                 endpoint="https://hf-mirror.com", token=False),
         ]
 
 def test_cv_manifest_reaches_materialized_plan_and_preserves_parameters():
