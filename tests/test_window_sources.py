@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from test_incremental_results import initialized, receipt
 
-from acprof import window_records
 from acprof.artifact_layout import ArtifactLayout
 from acprof.result_store.protocol import reference
 from acprof.result_store.sources import window_row
@@ -99,7 +98,7 @@ def test_telemetry_is_verified_against_the_loaded_receipt(window_source, tmp_pat
     source = {"kind": "window", "reference": reference(layout, path)}
     original = ArtifactLayout.window_evidence_path
 
-    def replace_after_path_check(self, kind, identity):
+    def replace_after_path_check(self: ArtifactLayout, kind, identity):
         expected = original(self, kind, identity)
         if self == layout and kind == "telemetry":
             replacement.replace(path)
@@ -160,10 +159,11 @@ def test_source_paths_are_checked_before_reading_evidence(window_source, tmp_pat
         telemetry.symlink_to(target)
     source = {"kind": "window", "reference": reference(layout, path)}
 
-    def deny_evidence_read(*args, **kwargs):
-        pytest.fail("evidence was read before the receipt paths were checked")
+    def allow_receipt_read_only(read_path: Path, mode: str = "r", *args, **kwargs):
+        assert read_path.resolve() == path.resolve(), "evidence was read before the receipt paths were checked"
+        return open(read_path, mode, *args, **kwargs)
 
-    monkeypatch.setattr(window_records, "read_window_evidence", deny_evidence_read)
+    monkeypatch.setattr(Path, "open", allow_receipt_read_only)
     with pytest.raises(ValueError, match="outside raw/windows|path disagrees|symlinks"):
         window_row(layout, source)
 
