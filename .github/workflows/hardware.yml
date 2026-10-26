@@ -1,7 +1,6 @@
 name: Hardware Validation
 on:
-  schedule:
-    - cron: '15 3 * * 1' # Weekly Monday 03:15 UTC; main branch only.
+  # Weekly hardware validation is paused; manual runs remain available.
   workflow_dispatch:
     inputs:
       preset:
