@@ -51,22 +51,22 @@ def test_large_evidence_hashing_has_bounded_memory(tmp_path, operation):
     if operation == "reference":
         result, peak = traced_peak(lambda: reference(layout, path))
         assert result == expected
+    elif operation == "publish":
+        with ResultWriter(tmp_path) as writer:
+            row = dict(next(iter(writer.rows.values())), latency_s="0.25")
+            changed, peak = traced_peak(lambda: writer.update_rows(
+                [row], reason="fixture profiler evidence", evidence=[expected]))
+            assert changed
+            assert next(iter(writer.rows.values()))["latency_s"] == "0.25"
     else:
         with ResultWriter(tmp_path) as writer:
             row = dict(next(iter(writer.rows.values())), latency_s="0.25")
-            if operation == "publish":
-                changed, peak = traced_peak(lambda: writer.update_rows(
-                    [row], reason="fixture profiler evidence", evidence=[expected]))
-                assert changed
-                assert next(iter(writer.rows.values()))["latency_s"] == "0.25"
-            else:
-                writer.update_rows([row], reason="fixture profiler evidence", evidence=[expected])
-        if operation == "replay":
-            def recover():
-                with ResultWriter(tmp_path) as recovered:
-                    return next(iter(recovered.rows.values()))
-            result, peak = traced_peak(recover)
-            assert result["latency_s"] == "0.25"
+            writer.update_rows([row], reason="fixture profiler evidence", evidence=[expected])
+        def recover():
+            with ResultWriter(tmp_path) as recovered:
+                return next(iter(recovered.rows.values()))
+        result, peak = traced_peak(recover)
+        assert result["latency_s"] == "0.25"
     assert peak < 4 * 1024 * 1024, f"{operation} allocated {peak:,} bytes for 16 MiB evidence"
 
 
