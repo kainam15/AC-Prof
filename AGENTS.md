@@ -88,6 +88,7 @@ WSL、mock 和离线测试不能替代需要真实硬件证据的 Native validat
 - 运行 lint、type check、build 和必要的轻量 smoke check；
 - 检查完整 Git diff、未跟踪文件和受影响测试。
 
+默认不做全量回归，优先进行定向测试。
 正式实验、硬件测量或昂贵下载不是普通代码修改的默认验证手段。
 
 ## Git
