@@ -105,11 +105,15 @@ def commit_window_record(context: WindowPublicationContext, *, window_id: str,
     return record
 
 
-def read_window_record(path: str | Path, *, verify_evidence: bool = True) -> dict[str, Any]:
-    """Return a verified receipt, or raise ValueError for missing/corrupt evidence."""
+def read_window_record(path: str | Path, *, verify_evidence: bool = True,
+                       expected_sha256: str | None = None) -> dict[str, Any]:
+    """Verify and parse one receipt snapshot, optionally deferring evidence I/O."""
     source = Path(path)
     try:
-        record = loads_finite_json(source.read_text(encoding="utf-8"))
+        payload = source.read_bytes()
+        if expected_sha256 is not None and hashlib.sha256(payload).hexdigest() != expected_sha256:
+            raise ValueError("window receipt SHA256 mismatch")
+        record = loads_finite_json(payload.decode("utf-8"))
         if (not isinstance(record, dict) or type(record.get("schema_version")) is not int
                 or record.get("schema_version") not in {WINDOW_RECORD_SCHEMA_VERSION, 2}):
             raise ValueError("unsupported window record schema")
@@ -139,12 +143,25 @@ def read_window_record(path: str | Path, *, verify_evidence: bool = True) -> dic
         if record.get("sniff_group") != {"sniff_group_id": identity["window_id"]}:
             raise ValueError("window sidecar identity mismatch")
         if verify_evidence:
-            reference = record["telemetry"]
-            evidence = read_window_evidence(source.parent / reference["path"],
-                                            expected_sha256=reference["sha256"])
-            if evidence.get("identity") != identity:
-                raise ValueError("window telemetry identity mismatch")
+            verify_window_record_evidence(source, record)
         return record
+    except (OSError, KeyError, TypeError, AttributeError, UnicodeError) as exc:
+        raise ValueError(f"invalid window record {source}: {exc}") from exc
+
+
+def verify_window_record_evidence(path: str | Path, record: dict[str, Any]) -> None:
+    """Verify the loaded receipt's evidence without reopening the receipt.
+
+    Callers may check layout-specific paths after read_window_record has checked
+    the receipt itself, and before this function reads any referenced evidence.
+    """
+    source = Path(path)
+    try:
+        reference = record["telemetry"]
+        evidence = read_window_evidence(source.parent / reference["path"],
+                                        expected_sha256=reference["sha256"])
+        if evidence.get("identity") != record["identity"]:
+            raise ValueError("window telemetry identity mismatch")
     except (OSError, KeyError, TypeError, AttributeError, UnicodeError) as exc:
         raise ValueError(f"invalid window record {source}: {exc}") from exc
 

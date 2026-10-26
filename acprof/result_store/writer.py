@@ -22,7 +22,7 @@ from acprof.result_store.protocol import (
     write_bytes,
 )
 from acprof.result_store.recovery import clear_pending, projected_rows, recover_projection
-from acprof.result_store.sources import apply_source, window_row
+from acprof.result_store.sources import apply_source
 
 
 class ResultWriter:
@@ -56,19 +56,18 @@ class ResultWriter:
     def append_window(self, path):
         self._ready()
         source: dict = {"kind": "window", "reference": reference(self.layout, path)}
-        row, identity = window_row(self.layout, source)
-        if identity in self.windows:
-            if self.windows[identity] != source["reference"]["sha256"]:
-                raise ResultValidationError("conflicting committed window identity")
-            return False
-        key = measurement_key(row)
-        if key in self.rows:
-            raise ResultValidationError("duplicate planned measurement across attempts")
-        # Validate only this source; shallow copies do not reserialize old measurements.
+        # Validate this source once, without copying or reserializing old rows.
         new_rows: dict[tuple[str, ...], dict[str, str]] = {}
         new_windows: dict[tuple[str, ...], str] = {}
         apply_source(self.layout, self.manifest, source, new_rows, new_windows)
-        normalized = new_rows[key]
+        identity, receipt_digest = next(iter(new_windows.items()))
+        if identity in self.windows:
+            if self.windows[identity] != receipt_digest:
+                raise ResultValidationError("conflicting committed window identity")
+            return False
+        key, normalized = next(iter(new_rows.items()))
+        if key in self.rows:
+            raise ResultValidationError("duplicate planned measurement across attempts")
         changes, counts = {}, {}
         for layer, info in self.manifest["layers"].items():
             selected = projected_rows(self.manifest, layer, [normalized])

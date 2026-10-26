@@ -4,7 +4,7 @@ from __future__ import annotations
 from acprof.artifact_layout import ArtifactLayout
 from acprof.result_csv import ResultValidationError, measurement_key
 from acprof.result_store.protocol import IDENTITY_FIELDS, digest, read_reference
-from acprof.window_records import read_window_record
+from acprof.window_records import read_window_record, verify_window_record_evidence
 
 
 def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, ...]]:
@@ -12,16 +12,16 @@ def window_row(layout: ArtifactLayout, source: dict) -> tuple[dict, tuple[str, .
     path = layout.contained(ref["path"])
     if not path.is_relative_to(layout.path("raw/windows")):
         raise ResultValidationError("window source is outside raw/windows")
-    if digest(path.read_bytes()) != ref["sha256"]:
-        raise ResultValidationError("window receipt SHA256 mismatch")
-    record = read_window_record(path, verify_evidence=False)
+    if not isinstance(ref["sha256"], str):
+        raise ResultValidationError("invalid window receipt SHA256")
+    record = read_window_record(path, verify_evidence=False, expected_sha256=ref["sha256"])
     identity = record["identity"]
     if path != layout.window_evidence_path("windows", identity):
         raise ResultValidationError("window receipt path disagrees with its identity")
     telemetry = layout.window_evidence_path("telemetry", identity)
     if (path.parent / record["telemetry"]["path"]).absolute().resolve() != telemetry.resolve():
         raise ResultValidationError("window telemetry path disagrees with its identity")
-    read_window_record(path)
+    verify_window_record_evidence(path, record)
     if any(name in record["row"] and record["row"][name] != identity[name] for name in IDENTITY_FIELDS):
         raise ResultValidationError("window row disagrees with its receipt identity")
     return {**record["row"], **identity}, tuple(identity[name] for name in IDENTITY_FIELDS)
