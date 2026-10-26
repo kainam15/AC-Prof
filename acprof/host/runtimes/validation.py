@@ -10,6 +10,7 @@ from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.host.runtimes.contracts import ProcessInfo
 from acprof.host.runtimes.process import service_environment
 from acprof.host.runtimes.process_control import ManagedProcess
+from acprof.preparation_events import preparation_stage
 
 
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,
@@ -53,6 +54,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
         limits.close()
 
 
+@preparation_stage("interface")
 def probe_interface(task, root, environment, output_dir, *, timeout_seconds=300):
     from acprof.container.model_probe import RESULT_PREFIX
     from acprof.host.source_bundle import source_bundle

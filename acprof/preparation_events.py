@@ -4,11 +4,13 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 PREFIX = "ACPROF_PREPARATION "
 MAX_MESSAGE = 256 * 1024
 STAGES = frozenset({"resolution", "interface", "dependencies", "preflight", "image", "environment", "model", "input", "runtime", "compute_profile", "execution_profile"})
-STATUSES = frozenset({"not_started", "running", "passed", "failed", "waiting"})
+STATUSES = frozenset({"not_started", "running", "passed", "failed", "waiting", "cancelled"})
 
 
 def _finite_json_number(value: str) -> float:
@@ -18,10 +20,26 @@ def _finite_json_number(value: str) -> float:
     return number
 
 
-def emit_progress(stage: str) -> None:
+def emit_progress(stage: str, status: str = "running") -> None:
     """Called at actual preparation boundaries, never from measurement."""
     if os.environ.get("ACPROF_INTERACTIVE_PREPARATION") == "1" or os.environ.get("ACPROF_TUI") == "1":
-        print(encode_event(stage, "running"), flush=True)
+        print(encode_event(stage, status), flush=True)
+
+
+@contextmanager
+def preparation_stage(stage: str) -> Iterator[None]:
+    """Close a preparation operation only after its cleanup and evidence writes finish."""
+    emit_progress(stage)
+    try:
+        yield
+    except KeyboardInterrupt:
+        emit_progress(stage, "cancelled")
+        raise
+    except BaseException:
+        emit_progress(stage, "failed")
+        raise
+    else:
+        emit_progress(stage, "passed")
 
 
 def encode_event(stage: str, status: str, **fields) -> str:

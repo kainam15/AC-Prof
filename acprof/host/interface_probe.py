@@ -28,6 +28,7 @@ from acprof.host.source_bundle import source_bundle
 from acprof.installation import resource_root
 from acprof.model_contract import write_model_resolution
 from acprof.model_spec import encode_model_spec, task_model_spec
+from acprof.preparation_events import preparation_stage
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
 
@@ -38,6 +39,7 @@ class InterfaceProbeError(RuntimeError):
         self.stage = stage
 
 
+@preparation_stage("interface")
 def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                     memory_gb: int = 4, timeout_seconds: float = 300) -> dict:
     if (type(cpus) is not int or cpus <= 0 or type(memory_gb) is not int or memory_gb <= 0
