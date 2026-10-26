@@ -1,0 +1,24 @@
+{
+  "requests": {
+    "case:4": {
+      "latency_s": 0.002000093460083008,
+      "request_id": "case:0\\r\\n",
+      "tcp_stream": 0,
+      "wire_bytes_status": "unavailable_shared_stream"
+    },
+    "case:8": {
+      "latency_s": 0.002000093460083008,
+      "request_id": "case:1\\r\\n",
+      "tcp_stream": 0,
+      "wire_bytes_status": "unavailable_shared_stream"
+    }
+  },
+  "schema_version": 2,
+  "streams": {
+    "0": {
+      "request_wire_bytes": 532,
+      "response_wire_bytes": 398,
+      "tcp_payload_bytes": 336
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "requests": {
+    "case:6": {
+      "latency_s": 0.003999948501586914,
+      "protocol_overhead_bytes": 594,
+      "protocol_overhead_ratio": 0.7795275590551181,
+      "request_id": "case:0\\r\\n",
+      "request_wire_bytes": 428,
+      "response_wire_bytes": 334,
+      "tcp_payload_bytes": 168,
+      "tcp_stream": 0,
+      "total_wire_bytes": 762,
+      "wire_bytes_status": "available"
+    }
+  },
+  "schema_version": 2,
+  "streams": {
+    "0": {
+      "request_wire_bytes": 428,
+      "response_wire_bytes": 334,
+      "tcp_payload_bytes": 168
+    }
+  }
+}

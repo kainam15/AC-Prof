@@ -1,6 +1,8 @@
 import contextlib
 import io
 import json
+import shutil
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -8,79 +10,60 @@ import pytest
 from acprof.packet import sniff_parse_pcap
 
 
-def test_reused_connection_keeps_request_latencies_without_double_counting_stream_bytes():
-    def run(command):
-        if "http.request.line" in command:
-            return "10\t100.0\tX-Req-Id: load:0\t7\n20\t101.0\tX-Req-Id: load:1\t7\n"
-        if "http.request_in" in command:
-            return "10\t100.2\t200\n20\t101.4\t200\n"
-        return "7\t50000\t8002\t900\t700\n"
+def packet(*, frame=1, time=100.0, stream=7, source=50000, destination=8002,
+           wire=100, payload=0, request='', uri='', headers='', response='', request_in=''):
+    return '\t'.join(map(str, (stream, source, destination, wire, payload, frame, time,
+                              request, uri, headers, response, request_in, '200' if response else '')))
+
+
+def run_parser(rows, port='8002'):
     output = io.StringIO()
-    with patch.object(sniff_parse_pcap, "run", side_effect=run), contextlib.redirect_stdout(output):
-        sniff_parse_pcap.main(["reuse.pcap", "8002"])
-    requests = json.loads(output.getvalue())["requests"]
-    assert (len(requests)) == (2)
-    assert (requests["load:10"]["latency_s"]) == (0.2) or round(abs((requests["load:10"]["latency_s"]) - (0.2)), 7) == 0
-    assert (requests["load:20"]["latency_s"]) == (0.4) or round(abs((requests["load:20"]["latency_s"]) - (0.4)), 7) == 0
-    assert ("total_wire_bytes") not in (requests["load:10"])
-    assert (requests["load:20"]["request_id"]) == ("load:1")
-
-def test_emits_schema_v2_latency_and_wire_metrics() -> None:
-    def fake_run(command):
-        if "http.request.line" in command:
-            return (
-                "10\t100.000\tPOST /predict HTTP/1.1,"
-                "X-Req-Id: case_seq1_r0:0\t7\n"
-            )
-        if "http.request_in" in command:
-            return "10\t100.250\t200\n"
-        if "frame.len" in command:
-            return "\n".join(
-                [
-                    "7\t50000\t8002\t100\t0",
-                    "7\t50000\t8002\t200\t150",
-                    "7\t8002\t50000\t120\t0",
-                    "7\t8002\t50000\t480\t400",
-                ]
-            )
-        pytest.fail(f"unexpected tshark command: {command}")
-
-    stdout = io.StringIO()
-    with patch.object(sniff_parse_pcap, "run", side_effect=fake_run), contextlib.redirect_stdout(
-        stdout
-    ):
-        sniff_parse_pcap.main(["capture.pcap", "8002"])
-
-    payload = json.loads(stdout.getvalue())
-    assert (payload["schema_version"]) == (2)
-    record = payload["requests"]["case_seq1_r0:10"]
-    assert (record["latency_s"]) == (0.25)
-    assert (record["request_wire_bytes"]) == (300)
-    assert (record["response_wire_bytes"]) == (600)
-    assert (record["total_wire_bytes"]) == (900)
-    assert (record["tcp_payload_bytes"]) == (550)
-    assert (record["protocol_overhead_bytes"]) == (350)
-    assert (record["protocol_overhead_ratio"]) == (350 / 900) or round(abs((record["protocol_overhead_ratio"]) - (350 / 900)), 7) == 0
+    with patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in rows)), contextlib.redirect_stdout(output):
+        sniff_parse_pcap.main(['capture.pcap', port])
+    return json.loads(output.getvalue())
 
 
-def test_nonfinite_response_timestamp_is_not_emitted() -> None:
-    def fake_run(command):
-        if "http.request.line" in command:
-            return "10\t100.0\tX-Req-Id: case:0\t7\n"
-        if "http.request_in" in command:
-            return "10\t1e309\t200\n"
-        if "frame.len" in command:
-            return "7\t50000\t8002\t100\t50\n"
-        pytest.fail(f"unexpected tshark command: {command}")
+def test_reused_connection_keeps_request_latencies_without_double_counting_stream_bytes():
+    rows = []
+    for frame, time, index in [(10, 100.0, 0), (20, 101.0, 1)]:
+        rows.extend([
+            packet(frame=frame, time=time, request=1, uri='/predict', headers=f'X-Req-Id: load:{index}'),
+            packet(frame=frame + 1, time=time + (0.2 if index == 0 else 0.4), response=1, request_in=frame),
+        ])
+    result = run_parser(rows)
+    requests = result['requests']
+    assert len(requests) == 2
+    assert requests['load:10']['latency_s'] == pytest.approx(0.2)
+    assert requests['load:20']['latency_s'] == pytest.approx(0.4)
+    assert 'total_wire_bytes' not in requests['load:10']
+    assert requests['load:20']['request_id'] == 'load:1'
+    assert result['streams']['7']['request_wire_bytes'] == 400
 
-    stdout = io.StringIO()
-    with patch.object(sniff_parse_pcap, "run", side_effect=fake_run), contextlib.redirect_stdout(
-        stdout
-    ):
-        sniff_parse_pcap.main(["capture.pcap", "8002"])
 
-    assert "Infinity" not in stdout.getvalue()
-    assert json.loads(stdout.getvalue())["requests"] == {}
+def test_emits_schema_v2_latency_and_wire_metrics_including_pre_http_frames():
+    result = run_parser([
+        packet(frame=1, wire=100),
+        packet(frame=10, wire=200, payload=150, request=1, uri='/predict', headers='X-Req-Id: case_seq1_r0:0'),
+        packet(frame=11, source=8002, destination=50000, wire=120),
+        packet(frame=12, time=100.25, source=8002, destination=50000, wire=480, payload=400, response=1, request_in=10),
+    ])
+    assert result['schema_version'] == 2
+    record = result['requests']['case_seq1_r0:10']
+    assert record['latency_s'] == 0.25
+    assert record['request_wire_bytes'] == 300
+    assert record['response_wire_bytes'] == 600
+    assert record['total_wire_bytes'] == 900
+    assert record['tcp_payload_bytes'] == 550
+    assert record['protocol_overhead_bytes'] == 350
+    assert record['protocol_overhead_ratio'] == pytest.approx(350 / 900)
+
+
+def test_nonfinite_response_timestamp_is_not_emitted():
+    result = run_parser([
+        packet(frame=10, request=1, uri='/predict', headers='X-Req-Id: case:0'),
+        packet(frame=11, time='1e309', response=1, request_in=10),
+    ])
+    assert result['requests'] == {}
 
 
 @pytest.mark.parametrize('port', [
@@ -88,36 +71,49 @@ def test_nonfinite_response_timestamp_is_not_emitted() -> None:
     '8002 || true', 'abc', '８００２', '8002\n',
 ])
 def test_rejects_invalid_port_before_launching_tshark(port):
-    with patch.object(sniff_parse_pcap, 'run') as run, pytest.raises(SystemExit, match='invalid TCP port'):
+    with patch.object(sniff_parse_pcap, 'stream_tshark') as run, pytest.raises(SystemExit, match='invalid TCP port'):
         sniff_parse_pcap.main(['capture.pcap', port])
     run.assert_not_called()
 
 
-def test_port_is_canonicalized_before_constructing_tshark_filter():
-    commands = []
-
-    def run(command):
-        commands.append(command)
-        return ''
-
-    with patch.object(sniff_parse_pcap, 'run', side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+def test_port_is_canonicalized_in_single_scan_with_reassembly():
+    with patch.object(sniff_parse_pcap, 'stream_tshark', return_value=(row for row in [])) as run, contextlib.redirect_stdout(io.StringIO()):
         sniff_parse_pcap.main(['capture.pcap', '08002'])
-    assert len(commands) == 3
-    for command in commands:
-        assert 'tcp.port==08002' not in ' '.join(command)
-        assert 'tcp.port==8002' in ' '.join(command)
+    run.assert_called_once()
+    command = run.call_args.args[0]
+    assert 'tcp.port==08002' not in ' '.join(command)
+    assert command[command.index('-Y') + 1] == 'tcp.port==8002'
+    assert 'tcp.port==8002,http' in command
+    assert 'tcp.desegment_tcp_streams:TRUE' in command
+    assert 'http.desegment_body:TRUE' in command
 
 
-def test_request_parser_surfaces_unexpected_header_errors() -> None:
-    def fake_run(command):
-        if "http.request.line" in command:
-            return "10\t100.0\tX-Req-Id: case:0\t7\n"
-        return ""
+def test_request_parser_surfaces_unexpected_header_errors_and_closes_stream():
+    closed = []
 
-    with patch.object(sniff_parse_pcap, "run", side_effect=fake_run), patch.object(
-        sniff_parse_pcap,
-        "extract_request_id",
-        side_effect=RuntimeError("parser bug"),
-    ):
-        with pytest.raises(RuntimeError, match="parser bug"):
-            sniff_parse_pcap.main(["capture.pcap", "8002"])
+    def rows():
+        try:
+            yield packet(frame=10, request=1, uri='/predict', headers='X-Req-Id: case:0')
+        finally:
+            closed.append(True)
+
+    with patch.object(sniff_parse_pcap, 'stream_tshark', return_value=rows()), patch.object(
+        sniff_parse_pcap, 'extract_request_id', side_effect=RuntimeError('parser bug'),
+    ), pytest.raises(RuntimeError, match='parser bug'):
+        sniff_parse_pcap.main(['capture.pcap', '8002'])
+    assert closed == [True]
+
+
+@pytest.mark.skipif(shutil.which('tshark') is None, reason='tshark required for golden PCAP acceptance')
+@pytest.mark.parametrize('name', ['single', 'segmented', 'retransmission', 'reuse', 'missing-response', 'ready-prefix'])
+def test_golden_capture_matches_legacy_parser(name, capsys):
+    capture = Path(__file__).parent / 'fixtures' / 'packet' / name
+    sniff_parse_pcap.main([str(capture.with_suffix('.pcap')), '8002'])
+    assert json.loads(capsys.readouterr().out) == json.loads(capture.with_suffix('.json').read_text())
+
+
+@pytest.mark.skipif(shutil.which('tshark') is None, reason='tshark required for malformed PCAP acceptance')
+def test_invalid_capture_surfaces_tshark_error():
+    capture = Path(__file__).parent / 'fixtures' / 'packet' / 'invalid.pcap'
+    with pytest.raises(SystemExit, match="isn't a capture file"):
+        sniff_parse_pcap.main([str(capture), '8002'])

@@ -65,6 +65,15 @@ client 追加到字段集合相同的已有文件时沿用原表头，避免数�
 | `warmup` | `1` 表示 warmup 行，`0` 表示正式测量行。`acprof plot` 默认排除 warmup 行。 |
 | `repeat_in_window` | 本行内部连续发送的 request 数量。`latency_app_s` 和 `latency_s` 都是该 window 内 request 的平均值。 |
 
+pcap 后处理通过一次 `tshark` 扫描逐行消费 HTTP 关联字段和 TCP 字节，保留 HTTP 重组、
+`decode-as`、重传以及识别 `/predict` 之前的帧。共享连接仅输出一次流级总量，逐请求
+字节标记为 `unavailable_shared_stream`。stdout 与 stderr 同时消费，诊断尾部有界保存；
+超时、非零退出或解析异常会终止并回收子进程。后处理预算仍由
+`ACPROF_POSTPROCESS_TIMEOUT_S` 控制，发生在正式测量窗口之外。
+
+进程管理参考 [PyShark 的流式读取与 stderr 消费](https://github.com/KimiNewt/pyshark/blob/91441d3eee47e50e552ac2436df2ec89abad07b0/src/pyshark/capture/capture.py)
+（MIT），本项目用标准库实现，不新增依赖。
+
 ### 延迟与吞吐
 
 | 字段 | 含义 |
