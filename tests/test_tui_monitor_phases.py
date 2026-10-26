@@ -1,9 +1,8 @@
-"""Phase changes reclaim space and keep failures visible above ordinary output."""
+"""Phase changes reclaim space while diagnostics stay in the scrollable log."""
 from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Static
 from tui_fixtures import AcprofTui
 
 from acprof.download_events import DownloadProgress
@@ -83,56 +82,67 @@ async def test_monitor_shows_only_the_current_phase(tmp_path, size, language):
         assert not app.query_one("#download-progress").display
 
 
-@pytest.mark.parametrize("language", ["zh", "en"])
-async def test_failure_reason_and_traceback_survive_info_output(tmp_path, language):
+@pytest.mark.parametrize(("size", "language"), [
+    ((80, 24), "zh"), ((80, 24), "en"), ((120, 30), "en"), ((150, 45), "zh"),
+])
+async def test_failure_logs_keep_viewport_space_and_remain_filterable(tmp_path, size, language):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
-    async with app.run_test(size=(80, 24)) as pilot:
+    async with app.run_test(size=size) as pilot:
         app.activate_tab("monitor-tab")
         log = app.query_one("#run-log", SelectableLog)
-        log.max_lines = 20
+        snapshot = ProgressSnapshot(stage=Stage.RUNTIME_VALIDATION, runtime_status="running",
+                                    detail="Loading model weights", errors=1)
+        app.consume_process_line("", snapshot, True)
+        await pilot.pause()
+        log_region = log.region
         failure = {"reason_code": "model_load_failed", "detail": "Missing model weights", "stage": "runtime"}
-        snapshot = ProgressSnapshot(stage=Stage.RUNTIME_VALIDATION, runtime_status="failed",
-                                    detail="Missing model weights", errors=1, failure=failure)
-        app.consume_process_line('[ERROR] load failed\nTraceback (most recent call last):\n'
-                                 '  File "模型.py", line 2\nValueError: weights missing', snapshot, True)
+        snapshot = replace(snapshot, runtime_status="failed", detail="Missing model weights", failure=failure)
+        diagnostic = ('[ERROR] load failed\nTraceback (most recent call last):\n'
+                      '  File "模型.py", line 2\nValueError: weights missing')
+        app.consume_process_line(diagnostic, snapshot, True)
         app.logs.flush()
         app.logs.append("\n".join(f"[INFO] cleanup {i}" for i in range(50)))
         app.logs.flush()
         await pilot.pause()
-        error = app.query_one("#monitor-error")
-        assert error.display
-        assert "Missing model weights" in screen_text(app)
-        assert "ValueError: weights missing" in str(app.query_one("#monitor-error-log", Static).content)
-        assert "cleanup 49" not in str(app.query_one("#monitor-error-log", Static).content)
-        assert error.region.bottom <= log.region.y
+        assert log.region == log_region
+        assert diagnostic in log.raw_text
+        assert "cleanup 49" in log.text
         assert log.content_region.height >= 3
         stop = app.query_one("#stop-run")
         assert app.get_widget_at(*stop.region.center)[0] is stop
-        # Changing filters must not hide or translate the pinned diagnosis.
+        log.set_view(level="ERROR")
+        await pilot.pause()
+        assert diagnostic in log.text
+        assert screen_text(app).count("ValueError: weights missing") == 1
+        assert "cleanup" not in log.text
+        # Filtering changes the log view, while copying retains the original text.
         log.set_view(level="INFO", query="cleanup")
         await pilot.pause()
-        assert "Missing model weights" in screen_text(app)
+        assert "ValueError: weights missing" not in screen_text(app)
+        assert log.copy_all()
+        assert diagnostic in app.clipboard
+        assert "cleanup 49" in app.clipboard
         app.consume_process_line("", ProgressSnapshot(stage=Stage.STARTING), True)
         await pilot.pause()
-        assert not error.display
+        assert diagnostic in log.raw_text
 
 
-async def test_error_log_is_pinned_without_structured_failure_and_can_be_cleared(tmp_path):
+async def test_cancelled_traceback_stays_in_log_and_can_be_cleared(tmp_path):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("monitor-tab")
-        app.logs.append("[INFO] mentions [ERROR] literally")
+        log = app.query_one("#run-log", SelectableLog)
+        app.consume_process_line("Traceback (most recent call last):\nKeyboardInterrupt",
+                                 ProgressSnapshot(stage=Stage.STOPPED, measurement_status="cancelled"), True)
         app.logs.flush()
         await pilot.pause()
-        assert not app.query_one("#monitor-error").display
-        app.logs.append("[ERROR] Missing dependency")
-        app.logs.flush()
-        await pilot.pause()
-        assert "Missing dependency" in screen_text(app)
+        assert "KeyboardInterrupt" in log.text
+        assert screen_text(app).count("KeyboardInterrupt") == 1
         assert await pilot.click("#clear-log")
         await pilot.pause()
-        assert not app.query_one("#monitor-error").display
+        assert "KeyboardInterrupt" not in screen_text(app)
+        assert not log.raw_text
 
 
 async def test_error_render_is_deferred_until_measurement_ends(tmp_path):
@@ -150,22 +160,29 @@ async def test_error_render_is_deferred_until_measurement_ends(tmp_path):
         app.logs.flush()
         await pilot.pause()
         assert "Workload failed" in screen_text(app)
-        assert "deferred diagnostic" in str(app.query_one("#monitor-error-log", Static).content)
+        assert "deferred diagnostic" in app.query_one("#run-log", SelectableLog).text
+        assert screen_text(app).count("deferred diagnostic") == 1
 
 
-async def test_cleanup_failure_shows_reason_without_replaying_measurement_logs(tmp_path):
+async def test_cleanup_failure_buffers_details_until_measurement_ends(tmp_path):
     app = AcprofTui(settings_path=tmp_path / "settings.json")
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("monitor-tab")
         app.consume_process_line("", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True)
         app.logs.append("[ERROR] buffered diagnostic")
-        with patch.object(app.logs.log.records.error_context, "snapshot", side_effect=AssertionError("read during measurement")):
+        with patch.object(app.logs.log.records, "project_update", side_effect=AssertionError("rendered during measurement")):
             app.process_cleanup_incomplete(StopResult(12345, None, "SIGTERM timeout"))
             await pilot.pause()
-        assert "SIGTERM timeout" in screen_text(app)
+        assert app.tr(Stage.CLEANUP_INCOMPLETE.label) in screen_text(app)
+        assert "SIGTERM timeout" in app.logs.log.raw_text
         assert "buffered diagnostic" not in screen_text(app)
         assert app.logs.log.suspended
         assert app.logs.timer is None
+        app.consume_process_line("", replace(app.latest_snapshot, measurement_active=False), True)
+        app.logs.flush()
+        await pilot.pause()
+        assert "SIGTERM timeout" in app.logs.log.text
+        assert "buffered diagnostic" in app.logs.log.text
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -174,21 +191,35 @@ async def test_long_error_is_scrollable_and_keeps_log_actions_reachable(tmp_path
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("monitor-tab")
-        reason = "\n".join(f"模型诊断 / diagnostic {i}" for i in range(30)) + "\nROOT-CAUSE-END"
-        app.consume_process_line("", ProgressSnapshot(stage=Stage.FAILED, detail=reason), True)
+        diagnostic = "[ERROR] ROOT-CAUSE-START\n" + "\n".join(
+            f"模型诊断 / diagnostic {i}" for i in range(30)
+        ) + "\nROOT-CAUSE-END"
+        app.consume_process_line(diagnostic, ProgressSnapshot(stage=Stage.FAILED, detail="Workload failed"), True)
+        app.logs.flush()
         await pilot.pause()
-        panel = app.query_one("#monitor-error")
-        panel.focus()
+        log = app.query_one("#run-log", SelectableLog)
+        normal_region = log.region
+        log.focus()
+        await pilot.press("home")
+        await pilot.pause()
+        assert "ROOT-CAUSE-START" in screen_text(app)
         await pilot.press("end")
         await pilot.pause()
-        assert panel.scroll_y == panel.max_scroll_y > 0
+        assert log.scroll_y == log.max_scroll_y > 0
         assert "ROOT-CAUSE-END" in screen_text(app)
         await pilot.press("f8")
         await pilot.pause()
-        assert panel.region.height > 0
+        assert log.region.height > normal_region.height
         for selector in ("#stop-run", "#restore-log", "#copy-log"):
             button = app.query_one(selector)
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.press("escape")
         await pilot.pause()
-        assert panel.region.bottom <= app.query_one("#run-log").region.y
+        assert log.region == normal_region
+        await pilot.resize_terminal(120, 30)
+        await pilot.pause()
+        assert log.region.height > normal_region.height
+        await pilot.resize_terminal(80, 24)
+        await pilot.pause()
+        assert log.region == normal_region
+        assert "ROOT-CAUSE-END" in log.raw_text

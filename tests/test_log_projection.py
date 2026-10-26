@@ -5,23 +5,6 @@ import pytest
 from acprof.tui.log_records import LogRecords
 
 
-def test_pinned_error_excerpt_is_bounded_and_independent_of_raw_history():
-    records = LogRecords(max_lines=20, max_bytes=100_000)
-    for number in range(100):
-        records.append(f"[ERROR] failure {number}")
-    records.append("[ERROR] " + "中" * 2000)
-    for number in range(30):
-        records.append(f"[INFO] cleanup {number}")
-    batch = records.error_context.snapshot()
-    assert len(batch.entries) == 12
-    assert batch.retained_bytes <= 16 * 1024
-    assert batch.discarded_entries == 89
-    assert batch.oversized_entries == 1
-    assert batch.entries[0] == "[ERROR] failure 0"
-    assert batch.entries[-1] == "[ERROR] failure 99"
-    assert records.raw_text.startswith("[INFO] cleanup 10\n")
-
-
 def update(records, rows, **view):
     change = records.project_update(**view)
     rows[change.start:] = change.rows

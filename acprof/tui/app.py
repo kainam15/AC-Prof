@@ -497,7 +497,6 @@ class AcprofTui(BarCursorApp):
         self.query_one("#download-progress").display = (
             phase is MonitorPhase.PREPARATION and self.preflight.latest_download is not None
         )
-        self.logs.refresh_error(snapshot, boundary=True)
         elapsed = (
             self.format_elapsed(time.monotonic() - self.started_monotonic)
             if self.started_monotonic
@@ -901,7 +900,6 @@ class AcprofTui(BarCursorApp):
     @on(SelectableLog.Updated)
     def on_log_updated(self) -> None:
         self.logs.refresh_status()
-        self.logs.refresh_error(self.latest_snapshot)
 
     @on(Input.Changed, '#log-search')
     @on(Select.Changed, '#log-level')

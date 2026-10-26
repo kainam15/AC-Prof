@@ -481,9 +481,6 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
             yield PreparationStatus(id="status-preparation")
             yield DownloadProgressPanel(id="download-progress")
             with LogPanel(id="log-panel"):
-                with VerticalScroll(id="monitor-error"):
-                    yield Static("", id="monitor-error-reason", markup=False)
-                    yield Static("", id="monitor-error-log", markup=False)
                 with Horizontal(id="log-controls"):
                     yield app.localization.localized_select(
                         [("全部级别", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],
