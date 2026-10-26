@@ -173,17 +173,17 @@ def test_mirror_metadata_redirect_uses_official_hub_at_same_commit():
             error,
             SimpleNamespace(commit_hash="c" * 40, file_size=config.stat().st_size),
             str(config),
-        ]) as download:
+        ]) as download, patch("huggingface_hub.get_token", return_value=None):
             info = detect_task("unseen/encoder")
     assert not (info.metadata_errors)
     assert (info.model_config["model_type"]) == ("bert")
     assert download.call_args_list == [
         call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
-             endpoint="https://hf-mirror.com", dry_run=True),
+             endpoint="https://hf-mirror.com", token=False, dry_run=True),
         call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
-             endpoint="https://huggingface.co", dry_run=True),
+             endpoint="https://huggingface.co", token=False, dry_run=True),
         call(repo_id="unseen/encoder", filename="config.json", revision="c" * 40,
-             endpoint="https://huggingface.co"),
+             endpoint="https://huggingface.co", token=False),
     ]
 
 def test_metadata_failure_is_not_reported_as_unsupported_task():
