@@ -103,6 +103,9 @@ class ExtensionCatalog:
             handler_options=merge_template(
                 merge_template(declaration.handler_options, declaration.backend_handler_options.get(backend, {})),
                 declaration.task_handler_options.get(task or "", {})),
+            inference=merge_template(
+                merge_template(declaration.inference, declaration.task_inference.get(task or "", {})),
+                declaration.backend_inference.get(backend, {})),
         )
 
     def select_extension(self, task_info: Any) -> ExtensionDeclaration:

@@ -67,3 +67,27 @@ def test_retired_cross_layer_aliases_are_not_reexported():
     assert not hasattr(resolution, "audio_text_loader")
     assert not hasattr(candidates, "resolve_model_interface")
     assert not hasattr(support, "discover_model_candidates")
+    assert not hasattr(candidates, "discover_declared_tasks")
+
+
+def test_resume_checks_interface_identity_before_restoring_runtime():
+    from dataclasses import asdict
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from acprof.host.collection_workflow import PreparationWorkflow
+    from acprof.host.detect import TaskInfo
+    from acprof.host.run_state import RunState
+    from acprof.host.task_selection import select_tasks
+    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+
+    task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers_pipeline", "transformers",
+                    "a" * 40, "hub_api", model_config={"architectures": ["BertForMaskedLM"]})
+    task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))
+    task = select_tasks(task, SimpleNamespace(task="", tasks="", backend="", model_spec=""), PreparationWorkflow())
+    task.model_config["architectures"] = ["RobertaForMaskedLM"]
+    state = object.__new__(RunState)
+    state.data = {"runtime": {"task": asdict(task)}}
+    with patch("acprof.host.runtimes.service.execution_runtime") as runtime, pytest.raises(ValueError, match="identity"):
+        state.restore_runtime()
+    runtime.assert_not_called()

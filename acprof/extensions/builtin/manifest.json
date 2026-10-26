@@ -108,6 +108,138 @@
       },
       "handler_options": {
         "uses_pipeline": true
+      },
+      "inference": {
+        "loader": "acprof.container.handlers.nlp:NLPHandler.load",
+        "operation": "predict",
+        "structure": "single"
+      },
+      "backend_inference": {
+        "transformers_pipeline": {
+          "loader": "transformers.pipeline",
+          "operation": "__call__"
+        },
+        "sentence_transformers": {
+          "loader": "sentence_transformers.SentenceTransformer",
+          "default_task": "feature-extraction",
+          "operation": "encode",
+          "structure": "modules",
+          "output_features": [
+            "sentence_embedding"
+          ],
+          "module_protocols": {
+            "sentence_transformers.models.Transformer": {
+              "outputs": [
+                "token_embeddings",
+                "attention_mask",
+                "input_ids"
+              ],
+              "accepts_input": true
+            },
+            "sentence_transformers.models.Pooling": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "requires": [
+                "token_embeddings"
+              ]
+            },
+            "sentence_transformers.models.Dense": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "requires": [
+                "sentence_embedding"
+              ]
+            },
+            "sentence_transformers.models.Normalize": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "requires": [
+                "sentence_embedding"
+              ]
+            },
+            "sentence_transformers.models.WeightedLayerPooling": {
+              "outputs": [
+                "token_embeddings"
+              ],
+              "requires": [
+                "all_layer_embeddings"
+              ]
+            },
+            "sentence_transformers.models.WordWeights": {
+              "outputs": [
+                "token_embeddings"
+              ],
+              "requires": [
+                "token_embeddings"
+              ]
+            },
+            "sentence_transformers.models.BoW": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "accepts_input": true
+            },
+            "sentence_transformers.models.WordEmbeddings": {
+              "outputs": [
+                "token_embeddings",
+                "attention_mask",
+                "input_ids"
+              ],
+              "accepts_input": true
+            },
+            "sentence_transformers.models.LSTM": {
+              "outputs": [
+                "token_embeddings"
+              ],
+              "requires": [
+                "token_embeddings"
+              ]
+            },
+            "sentence_transformers.models.CNN": {
+              "outputs": [
+                "token_embeddings"
+              ],
+              "requires": [
+                "token_embeddings"
+              ]
+            },
+            "sentence_transformers.models.Dropout": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "requires": [
+                "sentence_embedding"
+              ]
+            },
+            "sentence_transformers.models.StaticEmbedding": {
+              "outputs": [
+                "sentence_embedding"
+              ],
+              "accepts_input": true
+            }
+          }
+        },
+        "cross_encoder": {
+          "loader": "sentence_transformers.CrossEncoder",
+          "operation": "predict"
+        }
+      },
+      "task_inference": {
+        "translation": {
+          "loader": "transformers.AutoModelForSeq2SeqLM",
+          "operation": "generate"
+        },
+        "summarization": {
+          "loader": "transformers.AutoModelForSeq2SeqLM",
+          "operation": "generate"
+        },
+        "text2text-generation": {
+          "loader": "transformers.AutoModelForSeq2SeqLM",
+          "operation": "generate"
+        }
       }
     },
     {
@@ -197,6 +329,17 @@
         },
         "keypoint-detection": {
           "uses_pipeline": false
+        }
+      },
+      "inference": {
+        "loader": "acprof.container.handlers.cv:CVHandler.load",
+        "operation": "predict",
+        "structure": "single"
+      },
+      "backend_inference": {
+        "transformers_pipeline": {
+          "loader": "transformers.pipeline",
+          "operation": "__call__"
         }
       }
     },
@@ -299,6 +442,17 @@
         "audio-to-audio": {
           "uses_pipeline": false
         }
+      },
+      "inference": {
+        "loader": "acprof.container.handlers.audio:AudioHandler.load",
+        "operation": "predict",
+        "structure": "single"
+      },
+      "backend_inference": {
+        "transformers_pipeline": {
+          "loader": "transformers.pipeline",
+          "operation": "__call__"
+        }
       }
     },
     {
@@ -336,7 +490,12 @@
       ],
       "input_modalities": [
         "timeseries"
-      ]
+      ],
+      "inference": {
+        "loader": "chronos.BaseChronosPipeline",
+        "operation": "predict",
+        "structure": "single"
+      }
     },
     {
       "extension_id": "torch-timeseries-legacy",
@@ -454,6 +613,11 @@
         "image-to-3d": {
           "batch": "unsupported"
         }
+      },
+      "inference": {
+        "loader": "diffusers.DiffusionPipeline",
+        "operation": "__call__",
+        "structure": "components"
       }
     },
     {
@@ -523,6 +687,17 @@
         },
         "document-question-answering": {
           "uses_pipeline": true
+        }
+      },
+      "inference": {
+        "loader": "acprof.container.handlers.multimodal:MultimodalHandler.load",
+        "operation": "predict",
+        "structure": "single"
+      },
+      "backend_inference": {
+        "transformers_pipeline": {
+          "loader": "transformers.pipeline",
+          "operation": "__call__"
         }
       }
     },
@@ -601,6 +776,17 @@
         "requirements_inputs": [
           "dockerfiles/requirements/moss-transformers5104.in"
         ]
+      },
+      "inference": {
+        "loader": "acprof.container.handlers.moss:MossTranscribeDiarizeHandler.load",
+        "operation": "predict",
+        "structure": "single"
+      },
+      "backend_inference": {
+        "transformers_pipeline": {
+          "loader": "transformers.pipeline",
+          "operation": "__call__"
+        }
       }
     },
     {
@@ -651,6 +837,11 @@
         "tensor_inputs": true,
         "requires_model_spec": true,
         "loader": "torchscript"
+      },
+      "inference": {
+        "loader": "torch.jit.load",
+        "operation": "predict",
+        "structure": "single"
       }
     },
     {
@@ -696,6 +887,11 @@
         "tensor_inputs": false,
         "requires_model_spec": false,
         "loader": "skops"
+      },
+      "inference": {
+        "loader": "skops.io.load",
+        "operation": "predict",
+        "structure": "single"
       }
     }
   ],

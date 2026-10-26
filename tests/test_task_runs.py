@@ -26,7 +26,7 @@ def test_real_t5_mixed_selections_execute_once_per_effective_signature(tmp_path,
 
     task = t5_task()
     spec = tmp_path / "override.json"
-    spec.write_text(json.dumps({"schema_version": 1, "params": {"no_repeat_ngram_size": 0}}))
+    spec.write_text(json.dumps({"schema_version": 1, "params": {"no_repeat_ngram_size": 0, "length_penalty": 1.0}}))
     # Include both group and semantic IDs; overlapping choices must not repeat a matrix.
     choices = ",".join([item["profile_id"] for item in task.task_discovery["profiles"]] +
                        [item["task_id"] for item in task.task_discovery["tasks"]])

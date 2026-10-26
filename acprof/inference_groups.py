@@ -20,13 +20,13 @@ from acprof.task_workloads import (
 )
 
 # These options affect the execution algorithm, unlike prompt text, target
-# language, task-specific token limits or beam scoring heuristics.
-_SAMPLING_OPTIONS = ("temperature", "top_k", "top_p")
+# language or task-specific token limits.
+_SAMPLING_DEFAULTS = {"temperature": 1.0, "top_k": 50, "top_p": 1.0}
 _TOKEN_OPTIONS = ("decoder_start_token_id", "bos_token_id", "eos_token_id",
                   "pad_token_id", "forced_bos_token_id", "forced_eos_token_id")
 _DEFAULTS = {"num_beams": 1, "num_return_sequences": 1, "do_sample": False,
              "use_cache": True, "no_repeat_ngram_size": 0, "encoder_no_repeat_ngram_size": 0,
-             "early_stopping": False}
+             "early_stopping": False, "repetition_penalty": 1.0}
 # Standard output budget is a bound, not an assertion about actual output tokens.
 _STANDARD_OUTPUT_TOKENS = 64
 
@@ -35,13 +35,34 @@ def inference_signature(task: dict, *, backend: str = "") -> dict:
     """Exclude task meaning and input/output lengths from execution identity."""
     interface = task["interface"]
     signature = {"interface": interface, "backend": backend}
+    if "execution_path" in task:
+        signature["execution"] = copy.deepcopy(task["execution_path"])
     if interface in GENERATIVE_INTERFACES:
         original = task["config"].get("generation", {})
         compute = {key: original.get(key, value) for key, value in _DEFAULTS.items()}
         if compute["do_sample"]:
-            compute.update({key: original[key] for key in _SAMPLING_OPTIONS if key in original})
+            compute.update({key: original.get(key, value) for key, value in _SAMPLING_DEFAULTS.items()})
+        if compute["num_beams"] > 1:
+            compute["length_penalty"] = original.get("length_penalty", 1.0)
+        for key in ("temperature", "top_p", "repetition_penalty", "length_penalty"):
+            if key in compute:
+                if type(compute[key]) not in (int, float):
+                    raise ValueError(f"{key} must be a finite number")
+                compute[key] = float(compute[key])
         signature["generation"] = compute
     return signature
+
+
+def matches_recorded_signature(task: dict, recorded: dict) -> bool:
+    """Read older persisted signatures without rewriting their identity."""
+    effective = inference_signature(task, backend=recorded["backend"])
+    if "execution" not in recorded and "execution" not in effective and "generation" in effective:
+        # Before interface fingerprints, absent logits defaults were omitted.
+        # Only equivalent defaults may be omitted during legacy comparison.
+        for name, value in {"repetition_penalty": 1.0, "length_penalty": 1.0, **_SAMPLING_DEFAULTS}.items():
+            if name not in recorded.get("generation", {}) and effective["generation"].get(name) == value:
+                effective["generation"].pop(name, None)
+    return effective == recorded
 
 
 def _profile_generation(representative: dict, signature: dict) -> dict:

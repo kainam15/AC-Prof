@@ -17,7 +17,7 @@ def require_resolved_candidate(task_info: Any) -> None:
     if resolution.get("failure", {}).get("reason_code") == "model_contract_required":
         from acprof.failures import Failure, RuntimeFailure
         raise RuntimeFailure(Failure(**resolution["failure"]))
-    if (resolution.get("status") in {"ambiguous", "needs_configuration"}
+    if (resolution.get("status") in {"ambiguous", "needs_configuration", "selection_required"}
             or resolution.get("semantics", {}).get("status") in {"conflict", "unresolved"}):
         choices = ", ".join(f"{item['task']}/{item['backend']}" for item in resolution.get("candidates", []))
         details = "; ".join([*resolution.get("conflicts", []), *resolution.get("missing", [])])

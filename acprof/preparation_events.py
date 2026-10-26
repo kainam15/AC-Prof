@@ -83,13 +83,10 @@ def validate_input_plan(value: dict) -> None:
         raise ValueError("invalid preparation input plan")
 
 
-def encode_reply(request_id: int, action: str, *, answers: dict | None = None,
-                 overrides: dict | None = None) -> str:
+def encode_reply(request_id: int, action: str, *, answers: dict | None = None) -> str:
     value: dict[str, object] = {"id": request_id, "action": action}
     if answers is not None:
         value["answers"] = answers
-    if overrides is not None:
-        value["overrides"] = overrides
     line = json.dumps(value, ensure_ascii=True, allow_nan=False) + "\n"
     if len(line) > MAX_MESSAGE:
         raise ValueError("preparation reply exceeds size limit")

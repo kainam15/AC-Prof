@@ -515,12 +515,15 @@ class RunState:
         from acprof.host.detect import TaskInfo
         from acprof.host.input_plan import PlannedInputScales
         from acprof.host.runtimes.service import execution_runtime
+        from acprof.inference_interfaces import validate_execution_identity
         snapshot = self.data["runtime"]
+        task = TaskInfo(**snapshot["task"])
+        validate_execution_identity(task)
         image = execution_runtime(snapshot.get("kind", "docker")).restore(snapshot["image"])
         plan = dict(snapshot["planned"])
         if plan.get("plan_file"):
             plan["plan_file"] = str(self.artifact_path(plan["plan_file"]))
-        return (TaskInfo(**snapshot["task"]), image, PlannedInputScales(**plan),
+        return (task, image, PlannedInputScales(**plan),
                 str(self.artifact_path(snapshot["compute_plan"])) if snapshot["compute_plan"] else "",
                 str(self.artifact_path(snapshot["execution_plan"])) if snapshot["execution_plan"] else "")
 

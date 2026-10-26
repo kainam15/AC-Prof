@@ -9,7 +9,7 @@ import pytest
 from acprof.host.collection_workflow import PreparationInterrupted, PreparationWorkflow
 from acprof.host.detect import TaskInfo
 from acprof.host.task_selection import select_tasks
-from acprof.model_candidates import discover_declared_tasks
+from acprof.model_candidates import discover_model_candidates
 
 
 def declared_model():
@@ -21,14 +21,14 @@ def declared_model():
                                       "summarization": {"prefix": "summarize: "},
                                       "translation_en_to_de": {"prefix": "translate English to German: "}}},
                     hub_metadata={"pipeline_tag": "text2text-generation"})
-    task.task_discovery = discover_declared_tasks(task)
+    task.task_discovery = discover_model_candidates(task)["task_discovery"]
     return task
 
 
 def two_profile_model():
     task = declared_model()
     task.model_config["task_specific_params"]["summarization"]["num_beams"] = 4
-    task.task_discovery = discover_declared_tasks(task)
+    task.task_discovery = discover_model_candidates(task)["task_discovery"]
     assert len(task.task_discovery["profiles"]) == 2
     return task
 
@@ -119,6 +119,9 @@ def test_manual_workload_declaration_resolves_an_undeclared_task(tmp_path):
     assert result.selected_tasks[0]["kind"] == "sentiment-analysis"
     assert result.selected_tasks[0]["config"]["prefix"] == "sst2 sentence: "
     assert result.selected_tasks[0]["evidence"] == ["workload_spec.task_declaration"]
+    signature = result.selected_tasks[0]["execution_profile"]["signature"]
+    assert signature["execution"]["operation"] == "generate"
+    assert signature["execution"]["backend"] == "transformers_model"
 
 
 def test_reusing_frozen_workload_keeps_manual_semantics(tmp_path):
@@ -158,6 +161,21 @@ def test_frozen_group_rejects_compute_override(tmp_path):
     spec.write_text(json.dumps(frozen))
     with pytest.raises(ValueError, match="frozen inference profile"):
         select_tasks(task, options(workload_spec=str(spec)), PreparationWorkflow())
+
+
+def test_historical_frozen_signature_keeps_its_original_identity(tmp_path):
+    from acprof.inference_groups import group_inference_tasks
+    from acprof.task_workloads import parse_task, task_fingerprint, workload_manifest
+    task = declared_model()
+    group = group_inference_tasks([parse_task("summarization", {}, encoder_decoder=True, source="historical")],
+                                 backend="transformers_model")[0]
+    group["execution_profile"]["signature"]["generation"].pop("repetition_penalty")
+    group["config"]["generation"].pop("repetition_penalty")
+    group["fingerprint"] = task_fingerprint(group)
+    path = tmp_path / "historical.json"
+    path.write_text(json.dumps(workload_manifest(group)))
+    chosen = select_tasks(task, options(workload_spec=str(path)), PreparationWorkflow())
+    assert chosen.selected_tasks == [group]
 
 
 def test_explicit_summary_without_metadata_uses_semantic_workload():

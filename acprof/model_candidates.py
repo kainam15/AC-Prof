@@ -61,16 +61,6 @@ def _generic_pipeline_loader_hint(config: dict, transformers_info: dict) -> bool
     return False
 
 
-def _sentence_transformer_encoder(task_info: Any, task: str | None, backend: str) -> bool:
-    """The declared Transformer module loads AutoModel, not the checkpoint head."""
-    modules = (task_info.repository_metadata or {}).get("modules.json")
-    return (backend == "sentence_transformers" and task in {"feature-extraction", "sentence-similarity"}
-            and isinstance(modules, list) and any(
-                isinstance(module, dict) and module.get("path") == ""
-                and module.get("type") == "sentence_transformers.models.Transformer"
-                for module in modules))
-
-
 def apply_model_candidate(task_info: Any, resolution: dict) -> dict:
     """Explicitly apply a discovery decision at an orchestration boundary."""
     from acprof.extensions import CATALOG
@@ -80,6 +70,7 @@ def apply_model_candidate(task_info: Any, resolution: dict) -> dict:
         task_info.pipeline_tag = task
         task_info.task_family = CATALOG.task_families.get(task, "unknown")
         task_info.runtime_backend = resolution["selection"]["backend"]
+    task_info.task_discovery = copy.deepcopy(resolution["task_discovery"])
     return resolution
 
 
@@ -143,8 +134,19 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                 errors.append(str(exc))
             return "unknown"
 
-    primary_task = declared_task or hub_task
-    encoder = _sentence_transformer_encoder(
+    from acprof.inference_interfaces import (
+        component_scoped,
+        execution_path,
+        inference_evidence,
+        structured_interface,
+    )
+    try:
+        structure_task = structured_interface(task_info)
+    except ValueError as exc:
+        structure_task = None
+        errors.append(str(exc))
+    primary_task = declared_task or hub_task or structure_task
+    encoder = component_scoped(
         task_info, primary_task, backend_for(primary_task) if primary_task else "unknown")
     loader_hint = None
     if _generic_pipeline_loader_hint(config, transformers_info):
@@ -209,6 +211,8 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
     spec_source = ("local_model_spec" if getattr(task_info, "model_spec", {}) else
                    "repository_model_spec" if metadata.get("acprof_model.json") else "generated_contract")
     add(declared_task, spec_source)
+    if not declared_task and not hub_task:
+        add(structure_task, "modules.json")
     add(hub_task, ("registered_architecture" if raw_hub_task != hub_task
                    else "hub_metadata" if task_info.detection_method == "hub_api" else task_info.detection_method))
     add(hub_metadata.get("task_hint"), hub_metadata.get("task_hint_source", "extension_catalog"))
@@ -237,19 +241,20 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
     if not candidates and "modules.json" in metadata:
         add("feature-extraction", "modules.json")
 
-    selected = override_tag or declared_task or hub_task or transformers_task
+    selected = override_tag or declared_task or hub_task or structure_task or transformers_task
     selected_operations = set(TASK_MAPPINGS.get(selected or "", ()))
     hints: list[tuple[str, tuple[str | None, ...]]] = [] if encoder else [
         ("transformersInfo.auto_model", (_AUTO_TASKS.get(transformers_info.get("auto_model")),))
     ]
     if not encoder and not config.get("auto_map") and not config.get("custom_pipelines"):
-        hints.extend((f"config.architectures:{architecture}", _architecture_tasks(architecture))
-                     for architecture in config.get("architectures") or [] if isinstance(architecture, str))
+        architectures = [item for item in config.get("architectures") or [] if isinstance(item, str)]
+        hints.append(("config.architectures:" + ",".join(architectures), tuple({task
+                      for architecture in architectures for task in _architecture_tasks(architecture)})))
     for source, hint_tasks in hints:
         hint_operations = {operation for task in hint_tasks for operation in TASK_MAPPINGS.get(task or "", ())}
         if selected_operations and hint_operations and selected_operations.isdisjoint(hint_operations):
             disagreement = f"task conflict: {selected} is incompatible with {source}"
-            (overridden_conflicts if override_tag else conflicts).append(disagreement)
+            conflicts.append(disagreement)
     status = "candidate"
     if not selected:
         if len(candidates) == 1:
@@ -283,7 +288,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                        "explicit" if override_tag else "declared" if (declared_task and spec_source != "generated_contract"
                         or hub_task and hub_metadata.get("task_hint_source") != "registered_architecture"
                         or transformers_task) else "inferred")
-    return {"schema_version": 1, "status": status, "model_revision": task_info.model_revision,
+    resolution = {"schema_version": 1, "status": status, "model_revision": task_info.model_revision,
             "provenance": provenance, "semantics": {"status": semantic_status, "task": selected,
                                                      "scope": "selected_workload; not_author_intent_or_model_quality"},
             "benchmark_kind": "task_pipeline", "adapter_origin": "repository" if spec.get("format") == "transformers-pipeline" else "builtin",
@@ -296,110 +301,67 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                           "source": "explicit" if override_tag or override_backend or
                                     getattr(task_info, "model_spec", {}) else "metadata"}}
 
+    for item in candidates:
+        if not item.get("unsupported_reason"):
+            try:
+                item["execution_path"] = execution_path(task_info, item["task"], backend=item["backend"])
+            except ValueError as exc:
+                item["unsupported_reason"] = str(exc)
+                if item["task"] == selected:
+                    errors.append(str(exc))
+    from acprof.model_tasks import build_task_discovery
+    discovery = build_task_discovery(task_info, resolution, component_scope=encoder,
+                                     override_backend=override_backend or "", explicit_task=bool(override_tag or declared_task))
+    resolution["task_discovery"] = discovery
+    resolution["evidence"] = inference_evidence(task_info, candidates, component_scope=encoder)
+    executable_tasks = {item["interface"] for item in discovery["tasks"]}
+    for item in resolution["evidence"]:
+        item["disposition"] = ("component_hint" if item["scope"] == "component" else
+                               "usage_only" if item["kind"] == "usage" else
+                               "executable_candidate" if item.get("task") in executable_tasks else "not_selected")
+    if discovery["status"] == "ready":
+        # Workloads normalize semantic aliases to the actual execution protocol.
+        executable = discovery["tasks"][0]
+        resolution["execution"] = copy.deepcopy(executable["execution_path"])
+        resolution["status"] = "candidate"
+        if not selected:
+            resolution["selection"].update(task=executable["interface"],
+                                            backend=executable["execution_path"]["backend"])
+            resolution["semantics"].update(status="inferred", task=executable["interface"])
+    elif discovery["status"] == "selection_required":
+        resolution["status"] = "selection_required"
+    else:
+        resolution["status"] = "ambiguous" if conflicts else "needs_configuration"
+        errors.extend(item["reason"] for item in discovery["unresolved"] if item["reason"] not in errors)
+        conflicts.extend(reason for reason in discovery["conflicts"] if reason not in conflicts)
+    if conflicts or errors:
+        resolution["semantics"]["status"] = "conflict" if conflicts else "unresolved"
+    resolution["provenance"]["decision"] = (
+        "abstain" if resolution["status"] != "candidate" else
+        "explicit" if override_tag else "consistent_evidence")
+    resolution["provenance"].update(status=resolution["status"],
+                                    selected_task=resolution["selection"]["task"])
+    resolution["provenance"]["raw_evidence"] = copy.deepcopy({
+        "hub": hub_metadata, "config": config, "metadata": metadata})
+    from acprof.model_evidence import content_digest
+    resolution["provenance"]["resolver_version"] = "model-interfaces-v1"
+    resolution["provenance"]["identity_sha256"] = content_digest({
+        "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],
+        "evidence": resolution["evidence"], "discovery": discovery,
+        "selection": resolution["selection"], "resolver_version": "model-interfaces-v1"})
+    return resolution
+
 
 def resolve_task_backends(task_info: Any, tasks: list[dict], *, override_backend: str = "") -> dict[str, str]:
-    """Resolve the actual loader of each interface, not the Hub's generic task backend."""
+    """Validate each explicit interface through the same evidence decision."""
     backends: dict[str, str] = {}
     for interface in sorted({item["interface"] for item in tasks}):
-        if interface == task_info.pipeline_tag and not override_backend:
-            backend = task_info.runtime_backend
-        else:
-            decision = discover_model_candidates(task_info, override_tag=interface,
-                                                 override_backend=override_backend or None)
-            backend = decision["selection"].get("backend")
+        decision = discover_model_candidates(task_info, override_tag=interface,
+                                             override_backend=override_backend or None)
+        if decision["conflicts"] or decision["missing"]:
+            raise ValueError("; ".join([*decision["conflicts"], *decision["missing"]]))
+        backend = decision["selection"].get("backend")
         if not backend or backend == "unknown":
-            raise ValueError(f"no runnable backend for declared inference interface: {interface}")
+            raise ValueError(f"no runnable backend for inference interface: {interface}")
         backends[interface] = backend
     return backends
-
-
-def discover_declared_tasks(task_info: Any) -> dict:
-    """Collect explicit workload declarations without loading weights or model code."""
-    from acprof.extensions import CATALOG
-    from acprof.task_workloads import canonical_task_id, parse_task
-
-    config = task_info.model_config or {}
-    hub = task_info.hub_metadata or {}
-    metadata = task_info.repository_metadata or {}
-    encoder = config.get("is_encoder_decoder") is True or any(
-        "SEQ_TO_SEQ_CAUSAL_LM" in TASK_MAPPINGS.get(task, ())
-        for architecture in config.get("architectures", []) for task in _architecture_tasks(architecture))
-    found: dict[str, dict] = {}
-    blocked: set[str] = set()
-    unresolved, conflicts = [], []
-    declarations = config.get("task_specific_params") or {}
-    defaults = metadata.get("generation_config.json") or {}
-    if not isinstance(declarations, dict):
-        unresolved.append({"source": "config.task_specific_params", "reason": "expected an object"})
-        declarations = {}
-
-    def add(name, params, source):
-        identifier = canonical_task_id(name)
-        try:
-            candidate = parse_task(name, params, encoder_decoder=encoder, source=source,
-                                   default_generation=defaults)
-            identifier = candidate["task_id"]
-            if identifier in blocked:
-                return
-            if identifier in found:
-                if found[identifier]["fingerprint"] != candidate["fingerprint"]:
-                    conflicts.append(f"{source}: conflicting configurations for {identifier}")
-                    blocked.add(identifier)
-                    del found[identifier]
-                    return
-                found[identifier]["evidence"].append(source)
-                return
-            # Incompatible metadata is evidence of a conflict, not an extra executable task.
-            hints = {operation for architecture in config.get("architectures", [])
-                     for task in _architecture_tasks(architecture) for operation in TASK_MAPPINGS.get(task, ())}
-            operations = set(TASK_MAPPINGS.get(candidate["interface"], ()))
-            if hints and operations and hints.isdisjoint(operations):
-                conflicts.append(f"{source}: {name} conflicts with checkpoint loader")
-                return
-            found[identifier] = candidate
-        except (ValueError, TypeError) as exc:
-            blocked.add(identifier)
-            unresolved.append({"task": name, "source": source, "reason": str(exc)})
-
-    for name, params in sorted(declarations.items()):
-        add(name, params, f"config.task_specific_params.{name}")
-    labels = [(hub.get("pipeline_tag"), "hub.pipeline_tag")]
-    labels.append(((hub.get("transformers_info") or {}).get("pipeline_tag"),
-                   "hub.transformers_info.pipeline_tag"))
-    labels.extend((tag, "hub.tags") for tag in hub.get("tags", []) if isinstance(tag, str)
-                  and (tag in CATALOG.task_families or tag.startswith("translation_") or tag == "sentiment-analysis"))
-    if not hub and task_info.detection_method == "hub_api":
-        labels.append((task_info.pipeline_tag, "hub.pipeline_tag"))
-    spec = task_model_spec(task_info)
-    if spec and (task_info.model_spec or metadata.get("acprof_model.json")):
-        labels.append((spec.get("task"), "model_spec"))
-    for name, source in labels:
-        if not name or name == "unknown":
-            continue
-        if canonical_task_id(name) in blocked:
-            continue
-        matching = [item for item in found.values() if item["task_id"] == name or item["kind"] == name
-                    or item["interface"] == name]
-        if matching:
-            for item in matching:
-                if source not in item["evidence"]:
-                    item["evidence"].append(source)
-        elif not (declarations and name in {"text2text-generation", "text-generation", "translation"}):
-            add(name, {}, source)
-    for identifier, generic in list(found.items()):
-        if identifier != generic["interface"] or not all(source.startswith("hub.") for source in generic["evidence"]):
-            continue
-        specific = [item for item in found.values() if item["interface"] == identifier and item["task_id"] != identifier]
-        if specific:
-            for item in specific:
-                item["evidence"] = list(dict.fromkeys([*item["evidence"], *generic["evidence"]]))
-            del found[identifier]
-    tasks = sorted(found.values(), key=lambda item: item["task_id"])
-    from acprof.inference_groups import group_inference_tasks
-    profiles = group_inference_tasks(tasks, backend=resolve_task_backends(task_info, tasks))
-    return {"schema_version": 1, "status": "selection_required" if len(profiles) > 1 or conflicts else
-            "ready" if profiles else "needs_configuration", "tasks": tasks,
-            "profiles": [dict(profile_id=item["task_id"], **item["execution_profile"]) for item in profiles],
-            "unresolved": unresolved, "conflicts": conflicts,
-            "inferred": list(config.get("architectures") or []),
-            "model_revision": task_info.model_revision}

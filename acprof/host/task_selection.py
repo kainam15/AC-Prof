@@ -18,6 +18,12 @@ def activate_task(task, selected: dict, *, backend: str = ""):
     profile = selected.get("execution_profile")
     if profile and result.runtime_backend != profile["signature"]["backend"]:
         raise ValueError("inference profile backend differs from selected runtime backend")
+    from acprof.inference_interfaces import validate_execution_identity
+    validate_execution_identity(result)
+    if result.model_resolution.get("status") == "selection_required":
+        result.model_resolution["status"] = "candidate"
+    if selected.get("execution_path"):
+        result.model_resolution["execution"] = copy.deepcopy(selected["execution_path"])
     result.model_resolution["selected_task"] = copy.deepcopy(selected)
     result.model_resolution["task_discovery"] = copy.deepcopy(task.task_discovery)
     return result
@@ -25,6 +31,8 @@ def activate_task(task, selected: dict, *, backend: str = ""):
 
 def select_tasks(task, args, workflow):
     if task.selected_tasks:
+        from acprof.inference_interfaces import validate_execution_identity
+        validate_execution_identity(task)
         return task
     discovery = task.task_discovery
     if not discovery:
@@ -62,7 +70,7 @@ def select_tasks(task, args, workflow):
             candidates = [copy.deepcopy(frozen)]
             manual = True
             if "execution_profile" in frozen and overrides:
-                from acprof.inference_groups import inference_signature
+                from acprof.inference_groups import matches_recorded_signature
                 from acprof.task_workloads import (
                     GENERATIVE_INTERFACES,
                     merge_generation_parameters,
@@ -74,20 +82,31 @@ def select_tasks(task, args, workflow):
                         effective["config"].get("generation", {}), overrides)
                     validate_generation(effective["config"]["generation"])
                 original = frozen["execution_profile"]["signature"]
-                if inference_signature(effective, backend=original["backend"]) != original:
+                if not matches_recorded_signature(effective, original):
                     raise ValueError("frozen inference profile cannot change compute settings; "
                                      "select a new task declaration instead")
     if not candidates and args.task:
         candidates = [parse_task(args.task, {}, encoder_decoder=task.model_config.get("is_encoder_decoder") is True,
                                  source="explicit_task")]
-    if not candidates:
+    if not candidates or (discovery.get("status") == "needs_configuration" and not manual and not args.task):
+        reasons = [item["reason"] for item in discovery.get("unresolved", [])]
         task.model_resolution.update(status="needs_configuration",
-                                     missing=["No explicit task declaration; provide --task and workload configuration"])
+                                     missing=[*task.model_resolution.get("missing", []), *reasons,
+                                              "无法确认完整推理接口，请补充模型声明或输入配置。"])
         return task
     from acprof.inference_groups import group_inference_tasks
     from acprof.model_candidates import resolve_task_backends
 
     backends = resolve_task_backends(task, candidates, override_backend=args.backend)
+    from acprof.inference_interfaces import execution_path
+    candidates = copy.deepcopy(candidates)
+    for candidate in candidates:
+        # Frozen historical groups keep their original identity. New workload
+        # declarations bind the same registered path as automatic discovery.
+        if "execution_profile" not in candidate and "execution_path" not in candidate:
+            candidate["execution_path"] = execution_path(task, candidate["interface"],
+                                                         backend=backends[candidate["interface"]])
+            candidate["fingerprint"] = task_fingerprint(candidate)
     # Users select independent inference paths, not translations or prompts.
     # Explicit semantic IDs remain useful for choosing the input exemplar.
     profiles = ([copy.deepcopy(candidates[0])] if len(candidates) == 1 and

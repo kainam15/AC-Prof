@@ -129,9 +129,10 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
         return {"repository_files": files, "repository_metadata": {},
                 "metadata_errors": ("model revision must be a full commit SHA before metadata reads",)}
     if files:
-        for name in ("config.json", "model_index.json", "modules.json", "adapter_config.json",
+        names = ["config.json", "model_index.json", "modules.json", "adapter_config.json",
                      "acprof_model.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json",
-                     "generation_config.json"):
+                     "generation_config.json", "config_sentence_transformers.json", "sentence_bert_config.json"]
+        for name in names:
             if name not in files:
                 continue
             try:
@@ -141,6 +142,20 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
                 if not isinstance(metadata[name], expected):
                     del metadata[name]
                     raise ValueError(f"{name} must contain {expected.__name__}")
+                if name == "modules.json":
+                    from pathlib import PurePosixPath
+                    modules = metadata[name]
+                    if len(modules) > 64:
+                        raise ValueError("modules.json exceeds 64 modules")
+                    for module in modules:
+                        directory = module.get("path") if isinstance(module, dict) else None
+                        if (not isinstance(directory, str) or "\\" in directory
+                                or PurePosixPath(directory).is_absolute() or ".." in directory.split("/")):
+                            raise ValueError("module path must stay inside the model snapshot")
+                        for filename in ("config.json", "sentence_bert_config.json"):
+                            filename = str(PurePosixPath(directory) / filename)
+                            if filename not in names:
+                                names.append(filename)
             except Exception as exc:
                 errors.append(f"{name}: {_format_failure(exc)}")
     return {"repository_files": files, "repository_metadata": metadata, "metadata_errors": tuple(errors)}
@@ -674,6 +689,4 @@ def detect_task(
         info.runtime_backend = override_backend
         info.detection_method = "manual"
 
-    from acprof.model_candidates import discover_declared_tasks
-    info.task_discovery = discover_declared_tasks(info)
     return info

@@ -377,7 +377,7 @@ class TestCollectionWorkflow:
             assert (sum(item["stage"] == stage and item["status"] == "running" for item in records)) == (count)
         assert (self.run.calls) == ([1, 2])
 
-    def test_native_task_conflict_asks_only_task_and_preserves_choice(self):
+    def test_conflicting_metadata_requests_configuration_without_task_menu(self):
         from acprof.model_candidates import apply_model_candidate, discover_model_candidates
         task = copy.deepcopy(self.run.task)
         task.hub_metadata = {"pipeline_tag": "fill-mask", "transformers_info": {"pipeline_tag": "text-classification"}}
@@ -385,12 +385,16 @@ class TestCollectionWorkflow:
         assert (task.model_resolution["status"]) == ("ambiguous")
         workflow = PreparationWorkflow(interactive=True)
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
-            workflow, "ask", side_effect=[{"action": "answer", "answers": {"task": "text-classification"}}, {"action": "confirm"}],
-        ) as ask, patch("sys.stdout", io.StringIO()):
-            result = workflow.resolve(self.args())
-        assert ([item["path"] for item in ask.call_args_list[0].kwargs["questions"]]) == (["task"])
-        assert (result.pipeline_tag) == ("text-classification")
-        assert (result.model_resolution["user_decisions"]["answers"]) == ({"task": "text-classification"})
+            workflow, "ask", side_effect=KeyboardInterrupt,
+        ) as ask, patch("sys.stdout", io.StringIO()), pytest.raises(KeyboardInterrupt):
+            workflow.resolve(self.args())
+        questions = ask.call_args.kwargs["questions"]
+        assert [item["path"] for item in questions] == ["model_spec"]
+        assert not any("options" in question for question in questions)
+        assert not ask.call_args.kwargs.get("advanced")
+        assert "需要补充配置" in ask.call_args.kwargs["summary"]
+        assert "ambiguous" not in ask.call_args.kwargs["summary"]
+        assert "Task" not in ask.call_args.kwargs["fields"]
     def test_resolution_failure_preserves_typed_error_in_preparation_request(self):
         output = io.StringIO()
         workflow = PreparationWorkflow(interactive=True)

@@ -137,6 +137,13 @@ class InputPlanCapabilities:
 
 
 @dataclass(frozen=True)
+class ModuleProtocol:
+    outputs: tuple[str, ...]
+    requires: tuple[str, ...] = ()
+    accepts_input: bool = False
+
+
+@dataclass(frozen=True)
 class ExtensionDeclaration:
     extension_id: str
     family: str
@@ -179,6 +186,9 @@ class ExtensionDeclaration:
     workload_defaults: dict[str, Any] = field(default_factory=dict)
     profile_options: dict[str, Any] = field(default_factory=dict)
     dependency_environment: dict[str, Any] = field(default_factory=dict)
+    inference: dict[str, Any] = field(default_factory=dict)
+    backend_inference: dict[str, dict[str, Any]] = field(default_factory=dict)
+    task_inference: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self):
         if not self.extension_id or not self.family or not self.runtime or not self.backends or not self.dtypes:
@@ -209,6 +219,18 @@ class ExtensionDeclaration:
         for task, override in self.task_io_format.items():
             if task in self.tasks:
                 _validate_io_format(merge_template(self.io_format, override))
+        for protocol in (self.inference, *self.backend_inference.values(), *self.task_inference.values()):
+            if set(protocol) - {"loader", "operation", "structure", "module_protocols", "output_features", "default_task"}:
+                raise ValueError("unknown inference protocol field")
+            if protocol.get("structure", "single") not in {"single", "modules", "components"}:
+                raise ValueError("unknown inference structure")
+            for key in ("loader", "operation", "default_task"):
+                if key in protocol and (not isinstance(protocol[key], str) or not protocol[key]):
+                    raise ValueError(f"inference {key} must be a nonempty string")
+            if "module_protocols" in protocol:
+                _decode(protocol["module_protocols"], dict[str, ModuleProtocol], "inference.module_protocols")
+            if "output_features" in protocol:
+                _decode(protocol["output_features"], tuple[str, ...], "inference.output_features")
 
 
 @dataclass(frozen=True)

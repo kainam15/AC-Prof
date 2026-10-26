@@ -11,10 +11,10 @@ def example(name, **generation):
     return parse_task(name, generation, encoder_decoder=True, source="fixture")
 
 
-def test_task_specific_lengths_and_beam_scoring_share_one_execution_group(tmp_path):
+def test_task_specific_lengths_share_one_execution_group(tmp_path):
     tasks = [
         example("summarization", max_length=200, min_length=30,
-                num_beams=4, length_penalty=2.0, early_stopping=True),
+                num_beams=4, early_stopping=True),
         example("translation_en_to_de", max_length=300, num_beams=4, early_stopping=True),
         example("translation_en_to_fr", max_length=300, num_beams=4, early_stopping=True),
         example("translation_en_to_ro", max_length=300, num_beams=4, early_stopping=True),
@@ -28,7 +28,7 @@ def test_task_specific_lengths_and_beam_scoring_share_one_execution_group(tmp_pa
     assert profile["execution_profile"]["signature"]["generation"]["num_beams"] == 4
     assert profile["config"]["generation"]["max_new_tokens"] == 64
     assert "max_length" not in profile["config"]["generation"]
-    assert "length_penalty" not in profile["config"]["generation"]
+    assert profile["config"]["generation"]["length_penalty"] == 1.0
     assert profile["fingerprint"] == task_fingerprint(profile)
 
     spec = tmp_path / "workload.json"
@@ -88,3 +88,32 @@ def test_generation_special_token_configuration_stays_bound_to_selected_exemplar
     profile = group_inference_tasks([en, fr])[0]
     assert len(profile["semantic_tasks"]) == 2
     assert profile["config"]["generation"]["forced_bos_token_id"] == 9
+
+
+def test_repetition_processor_changes_the_compute_path():
+    profiles = group_inference_tasks([example("summarization", repetition_penalty=1.0),
+                                      example("translation_en_to_de", repetition_penalty=1.2)])
+    assert len(profiles) == 2
+    assert {item["config"]["generation"]["repetition_penalty"] for item in profiles} == {1.0, 1.2}
+
+
+def test_explicit_sampling_defaults_share_the_effective_signature():
+    default = example("summarization", do_sample=True)
+    explicit = example("translation_en_to_de", do_sample=True, temperature=1.0, top_k=50, top_p=1.0)
+    assert inference_signature(default) == inference_signature(explicit)
+
+
+def test_effective_beam_scoring_is_preserved_and_distinguishes_paths():
+    groups = group_inference_tasks([example("summarization", num_beams=4, length_penalty=2.0),
+                                     example("translation_en_to_de", num_beams=4)])
+    assert len(groups) == 2
+    assert {item["config"]["generation"]["length_penalty"] for item in groups} == {1.0, 2.0}
+    assert inference_signature(example("summarization", length_penalty=2.0)) == inference_signature(
+        example("translation_en_to_de"))
+
+
+def test_equivalent_numeric_parameter_spellings_share_one_compute_group():
+    groups = group_inference_tasks([example("summarization", num_beams=4, do_sample=True),
+        example("translation_en_to_de", num_beams=4, do_sample=True, temperature=1, top_p=1,
+                repetition_penalty=1, length_penalty=1)])
+    assert len(groups) == 1

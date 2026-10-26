@@ -1,7 +1,7 @@
 """Serializable task semantics shared by discovery, input planning and runtimes.
 
-Only explicit declarations enter this protocol. Architecture is a loader hint,
-never evidence that an author trained a checkpoint for an additional task.
+Registered interfaces and explicit usage declarations enter this protocol.
+An executable interface does not prove author intent or task quality.
 """
 from __future__ import annotations
 
@@ -55,13 +55,12 @@ def task_label(task: dict, *, language: str = "zh_CN") -> str:
 def canonical_task_id(name: str) -> str:
     if not isinstance(name, str):
         raise ValueError("task name must be a string")
-    name = name.replace("-to-", "_to_")
     if name.startswith("translation-"):
-        name = "translation_" + name[len("translation-"):]
+        name = "translation_" + name[len("translation-"):].replace("-to-", "_to_")
     return {"sentiment_analysis": "sentiment-analysis", "question_answering": "question-answering"}.get(name, name)
 
 
-def parse_task(name: str, params: dict, *, encoder_decoder: bool, source: str,
+def parse_task(name: str, params: dict, *, encoder_decoder: bool, source: str, generative: bool = False,
                default_generation: dict | None = None) -> dict:
     from acprof.extensions import CATALOG
 
@@ -87,7 +86,7 @@ def parse_task(name: str, params: dict, *, encoder_decoder: bool, source: str,
     elif name == "summarization":
         interface = "text2text-generation" if encoder_decoder else "text-generation"
         config["prefix"] = "summarize: " if encoder_decoder else "Summarize the following text: "
-    elif name == "generative-question-answering" or name == "question-answering" and encoder_decoder:
+    elif name == "generative-question-answering" or name == "question-answering" and (encoder_decoder or generative):
         name = kind = "generative-question-answering"
         interface = "text2text-generation" if encoder_decoder else "text-generation"
         config.update(prefix="question: When does the library open? context: ")
@@ -159,7 +158,7 @@ def task_fingerprint(task: dict) -> str:
     identity = {key: task[key] for key in ("task_id", "interface", "kind", "config")}
     # A grouped benchmark must also bind the complete semantic-task snapshot:
     # the exemplar alone is insufficient to prove resume/input provenance.
-    for key in ("execution_profile", "semantic_tasks"):
+    for key in ("execution_path", "execution_profile", "semantic_tasks"):
         if key in task:
             identity[key] = task[key]
     return content_digest(identity)
