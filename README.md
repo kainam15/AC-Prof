@@ -56,6 +56,8 @@ Docker Runtime reuses verified model images automatically and builds missing one
 
 The TUI tracks collection and probe progress through structured events. After a collection exits, it verifies the saved experiment identity and audits the result before reporting success; a successful process exit alone is insufficient.
 
+Enter a model ID to discover its declared tasks from lightweight metadata. A single task continues automatically; multiple tasks open a selection screen before weights are downloaded. For example, `google-t5/t5-small` declares three English translation pairs and summarization. Each selected task gets its own Smoke validation, input plan, and result directory. CLI users select tasks with `--tasks translation_en_to_de,summarization` or `--tasks all`; noninteractive runs never choose among multiple tasks implicitly. See [task discovery and selection](docs/models/routing.md#任务发现与选择) and [task results and resume](docs/profiling/artifacts.md#按任务保存与恢复).
+
 The monitor offers colored log levels, literal search, a detailed view, and copying or exporting retained original text. Preparation stages and download states use distinct colors; a separate progress bar and aligned metrics distinguish cached data from SDK network payload. See [logs and download progress](docs/usage/tui-experiments.md#日志查看与复制) for retention limits and measurement behavior.
 
 Once the validated result directory is initialized, each preparation attempt retains a redacted host Python log and a structured stage/failure summary. Resume preserves earlier attempts, and both UI log queues have explicit retention limits. See [preparation diagnostics](docs/profiling/artifacts.md#准备阶段诊断) for scope and failure handling.

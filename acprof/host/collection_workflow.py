@@ -67,6 +67,7 @@ class PreparationWorkflow:
         self.request_id = 0
         self.rebuild_environment = False
         self.observer: Callable[[str, str, Mapping[str, object]], None] | None = None
+        self.continue_on_task_failure = False
 
     @classmethod
     def from_environment(cls, output_dir: str):
@@ -117,7 +118,7 @@ class PreparationWorkflow:
                     self.observer(stage, "failed", {"exception_type": type(exc).__name__,
                                                      "exception_message": str(exc)})
                 detail = traceback.format_exc()[-24000:]
-                if not self.interactive:
+                if not self.interactive or self.continue_on_task_failure and stage == "runtime":
                     raise
                 fields: dict[str, Any] = {"model_error": exc.to_dict()} if isinstance(exc, ModelLookupError) else {}
                 from acprof.hf_download import HfDownloadError, exception_chain
@@ -238,6 +239,11 @@ class PreparationWorkflow:
                 **({"revision": args.revision} if args.revision else {}),
             )
             self._explicit(task, args)
+            from acprof.host.task_selection import select_tasks
+            task = select_tasks(task, args, self)
+            self._explicit(task, args)
+            if len(task.selected_tasks) > 1:
+                return task  # Each selected interface is validated by its own child run.
             identity = {"model": task.model_id, "revision": task.model_revision,
                         "source": getattr(task, "model_source", "huggingface"),
                         "contract": task.model_resolution.get("contract", {}).get("cache_key"),

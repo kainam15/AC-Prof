@@ -6,6 +6,8 @@
 
 | 模块 | 职责 |
 | --- | --- |
+| `application/task_runs` | 保存任务集合与配置，串行调度独立 `RunApplication` 生命周期；失败隔离、恢复与 workload 物化均在测量外 |
+| `model_candidates` / `task_workloads` / `host/task_selection` | 分开处理任务声明证据、可复现模板和交互选择；不以架构候选代替已声明工作负载 |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `network_preflight` / `download_probe` | Docker/Process 下载计划与确认、来源元数据检查及共享预算的限量 GET；复用 HF transport，全部在准备阶段执行 |
 | `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |

@@ -4,7 +4,7 @@ from __future__ import annotations
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Collapsible, Label, Static
+from textual.widgets import Button, Collapsible, Label, SelectionList, Static
 
 from acprof.host.model_errors import ModelLookupError
 from acprof.preparation_events import encode_reply
@@ -84,6 +84,7 @@ class PreparationScreen(ModalScreen):
     #preparation-traceback .text-area--selection { background: $accent; color: $background; }
     #preparation-actions { height: 3; }
     #preparation-actions Button { min-width: 10; width: 1fr; }
+    #preparation-scroll SelectionList { height: auto; max-height: 10; min-height: 4; }
     .preparation-failure #preparation-actions Button { width: auto; }
     .preparation-failure #preparation-actions #preparation-continue { width: 1fr; }
     #preparation-actions.extra-action { height: 6; layout: grid; grid-size: 2; grid-rows: 3; }
@@ -126,11 +127,12 @@ class PreparationScreen(ModalScreen):
         ready = request.get("resolved") is True
         report = request.get("download_report")
         download = review and report is not None
+        task_selection = any(item.get("kind") == "multi" for item in request.get("questions", []))
         title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
         with Vertical(id="preparation-dialog", classes=(
             "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
-            yield Label(tr("下载确认" if download else title), id="preparation-title")
+            yield Label(tr("选择采集任务" if task_selection else "下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
                     values = request.get("fields", {})
@@ -146,10 +148,12 @@ class PreparationScreen(ModalScreen):
                             f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
                         yield Static(fields, id="preparation-fields", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
-                        yield Label(tr(question["path"]))
+                        yield Label(tr("采集任务" if question.get("kind") == "multi" else question["path"]))
                         yield Static(tr(question.get("reason", "")), markup=False)
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
+                            if question.get("kind") == "multi":
+                                yield Button(tr("全选任务"), id="preparation-select-all")
                     if request.get("detail"):
                         yield Static(request["detail"], id="preparation-detail", markup=False)
                     if request.get("advanced"):
@@ -160,7 +164,11 @@ class PreparationScreen(ModalScreen):
                             yield Button(tr("重新解析"), id="preparation-revise")
                     summary = None if download else request.get("summary")
                     if summary and summary.strip():
-                        yield Static(summary, id="preparation-summary", markup=False)
+                        if task_selection:
+                            with Collapsible(title=tr("任务声明来源"), collapsed=True):
+                                yield Static(summary, id="preparation-summary", markup=False)
+                        else:
+                            yield Static(summary, id="preparation-summary", markup=False)
                 elif failed:
                     yield Static(failure_text(request, self.event["stage"], tr), id="preparation-detail", markup=False)
                     with Collapsible(title=tr("详细信息"), id="preparation-diagnostics", collapsed=False):
@@ -178,13 +186,14 @@ class PreparationScreen(ModalScreen):
             with Horizontal(id="preparation-actions", classes=(
                 "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
             )):
-                yield Button(tr("返回配置" if failed else "终止任务"), id="preparation-cancel",
+                yield Button(tr("返回配置" if failed or task_selection else "终止任务"), id="preparation-cancel",
                              tooltip=tr(message_id("ui.2157")) if failed else None)
                 if review:
                     if not ready:
-                        yield Button(tr("应用字段"), id="preparation-apply", variant="primary")
-                    yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
-                                 disabled=not ready, variant="primary" if ready else "default")
+                        yield Button(tr("开始所选任务" if task_selection else "应用字段"), id="preparation-apply", variant="primary")
+                    if not task_selection:
+                        yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
+                                     disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
                     yield Button(tr("重试"), id="preparation-continue", variant="primary",
                                  tooltip=tr(message_id("ui.2158")))
@@ -199,6 +208,11 @@ class PreparationScreen(ModalScreen):
     def details_updated(self, event: SelectableLog.Updated) -> None:
         # This static failure log does not update the Monitor's log counters.
         event.stop()
+
+    @on(Button.Pressed, "#preparation-select-all")
+    def select_all_tasks(self) -> None:
+        for selection in self.query(SelectionList):
+            selection.select_all()
 
     def send(self, result):
         if self.sending or self._close_requested:
@@ -238,6 +252,9 @@ class PreparationScreen(ModalScreen):
 
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):
+        if any(item.get("kind") == "multi" for item in self.event.get("request", {}).get("questions", [])):
+            self.send({"action": "cancel"})
+            return
         # Requesting stop opens the app-level confirmation first. Do not mark
         # this decision screen as sent: rejecting the confirmation must leave
         # the pending request fully interactive.

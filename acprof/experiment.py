@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field as dataclass_field, fields, replace
@@ -167,6 +168,9 @@ class RunConfig(RunOptions):
     def validate(self, *, project_dir: Path | None = None) -> RunConfig:
         """Normalize form values and reject invalid or misleading runs."""
         errors: list[ConfigIssue] = []
+        for name, identifier in (("task_run_id", self.task_run_id), *[("tasks", item) for item in self.tasks.split(",")]):
+            if identifier and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", identifier):
+                errors.append(ConfigIssue(name, f"invalid {name}: expected a safe identifier"))
         if self.resume and self.rebuild_image:
             errors.append(ConfigIssue("rebuild_image", message("恢复实验必须使用原镜像；如需重建，请创建新实验。")))
         try:
@@ -341,7 +345,10 @@ class RunConfig(RunOptions):
         output_root = Path(self.output_dir).expanduser()
         if not output_root.is_absolute():
             output_root = project_dir / output_root
-        return output_root / self.model.replace("/", "--")
+        root = output_root / self.model.replace("/", "--")
+        if self.task_run_id and self.tasks and self.tasks != "all" and "," not in self.tasks:
+            return root / "tasks" / self.tasks / self.task_run_id
+        return root
 
     def result_csv(self, project_dir: Path) -> Path:
         from acprof.artifact_layout import ArtifactLayout

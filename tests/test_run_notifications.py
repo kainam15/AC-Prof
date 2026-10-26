@@ -117,7 +117,7 @@ class TestRunNotificationLifecycle:
         assert (self.notices.context.event) is None
 
     @pytest.mark.parametrize('allowed', [False, True])
-    def test_run_main_checks_policy_before_start_and_notifies_before_docker_preflight(self, allowed) -> None:
+    def test_policy_and_runtime_preflight_precede_start_notification(self, allowed) -> None:
         argv = [
             "acprof run",
             "--model",
@@ -125,7 +125,6 @@ class TestRunNotificationLifecycle:
             "--cpus",
             "1",
         ]
-        expected_command = run.format_run_command(argv)
         order = []
 
         def activate(**kwargs):
@@ -175,8 +174,6 @@ class TestRunNotificationLifecycle:
                 run_cli.main()
 
             assert (order) == ([("policy", None)] + ([
-                ("activate", expected_command),
-                ("started", None),
                 ("preflight", None),
             ] if allowed else []))
 
@@ -440,7 +437,7 @@ class TestRunNotificationLifecycle:
             side_effect=fake_case,
         ):
             result_csvs = orchestrator.run_matrix(
-                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface"),
+                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface", selected_tasks=[]),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
                 cpu_list=[1, 2],
@@ -472,7 +469,7 @@ class TestRunNotificationLifecycle:
             return_value="/tmp/result.csv",
         ), redirect_stderr(io.StringIO()):
             result_csvs = orchestrator.run_matrix(
-                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface"),
+                task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface", selected_tasks=[]),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
                 cpu_list=[1],

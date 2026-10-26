@@ -54,6 +54,12 @@ class RunOptions:
     task: str = option(
         '', help='Override pipeline_tag (e.g., text-generation)', probe=True, cli_default=None,
     )
+    tasks: str = option(
+        '', help='Declared workload IDs separated by commas, or all; required for multiple tasks',
+    )
+    task_run_id: str = option(
+        '', help='Task collection ID printed by a previous run; use with --resume',
+    )
     task_family: str = option(
         '', help='Override task family (nlp/cv/audio/timeseries/diffusion/multimodal/structured)', probe=True, cli_default=None,
     )

@@ -70,6 +70,7 @@ class AutomaticRun:
                      "scope": "automatic_task_pipeline; no_semantic_or_plan_repairs"}
         self.started = False
         self.preparation_artifacts = {}
+        self.collection_path = None
 
     def save(self):
         atomic_write_json(self.path, self.data)
@@ -85,7 +86,8 @@ class AutomaticRun:
         args = self.args
         if not args.resume:
             self.layout.initialize()
-        saved = load_run_state(self.root) if args.resume else {}
+        grouped = args.resume and (self.root / "metadata" / "task_runs").is_dir()
+        saved = load_run_state(self.root) if args.resume and not grouped else {}
         if args.resume:
             previous = read_json_object(self.path, label="auto_report.json")
             if previous.get("schema_version") != 1:
@@ -97,8 +99,14 @@ class AutomaticRun:
         self.started = True
         self.save()
         self.data["stage"] = "resolution"
-        if saved.get("runtime"):
-            task = TaskInfo(**saved["runtime"]["task"])
+        if saved.get("runtime") or grouped:
+            if grouped:
+                from acprof.application.task_runs import TaskCollection
+                from acprof.experiment import RunConfig
+                _, group = TaskCollection.read_manifest(RunConfig.from_namespace(args))
+                task = TaskInfo(**group["task_snapshot"])
+            else:
+                task = TaskInfo(**saved["runtime"]["task"])
             if args.revision and args.revision != task.model_revision:
                 raise ValueError("resume revision differs from the frozen snapshot")
             self.data["access"] = {"status": "not_requested", "reason": "resume reuses immutable local image"}
@@ -111,11 +119,15 @@ class AutomaticRun:
             task = detect_task(args.model, override_tag=args.task, override_family=args.task_family,
                                override_backend=args.backend, model_spec_path=args.model_spec,
                                **({"revision": args.revision} if args.revision else {}))
+        from acprof.host.collection_workflow import PreparationWorkflow
+        from acprof.host.task_selection import select_tasks
+        task = select_tasks(task, args, PreparationWorkflow.from_environment(args.output_dir))
         write_model_resolution(task, self.root)
-        require_task_support(task, batch_size=args.batch_size)
+        if len(task.selected_tasks) <= 1:
+            require_task_support(task, batch_size=args.batch_size)
         if not pinned_revision(task.model_revision):
             raise ValueError("automatic collection requires a full model commit SHA")
-        if not saved.get("runtime"):
+        if not saved.get("runtime") and not grouped:
             for dependency in task_model_spec(task).get("dependencies", []):
                 self.data["access"]["repositories"].append(check_repository_access(dependency["repo_id"],
                     revision=dependency["revision"]))
@@ -142,6 +154,32 @@ class AutomaticRun:
     def finish(self, error: str | None = None) -> int:
         if not self.started:
             return 2
+        if self.collection_path:
+            from acprof.analysis.audit import audit_result
+            from acprof.artifact_layout import ArtifactLayout
+            group = read_json_object(Path(self.collection_path), label="task collection")
+            summaries = []
+            for entry in group["tasks"]:
+                layout = ArtifactLayout.discover(self.root / "tasks" / entry["task_id"] / group["run_id"])
+                audit = audit_result(layout.result_csv)
+                issue = entry.get("error")
+                try:
+                    capabilities = read_json_object(layout.path("capability_report.json"), label="capability report")
+                except (OSError, ValueError) as exc:
+                    capabilities = {}
+                    issue = issue or f"unreadable capability report: {type(exc).__name__}"
+                summaries.append({"task_id": entry["task_id"], "status": entry["status"],
+                                  "valid": audit["valid"], "error": issue,
+                                  "capabilities": capabilities.get("requested_measurements_complete") is True
+                                  and capabilities.get("collection_succeeded") is True})
+            success = not error and group["status"] == "ok" and bool(summaries) and all(
+                item["valid"] and item["capabilities"] and not item["error"] and item["status"] == "ok" for item in summaries)
+            self.data.update(status="succeeded" if success else "failed", tasks=summaries,
+                             task_collection=self.collection_path)
+            if error:
+                self.data["error"] = error
+            self.save()
+            return 0 if success else 2
         for name in ("runtime_validation", "capability_report", "run_state"):
             path = self.layout.path(f"{name}.json")
             if path.is_file():

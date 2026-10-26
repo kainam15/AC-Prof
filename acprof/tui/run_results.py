@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -86,6 +87,8 @@ class RunArtifacts:
     state: dict = field(default_factory=dict)
     csv_stamp: tuple[int, int, int, int] | None = None
     state_error: str = ""
+    captured_at_ns: int = field(default_factory=time.time_ns)
+    task_children: dict[str, RunArtifacts] = field(default_factory=dict)
 
     @classmethod
     def read(cls, directory: Path, *, capture_state_error: bool = False) -> RunArtifacts:
@@ -100,7 +103,11 @@ class RunArtifacts:
                 if not capture_state_error:
                     raise
                 state_error = exc.args[0] if exc.args and isinstance(exc.args[0], Message) else str(exc)
-        return cls(directory, state, _stamp(layout.result_csv), state_error)
+        children = {str(child.relative_to(directory)): cls.read(child, capture_state_error=True)
+                    for child in directory.glob("tasks/*/*")
+                    if child.is_dir() and not child.is_symlink()
+                    and child.resolve().is_relative_to(directory.resolve())}
+        return cls(directory, state, _stamp(layout.result_csv), state_error, task_children=children)
 
 
 @dataclass(frozen=True)
@@ -127,6 +134,9 @@ class RunResult:
 
 def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
     """Run after process exit; PID plus appended attempt separates resume/history."""
+    group = inspect_task_collection(before, pid)
+    if group is not None:
+        return group
     after = RunArtifacts.read(before.directory, capture_state_error=True)
     layout = ArtifactLayout.discover(before.directory)
     if after.state_error:
@@ -173,3 +183,35 @@ def inspect_run_result(before: RunArtifacts, pid: int) -> RunResult:
         details.append(capability_issue)
     return RunResult(True, complete, partial, current_csv, len(completed), total, new_cases,
                      join_messages("; ", details), str(layout.root))
+
+
+def inspect_task_collection(before: RunArtifacts, pid: int) -> RunResult | None:
+    """Verify every child result; a collection status alone cannot establish success."""
+    from acprof.artifacts import read_json_object
+    paths = before.directory / "metadata" / "task_runs"
+    for path in paths.glob("*.json"):
+        if path.stat().st_mtime_ns < before.captured_at_ns:
+            continue
+        group = read_json_object(path, label="task collection")
+        if group.get("pid") != pid or group.get("started_at_ns", 0) < before.captured_at_ns:
+            continue
+        if group.get("schema_version") != 1 or group.get("run_id") != path.stem:
+            raise ValueError("invalid task collection identity")
+        results, details = [], []
+        for task in group["tasks"]:
+            child = before.directory / "tasks" / task["task_id"] / group["run_id"]
+            if not child.resolve().is_relative_to(before.directory.resolve()):
+                raise ValueError("task result outside collection")
+            previous = before.task_children.get(str(child.relative_to(before.directory)),
+                                                RunArtifacts(child, captured_at_ns=before.captured_at_ns))
+            result = inspect_run_result(previous, pid)
+            results.append(result)
+            if task.get("error") or result.detail:
+                details.append(f"{task['task_id']}: {task.get('error') or result.detail}")
+        csvs = [result.result_csv for result in results if result.result_csv]
+        complete = bool(results) and group.get("status") == "ok" and all(result.complete for result in results)
+        return RunResult(True, complete, not complete or any(result.partial for result in results),
+                         csvs[-1] if csvs else "", sum(result.completed_cases for result in results),
+                         sum(result.total_cases for result in results), sum(result.new_cases for result in results),
+                         "; ".join(details), str(before.directory))
+    return None

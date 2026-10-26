@@ -14,6 +14,23 @@ from acprof.host.doctor import DoctorCheck
 
 
 class TestAuto:
+    def test_failed_task_collection_preserves_other_results_when_capabilities_are_missing(self, tmp_path):
+        from argparse import Namespace
+
+        from acprof.artifacts import atomic_write_json
+        from acprof.host.automation import AutomaticRun
+        run = AutomaticRun(Namespace(model="example/model", output_dir=str(tmp_path),
+                                     profiling_mode="basic", resume=False))
+        run.started = True
+        run.collection_path = str(run.root / "metadata/task_runs/collection.json")
+        atomic_write_json(Path(run.collection_path), {"schema_version": 1, "run_id": "collection",
+            "status": "failed", "tasks": [{"task_id": "summarization", "status": "failed", "error": "load failed"}]})
+        assert run.finish("collection failed") == 2
+        report = json.loads(run.path.read_text())
+        assert report["status"] == "failed"
+        assert report["tasks"][0]["status"] == "failed"
+        assert report["tasks"][0]["error"]
+
     def test_preflight_artifacts_can_be_handed_to_run_state_without_allowing_changes(self):
         from acprof.host.automation import AutomaticRun
         from acprof.host.run_state import RunState, RunStateError

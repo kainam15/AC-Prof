@@ -147,6 +147,27 @@ class TestRunAttribution:
         assert (result.result_csv) == ("")
         assert (result.new_cases) == (0)
 
+    def test_task_collection_resume_does_not_promote_unchanged_child_history(self, tmp_path):
+        import shutil
+        import time
+
+        from acprof.artifacts import atomic_write_json
+        group = tmp_path / 'model'
+        child = group / 'tasks' / 'summarization' / 'collection'
+        child.parent.mkdir(parents=True)
+        shutil.move(self.root, child)
+        self.layout = ArtifactLayout.discover(child)
+        before = RunArtifacts.read(group)
+        self.state['attempts'].append(dict(pid=124, started_at='new', ended_at='end'))
+        self.save_state()
+        atomic_write_json(group / 'metadata/task_runs/collection.json', {
+            'schema_version': 1, 'run_id': 'collection', 'status': 'ok', 'pid': 124,
+            'started_at_ns': time.time_ns(), 'tasks': [{'task_id': 'summarization', 'status': 'ok'}]})
+        result = inspect_run_result(before, 124)
+        assert result.complete
+        assert result.result_csv == ''
+        assert result.new_cases == 0
+
     def test_stopped_case_is_retained_without_merged_csv(self):
         self.layout.result_csv.unlink()
         self.state["status"] = "interrupted"

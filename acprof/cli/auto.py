@@ -22,8 +22,13 @@ def main(argv=None) -> int:
             task = automatic.prepare()
         print(f"[auto] {task.model_id}@{task.model_revision}; profiling_mode={args.profiling_mode}", flush=True)
         from acprof.cli import run
-        run.main(args=args, prepared_task=task, preparation_artifacts=automatic.preparation_artifacts)
+        outcome = run.main(args=args, prepared_task=task, preparation_artifacts=automatic.preparation_artifacts)
+        automatic.collection_path = getattr(outcome, "task_collection_path", None)
     except (Exception, SystemExit) as exc:
+        collection_path = getattr(exc, "task_collection_path", None) or getattr(
+            exc.__context__, "task_collection_path", None)
+        if automatic and collection_path:
+            automatic.collection_path = collection_path
         if isinstance(exc, SystemExit) and exc.code in (None, 0):
             error = None
         else:

@@ -34,6 +34,11 @@ def explain_resolution(task_info, *, explain: bool = False) -> str:
              "Measurement: not_started (inspect/probe does not collect measurements)"]
     if resolution.get("semantics"):
         lines.append(f"Semantics: {resolution['semantics']['status']} ({resolution.get('benchmark_kind', 'unknown')})")
+    if task_info.task_discovery:
+        from acprof.task_workloads import task_label
+        lines.append(f"Declared tasks: {task_info.task_discovery['status']}")
+        lines.extend(f"  {item['task_id']}: {task_label(item)} ({item['interface']})"
+                     for item in task_info.task_discovery['tasks'])
     if explain and resolution.get("provenance"):
         provenance = resolution["provenance"]
         lines.append(f"Decision: {provenance['decision']} / {provenance['identity_sha256']}")

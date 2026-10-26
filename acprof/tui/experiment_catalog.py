@@ -181,7 +181,8 @@ def scan_experiments(roots: Iterable[Path], *, cancelled: Callable[[], bool] = l
             coverage_reports.append(directory / 'coverage.json')
         try:
             layout = ArtifactLayout.discover(directory)
-            is_experiment = any(layout.path(name).is_file() for name in (
+            is_collection = (directory / 'metadata' / 'task_runs').is_dir()
+            is_experiment = not is_collection and any(layout.path(name).is_file() for name in (
                 'run_state.json', 'static_meta.json', 'model_resolution.json', 'result_layers.json'))
             record = _record(layout, warnings) if is_experiment else None
         except (OSError, ValueError, TypeError, AttributeError) as exc:
@@ -244,7 +245,7 @@ def new_experiment_config(config: RunConfig, output_root: Path) -> RunConfig:
             pass
         else:
             root = root.parent
-    return replace(config, output_dir=str(root / ("experiment-" + uuid4().hex)), resume=False)
+    return replace(config, output_dir=str(root / ("experiment-" + uuid4().hex)), resume=False, task_run_id="")
 
 
 def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
@@ -259,9 +260,10 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     from acprof.model_evidence import pinned_revision
     if reuse and pinned_revision(record.revision):
         config = replace(config, revision=record.revision)
+    root = record.directory.parents[3] if config.task_run_id else record.directory.parent
     if reuse:
-        return new_experiment_config(config, record.directory.parent)
-    return replace(config, output_dir=str(record.directory.parent), resume=True)
+        return new_experiment_config(config, root)
+    return replace(config, output_dir=str(root), resume=True)
 
 
 def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tuple[str, ...]:
@@ -270,7 +272,7 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
     if not record.has_recovery_state:
         raise ValueError('run_id/frozen configuration cannot resume: ' + ', '.join(record.issues))
     config = config_from_record(record, reuse=False)
-    if record.directory.name != config.model.replace('/', '--'):
+    if record.directory != config.result_dir(Path.cwd()):
         raise ValueError('resume requires the recorded model directory name; reuse configuration for a new experiment')
     if read_artifact(ArtifactLayout.discover(record.directory).path('run_state.json')) != record.state:
         raise ValueError('experiment changed since discovery; refresh before resuming')
@@ -279,6 +281,6 @@ def resume_command(record: ExperimentRecord, *, python_executable: Path) -> tupl
     options = {name: value for name, value in flatten_run_options(record.options).items()
                if name not in derived | {'resume', 'output_dir', 'notify', 'rebuild_image'}}
     arguments = arguments_from_options(options)
-    arguments.extend(('--resume', '--output-dir', str(record.directory.parent)))
+    arguments.extend(('--resume', '--output-dir', config.output_dir))
     build_parser().parse_args(arguments)
     return tuple([*cli_command('run', python_executable=python_executable), *arguments])

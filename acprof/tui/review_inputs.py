@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from textual.widget import Widget
-from textual.widgets import Select
+from textual.widgets import Select, SelectionList
 
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
@@ -12,6 +13,10 @@ from acprof.tui.input import BarCursorInput as Input
 
 def review_input(question: dict, *, identifier: str, translate, classes: str = "") -> Widget:
     options = question.get("options")
+    if question.get("kind") == "multi":
+        labels = question.get("labels", {})
+        return SelectionList(*[(translate(labels.get(item, item)), item, False) for item in options or []],
+                             id=identifier, classes=classes)
     if options:
         value = question.get("value")
         return Select([(translate(str(item)), item) for item in options],
@@ -31,8 +36,13 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
         if question.get("read_only"):
             continue
         widget = screen.query_one(f"#{prefix}-{index}")
+        value: Any
         try:
-            if isinstance(widget, Select):
+            if isinstance(widget, SelectionList):
+                value = widget.selected
+                if not value:
+                    raise ValueError(screen.app.tr(message_id('ui.2162')))
+            elif isinstance(widget, Select):
                 if widget.value is Select.NULL:
                     raise ValueError(screen.app.tr(message_id('ui.0253')))
                 value = widget.value

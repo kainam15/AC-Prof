@@ -3,6 +3,21 @@
 [← 返回专题目录](cli.md)
 
 ## `acprof run`
+
+模型具有多个明确任务时，CLI 必须传入 `--tasks`，否则列出任务并退出，不下载权重。
+`--task` 仍表示手动推理接口，不替代同接口下的实际任务选择。例如：
+
+```bash
+acprof run --model google-t5/t5-small --tasks translation_en_to_de,summarization \
+  --profiling-mode basic --cpus 1 --mems 4 --gpus off --input-scales 64 \
+  --warmup 0 --repeat 1 --repeat-in-window 1 --notify none --output-dir results/t5-tasks
+```
+
+`--tasks all` 选择所有可解析的已声明任务。恢复时保留原参数并增加
+`--resume --task-run-id <运行时打印的 ID>`；选择和模板从冻结配置恢复。
+`acprof auto` 共享这些选择规则。单任务自动继续，架构推断不等于明确任务声明。
+详见[按任务保存与恢复](../profiling/artifacts.md#按任务保存与恢复)。
+
 ### 模型与资源矩阵
 
 GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.normalize_gpu_mode`：
@@ -16,6 +31,8 @@ GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.
 | `--model` | required | Hugging Face model ID，例如 `google-bert/bert-base-uncased`。 |
 | `--revision` | Hub 默认分支 | 指定模型分支、tag 或完整 commit SHA；运行时固定解析后的 SHA。 |
 | `--task` | auto | 覆盖 `pipeline_tag`，例如 `fill-mask`、`text-generation`。 |
+| `--tasks` | 单个明确任务 | 选择实际任务 ID，以逗号分隔；`all` 选择全部已发现任务。多任务时必须明确选择。 |
+| `--task-run-id` | 唯一既有集合 | 配合 `--resume` 指定任务集合，不用于为新实验命名。 |
 | `--task-family` | auto | 覆盖任务族：`nlp`、`cv`、`audio`、`timeseries`、`diffusion`、`multimodal`、`structured`。 |
 | `--backend` | auto | 覆盖声明清单中的 runtime backend，例如 `transformers_pipeline`、`chronos`、`diffusers`、`onnxruntime`。 |
 | `--model-spec` | 无 | 本地 `acprof_model.json` 格式的模型接口声明，优先于仓库声明，固化到服务镜像并参与恢复身份。用于缺少任务元数据、制品选择、custom pipeline 输入映射与固定离线依赖；TUI 对应“高级参数 → 识别覆盖 → 模型接口声明”，见[模型声明](../models/pipelines.md#本地模型声明与自定义-pipeline)。 |
@@ -88,7 +105,7 @@ Process 自动关闭 Docker startup OOM pruning 并逐格执行；`--rebuild-ima
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--sniff-iface` | `docker0` | 本机 Docker 默认 bridge 对应的 `tcpdump` 抓包网卡。只有 daemon 改过 bridge 名时才覆盖。 |
-| `--output-dir` | `results` | 输出根目录。最终还会追加 model name 子目录。 |
+| `--output-dir` | `results` | 输出根目录。新任务采集追加 `<model-dir>/tasks/<task-id>/<collection-id>`，每项独立保存。 |
 | `--resume` | false | 使用原参数和目录恢复实验；逐项报告身份差异，保留完成 case，备份后重测中断 case；准备未完成时先归档准备证据再重试。已完成实验不重测。TUI 的“恢复 / 重试”也可自动分配新实验目录。 |
 | `--rebuild-image` | false | 显式重建模型镜像，仍允许 Docker 缓存；默认核验并复用已有镜像，不存在时自动构建，校验异常时退出。不能与 `--resume` 同用。 |
 | `--model-source` | `huggingface` | `huggingface`、`modelscope`；不同来源独立记录身份，不静默替换。 |

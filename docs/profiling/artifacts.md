@@ -4,8 +4,38 @@
 
 ## 输出文件
 
-输出目录为 `<output-dir>/<model-dir>/`；模型 ID 中的 `/` 替换为 `--`。
+模型根目录为 `<output-dir>/<model-dir>/`；模型 ID 中的 `/` 替换为 `--`。
+新任务采集在其下按任务和 collection ID 隔离；历史实验仍按原路径读取与恢复。
 下表列出可能生成的文件；probe、补采、调试与绘图产物仅在执行对应操作时出现。
+
+### 按任务保存与恢复
+
+```text
+<output-dir>/google-t5--t5-small/
+├── metadata/
+│   ├── task_runs/<collection-id>.json
+│   └── task_workloads/<sha256>.json
+└── tasks/
+    ├── translation_en_to_de/<collection-id>/
+    ├── translation_en_to_fr/<collection-id>/
+    ├── translation_en_to_ro/<collection-id>/
+    └── summarization/<collection-id>/
+```
+
+每个任务目录内部继续采用下方 Artifact Layout v2，具有独立分层 CSV、`run_state.json`、输入
+计划、矩阵、原始窗口和 validation。重复运行生成新 collection ID。集合清单 schema v1 保存
+固定模型 revision、所选任务/证据/配置指纹、原始配置与各任务状态，不生成跨任务平均延迟或
+合并 CSV。输入计划、矩阵身份、`model_resolution.selected_task` 和实际 workload contract 保留
+任务身份。参数、batch、实际输入/输出 token、模板版本/哈希与 seed 由输入计划、静态 workload
+元数据及请求记录提供；未知观测保持 unavailable。
+
+恢复集合时保持原参数，增加 `--resume --task-run-id <collection-id>`。仅有一个集合时可省略 ID；
+多个集合时必须指定。恢复读取冻结任务选择和 workload，拒绝配置、revision 或模板指纹变化；
+已完成任务不重测，未开始任务仍经过独立 Smoke。TUI 的历史实验选择器可按任务恢复。
+历史未采用任务子目录的实验保留原恢复协议。
+
+发现、选择、下载确认、集合清单写入均在正式窗口外。监控、冷启动和 profiler 隶属于当前任务的
+原有生命周期；缓存只共享固定模型文件，不共享运行中的模型实例。
 
 ### Artifact Layout v2
 

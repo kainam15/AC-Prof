@@ -122,6 +122,9 @@ def run_options(args) -> dict:
     # Freeze even default policies: they affect both timing and retained evidence.
     options.setdefault("sampling_policy", "burst")
     options.setdefault("raw_sample_limit", 100000)
+    for name in ("tasks", "task_run_id"):
+        if not options.get(name):
+            options.pop(name, None)
     from acprof.model_repository import model_source
     source = model_source(options.get("model_source"))
     if source == "huggingface":

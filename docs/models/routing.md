@@ -2,12 +2,57 @@
 
 [← 返回专题目录](runtime.md)
 
+## 任务发现与选择
+
+工作负载和推理接口分开记录。例如 `translation_en_to_de` 与 `summarization` 都可以通过
+`text2text-generation` 执行，但输入模板、生成参数、身份和结果各自独立。发现阶段只读取同一
+固定 revision 的轻量元数据，包括 `task_specific_params`、Hub 任务标签与 `acprof_model.json`；
+不下载权重、不导入模型代码，也不从模型卡正文的能力介绍推断任务。架构与 AutoModel 类型仅作为
+接口约束。未知接口、缺少语言方向或无法解析的参数保留为 unresolved，冲突要求显式选择。
+
+一个明确任务自动继续，多个任务先暂停。TUI 可以选一个、多个或全部，也可返回配置，此时尚未
+下载权重、执行 Smoke 或正式测量。CLI 使用 `--tasks TASK_ID,TASK_ID` 或 `--tasks all`；省略时
+列出可选任务并退出。无明确任务时通过 `--task`、`--model-spec` 和必要的 `--workload-spec` 补充。
+不能凭架构支持范围宣称 checkpoint 已声明分类、回归或问答。
+
+`google-t5/t5-small` 声明英译德、英译法、英译罗马尼亚语与摘要四项。通用 `translation` /
+`text2text-generation` 标签合并为证据，不产生重复任务。每项记录
+`task_id/interface/kind/config/evidence/fingerprint`。生成参数优先级为用户 workload、任务声明、
+`generation_config.json`、AC-Prof 默认值；高优先级的长度写法替换继承的另一种写法，
+同一声明同时提供两者时 `max_new_tokens` 优先于 `max_length`。
+Encoder–Decoder 的 `max_length` 包含 decoder start token，Decoder-only 则包含输入 prompt，
+不会被误记为新增 token 数，原始参数和长度语义均保存。
+
+翻译保留语言前缀，摘要与生成式问答分别使用正文和问题/上下文。内置文本是确定性合成样本，保存
+模板版本/哈希与 seed=0，不代表准确率数据集。非英语翻译来源需要显式输入文本；生成式分类、
+情感分析和回归需要明确前缀声明。无声明或需要覆盖语义时，可在 `--workload-spec` JSON 中写入：
+
+```json
+{"schema_version": 1, "task_declaration": {"task_id": "generative-question-answering", "params": {"prefix": "question: When does the library open? context: ", "max_new_tokens": 32}}}
+```
+
+`task_declaration.params` 可提供前缀、`input_text` 和生成参数；这是用户选择的工作负载，
+不作为 checkpoint 作者的任务声明。AC-Prof 将其规范化为带 fingerprint 的 `task_workload`。
+
+原生 Seq2Seq 使用 `AutoTokenizer`、`AutoModelForSeq2SeqLM.generate()`，适用于项目锁定的
+Transformers 4.x / 5.x，不依赖 v5 已移除的翻译、摘要和 Text2Text Pipeline。
+每项独立验证加载、预处理、推理、输出解析与实际 token；Smoke 仅证明接口及样本 sanity，
+不证明准确率或可靠任务能力。一项失败后保留原因并继续其他已选任务，集合返回失败状态。
+权重缓存共享，但运行实例与冷启动加载独立。详见[任务产物与恢复](../profiling/artifacts.md#按任务保存与恢复)。
+
+设计借鉴 [lm-evaluation-harness TaskConfig / GroupConfig](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/task_guide.md)
+的任务配置与组管理，并核对 [Transformers v5 迁移指南](https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md)、
+[Issue #44509](https://github.com/huggingface/transformers/issues/44509) 和
+[PR #44510](https://github.com/huggingface/transformers/pull/44510)。只借鉴分工，不复制实现或引入
+评测框架依赖；发现与选择均位于测量窗口外。
+
 ## 共享接口解析
 主机在同一个模型 commit 读取文件列表及 `config.json`、`model_index.json`、`modules.json`、
 `adapter_config.json`、`acprof_model.json`、`generation_config.json` 和 tokenizer/processor 配置，不执行仓库 Python。
 即使 Hub 没有 `pipeline_tag`，仍保留 revision、文件与元数据，并从 architecture、`auto_map`、
 `custom_pipelines` 和制品格式汇总候选。选择优先级为显式任务、本地／仓库声明、Hub 任务，
-最后才使用唯一推导候选；多候选为 `ambiguous`，信息不足为 `needs_configuration`。
+最后才使用唯一推导候选作为接口线索；正式运行还需通过上述任务声明与用户选择检查。
+多候选为 `ambiguous`，信息不足为 `needs_configuration`。
 Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按下节规则分类。
 `--task`／`--backend` 不能与有效模型声明矛盾。
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。

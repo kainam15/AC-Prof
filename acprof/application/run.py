@@ -5,7 +5,7 @@ import math
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from acprof.application.errors import CollectionFailed
@@ -59,6 +59,7 @@ class RunOutcome:
     status: str
     final_csv: str | None = None
     completed_cases: int = 0
+    task_collection_path: str | None = None
 
 
 def configure_environment(options) -> None:
@@ -155,7 +156,7 @@ class RunApplication:
 
     @gpu_device_scope()
     def _execute(self, config: RunConfig, *, prepared_task=None,
-                 preparation_artifacts=None, command: str) -> RunOutcome:
+                 preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
         start_time = time.perf_counter()
         args = config.validate(project_dir=Path.cwd()).to_namespace()
         self.environment_setup(args)
@@ -208,19 +209,7 @@ class RunApplication:
                                 compute_tool=args.compute_profile_tool,
                                 execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)
 
-        terminal_output_dir = os.path.join(
-            os.getcwd(),
-            args.output_dir,
-            args.model.replace("/", "--"),
-        )
-        self.notifications.activate(
-            provider=args.notify,
-            model_id=args.model,
-            output_dir=terminal_output_dir,
-            started_at=start_time,
-            run_command=run_command,
-        )
-        self.notifications.notify_started()
+        terminal_output_dir = str(config.result_dir(Path.cwd()))
 
         # ── Step 1: Detect task ──
         print("=" * 60)
@@ -229,8 +218,16 @@ class RunApplication:
 
         from acprof.host.collection_workflow import PreparationWorkflow, RebuildEnvironment
         workflow = self.workflow_factory(args.output_dir) if self.workflow_factory else PreparationWorkflow.from_environment(args.output_dir)
+        workflow.continue_on_task_failure = task_child
 
-        saved_run = load_run_state(terminal_output_dir) if args.resume else {}
+        from acprof.artifact_layout import ArtifactLayout
+        has_run_state = ArtifactLayout.discover(terminal_output_dir).path("run_state.json").exists()
+        saved_run = load_run_state(terminal_output_dir) if args.resume and has_run_state else {}
+        collection = None
+        if args.resume and not saved_run and not task_child:
+            from acprof.application.task_runs import TaskCollection
+            collection = TaskCollection.restore(config)
+            prepared_task = collection.task
         from acprof.host.runtimes.selection import require_runtime_requests, select_runtime
         requested_runtime = args.runtime
         if args.resume and requested_runtime == "auto":
@@ -252,6 +249,41 @@ class RunApplication:
         else:
             initial_task = prepared_task
         task_info = workflow.resolve(args, initial=initial_task)
+
+        if task_info.selected_tasks and not task_child and not (saved_run and args.task_run_id):
+            from acprof.application.task_runs import TaskCollection
+            collection = collection or TaskCollection(config, task_info)
+            def execute_task(child_config, child_task):
+                status = "failed"
+                primary_error: BaseException | None = None
+                try:
+                    result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
+                    status = result.status
+                    return result
+                except BaseException as exc:
+                    primary_error = exc
+                    if isinstance(exc, KeyboardInterrupt):
+                        status = "cancelled"
+                    raise
+                finally:
+                    try:
+                        self._finalize(status)
+                    except BaseException as cleanup_error:
+                        if primary_error is None:
+                            raise
+                        primary_error.add_note(f"Task finalization also failed: {type(cleanup_error).__name__}")
+            result = collection.run(execute_task)
+            if result.status != "ok":
+                raise CollectionFailed(f"Some tasks failed; see {collection.path}",
+                                       task_collection_path=str(collection.path))
+            return result
+
+        if not args.task_run_id:
+            terminal_output_dir = str(replace(config, model=task_info.model_id).result_dir(Path.cwd()))
+        self.notifications.activate(provider=args.notify, model_id=task_info.model_id,
+                                    output_dir=terminal_output_dir, started_at=start_time,
+                                    run_command=run_command)
+        self.notifications.notify_started()
 
         def host_preflight():
             if args.runtime == "process":
@@ -311,11 +343,7 @@ class RunApplication:
         print(f"  Cgroup:   {cgroup_version} (mode={cgroup_collection_mode})")
         print(f"  Profiling mode: {args.profiling_mode}")
 
-        output_dir = os.path.join(
-            os.getcwd(),
-            args.output_dir,
-            task_info.model_id.replace("/", "--"),
-        )
+        output_dir = terminal_output_dir
         try:
             require_result_environment(output_dir)
         except ValueError as exc:

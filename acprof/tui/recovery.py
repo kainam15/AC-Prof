@@ -51,6 +51,10 @@ def review_recovery(pending: PendingLaunch, *, project_dir: Path, python_executa
     issues: list[str] = []
     try:
         layout = ArtifactLayout.discover(directory)
+        if (record is None and not config.resume and not config.task_run_id
+                and (directory / "metadata" / "task_runs").is_dir()
+                and not layout.path("run_state.json").is_file()):
+            return None  # New task collections allocate new immutable run directories.
         if record is None and not config.resume:
             try:
                 ArtifactLayout.for_new_run(directory).check_new_run()
