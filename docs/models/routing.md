@@ -6,11 +6,14 @@
 
 模型声明的应用任务与性能采集的推理配置分开记录。翻译语言、摘要、问答、提示词和模板描述输入
 用途；相同执行接口及解码计算配置仅测一套资源矩阵，不为每种语义用途重复采集。
-发现阶段只读取同一固定 revision 的轻量元数据，包括 `task_specific_params`、Hub 标签和模型
-声明；不下载权重或执行模型代码，也不根据架构推测 checkpoint 已训练的任务。
+发现阶段只读取同一固定 revision 的轻量元数据，通过一个入口同时生成接口候选、证据和任务组。
+Hub Metadata、`config.json`、模块清单与模型声明分别保留来源和作用范围：注册 Adapter 的
+加载器及输入输出协议用于建立可执行接口；底层架构能力只作为结构证据；普通 Hub tags、
+`task_specific_params` 和输入示例描述用途。静态阶段不下载权重、不执行仓库代码，
+接口可执行也不表示 checkpoint 在某项应用任务上具有准确率保证。
 
-`inference_groups` 根据实际推理接口、backend 与会影响计算路径的生成配置分组：
-Beam 数、采样/多返回序列、缓存与 logits 处理选项等改变执行配置；输入前缀、翻译方向、
+`inference_groups` 根据 backend、注册 Adapter、执行操作、必要组件、输入输出协议与有效生成配置分组：
+Beam 数及长度惩罚、采样/多返回序列、缓存与 logits 处理选项等改变执行配置；输入前缀、翻译方向、
 任务特定 `max_length` / `min_length` 则不产生新的采集组。生成组使用统一的
 `max_new_tokens=64` 默认预算，用户仍可用 workload 参数覆盖。
 这个预算是生成上限，实际输出 Token 数以 runtime 观测为准，不能视为保证输出 64 Token。
@@ -20,26 +23,28 @@ Beam 数、采样/多返回序列、缓存与 logits 处理选项等改变执行
 **一个推理组直接继续；多个独立推理组才暂停供用户选择。** TUI 可多选或全选推理组；
 CLI 的 `--tasks` 接受已声明的语义任务 ID、推理组 ID 或 `all`，相同执行配置自动合并。
 未选择而存在多个独立组时，非交互 CLI 显示可选组并退出。
-无明确任务时使用 `--task`、`--model-spec` 和必要的 `--workload-spec` 补充；证据冲突
-仍要求显式处理。不能凭架构支持范围宣称 checkpoint 已声明分类、回归或问答。
+唯一且证据完整的注册接口自动选择，无需额外的作者用途声明。信息不足或证据冲突时使用
+`--task`、`--model-spec` 和必要的 `--workload-spec` 补充；显式选择仍须通过兼容性检查。
+实际输入模态、组件或执行流程不同的路径分别保留，普通用途标签不能生成新的推理路径。
+输入长度和 Batch Size 保留为实验变量，候选数量和数值置信度不决定是否弹窗。
 
 `google-t5/t5-small` 的[固定版本配置](https://huggingface.co/google-t5/t5-small/blob/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/config.json)
 声明英译德、英译法、英译罗马尼亚语和摘要四项，规范化后产生 **两个 Seq2Seq 采集组**。
 虽然都使用 Beam ×4、非采样和提前停止，摘要的 `no_repeat_ngram_size=3`，翻译采用
-默认值 `0`，计算签名不同。三个翻译方向共享一组，代表输入为 `translation_en_to_de`；
+默认值 `0`，且长度惩罚设置不同，计算签名不同。三个翻译方向共享一组，代表输入为 `translation_en_to_de`；
 摘要组使用 `summarization`。全选四项用途执行两套资源矩阵，不逐个测量三个翻译方向。
 任务专用长度和语言前缀作为 `semantic_tasks` 原始证据保留；通用 Pipeline 标签只补充证据。
-若用户显式将 `no_repeat_ngram_size` 统一覆盖为 `0`，四项声明才归为一个混合用途组。
+若用户显式统一 `no_repeat_ngram_size`、`length_penalty` 等有效计算参数，四项声明归为一个混合用途组。
 
 选择界面仅比较 `execution_profile.signature`，不从原始声明重新推断默认值或计算参数。
 共同参数在顶部显示一次，每组列出真实用途、全部差异和实际代表输入。
-嵌套对象按字段名、数组按索引稳定遍历，保留缺失、`null`、布尔与数值类型区别；
-未知字段使用完整路径和原始 JSON 值显示，不依赖参数名称白名单。
+执行组件、完整 IO schema 和指纹保存在实验元数据，界面仅展示推理操作及有助于选择的计算参数。
+参数比较保留缺失、`null`、布尔与数值类型区别，不从展示文案重新计算分组。
 用途标题由 `semantic_tasks.kind/config` 生成，混合用途全部列出，未知类型使用标准任务 ID。
-“完整任务声明与配置”保留有效配置、计算签名和全部原始声明，包括输入前缀、来源与指纹。
+普通界面不提供原始 JSON 或重复的任务下拉框；完整声明、合并依据和排除原因保存在解析记录中。
 这些展示计算只发生在准备阶段，不改变分组签名、执行矩阵、结果或 resume 协议。
 
-应用任务保留 `task_id/interface/kind/config/evidence/fingerprint`；采集组增加
+应用任务保留 `task_id/interface/kind/config/evidence/fingerprint` 及 `execution_path`；采集组增加
 `execution_profile.signature/semantic_task_ids/representative_task_id` 与完整
 `semantic_tasks` 快照。测量子任务使用稳定组 ID 和独立指纹。
 生成参数优先级：用户 workload 显式覆盖组的规范化生成参数；任务声明/模型默认值仍在
@@ -61,8 +66,9 @@ Decoder-only 包含 prompt，不能当作新增 Token 数；组的统一 `max_ne
 
 原生 Seq2Seq 使用 `AutoTokenizer`、`AutoModelForSeq2SeqLM.generate()`，适用于项目锁定的
 Transformers 4.x / 5.x，不依赖 v5 已移除的翻译、摘要和 Text2Text Pipeline。
-每个推理组独立验证加载、预处理、推理、输出解析与实际 Token；Smoke 只能证明当前
-接口及样本可用，不证明其他应用用途的准确率。某组失败后保留原因并继续其他已选组。
+每个推理组独立验证加载、预处理、推理、输出解析与实际 Token，验证通过后才能正式采集；Smoke 只能证明当前
+接口及样本可用，不证明其他应用用途的准确率。验证失败保留原始原因，不自动改选未经确认的任务；
+多组实验仅继续用户已经选择的其他组。
 组间共享权重文件缓存，不共享需要独立测量的冷启动模型实例。
 详见[采集组产物与恢复](../profiling/artifacts.md#按任务保存与恢复)。
 
@@ -75,18 +81,20 @@ Transformers 4.x / 5.x，不依赖 v5 已移除的翻译、摘要和 Text2Text P
 
 ## 共享接口解析
 主机在同一个模型 commit 读取文件列表及 `config.json`、`model_index.json`、`modules.json`、
-`adapter_config.json`、`acprof_model.json`、`generation_config.json` 和 tokenizer/processor 配置，不执行仓库 Python。
+`adapter_config.json`、`acprof_model.json`、`generation_config.json`、tokenizer/processor 配置及模块自己的配置，不执行仓库 Python。
 即使 Hub 没有 `pipeline_tag`，仍保留 revision、文件与元数据，并从 architecture、`auto_map`、
 `custom_pipelines` 和制品格式汇总候选。选择优先级为显式任务、本地／仓库声明、Hub 任务，
-最后才使用唯一推导候选作为接口线索；正式运行还需通过上述任务声明与用户选择检查。
-多候选为 `ambiguous`，信息不足为 `needs_configuration`。
+最后使用已注册的结构协议。判定以完整推理路径为准：一个有效组直接选择，多个独立组为
+`selection_required`，信息不足为 `needs_configuration`，冲突保留为 `ambiguous` 并请求配置。
 Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按下节规则分类。
 `--task`／`--backend` 不能与有效模型声明矛盾。
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。
 
-`model_candidates` 先基于已审查的 `model_support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
+`discover_model_candidates()` 是唯一任务发现入口，同时返回 `task_discovery` schema v2。
+`inference_interfaces` 读取 Extension 协议，`model_tasks` 只将已确认接口与用途转换为可分组的 workload，
+不再维护第二套任务识别规则。`model_candidates` 基于已审查的 `model_support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
 `model_resolution` 再对选中候选执行无权重的接口约束检查。候选发现是无副作用查询，
-只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend`；
+只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend/task_discovery`；
 两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。
 持久化的 `model_resolution` 记录候选、证据、冲突、缺失项、选择结果以及格式、loader、operation、
 `model_type`、元数据文件名与所选 profile。`status=candidate` 只表示通过静态检查，成功加载、
@@ -118,10 +126,12 @@ Auto 中存在类不保证 processor、pipeline、dtype 或所有 profiler 兼�
 
 | 字段 | 含义 |
 | --- | --- |
-| `provenance` | schema v1 的来源图、观察项、resolver 版本、选择理由和 `identity_sha256`；只包含静态决策，不包含运行结果或时间戳 |
+| `provenance` | schema v1 的来源图、观察项、`raw_evidence`、resolver 版本、选择理由和 `identity_sha256`；只包含静态决策，不包含运行结果或时间戳 |
+| `evidence` | 每条事实的来源、`kind`（interface/capability/usage）、`scope`（model/component）、是否足以建立静态接口、分类及排除理由 |
+| `task_discovery` | schema v2 的用途、可执行组、未决配置和冲突；与主解析来自同一次决策 |
 | `semantics` | `explicit/declared/inferred/conflict/unresolved`；表示所选 workload 的依据，不证明作者意图或模型质量 |
 | `benchmark_kind` | 当前为 `task_pipeline`，沿用现有任务和四阶段 handler 协议；没有实现 `model_forward` 自动兜底 |
-| `execution` | backend、handler 调用入口、执行阶段与计时协议；不把 pipeline 与其内部的 generation 当成互斥等级 |
+| `execution` | backend、Adapter、loader/operation、handler 四阶段、输入输出、组件及配置摘要；与组签名共同绑定实际执行身份 |
 | `adapter_origin` | 内置 handler 为 `builtin`，声明的 repository Pipeline 为 `repository`；生成声明不等于生成 adapter |
 | `runtime_validation` | 初始为 `not_run`，之后记录实际 mode、镜像、payload hash、设备及验证结果；与静态语义分开 |
 
@@ -153,16 +163,29 @@ Hub 顶层 `pipeline_tag` 缺失时，`transformers_info.pipeline_tag=pretrainin
 未知 head 仍为 `needs_configuration`。反之，嵌套标签是已支持任务且与唯一已登记 head 相矛盾时，
 仍标记 `ambiguous`，需要明确选择，不把两种模型执行语义静默合并。
 
-Sentence Transformers 的 feature-extraction/sentence-similarity 路径，若 `modules.json` 明确
-声明从根目录加载 `sentence_transformers.models.Transformer`，实际使用的是 `AutoModel`。
-此时底层 checkpoint 的 MLM/CausalLM head 与库标签只描述存储架构，不阻止声明的编码操作；
-缺少该模块声明或选择了其它 backend 时不应用此规则。模块、processor、依赖与实际输出仍需验证。
+Sentence Transformers 的模块协议由 Extension 注册，按 `modules.json` 顺序检查输入模块、
+各模块所需与产出的 features，以及最终编码输出。模块配置从各自的相对目录读取，根目录没有特权。
+完整编码链拥有其 backbone：底层 MLM/CausalLM head 和库标签只作组件证据，不产生独立任务。
+未知模块、断开的 feature 依赖、非法路径或缺少最终输出均要求配置，不导入远程模块来猜测。
+Diffusers 的 `model_index.json` 组件组成一个已注册 pipeline，不把每个子模型扩展成单独任务。
+模块、processor、依赖与实际输出仍需运行验证；没有按模型 ID 设置例外。
 
 声明、Hub task、具有任务语义的 `transformers_info.pipeline_tag` 冲突，或原生模型的明确 head 与任务操作
 不相容时，保留候选并 abstain。显式 `--task` 可以解决元数据冲突，原冲突进入
 `provenance.overridden_conflicts`；它仍不能违背有效的模型声明。
 Interface Probe 或 Runtime Validation 成功不能修改这些静态裁决。静态来源摘要进入服务镜像 request fingerprint，
 模型 SHA、声明与依赖仍沿用已有模型层和服务层身份规则。
+
+新实验的组签名绑定执行接口、组件配置和有效生成参数。恢复 Runtime 前校验冻结 workload 指纹
+与当前注册协议，身份改变时要求新建实验。历史记录缺少这些字段时保持原有身份，不补造接口
+或运行证明；比较旧生成签名只允许新增字段的等价默认值，不能借此更改原有计算配置。
+
+模块链设计参考 [SentenceTransformers 官方模块加载说明](https://github.com/huggingface/sentence-transformers/blob/main/docs/sentence_transformer/usage/custom_models.rst)
+与 [PR #4190](https://github.com/huggingface/sentence-transformers/pull/4190) 对模块配置作用域的修正。
+接口映射参考 [Transformers Pipeline Registry](https://github.com/huggingface/transformers/blob/main/src/transformers/pipelines/__init__.py)，
+普通 tags 与规范 `pipeline_tag` 的区别核对 [Hub Issue #4511](https://github.com/huggingface/huggingface_hub/issues/4511)。
+这些官方维护项目使用 Apache-2.0；这里只借鉴协议分层，复用现有 Extension、锁定注册表和标准库，
+不增加运行依赖。JSON 分析、指纹和运行验证均在准备阶段，正式测量窗口不增加工作。
 
 实现复用 [Hugging Face Hub 的 ModelInfo/TransformersInfo](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/hf_api.py)，
 借鉴 [Optimum TasksManager](https://github.com/huggingface/optimum/blob/main/optimum/exporters/tasks.py)

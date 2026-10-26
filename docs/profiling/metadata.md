@@ -106,6 +106,15 @@ UTF-8 JSON object，并拒绝 `NaN`、`Infinity` 及溢出为无穷大的数字�
 大小字段为 `model_cache_bytes`，不读取旧 `model_weight_bytes`。采集/修复记录独立写入
 `collection_history.json`，不从旧静态元数据补造 swap、cgroup 或运行环境信息。
 
+`model_resolution` 的新增可选字段不改变 v7 或 CSV：`provenance.raw_evidence` 保存原始 Hub、config
+和模块配置，`evidence` 记录每条事实的来源、作用域、类型、静态充分性和排除理由。
+内嵌 `task_discovery` schema v2 保存候选 workload、分组签名、未决配置与冲突，
+`selected_task` 保存最终选中的代表输入及完整用途快照。`execution` 和组签名共同绑定 backend、
+Adapter、loader、四阶段调用、组件、IO、配置摘要和有效生成参数；这些字段无物理单位。
+`selection_required` 表示多个独立可执行组尚待选择，不等同于接口冲突或运行失败。
+恢复在启动 Runtime 前核验新身份；历史记录缺字段保持未知，不重写原指纹或补造运行证明。
+静态识别、运行验证和正式测量证据分别记录，详见[解析证据](../models/routing.md#解析证据与自动裁决)。
+
 `runtime_environment` 继续使用 schema v1。新服务镜像构建时增加以下身份字段，保持原有包版本、
 模型快照及 `build_fingerprint` 的语义；`static_meta.json` 仍为 v7，CSV 没有新增列。
 

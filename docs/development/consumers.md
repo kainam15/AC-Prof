@@ -121,7 +121,9 @@ manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当�
 任务选择由 `host.task_selection` 传递结构化推理组；`task_presentation` 只从规范化的
 `execution_profile.signature` 提取共同／差异字段，并从 `semantic_tasks` 构建用途和代表输入数据。
 它不重新分组、不推断默认值，不导入 Textual。`tui.task_labels` 负责统一数据的中英文格式化，
-`tui.task_choices` 负责可换行多选项、完整声明入口及键盘操作；回复只包含已有稳定组 ID。
+`tui.task_choices` 负责可换行多选项和键盘操作；回复只包含已有稳定组 ID。
+完整组件、IO、声明与指纹保存在实验元数据，普通选择界面展示用途、推理操作及有效计算差异。
+唯一接口直接继续；配置冲突由同一准备流程请求缺失信息，不另列底层架构或重复的任务选择控件。
 配置展示借鉴 [Transformers GenerationConfig](https://github.com/huggingface/transformers/blob/v4.57.1/src/transformers/generation/configuration_utils.py)
 （Apache-2.0）的完整配置与展示差异分离；[PR #47953](https://github.com/huggingface/transformers/pull/47953)
 说明了默认值与显式覆盖的优先级风险，因此界面复用后端已生效的签名。

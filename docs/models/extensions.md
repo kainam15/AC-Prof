@@ -50,12 +50,21 @@ library/config 规则 → family 规则，随后才可使用已声明的 `librar
 | `trust_remote_code` | 可收紧 profile 的授权，false 不能被 loader options 提升；未声明时遵循 profile |
 | `input_plan` / `task_input_plan` | workload 清单、文本/音频探测、上下文上限、workload 默认尺度、连续尺度及 feature dimension 传递能力 |
 | `handler_options` / `backend_handler_options` / `task_handler_options` | 依次合并 handler 的 loader 选项、句向量模式、模型清单格式与张量输入方式；不改变四阶段执行协议 |
+| `inference` / `task_inference` / `backend_inference` | 依次覆盖静态执行描述：`loader`、`operation`、`structure`（single/modules/components）；backend 的实际协议优先于 task 默认值 |
 | `workload_defaults` / `profile_options` | adapter 的提示词、生成参数和 profile dtype/remote-code 策略；MOSS 特有值只在其声明中维护 |
 
 `input_plan.requires_scale_meta` 使用模型返回的上下文长度上限；`max_scale_probe` 允许 generator
 提供最大尺度。`text_payload`、`audio_payload` 选择已有的输入合法性探测；`workload_scales`
 消费 generator 的默认尺度，`fractional_scales` 允许连续尺度。未声明的能力默认为关闭，
 不能通过字段缺省绕过必须的输入验证。
+
+`inference` 描述现有 Handler 的真实执行路径，不创建第二套加载器。`modules` 协议可声明
+`default_task`、`module_protocols` 和 `output_features`；每种模块登记 `accepts_input`、
+`requires`、`outputs`，静态检查按清单顺序传递 features。未知模块、无输入处理器、依赖断开或
+缺少最终输出时拒绝自动选择。模块只能读取固定 snapshot 内的相对路径，最多分析 64 个模块。
+`components` 将 `model_index.json` 中的组件绑定到同一个 pipeline；单个组件的潜在能力
+不会成为独立任务。分析只读取声明与 JSON，不导入模块或执行远程代码。
+增加协议时须同时核对 Handler、输入输出、参数和运行验证，不能仅注册字符串就声称支持。
 
 平台与共享依赖分别在 `platforms`、`dependency_environments` 声明，逻辑配置在 `runtime_profiles`
 或 extension 的 `profile` / `environment` / `dependency_environment` 声明。

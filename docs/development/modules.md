@@ -57,7 +57,9 @@
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
 | `acprof/model_support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
-| `acprof/model_candidates.py` | 不修改输入 `TaskInfo` 的静态候选发现、证据与歧义决策；`apply_model_candidate` 仅在调用方明确选择时写入 task/family/backend，保留原 provenance；不加载权重 |
+| `acprof/model_candidates.py` | 唯一静态接口发现入口，同时生成候选、作用域证据和 `task_discovery`；查询不修改 `TaskInfo`，编排显式应用决策；不加载权重 |
+| `acprof/inference_interfaces.py` | 从 Extension 解析 loader、四阶段调用、模块链、组件及 IO，记录执行身份并在恢复前核验；不导入模型代码 |
+| `acprof/model_tasks.py`、`acprof/inference_groups.py` | 将统一接口决策与用途声明转成 workload，按真实执行路径和有效计算参数分组；保留原始用途，不重复识别架构 |
 | `acprof/model_resolution.py`、`acprof/model_spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
 | `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
 | `acprof/model_dependency_domain.py`、`acprof/model_dependency_eval.py`、`acprof/model_dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
