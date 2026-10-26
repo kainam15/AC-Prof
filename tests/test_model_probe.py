@@ -8,12 +8,14 @@ from unittest.mock import patch
 import pytest
 import test_model_contract as contract_fixture
 import test_runtime_validation as runtime_fixture
+from command_fixtures import redirect_command_output
 
 from acprof.host.runtime_validation import validate_runtime
 
 
 class TestModelProbe:
     def probe_command(self, response):
+        @redirect_command_output
         def run(command, **kwargs):
             if command[:2] == ["docker", "run"]:
                 cidfile = Path(command[command.index("--cidfile") + 1])

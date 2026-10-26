@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 import test_model_contract as contracts
+from command_fixtures import redirect_command_output
 
 
 def bundle_module():
@@ -20,6 +21,7 @@ def test_interface_probe_does_not_prepare_a_model(tmp_path):
     from acprof.host.interface_probe import probe_interface
     task = contracts.TestModelContract().discover()
     calls = []
+    @redirect_command_output
     def run(command, **kwargs):
         calls.append(command)
         if command[:2] == ["docker", "run"]:
@@ -52,6 +54,7 @@ def test_interface_probe_rejects_nonfinite_container_record_before_persistence(t
 
     task = contracts.TestModelContract().discover()
 
+    @redirect_command_output
     def run(command, **kwargs):
         if command[:2] == ["docker", "run"]:
             Path(command[command.index("--cidfile") + 1]).write_text("c" * 64)
@@ -259,6 +262,7 @@ def test_interface_failure_cleans_container_and_both_temporary_directories(tmp_p
     from acprof.host.interface_probe import probe_interface
     task = contracts.TestModelContract().discover()
     directories = []
+    @redirect_command_output
     def run(command, **kwargs):
         if command[:2] == ["docker", "run"]:
             cidfile = Path(command[command.index("--cidfile") + 1])

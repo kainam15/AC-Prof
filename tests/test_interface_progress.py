@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 import test_model_contract as contracts
+from command_fixtures import redirect_command_output
 
 from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.preparation_events import encode_event, parse_event
@@ -27,6 +28,7 @@ def interface_check(request, tmp_path, monkeypatch):
     if request.param == "docker":
         from acprof.host import interface_probe as module
 
+        @redirect_command_output
         def run(command, **kwargs):
             if command[:2] == ["docker", "run"]:
                 Path(command[command.index("--cidfile") + 1]).write_text("c" * 64)

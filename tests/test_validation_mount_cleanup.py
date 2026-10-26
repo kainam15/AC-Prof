@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from command_fixtures import redirect_command_output
 from test_runtime_validation import SUCCESS, TestRuntimeValidation as _ValidationFixture
 
 from acprof.host.container_lifecycle import ContainerCleanupError
@@ -81,7 +82,7 @@ def test_cleanup_interruption_keeps_lease_and_original_exception(monkeypatch, va
     options, mount, retained = validation
     primary = error_type("cleanup interrupted")
     monkeypatch.setattr("acprof.host.runtime_validation.run_command",
-                        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, SUCCESS, ""))
+                        redirect_command_output(lambda command, **kwargs: subprocess.CompletedProcess(command, 0, SUCCESS, "")))
     monkeypatch.setattr("acprof.host.runtime_validation.owned_container_id",
                         Mock(side_effect=[CID, primary]) if stage == "read_id" else lambda path: CID)
     monkeypatch.setattr("acprof.host.runtime_validation.remove_owned_container",
@@ -106,3 +107,31 @@ def test_command_setup_failure_without_docker_attempt_releases_lease(monkeypatch
     run.assert_not_called()
     mount.close.assert_called_once_with()
     retained.assert_not_called()
+
+
+@pytest.mark.parametrize("failing_file", [1, 2])
+def test_capture_setup_failure_closes_files_and_releases_lease_before_dispatch(monkeypatch, validation, tmp_path, failing_file):
+    from acprof.host import validation_logs
+
+    options, mount, retained = validation
+    opened = []
+    original = validation_logs.tempfile.TemporaryFile
+
+    def temporary_file(*args, **kwargs):
+        if len(opened) + 1 == failing_file:
+            raise OSError("capture unavailable")
+        opened.append(original(*args, **kwargs))
+        return opened[-1]
+
+    monkeypatch.setattr(validation_logs.tempfile, "TemporaryFile", temporary_file)
+    run = Mock(side_effect=AssertionError("Docker must not run"))
+    monkeypatch.setattr("acprof.host.runtime_validation.run_command", run)
+    with pytest.raises(RuntimeValidationError, match="capture unavailable"):
+        validate_runtime(**options)
+    run.assert_not_called()
+    mount.close.assert_called_once_with()
+    retained.assert_not_called()
+    assert all(stream.closed for stream in opened)
+    report = json.loads((tmp_path / "runtime_validation.json").read_text())
+    assert "cleanup_status" not in report
+    assert set(report["devices"]) == {"off"}

@@ -10,10 +10,9 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import TextIO
 
 from acprof.artifact_layout import ArtifactLayout
-from acprof.artifacts import atomic_write, atomic_write_json, loads_finite_json
+from acprof.artifacts import atomic_write_json, loads_finite_json
 from acprof.container.model_probe import RESULT_PREFIX
 from acprof.host.command import run_command
 from acprof.host.container_lifecycle import (
@@ -25,6 +24,7 @@ from acprof.host.container_lifecycle import (
 )
 from acprof.host.images.environment import prepare_environment_image
 from acprof.host.source_bundle import source_bundle
+from acprof.host.validation_logs import ValidationLog
 from acprof.installation import resource_root
 from acprof.model_contract import write_model_resolution
 from acprof.model_spec import encode_model_spec, task_model_spec
@@ -52,7 +52,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
               "model_id": task_info.model_id, "revision": task_info.model_revision,
               "runtime_profile": profile.profile_id, "inference": "not_run"}
     owner = container_owner_labels()
-    log = ""
+    log = ValidationLog(layout.path("logs") / "interface_validation.log")
     try:
         # Validate and materialize the graph before preparing even dependencies.
         with source_bundle(task_info) as bundle, tempfile.TemporaryDirectory(prefix="acprof-interface-runner-") as directory:
@@ -102,26 +102,20 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
                 command += ["-e", f"{key}={value}"]
             command += ["--entrypoint", "python", dependency.image_id, "-m", "acprof.container.model_probe"]
             try:
-                result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
-                log = (result.stdout or "") + "\n" + (result.stderr or "")
-                records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines()
-                           if line.startswith(RESULT_PREFIX)]
-                observed = loads_finite_json(records[-1]) if records else {}
+                result = log.run(command, run_command, timeout=timeout_seconds)
+                record = log.last_record(RESULT_PREFIX)
+                observed = loads_finite_json(record) if record is not None else {}
                 if (result.returncode or observed.get("status") != "ok"
                         or {item.get("stage") for item in observed.get("stages", [])
                             if item.get("status") == "verified"} != {"import", "signature"}):
-                    raise InterfaceProbeError(observed.get("error") or log[-4000:] or "incomplete interface response")
+                    raise InterfaceProbeError(observed.get("error") or log.tail() or "incomplete interface response")
                 report.update(status="ok", validation=observed)
                 if not owned_container_id(cidfile):
                     raise ContainerCleanupError("", [{"operation": "run", "detail": "missing interface container ID"}])
-            except subprocess.TimeoutExpired as exc:
-                log = "\n".join(value.decode(errors="replace") if isinstance(value, bytes) else value or ""
-                                for value in (exc.stdout, exc.stderr))
-                raise
             finally:
                 if identifier := owned_container_id(cidfile):
                     remove_owned_container(identifier, run_command)
-                else:
+                elif log.dispatched:
                     raise ContainerCleanupError("", [{"operation": "run", "detail": "missing interface container ID"}],
                                                 run_error=sys.exc_info()[1])
     except BaseException as exc:
@@ -131,12 +125,7 @@ def probe_interface(task_info, output_dir: str | Path, *, cpus: int = 2,
             report["cleanup_error"] = exc.to_dict()
         raise
     finally:
-        path = layout.path("logs") / "interface_validation.log"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        def write_log(stream: TextIO) -> None:
-            stream.write(log)
-
-        atomic_write(path, write_log)
+        log.close()
         atomic_write_json(layout.path("interface_validation.json"), report)
         task_info.model_resolution["interface_validation"] = report
         write_model_resolution(task_info, output_dir)

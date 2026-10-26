@@ -12,9 +12,9 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from acprof.artifacts import atomic_write, loads_finite_json
+from acprof.artifacts import loads_finite_json
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
 from acprof.host.command import run_command
@@ -26,6 +26,7 @@ from acprof.host.container_lifecycle import (
     remove_owned_container,
 )
 from acprof.host.gpu_device import gpu_docker_args
+from acprof.host.validation_logs import ValidationLog
 from acprof.runtime_settings import runtime_docker_env_args
 
 if TYPE_CHECKING:
@@ -117,7 +118,6 @@ def validate_runtime(
             name = "acprof-validate-" + uuid.uuid4().hex[:16]
             cidfile = Path(temporary) / f"{device_mode}.cid"
             model_store_mount = acquire_mount(image_info.runtime_environment)
-            run_attempted = False
             try:
                 command = [
                     "docker", "run", "--name", name, "--cidfile", str(cidfile), *labels, "--network", "none",
@@ -146,14 +146,12 @@ def validate_runtime(
                 model_store_mount.close()
                 raise
             print(f"[runtime-check] {device_mode}: 正在验证模型运行（独立容器）", flush=True)
-            log = ""
+            log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
+            log = ValidationLog(log_path)
             run_error: BaseException | None = None
             try:
-                # Dispatch may create a container even if the caller is interrupted.
-                run_attempted = True
-                result = run_command(command, capture_output=True, text=True, timeout=timeout_seconds)
-                log = (result.stdout or "") + "\n" + (result.stderr or "")
-                records = [line[len(RESULT_PREFIX):] for line in (result.stdout or "").splitlines() if line.startswith(RESULT_PREFIX)]
+                result = log.run(command, run_command, timeout=timeout_seconds)
+                record = log.last_record(RESULT_PREFIX)
                 identifier = owned_container_id(cidfile)
                 if not identifier and result.returncode == 0:
                     raise ContainerCleanupError("", [{"operation": "run", "detail": "Docker returned without a cidfile"}])
@@ -163,8 +161,8 @@ def validate_runtime(
                     device_result["failure"] = Failure("runtime_validation", "resource_limit", "validation_container_oom",
                         device_mode, task_info.runtime_profile_id, "higher_budget",
                         {"docker_state": state, "mem_cap_gb": max(mem_list), "measured_oom": True}).to_dict()
-                elif records:
-                    device_result = loads_finite_json(records[-1])
+                elif record is not None:
+                    device_result = loads_finite_json(record)
                     if not isinstance(device_result, dict) or device_result.get("status") not in {"ok", "error"}:
                         raise ValueError("invalid runtime validation response")
                     if result.returncode and device_result.get("status") == "ok":
@@ -180,7 +178,7 @@ def validate_runtime(
                         ):
                             raise ValueError("incomplete runtime validation response")
                 else:
-                    device_result = {"status": "error", "error": log[-4000:] or f"container exit {result.returncode}"}
+                    device_result = {"status": "error", "error": log.tail() or f"container exit {result.returncode}"}
                 from acprof.quality import cli_exit_quality
                 device_result.setdefault("quality_checks", []).extend(cli_exit_quality(result.returncode, source=name))
                 if device_result.get("failure"):
@@ -201,19 +199,14 @@ def validate_runtime(
             except subprocess.TimeoutExpired as exc:
                 run_error = exc
                 _LOG.debug("runtime validation timeout: mode=%s timeout_s=%s", device_mode, timeout_seconds)
-                def decoded(value):
-                    return value.decode(errors="replace") if isinstance(value, bytes) else (value or "")
-
-                log = decoded(exc.stdout) + "\n" + decoded(exc.stderr)
                 stages = []
-                for line in log.splitlines():
-                    if line.startswith(STAGE_PREFIX):
-                        try:
-                            record = loads_finite_json(line[len(STAGE_PREFIX):])
-                            if isinstance(record, dict):
-                                stages.append(record)
-                        except ValueError:
-                            pass
+                for stage_record in log.records(STAGE_PREFIX, include_stderr=True):
+                    try:
+                        observed_stage = loads_finite_json(stage_record)
+                        if isinstance(observed_stage, dict):
+                            stages.append(observed_stage)
+                    except ValueError:
+                        pass
                 try:
                     identifier = owned_container_id(cidfile)
                 except ContainerCleanupError as cid_error:
@@ -240,37 +233,34 @@ def validate_runtime(
             finally:
                 active_error = sys.exc_info()[1]
                 try:
-                    identifier = owned_container_id(cidfile)
-                    if identifier:
-                        remove_owned_container(identifier, run_command)
-                        # Positive cleanup supersedes an earlier unavailable cidfile.
-                        cleanup_failure = None
-                    elif run_attempted and cleanup_failure is None:
-                        cleanup_failure = ContainerCleanupError("", [{"operation": "read_cidfile",
-                            "detail": "no immutable ID after Docker dispatch; container absence is unconfirmed"}],
-                            run_error=run_error or active_error)
-                except ContainerCleanupError as exc:
-                    exc.run_error = exc.run_error or run_error or active_error
-                    cleanup_failure = exc
-                except BaseException:
-                    # Interrupted cleanup is not proof that the consumer has gone away.
-                    retain_mount_for_cleanup_debt(model_store_mount)
-                    raise
-                if cleanup_failure is None:
-                    model_store_mount.close()
-                else:
-                    retain_mount_for_cleanup_debt(model_store_mount)
+                    try:
+                        identifier = owned_container_id(cidfile)
+                        if identifier:
+                            remove_owned_container(identifier, run_command)
+                            # Positive cleanup supersedes an earlier unavailable cidfile.
+                            cleanup_failure = None
+                        elif log.dispatched and cleanup_failure is None:
+                            cleanup_failure = ContainerCleanupError("", [{"operation": "read_cidfile",
+                                "detail": "no immutable ID after Docker dispatch; container absence is unconfirmed"}],
+                                run_error=run_error or active_error)
+                    except ContainerCleanupError as exc:
+                        exc.run_error = exc.run_error or run_error or active_error
+                        cleanup_failure = exc
+                    except BaseException:
+                        # Interrupted cleanup is not proof that the consumer has gone away.
+                        retain_mount_for_cleanup_debt(model_store_mount)
+                        raise
+                    if cleanup_failure is None:
+                        model_store_mount.close()
+                    else:
+                        retain_mount_for_cleanup_debt(model_store_mount)
+                finally:
+                    log.close()
             if device_result["status"] == "error" and "failure" not in device_result:
                 device_result["failure"] = failure_from_exception(
                     RuntimeError(device_result.get("error", "runtime validation failed")),
                     stage=device_result.get("failed_stage", "runtime_validation"), device=device_mode,
                     runtime_profile=task_info.runtime_profile_id).to_dict()
-            log_path = (layout.path("logs") if layout.layout_version == 2 else root) / f"runtime_validation_{device_mode}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            def write_log(stream: TextIO) -> None:
-                stream.write(log)
-
-            atomic_write(log_path, write_log)
             report["devices"][device_mode] = device_result
             if cleanup_failure is not None:
                 if cleanup_failure.run_error is None and device_result.get("error"):

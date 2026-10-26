@@ -164,6 +164,12 @@ CPU + GPU 必须两者成功；失败、OOM、超时或缺少阶段证据均阻�
 报告仍为 `runtime_validation.json`，含每个设备的日志、输入 hash 和镜像身份；历史协议的 `mode=full`
 表示端到端验证，新执行入口不再提供 basic/full 选择。它不产生正式 CSV row，不开启 profiler 测量窗口。
 
+Docker 的两类验证将 stdout/stderr 分别写入产物目录中的临时文件，清理容器后分块发布完整日志，
+取消和超时同样保留已输出内容。日志沿用 stdout、换行、stderr 的顺序；成功结果只取 stdout
+最后一条协议记录，末条损坏时不回退到较早的成功结果。Docker 与 Process 共用分块解析器，
+普通诊断日志的长度不会导致等量内存分配；协议记录仍完整解析，不截断 JSON 或其中的 Unicode 字符。
+捕获文件无法创建时不启动 Docker，并释放尚未交给容器使用的 Model Store 租约。
+
 两类验证都不能代替所选 profiler 或正式矩阵实测。`profiling-mode basic/full` 只表示采集指标范围，
 不表示模型检查深度。TUI 自动执行整个准备流程，交互见[模型确认](../usage/tui-interaction.md#模型契约解析与验证)。
 

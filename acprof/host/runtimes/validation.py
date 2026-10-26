@@ -4,32 +4,14 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_input_scale_plan
 from acprof.host.runtimes.contracts import ProcessInfo
 from acprof.host.runtimes.process import service_environment
 from acprof.host.runtimes.process_control import ManagedProcess
+from acprof.host.validation_logs import last_prefixed_record
 from acprof.preparation_events import preparation_stage
-
-
-def _read_validation_result(path: Path, prefix: str) -> dict:
-    """Keep the last result, including long records, without retaining other log lines."""
-    latest: list[str] | None = None
-    current: list[str] | None = None
-    line_start = True
-    with path.open(encoding="utf-8", errors="replace") as stream:
-        while fragment := stream.readline(max(65536, len(prefix))):
-            if line_start:
-                current = None
-                if fragment.startswith(prefix):
-                    current = [fragment[len(prefix):]]
-                    latest = current
-            elif current is not None:
-                current.append(fragment)
-            line_start = fragment.endswith("\n")
-    return json.loads("".join(latest)) if latest is not None else {}
 
 
 def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload=None, timeout=300,
@@ -53,7 +35,9 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
         process = ManagedProcess(command, python=info.python, env=service_environment(task, info, gpu=gpu),
                                  directory=directory, name=name, pass_fds=lease.pass_fds, cgroup=limits.path)
         code = process.wait(timeout)
-        observed = _read_validation_result(process.log_path, prefix)
+        with process.log_path.open(encoding="utf-8", errors="replace") as stream:
+            record = last_prefixed_record(stream, prefix)
+        observed = json.loads(record) if record is not None else {}
         if code or observed.get("status") != "ok":
             error = observed.get("error") or process.log_tail().replace("\r\n", "\n").replace("\r", "\n")[-4000:]
             raise RuntimeError(error or f"Process validation exit {code}")

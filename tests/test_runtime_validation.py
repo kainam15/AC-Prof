@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+from command_fixtures import redirect_command_output
 
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
@@ -44,6 +45,7 @@ class TestRuntimeValidation:
                         runtime_profile_id='moss-transformers5104', model_config={'model_type': 'moss_transcribe_diarize'})
 
     def test_native_status_ok_without_output_validation_cannot_pass(self, tmp_path):
+        @redirect_command_output
         def run(command, **kwargs):
             return subprocess.CompletedProcess(command, 0, 'ACPROF_RUNTIME_VALIDATION={"status":"ok"}', '')
         with patch('acprof.host.runtime_validation.run_command', side_effect=run), patch(
@@ -78,6 +80,7 @@ class TestRuntimeValidation:
     def test_both_devices_use_smallest_planned_payload_and_separate_containers(self):
         commands = []
 
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[:2] == ['docker', 'run']:
@@ -137,6 +140,7 @@ class TestRuntimeValidation:
         owner = container_owner_labels()
         commands = []
 
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[1] == 'ps':
@@ -168,6 +172,7 @@ class TestRuntimeValidation:
     def test_load_failure_keeps_stderr_and_stops_before_next_device(self):
         commands = []
 
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             return subprocess.CompletedProcess(command, 1 if command[1] == 'run' else 0, stdout='', stderr='ImportError: wrong Transformers version')
@@ -186,6 +191,7 @@ class TestRuntimeValidation:
     def test_timeout_removes_owned_container(self):
         commands = []
 
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[:2] == ['docker', 'run']:
@@ -201,6 +207,7 @@ class TestRuntimeValidation:
         assert (commands[-1][:3]) == (['docker', 'rm', '-f'])
 
     def test_compatibility_timeout_is_inconclusive_with_phase_evidence(self):
+        @redirect_command_output
         def run(command, **kwargs):
             if command[:2] == ['docker', 'run']:
                 raise subprocess.TimeoutExpired(command, 60, output=(
@@ -229,8 +236,8 @@ class TestRuntimeValidation:
             "failure": Failure("completion", "request_timeout", "fixture", evidence={
                 "timeout_seconds": 2.5, "timeout_scope": "completion_wait", "model_loaded": True}).to_dict()}
         with tempfile.TemporaryDirectory() as directory, patch(
-            'acprof.host.runtime_validation.run_command', side_effect=lambda command, **kw: subprocess.CompletedProcess(
-                command, 1 if command[1] == 'run' else 0, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(response), stderr=''),
+            'acprof.host.runtime_validation.run_command', side_effect=redirect_command_output(lambda command, **kw: subprocess.CompletedProcess(
+                command, 1 if command[1] == 'run' else 0, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(response), stderr='')),
         ), patch('acprof.host.container_state.inspect_container_state', return_value={'Running': False}):
             root = Path(directory)
             with pytest.raises(RuntimeError):
@@ -248,6 +255,7 @@ class TestRuntimeValidation:
             ['docker', 'run'], 30,
             output=b'ACPROF_RUNTIME_STAGE={"stage":"load","status":"verified","elapsed_s":NaN}\n',
         )
+        @redirect_command_output
         def run(command, **kwargs):
             if command[:2] == ['docker', 'run']:
                 raise timeout
@@ -268,7 +276,7 @@ class TestRuntimeValidation:
     def test_invalid_validation_response_keeps_report_and_cleans_container(self):
         result = subprocess.CompletedProcess([], 0, stdout='ACPROF_RUNTIME_VALIDATION=[]\n', stderr='')
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.run_command', return_value=result,
+            'acprof.host.runtime_validation.run_command', side_effect=redirect_command_output(lambda *args, **kwargs: result),
         ) as run, patch('acprof.host.container_state.inspect_container_state', return_value={}):
             root = Path(temporary)
             with pytest.raises(RuntimeError, match='validation response'):
@@ -288,7 +296,7 @@ class TestRuntimeValidation:
             [], 0, stdout='ACPROF_RUNTIME_VALIDATION=' + json.dumps(payload) + '\n', stderr='',
         )
         with patch(
-            'acprof.host.runtime_validation.run_command', return_value=result,
+            'acprof.host.runtime_validation.run_command', side_effect=redirect_command_output(lambda *args, **kwargs: result),
         ), patch('acprof.host.container_state.inspect_container_state', return_value={}):
             with pytest.raises(RuntimeError, match='non-finite'):
                 validate_runtime(**{**self.fixture(tmp_path), 'gpu_list': ['off']})
@@ -299,7 +307,7 @@ class TestRuntimeValidation:
     def test_cgroup_oom_is_resource_limit_not_dependency_failure(self):
         result = subprocess.CompletedProcess([], 137, stdout='', stderr='Killed')
         with tempfile.TemporaryDirectory() as temporary, patch(
-            'acprof.host.runtime_validation.run_command', side_effect=lambda command, **kw: result if command[1] == 'run' else subprocess.CompletedProcess(command, 0, '', ''),
+            'acprof.host.runtime_validation.run_command', side_effect=redirect_command_output(lambda command, **kw: result if command[1] == 'run' else subprocess.CompletedProcess(command, 0, '', '')),
         ), patch('acprof.host.container_state.inspect_container_state', return_value={'OOMKilled': True}):
             report = validate_runtime(**self.fixture(Path(temporary)))
         assert (report['status']) == ('resource_limited')
@@ -309,6 +317,7 @@ class TestRuntimeValidation:
         self.cid.stop()
         commands = []
         identifier = 'c' * 64
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[:2] == ['docker', 'run']:
@@ -325,6 +334,7 @@ class TestRuntimeValidation:
 
     def test_cleanup_failure_preserves_validation_error_and_stops_next_device(self):
         commands = []
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[1] == 'run':
@@ -357,6 +367,7 @@ class TestRuntimeValidation:
         self.cid.stop()
         original_read = Path.read_text
         commands = []
+        @redirect_command_output
         def run(command, **kwargs):
             commands.append(command)
             if command[1] == 'run':
