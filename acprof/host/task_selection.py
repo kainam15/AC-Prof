@@ -81,6 +81,36 @@ def select_tasks(task, args, workflow):
         raise ValueError("--task conflicts with the selected task interface; use --tasks for workload selection")
     result = activate_task(task, chosen[0], backend=args.backend)
     result.selected_tasks = copy.deepcopy(chosen)
+    # Parameter choices are a preparation-time decision, never a measurement-
+    # time callback. Explicit workload specifications have higher priority and
+    # are already editable through their own declaration.
+    if workflow.interactive and not getattr(args, "workload_spec", ""):
+        from acprof.task_parameters import apply_parameter_review, parameter_review
+
+        batch_size = getattr(args, "batch_size", 1)
+        input_scales = getattr(args, "input_scales", "") or ""
+        review = parameter_review(result, result.selected_tasks,
+                                  batch_size=batch_size, input_scales=input_scales)
+        if review["questions"]:
+            error = ""
+            while True:
+                reply = workflow.ask(
+                    "resolution", "review", resolved=False, purpose="workload_parameters",
+                    fields={"Model": result.model_id, "Revision": result.model_revision},
+                    questions=review["questions"],
+                    parameter_advanced=review["parameter_advanced"],
+                    detail=error,
+                )
+                try:
+                    result.selected_tasks = apply_parameter_review(
+                        result, result.selected_tasks, reply.get("answers"),
+                        batch_size=batch_size, input_scales=input_scales,
+                    )
+                except (TypeError, ValueError) as exc:
+                    error = str(exc)
+                    continue
+                break
+    result.model_resolution["selected_task"] = copy.deepcopy(result.selected_tasks[0])
     if args.task:
         args.task = result.pipeline_tag
     return result

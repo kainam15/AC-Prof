@@ -42,9 +42,17 @@ def test_selecting_all_preserves_separate_task_ids():
 
 
 def test_interactive_selection_waits_then_runs_only_chosen_task(monkeypatch, capsys):
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"id": 1, "action": "answer",
-                                                          "answers": {"tasks": ["translation_en_to_de"]}}) + "\n"))
-    result = select_tasks(declared_model(), options(), PreparationWorkflow(interactive=True))
+    from acprof.task_parameters import parameter_review
+    task = declared_model()
+    selected = [item for item in task.task_discovery["tasks"] if item["task_id"] == "translation_en_to_de"]
+    review = parameter_review(task, selected)
+    defaults = {field["path"]: field["value"] for field in
+                review["questions"] + review["parameter_advanced"]}
+    replies = (json.dumps({"id": 1, "action": "answer",
+                           "answers": {"tasks": ["translation_en_to_de"]}}) + "\n"
+               + json.dumps({"id": 2, "action": "answer", "answers": defaults}) + "\n")
+    monkeypatch.setattr("sys.stdin", io.StringIO(replies))
+    result = select_tasks(task, options(), PreparationWorkflow(interactive=True))
     assert [item["task_id"] for item in result.selected_tasks] == ["translation_en_to_de"]
     assert '"kind": "multi"' in capsys.readouterr().out
 

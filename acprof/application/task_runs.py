@@ -92,6 +92,18 @@ class TaskCollection:
         values = dict(tasks=selected["task_id"], task_run_id=self.run_id,
                       revision=self.task.model_revision, task=selected["interface"],
                       task_family=CATALOG.task_families[selected["interface"]])
+        # Frozen per-task overrides are restricted to workload knobs; a user-
+        # supplied task manifest must not rewrite output_dir, resume or runtime.
+        overrides = selected["config"].get("user_experiment_overrides", {})
+        if not isinstance(overrides, dict) or set(overrides) - {"input_scales", "batch_size"}:
+            raise ValueError("invalid task experiment overrides")
+        if "batch_size" in overrides and (
+            type(overrides["batch_size"]) is not int or overrides["batch_size"] < 1
+        ):
+            raise ValueError("invalid task batch_size override")
+        if "input_scales" in overrides and not isinstance(overrides["input_scales"], str):
+            raise ValueError("invalid task input_scales override")
+        values.update(overrides)
         if values["task_family"] == "nlp":
             manifest = workload_manifest(selected)
             if self.config.workload_spec:
