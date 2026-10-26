@@ -337,6 +337,9 @@ def test_counter_envelope_status_preserves_source_and_value(count, counter_energ
         monitor._t_start = 0.0
         monitor._energy_start_mj = 100000
         monitor.samples = [(2 * index / max(1, count - 1), 20.0) for index in range(count)]
+        if count == 2:
+            # Three raw samples still do not provide three valid power values.
+            monitor.samples.insert(1, (1.0, float('nan')))
         with patch.object(monitor, '_append_sample'):
             result, _, _, _ = monitor.stop()
     expected_status = 'not_checked' if count < 3 else 'passed' if counter_energy == 40 else 'rejected'
