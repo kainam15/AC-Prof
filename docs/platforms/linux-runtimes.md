@@ -83,6 +83,8 @@ Process 不运行 RAPL、PMU、抓包或独立 profiler；显式请求这些完�
 Docker adapter 调用原有生命周期；Process 通过独立 supervisor 和控制管道管理进程树。
 控制进程退出（包括 SIGKILL）会关闭管道，supervisor 收养 double-fork 后代，先 TERM 再 KILL，并保存清理结果。
 临时监听 socket 的 FD 直接传给 Flask 服务，避免先选端口再绑定的竞争。超时和异常退出保留日志及退出码。
+清理时按 PID 区分主工作负载和后代的退出状态；即使 supervisor 的通用回收先于 `Popen.poll()`，
+主工作负载的非零退出码或负信号编号也必须保留，后代的退出码不能替代它。
 仅本次 cgroup 的 `memory.events oom_kill` 增量可证明 OOM；单独的 SIGKILL 不算 OOM。
 
 模型缓存 lease 由 supervisor 持有到清理完成。无法证明全部退出时保留清理债务并停止后续 case。

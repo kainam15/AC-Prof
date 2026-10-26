@@ -103,8 +103,15 @@ def main():
                     if workload is not None:
                         workload.poll()
                     try:
-                        while os.waitpid(-1, os.WNOHANG)[0]:
-                            pass
+                        while True:
+                            pid, wait_status = os.waitpid(-1, os.WNOHANG)
+                            if not pid:
+                                break
+                            if workload is not None and pid == workload.pid:
+                                # Cleanup may win the race with Popen.poll().
+                                # Keep the consumed status before ECHILD could
+                                # make a later poll report a successful exit.
+                                workload.returncode = os.waitstatus_to_exitcode(wait_status)
                     except ChildProcessError:
                         break
                     time.sleep(0.02)
