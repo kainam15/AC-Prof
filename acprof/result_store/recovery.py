@@ -2,12 +2,46 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from acprof.artifacts import read_json_object, sync_directory
 from acprof.result_csv import ResultValidationError
 from acprof.result_layers import PROFILER_LAYERS, has_layer_evidence, layer_identity_fields
 from acprof.result_store.protocol import csv_bytes, digest, validate_manifest, write_bytes
 from acprof.result_store.sources import replay
+
+_COMPARE_CHUNK_BYTES = 64 * 1024
+
+
+def _matches_prefix(stream, raw: bytes) -> bool:
+    with memoryview(raw) as expected:
+        offset = 0
+        while offset < len(expected):
+            block = stream.read(min(_COMPARE_CHUNK_BYTES, len(expected) - offset))
+            if not block or block != expected[offset:offset + len(block)]:
+                return False
+            offset += len(block)
+    return True
+
+
+def _repair_projection(target: Path, raw: bytes) -> None:
+    if target.is_file():
+        # Raw I/O keeps each scan within the prefix and one tail-probe byte.
+        with target.open("rb", buffering=0) as stream:
+            matches = _matches_prefix(stream, raw)
+            if matches and not stream.read(1):
+                return
+        if matches:
+            # Recheck the same writable descriptor that will be truncated.
+            # Complete projections never need to be opened for writing.
+            with target.open("r+b", buffering=0) as stream:
+                if _matches_prefix(stream, raw):
+                    if stream.read(1):
+                        stream.truncate(len(raw))
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    return
+    write_bytes(target, raw)
 
 
 def projected_rows(manifest, layer, rows):
@@ -50,15 +84,7 @@ def recover_projection(layout):
         if (digest(raw) != info["sha256"] or len(raw) != info["committed_bytes"]
                 or len(selected) != info["row_count"]):
             raise ResultValidationError(f"{layer} commit disagrees with immutable sources")
-        target = layout.layer_csv(layer)
-        current = target.read_bytes() if target.is_file() else None
-        if current is not None and len(current) > len(raw) and current.startswith(raw):
-            with target.open("r+b") as stream:
-                stream.truncate(len(raw))
-                stream.flush()
-                os.fsync(stream.fileno())
-        elif current != raw:
-            write_bytes(target, raw)
+        _repair_projection(layout.layer_csv(layer), raw)
         payloads[layer] = raw
     from acprof.result_store.metadata import recover_metadata
     recover_metadata(layout, manifest)
