@@ -8,11 +8,13 @@ import os
 import stat
 import tempfile
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Any, TextIO, cast
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
+_JSON_READ_CHUNK_BYTES = 64 * 1024
 
 
 def file_sha256(path: str | Path) -> str:
@@ -50,8 +52,20 @@ def read_json_object(
     metadata byte limit while retaining encoding, shape and finite-value checks.
     """
     source = Path(path)
-    with source.open("rb") as stream:
-        content = stream.read(MAX_JSON_ARTIFACT_BYTES + 1) if bounded else stream.read()
+    # Raw reads keep the overflow probe from prefetching beyond its byte budget.
+    with source.open("rb", buffering=0) as stream:
+        if bounded:
+            remaining = MAX_JSON_ARTIFACT_BYTES + 1
+            with BytesIO() as received:
+                while remaining:
+                    chunk = stream.read(min(_JSON_READ_CHUNK_BYTES, remaining))
+                    if not chunk:
+                        break
+                    received.write(chunk)
+                    remaining -= len(chunk)
+                content = received.getvalue()
+        else:
+            content = stream.read()
     if bounded and len(content) > MAX_JSON_ARTIFACT_BYTES:
         raise ValueError(f"{source}: {label} exceeds the 4 MiB read limit")
     if expected_sha256 is not None and hashlib.sha256(content).hexdigest() != expected_sha256:
