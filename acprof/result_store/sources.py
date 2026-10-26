@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import file_sha256
 from acprof.result_csv import ResultValidationError, measurement_key
-from acprof.result_store.protocol import IDENTITY_FIELDS, digest, read_reference
+from acprof.result_store.protocol import IDENTITY_FIELDS, read_reference
 from acprof.window_records import read_window_record, verify_window_record_evidence
 
 
@@ -61,7 +62,7 @@ def apply_source(layout, manifest, source, rows, windows):
         raise ResultValidationError("result derivation requires provenance")
     for evidence in update.get("evidence", []):
         path = layout.contained(evidence["path"])
-        if digest(path.read_bytes()) != evidence["sha256"]:
+        if file_sha256(path) != evidence["sha256"]:
             raise ResultValidationError("result derivation evidence changed")
     for row in update.get("insert", []):
         if not isinstance(row, dict) or set(row) - set(fields) or not all(isinstance(value, str) for value in row.values()):

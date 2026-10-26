@@ -16,6 +16,7 @@ from acprof.artifacts import (
     atomic_write,
     atomic_write_json,
     create_durable_directory,
+    file_sha256,
     read_json_object,
     sync_directory,
 )
@@ -67,7 +68,7 @@ def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool 
 
 
 def reference(layout: ArtifactLayout, path: Path) -> dict:
-    return {"path": path.relative_to(layout.root).as_posix(), "sha256": digest(path.read_bytes())}
+    return {"path": path.relative_to(layout.root).as_posix(), "sha256": file_sha256(path)}
 
 
 def read_reference(layout: ArtifactLayout, ref: dict | None) -> dict:

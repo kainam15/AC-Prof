@@ -213,6 +213,8 @@ CPU RAPL、GPU NVML、PMU、资源监控全部停止并完成收尾后，client 
 窗口来源的 SHA256 校验与 receipt 解析使用同一次读取取得的原始字节；路径和身份通过检查后，
 按这份已加载 receipt 中的引用校验 telemetry，避免重新打开 receipt 时换用了另一份内容。
 单次追加只验证一次该窗口，历史 schema v1/v2 receipt 的字段、哈希和大小策略保持不变。
+来源文件的独立 SHA256 计算按 1 MiB 分块进行，哈希缓冲内存不随文件总大小增长；
+证据仍须完整读取至文件末尾，缺失、内容改变或读取失败都会阻止派生结果提交或恢复。
 
 抓包完成前，`packet_status=pending`；成功匹配为 `ok`，未请求为 `not_requested`，
 无对应测量为 `not_applicable`，缺少匹配为 `unavailable`，后处理失败为 `error`。

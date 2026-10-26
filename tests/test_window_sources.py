@@ -39,7 +39,9 @@ def window_source(tmp_path, request):
 
 
 def observe_reads(monkeypatch, paths, *, after_read=None):
+    """Count opened read streams, independently of how their reads are chunked."""
     counts = Counter()
+    read_counts = Counter()
     watched = {path.resolve() for path in paths}
 
     class Reader:
@@ -55,15 +57,18 @@ def observe_reads(monkeypatch, paths, *, after_read=None):
 
         def read(self, *args):
             raw = self.stream.read(*args)
-            counts[self.path] += 1
+            read_counts[self.path] += 1
             if after_read is not None:
-                after_read(self.path, counts[self.path])
+                after_read(self.path, read_counts[self.path])
             return raw
 
     def open_file(path: Path, mode: str = "r", *args, **kwargs):
         stream = open(path, mode, *args, **kwargs)
         resolved = path.resolve()
-        return Reader(stream, resolved) if resolved in watched and "r" in mode else stream
+        if resolved in watched and "r" in mode:
+            counts[resolved] += 1
+            return Reader(stream, resolved)
+        return stream
 
     monkeypatch.setattr(Path, "open", open_file)
     return counts
@@ -117,7 +122,7 @@ def test_append_validates_each_window_once(window_source, monkeypatch):
         counts = observe_reads(monkeypatch, [path, telemetry])
         assert writer.append_window(path)
         assert next(iter(writer.rows.values()))["latency_app_s"] == "0.1"
-        # Reference creation reads once, then validation hashes and parses once.
+        # Reference creation opens once, then validation hashes and parses once.
         assert counts == {path: 2, telemetry: 1}
 
 
