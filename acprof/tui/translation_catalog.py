@@ -2,6 +2,21 @@
 from __future__ import annotations
 
 SOURCE_BY_ID: dict[str, str] = {
+    "ui.2177": '模型参数',
+    "ui.2178": '更多生成参数',
+    "ui.2179": '使用推荐参数',
+    "ui.2180": '应用参数',
+    "ui.2181": '输出 Token 上限',
+    "ui.2182": '最大序列 Token 数',
+    "ui.2183": '随机采样',
+    "ui.2184": 'Beam 数量',
+    "ui.2185": '任务声明',
+    "ui.2186": '模型生成配置',
+    "ui.2187": 'AC-Prof 默认值',
+    "ui.2188": '接口默认值',
+    "ui.2189": '开启',
+    "ui.2191": '数字必须有限',
+    "ui.2192": '留空自动规划',
     "ui.2173": '选择采集任务',
     "ui.2174": '采集任务',
     "ui.2175": '任务声明来源',
@@ -1067,6 +1082,21 @@ SOURCE_BY_ID: dict[str, str] = {
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
+    "ui.2177": 'Model parameters',
+    "ui.2178": 'More generation parameters',
+    "ui.2179": 'Use recommended parameters',
+    "ui.2180": 'Apply parameters',
+    "ui.2181": 'Maximum output tokens',
+    "ui.2182": 'Maximum sequence tokens',
+    "ui.2183": 'Random sampling',
+    "ui.2184": 'Beam count',
+    "ui.2185": 'Task declaration',
+    "ui.2186": 'Model generation config',
+    "ui.2187": 'AC-Prof defaults',
+    "ui.2188": 'Interface defaults',
+    "ui.2189": 'On',
+    "ui.2191": 'Number must be finite',
+    "ui.2192": 'Leave blank for automatic planning',
     "ui.2173": 'Select tasks',
     "ui.2174": 'Tasks to collect',
     "ui.2175": 'Task declaration sources',
