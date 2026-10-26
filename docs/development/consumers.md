@@ -187,6 +187,8 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 及 [Worker 实现](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py) 的取消与 UI 回传边界（MIT，当前已有依赖）；
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
+schema v3 的重复内容核验在非阻塞共享锁内按 64 KiB 分块校验已提交 CSV 前缀，避免整层缓冲，
+并在块之间响应取消。预算耗尽或调用前已取消时不打开产物；未提交尾部不计入摘要，也不会被读取。
 `catalog_controller` 将这些记录接入已有路径框，`experiment_picker` 的取消线程在实际返回后才释放采集互斥。
 `recovery` 在启动前读取原实验，复用 `host.run_state.validate_resume` 检查身份与产物；
 `recovery_controller` 统一承接开始采集、历史选择和失败监控页，提供准备重试、续跑或自动新建实验。

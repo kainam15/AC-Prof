@@ -7,25 +7,56 @@ from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import loads_finite_json, read_json_object
 from acprof.result_csv import ResultCsvSnapshot, ResultValidationError, measurement_key
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_identity_fields
-from acprof.result_store.protocol import digest, parse_layer, publication_lock, read_layer_bytes
+from acprof.result_store.protocol import (
+    digest,
+    parse_layer,
+    publication_lock,
+    read_layer_bytes,
+    validate_manifest,
+)
 
 
 def committed_content_digest(root, *, cancelled, budget):
     """Bounded, nonblocking verification for duplicate entries in experiment lists."""
+    if cancelled():
+        raise InterruptedError("experiment scan cancelled")
+    if budget[0] <= 0:
+        raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
     layout = ArtifactLayout.discover(root)
     with publication_lock(layout, exclusive=False, blocking=False):
         raw = layout.result_csv.read_bytes()
+        if len(raw) > budget[0]:
+            budget[0] -= len(raw)
+            raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
         manifest = loads_finite_json(raw.decode("utf-8"))
+        paths = validate_manifest(layout, manifest)
         size = len(raw) + sum(info["committed_bytes"] for info in manifest["layers"].values())
         budget[0] -= size
         if budget[0] < 0:
             raise ValueError("duplicate_evidence_unverified: CSV byte budget exceeded")
         checksum = hashlib.sha256(raw)
-        for layer, payload in sorted(read_layer_bytes(layout, manifest).items()):
+        for layer, path in sorted(paths.items()):
             if cancelled():
                 raise InterruptedError("experiment scan cancelled")
             checksum.update(layer.encode())
-            checksum.update(payload)
+            info = manifest["layers"][layer]
+            remaining = info["committed_bytes"]
+            layer_checksum = hashlib.sha256()
+            # Raw reads do not prefetch an uncommitted tail into an I/O buffer.
+            with path.open("rb", buffering=0) as stream:
+                while remaining:
+                    if cancelled():
+                        raise InterruptedError("experiment scan cancelled")
+                    payload = stream.read(min(65536, remaining))
+                    if not payload:
+                        raise ResultValidationError(f"missing or modified {layer} committed prefix")
+                    remaining -= len(payload)
+                    checksum.update(payload)
+                    layer_checksum.update(payload)
+            if layer_checksum.hexdigest() != info["sha256"]:
+                raise ResultValidationError(f"missing or modified {layer} committed prefix")
+        if cancelled():
+            raise InterruptedError("experiment scan cancelled")
         return checksum.hexdigest()
 
 
