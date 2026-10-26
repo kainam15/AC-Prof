@@ -483,7 +483,7 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-controls"):
                     yield app.localization.localized_select(
-                        [("全部级别", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],
+                        [("ALL", "ALL"), ("INFO", "INFO"), ("WARN", "WARN"), ("ERROR", "ERROR"), ("DEBUG", "DEBUG")],
                         value="ALL", allow_blank=False, id="log-level", classes="log-control",
                     )
                     yield app.localization.localized_widget(Input(placeholder="搜索保留日志", id="log-search", classes="log-control"))
