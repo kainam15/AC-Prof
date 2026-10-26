@@ -286,7 +286,6 @@ class AcprofTui(BarCursorApp):
             widget.disabled = (busy and self.images.operation != "refresh") or self.latest_snapshot.measurement_active
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
-            "#review-run-recovery": "run",
             "#summarize-results": "summary", "#plot-results": "plot",
             "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
@@ -328,7 +327,6 @@ class AcprofTui(BarCursorApp):
         # Intended output is not evidence of a result. Keep the selected/history
         # paths until a matching run attempt has actually published artifacts.
         if pending.kind == "run":
-            self.query_one("#run-recovery-actions").display = False
             self.configuration.planned_input = None
             self.configuration.planned_input_identity = None
             self.configuration.remember_last_used(model=model)
@@ -601,9 +599,7 @@ class AcprofTui(BarCursorApp):
             stage = result.stage(returncode, self.stop_requested, launch_error)
             final_state = snapshot or self.latest_snapshot
             detail: str = message_id('ui.0191', result.completed_cases,
-                             result.total_cases or final_state.total_cases,
-                             message_id('ui.0048') if stage is not Stage.COMPLETED else message_id('ui.0192'))
-            self.query_one("#run-recovery-actions").display = stage is not Stage.COMPLETED
+                                     result.total_cases or final_state.total_cases)
             if result.detail:
                 detail = join_messages("\n", (detail, result.detail))
             if result.new_cases and result.retained_dir:
@@ -814,10 +810,6 @@ class AcprofTui(BarCursorApp):
     @on(Button.Pressed, '.experiment-picker')
     def on_catalog_select_experiment(self, event: Button.Pressed) -> None:
         self.catalog.select_experiment(event)
-
-    @on(Button.Pressed, '#review-run-recovery')
-    def on_recovery_review_failed_run(self) -> None:
-        self.recovery.review_failed_run()
 
     @on(TabbedContent.TabActivated, '#main-tabs')
     def on_images_image_tab_activated(self, event: TabbedContent.TabActivated) -> None:

@@ -13,16 +13,6 @@ from acprof.tui.preparation import PreparationScreen
 from acprof.tui.settings import load_settings
 
 
-def test_failed_run_recovery_does_not_repeat_a_consumed_rebuild(tmp_path):
-    app = AcprofTui(settings_path=tmp_path / "settings.json")
-    app.active_run_config = RunConfig(model="demo/model", rebuild_image=True)
-    with patch.object(app.recovery, "review_run_destination") as review:
-        app.recovery.review_failed_run()
-    pending = review.call_args.args[0]
-    assert not pending.config.rebuild_image
-    assert "--rebuild-image" not in pending.command
-
-
 @pytest.mark.parametrize("kind", ["run", "probe"])
 @pytest.mark.parametrize(("size", "language"), [((80, 24), "zh"), ((120, 30), "en"), ((150, 45), "zh")])
 async def test_rebuild_is_reachable_once_and_not_saved(tmp_path, kind, size, language):

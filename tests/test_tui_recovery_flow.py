@@ -18,7 +18,11 @@ from acprof.run_args import build_parser
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.input import BarCursorInput as Input
+from acprof.tui.log import SelectableLog
+from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.recovery import review_recovery
+from acprof.tui.run_results import RunResult
+from acprof.tui.stages import Stage
 
 
 @pytest.fixture
@@ -41,6 +45,7 @@ def saved_preparation(tmp_path, monkeypatch):
 @pytest.mark.parametrize(("language", "size"), [("zh", (80, 24)), ("en", (120, 30)), ("zh", (150, 45))])
 async def test_start_existing_experiment_reviews_preparation_retry(saved_preparation, tmp_path, language, size):
     config, directory = saved_preparation
+    config = replace(config, rebuild_image=True)
     original = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
     app.configuration.preferences = replace(app.configuration.preferences, language=language)
@@ -65,6 +70,8 @@ async def test_start_existing_experiment_reviews_preparation_retry(saved_prepara
             pending = launch.call_args.args[0]
             assert pending.config.resume
             assert "--resume" in pending.command
+            assert not pending.config.rebuild_image
+            assert "--rebuild-image" not in pending.command
             assert pending.config.result_dir(Path.cwd()) == directory
     assert all(path.read_bytes() == content for path, content in original.items())
 
@@ -248,17 +255,48 @@ async def test_cancel_or_close_discards_delayed_review(saved_preparation, tmp_pa
         release.set()
 
 
-async def test_failed_run_exposes_recovery_action_without_promising_resume(saved_preparation, tmp_path):
-    config, _directory = saved_preparation
+@pytest.mark.parametrize(("language", "size"), [
+    ("zh", (80, 24)), ("en", (80, 24)), ("en", (120, 30)), ("zh", (150, 45)),
+])
+@pytest.mark.parametrize(("stage", "returncode", "completed"), [
+    (Stage.STOPPED, 130, 1), (Stage.FAILED, 1, 0),
+    (Stage.PARTIAL, 1, 1), (Stage.COMPLETED, 0, 4),
+])
+async def test_finished_run_keeps_compact_status_and_log_space(tmp_path, language, size, stage, returncode, completed):
+    config = replace(RunConfig.smoke("demo/model"), output_dir=str(tmp_path / "results"))
     app = AcprofTui(config, settings_path=tmp_path / "settings.json")
-    async with app.run_test(size=(80, 24)) as pilot:
-        app.active_run_config = config
-        app.process_finished("run", 1, None, "")
+    app.configuration.preferences = replace(app.configuration.preferences, language=language)
+    async with app.run_test(size=size) as pilot:
         app.activate_tab("monitor-tab")
+        snapshot = ProgressSnapshot(stage=Stage.MEASURING, current_case=1, total_cases=4,
+                                    measurement_active=True, measurement_status="running")
+        app.consume_process_line("Retained run log", snapshot, True)
         await pilot.pause()
-        assert app.query_one("#run-recovery-actions").display
-        assert "使用相同参数续跑" not in str(app.query_one("#status-detail", Static).content)
-        assert await pilot.click("#review-run-recovery")
-        await app.workers.wait_for_complete()
+        log = app.query_one("#run-log", SelectableLog)
+        log_bottom = log.region.bottom
+        app.stop_requested = stage is Stage.STOPPED
+        app.run_result = RunResult(belongs_to_attempt=True, complete=stage is Stage.COMPLETED,
+                                   completed_cases=completed, total_cases=4, new_cases=completed)
+        app.process_finished("run", returncode, snapshot, "")
         await pilot.pause()
-        assert not app.screen.query_one("#recovery-resume", Button).disabled
+        assert app.latest_snapshot.stage is stage
+        assert not app.latest_snapshot.measurement_active
+        assert not app.query("#review-run-recovery, #run-recovery-actions")
+        assert log.region.bottom == log_bottom
+        assert "Retained run log" in log.raw_text
+        assert app.query_one("#stop-run", Button).disabled
+        expected = (f"已完成 {completed}/4 个 case" if language == "zh"
+                    else f"Completed {completed}/4 cases")
+        assert str(app.query_one("#status-detail", Static).content) == expected
+        assert str(app.query_one("#status-stage", Static).content) == app.tr(stage.label)
+        for resized in ((80, 24), (120, 30), size):
+            await pilot.resize_terminal(*resized)
+            await pilot.pause()
+            screen_text = "\n".join("".join(segment.text for segment in strip)
+                                    for strip in app.screen._compositor.render_strips())
+            assert expected in screen_text
+            assert log.content_region.height >= 3
+            follow = app.query_one("#follow-log", Button)
+            assert app.get_widget_at(*follow.region.center)[0] is follow
+            assert await pilot.click(follow)
+            assert log.scroll_y == log.max_scroll_y

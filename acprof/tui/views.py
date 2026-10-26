@@ -511,8 +511,6 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     wrap=app.configuration.preferences.log_wrap,
                     details=False,
                 )
-            with Horizontal(id="run-recovery-actions"):
-                yield app.localization.localized_widget(Button("恢复 / 重试", id="review-run-recovery"))
 
 
 def compose_plot_tab(app: AcprofTui) -> ComposeResult:

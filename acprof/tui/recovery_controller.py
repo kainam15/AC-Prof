@@ -1,4 +1,4 @@
-"""One recovery review for start, history and the failed-run action."""
+"""Shared recovery review for experiment starts and history."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -12,7 +12,6 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Static
 from textual.worker import Worker
 
-from acprof.experiment import build_run_command
 from acprof.messages import message
 from acprof.tui.app_contracts import translated_app
 from acprof.tui.commands import PendingLaunch, format_command
@@ -158,12 +157,3 @@ class RecoveryController:
                 # Re-read immediately before launch: a modal may outlive its snapshot.
                 self.review_run_destination(pending, record=review.record if action == "resume" else None,
                                              confirmed=True)
-
-    def review_failed_run(self) -> None:
-        if not self.app.allow_operation("run"):
-            return
-        config = self.app.active_run_config
-        if config is not None:
-            config = replace(config, rebuild_image=False)
-            command = build_run_command(config, project_dir=self.app.project_dir, python_executable=self.app.python_executable)
-            self.review_run_destination(PendingLaunch(tuple(command), "run", config))
