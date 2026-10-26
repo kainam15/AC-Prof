@@ -24,7 +24,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
 
     from textual.widgets import TabbedContent
 
-    from acprof.host.run_state import MeasurementLock
+    from acprof.host.run_state import MEASUREMENT_LOCK_NAMESPACE, MeasurementLock
     script = textwrap.dedent('''
         import json, sys, time
         from pathlib import Path
@@ -34,6 +34,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
         from acprof.preparation_events import encode_event
         task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers", "transformers", "a" * 40, "fixture")
         run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
+        run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
         with run_state.MeasurementLock(), source_bundle(task) as bundle:
             Path(sys.argv[1], "bundle.json").write_text(json.dumps(str(bundle.root)))
             print(encode_event("runtime", "running"), flush=True)
@@ -42,7 +43,7 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
     app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=tmp_path / "settings.json")
     original_start = ProcessLifecycle.start
     def launch_child(owner, _command, **kwargs):
-        return original_start(owner, [sys.executable, "-c", script, str(tmp_path)], **kwargs)
+        return original_start(owner, [sys.executable, "-c", script, str(tmp_path), MEASUREMENT_LOCK_NAMESPACE.hex()], **kwargs)
     with patch("acprof.tui.process.ProcessLifecycle.start", autospec=True, side_effect=launch_child):
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.click("#start-run")

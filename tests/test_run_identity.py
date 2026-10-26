@@ -82,6 +82,7 @@ def test_different_tmpdirs_share_the_measurement_lock():
 import sys
 from acprof.host import run_state
 run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
+run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
 try:
     with run_state.MeasurementLock():
         print('acquired', flush=True)
@@ -93,7 +94,7 @@ except run_state.RunStateError:
         root = Path(temporary)
         for name in ("locks", "a", "b"):
             (root / name).mkdir()
-        command = [sys.executable, "-c", code, str(root / "locks")]
+        command = [sys.executable, "-c", code, str(root / "locks"), run_state.MEASUREMENT_LOCK_NAMESPACE.hex()]
         first = subprocess.Popen(command, env={**os.environ, "TMPDIR": str(root / "a")},
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True)

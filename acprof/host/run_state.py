@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import socket
 import stat
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -38,6 +39,9 @@ MAX_RUN_STATE_BYTES = 4 * 1024 * 1024
 # Native Linux only. Never derive this machine-wide per-user namespace from TMPDIR.
 # Test runners inject an isolated directory in-process, not via a production env option.
 MEASUREMENT_LOCK_ROOT = Path("/tmp")
+# A Linux abstract address has no pathname to unlink. Keep its identity stable
+# across checkouts, outputs, sessions and environment variables.
+MEASUREMENT_LOCK_NAMESPACE = b"acprof.measurement"
 
 
 def _sync_directory_chain(directory: Path, root: Path) -> None:
@@ -323,15 +327,24 @@ class MeasurementLock(ResultDirectoryLock):
     def __init__(self):
         self.path = MEASUREMENT_LOCK_ROOT / f"acprof-measurement-{os.getuid()}.lock"
         self.stream = None
+        self.guard: socket.socket | None = None
 
     def __enter__(self):
         import fcntl
 
+        if self.guard is not None or self.stream is not None:
+            raise RunStateError("本机测量锁已由此对象持有")
         try:
+            self.guard = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            self.guard.bind(b"\0" + MEASUREMENT_LOCK_NAMESPACE + b"." + str(os.getuid()).encode("ascii"))
             descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             self.stream = os.fdopen(descriptor, "a+")
             _validate_lock_descriptor(self.stream.fileno(), label="measurement")
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            opened = os.fstat(self.stream.fileno())
+            named = self.path.stat(follow_symlinks=False)
+            if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+                raise OSError("measurement lock pathname changed during acquisition")
         except OSError as error:
             self.__exit__()
             raise RunStateError(
@@ -339,6 +352,15 @@ class MeasurementLock(ResultDirectoryLock):
                 f"或锁文件不可用：{self.path} ({error})"
             ) from error
         return self
+
+
+    def __exit__(self, *_args):
+        try:
+            super().__exit__(*_args)
+        finally:
+            if self.guard is not None:
+                self.guard.close()
+                self.guard = None
 
 
 class RunState:

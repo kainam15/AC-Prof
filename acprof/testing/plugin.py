@@ -1,5 +1,6 @@
 """pytest lifecycle for evidence, platform policy and offline lock isolation."""
 
+import hashlib
 from fnmatch import fnmatch
 from pathlib import Path
 from unittest.mock import patch
@@ -122,5 +123,8 @@ def pytest_sessionfinish(session, exitstatus):
 def measurement_lock_root(tmp_path_factory):
     """Cover setup, call and teardown, including class/module scoped fixtures."""
     root = tmp_path_factory.mktemp("acprof-measurement-lock")
-    with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", root):
+    namespace = b"acprof.test." + hashlib.sha256(str(root).encode()).hexdigest().encode()
+    with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", root), patch(
+        "acprof.host.run_state.MEASUREMENT_LOCK_NAMESPACE", namespace,
+    ):
         yield root

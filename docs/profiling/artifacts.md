@@ -294,8 +294,21 @@ warmup 的请求数执行并单独记录，不新增测量行；自动预热仍�
 
 `.acprof/result.lock` 是 v2 采集和补采共享的目录锁；旧布局仍使用 `.acprof-result.lock`。
 进程退出自动释放锁，锁文件本身可以保留。
-固定位置 `/tmp/acprof-measurement-<uid>.lock` 还会串行化本机同一用户发起的实验，不受
-`TMPDIR` 影响。它防止不同输出目录争用固定端口和主机计数器，不协调其它用户或外部负载。
+主机测量锁以 Linux abstract UNIX socket `acprof.measurement.<uid>` 为内核互斥标识，
+并同时取得固定 `/tmp/acprof-measurement-<uid>.lock` 的 `flock`。两者均不依赖工作树、
+输出目录、`TMPDIR`、`XDG_RUNTIME_DIR` 或登录方式；SSH、终端和普通系统服务使用同一身份。
+单纯迁移到 XDG runtime 目录会受登录生命周期和服务环境影响，因此不采用该方案。
+文件锁保留 owner、regular-file、单链接和 no-follow 检查，取得后再次核对路径与 FD 的 inode。
+异常文件、竞争或绑定失败均拒绝进入；失败会回收已取得的 FD，不自动删除锁文件。
+
+持锁期间 unlink 或替换文件不会释放内核 socket，另一新版进程仍被阻止；最后一个 socket FD
+关闭（包括进程被杀）后自动释放，无 PID 陈旧判定，也不需要正式窗口内轮询。
+文件锁用于协调仍在运行的旧版本；旧版本本身无法抵抗其持锁文件被删除。
+该互斥覆盖同机同 UID、共享主机 network namespace 的 AC-Prof 进程；服务必须使用主机
+network namespace，不能同时用独立 network namespace 和独立临时挂载来运行采集。
+独立容器／network namespace、其他 UID、特权管理员和外部负载不属于此 advisory lock 的保护范围。
+设计依据 [Linux unix(7) 的 abstract socket 生命周期](https://github.com/mkerrisk/man-pages/blob/master/man7/unix.7)，
+仅使用 Python 标准库，不新增依赖或测量期开销。
 容器名称增加每次启动独有的后缀，case 文件名和测量唯一键保持稳定；清理只接受本次启动
 取得的完整 container ID。Docker 创建成功但启动失败时，通过本次 `--cidfile` 回收该容器。
 `--resume` 对已完成实验只检查结果结构并报告完成，不重新测量或覆盖后续补采的指标。

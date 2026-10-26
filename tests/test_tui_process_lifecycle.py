@@ -68,6 +68,7 @@ from pathlib import Path
 import os
 from acprof.host import run_state
 run_state.MEASUREMENT_LOCK_ROOT = Path(os.environ["TMPDIR"])
+run_state.MEASUREMENT_LOCK_NAMESPACE = b"acprof.test.lifecycle." + str(os.getpid()).encode()
 MeasurementLock = run_state.MeasurementLock
 signal.signal(signal.SIGINT, signal.SIG_IGN)
 signal.signal(signal.SIGTERM, signal.SIG_IGN)

@@ -181,8 +181,9 @@ CSV/TUI/audit/report 统一原因、质量与能力独立、selected artifact �
 验证指标文档生成与检查：生成固定使用 UTF-8（无 BOM）和 LF；检查接受 UTF-8 的 LF/CRLF
 工作区文件，对缺失、GBK 编码或内容过期返回非零并提示重新生成，不改写文档。
 本地可用 `--shard-index 0 --shard-count 8` 重现一个 CI 分片；省略参数执行完整测试集。
-pytest 的 session autouse fixture 为测量锁注入临时目录，覆盖 setup/call/teardown；
-CLI、IDE 和 wrapper 均受保护。生产入口仍固定使用 `/tmp` 的同用户锁，`TMPDIR` 不能绕过。
+pytest 的 session autouse fixture 为测量锁注入临时目录和独立 abstract socket 名称，覆盖
+setup/call/teardown；子进程测试显式传递该测试身份。生产入口固定使用同 UID 的 socket
+和 `/tmp` 文件锁，`TMPDIR`、`XDG_RUNTIME_DIR` 不能绕过；无生产环境变量覆盖入口。
 本地汇总可执行 `python scripts/aggregate_test_reports.py <下载目录> --shard-count 8 --report <新报告.json>`；
 单版本验证用 `--python-versions 3.12`。缺分片、失败、计数／摘要不符或测试归属错误均使汇总失败。
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
