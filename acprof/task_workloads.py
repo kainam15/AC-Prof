@@ -39,20 +39,7 @@ CORPORA = {
 
 
 def task_label(task: dict, *, language: str = "zh_CN") -> str:
-    profile = task.get("execution_profile")
-    if profile:
-        interface = profile["signature"]["interface"]
-        names = {
-            "text-generation": ("Autoregressive text generation", "自回归文本生成"),
-            "text2text-generation": ("Seq2Seq text generation", "Seq2Seq 文本生成"),
-            "text-classification": ("Text classification", "文本分类推理"),
-        }
-        label = names.get(interface, (interface, interface))[1 if language.startswith("zh") else 0]
-        params = profile["signature"].get("generation", {})
-        beam = f" · Beam ×{params['num_beams']}" if params.get("num_beams", 1) > 1 else ""
-        count = len(profile["semantic_task_ids"])
-        uses = f" · {count} 种用途" if language.startswith("zh") else f" · {count} use cases"
-        return label + beam + uses
+    """Name a semantic declaration in CLI inspection, never an execution group."""
     config = task["config"]
     if task["kind"] == "translation":
         index = 1 if language.startswith("zh") else 0

@@ -79,6 +79,19 @@ def test_interactive_selection_waits_then_runs_only_chosen_profile(monkeypatch, 
     assert '"kind": "multi"' in capsys.readouterr().out
 
 
+def test_review_transfers_effective_profiles_without_localized_labels():
+    task = two_profile_model()
+    workflow = Mock(interactive=True)
+    profile_ids = [item["profile_id"] for item in task.task_discovery["profiles"]]
+    workflow.ask.return_value = {"answers": {"tasks": profile_ids}}
+    selected = select_tasks(task, options(), workflow)
+    question = workflow.ask.call_args.kwargs["questions"][0]
+    assert "profiles" in question, "The UI needs the complete effective signatures and declarations"
+    assert question["profiles"] == selected.selected_tasks
+    assert "labels" not in question
+    assert "reason" not in question
+
+
 def test_cancel_does_not_apply_or_cache_a_choice(monkeypatch):
     task = two_profile_model()
     monkeypatch.setattr("sys.stdin", io.StringIO('{"id": 1, "action": "cancel"}\n'))

@@ -4,7 +4,7 @@ from __future__ import annotations
 from textual import on
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Collapsible, Label, SelectionList, Static
+from textual.widgets import Button, Checkbox, Collapsible, Label, Static
 
 from acprof.host.model_errors import ModelLookupError
 from acprof.preparation_events import encode_reply
@@ -15,6 +15,7 @@ from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.review_inputs import review_answers, review_input
+from acprof.tui.task_choices import TaskChoices
 
 STAGE_LABELS = {
     "resolution": "正在读取模型信息…", "dependencies": "正在读取模型信息…",
@@ -64,8 +65,10 @@ class PreparationScreen(ModalScreen):
     PreparationScreen > Tooltip { offset-y: -100%; margin: -3 0 0 0; }
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 0 1; }
-    #preparation-dialog.download-confirmation, #preparation-dialog.preparation-failure { height: 90%; }
-    .download-confirmation #preparation-scroll, .preparation-failure #preparation-scroll { max-height: 100%; }
+    #preparation-dialog.download-confirmation, #preparation-dialog.preparation-failure,
+    #preparation-dialog.task-selection { height: 90%; }
+    .download-confirmation #preparation-scroll, .preparation-failure #preparation-scroll,
+    .task-selection #preparation-scroll { max-height: 100%; }
     #preparation-title { height: auto; text-style: bold; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
@@ -75,6 +78,7 @@ class PreparationScreen(ModalScreen):
     }
     #preparation-download-note { color: $text-muted; margin-top: 1; }
     #preparation-detail, #preparation-error { color: $error; }
+    .task-selection #preparation-error { height: auto; display: none; }
     #preparation-diagnostics { height: 1fr; padding: 0; }
     #preparation-diagnostics.-collapsed { height: auto; }
     #preparation-diagnostics > Contents { height: 1fr; padding: 0; }
@@ -84,7 +88,7 @@ class PreparationScreen(ModalScreen):
     #preparation-traceback .text-area--selection { background: $accent; color: $background; }
     #preparation-actions { height: 3; }
     #preparation-actions Button { min-width: 10; width: 1fr; }
-    #preparation-scroll SelectionList { height: auto; max-height: 10; min-height: 4; }
+    .task-selection #preparation-actions Button { min-width: 0; padding: 0; }
     .preparation-failure #preparation-actions Button { width: auto; }
     .preparation-failure #preparation-actions #preparation-continue { width: 1fr; }
     #preparation-actions.extra-action { height: 6; layout: grid; grid-size: 2; grid-rows: 3; }
@@ -130,7 +134,7 @@ class PreparationScreen(ModalScreen):
         task_selection = any(item.get("kind") == "multi" for item in request.get("questions", []))
         title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
         with Vertical(id="preparation-dialog", classes=(
-            "download-confirmation" if download else "preparation-failure" if failed else ""
+            "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
             yield Label(tr("选择采集任务" if task_selection else "下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
@@ -148,12 +152,11 @@ class PreparationScreen(ModalScreen):
                             f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
                         yield Static(fields, id="preparation-fields", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
-                        yield Label(tr("采集任务" if question.get("kind") == "multi" else question["path"]))
-                        yield Static(tr(question.get("reason", "")), markup=False)
+                        if question.get("kind") != "multi":
+                            yield Label(tr(question["path"]))
+                            yield Static(tr(question.get("reason", "")), markup=False)
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
-                            if question.get("kind") == "multi":
-                                yield Button(tr("全选任务"), id="preparation-select-all")
                     if request.get("detail"):
                         yield Static(request["detail"], id="preparation-detail", markup=False)
                     if request.get("advanced"):
@@ -182,12 +185,17 @@ class PreparationScreen(ModalScreen):
                 else:
                     yield Static(tr(STAGE_LABELS.get(self.event["stage"], "正在确认模型能否正常运行…")), id="preparation-stage", markup=False)
                     yield Static(tr("首次使用可能需要准备模型，请稍候。"), markup=False)
+                if not task_selection:
+                    yield Static("", id="preparation-error", markup=False)
+            if task_selection:
                 yield Static("", id="preparation-error", markup=False)
             with Horizontal(id="preparation-actions", classes=(
                 "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
             )):
-                yield Button(tr("返回配置" if failed or task_selection else "终止任务"), id="preparation-cancel",
+                yield Button(tr(message_id("ui.0588")) if task_selection else tr("返回配置" if failed else "终止任务"), id="preparation-cancel",
                              tooltip=tr(message_id("ui.2157")) if failed else None)
+                if task_selection:
+                    yield Button(tr(message_id("ui.2163")), id="preparation-select-all")
                 if review:
                     if not ready:
                         yield Button(tr("开始所选任务" if task_selection else "应用字段"), id="preparation-apply", variant="primary")
@@ -211,8 +219,13 @@ class PreparationScreen(ModalScreen):
 
     @on(Button.Pressed, "#preparation-select-all")
     def select_all_tasks(self) -> None:
-        for selection in self.query(SelectionList):
+        for selection in self.query(TaskChoices):
             selection.select_all()
+        self.query_one("#preparation-error").display = False
+
+    @on(Checkbox.Changed, "TaskChoices Checkbox")
+    def clear_choice_error(self) -> None:
+        self.query_one("#preparation-error").display = False
 
     def send(self, result):
         if self.sending or self._close_requested:
@@ -236,7 +249,9 @@ class PreparationScreen(ModalScreen):
             answers = review_answers(self, self.event["request"].get("questions", []), prefix="preparation-answer")
             encode_reply(self.event["request"]["id"], "answer", answers=answers)
         except (ValueError, TypeError) as exc:
-            self.query_one("#preparation-error", Static).update(str(exc))
+            error = self.query_one("#preparation-error", Static)
+            error.update(str(exc))
+            error.display = True
             return
         self.send({"action": "answer", "answers": answers})
 

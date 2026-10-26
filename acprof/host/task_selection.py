@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from acprof.task_workloads import parse_task, task_fingerprint, task_label
+from acprof.task_workloads import parse_task, task_fingerprint
 
 
 def activate_task(task, selected: dict, *, backend: str = ""):
@@ -123,10 +123,7 @@ def select_tasks(task, args, workflow):
                              fields={"Model": task.model_id, "Revision": task.model_revision},
                              questions=[{"path": "tasks", "kind": "multi", "value": [],
                                          "options": list(available),
-                                         "labels": {key: task_label(value) for key, value in available.items()},
-                                         "reason": "请选择要采集的推理方式，同一方式下的不同输入任务会自动合并。"}],
-                             summary="\n".join(f"{key}: {', '.join(value['execution_profile']['semantic_task_ids'])}"
-                                               for key, value in available.items()))
+                                         "profiles": copy.deepcopy(profiles)}])
         choices = reply.get("answers", {}).get("tasks")
         if (not isinstance(choices, list) or not choices or
                 any(not isinstance(item, str) for item in choices) or

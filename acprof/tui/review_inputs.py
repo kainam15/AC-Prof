@@ -5,18 +5,18 @@ import json
 from typing import Any
 
 from textual.widget import Widget
-from textual.widgets import Select, SelectionList
+from textual.widgets import Checkbox, Select
 
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
+from acprof.tui.task_choices import TaskChoices
 
 
 def review_input(question: dict, *, identifier: str, translate, classes: str = "") -> Widget:
     options = question.get("options")
     if question.get("kind") == "multi":
-        labels = question.get("labels", {})
-        return SelectionList(*[(translate(labels.get(item, item)), item, False) for item in options or []],
-                             id=identifier, classes=classes)
+        return TaskChoices(question["profiles"], translate=translate, selected=question.get("value", []),
+                           id=identifier, classes=classes)
     if options:
         value = question.get("value")
         return Select([(translate(str(item)), item) for item in options],
@@ -38,7 +38,7 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
         widget = screen.query_one(f"#{prefix}-{index}")
         value: Any
         try:
-            if isinstance(widget, SelectionList):
+            if isinstance(widget, TaskChoices):
                 value = widget.selected
                 if not value:
                     raise ValueError(screen.app.tr(message_id('ui.2162')))
@@ -57,8 +57,9 @@ def review_answers(screen, questions: list[dict], *, prefix: str) -> dict:
             else:
                 raise TypeError("unsupported model review input")
         except (ValueError, TypeError) as exc:
-            widget.focus()
-            widget.scroll_visible(animate=False, immediate=True)
+            focus_target = widget.query_one(Checkbox) if isinstance(widget, TaskChoices) else widget
+            focus_target.focus()
+            focus_target.scroll_visible(animate=False, immediate=True)
             raise ValueError(f"{question['path']}: {exc}") from exc
         answers[question["path"]] = value
     return answers
