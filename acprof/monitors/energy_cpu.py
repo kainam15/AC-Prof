@@ -143,6 +143,12 @@ def _read_host_active_s(proc_stat_path: str = "/proc/stat") -> float:
 
     idle = values[3] + values[4]
     active = sum(values) - idle
+    # Linux already includes guest in user and guest_nice in nice. Older
+    # kernels may expose guest without guest_nice, so check them separately.
+    if len(values) > 8:
+        active -= values[8]
+    if len(values) > 9:
+        active -= values[9]
     return active / _clock_ticks_per_second()
 
 

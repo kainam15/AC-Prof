@@ -28,6 +28,51 @@ def _write_rapl_domain(
     return domain_dir
 
 
+@pytest.mark.parametrize(("field_count", "expected_ticks"), [(5, 1800), (8, 2000), (9, 2000), (10, 2000)])
+def test_host_active_time_counts_guest_once(tmp_path, monkeypatch, field_count, expected_ticks):
+    # guest <= user and guest_nice <= nice: these counters overlap by design.
+    values = [1000, 300, 500, 4000, 200, 40, 60, 100, 200, 80]
+    proc_stat = tmp_path / "stat"
+    proc_stat.write_text("cpu " + " ".join(map(str, values[:field_count])) + "\n")
+    monkeypatch.setattr(energy_cpu, "_clock_ticks_per_second", lambda: 100)
+
+    assert energy_cpu._read_host_active_s(str(proc_stat)) == expected_ticks / 100
+
+
+@pytest.mark.parametrize("field_count", [5, 8, 9, 10])
+@pytest.mark.parametrize("guest_increases", [False, True])
+def test_proc_stat_guest_deltas_preserve_container_energy_share(
+    tmp_path, monkeypatch, field_count, guest_increases,
+):
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    rapl_root = tmp_path / "powercap"
+    energy_path = Path(_write_rapl_domain(str(rapl_root), "intel-rapl:0", "package-0")) / "energy_uj"
+    monitor = energy_cpu.CPUEnergyMonitor(powercap_root=str(rapl_root), proc_root=str(proc_root))
+    monkeypatch.setattr(energy_cpu, "_clock_ticks_per_second", lambda: 100)
+    cpu_usage = tmp_path / "cpu_usage"
+    monitor._container_cpu_reader = lambda: float(cpu_usage.read_text())
+    values = [1000, 300, 500, 4000, 200, 40, 60, 100, 200, 80]
+    delta = [200, 100, 100, 400, 150, 50, 50, 100,
+             100 if guest_increases else 0, 50 if guest_increases else 0]
+    samples = []
+    for index in range(2):
+        fields = [base + index * change for base, change in zip(values, delta, strict=True)]
+        (proc_root / "stat").write_text("cpu " + " ".join(map(str, fields[:field_count])) + "\n")
+        energy_path.write_text(str(index * 14_000_000))
+        cpu_usage.write_text(str(index * 2))
+        samples.append(monitor._read_sample(float(index)))
+
+    # 4 active CPU seconds with 5 fields; irq/softirq/steal add 2 seconds.
+    host_delta = 4.0 if field_count == 5 else 6.0
+    result = energy_cpu.reduce_cpu_samples(samples, idle_power_w=2.0, domains=monitor.domains)
+    assert samples[1].host_active_s - samples[0].host_active_s == pytest.approx(host_delta)
+    assert result.vcpu_cpu_share == pytest.approx(2 / host_delta)
+    assert result.cpu_energy_total_j == pytest.approx(14.0)
+    assert result.vcpu_energy_total_j == pytest.approx(14 * 2 / host_delta)
+    assert result.vcpu_energy_eff_j == pytest.approx(12 * 2 / host_delta)
+
+
 def test_topology_retains_subdomains_aliases_and_unreadable_domains():
     with tempfile.TemporaryDirectory() as tmp:
         package = _write_rapl_domain(tmp, "intel-rapl:0", "package-0")

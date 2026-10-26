@@ -25,6 +25,9 @@ vcpu_energy_per_request_j = 对应归因窗口能量 / repeat_in_window
 ```
 
 CPU 计数缺失、host delta 非正或 container delta 为负的区间不参与 vCPU 归因。
+主机 active CPU 时间取 `/proc/stat` 总行，排除 `idle`、`iowait`，保留 `steal`；
+按字段是否存在扣除已包含在 `user`、`nice` 中的 `guest`、`guest_nice`，避免重复计数。
+此计数关系与 [psutil 的 Linux 修复](https://github.com/giampaolo/psutil/pull/940) 一致。
 汇总 `vcpu_cpu_share` 是有效区间 CPU delta 的总量之比，通常不能乘整段 package energy 来重建上述积分。
 effective 区间能量允许为负；不均匀加权和有效区间筛选可能使 vCPU effective 大于 package effective，
 不能单凭这一关系判定 CSV 算错。派生能效对负值的处理以对应字段定义为准。
