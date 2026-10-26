@@ -11,7 +11,7 @@ def example(name, **generation):
     return parse_task(name, generation, encoder_decoder=True, source="fixture")
 
 
-def test_t5_task_specific_lengths_and_beam_scoring_share_one_execution_group(tmp_path):
+def test_task_specific_lengths_and_beam_scoring_share_one_execution_group(tmp_path):
     tasks = [
         example("summarization", max_length=200, min_length=30,
                 num_beams=4, length_penalty=2.0, early_stopping=True),

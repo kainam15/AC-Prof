@@ -3,6 +3,7 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 
 import pytest
+from task_selection_fixtures import t5_task
 
 from acprof.application.notifications import RunNotifications
 from acprof.application.run import RunApplication, RunOutcome
@@ -12,6 +13,34 @@ from acprof.host.detect import TaskInfo
 from acprof.host.runtimes.selection import RuntimeSelection
 from acprof.inference_groups import group_inference_tasks
 from acprof.task_workloads import parse_task
+
+
+@pytest.mark.parametrize("override", [False, True])
+def test_real_t5_mixed_selections_execute_once_per_effective_signature(tmp_path, override):
+    import json
+    from types import SimpleNamespace
+
+    from acprof.host.collection_workflow import PreparationWorkflow
+    from acprof.host.task_selection import select_tasks
+    from acprof.task_presentation import build_task_selection
+
+    task = t5_task()
+    spec = tmp_path / "override.json"
+    spec.write_text(json.dumps({"schema_version": 1, "params": {"no_repeat_ngram_size": 0}}))
+    # Include both group and semantic IDs; overlapping choices must not repeat a matrix.
+    choices = ",".join([item["profile_id"] for item in task.task_discovery["profiles"]] +
+                       [item["task_id"] for item in task.task_discovery["tasks"]])
+    args = SimpleNamespace(task="", tasks="all" if override else choices, backend="",
+                           workload_spec=str(spec) if override else "")
+    selected = select_tasks(task, args, PreparationWorkflow())
+    view = build_task_selection(selected.selected_tasks)
+    collection = TaskCollection(replace(RunConfig.smoke(task.model_id), output_dir=str(tmp_path)), selected)
+    execute = Mock(return_value=RunOutcome("ok"))
+    assert collection.run(execute).status == "ok"
+    assert execute.call_count == len(view.groups) == (1 if override else 2)
+    assert sum(len(group.profile["semantic_tasks"]) for group in view.groups) == 4
+    assert {call.args[1].selected_tasks[0]["task_id"] for call in execute.call_args_list} == {
+        group.task_id for group in view.groups}
 
 
 def selected_model():

@@ -2,6 +2,7 @@
 import copy
 
 import pytest
+from task_selection_fixtures import t5_task as pinned_t5_task
 
 from acprof.host.detect import TaskInfo, _architecture_metadata
 from acprof.model_candidates import discover_declared_tasks
@@ -9,28 +10,20 @@ from acprof.model_candidates import discover_declared_tasks
 
 @pytest.fixture
 def t5_task():
-    params = {
-        "summarization": {"prefix": "summarize: ", "max_length": 200, "min_length": 30,
-                          "num_beams": 4, "length_penalty": 2.0, "early_stopping": True},
-        **{f"translation_en_to_{code}": {"prefix": f"translate English to {name}: ",
-             "max_length": 300, "num_beams": 4, "early_stopping": True}
-           for code, name in (("de", "German"), ("fr", "French"), ("ro", "Romanian"))},
-    }
-    return TaskInfo("google-t5/t5-small", "translation", "nlp", "transformers_pipeline",
-                    "transformers", "a" * 40, "hub_api",
-                    model_config={"model_type": "t5", "architectures": ["T5ForConditionalGeneration"],
-                                  "is_encoder_decoder": True, "task_specific_params": params},
-                    hub_metadata={"pipeline_tag": "translation", "tags": ["translation", "summarization"],
-                                  "transformers_info": {"auto_model": "AutoModelForSeq2SeqLM",
-                                                        "pipeline_tag": "text2text-generation"}})
+    task = pinned_t5_task()
+    task.pipeline_tag = "translation"
+    task.runtime_backend = "transformers_pipeline"
+    task.hub_metadata.update(tags=["translation", "summarization"], transformers_info={
+        "auto_model": "AutoModelForSeq2SeqLM", "pipeline_tag": "text2text-generation"})
+    return task
 
 
 def test_t5_discovers_four_distinct_workloads_without_architecture_inventions(t5_task):
     original = copy.deepcopy(t5_task)
     found = discover_declared_tasks(t5_task)
-    assert found["status"] == "ready"  # Four use cases share one Seq2Seq execution path.
-    assert len(found["profiles"]) == 1
-    assert set(found["profiles"][0]["semantic_task_ids"]) == {
+    assert found["status"] == "selection_required"
+    assert len(found["profiles"]) == 2  # Summary forbids repeated 3-grams; translations do not.
+    assert {task_id for profile in found["profiles"] for task_id in profile["semantic_task_ids"]} == {
         "translation_en_to_de", "translation_en_to_fr", "translation_en_to_ro", "summarization"}
     assert {task["task_id"] for task in found["tasks"]} == {
         "translation_en_to_de", "translation_en_to_fr", "translation_en_to_ro", "summarization"}
@@ -49,10 +42,10 @@ def test_group_uses_real_backend_not_the_original_hub_pipeline(t5_task):
     from acprof.host.task_selection import select_tasks
 
     discovery = discover_declared_tasks(t5_task)
-    assert len(discovery["profiles"]) == 1
-    assert discovery["profiles"][0]["signature"]["backend"] == "transformers_model"
+    assert len(discovery["profiles"]) == 2
+    assert {profile["signature"]["backend"] for profile in discovery["profiles"]} == {"transformers_model"}
     t5_task.task_discovery = discovery
-    options = SimpleNamespace(task="", tasks="", task_family="", backend="", model_spec="", workload_spec="")
+    options = SimpleNamespace(task="", tasks="all", task_family="", backend="", model_spec="", workload_spec="")
     resolved = select_tasks(t5_task, options, PreparationWorkflow())
     assert resolved.runtime_backend == "transformers_model"
     assert resolved.selected_tasks[0]["execution_profile"]["signature"]["backend"] == resolved.runtime_backend

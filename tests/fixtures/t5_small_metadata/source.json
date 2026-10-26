@@ -1,0 +1,15 @@
+{
+  "model_id": "google-t5/t5-small",
+  "revision": "df1b051c49625cf57a3d0d8d3863ed4d13564fe4",
+  "license": "Apache-2.0",
+  "files": {
+    "config.json": {
+      "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/config.json",
+      "sha256": "530e25060e3a8d5f7b0fcf53bfea9f3601165161f3b1914676e98d97cf07bcf1"
+    },
+    "generation_config.json": {
+      "url": "https://huggingface.co/google-t5/t5-small/resolve/df1b051c49625cf57a3d0d8d3863ed4d13564fe4/generation_config.json",
+      "sha256": "f5a1c7e2be8092018d8835128987edf0111637dd98e90599cc80310fef75d95a"
+    }
+  }
+}
