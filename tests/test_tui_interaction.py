@@ -129,25 +129,44 @@ class TestTuiInteraction:
             app.set_busy(False)
             assert (all(not control.disabled for control in controls))
 
-    async def test_measurement_pauses_elapsed_timer_and_resumes_after_window(self):
+    async def test_measurement_keeps_elapsed_clock_running_without_resuming_logs(self):
         app = AcprofTui(RunConfig.smoke("demo/model"), settings_path=self.settings_path)
         async with app.run_test(size=(140, 45)) as pilot:
             await pilot.pause()
+            app.process_kind = "run"
+            app.started_monotonic = time.monotonic() - 5
             timer = Mock()
             app.elapsed_timer = timer
-            with patch.object(app, 'render_snapshot'):
+            with patch.object(app, 'render_snapshot') as render:
                 app.consume_process_line(
-                    "", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), True
+                    "", ProgressSnapshot(stage=Stage.MEASURING, measurement_active=True), False
                 )
-                timer.pause.assert_called_once_with()
-                timer.resume.assert_not_called()
-                with patch.object(app.query_one("#status-elapsed", Static), "update") as update:
+                assert app.logs.log.suspended
+                clock = app.query_one("#status-elapsed", Static)
+                with (
+                    patch.object(app, "format_elapsed", side_effect=["00:00:05", "00:00:05", "00:00:06"]),
+                    patch.object(clock, "update", wraps=clock.update) as update,
+                    patch.object(app.logs, "flush") as flush,
+                ):
                     app.tick_elapsed()
-                    update.assert_not_called()
+                    app.tick_elapsed()  # Same second must not trigger a repaint.
+                    app.tick_elapsed()
+                    assert [entry.args[0] for entry in update.call_args_list] == [
+                        "00:00:05", "00:00:06"
+                    ]
+                    assert all(entry.kwargs == {"layout": False} for entry in update.call_args_list)
+                    flush.assert_not_called()
+                render.assert_not_called()
+                timer.pause.assert_not_called()
+                timer.resume.assert_not_called()
+                assert app.logs.log.suspended
                 app.consume_process_line(
-                    "", ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), True
+                    "", ProgressSnapshot(stage=Stage.CLEANING_CASE, measurement_active=False), False
                 )
-                timer.resume.assert_called_once_with()
+                assert not app.logs.log.suspended
+                timer.pause.assert_not_called()
+                timer.resume.assert_not_called()
+            app.process_kind = ""
             app.elapsed_timer = None
 
 

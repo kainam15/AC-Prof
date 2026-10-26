@@ -269,7 +269,7 @@ def compose_run_tab(app: AcprofTui) -> ComposeResult:
                 )):
                     yield app.localization.localized_widget(Static("", id="command-preview", markup=False))
                     yield app.localization.localized_widget(Static(
-                        "测量窗口内暂停常规界面刷新，不读取正在写入的 CSV。",
+                        "测量期间运行时间持续更新，日志在测量结束后刷新。",
                         id="science-note",
                         markup=False,
                     ))

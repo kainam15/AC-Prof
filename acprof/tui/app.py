@@ -352,8 +352,8 @@ class AcprofTui(BarCursorApp):
         self.activate_tab("monitor-tab")
         # Moving focus away from inputs stops the native cursor's blink timer.
         self.query_one("#stop-run", Button).focus()
-        # Start the elapsed-time ticker; it self-gates on measurement_active
-        # to avoid any redraws during formal energy/latency windows.
+        # Keep the small elapsed-time display active during every run phase.
+        # Logs and other periodic redraws remain gated during measurement.
         if self.elapsed_timer is not None:
             self.elapsed_timer.stop()
         self.elapsed_timer = self.set_interval(1.0, self.tick_elapsed)
@@ -364,16 +364,17 @@ class AcprofTui(BarCursorApp):
         self.process.execute_command(list(pending.command), pending.kind, config=pending.config)
 
     def tick_elapsed(self) -> None:
-        """Update elapsed time display; skipped during measurement windows."""
+        """Update only the elapsed-time widget, even during measurement."""
         # Textual stops the app before removing widgets, ahead of on_unmount.
-        if not self.is_running:
+        if not self.is_running or self.ui_closing:
             return
-        if self.latest_snapshot.measurement_active:
-            return  # Zero redraws during RAPL/latency measurement windows.
         if not self.started_monotonic or not self.is_busy():
             return
         elapsed = self.format_elapsed(time.monotonic() - self.started_monotonic)
-        self.localization.set_text(self.query_one('#status-elapsed', Static), elapsed)
+        widget = self.query_one('#status-elapsed', Static)
+        if str(widget.content) != elapsed:
+            # Fixed-size clock cell: avoid a full layout pass for each tick.
+            self.localization.set_text(widget, elapsed, layout=False)
 
     _STAGE_CSS_CLASS = {
         Stage.WAITING: "stage-idle",
@@ -459,11 +460,6 @@ class AcprofTui(BarCursorApp):
                 self.logs.suspend(snapshot.measurement_active)
             self.set_input_cursor_blink_enabled(not snapshot.measurement_active)
             self.images.sync_image_refresh_timer()
-            if self.elapsed_timer is not None:
-                if snapshot.measurement_active:
-                    self.elapsed_timer.pause()
-                elif was_measuring:
-                    self.elapsed_timer.resume()
             if state_changed:
                 self.render_snapshot(snapshot)
         if line:

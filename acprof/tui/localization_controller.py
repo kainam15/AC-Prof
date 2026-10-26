@@ -55,15 +55,15 @@ class LocalizationController:
         self.localized_selects[widget] = sources
         return widget
 
-    def set_text(self, widget: Widget, source: str, attribute: str = "content") -> None:
+    def set_text(self, widget: Widget, source: str, attribute: str = "content", *, layout: bool = True) -> None:
         self.localized_text[widget, attribute] = source
-        self.render_text(widget, attribute, source)
+        self.render_text(widget, attribute, source, layout=layout)
 
-    def render_text(self, widget: Widget, attribute: str, source: str) -> None:
+    def render_text(self, widget: Widget, attribute: str, source: str, *, layout: bool = True) -> None:
         rendered = self.tr(source)
         if attribute == "content":
             assert isinstance(widget, Static)
-            widget.update(rendered)
+            widget.update(rendered, layout=layout)
         else:
             setattr(widget, attribute, rendered)
             # Button labels do not invalidate cached content widths themselves.

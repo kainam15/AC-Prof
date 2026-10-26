@@ -560,15 +560,15 @@ class TestTuiApp:
             assert Path(app.latest_snapshot.probe_summary).is_file()
             assert Path(app.latest_snapshot.probe_summary).name == "largest_scale_probe.json"
 
-    async def test_elapsed_timer_skips_during_measurement(self):
-        """Elapsed ticker must not cause widget updates during measurement."""
+    async def test_elapsed_timer_advances_during_measurement(self):
+        """The elapsed clock must advance before the measurement window closes."""
         script = ("from acprof.progress_events import emit_event\n" + ("\n".join(
             (
                 "import time",
                 "emit_event('matrix_planned', total_cases=1)",
                 "emit_event('case_selected', 'fixture', current=1, total=1, cpu=1, mem=4, gpu='off')",
                 "emit_event('measurement_started', 'fixture')",
-                "time.sleep(0.2)",
+                "time.sleep(1.8)",
                 "emit_event('measurement_stopped', 'fixture')",
                 "emit_event('case_finished', 'fixture', status='ok')",
                 "emit_event('run_finished', status='ok')",
@@ -584,15 +584,25 @@ class TestTuiApp:
                     RunConfig.smoke("demo/model"),
                 )
             )
-            # The elapsed timer should be active during the run.
-            assert (app.elapsed_timer) is not None
-            for _ in range(40):
+            assert app.elapsed_timer is not None
+            for _ in range(50):
+                await pilot.pause(0.03)
+                if app.latest_snapshot.measurement_active:
+                    break
+            assert app.latest_snapshot.measurement_active
+            elapsed_before = str(app.query_one("#status-elapsed", Static).content)
+            await pilot.pause(1.2)
+            assert app.latest_snapshot.measurement_active
+            elapsed_during = str(app.query_one("#status-elapsed", Static).content)
+            assert elapsed_during != elapsed_before
+            assert elapsed_during != "—"
+            assert app.logs.log.suspended
+            for _ in range(60):
                 await pilot.pause(0.05)
                 if not app.is_busy():
                     break
-            # After completion the timer is stopped.
-            assert (app.elapsed_timer) is None
-            assert not (app.is_busy())
+            assert app.elapsed_timer is None
+            assert not app.is_busy()
 
     async def test_run_updates_status_and_log_without_monitor_charts(self):
         """Removing monitor charts must preserve launch and completion updates."""
