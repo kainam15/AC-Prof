@@ -453,49 +453,6 @@ def _request_audio_scale_meta(
     return result
 
 
-def _assert_manual_nlp_scales_legal(
-    task_info: TaskInfo,
-    image_info: ImageInfo,
-    cpu_list: list[int],
-    mem_list: list[int],
-    gpu_list: list[str],
-    scales: list[float],
-    batch_size: int,
-) -> list[float]:
-
-    session: ServiceSession | None = None
-    try:
-        session = _start_probe_session(task_info, image_info, cpu_list, mem_list, gpu_list)
-        workload_gen = _get_task_generator(task_info,
-            batch_size,
-        )
-        invalid: dict[float, str] = {}
-        for scale in scales:
-            payload = workload_gen.generate(scale)
-            result = _post_probe_payload(
-                session,
-                payload,
-                f"manual scale {_format_scale_value(scale)}",
-            )
-            if _probe_exceeds_limit(result):
-                invalid[scale] = (
-                    f"{result['reason']}; effective_input_scale="
-                    f"{_format_scale_value(result['effective_input_scale'])}"
-                )
-
-        if invalid:
-            details = ", ".join(
-                f"{_format_scale_value(scale)} ({reason})" for scale, reason in invalid.items()
-            )
-            raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
-    finally:
-        if session is not None:
-            stop_service_session(session, log_prefix="[probe]")
-
-    print(f"[scale] Using manual input scales: {serialize_input_scales(scales)}")
-    return scales
-
-
 def _plan_manual_nlp_scales(
     task_info: TaskInfo,
     image_info: ImageInfo,
