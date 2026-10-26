@@ -67,12 +67,13 @@ class LogController:
             return
         if self.pending:
             batch = self.pending.snapshot()
+            entries = list(batch.entries)
             if batch.discarded_entries:
-                self.log.write(self.app.localization.tr(message_id(
+                entries.insert(0, self.app.localization.tr(message_id(
                     "ui.2143", batch.discarded_entries, batch.oversized_entries,
                 )))
-            if batch.entries:
-                self.log.write("\n".join(batch.entries))
+            if entries:
+                self.log.write("\n".join(entries))
             self.pending.clear()
 
     def suspend(self, measuring: bool) -> None:

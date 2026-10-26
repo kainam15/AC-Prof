@@ -118,3 +118,33 @@ async def test_large_batches_remain_bounded_and_append_without_reloading_documen
         assert log.lines[0] == '[INFO] record 4000'
         assert log.lines[-1] == '[INFO] record 4999'
         await pilot.pause()
+
+
+async def test_late_docker_error_reveals_old_details_without_moving_selected_history():
+    app = LogApp(details=False)
+    async with app.run_test(size=(80, 24)) as pilot:
+        log = app.query_one(SelectableLog)
+        log.write('\n'.join(f'[INFO] history {i}' for i in range(35)))
+        log.write('[cmd] docker build\n#1 0.1 saved compiler context\n#1 DONE')
+        await pilot.pause()
+        assert 'compiler context' not in log.text
+        log.selection = Selection((8, 7), (8, 16))
+        log.scroll_to(y=5, animate=False, immediate=True, force=True)
+        await pilot.pause()
+        before_selection = log.selected_text
+        before_scroll = log.scroll_y
+        log.write('#1 ERROR: build failed')
+        await pilot.pause()
+        assert 'saved compiler context' in log.text
+        assert log.selected_text == before_selection
+        assert log.scroll_y == before_scroll
+        assert not log.following
+        log.set_view(level='ERROR', query='compiler')
+        assert log.find_match()
+        assert log.selected_text == 'compiler'
+        assert log.match_count == 1
+        log.write('#1 0.2 another compiler diagnostic')
+        assert log.match_count == 2
+        assert log.copy_all()
+        assert '#1 0.1 saved compiler context' in app.clipboard
+        assert '[INFO] history 0' in app.clipboard

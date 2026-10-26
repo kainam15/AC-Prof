@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import takewhile
 
 ANSI = re.compile(r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")
 LEVEL = re.compile(r"(?:^|\[)(DEBUG|INFO|SUCCESS|WARNING|WARN|ERROR|CRITICAL)(?:\]|\s*:|\s+-\s+|\s)", re.I)
@@ -49,6 +51,8 @@ class LogRecords:
         self.sequence = 0
         self.scope = 0
         self.continuation = ""
+        self._projection: _Projection | None = None
+        self._pending: list[LogRecord] = []
 
     def append(self, content: str) -> None:
         for raw in content.removesuffix("\n").split("\n"):
@@ -58,13 +62,19 @@ class LogRecords:
                 self.discarded += 1
                 continue
             self.records.append(record)
+            if self._projection is not None:
+                self._pending.append(record)
             self.byte_count += size
         self.trim()
 
     def trim(self) -> None:
+        previous_discarded = self.discarded
         while self.records and (len(self.records) > self.max_lines or self.byte_count > self.max_bytes):
             self.byte_count -= len(self.records.popleft().raw.encode("utf-8")) + 1
             self.discarded += 1
+        if self.discarded != previous_discarded:
+            self._projection = None
+            self._pending.clear()
 
     def classify(self, raw: str) -> LogRecord:
         self.sequence += 1
@@ -121,27 +131,83 @@ class LogRecords:
         return "\n".join(record.raw for record in self.records)
 
     def project(self, *, level: str, details: bool, query: str) -> list[LogRow]:
-        rows: list[LogRow] = []
-        pattern = re.compile(re.escape(query), re.I) if query else None
-        previous: LogRecord | None = None
-        failed_builds = {record.scope for record in self.records if record.source == "docker" and record.level == "ERROR"}
-        for record in self.records:
-            build_context = record.source == "docker" and record.scope in failed_builds
+        """Full projection, independent of the incremental consumer's state."""
+        projection = _Projection((level, details, query), self.failed_builds(self.records))
+        projection.extend(self.records)
+        return projection.rows
+
+    @staticmethod
+    def failed_builds(records: Iterable[LogRecord]) -> set[int]:
+        return {record.scope for record in records if record.source == "docker" and record.level == "ERROR"}
+
+    def project_update(self, *, level: str, details: bool, query: str) -> ProjectionUpdate:
+        options = (level, details, query)
+        reset = self._projection is None or self._projection.options != options
+        if reset:
+            self._projection = _Projection(options, self.failed_builds(self.records))
+            self._projection.extend(self.records)
+            changed = 0
+        else:
+            assert self._projection is not None
+            newly_failed = self.failed_builds(self._pending) - self._projection.failed_builds
+            if newly_failed:
+                # Scope IDs are monotonic. Revisit the affected scope and any
+                # following new scopes; earlier folded contexts stay untouched.
+                first_scope = min(newly_failed)
+                changed = len(self._projection.rows)
+                while changed and self._projection.rows[changed - 1].record.scope >= first_scope:
+                    changed -= 1
+                del self._projection.rows[changed:]
+                self._projection.previous = None
+                self._projection.failed_builds.update(newly_failed)
+                suffix = list(takewhile(lambda record: record.scope >= first_scope, reversed(self.records)))
+                self._projection.extend(reversed(suffix))
+            else:
+                changed = self._projection.extend(self._pending)
+        self._pending.clear()
+        return ProjectionUpdate(changed, self._projection.rows[changed:], reset)
+
+
+@dataclass(frozen=True)
+class ProjectionUpdate:
+    """Replace the visible suffix at start; reset marks a full reprojection."""
+
+    start: int
+    rows: list[LogRow]
+    reset: bool = False
+
+
+class _Projection:
+    def __init__(self, options: tuple[str, bool, str], failed_builds: set[int]) -> None:
+        self.options = options
+        self.failed_builds = failed_builds
+        self.pattern = re.compile(re.escape(options[2]), re.I) if options[2] else None
+        self.previous: LogRecord | None = None
+        self.rows: list[LogRow] = []
+
+    def extend(self, records: Iterable[LogRecord]) -> int:
+        level, details, _ = self.options
+        pattern = self.pattern
+        rows = self.rows
+        changed = len(rows)
+        for record in records:
+            build_context = record.source == "docker" and record.scope in self.failed_builds
             if level != "ALL" and record.level != level and not (level == "ERROR" and build_context):
-                previous = None
+                self.previous = None
                 continue
             if pattern:
                 if pattern.search(record.text) is None:
                     continue
-            elif not details and record.detail and not (record.source == "docker" and record.scope in failed_builds):
-                previous = None
+            elif not details and record.detail and not (record.source == "docker" and record.scope in self.failed_builds):
+                self.previous = None
                 continue
             text = record.text if details or pattern else record.summary or record.text
-            if (not details and not pattern and previous and record.level == "WARN"
-                    and (previous.raw, previous.source, previous.scope) == (record.raw, record.source, record.scope)):
+            if (not details and not pattern and self.previous and record.level == "WARN"
+                    and (self.previous.raw, self.previous.source, self.previous.scope) == (record.raw, record.source, record.scope)):
                 first = rows[-1]
+                changed = min(changed, len(rows) - 1)
                 rows[-1] = LogRow(first.record, f"{record.text}  [×{first.count + 1}]", first.count + 1)
             else:
                 rows.append(LogRow(record, text))
-            previous = record
-        return rows
+            self.previous = record
+        return changed

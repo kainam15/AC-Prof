@@ -305,37 +305,38 @@ class SelectableLog(TextArea):
     def _sync_view(self) -> None:
         if self.suspended:
             return
-        rows = self.records.project(level=self.level_filter, details=self.details, query=self.search_query)
+        update = self.records.project_update(level=self.level_filter, details=self.details, query=self.search_query)
         old_rows = self._rows
+        rows = old_rows[:update.start] + update.rows
         selection = self.selection
         scroll_x, scroll_y = self.scroll_x, self.scroll_y
         top, _ = self.wrapped_document.offset_to_location(Offset(0, int(scroll_y)))
         within_row = scroll_y - self.wrapped_document.location_to_offset((top, 0)).y
-        sequences = [row.record.sequence for row in rows]
 
         def relocate(location: tuple[int, int]) -> tuple[int, int]:
             row, column = location
             if not rows or row >= len(old_rows):
                 return (0, 0)
-            index = min(bisect_left(sequences, old_rows[row].record.sequence), len(rows) - 1)
+            index = min(bisect_left(rows, old_rows[row].record.sequence, key=lambda item: item.record.sequence), len(rows) - 1)
             return index, min(column, len(rows[index].text))
 
         self._mutating_log = True
         try:
             # Retention removes the head; normal appends only edit the tail.
             # Searching/filtering may rebuild the projection, never the raw history.
-            removed = bisect_left([row.record.sequence for row in old_rows], sequences[0]) if rows else len(old_rows)
+            removed = (bisect_left(old_rows, rows[0].record.sequence, key=lambda item: item.record.sequence) if rows else len(old_rows)) if update.reset else 0
             if removed:
                 if removed < len(old_rows):
                     self.delete((0, 0), (removed, 0), maintain_selection_offset=False)
                 else:
                     super().clear()
             remaining = old_rows[removed:]
-            common = 0
-            for old, new in zip(remaining, rows, strict=False):
-                if old != new:
-                    break
-                common += 1
+            common = update.start
+            if update.reset:
+                for old, new in zip(remaining, rows, strict=False):
+                    if old != new:
+                        break
+                    common += 1
             self._rows = rows
             if common < len(remaining):
                 if common == len(rows) and common:
@@ -358,8 +359,9 @@ class SelectableLog(TextArea):
                                animate=False, immediate=True, force=True)
         finally:
             self._mutating_log = False
-        self._matches = [(row, match.start(), match.end()) for row, item in enumerate(rows)
-                         for match in re.finditer(re.escape(self.search_query), item.text, re.I)] if self.search_query else []
+        self._matches = ([match for match in self._matches if match[0] < update.start]
+                         + [(row, match.start(), match.end()) for row, item in enumerate(rows[update.start:], update.start)
+                            for match in re.finditer(re.escape(self.search_query), item.text, re.I)]) if self.search_query else []
         self.refresh()
         self._scroll_tail_if_following()
         if self.following and self.is_mounted:
