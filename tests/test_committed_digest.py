@@ -27,12 +27,13 @@ def make_store(root, *, diagnostic_bytes=0):
     return layout
 
 
-def expected_digest(layout):
+def expected_digest(layout: ArtifactLayout):
     raw = layout.result_csv.read_bytes()
     manifest = json.loads(raw)
+    layers: dict[str, dict] = manifest["layers"]
     expected = hashlib.sha256(raw)
     size = len(raw)
-    for layer, info in sorted(manifest["layers"].items()):
+    for layer, info in sorted(layers.items()):
         payload = layout.layer_csv(layer).read_bytes()[:info["committed_bytes"]]
         expected.update(layer.encode())
         expected.update(payload)
@@ -60,7 +61,7 @@ def observe_csv_reads(monkeypatch):
             reads.append((self.path, len(result), os.lseek(self.stream.fileno(), 0, os.SEEK_CUR)))
             return result
 
-    def open_file(path, mode="r", *args, **kwargs):
+    def open_file(path: Path, mode: str = "r", *args, **kwargs):
         stream = original(path, mode, *args, **kwargs)
         if path.suffix == ".csv" and mode == "rb":
             streams.append(stream)
