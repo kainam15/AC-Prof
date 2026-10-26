@@ -23,6 +23,17 @@
 Encoder–Decoder 的 `max_length` 包含 decoder start token，Decoder-only 则包含输入 prompt，
 不会被误记为新增 token 数，原始参数和长度语义均保存。
 
+TUI 在选中任务后、权重下载之前，根据任务接口和元数据展示可修改的实验参数。
+原生 Transformers 生成任务识别 `max_new_tokens`（或保留 `max_length` 的总长度语义）、
+`do_sample`、Temperature、Top-p、Beam 数；其他任务仍允许按任务选择输入规模和
+Batch Size。各字段保留模型/任务声明或框架默认值的来源，不凭模型架构或宽泛的
+`**kwargs` 推断 checkpoint 已实际验证该参数。输入规模最大值与真实参数组合是否
+能执行，留给准备阶段的 scale probe、runtime validation 验证，不在静态元数据阶段
+假定成功。修改分别写入 `config.user_generation_overrides` /
+`config.user_experiment_overrides`，更新 `task_fingerprint`，由 TaskCollection 在每个
+子任务中应用；未修改时不覆盖默认配置。多任务可独立设置并在恢复时复用冻结参数。
+显式 workload JSON 已经具备更高优先级，因此不会叠加 TUI 的参数确认弹窗。
+
 翻译保留语言前缀，摘要与生成式问答分别使用正文和问题/上下文。内置文本是确定性合成样本，保存
 模板版本/哈希与 seed=0，不代表准确率数据集。非英语翻译来源需要显式输入文本；生成式分类、
 情感分析和回归需要明确前缀声明。无声明或需要覆盖语义时，可在 `--workload-spec` JSON 中写入：
