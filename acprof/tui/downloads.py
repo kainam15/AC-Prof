@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from acprof.download_events import DownloadProgress
 from acprof.messages import join_messages
 from acprof.tui.i18n import message_id
 from acprof.tui.presentation import UNKNOWN, format_bytes
@@ -37,22 +37,29 @@ def probe_reason(reason: str | None) -> str:
     return message_id(kinds.get(reason or "", 'ui.2133'))
 
 
-def network_summary(report: dict) -> list[str]:
-    categories = {"model": 'ui.0180', "python": 'ui.0029', "debian": 'ui.2109', "oci": 'ui.2110'}
+CATEGORIES = {"model": 'ui.0180', "python": 'ui.0029', "debian": 'ui.2109', "oci": 'ui.2110'}
+
+
+def source_summary(report: dict, categories: tuple[str, ...]) -> list[str]:
     lines: list[str] = []
-    for category, label in categories.items():
+    for category in categories:
         sources = [item for item in report.get("sources", []) if item.get("category") == category]
         hosts = {urlsplit(item.get("url", "")).hostname for item in sources}
         origins = [*sorted(host for host in hosts if host), *([UNKNOWN] if None in hosts else [])]
         source = join_messages(", ", origins) if origins else message_id('ui.2111') if "sources" in report else UNKNOWN
-        lines.append(message_id('ui.2112', message_id(label), source))
+        lines.append(message_id('ui.2112', message_id(CATEGORIES[category]), source))
+    return lines
+
+
+def network_summary(report: dict) -> list[str]:
+    lines = [message_id('ui.0003'), *source_summary(report, ("model",))]
     probes = report.get("network_probe", [])
     if not probes:
         cached = (report.get("model", {}).get("total_bytes") is not None and
                   report.get("model", {}).get("cached_bytes") == report["model"]["total_bytes"])
         lines.append(message_id('ui.2113', message_id('ui.2114') if cached else message_id('ui.2115')))
     for probe in probes:
-        label = message_id(categories.get(probe.get("category", "model"), 'ui.0180'))
+        label = message_id(CATEGORIES.get(probe.get("category", "model"), 'ui.0180'))
         state = message_id({"passed": 'ui.0808', "failed": 'ui.0771'}.get(probe.get("status"), 'ui.2136'))
         scope = message_id('ui.2137' if probe.get("method") == "HEAD+GET" else 'ui.2138')
         lines.append(message_id('ui.2116', label, state, scope,
@@ -68,20 +75,31 @@ def network_summary(report: dict) -> list[str]:
     return lines
 
 
-def download_summary(report: dict, translate: Callable[[str], str]) -> str:
+@dataclass(frozen=True)
+class DownloadSection:
+    key: str
+    title: str
+    lines: tuple[str, ...]
+
+
+def download_sections(report: dict) -> tuple[DownloadSection, ...]:
+    """Group the same report for the confirmation dialog and the settings summary."""
     model, disk = report.get("model", {}), report.get("disk", {})
     docker = report.get("docker_storage", {})
     budget = (UNKNOWN if "max_download_bytes" not in report else message_id('ui.0071')
               if report["max_download_bytes"] is None else format_bytes(report["max_download_bytes"]))
-    lines: list[str] = [
+    overview = (
         message_id('ui.0069', format_bytes(report.get("expected_download_bytes"))),
         message_id('ui.0070', budget),
-        message_id('ui.0072', report.get("model_store_path", UNKNOWN)),
-        message_id('ui.0003'),
         message_id('ui.0073', format_bytes(model.get("total_bytes")),
                 format_bytes(model.get("cached_bytes"))),
         message_id('ui.0074', model.get("endpoint", UNKNOWN)),
+    )
+    runtime = (
         runtime_summary(report.get("runtime", {})),
+        *source_summary(report, ("python", "debian", "oci")),
+    )
+    storage = [
         message_id('ui.0075', format_bytes(disk.get("total_bytes")),
                 format_bytes(disk.get("free_bytes"))),
         message_id('ui.0076', format_bytes(disk.get("reclaimable_bytes")),
@@ -90,32 +108,23 @@ def download_summary(report: dict, translate: Callable[[str], str]) -> str:
         message_id('ui.0078', format_bytes(docker.get("docker_storage_available_bytes_at_start"))),
     ]
     if docker.get("docker_storage_filesystem") or docker.get("docker_storage_device"):
-        lines.append(message_id('ui.2142', docker.get("docker_storage_filesystem") or UNKNOWN,
-                                docker.get("docker_storage_device") or UNKNOWN))
-    lines.extend(network_summary(report))
-    lines.append(message_id('ui.0006'))
-    return "\n".join(translate(line) for line in lines)
+        storage.append(message_id('ui.2142', docker.get("docker_storage_filesystem") or UNKNOWN,
+                                  docker.get("docker_storage_device") or UNKNOWN))
+    storage.append(message_id('ui.0072', report.get("model_store_path", UNKNOWN)))
+    return (
+        DownloadSection("overview", message_id('ui.2144'), overview),
+        DownloadSection("runtime", message_id('ui.2145'), runtime),
+        DownloadSection("storage", message_id('ui.0301'), tuple(storage)),
+        DownloadSection("network", message_id('ui.2146'), tuple(network_summary(report))),
+    )
+
+
+def download_summary(report: dict, translate: Callable[[str], str]) -> str:
+    return "\n\n".join("\n".join(translate(line) for line in (section.title, *section.lines))
+                       for section in download_sections(report))
 
 
 def download_result_summary(report: dict) -> str:
     return message_id('ui.0081', report["category"],
                    format_bytes(report["verified_new_payload_bytes"]), format_bytes(report["cache_savings_bytes"]),
                    format_bytes(report.get("wire_bytes")))
-
-
-def live_download_summary(progress: DownloadProgress, translate: Callable[[str], str]) -> str:
-    states = {"downloading": "ui.0938", "verifying": "ui.0939", "complete": "ui.0940",
-              "failed": "ui.0941", "cancelled": "ui.0942"}
-    percent = (f"{progress.completed_bytes / progress.total_bytes:.0%}"
-               if progress.completed_bytes is not None and progress.total_bytes else UNKNOWN)
-    speed = format_bytes(int(progress.rate_bytes_s)) + "/s" if progress.rate_bytes_s is not None else UNKNOWN
-    lines = [message_id('ui.0943', progress.model, message_id(states[progress.state]), progress.attempt),
-             message_id('ui.0944',
-                     format_bytes(progress.completed_bytes), format_bytes(progress.total_bytes), percent,
-                     progress.files_completed, progress.files_total, format_bytes(progress.cached_bytes)),
-             message_id('ui.0945', format_bytes(progress.transferred_bytes), speed)]
-    if progress.detail == 'retry_cache_baseline_unknown':
-        lines.append(message_id('ui.0949'))
-    elif progress.detail:
-        lines.append(message_id('ui.0946', progress.detail))
-    return "\n".join(translate(line) for line in lines)

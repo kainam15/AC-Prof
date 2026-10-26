@@ -476,8 +476,8 @@ class AcprofTui(BarCursorApp):
 
     def render_snapshot(self, snapshot: ProgressSnapshot) -> None:
         self.logs.stage_changed(snapshot)
-        from acprof.tui.preparation import phase_summary
-        self.localization.set_text(self.query_one("#status-preparation", Static), phase_summary(snapshot))
+        from acprof.tui.progress_widgets import PreparationStatus
+        self.query_one("#status-preparation", PreparationStatus).update_snapshot(snapshot)
         elapsed = (
             self.format_elapsed(time.monotonic() - self.started_monotonic)
             if self.started_monotonic

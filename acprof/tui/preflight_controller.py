@@ -53,16 +53,16 @@ class PreflightController:
 
     def reset_download(self) -> None:
         self.latest_download = None
-        self.app.query_one("#download-progress", Static).display = False
+        self.app.query_one("#download-progress").display = False
 
     def download_progress(self, progress: DownloadProgress) -> None:
         if self.app.latest_snapshot.measurement_active:
             raise RuntimeError("download progress inside measurement window")
-        from acprof.tui.downloads import live_download_summary
+        from acprof.tui.progress_widgets import DownloadProgressPanel
         self.latest_download = progress
-        widget = self.app.query_one("#download-progress", Static)
+        widget = self.app.query_one("#download-progress", DownloadProgressPanel)
         widget.display = True
-        widget.update(live_download_summary(progress, self.app.localization.tr))
+        widget.update_progress(progress)
 
     def finish_download(self, *, cancelled: bool) -> None:
         if self.latest_download is not None and self.latest_download.state in {"downloading", "verifying"}:

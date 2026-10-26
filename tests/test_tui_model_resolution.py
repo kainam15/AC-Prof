@@ -8,7 +8,6 @@ from textual.widgets import Button, Collapsible, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
-from acprof.tui.downloads import download_summary
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.preparation import PreparationScreen
 
@@ -65,15 +64,23 @@ async def test_download_review_is_direct_and_confirmation_remains_reachable(tmp_
             else "Downloads run only during preparation; measurement runs offline."
         )
         assert replies == []
-        fields = screen.query_one("#preparation-fields", Static)
+        sections = list(screen.query(".download-section"))
+        assert [section.border_title for section in sections] == (
+            ["下载概览", "运行环境与来源", "存储空间", "网络预检"] if language == "zh"
+            else ["Download overview", "Runtime and sources", "Storage space", "Network preflight"]
+        )
+        fields = screen.query_one("#download-overview", Static)
         assert ("预计下载" if language == "zh" else "Expected download") in fields.content
         assert ("Unknown" if download_size is None else "890 MB") in fields.content
         assert not list(screen.query("#preparation-detail"))
         assert not list(screen.query(Collapsible))
-        assert fields.content == download_summary(report, app.tr)
-        assert "403" in fields.content
-        assert "cdn.hf.co" in fields.content
-        assert "source_mode" not in fields.content
+        network = screen.query_one("#download-network", Static)
+        assert "403" in network.content
+        assert "cdn.hf.co" in network.content
+        assert "VPN" not in network.content
+        storage = screen.query_one("#download-storage", Static)
+        assert report["model_store_path"] in storage.content
+        assert "source_mode" not in screen.query_one("#download-runtime", Static).content
         scroll = screen.query_one("#preparation-scroll", VerticalScroll)
         scroll.scroll_end(animate=False, immediate=True)
         await pilot.pause()

@@ -10,6 +10,7 @@ from textual.strip import Strip
 from tui_fixtures import AcprofTui
 
 from acprof.cli.tui import main
+from acprof.download_events import DownloadProgress
 from acprof.tui.log import SelectableLog
 
 
@@ -74,6 +75,9 @@ async def test_no_color_still_converts_the_rendered_frame_to_grayscale(no_color)
         app = AcprofTui(settings_path=Path(directory) / "tui.json")
         async with app.run_test(size=(105, 27)) as pilot:
             app.activate_tab('monitor-tab')
+            app.preflight.download_progress(DownloadProgress(
+                'demo/model', 'huggingface', 'complete', 1000, 0, 1000, 1000, None, 2, 2,
+            ))
             raw = '[INFO] preparing\n[SUCCESS] cache hit\n[WARN] retry\n[ERROR] failed'
             log = app.query_one('#run-log', SelectableLog)
             log.write(raw)

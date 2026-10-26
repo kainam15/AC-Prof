@@ -27,6 +27,7 @@ from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
 from acprof.tui.model_input import ModelInput
 from acprof.tui.presentation import NOT_APPLICABLE, format_input_number
+from acprof.tui.progress_widgets import DownloadProgressPanel, PreparationStatus
 from acprof.tui.rendering import CjkCompositor
 from acprof.tui.run_form import PRESET_OPTIONS
 from acprof.tui.table import ResizableDataTable
@@ -477,8 +478,8 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                 yield app.localization.localized_widget(Static("详情", classes="status-label"))
                 yield app.localization.localized_widget(Static("尚未启动", id="status-detail", markup=False))
 
-            yield Static("", id="status-preparation", markup=False)
-            yield Static("", id="download-progress", markup=False)
+            yield PreparationStatus(id="status-preparation")
+            yield DownloadProgressPanel(id="download-progress")
             with LogPanel(id="log-panel"):
                 with Horizontal(id="log-controls"):
                     yield app.localization.localized_select(

@@ -7,10 +7,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Label, Static
 
 from acprof.host.model_errors import ModelLookupError
-from acprof.messages import message
 from acprof.preparation_events import encode_reply
 from acprof.tui.app_contracts import translated_app
-from acprof.tui.downloads import download_summary
+from acprof.tui.downloads import download_sections
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.rendering import CjkCompositor
@@ -22,14 +21,6 @@ STAGE_LABELS = {
     "image": "正在准备运行环境…", "environment": "正在准备运行环境…",
     "model": "正在准备模型…", "input": "正在准备验证输入…", "runtime": "正在验证模型运行…",
 }
-
-
-def phase_summary(snapshot):
-    names = {"not_started": "未开始", "running": "进行中", "waiting": "待确认",
-             "passed": "通过", "failed": "失败", "cancelled": "已取消"}
-    return message_id('ui.0241',
-                   *(message(names[value]) for value in (snapshot.interface_status, snapshot.runtime_status,
-                                                         snapshot.measurement_status)))
 
 
 def download_failure(request):
@@ -70,9 +61,16 @@ class PreparationScreen(ModalScreen):
     PreparationScreen { align: center middle; }
     #preparation-dialog { width: 90%; max-width: 100; height: auto; max-height: 90%;
         border: round $accent; background: $surface; padding: 0 1; }
+    #preparation-dialog.download-confirmation { height: 90%; }
+    .download-confirmation #preparation-scroll { max-height: 100%; }
     #preparation-title { height: auto; text-style: bold; }
     #preparation-scroll { height: 1fr; max-height: 24; }
     #preparation-scroll Static, #preparation-scroll Label { height: auto; }
+    #preparation-scroll .download-section {
+        border-top: solid $panel; border-title-color: $accent; border-title-style: bold;
+        padding: 0 1; margin: 1 0 0 0;
+    }
+    #preparation-download-note { color: $text-muted; margin-top: 1; }
     #preparation-detail, #preparation-error { color: $error; }
     #preparation-actions { height: 3; }
     #preparation-actions Button { min-width: 10; width: 1fr; }
@@ -115,16 +113,22 @@ class PreparationScreen(ModalScreen):
         report = request.get("download_report")
         download = review and report is not None
         title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
-        with Vertical(id="preparation-dialog"):
+        with Vertical(id="preparation-dialog", classes="download-confirmation" if download else ""):
             yield Label(tr("下载确认" if download else title), id="preparation-title")
             with VerticalScroll(id="preparation-scroll"):
                 if review:
                     values = request.get("fields", {})
-                    fields = download_summary(report, tr) if download else "\n".join(
-                        f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
-                    yield Static(fields, id="preparation-fields", markup=False)
                     if download:
+                        for section in download_sections(report):
+                            widget = Static("\n".join(tr(line) for line in section.lines),
+                                            id=f"download-{section.key}", classes="download-section", markup=False)
+                            widget.border_title = tr(section.title)
+                            yield widget
                         yield Static(tr("仅在准备阶段下载，正式测量离线。"), id="preparation-download-note", markup=False)
+                    else:
+                        fields = "\n".join(
+                            f"✓ {tr(name)}    {tr('未知') if value is None else value}" for name, value in values.items())
+                        yield Static(fields, id="preparation-fields", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
                         yield Label(tr(question["path"]))
                         yield Static(tr(question.get("reason", "")), markup=False)

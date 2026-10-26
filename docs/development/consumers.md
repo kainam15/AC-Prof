@@ -73,6 +73,8 @@ HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_contro
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
 `host.download_progress` 通过 `huggingface_hub` 的 `tqdm_class` 扩展采集准备期进度，
 `download_events` 是与正式事件独立的有界消息协议，`preflight_controller` 将其展示为独立下载区域。
+`progress_widgets` 只渲染阶段与下载状态，复用主题语义色和 [Rich 的静态进度条](https://github.com/Textualize/rich/blob/v15.0.0/rich/progress_bar.py)（MIT）。
+按锁定版本的接口使用确定进度；未知值保留文字，不使用 [Textual 的不确定进度动画](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_progress_bar.py)，不新增依赖、计时器或测量期工作。
 最低 Hub 版本 1.28 包含 [重试计数修复](https://github.com/huggingface/huggingface_hub/pull/4209)、
 [Xet 双流进度](https://github.com/huggingface/huggingface_hub/pull/4400) 和聚合回调；依赖继续采用 Apache-2.0 许可。
 仅借鉴与调用上游扩展点，不复制下载器、全局 monkey patch 或轮询缓存目录；Docker 运行锁不随主机 SDK 变更。
@@ -91,7 +93,7 @@ HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_contro
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；
 答案回到 resolver 重新解析，必填字段 resolved 后才允许确认，不在 TUI 改写最终 contract。
-下载计划以已解析的 review 携带原始 bytes 报告，`downloads` 在 TUI 中生成摘要与详情，
+下载计划以已解析的 review 携带原始 bytes 报告，`downloads` 提供共享分区数据，供确认框和文本摘要使用，
 `preparation` 显示“下载确认”并直接回传 confirm / cancel，不借用未决字段表单。
 `host.model_errors` 保留模型查找失败的类型、身份和诊断；`detect` 抛出业务异常，公共 CLI dispatcher
 将其转换为退出码。准备弹窗翻译结构化提示，原始诊断放入折叠详情。
