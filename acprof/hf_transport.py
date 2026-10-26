@@ -10,7 +10,8 @@ import threading
 from collections import deque
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
-from acprof.hf_endpoints import HF_OFFICIAL_ENDPOINT, hf_endpoints
+from acprof.hf_auth import hf_auth_allowed, hf_auth_origins
+from acprof.hf_endpoints import HF_OFFICIAL_ENDPOINTS, hf_endpoints, hf_origin, hf_storage_host
 from acprof.network_policy import DownloadPolicyError, source_route
 
 _LOCK = threading.Lock()
@@ -19,11 +20,6 @@ _SOURCES: set[str] = set()
 _EVENTS: deque[dict] = deque(maxlen=256)
 _EVENT_COUNT = 0
 _FAILED_ATTEMPTS: list[dict] = []
-# Organization-controlled DNS namespaces, not a list of CDN machines/regions.
-# Generic S3/CloudFront suffixes are deliberately NOT trusted.
-_STORAGE_NAMESPACES = ("hf.co", "huggingface.co")
-_OFFICIAL_HUB_ENDPOINTS = (HF_OFFICIAL_ENDPOINT, "https://www.huggingface.co", "https://hf.co")
-_OFFICIAL_HUB_HOSTS = frozenset(urlsplit(endpoint).hostname for endpoint in _OFFICIAL_HUB_ENDPOINTS)
 
 
 def _validated_urlsplit(url: str):
@@ -57,16 +53,15 @@ def safe_url(url: str) -> str:
 
 
 def endpoint_type(url: str) -> str:
-    parsed = _validated_urlsplit(url)
-    if parsed is None:
+    origin = hf_origin(url)
+    if origin is None:
         return "unknown"
-    if parsed.hostname in _OFFICIAL_HUB_HOSTS:
+    if origin in {hf_origin(value) for value in HF_OFFICIAL_ENDPOINTS}:
         return "official-hub"
-    if any(parsed.hostname == urlsplit(value).hostname for value in hf_endpoints()):
-        return "hub-entry"
-    host = parsed.hostname or ""
-    if any(host == domain or host.endswith("." + domain) for domain in _STORAGE_NAMESPACES):
+    if hf_storage_host(url):
         return "storage"
+    if origin in {hf_origin(value) for value in hf_endpoints()}:
+        return "hub-entry"
     return "unknown"
 
 
@@ -126,17 +121,12 @@ def _response_hook(response):
 
 
 def check_hf_url(url: str) -> None:
-    parsed = _validated_urlsplit(url)
-    if parsed is None or parsed.username or parsed.password or not parsed.hostname:
+    origin = hf_origin(url)
+    if origin is None:
         raise UntrustedHfEndpointError(url)
-    default_ports = {"https": 443, "http": 80}
-    port = parsed.port if parsed.port is not None else default_ports.get(parsed.scheme)
-    for endpoint in [*hf_endpoints(), *_OFFICIAL_HUB_ENDPOINTS]:
-        hub = urlsplit(endpoint)
-        hub_port = hub.port if hub.port is not None else default_ports.get(hub.scheme)
-        if (parsed.scheme, parsed.hostname, port) == (hub.scheme, hub.hostname, hub_port):
-            return
-    if parsed.scheme == "https" and parsed.port in {None, 443} and endpoint_type(url) == "storage":
+    if origin in {hf_origin(endpoint) for endpoint in [*hf_endpoints(), *HF_OFFICIAL_ENDPOINTS]}:
+        return
+    if origin[0] == "https" and origin[2] == 443 and hf_storage_host(url):
         return
     raise UntrustedHfEndpointError(url)
 
@@ -153,8 +143,9 @@ def _request_hook(request):
     if offline:
         raise OfflineModeIsEnabled("HF_HUB_OFFLINE is enabled; no HTTP request was sent")
     check_hf_url(str(request.url))
-    if endpoint_type(str(request.url)) == "storage":
-        # SDK versions differ in how they carry auth across absolute redirects.
+    if not hf_auth_allowed(str(request.url)):
+        # Enforce origin opt-in even for SDK defaults, cookie jars and netrc.
+        # Signed storage URLs remain untouched; credentials never reach storage.
         request.headers.pop("authorization", None)
         request.headers.pop("cookie", None)
 
@@ -180,7 +171,7 @@ def _httpx_factory(*, transport=None):
                 if endpoint_type(target) not in {"hub-entry", "official-hub"}:
                     return response
                 headers = dict(request.headers)
-                if urlsplit(str(request.url)).netloc != urlsplit(target).netloc:
+                if hf_origin(str(request.url)) != hf_origin(target):
                     headers.pop("authorization", None)
                     headers.pop("cookie", None)
                 headers.pop("host", None)
@@ -222,6 +213,7 @@ def _requests_factory():
 
 def configure_hf_transport() -> None:
     global _INSTALLED
+    hf_auth_origins()  # Fail closed on invalid configuration before SDK activity.
     os.environ["HF_HUB_DISABLE_XET"] = "1"
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
     # The SDK may fetch /api/agent-harnesses when generating request headers.

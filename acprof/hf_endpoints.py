@@ -7,7 +7,34 @@ from urllib.parse import urlsplit
 
 HF_DEFAULT_ENDPOINT = "https://hf-mirror.com"
 HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
+HF_OFFICIAL_ENDPOINTS = (HF_OFFICIAL_ENDPOINT, "https://www.huggingface.co", "https://hf.co")
 HF_DOWNLOAD_MODES = ("auto", "mirror-only", "mirror-preferred", "official")
+
+
+def hf_origin(url: str) -> tuple[str, str, int] | None:
+    """HTTP origin identity; malformed or credential-bearing URLs have none."""
+    try:
+        parsed = urlsplit(url)
+        host, port = parsed.hostname, parsed.port
+        if (parsed.scheme not in {"http", "https"} or not host
+                or parsed.username is not None or parsed.password is not None):
+            return None
+        if port is None:
+            port = 443 if parsed.scheme == "https" else 80
+        return parsed.scheme, host, port
+    except ValueError:
+        return None
+
+
+def hf_storage_host(url: str) -> bool:
+    """Organization-controlled storage namespaces, excluding Hub hostnames."""
+    origin = hf_origin(url)
+    if origin is None:
+        return False
+    host = origin[1]
+    return host not in {"huggingface.co", "www.huggingface.co", "hf.co"} and any(
+        host.endswith("." + domain) for domain in ("hf.co", "huggingface.co")
+    )
 
 
 def hf_download_mode(environ: Mapping[str, str] | None = None) -> str:

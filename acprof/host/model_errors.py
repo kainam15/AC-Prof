@@ -1,6 +1,7 @@
 """Actionable lookup errors shared by host preparation, CLI and TUI."""
 from __future__ import annotations
 
+from acprof.host.preparation_log import redact_text
 from acprof.messages import message
 
 _MESSAGES = {
@@ -25,7 +26,7 @@ class ModelLookupError(ValueError):
         self.model_id = model_id
         self.reason_code = reason_code if reason_code in _MESSAGES else "lookup_failed"
         self.revision = revision
-        self.detail = detail
+        self.detail = redact_text(detail, limit=None)
         self.download_error = download_error
         summary, hint = _MESSAGES[self.reason_code]
         self.summary = message(summary, model_id, revision)
@@ -33,7 +34,7 @@ class ModelLookupError(ValueError):
         from acprof.model_repository import model_source
         if model_source() == "modelscope" and self.reason_code in {"repository_unavailable", "access_denied"}:
             self.hint = message("请核对 ModelScope 模型 ID、访问权限和 MODELSCOPE_API_TOKEN。")
-        super().__init__(f"{self.summary}\n{self.hint}\n{detail}".rstrip())
+        super().__init__(f"{self.summary}\n{self.hint}\n{self.detail}".rstrip())
 
     @property
     def retryable(self) -> bool:

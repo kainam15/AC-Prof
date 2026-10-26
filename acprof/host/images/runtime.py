@@ -14,6 +14,7 @@ from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
+from acprof.hf_auth import hf_token_for_url
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import (
@@ -246,11 +247,15 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
 
         try:
             from acprof.hf_download import try_hf_endpoints
+            from acprof.hf_transport import configure_hf_transport
             from acprof.model_repository import modelscope_revision
-            revision = (modelscope_revision(task_info.model_id, task_info.model_revision)
-                if getattr(task_info, "model_source", "huggingface") == "modelscope" else
-                try_hf_endpoints(task_info.model_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
-                    task_info.model_id, revision=task_info.model_revision or "main")).sha)
+            if getattr(task_info, "model_source", "huggingface") == "modelscope":
+                revision = modelscope_revision(task_info.model_id, task_info.model_revision)
+            else:
+                configure_hf_transport()
+                revision = try_hf_endpoints(task_info.model_id, lambda endpoint: HfApi(
+                    endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
+                    task_info.model_id, revision=task_info.model_revision or "main")).sha
         except Exception as exc:
             raise RuntimeError(f"无法固定模型 revision，尚未构建或复用镜像：{exc}") from exc
         if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):

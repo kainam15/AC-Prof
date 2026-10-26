@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.hf_auth import hf_token_for_url
 from acprof.model_evidence import pinned_revision
 from acprof.model_repository import MODEL_SOURCES, model_source_scope
 
@@ -49,9 +50,12 @@ def snapshot_sample(strata: list[str], limit: int) -> dict:
     from huggingface_hub import HfApi
 
     from acprof.hf_endpoints import hf_endpoints
+    from acprof.hf_transport import configure_hf_transport
     if limit <= 0:
         raise ValueError("limit must be positive")
-    api = HfApi(endpoint=hf_endpoints()[0])
+    configure_hf_transport()
+    endpoint = hf_endpoints()[0]
+    api = HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint))
     models = {}
     for stratum in strata:
         task, separator, library = stratum.partition(":")

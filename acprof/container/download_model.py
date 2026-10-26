@@ -15,6 +15,7 @@ from acprof.container.model_files import (
     resolve_checkpoint,
     seal_plan,
 )
+from acprof.hf_auth import hf_token_for_url
 from acprof.hf_transport import configure_hf_transport
 
 CACHE_DIR = None
@@ -54,7 +55,7 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
         info = modelscope_info(model_id, revision)
     else:
         configure_hf_transport()
-        info = HfApi(endpoint=endpoint).model_info(model_id, revision=revision, files_metadata=True)
+        info = HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(model_id, revision=revision, files_metadata=True)
     if len(revision) == 40 and info.sha != revision:
         raise ModelFilesError("Hub response does not match the requested model commit")
     files = {}
@@ -80,7 +81,7 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
                                    sha256=verified_sha)
         else:
             path = hf_hub_download(model_id, name, revision=info.sha,
-                                   cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint)
+                                   cache_dir=cache_dir or CACHE_DIR, endpoint=endpoint, token=hf_token_for_url(endpoint))
         try:
             with Path(path).open("rb") as stream:
                 data = stream.read(4 * 1024 * 1024 + 1)

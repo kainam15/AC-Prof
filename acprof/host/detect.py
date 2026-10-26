@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.extensions import CATALOG, UnsupportedExtensionError
+from acprof.hf_auth import hf_token_for_url
 from acprof.host.model_errors import ModelLookupError, model_lookup_error
 
 
@@ -88,7 +89,7 @@ def _download_metadata(
         size = None
         if revision is not None and pinned_revision(revision):
             metadata = hf_hub_download(repo_id=model_id, filename=name,
-                                       revision=revision, endpoint=endpoint, dry_run=True)
+                                       revision=revision, endpoint=endpoint, token=hf_token_for_url(endpoint), dry_run=True)
             size = getattr(metadata, "file_size", None)
             if type(size) is not int or not 0 <= size <= max_bytes:
                 raise ValueError(f"{name} size is unknown or exceeds {max_bytes} bytes")
@@ -96,7 +97,8 @@ def _download_metadata(
                 raise ValueError("metadata preflight returned a different model revision")
         # Mutable-ref fallback must let the SDK record its ref for offline use.
         # A dry-run followed by a SHA download would leave a fresh ref absent.
-        path = hf_hub_download(repo_id=model_id, filename=name, revision=revision, endpoint=endpoint)
+        path = hf_hub_download(repo_id=model_id, filename=name, revision=revision,
+                               endpoint=endpoint, token=hf_token_for_url(endpoint))
         actual_size = Path(path).stat().st_size
         if actual_size > max_bytes:
             raise ValueError(f"{name} exceeds {max_bytes} bytes")
@@ -152,7 +154,7 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
         if info is None:
             from acprof.hf_transport import configure_hf_transport
             configure_hf_transport()
-            info = try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
+            info = try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
                 repo_id, revision=revision, files_metadata=False))
         def read_json(name):
             from acprof.container.model_files import safe_path
@@ -391,7 +393,9 @@ def _hub_model_metadata(info: object) -> dict[str, Any]:
 
 
 def _format_failure(exc: Exception) -> str:
-    detail = str(exc).strip().replace("\n", " ")
+    from acprof.host.preparation_log import redact_text
+
+    detail = redact_text(str(exc), limit=None).strip().replace("\n", " ")
     if detail:
         return f"{type(exc).__name__}: {detail}"
     return type(exc).__name__
@@ -461,7 +465,7 @@ def _detect_from_hub(
                 info = modelscope_info(model_id, revision)
             else:
                 configure_hf_transport()
-                info = try_hf_endpoints(model_id, lambda endpoint: HfApi(endpoint=endpoint).model_info(
+                info = try_hf_endpoints(model_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).model_info(
                     model_id, revision=revision))
     except Exception as exc:
         _record_failure(diagnostics, "hub_api", _format_failure(exc))

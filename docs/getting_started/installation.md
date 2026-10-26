@@ -217,6 +217,8 @@ HF_TOKEN=hf_xxx
 # 默认自动尝试国内入口、可信存储重定向和官方 Hub
 HF_DOWNLOAD_MODE=auto
 HF_ENDPOINT=https://hf-mirror.com
+# 镜像默认匿名；仅信任并需要镜像认证时显式授权：
+# ACPROF_HF_AUTH_ORIGINS=https://hf-mirror.com
 # 可选：批量 payload 预算，未知或超限时在下载前停止
 # ACPROF_MAX_DOWNLOAD=5GB
 ```
@@ -225,3 +227,4 @@ HF_ENDPOINT=https://hf-mirror.com
 `.env` 和 `.env.local`；令牌只用于主机检测和 Model Store 下载，正式推理容器
 从只读挂载的固定 snapshot 离线加载模型，不接收令牌或在运行中下载权重。
 地址、令牌的优先级与空白值处理见 [主机环境与 Hugging Face 认证](../usage/configuration.md#主机环境与-hugging-face-认证)。
+`HF_TOKEN` 或本机登录不会自动授权默认镜像；自动回退到官方 Hub 时仍可用于私有／gated 模型认证。

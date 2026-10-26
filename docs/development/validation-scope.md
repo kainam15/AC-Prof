@@ -36,6 +36,8 @@ CI 的完整回归与分片验收要求保持不变，见 [CI 与环境测试](c
 覆盖镜像 → Xet／区域 CDN、镜像 → 官方 Hub → CDN、未知第三方拒绝、鉴权隔离、HEAD probe、
 部分缓存恢复或安全重下后的内容身份、流中断后的 Range 续传与完整内容校验、离线模式零请求、
 模型错误分类，以及系统代理和透明上游不推断；不下载真实权重。
+`test_hf_auth.py` 验证 token 来源、SDK 隐式取 token 的禁用、HTTPX / Requests 首跳与重定向、
+origin 授权、官方认证回退及 storage 认证头清理；使用受控 transport，不发送真实凭据。
 Host HF transport 初始化会禁用 SDK user-agent 遥测，避免 SDK 为识别 agent harness 而额外发出 GET，
 避免轻量探测额外发送遥测请求。`test_download_probe.py` 使用真实本地 HTTP 服务验证 HEAD、
 有界 Range GET、忽略 Range、重定向正文、HTTP 错误、中断、超时、预算和缓存零请求；

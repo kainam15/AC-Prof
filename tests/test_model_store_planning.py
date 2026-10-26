@@ -92,7 +92,7 @@ def _install_metadata_downloads(monkeypatch, root, on_download):
             return str(path)
         return str(target)
 
-    def hf_file(repo_id, name, *, revision, cache_dir, endpoint):
+    def hf_file(repo_id, name, *, revision, cache_dir, endpoint, token):
         assert Path(cache_dir) == root / "hf"
         return download(repo_id, name, revision, "huggingface")
 

@@ -36,7 +36,7 @@ def _local_snapshot(model_source: str, model_revision: str) -> Path:
     from huggingface_hub import snapshot_download
 
     return Path(snapshot_download(repo_id=model_source, revision=model_revision or "main",
-                                  local_files_only=True)).resolve()
+                                  local_files_only=True, token=False)).resolve()
 
 
 def _artifact_path(root: Path, filename: Any) -> Path:

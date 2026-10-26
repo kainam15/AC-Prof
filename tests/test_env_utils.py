@@ -127,7 +127,7 @@ def test_bootstrap_defaults_to_mirror_and_preserves_proxy_policy() -> None:
             "no_proxy": "localhost,127.0.0.1",
         },
         clear=True,
-    ), patch("acprof.host.env_utils.resolve_hf_token", return_value=None):
+    ):
         env_utils.bootstrap_project_env(tmp_dir)
 
         assert (env_utils.os.environ["HF_ENDPOINT"]) == ("https://hf-mirror.com")
@@ -140,7 +140,7 @@ def test_bootstrap_preserves_explicit_endpoint_from_env_file() -> None:
         "acprof.host.env_utils.os.environ",
         {},
         clear=True,
-    ), patch("acprof.host.env_utils.resolve_hf_token", return_value=None):
+    ):
         Path(tmp_dir, ".env").write_text("HF_ENDPOINT=https://example.invalid\n", encoding="utf-8")
 
         env_utils.bootstrap_project_env(tmp_dir)
@@ -154,7 +154,7 @@ def test_bootstrap_replaces_blank_endpoint_env_vars() -> None:
         "acprof.host.env_utils.os.environ",
         {"HF_ENDPOINT": "", "HF_HUB_ENDPOINT": "   "},
         clear=True,
-    ), patch("acprof.host.env_utils.resolve_hf_token", return_value=None):
+    ):
         env_utils.bootstrap_project_env(tmp_dir)
 
         assert (env_utils.os.environ["HF_ENDPOINT"]) == (HF_DEFAULT_ENDPOINT)
@@ -186,59 +186,6 @@ def test_explicit_endpoint_retains_priority_and_preserves_nonblank_alias() -> No
     ):
         assert (env_utils.configure_hf_network()) == ("https://primary.invalid")
         assert (os.environ["HF_HUB_ENDPOINT"]) == ("https://secondary.invalid")
-
-@pytest.mark.parametrize('blank', ['', ' \t '])
-def test_token_fallback_fills_blank_primary_without_reading_login(blank) -> None:
-    with patch.dict(
-        os.environ, {"HF_TOKEN": blank, "HUGGING_FACE_HUB_TOKEN": "test-only-legacy"},
-        clear=True,
-    ), patch("huggingface_hub.utils.get_token", return_value=None) as get_token:
-        assert (env_utils.resolve_hf_token()) == ("test-only-legacy")
-        assert (os.environ["HF_TOKEN"]) == ("test-only-legacy")
-        assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-legacy")
-        get_token.assert_not_called()
-
-@pytest.mark.parametrize('blank', ['', ' \t '])
-def test_primary_token_fills_blank_legacy_alias(blank) -> None:
-    with patch.dict(
-        os.environ, {"HF_TOKEN": "test-only-primary", "HUGGING_FACE_HUB_TOKEN": blank},
-        clear=True,
-    ), patch("huggingface_hub.utils.get_token") as get_token:
-        assert (env_utils.resolve_hf_token()) == ("test-only-primary")
-        assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-primary")
-        get_token.assert_not_called()
-
-@pytest.mark.parametrize('values', [{}, {'HF_TOKEN': '', 'HUGGING_FACE_HUB_TOKEN': ' \t '}])
-def test_local_login_fills_missing_or_blank_token_aliases(values) -> None:
-    with patch.dict(
-        os.environ, values, clear=True,
-    ), patch("huggingface_hub.utils.get_token", return_value="test-only-local") as get_token:
-        assert (env_utils.resolve_hf_token()) == ("test-only-local")
-        assert (os.environ["HF_TOKEN"]) == ("test-only-local")
-        assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-local")
-        get_token.assert_called_once_with()
-
-def test_primary_token_retains_priority_without_overwriting_legacy_alias() -> None:
-    with patch.dict(
-        os.environ,
-        {"HF_TOKEN": "test-only-primary", "HUGGING_FACE_HUB_TOKEN": "test-only-legacy"},
-        clear=True,
-    ), patch("huggingface_hub.utils.get_token") as get_token:
-        assert (env_utils.resolve_hf_token()) == ("test-only-primary")
-        assert (os.environ["HF_TOKEN"]) == ("test-only-primary")
-        assert (os.environ["HUGGING_FACE_HUB_TOKEN"]) == ("test-only-legacy")
-        get_token.assert_not_called()
-
-@pytest.mark.parametrize('outcome_case', range(2), ids=['None', "OSError('test-only unavailable login')"])
-def test_missing_or_unavailable_login_keeps_anonymous_environment(outcome_case) -> None:
-    outcome = tuple((None, OSError('test-only unavailable login')))[outcome_case]
-    with patch.dict(os.environ, {}, clear=True), patch(
-        "huggingface_hub.utils.get_token",
-        **({"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}),
-    ):
-        assert (env_utils.resolve_hf_token()) is None
-        assert ("HF_TOKEN") not in (os.environ)
-        assert ("HUGGING_FACE_HUB_TOKEN") not in (os.environ)
 
 def test_offline_docker_env_disables_hub_and_exposes_local_snapshot() -> None:
     args = env_utils.hf_offline_docker_env_args()

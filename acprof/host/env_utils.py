@@ -14,10 +14,11 @@ from acprof.config import (
     CONTAINER_HF_HOME,
     CONTAINER_MODEL_LOCAL_PATH,
 )
+from acprof.hf_auth import hf_auth_origins
 from acprof.hf_endpoints import hf_endpoints
 
 CONFIGURABLE_ENV_KEYS = (
-    "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE",
+    "HF_TOKEN", "HF_ENDPOINT", "HF_FALLBACK_ENDPOINTS", "HF_DOWNLOAD_MODE", "ACPROF_HF_AUTH_ORIGINS",
     "ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD",
     "ACPROF_MODEL_STORE", "ACPROF_MODEL_STORE_MAX",
     "ACPROF_WECOM_WEBHOOK_URL",
@@ -112,6 +113,7 @@ def save_project_env(
             raise ValueError(f"{key}: enter a single line without control characters")
         updates[key] = value.strip()
     hf_endpoints({**os.environ, **updates})
+    hf_auth_origins({**os.environ, **updates})
     from acprof.network_policy import parse_bytes
     for key in ("ACPROF_MAX_DOWNLOAD", "ACPROF_MODEL_MAX_DOWNLOAD", "ACPROF_MODEL_STORE_MAX"):
         parse_bytes(updates.get(key))
@@ -190,33 +192,10 @@ def configure_hf_network() -> str:
     return endpoint
 
 
-def resolve_hf_token() -> str | None:
-    """Populate HF_TOKEN from env or local Hugging Face login when available."""
-    token = (
-        os.environ.get("HF_TOKEN", "").strip()
-        or os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
-    )
-    if not token:
-        try:
-            from huggingface_hub.utils import get_token
-
-            token = (get_token() or "").strip()
-        except Exception:
-            token = ""
-
-    if not token:
-        return None
-
-    _set_default_if_blank("HF_TOKEN", token)
-    _set_default_if_blank("HUGGING_FACE_HUB_TOKEN", token)
-    return token
-
-
-def bootstrap_project_env(project_dir: str | os.PathLike[str]) -> str | None:
-    """Load project env files and normalize Hugging Face auth env vars."""
+def bootstrap_project_env(project_dir: str | os.PathLike[str]) -> None:
+    """Load project settings without promoting local login to explicit config."""
     load_project_env(project_dir)
     configure_hf_network()
-    return resolve_hf_token()
 
 
 def hf_offline_docker_env_args() -> list[str]:

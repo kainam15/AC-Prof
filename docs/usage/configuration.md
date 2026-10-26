@@ -13,17 +13,29 @@ CLI 启动时读取当前工作目录的 `.env` 和 `.env.local`；同名值的�
 - 默认 `HF_DOWNLOAD_MODE=auto`。缓存命中先离线复用；否则 Hub 入口依次取主地址（`HF_ENDPOINT`、`HF_HUB_ENDPOINT`，默认 `https://hf-mirror.com`）、`HF_FALLBACK_ENDPOINTS`、`https://huggingface.co`。metadata 与权重下载都可回退，revision 保持固定。
 - `--download-mode` 仅供高级/兼容用途：`official` 只选官方入口，`mirror-preferred` 与 `auto` 相同；`mirror-only` 不主动选择备用入口，但仍允许合法 Hub/CDN 重定向。旧 TUI 设置中的三种模式迁移为 `auto`。`ACPROF_ALLOW_PROXY_FALLBACK`、`ACPROF_DIRECT_HOSTS` 已无作用。
 - HTTP 路径允许 HF 控制的可信存储域名，包含 Xet bridge；原生 Xet/hf_transfer 加速器仍禁用，以保证每跳请求可审计。AC-Prof 不负责配置 VPN，不改写标准代理变量或默认路由；公网出口由系统或上游网络负责，不能从 `direct-socket` 推断没有 VPN。
-- 令牌依次取 `HF_TOKEN`、`HUGGING_FACE_HUB_TOKEN`，都为空时调用已有
-  `huggingface_hub.utils.get_token()`；找到令牌后回填缺失或仅含空白的令牌变量。
-  两个变量都有非空值时保留各自值，解析结果以 `HF_TOKEN` 为准；没有令牌或本地读取失败时返回匿名状态。
+- 认证授权与入口选择分别配置。官方 HTTPS Hub origin（`huggingface.co`、`www.huggingface.co`、`hf.co` 的 443 端口）可使用令牌；第三方镜像默认匿名。
+  `HF_TOKEN`、本机 `hf auth login`、设置 `HF_ENDPOINT` 均不自动授权镜像接收凭证。
+- 只有需要且信任镜像时，显式设置 `ACPROF_HF_AUTH_ORIGINS=https://hf-mirror.com`；多个 origin 用逗号分隔。
+  授权精确匹配协议、主机和端口（省略端口等于该协议的默认端口），不接受路径、通配符、用户名密码、query 或 fragment。
+  此配置不扩展可访问地址范围，也不会授权 storage 接收凭证。
+- 对已授权 origin，令牌依次取 `HF_TOKEN`、`HUGGING_FACE_HUB_TOKEN`，都为空时调用公开的
+  `huggingface_hub.utils.get_token()` 读取本机登录；保留凭据来源，不回填或改写令牌环境变量。
+  `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` 禁止本机登录回退；显式配置的非空 token 仍可使用。没有令牌时匿名，本地读取错误明确报错。
+- 模型查询、metadata、snapshot 下载和 probe 按目标 origin 显式传 token 或 `False`，防止 SDK 自行补 token。
+  HTTPX / Requests 在每跳发送前再次过滤 `Authorization` 和 `Cookie`。跨 origin 重定向不自动补回认证；
+  自动回退到官方入口时重新选择官方凭据，因此私有／gated 模型仍可认证。
+  storage 始终清除认证头，签名 URL 保留用于下载；日志与 provenance 不记录凭据或签名 query。
 
 认证优先级参考官方维护的
 [Hugging Face Hub 实现](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_auth.py)
 （[Apache-2.0](https://github.com/huggingface/huggingface_hub/blob/main/LICENSE)）。
-项目沿用已安装的公开接口，只在自身初始化层处理空白值和变量回填，不复制上游内部实现、
-不新增依赖；该初始化发生在主机准备阶段，不进入正式测量窗口。
+另外参考 [Hub 重定向修复 #4739](https://github.com/huggingface/huggingface_hub/pull/4739)、
+[协议降级问题 #4793](https://github.com/huggingface/huggingface_hub/issues/4793) 和
+[Requests 的 origin 认证边界](https://github.com/psf/requests/blob/main/src/requests/sessions.py)（Apache-2.0）。
+项目沿用公开 client factory 和 token 接口，维护一份 origin 授权策略，不复制 SDK 内部实现、
+不新增依赖；检查发生在主机准备请求阶段，不进入正式测量窗口。
 令牌仅用于主机检测与 Model Store 下载，不传入 Docker 构建或正式推理容器；运行阶段只读挂载固定 snapshot 并离线加载。
-配置自定义 endpoint 也决定 Hugging Face 请求及认证令牌的接收方，应只选择信任的服务。
+配置自定义 endpoint 决定请求接收方；另行授权的 origin 才能接收认证令牌。
 Hub endpoint 是传输入口，不作为模型身份，也不写入离线容器的网络配置。
 模型身份由 source、模型 ID、固定 revision 和文件哈希确定；endpoint 与脱敏后的 redirect chain 单独保存在下载 provenance 中。
 

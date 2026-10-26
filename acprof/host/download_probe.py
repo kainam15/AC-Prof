@@ -9,8 +9,9 @@ import time
 from dataclasses import dataclass
 from urllib.error import URLError
 
+from acprof.hf_auth import hf_token_for_url
 from acprof.hf_download import exception_chain
-from acprof.hf_transport import UntrustedHfEndpointError, safe_url
+from acprof.hf_transport import UntrustedHfEndpointError, configure_hf_transport, safe_url
 from acprof.network_policy import DownloadPolicyError, parse_bytes
 
 PROBE_MAX_BYTES = 256 * 1024
@@ -89,6 +90,7 @@ def probe_hf_file(url: str, budget: ProbeBudget, *, timeout: float = 8, total_ti
     deadline = started + total_timeout
     initial_bytes = budget.received
     phase = "HEAD"
+    configure_hf_transport()
     client = get_session()
 
     def remaining_timeout() -> float:
@@ -114,7 +116,7 @@ def probe_hf_file(url: str, budget: ProbeBudget, *, timeout: float = 8, total_ti
         raise httpx.TooManyRedirects("probe redirect loop", request=request)
 
     try:
-        headers = {**build_hf_headers(), "Accept-Encoding": "identity"}
+        headers = {**build_hf_headers(token=hf_token_for_url(url)), "Accept-Encoding": "identity"}
         response = open_response("HEAD", headers)
         try:
             response.raise_for_status()

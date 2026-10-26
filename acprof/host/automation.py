@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.hf_auth import hf_token_for_url
 from acprof.model_evidence import pinned_revision
 
 
@@ -25,7 +26,7 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
             modelscope_info(repo_id, revision)
         else:
             configure_hf_transport()
-            try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint).auth_check(repo_id))
+            try_hf_endpoints(repo_id, lambda endpoint: HfApi(endpoint=endpoint, token=hf_token_for_url(endpoint)).auth_check(repo_id))
     except Exception as exc:
         # Provider exceptions can include URLs/headers. Persist a typed reason only.
         from acprof.failures import Failure, RuntimeFailure

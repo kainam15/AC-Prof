@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import acprof.artifacts as artifact_io
 from acprof.container.model_files import PLAN_FILENAME, seal_plan, validate_plan
 from acprof.dependency_locks import content_digest
+from acprof.hf_auth import hf_token_for_url
 from acprof.hf_download import try_hf_endpoints
 from acprof.hf_endpoints import hf_endpoints
 from acprof.hf_transport import (
@@ -542,7 +543,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                     return str(modelscope_snapshot(root, repo["model_id"], repo["model_revision"])), endpoint
                 progress_kwargs = {"tqdm_class": progress.tqdm_class()} if progress.enabled else {}
                 target = snapshot_download(repo_id=repo["model_id"], revision=repo["model_revision"],
-                    cache_dir=str(root / "hf"), endpoint=endpoint,
+                    cache_dir=str(root / "hf"), endpoint=endpoint, token=False if offline else hf_token_for_url(endpoint),
                     allow_patterns=["".join(escape.get(c, c) for c in f["path"]) for f in repo["files"]],
                     local_files_only=offline, **progress_kwargs)
                 return target, endpoint
