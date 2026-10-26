@@ -119,11 +119,6 @@ class DownloadProgressContent(ProgressSummary):
         else:
             progress_row.add_row(amount)
 
-        metrics = Table.grid(expand=True, padding=(0, 2))
-        # Compact columns leave room for logs even in an 80 x 24 terminal.
-        metrics.add_column(ratio=1)
-        metrics.add_column(ratio=1)
-        metrics.add_column(ratio=1)
         cells = []
         if progress.files_total:
             cells.append(self.metric(message_id('ui.2148'), f"{progress.files_completed}/{progress.files_total}"))
@@ -134,9 +129,12 @@ class DownloadProgressContent(ProgressSummary):
         if progress.rate_bytes_s is not None:
             speed = format_bytes(int(progress.rate_bytes_s)) + "/s"
             cells.append(self.metric(message_id('ui.2151'), speed, "active"))
-        for start in range(0, len(cells), 3):
-            metrics.add_row(*cells[start:start + 3])
-        parts: list[RenderableType] = [heading, progress_row, metrics]
+        parts: list[RenderableType] = [heading, progress_row]
+        if cells:
+            # Let Rich size the single row by content rather than equal-width columns.
+            metrics = Table.grid(expand=True, padding=(0, 2))
+            metrics.add_row(*cells)
+            parts.append(metrics)
         if progress.detail:
             detail = (message_id('ui.0949') if progress.detail == 'retry_cache_baseline_unknown'
                       else message_id('ui.0946', progress.detail))
