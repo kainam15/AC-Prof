@@ -10,6 +10,7 @@ import os
 from typing import Any
 
 from acprof.artifacts import read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 TORCH_PROFILE_KEY = "torch_profiler_eager"
@@ -197,7 +198,7 @@ def find_compute_profile_entry(
     input_scale: float,
 ) -> dict[str, Any]:
     """Resolve both FLOP profiles for one device/scale."""
-    profile_key = "gpu" if gpu_mode == "on" else "cpu"
+    profile_key = "gpu" if normalize_gpu_mode(gpu_mode) == "on" else "cpu"
     result = _empty_result()
     load_error = str(plan.get("_load_error", "") or "")
     if load_error:

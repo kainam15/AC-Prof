@@ -8,6 +8,7 @@ from itertools import product
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 
 MATRIX_PLAN_NAME = "matrix_plan.json"
 ALGORITHM_VERSION = "sha256-sort-v1"
@@ -20,6 +21,7 @@ def digest(value) -> str:
 
 def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
                     prune, input_plan_file=None, cpuset_cpus="") -> dict:
+    gpus = [normalize_gpu_mode(value) for value in gpus]
     if order not in {"seeded", "declared"} or type(seed) is not int:
         raise ValueError("matrix order must be seeded/declared and seed must be an integer")
     if any(not values or len(set(values)) != len(values) for values in (cpus, mems, gpus, scales)):
@@ -28,8 +30,6 @@ def matrix_identity(task, image, cpus, mems, gpus, scales, *, order, seed,
     if any((type(value) is not int or value <= 0) and not (value is None and runtime_kind(image) == "process")
            for value in [*cpus, *mems]):
         raise ValueError("matrix CPUs and memory must be positive integers")
-    if any(gpu not in {"off", "on"} for gpu in gpus):
-        raise ValueError("matrix GPU modes must be off/on")
     if any(not math.isfinite(scale) or scale <= 0 for scale in scales):
         raise ValueError("matrix input scales must be finite and positive")
     from acprof.cpu_affinity import normalize_cpu_set

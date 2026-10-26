@@ -1,6 +1,8 @@
 """Validate profiling resource axes independently of runtime preparation."""
 from __future__ import annotations
 
+from acprof.gpu_mode import normalize_gpu_mode
+
 
 def _parse_int_list(s: str) -> list:
     return [int(x.strip()) for x in s.split(",") if x.strip()]
@@ -30,12 +32,11 @@ def resource_matrix(args):
     process = getattr(args, 'runtime', 'docker') == 'process'
     cpu_list = ([None] if process else [1, 2, 4, 8]) if args.cpus == 'auto' else _parse_int_list(args.cpus)
     mem_list = ([None] if process else [2, 4, 8, 16]) if args.mems == 'auto' else _parse_int_list(args.mems)
-    gpu_list = [mode.lower() for mode in _parse_str_list(args.gpus)]
+    gpu_list = [normalize_gpu_mode(mode) for mode in _parse_str_list(args.gpus)]
     if args.warmup < 0 or args.repeat <= 0:
         raise ValueError("--warmup must be >= 0 and --repeat must be > 0")
     if (not cpu_list or not mem_list or not gpu_list
-            or any(value is not None and value <= 0 for value in cpu_list + mem_list)
-            or any(mode not in ("off", "on") for mode in gpu_list)):
+            or any(value is not None and value <= 0 for value in cpu_list + mem_list)):
         raise ValueError("resource lists must be non-empty, CPUs/memory positive, and GPUs off/on")
     if any(len(values) != len(set(values)) for values in (cpu_list, mem_list, gpu_list)):
         raise ValueError("resource lists must not contain duplicate cases")

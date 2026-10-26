@@ -9,12 +9,12 @@ from dataclasses import dataclass, field as dataclass_field, fields, replace
 from pathlib import Path
 
 from acprof.extensions import CATALOG
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.installation import cli_command
 from acprof.messages import message
 from acprof.run_options import RunOptions, configuration_arguments
 
 TASK_FAMILIES = tuple(sorted(set(CATALOG.task_families.values())))
-GPU_MODES = ("off", "on")
 COMPUTE_PROFILE_TOOLS = ("none", "both", "torch", "ncu")
 EXECUTION_PROFILE_TOOLS = ("none", "both", "massif", "nsys")
 NOTIFY_MODES = ("auto", "none", "wecom")
@@ -211,7 +211,7 @@ class RunConfig(RunOptions):
             errors.extend(exc.issues)
             mems = []
 
-        gpus = _csv_values(self.gpus.lower())
+        gpus = _csv_values(self.gpus)
         if self.runtime not in {"auto", "docker", "process"}:
             errors.append(ConfigIssue("runtime", "Execution runtime must be auto, docker or process"))
         if self.runtime == "process" and (self.profiling_mode != "basic"
@@ -220,8 +220,11 @@ class RunConfig(RunOptions):
             errors.append(ConfigIssue("runtime", "Process Runtime currently supports basic collection without independent profilers"))
         if not gpus:
             errors.append(ConfigIssue("gpus", message('GPU 模式不能为空')))
-        elif any(item not in GPU_MODES for item in gpus):
-            errors.append(ConfigIssue("gpus", message('GPU 模式只能包含 off 或 on')))
+        else:
+            try:
+                gpus = [normalize_gpu_mode(item) for item in gpus]
+            except ValueError:
+                errors.append(ConfigIssue("gpus", message('GPU 模式只能包含 off 或 on')))
 
         if self.prune_startup_oom:
             if len(cpus) != len(set(cpus)):

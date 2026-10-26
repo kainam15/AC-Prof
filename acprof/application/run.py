@@ -23,6 +23,7 @@ from acprof.capabilities import (
     missing_required_measurements,
 )
 from acprof.experiment import RunConfig
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import (
     COLLECTION_HISTORY_NAME,
 )
@@ -279,7 +280,7 @@ class RunApplication:
                 measurements["cpu_energy"] = require_cpu_energy_prerequisites()
             if measurement_requested(args.profiling_mode, "cpu_instructions"):
                 measurements["cpu_instructions"] = require_mips_prerequisites()
-            if "on" in [part.strip().lower() for part in args.gpus.split(",")]:
+            if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
                 pin_gpu_device(args.gpu_device)
             return version, topology, measurements
 

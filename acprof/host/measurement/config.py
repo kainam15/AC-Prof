@@ -14,6 +14,7 @@ from acprof.config import (
     DEFAULT_REPEAT_WINDOW_SECONDS,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
 )
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingPolicy, sampling_policy
 
 
@@ -94,8 +95,7 @@ class ClientConfig:
         image_tag = env.get("IMAGE_TAG", "")
         cpu_cores = env.get("CPU_CORES", "")
         mem_cap_gb = env.get("MEM_CAP_GB", "")
-        gpu_mode = env.get("GPU_MODE", "off").lower()
-        gpu_mode = "on" if gpu_mode == "on" else "off"
+        gpu_mode = normalize_gpu_mode(env.get("GPU_MODE", "off"))
         base_url = env.get("BASE_URL", "http://127.0.0.1:8002").rstrip("/")
         endpoint = env.get("ENDPOINT", "/predict")
         batch_size = int(env.get("BATCH_SIZE", "1"))

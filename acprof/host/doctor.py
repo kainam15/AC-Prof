@@ -11,6 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import preflight
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
@@ -105,6 +106,7 @@ def _gpu() -> str:
 
 def collect_checks(*, runtime: str = "auto", profiling_mode: str = "full", gpus: str = "off",
                    sniff_iface: str = "docker0", output_dir: Path | None = None) -> list[DoctorCheck]:
+    gpus = normalize_gpu_mode(gpus)
     from acprof.host.runtimes.selection import select_runtime
     runtime_check = DoctorCheck("runtime", "available", "explicit Docker Runtime", runtime_kind="docker")
     if runtime != "docker":

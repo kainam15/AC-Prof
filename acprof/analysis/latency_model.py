@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from acprof.analysis.inputs import normalize_gpu_mode
+from acprof.gpu_mode import normalize_gpu_mode
 
 LATENCY_MODEL_FEATURES = {
     "cpu": [

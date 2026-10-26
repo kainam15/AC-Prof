@@ -24,6 +24,7 @@ from acprof.artifacts import (
     replace_file_durably,
     sync_directory,
 )
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
 from acprof.platform import detect_environment
@@ -145,8 +146,9 @@ def run_options(args) -> dict:
         options["cpuset_cpus"] = cpuset
     else:
         options.pop("cpuset_cpus", None)
-    for name in ("cpus", "mems", "gpus"):
+    for name in ("cpus", "mems"):
         options[name] = ",".join(part.strip().lower() for part in options[name].split(",") if part.strip())
+    options["gpus"] = ",".join(normalize_gpu_mode(part) for part in options["gpus"].split(",") if part.strip())
     # New options only enter pre-execution identity when explicitly requested.
     # Absent defaults retain the old serialized options; no observed values enter here.
     options["measurement_environment"] = measurement_environment()

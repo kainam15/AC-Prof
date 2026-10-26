@@ -10,6 +10,7 @@ from typing import (
     Any,
 )
 
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import append_collection_record
 from acprof.host.posthoc.context import (
     NCU_DERIVED_APP_FIELD,
@@ -60,7 +61,7 @@ def csv_tool_complete(context: ResultContext, tool: str) -> bool:
     applicable_rows = [
         row
         for row in context.rows
-        if str(row.get("gpu_mode") or "").strip().lower() in modes
+        if normalize_gpu_mode(row.get("gpu_mode")) in modes
     ]
     return bool(applicable_rows) and all(
         _row_tool_complete(row, tool) for row in applicable_rows
@@ -80,7 +81,7 @@ def _backfill_torch_row(
     row: dict[str, str],
     plan: Mapping[str, Any],
 ) -> None:
-    mode = str(row.get("gpu_mode") or "").strip().lower()
+    mode = normalize_gpu_mode(row.get("gpu_mode"))
     scale = _finite_float(row.get("input_scale"))
     profile = find_compute_profile_entry(dict(plan), mode, scale)
     row[TORCH_LOGICAL_MFLOP_FIELD] = _fmt_float(
@@ -133,7 +134,7 @@ def _backfill_execution_row(
     profile = profiles.resolve(
         _integer(row.get("cpu_cores"), "cpu_cores"),
         _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
-        str(row.get("gpu_mode") or "").strip().lower(),
+        normalize_gpu_mode(row.get("gpu_mode")),
         _finite_float(row.get("input_scale")),
     )
     fields = MASSIF_METRIC_FIELDS if tool == "massif" else NSYS_METRIC_FIELDS
@@ -162,7 +163,7 @@ def backfill_rows(
     updated = {tool: 0 for tool in selected}
     execution_profiles: ExecutionProfileResolver | None = None
     for row in rows:
-        mode = str(row.get("gpu_mode") or "").strip().lower()
+        mode = normalize_gpu_mode(row.get("gpu_mode"))
         for tool in selected:
             if mode not in TOOL_GPU_MODES[tool]:
                 continue

@@ -6,6 +6,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from acprof.capabilities import measurement_requested
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.measurement.errors import EnergyAbort
 from acprof.host.profiling.compute_plan import (
     NCU_ERROR_FIELD,
@@ -414,7 +415,7 @@ def _derived_efficiency_metrics(
     vcpu_energy = to_float_or_nan(vcpu_energy_eff_j)
 
     required_energy = [vcpu_energy]
-    if str(gpu_mode).strip().lower() == "on":
+    if normalize_gpu_mode(gpu_mode) == "on":
         required_energy.append(gpu_energy)
     attributed_energy = (
         sum(required_energy)

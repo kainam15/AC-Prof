@@ -14,6 +14,7 @@ from typing import Any
 import requests
 
 from acprof.artifacts import atomic_write, read_input_scale_plan, read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import container_state
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import (
@@ -73,9 +74,7 @@ def select_minimum_resources(
     if any(int(value) <= 0 for value in mem_list):
         raise ValueError("内存列表必须全部大于 0")
 
-    normalized_gpu = [str(value).strip().lower() for value in gpu_list]
-    if any(value not in {"off", "on"} for value in normalized_gpu):
-        raise ValueError("GPU 模式只能包含 off 或 on")
+    normalized_gpu = [normalize_gpu_mode(value) for value in gpu_list]
     gpu = "off" if "off" in normalized_gpu else "on"
     return min(int(value) for value in cpu_list), min(
         int(value) for value in mem_list

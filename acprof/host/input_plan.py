@@ -13,8 +13,8 @@ from typing import Any, TextIO
 from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES, atomic_write
 from acprof.config import SCALING_DIMENSIONS
 from acprof.extensions import CATALOG
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
-from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.images.identity import model_token
 from acprof.host.images.runtime import ImageInfo
 from acprof.host.runtimes.contracts import ServiceSession

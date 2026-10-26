@@ -14,6 +14,7 @@ from pathlib import Path
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
 from acprof.experiment import RunConfig
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.host.measurement.capture import tcpdump_capability_available
@@ -237,7 +238,7 @@ def quick_preflight(
     else:
         checks.append(PreflightCheck("perf instructions", "not_requested" if perf_status == "not_requested" else "fail", f"{perf_status}: {perf.detail}", perf_status))
 
-    if "on" in _csv_values(config.gpus.lower()):
+    if "on" in [normalize_gpu_mode(value) for value in _csv_values(config.gpus)]:
         nvidia_smi = shutil.which("nvidia-smi")
         if nvidia_smi:
             try:

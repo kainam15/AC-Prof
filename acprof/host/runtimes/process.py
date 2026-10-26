@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from acprof.config import DEFAULT_REQUEST_TIMEOUT_SECONDS, READY_TIMEOUT_S
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.runtimes.contracts import ProcessInfo
 from acprof.host.runtimes.process_control import ManagedProcess
 
 
 def service_environment(task, info: ProcessInfo, *, gpu="off", timeout=300) -> dict[str, str]:
+    gpu = normalize_gpu_mode(gpu)
     from acprof.model_spec import encode_model_spec, task_model_spec
     from acprof.runtime_settings import runtime_environment
     # Transport credentials and unrelated host Python paths are not inherited.
@@ -77,6 +79,7 @@ class ProcessRuntime:
 
     def start(self, task_info, cpu, mem, gpu, image_info: ProcessInfo, container_name, log_prefix,
               request_timeout_seconds=DEFAULT_REQUEST_TIMEOUT_SECONDS, cpuset_cpus=""):
+        gpu = normalize_gpu_mode(gpu)
         import requests
 
         from acprof.cpu_affinity import parse_cpu_set

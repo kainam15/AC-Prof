@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from acprof.artifacts import read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 
 
 def main(argv=None) -> int:
@@ -26,7 +27,7 @@ def main(argv=None) -> int:
     run.add_argument("--validate-runtime", action="store_true", help="Validate one end-to-end request per model")
     run.add_argument("--cpus", type=int, default=2)
     run.add_argument("--mems", type=int, default=4)
-    run.add_argument("--gpus", choices=("off", "on"), default="off")
+    run.add_argument("--gpus", type=normalize_gpu_mode, choices=("off", "on"), default="off")
     run.add_argument("--timeout-seconds", type=float, default=300)
     run.add_argument("--max-parameters", type=int, help="Conservative parameter budget; excluded models remain unverified")
     run.add_argument("--max-download-bytes", type=int, help="Budget for selected pinned artifacts, including dependencies")

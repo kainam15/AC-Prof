@@ -7,7 +7,7 @@ import os
 import sys
 from typing import Any
 
-from acprof.host.gpu_device import normalize_gpu_mode
+from acprof.gpu_mode import normalize_gpu_mode
 
 
 class EnergyProfilingError(RuntimeError):

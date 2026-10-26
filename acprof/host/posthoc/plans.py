@@ -10,6 +10,7 @@ from typing import (
 )
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.command import run_command
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
@@ -353,7 +354,7 @@ def expand_representative_massif_plan(
         if (
             int(profile.get("cpu_cores", -1)) == reference_cpu
             and int(profile.get("mem_cap_gb", -1)) == reference_mem
-            and str(profile.get("gpu_mode") or "").strip().lower() == "off"
+            and normalize_gpu_mode(profile.get("gpu_mode")) == "off"
             and isinstance(profile.get("tools"), Mapping)
             and isinstance(profile["tools"].get("massif"), Mapping)
         ):
@@ -557,7 +558,7 @@ def merge_execution_plans(
                     continue
                 resource_key = (
                     int(cpu_value), int(mem_value),
-                    str(profile.get("gpu_mode") or "").strip().lower(),
+                    normalize_gpu_mode(profile.get("gpu_mode")),
                 )
             except (TypeError, ValueError):
                 continue

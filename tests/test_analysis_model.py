@@ -36,6 +36,20 @@ class TestAnalysisModel:
                 "latency_app_p95_s": ".04", "throughput_samples_per_s": "50",
                 "container_mem_usage_peak_bytes": "1024", "cpu_energy_total_j": "3", **changes}
 
+    @pytest.mark.parametrize(("mode", "device"), [(" GPU ", "GPU"), ("0.0", "CPU"), ("", "GPU")])
+    def test_mode_aliases_and_legacy_device_without_mode_preserve_source(self, mode, device):
+        from acprof.analysis.model import load_analysis
+        path = self.source([self.row(gpu_mode=mode, device="GPU")])
+        before = path.read_bytes()
+        assert load_analysis([path]).configs[0]["device"] == device
+        assert path.read_bytes() == before
+
+    def test_invalid_mode_cannot_silently_use_legacy_device(self):
+        from acprof.analysis.model import load_analysis
+        path = self.source([self.row(gpu_mode="typo", device="CPU")])
+        with pytest.raises(ValueError, match="gpu_mode"):
+            load_analysis([path])
+
     def test_history_stays_unchanged_and_window_statistics_keep_their_scope(self):
         from acprof.analysis.model import load_analysis
         path = self.source([

@@ -9,6 +9,7 @@ from typing import Any
 
 from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.cleanup import discard_profile_artifacts
@@ -25,10 +26,6 @@ _LOG = logging.getLogger(__name__)
 
 COMPUTE_PROFILE_PLAN_NAME = "compute_profile_plan.json"
 COMPUTE_PROFILE_TOOL_MODES = {"none", "both", "ncu", "torch", "vendor"}
-
-
-def _normal_gpu_mode(gpu: str) -> str:
-    return "on" if str(gpu).lower() == "on" else "off"
 
 
 def _host_logical_cpus() -> int:
@@ -202,7 +199,7 @@ def collect_compute_profile_plan(
     entries = load_input_scale_plan_entries(input_scale_plan_file)
     payload_file = input_scale_plan_file
 
-    normalized_gpus = {_normal_gpu_mode(gpu) for gpu in gpu_list}
+    normalized_gpus = {normalize_gpu_mode(gpu) for gpu in gpu_list}
     collect_torch_cpu = (
         "off" in normalized_gpus
         and tool_mode in {"both", "torch"}

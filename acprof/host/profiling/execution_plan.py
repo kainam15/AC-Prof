@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from acprof.artifacts import read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 
 INPUT_SCALE_ABS_TOLERANCE = 1e-6
 MASSIF_TOOL_KEY = "massif"
@@ -137,10 +138,6 @@ def load_execution_profile_plan(path: str) -> dict[str, Any]:
     return plan
 
 
-def _normalize_gpu_mode(value: Any) -> str:
-    return str(value).strip().lower()
-
-
 def _integer_value(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -171,7 +168,7 @@ def _resource_case_matches(
         and profile_mem is not None
         and target_mem is not None
         and profile_mem == target_mem
-        and _normalize_gpu_mode(profile.get("gpu_mode")) == gpu_mode
+        and normalize_gpu_mode(profile.get("gpu_mode")) == gpu_mode
     )
 
 
@@ -432,7 +429,7 @@ class ExecutionProfileResolver:
             memory = _integer_value(profile.get("mem_cap_gb"))
             if cpu is None or memory is None:
                 continue
-            mode = _normalize_gpu_mode(profile.get("gpu_mode"))
+            mode = normalize_gpu_mode(profile.get("gpu_mode"))
             tool_key = NSYS_TOOL_KEY if mode == "on" else MASSIF_TOOL_KEY
             tools = profile.get("tools")
             if not isinstance(tools, Mapping) or tool_key not in tools:
@@ -450,7 +447,7 @@ class ExecutionProfileResolver:
         input_scale: float,
     ) -> dict[str, Any]:
         result = _empty_result()
-        mode = _normalize_gpu_mode(gpu_mode)
+        mode = normalize_gpu_mode(gpu_mode)
         tool_key = NSYS_TOOL_KEY if mode == "on" else MASSIF_TOOL_KEY
         error_field = NSYS_ERROR_FIELD if tool_key == NSYS_TOOL_KEY else MASSIF_ERROR_FIELD
         metric_fields = NSYS_METRIC_FIELDS if tool_key == NSYS_TOOL_KEY else MASSIF_METRIC_FIELDS
@@ -502,7 +499,7 @@ def find_execution_profile_entry(
     if isinstance(plan, ExecutionProfileResolver):
         return plan.resolve(cpu_cores, mem_cap_gb, gpu_mode, input_scale)
     result = _empty_result()
-    normalized_gpu_mode = _normalize_gpu_mode(gpu_mode)
+    normalized_gpu_mode = normalize_gpu_mode(gpu_mode)
     tool_key = (
         NSYS_TOOL_KEY if normalized_gpu_mode == "on" else MASSIF_TOOL_KEY
     )

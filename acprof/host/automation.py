@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.hf_auth import hf_token_for_url
 from acprof.model_evidence import pinned_revision
 
@@ -124,7 +125,7 @@ class AutomaticRun:
         self.data.update(source=task.model_source, revision=task.model_revision,
                          resolution_identity=args.resolution_identity, stage="host")
         checks = collect_checks(profiling_mode="full" if args.profiling_mode == "auto" else args.profiling_mode,
-                                gpus="on" if "on" in {part.strip().lower() for part in args.gpus.split(",")} else "off",
+                                gpus="on" if "on" in {normalize_gpu_mode(part) for part in args.gpus.split(",")} else "off",
                                 sniff_iface=args.sniff_iface, output_dir=self.root)
         self.data["host_checks"] = [asdict(check) for check in checks]
         actual, reasons = select_profiling_mode(args.profiling_mode, checks)

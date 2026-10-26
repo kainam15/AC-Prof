@@ -127,6 +127,12 @@ def test_snapshot_does_not_retain_unrelated_report_payload():
     ({"profiles": [_case({"nsys": {"entries": [{"input_scale": 1.0, plans.NSYS_HOST_WALL_TIME_FIELD: "12.5", "error": "partial"}]}}, mode=" ON ")]}, (2, 4, "on", 1.0)),
 ])
 def test_indexed_lookup_matches_existing_reader_for_persisted_plan_edge_cases(plan, query):
+    if query[2] == "unexpected":
+        with pytest.raises(ValueError, match="gpu_mode"):
+            plans.find_execution_profile_entry(copy.deepcopy(plan), *query)
+        with pytest.raises(ValueError, match="gpu_mode"):
+            plans.ExecutionProfileResolver(plan)
+        return
     expected = plans.find_execution_profile_entry(copy.deepcopy(plan), *query)
     resolver = plans.ExecutionProfileResolver(plan)
     _assert_equal(resolver.resolve(*query), expected)

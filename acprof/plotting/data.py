@@ -5,7 +5,8 @@ import os
 
 import pandas as pd
 
-from acprof.analysis.inputs import normalize_gpu_mode, resource_coordinate
+from acprof.analysis.inputs import resource_coordinate
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.metric_registry import NUMERIC_FIELDS
 from acprof.pixel_metrics import (
     PIXEL_COUNT_FIELDS,

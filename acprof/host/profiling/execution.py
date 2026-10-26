@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any
 
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.cleanup import discard_profile_artifacts
 from acprof.host.profiling.progress import (
@@ -52,7 +53,7 @@ SAMPLING_STRATEGY_METADATA = {
 def _normalize_gpu_modes(gpu_list: Iterable[str]) -> list[str]:
     modes: list[str] = []
     for gpu in gpu_list:
-        mode = "on" if str(gpu).strip().lower() == "on" else "off"
+        mode = normalize_gpu_mode(gpu)
         if mode not in modes:
             modes.append(mode)
     return modes

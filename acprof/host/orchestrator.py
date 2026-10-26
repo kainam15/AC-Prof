@@ -27,9 +27,9 @@ from acprof.config import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     SERVER_PORT,
 )
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
-from acprof.host.gpu_device import normalize_gpu_mode
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.images.identity import model_token
 from acprof.host.images.runtime import ImageInfo

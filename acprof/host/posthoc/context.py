@@ -12,6 +12,7 @@ from typing import (
 )
 
 from acprof.artifacts import read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.compute_plan import (
@@ -309,25 +310,25 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
             f"model mismatch: static_meta={model_id}, input_plan={plan_model_id}"
         )
 
-    resource_cases = sorted(
-        {
-            (
-                _integer(row.get("cpu_cores"), "cpu_cores"),
-                _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
-                str(row.get("gpu_mode") or "").strip().lower(),
-            )
-            for row in rows
-        }
-    )
-    invalid_modes = sorted({case[2] for case in resource_cases} - {"off", "on"})
-    if invalid_modes:
-        raise PosthocError("invalid gpu_mode values: " + ", ".join(invalid_modes))
+    try:
+        resource_cases = sorted(
+            {
+                (
+                    _integer(row.get("cpu_cores"), "cpu_cores"),
+                    _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
+                    normalize_gpu_mode(row.get("gpu_mode")),
+                )
+                for row in rows
+            }
+        )
+    except ValueError as exc:
+        raise PosthocError(f"invalid resource case: {exc}") from exc
 
     scales_by_mode = {
         mode: _unique_scales(
             row
             for row in rows
-            if str(row.get("gpu_mode") or "").strip().lower() == mode
+            if normalize_gpu_mode(row.get("gpu_mode")) == mode
         )
         for mode in ("off", "on")
         if any(case[2] == mode for case in resource_cases)

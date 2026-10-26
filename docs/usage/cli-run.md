@@ -4,6 +4,13 @@
 
 ## `acprof run`
 ### 模型与资源矩阵
+
+GPU mode 在配置、runtime、profiling 和分析入口共用 `acprof.gpu_mode.normalize_gpu_mode`：
+`on` 接受 `1`、`1.0`、`true`、`yes`、`gpu`，`off` 接受 `0`、`0.0`、`false`、`no`、`cpu`，
+忽略大小写和首尾空白；Python bool 与数值 0/1 使用同一契约。其他值明确报错，
+持久化的新实验身份统一为 `on/off`。历史分析表仅在缺少 mode 时保留已有 `device` 标签。
+解析方式参考 [CPython ConfigParser 的显式值表和错误处理](https://github.com/python/cpython/blob/main/Lib/configparser.py)
+（PSF），扩展本项目已有别名，不添加依赖或兼容 shim。
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--model` | required | Hugging Face model ID，例如 `google-bert/bert-base-uncased`。 |

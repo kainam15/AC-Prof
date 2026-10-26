@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.profiling.compute_plan import (
     INPUT_SCALE_ABS_TOLERANCE,
     NCU_ERROR_FIELD,
@@ -266,7 +267,7 @@ def _backfill_row(
     ncu_summary: Sequence[tuple[float, dict[str, Any]]] | None = None,
 ) -> None:
     input_scale = _to_float_or_nan(row.get("input_scale"))
-    gpu_mode = str(row.get("gpu_mode", "") or "").strip().lower()
+    gpu_mode = normalize_gpu_mode(row.get("gpu_mode"))
     profile = find_compute_profile_entry(plan, gpu_mode, input_scale)
 
     if gpu_mode == "on" and ncu_summary is not None:

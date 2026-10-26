@@ -25,7 +25,7 @@ def test_matrix_canonical_values_and_elapsed():
 @pytest.mark.parametrize(("override", "error"), [
     ({"cpus": ""}, "resource lists must be non-empty"),
     ({"mems": "0"}, "resource lists must be non-empty"),
-    ({"gpus": "sometimes"}, "resource lists must be non-empty"),
+    ({"gpus": "sometimes"}, "unsupported gpu_mode"),
     ({"gpus": "on,on"}, "resource lists must not contain duplicate cases"),
     ({"cpus": "1,1"}, "resource lists must not contain duplicate cases"),
     ({"warmup": -1}, "--warmup must be >= 0 and --repeat must be > 0"),

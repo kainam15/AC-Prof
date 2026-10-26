@@ -16,6 +16,7 @@ from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, comparison_profile
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import file_sha256, read_json_object
+from acprof.gpu_mode import normalize_gpu_mode
 from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
@@ -65,8 +66,9 @@ def _identity(row, meta, run_id, batch):
         recorded = "unknown"
     if environment != "unknown" and recorded not in {"unknown", environment}:
         raise ValueError("inconsistent environment_class between CSV and metadata")
-    mode = _text(row.get("gpu_mode")).lower()
-    device = {"off": "CPU", "on": "GPU"}.get(mode, _text(row.get("device")))
+    mode = _text(row.get("gpu_mode"), default="")
+    # Historical analysis tables may contain only a device label, with no mode.
+    device = {"off": "CPU", "on": "GPU"}[normalize_gpu_mode(mode)] if mode else _text(row.get("device"))
     scale = number(row.get("input_scale"))
     input_case = row.get("input_case") or _canonical({
         "scale": scale, "type": meta.get("input_scale_type", "unknown"),
