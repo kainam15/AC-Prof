@@ -71,6 +71,16 @@ HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_contro
 `log_controller` 管理日志批量展示、搜索、筛选和保留原文导出；`log_records` 保留有界原文并生成可逆的显示投影，
 `SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
+`log_export_screen` 提供保存表单和逐级目录浏览，`log_export` 负责路径校验、目录读取及独占创建文件；
+它们不调用实验的 `ArtifactLayout`。后台读写经 App 的 worker manager 调度，controller 持有 `read_jobs`
+直到线程实际返回，取消弹窗不会提前释放读取任务。成功导出后复用配置 controller 的原子保存路径，
+只更新 `last_log_export_dir`；读取配置不扫描或创建导出目录。
+交互借鉴 [textual-fspicker 的 FileSave](https://github.com/davep/textual-fspicker/blob/main/src/textual_fspicker/file_save.py)
+和 [Textual ModalScreen/Worker](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/workers.md)（MIT），
+复用已锁定组件，不新增依赖。锁定版本的 [DirectoryTree](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/widgets/_directory_tree.py)
+会忽略部分读取错误，因此浏览器使用 OptionList 显式展示错误，并独立跟踪取消后尚未结束的读线程；
+相关边界参考上游 [权限错误 Issue #2564](https://github.com/Textualize/textual/issues/2564)
+与 [异步目录加载测试 PR #3498](https://github.com/Textualize/textual/pull/3498)。所有目录 I/O 都在任务空闲时执行。
 `host.download_progress` 通过 `huggingface_hub` 的 `tqdm_class` 扩展采集准备期进度，
 `download_events` 是与正式事件独立的有界消息协议，`preflight_controller` 将其展示为独立下载区域。
 `progress_widgets` 只渲染阶段与下载状态，复用主题语义色和 [Rich 的静态进度条](https://github.com/Textualize/rich/blob/v15.0.0/rich/progress_bar.py)（MIT）。
