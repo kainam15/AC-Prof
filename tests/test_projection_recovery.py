@@ -115,7 +115,8 @@ def test_recovery_reads_only_the_prefix_and_one_tail_byte(tmp_path, monkeypatch)
         assert record.stream.closed
         assert all(0 < size <= 65536 for size in record.requests)
         assert record.received <= len(expected) + 1
-        assert max(record.offsets) <= len(expected) + 1, "buffered reads prefetched the uncommitted tail"
+        assert record.offsets
+        assert all(offset <= len(expected) + 1 for offset in record.offsets), "buffered reads prefetched the uncommitted tail"
 
 
 @pytest.mark.parametrize("replacement_kind", ["corrupt", "short", "already-correct"])
@@ -209,7 +210,7 @@ def test_recovery_errors_keep_pending_journal_and_allow_retry(tmp_path, monkeypa
                 raise OSError("fixture interrupted append")
 
         with monkeypatch.context() as guard:
-            guard.setattr(writer, "_append_bytes", interrupted_append)
+            guard.setattr(writer, append.__name__, interrupted_append)
             with pytest.raises(OSError, match="fixture interrupted append"):
                 writer.append_window(second)
     pending = layout.result_store_path("pending.json")
@@ -221,7 +222,7 @@ def test_recovery_errors_keep_pending_journal_and_allow_retry(tmp_path, monkeypa
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) == (original_stat.st_dev, original_stat.st_ino):
             raise OSError("fixture projection fsync failed")
-        return original_fsync(fd)
+        original_fsync(fd)
 
     recovering = ResultWriter(tmp_path)
     with monkeypatch.context() as guard:
