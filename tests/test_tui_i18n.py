@@ -311,7 +311,7 @@ class TestTuiLanguage:
             for tab, ids in (
                 ("settings-tab", ("ui-language", "restore-ui-defaults", "save-ui-settings")),
                 ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
-                ("monitor-tab", ("copy-log", "follow-log", "expand-log", "clear-log", "stop-run")),
+                ("monitor-tab", ("copy-log-all", "follow-log", "expand-log", "clear-log", "stop-run")),
                 ("plot-tab", ("result-csv", "summarize-results", "plot-results")),
                 ("profile-tab", ("result-dir", "profile-dry-run", "profile-run")),
             ):

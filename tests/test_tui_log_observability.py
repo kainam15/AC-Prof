@@ -26,9 +26,14 @@ async def test_filter_search_and_compaction_preserve_retained_originals():
         log.set_view(details=False)
         assert '×2' in log.text
         assert '0.1 downloading dependency' not in log.text
+        assert log.copy_all()
+        assert '[WARN] retry  [×2]' in app.clipboard
+        assert 'downloading dependency' not in app.clipboard
         log.set_view(level='ERROR')
         assert 'ValueError: bad' in log.text
         assert '[INFO]' not in log.text
+        assert log.copy_all()
+        assert app.clipboard == '[ERROR] failed\n  File "模型.py", line 2\nValueError: bad'
         log.set_view(level='ALL', query='dependency')
         assert 'downloading dependency' in log.text
         assert log.match_count == 1
@@ -36,7 +41,8 @@ async def test_filter_search_and_compaction_preserve_retained_originals():
         assert log.selected_text == 'dependency'
         assert not log.following
         assert log.copy_all()
-        assert app.clipboard == raw
+        assert app.clipboard == '#3 0.1 downloading dependency'
+        assert log.raw_text == raw
         log.set_view(query='', details=True)
         assert log.text == raw
         await pilot.pause()
@@ -53,8 +59,8 @@ async def test_filtered_append_keeps_selection_and_bounded_raw_history():
         assert log.selected_text == 'selected'
         assert log.discarded_lines == 1
         log.copy_all()
-        assert '[INFO] start' not in app.clipboard
-        assert '[INFO] trim' in app.clipboard
+        assert app.clipboard == '[WARN] selected'
+        assert '[INFO] trim' in log.raw_text
         log.clear_log()
         assert not log.copy_all()
         assert log.discarded_lines == 0
@@ -147,4 +153,28 @@ async def test_late_docker_error_reveals_old_details_without_moving_selected_his
         assert log.match_count == 2
         assert log.copy_all()
         assert '#1 0.1 saved compiler context' in app.clipboard
-        assert '[INFO] history 0' in app.clipboard
+        assert '[INFO] history 0' not in app.clipboard
+        assert '[INFO] history 0' in log.raw_text
+
+
+async def test_copy_all_includes_offscreen_view_and_empty_filter_keeps_clipboard():
+    app = LogApp()
+    async with app.run_test(size=(40, 8)) as pilot:
+        log = app.query_one(SelectableLog)
+        shown = '\n'.join(f'[WARN] 模型 {i:02d} ' + 'payload ' * 8 for i in range(20))
+        log.write('[INFO] hidden\n' + shown)
+        log.set_view(level='WARN')
+        log.selection = Selection((3, 7), (3, 9))
+        log.scroll_to(y=5, animate=False, immediate=True, force=True)
+        await pilot.pause()
+        before_selection, before_scroll = log.selection, log.scroll_y
+        assert 0 < before_scroll < log.max_scroll_y
+        assert log.copy_all()
+        assert app.clipboard == shown
+        assert log.selection == before_selection
+        assert log.scroll_y == before_scroll
+        log.set_view(query='no matching lines')
+        assert not log.text
+        assert log.raw_text
+        assert not log.copy_all()
+        assert app.clipboard == shown

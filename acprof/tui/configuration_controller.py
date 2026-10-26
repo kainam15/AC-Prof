@@ -210,13 +210,6 @@ class ConfigurationController:
                 setattr(widget.vertical_scrollbar, "renderer", SolidScrollBarRender)
                 setattr(widget.horizontal_scrollbar, "renderer", SolidScrollBarRender)
 
-    def copy_log_selection(self) -> None:
-        log = self.app.query_one("#run-log", SelectableLog)
-        if log.copy_selection():
-            self.app.notify("已复制日志选区", timeout=2)
-        else:
-            self.app.notify("先在日志中拖动选择文字，Ctrl+A 可全选", timeout=3)
-
     def follow_latest_log(self) -> None:
         self.app.query_one("#run-log", SelectableLog).follow_tail()
 

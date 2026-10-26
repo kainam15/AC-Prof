@@ -56,6 +56,15 @@ async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, la
         log.write(raw)
         await pilot.pause()
         assert '×2' in log.text
+        copy_all = app.query_one('#log-toolbar #copy-log-all', Button)
+        assert str(copy_all.label) == ('复制全部' if language == 'zh' else 'Copy all')
+        assert await pilot.click(copy_all)
+        await pilot.pause()
+        assert app.clipboard == '[INFO] start\n[WARN] retry  [×2]'
+        await pilot.press('tab')
+        assert app.focused.id == 'follow-log'
+        await pilot.press('shift+tab')
+        assert app.focused is copy_all
         assert await pilot.click('#log-tools')
         await pilot.pause()
         for selector in ('#log-search', '#copy-log-all', '#export-log', '#log-next', '#log-details'):
@@ -71,11 +80,14 @@ async def test_monitor_search_copy_and_controls_are_reachable(tmp_path, size, la
         assert 'hidden 模型' in log.text
         await pilot.click('#copy-log-all')
         await pilot.pause()
-        assert app.clipboard == raw
+        assert app.clipboard == '#1 0.2 hidden 模型'
         app.query_one('#log-search', Input).value = ''
         app.query_one('#log-details', Checkbox).value = True
         await pilot.pause()
         assert log.text == raw
+        assert await pilot.click('#copy-log-all')
+        await pilot.pause()
+        assert app.clipboard == raw
 
 
 async def test_measurement_stops_pending_render_and_disallows_download_updates(tmp_path):
@@ -94,6 +106,7 @@ async def test_measurement_stops_pending_render_and_disallows_download_updates(t
             app.logs.copy_all()
             assert log.text == before
         assert app.query_one('#log-search', Input).disabled
+        assert app.query_one('#copy-log-all', Button).disabled
         assert app.logs.timer is None
         progress = DownloadProgress('example/test', 'huggingface', 'downloading', 100, 20, 20, None, None, 0, 2)
         with pytest.raises(RuntimeError, match='measurement window'):
@@ -103,6 +116,7 @@ async def test_measurement_stops_pending_render_and_disallows_download_updates(t
         assert '[INFO] waiting before window' in log.text
         assert '[WARN] deferred during window' in log.text
         assert not app.query_one('#log-search', Input).disabled
+        assert not app.query_one('#copy-log-all', Button).disabled
 
 
 async def test_download_panel_is_separate_and_failure_restores_logs(tmp_path):

@@ -179,7 +179,6 @@ async def test_copy_all_and_clear_keep_real_newlines():
         assert (tuple(log.lines)) == (())
         assert (log.text) == ("")
         assert (log.following)
-        assert not (log.copy_selection())
         assert not (log.copy_all())
         log.write("after clear")
         result = log.clear()

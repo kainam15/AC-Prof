@@ -116,12 +116,13 @@ async def test_failure_logs_keep_viewport_space_and_remain_filterable(tmp_path, 
         assert diagnostic in log.text
         assert screen_text(app).count("ValueError: weights missing") == 1
         assert "cleanup" not in log.text
-        # Filtering changes the log view, while copying retains the original text.
+        # Copy the current filtered view; retained diagnostics remain available.
         log.set_view(level="INFO", query="cleanup")
         await pilot.pause()
         assert "ValueError: weights missing" not in screen_text(app)
         assert log.copy_all()
-        assert diagnostic in app.clipboard
+        assert diagnostic not in app.clipboard
+        assert "cleanup 0" in app.clipboard
         assert "cleanup 49" in app.clipboard
         app.consume_process_line("", ProgressSnapshot(stage=Stage.STARTING), True)
         await pilot.pause()
@@ -210,7 +211,7 @@ async def test_long_error_is_scrollable_and_keeps_log_actions_reachable(tmp_path
         await pilot.press("f8")
         await pilot.pause()
         assert log.region.height > normal_region.height
-        for selector in ("#stop-run", "#restore-log", "#copy-log"):
+        for selector in ("#stop-run", "#restore-log", "#copy-log-all"):
             button = app.query_one(selector)
             assert app.get_widget_at(*button.region.center)[0] is button
         await pilot.press("escape")

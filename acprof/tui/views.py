@@ -490,12 +490,11 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     yield app.localization.localized_widget(Button("↑", id="log-previous", classes="log-control", compact=True, tooltip="上一个匹配"))
                     yield app.localization.localized_widget(Button("↓", id="log-next", classes="log-control", compact=True, tooltip="下一个匹配"))
                     yield app.localization.localized_widget(Checkbox("详情", id="log-details", classes="log-control"))
-                    yield app.localization.localized_widget(Button("复制原文", id="copy-log-all", classes="log-control", compact=True))
                     yield app.localization.localized_widget(Button("导出", id="export-log", classes="log-control", compact=True))
                 yield Static("", id="log-status", markup=False)
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):
-                        yield app.localization.localized_widget(Button("复制选区", id="copy-log", classes="log-tool"))
+                        yield app.localization.localized_widget(Button("复制全部", id="copy-log-all", classes="log-tool log-control"))
                         yield app.localization.localized_widget(Button("回到底部", id="follow-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("放大日志", id="expand-log", classes="log-tool"))
                         yield app.localization.localized_widget(Button("返回监控", id="restore-log", classes="log-tool"))

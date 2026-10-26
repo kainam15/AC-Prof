@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -35,6 +36,7 @@ class TestTuiLogView:
         assert (region.x) >= (0), button_id
         assert (region.y) >= (0), button_id
         assert (region.right) <= (app.size.width), button_id
+        assert (region.right) <= (button.parent.content_region.right), button_id
         assert (region.bottom) <= (app.size.height), button_id
         assert (app.get_widget_at(region.x + 3, region.y)[0]) is (button)
 
@@ -69,8 +71,10 @@ class TestTuiLogView:
             assert (log.region.bottom) <= (app.query_one("#bottom-panel").region.y)
             self.assert_button_reachable(app, "expand-log")
 
-    async def test_expand_and_restore_keep_one_live_log_and_reachable_controls(self):
+    @pytest.mark.parametrize('language', ['zh', 'en'])
+    async def test_expand_and_restore_keep_one_live_log_and_reachable_controls(self, language):
         app = self.make_app()
+        app.configuration.preferences = replace(app.configuration.preferences, language=language)
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             app.activate_tab("monitor-tab")
@@ -91,7 +95,7 @@ class TestTuiLogView:
             assert (log.region.y) == (panel.content_region.y)
             assert (log.region.bottom) == (toolbar.region.y)
             assert (toolbar.region.bottom) == (panel.content_region.bottom)
-            for button_id in ("copy-log", "follow-log", "restore-log", "stop-run"):
+            for button_id in ("copy-log-all", "follow-log", "restore-log", "clear-log", "log-tools", "stop-run"):
                 self.assert_button_reachable(app, button_id)
 
             # Exercise the existing process-output delivery while maximized;
@@ -109,10 +113,16 @@ class TestTuiLogView:
                 assert (app.query_one("#run-log", SelectableLog)) is (log)
                 assert ("[build] second line") in (log.text)
                 log.selection = Selection((0, 0), (0, len("[build] first line")))
-                assert (await pilot.click("#copy-log", offset=(3, 0)))
+                log.focus()
+                await pilot.press("ctrl+c")
                 await pilot.pause()
                 assert (app.clipboard) == ("[build] first line")
                 assert not (log.following)
+                assert (await pilot.click("#copy-log-all", offset=(3, 0)))
+                await pilot.pause()
+                assert "[build] first line" in app.clipboard
+                assert "[build] second line" in app.clipboard
+                assert log.selected_text == "[build] first line"
                 assert (await pilot.click("#follow-log", offset=(3, 0)))
                 await pilot.pause()
                 assert (log.following)
@@ -168,7 +178,7 @@ class TestTuiLogView:
             assert (log.virtual_size.height) < (narrow_rows)
             assert (log.selected_text) == (raw)
             assert (log.text) == (raw)
-            assert (await pilot.click("#copy-log", offset=(3, 0)))
+            await pilot.press("ctrl+c")
             await pilot.pause()
             assert (app.clipboard) == (raw)
             assert (log.max_scroll_x) == (0)

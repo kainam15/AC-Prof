@@ -48,7 +48,7 @@ class TestTuiPageChrome:
             assert (action.region.y) == (primary.region.y), action.id
         assert (primary.region.x) >= (secondary[-1].region.right + 1)
 
-    @pytest.mark.parametrize(("page", "primary", "secondary"), [('run-tab', 'start-run', ('open-run-settings', 'probe-largest')), ('monitor-tab', 'stop-run', ('copy-log', 'follow-log', 'expand-log', 'clear-log')), ('plot-tab', 'plot-results', ('summarize-results',)), ('reports-tab', 'html-report-generate', ('report-open', 'report-calculate')), ('profile-tab', 'profile-run', ('profile-dry-run',)), ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')), ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',))])
+    @pytest.mark.parametrize(("page", "primary", "secondary"), [('run-tab', 'start-run', ('open-run-settings', 'probe-largest')), ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')), ('plot-tab', 'plot-results', ('summarize-results',)), ('reports-tab', 'html-report-generate', ('report-open', 'report-calculate')), ('profile-tab', 'profile-run', ('profile-dry-run',)), ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')), ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',))])
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_all_pages_keep_top_content_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, page, primary, secondary, language, size):

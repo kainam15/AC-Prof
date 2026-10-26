@@ -396,16 +396,10 @@ class SelectableLog(TextArea):
         self.clear()
         return self
 
-    def copy_selection(self) -> bool:
-        """Copy selected display text; raw copy remains independent of folding."""
-        if not self.selected_text:
-            return False
-        self.app.copy_to_clipboard(self.selected_text)
-        return True
-
     def copy_all(self) -> bool:
-        """Copy all retained original text, including real line separators."""
-        if not self.records.records:
+        """Copy the complete current view, independent of selection and scrolling."""
+        text = self.text
+        if not text:
             return False
-        self.app.copy_to_clipboard(self.raw_text)
+        self.app.copy_to_clipboard(text)
         return True

@@ -893,10 +893,6 @@ class AcprofTui(BarCursorApp):
     def on_configuration_open_run_settings(self) -> None:
         self.configuration.open_run_settings()
 
-    @on(Button.Pressed, '#copy-log')
-    def on_configuration_copy_log_selection(self) -> None:
-        self.configuration.copy_log_selection()
-
     @on(SelectableLog.Updated)
     def on_log_updated(self) -> None:
         self.logs.refresh_status()
