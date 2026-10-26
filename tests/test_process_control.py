@@ -2,6 +2,8 @@
 import os
 import sys
 import time
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,3 +80,55 @@ def test_supervisor_holds_model_lease_until_cleanup(tmp_path):
 def test_supervision_prerequisites_run_in_a_separate_bounded_helper():
     from acprof.host.runtimes.process_control import require_process_supervision
     assert require_process_supervision() == 'pidfd and child-subreaper available'
+
+
+def test_log_tail_is_bounded_when_the_log_grows_during_read(tmp_path, monkeypatch):
+    path = tmp_path / "growing.log"
+    original = b"a" * 16384
+    path.write_bytes(original)
+    open_path = Path.open
+
+    class GrowingLog:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def read(self, size=-1):
+            with open_path(path, "ab") as writer:
+                writer.write(b"new diagnostics" * 10000)
+            return self.stream.read(size)
+
+    def open_growing_log(source, *args, **kwargs):
+        stream = open_path(source, *args, **kwargs)
+        return GrowingLog(stream) if source == path else stream
+
+    monkeypatch.setattr(Path, "open", open_growing_log)
+    tail = ManagedProcess.log_tail(SimpleNamespace(log_path=path))
+    assert tail == original.decode()
+    assert path.stat().st_size > len(original)
+
+
+def test_log_tail_uses_the_open_file_when_the_path_is_replaced(tmp_path, monkeypatch):
+    path = tmp_path / "rotating.log"
+    retained = tmp_path / "retained.log"
+    path.write_bytes(b"old prefix" * 10000 + b"tail" * 4096)
+    open_path = Path.open
+
+    def open_rotated_log(source, *args, **kwargs):
+        stream = open_path(source, *args, **kwargs)
+        if source == path:
+            path.rename(retained)
+            with open_path(path, "wb") as replacement:
+                replacement.write(b"new")
+        return stream
+
+    monkeypatch.setattr(Path, "open", open_rotated_log)
+    assert ManagedProcess.log_tail(SimpleNamespace(log_path=path)) == "tail" * 4096

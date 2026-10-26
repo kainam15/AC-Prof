@@ -99,11 +99,15 @@ class ManagedProcess:
         raise subprocess.TimeoutExpired(self.command, timeout, output=self.log_tail())
 
     def log_tail(self) -> str:
-        if not self.log_path.exists():
+        try:
+            stream = self.log_path.open("rb")
+        except FileNotFoundError:
             return ""
-        with self.log_path.open("rb") as stream:
-            stream.seek(max(0, self.log_path.stat().st_size - 16384))
-            return stream.read().decode("utf-8", errors="replace")
+        with stream:
+            end = stream.seek(0, os.SEEK_END)
+            start = max(0, end - 16384)
+            stream.seek(start)
+            return stream.read(end - start).decode("utf-8", errors="replace")
 
     def evidence(self) -> dict:
         return {"kind": "process", "workload": self.identity,
