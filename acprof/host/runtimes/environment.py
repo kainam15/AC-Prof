@@ -24,7 +24,7 @@ def host_abi() -> dict:
 def installed_packages(python: str) -> dict:
     result = run_command([python, "-I", "-B", "-c",
         "import importlib.metadata as m,json;print(json.dumps({d.metadata['Name'].lower().replace('_','-'):d.version for d in m.distributions()}))"],
-        check=True, timeout=30)
+        check=True, timeout=30, kill_process_group=True)
     return json.loads(result.stdout)
 
 
@@ -81,10 +81,10 @@ def prepare_environment(task, project_dir: str | Path) -> tuple[Path, dict]:
         with tempfile.TemporaryDirectory(prefix=".preparing-", dir=root) as directory:
             staging = Path(directory) / "environment"
             run_command([uv, "venv", "--relocatable", "--python", declaration.platform.python_version,
-                         str(staging / "venv")], check=True, timeout=300)
+                         str(staging / "venv")], check=True, timeout=300, kill_process_group=True)
             python = str(staging / "venv/bin/python")
             run_command([uv, "pip", "sync", "--python", python, "--link-mode", "copy", "--require-hashes", str(lock)],
-                        check=True, timeout=3600)
+                        check=True, timeout=3600, kill_process_group=True)
             actual = installed_packages(python)
             expected = package_versions(records)
             if actual != expected:
