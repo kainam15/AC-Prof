@@ -40,6 +40,12 @@ class TestModelFilePlan:
         assert (self.selected(plan)) == ({"config.json", "pytorch_model.bin"})
         assert (plan["weights"][0]["format"]) == ("bin")
 
+    def test_native_seq2seq_excludes_onnx_and_rust_exports(self):
+        plan = self.plan(["config.json", "model.safetensors", "spiece.model", "tokenizer.json",
+                          "onnx/encoder_model.onnx", "onnx/decoder_model.onnx", "rust_model.ot"],
+                         {"config.json": {"model_type": "t5"}}, backend="transformers_model")
+        assert self.selected(plan) == {"config.json", "model.safetensors", "spiece.model", "tokenizer.json"}
+
     def test_shard_index_selects_every_referenced_shard(self):
         index = "model.safetensors.index.json"
         shards = ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]

@@ -266,7 +266,10 @@ def load_comparison_snapshot(source: str | Path) -> dict:
                                       "gpu_visibility": options.get("process_gpu")}
                                      if metadata.get("runtime_kind") == "process" else {})},
             "comparability_class": recorded_identity(metadata)["comparability_class"],
-            "task_semantics": {key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
+            "task_semantics": {**{key: plan.get(key) for key in ("task_family", "pipeline_tag", "scenario")},
+                               **({"task_workload": {key: plan["task_workload"].get(key)
+                                                     for key in ("task_id", "interface", "fingerprint")}}
+                                  if plan.get("task_workload") else {})},
             "planned_inputs": inputs,
             "resources": {**{key: options.get(key) for key in ("cpus", "mems", "gpus", "batch_size")},
                           **{key: metadata.get(key) for key in ("cgroup_version", "cgroup_collection_mode")}},

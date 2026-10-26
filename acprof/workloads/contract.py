@@ -45,6 +45,8 @@ def workload_contract(model_ctx: dict, raw_input: dict, processed: Any, response
                    'count': response.get('n_results')},
     }
     inputs = contract['input']
+    if raw_input.get('task_workload'):
+        contract['task_workload'] = dict(raw_input['task_workload'])
     for key in ('features', 'observations'):
         if isinstance(raw_input.get(key), list):
             rows = raw_input[key]
@@ -63,6 +65,8 @@ def workload_contract(model_ctx: dict, raw_input: dict, processed: Any, response
                 'image-to-text', 'image-text-to-text', 'audio-text-to-text', 'video-text-to-text', 'any-to-any'}:
         actual = response.get('actual_output_tokens')
         contract['generation'] = {
+            'parameters': dict(params),
+            'interface': response.get('inference_interface'),
             'max_output_tokens': params.get('max_new_tokens'),
             'actual_output_tokens': actual,
             'actual_output_tokens_per_sequence': response.get('actual_output_tokens_per_sequence'),

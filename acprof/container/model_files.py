@@ -113,10 +113,16 @@ def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *
 
 
 def _alternate_weights(name: str, prefix: str) -> bool:
-    if not name.startswith(prefix) or "/" in name[len(prefix):]:
+    if not name.startswith(prefix):
         return False
     basename = name[len(prefix):]
-    return bool(_WEIGHTS.fullmatch(basename)) or basename in {"flax_model.msgpack", "tf_model.h5"}
+    # A reviewed native Transformers checkpoint cannot consume ONNX/Rust exports.
+    # Retain arbitrary auxiliary assets and non-Transformer module directories.
+    if basename.startswith("onnx/") and basename.endswith((".onnx", ".onnx_data", ".onnx.data")):
+        return True
+    if "/" in basename:
+        return False
+    return bool(_WEIGHTS.fullmatch(basename)) or basename in {"flax_model.msgpack", "tf_model.h5", "rust_model.ot"}
 
 
 def plan_download(

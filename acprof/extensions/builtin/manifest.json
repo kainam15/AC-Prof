@@ -88,6 +88,9 @@
         },
         "transformers_pipeline": {
           "model_spec_format": "transformers-pipeline"
+        },
+        "transformers_model": {
+          "uses_pipeline": false
         }
       },
       "task_handler_options": {
@@ -803,6 +806,36 @@
     "chronos-forecasting": "chronos"
   },
   "backend_rules": [
+    {
+      "task": "translation",
+      "libraries": [
+        "",
+        "unknown",
+        "transformers"
+      ],
+      "backend": "transformers_model",
+      "priority": 100
+    },
+    {
+      "task": "summarization",
+      "libraries": [
+        "",
+        "unknown",
+        "transformers"
+      ],
+      "backend": "transformers_model",
+      "priority": 100
+    },
+    {
+      "task": "text2text-generation",
+      "libraries": [
+        "",
+        "unknown",
+        "transformers"
+      ],
+      "backend": "transformers_model",
+      "priority": 100
+    },
     {
       "task": "replaced-token-detection",
       "libraries": [

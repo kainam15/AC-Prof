@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from collections.abc import Mapping
-from numbers import Integral
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,6 +14,7 @@ from acprof.container.handlers import (
     model_revision_kwargs,
     transformers_pipeline_load_kwargs,
 )
+from acprof.container.handlers.generation_evidence import count_input_tokens, generation_evidence
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
 from acprof.model_spec import pipeline_task
@@ -23,46 +24,6 @@ _GENERATIVE_TASKS = {
     "text-generation", "text2text-generation", "summarization",
     "translation", "conversational",
 }
-
-
-def _token_rows(value: Any) -> list[list[int]]:
-    value = value.tolist() if callable(getattr(value, "tolist", None)) else value
-    if not isinstance(value, (list, tuple)) or not value:
-        return []
-    if all(isinstance(token, Integral) for token in value):
-        return [[int(token) for token in value]]
-    return [row for child in value for row in _token_rows(child)]
-
-
-def _actual_input_tokens(prepared: Any) -> int | None:
-    mask = prepared.get("attention_mask")
-    rows = _token_rows(mask if mask is not None else prepared.get("input_ids"))
-    return (sum(sum(row) if mask is not None else len(row) for row in rows) if rows else None)
-
-
-def _generation_evidence(generated: Any, config: Any, *, prompt_length: int = 0,
-                         encoder_decoder: bool = False, max_new_tokens: Any = None,
-                         input_tokens: int | None = None) -> dict[str, Any]:
-    eos = getattr(config, "eos_token_id", None)
-    eos_ids = {int(value) for value in (eos if isinstance(eos, (list, tuple)) else [eos])
-               if isinstance(value, Integral)}
-    start = getattr(config, "decoder_start_token_id", None)
-    counts, reasons = [], []
-    for row in _token_rows(generated):
-        if encoder_decoder and not isinstance(start, Integral):
-            continue
-        row = row[1:] if encoder_decoder and row and isinstance(start, Integral) and row[0] == start else row
-        if not encoder_decoder:
-            row = row[prompt_length:]
-        end = next((index + 1 for index, token in enumerate(row) if token in eos_ids), None)
-        counts.append(end if end is not None else len(row))
-        reasons.append("eos" if end is not None else "length" if
-                       isinstance(max_new_tokens, Integral) and len(row) == max_new_tokens else None)
-    return {"actual_output_tokens": sum(counts) if counts else None,
-            "actual_output_tokens_per_sequence": counts or None,
-            "actual_input_tokens": input_tokens,
-            "stop_reason": reasons[0] if reasons and len(set(reasons)) == 1 else None,
-            "stop_reason_per_sequence": reasons or None}
 
 
 class NLPHandler(BaseHandler):
@@ -295,7 +256,11 @@ class NLPHandler(BaseHandler):
         torch_dtype = policy["dtype"]
         pipeline_options = transformers_pipeline_load_kwargs(load_options)
         encoder = handler_declaration(task_type, backend).handler_options.get("encoder", "")
-        if task_type == "replaced-token-detection":
+        if backend == "transformers_model" and task_type in {"text2text-generation", "summarization", "translation"}:
+            from acprof.container.handlers.text_generation import load_seq2seq
+            pipe = load_seq2seq(model_source, model_revision, device=device, dtype=torch_dtype,
+                                model_kwargs=pipeline_options.get("model_kwargs", {}))
+        elif task_type == "replaced-token-detection":
             if backend != "transformers_model":
                 raise ValueError("replaced-token-detection requires transformers_model")
             # No Transformers pipeline implements the ELECTRA discriminator's
@@ -344,6 +309,9 @@ class NLPHandler(BaseHandler):
                 torch_dtype=torch_dtype,
                 trust_remote_code=policy["trust_remote_code"],
             )
+            if task_type in _GENERATIVE_TASKS:
+                from transformers import set_seed
+                set_seed(0)
             if task_type == "text-generation":
                 tokenizer = getattr(pipe, "tokenizer", None)
                 if tokenizer is not None:
@@ -391,9 +359,13 @@ class NLPHandler(BaseHandler):
     def _observed_generation(model_ctx: dict[str, Any]) -> dict[str, Any]:
         state = model_ctx.get("_generation_observation", {})
         pipe = model_ctx["pipeline"]
-        config = getattr(pipe, "generation_config", getattr(getattr(pipe, "model", None), "generation_config", None))
+        config = copy.deepcopy(getattr(pipe, "generation_config", getattr(getattr(pipe, "model", None), "generation_config", None)))
+        params = state.get("params", {})
+        if config is not None:
+            for key, value in params.items():
+                setattr(config, key, value)
         encoder_decoder = bool(getattr(getattr(getattr(pipe, "model", None), "config", None), "is_encoder_decoder", False))
-        inputs = [_actual_input_tokens(value) for value in state.get("inputs", [])]
+        inputs = [count_input_tokens(value) for value in state.get("inputs", [])]
         counts: list[int] = []
         reasons: list[str] = []
         complete = len(state.get("outputs", [])) == state.get("batch_size")
@@ -404,15 +376,19 @@ class NLPHandler(BaseHandler):
                 continue
             prompt_length = int(prompt.shape[-1]) if getattr(prompt, "shape", None) is not None else 0
             generated = output.get("output_ids") if encoder_decoder else output.get("generated_sequence")
-            evidence = _generation_evidence(generated, config, prompt_length=prompt_length,
-                                           encoder_decoder=encoder_decoder, max_new_tokens=state.get("budget"))
+            budget = params.get("max_new_tokens", state.get("budget"))
+            if budget is None and "max_length" in params:
+                budget = params["max_length"] - (1 if encoder_decoder else prompt_length)
+            evidence = generation_evidence(generated, config, prompt_length=prompt_length,
+                                           encoder_decoder=encoder_decoder, max_new_tokens=budget)
             if evidence["actual_output_tokens_per_sequence"] is None:
                 complete = False
             counts.extend(evidence["actual_output_tokens_per_sequence"] or [])
             reasons.extend(evidence["stop_reason_per_sequence"] or [])
         if not complete:
             counts, reasons = [], []
-        return {"actual_input_tokens": sum(inputs) if inputs and None not in inputs and len(inputs) == state.get("batch_size") else None,
+        return {"generation_parameters": params, "inference_interface": type(pipe).__name__,
+                "actual_input_tokens": sum(inputs) if inputs and None not in inputs and len(inputs) == state.get("batch_size") else None,
                 "actual_output_tokens": sum(counts) if counts else None,
                 "actual_output_tokens_per_sequence": counts or None,
                 "stop_reason": reasons[0] if reasons and len(set(reasons)) == 1 else None,
@@ -641,6 +617,10 @@ class NLPHandler(BaseHandler):
         batch_size = processed_input.get("batch_size", 1)
         check_nlp_input(processed_input, task_type)
 
+        if model_ctx.get("backend") == "transformers_model" and task_type in {"text2text-generation", "summarization", "translation"}:
+            from acprof.container.handlers.text_generation import generate
+            return generate(model_ctx, processed_input)
+
         if task_type == "replaced-token-detection":
             import torch
             tokenizer = pipe.tokenizer
@@ -700,14 +680,16 @@ class NLPHandler(BaseHandler):
                         hypothesis_template=processed_input["hypothesis_template"],
                         multi_label=bool(params.get("multi_label", False)), **batch_kwargs)
         if task_type in _GENERATIVE_TASKS:
-            max_new_tokens = params.get("max_new_tokens", 64)
+            generation_params = dict(params)
+            if not generation_params.keys() & {"max_length", "max_new_tokens"}:
+                generation_params["max_new_tokens"] = 64
+            generation_params.setdefault("do_sample", False)
             state = model_ctx.get("_generation_observation")
             if state is not None:
-                state.update(inputs=[], outputs=[], budget=max_new_tokens, batch_size=batch_size)
+                state.update(inputs=[], outputs=[], params=generation_params, batch_size=batch_size)
             return pipe(
                 request_inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
+                **generation_params,
                 truncation=True,
                 **batch_kwargs,
             )
@@ -751,5 +733,5 @@ class NLPHandler(BaseHandler):
                                   "sentence-similarity": "similarity", "text-ranking": "ranking",
                                   "feature-extraction": "embedding"}.get(task_type, "label")),
             "n_results": n_results,
-            **(self._observed_generation(model_ctx) if task_type in _GENERATIVE_TASKS else {}),
+            **(model_ctx.get("generation_evidence") or self._observed_generation(model_ctx) if task_type in _GENERATIVE_TASKS else {}),
         }

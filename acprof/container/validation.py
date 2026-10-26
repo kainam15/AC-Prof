@@ -149,6 +149,14 @@ def validate_output(model_ctx: dict, raw_input: dict, processed_input: Any,
         if not texts and (isinstance(actual_tokens, bool) or not isinstance(actual_tokens, int) or actual_tokens <= 0):
             raise OutputValidationError('generation has no non-empty text or observed output token evidence')
         task_checks.append('non_empty_text' if texts else 'observed_output_tokens')
+        if raw_input.get('task_workload'):
+            declaration = raw_input['task_workload']
+            if declaration.get('interface') != task:
+                raise OutputValidationError('selected task interface differs from executed interface')
+            for key in ('actual_input_tokens', 'actual_output_tokens'):
+                if type(response.get(key)) is not int or response[key] <= 0:
+                    raise OutputValidationError(f'selected task requires observed {key}')
+            task_checks.extend(['selected_task_interface', 'observed_input_and_output_tokens'])
     if task in {'automatic-speech-recognition', 'automatic-speech-recognition-long-form'}:
         if not isinstance(response.get('text'), str):
             raise OutputValidationError('ASR requires transcript text')

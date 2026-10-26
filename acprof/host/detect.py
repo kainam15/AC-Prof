@@ -49,13 +49,16 @@ class TaskInfo:
     hub_metadata: dict[str, Any] = field(default_factory=dict)
     model_store: dict[str, Any] = field(default_factory=dict)
     repository_sources: dict[str, str] = field(default_factory=dict, repr=False)
+    task_discovery: dict[str, Any] = field(default_factory=dict)
+    selected_tasks: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _architecture_metadata(config: Any) -> dict[str, Any]:
     if not isinstance(config, dict):
         return {}
     keys = ("model_type", "architectures", "auto_map", "custom_pipelines", "transformers_version", "torch_dtype", "dtype",
-            "quantization_config", "chronos_pipeline_class", "pretrained_cfg", "architecture")
+            "quantization_config", "chronos_pipeline_class", "pretrained_cfg", "architecture",
+            "task_specific_params", "is_encoder_decoder", "problem_type", "id2label")
     metadata = {key: config[key] for key in keys if key in config}
     if "pretrained_cfg" in metadata and "model_type" not in metadata:
         metadata["model_type"] = "timm_wrapper"
@@ -531,6 +534,7 @@ def _detect_from_hub(
         detection_method="hub_api",
         model_config=model_config,
         hub_metadata={"pipeline_tag": hub_pipeline_tag, "transformers_info": transformers_info,
+                      "tags": list(getattr(info, "tags", None) or []),
                       "task_hint": pipeline_tag if pipeline_tag != hub_pipeline_tag else None,
                       "task_hint_source": task_hint_source},
         **repository,
@@ -670,4 +674,6 @@ def detect_task(
         info.runtime_backend = override_backend
         info.detection_method = "manual"
 
+    from acprof.model_candidates import discover_declared_tasks
+    info.task_discovery = discover_declared_tasks(info)
     return info

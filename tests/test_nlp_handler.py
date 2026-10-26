@@ -293,14 +293,16 @@ class TestNLPTaskCompatibility:
         tokenizer = SimpleNamespace(pad_token_id=None, eos_token="</s>", eos_token_id=2,
                                     pad_token=None, padding_side="right")
         pipe = SimpleNamespace(tokenizer=tokenizer, generation_config=SimpleNamespace(pad_token_id=None))
+        set_seed = Mock()
         with patch.dict("sys.modules", {
             "torch": SimpleNamespace(float32="fp32", float16="fp16"),
-            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=Mock(return_value=pipe)),
+            "transformers": SimpleNamespace(__version__="4.57.6", pipeline=Mock(return_value=pipe), set_seed=set_seed),
         }):
             self.handler.load("org/model", "text-generation", "transformers_pipeline", "cpu")
         assert (tokenizer.pad_token) == ("</s>")
         assert (tokenizer.padding_side) == ("left")
         assert (pipe.generation_config.pad_token_id) == (2)
+        set_seed.assert_called_once_with(0)
 
     def test_decoder_generation_reserves_output_with_architecture_context_limit(self):
         ctx = self.context("text-generation", limit=100)

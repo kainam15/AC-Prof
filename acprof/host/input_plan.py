@@ -80,6 +80,7 @@ def _write_scale_plan_file(
         "model_id": task_info.model_id,
         "task_family": task_info.task_family,
         "pipeline_tag": task_info.pipeline_tag,
+        **({"task_workload": task_info.selected_tasks[0]} if task_info.selected_tasks else {}),
         "workload": dict(workload or {}),
         "model_constraints": dict(model_constraints or {}),
         "scenario": {"type": "serial"},

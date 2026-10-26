@@ -62,16 +62,6 @@
       "symbol": "_positive_int"
     },
     {
-      "source": "acprof.container.handlers.multimodal",
-      "target": "acprof.container.handlers.nlp",
-      "symbol": "_actual_input_tokens"
-    },
-    {
-      "source": "acprof.container.handlers.multimodal",
-      "target": "acprof.container.handlers.nlp",
-      "symbol": "_generation_evidence"
-    },
-    {
       "source": "acprof.container.handlers.onnx_tasks",
       "target": "acprof.container.handlers.structured",
       "symbol": "_artifact_path"

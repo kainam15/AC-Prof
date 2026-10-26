@@ -20,6 +20,13 @@ class TestResultComparison(ComparisonFixture):
     def _setup(self, tmp_path):
         self.build(tmp_path)
 
+    def test_different_declared_workloads_are_not_pooled_despite_same_interface(self):
+        for directory, task_id in ((self.left, 'translation_en_to_de'), (self.right, 'translation_en_to_fr')):
+            self.change_json(directory, 'input_scale_plan.json', lambda plan: plan.update(task_workload={
+                'task_id': task_id, 'interface': 'text2text-generation', 'fingerprint': task_id}))
+        report = self.compare()
+        assert report['conditions']['task_semantics']['status'] == 'incompatible'
+
     def test_wsl_cannot_enter_native_baseline_even_for_cross_hardware(self):
         from acprof.analysis.comparison import compare_results
         self.change_json(self.right, "static_meta.json", lambda meta: meta.update(Environment("wsl2").metadata()))

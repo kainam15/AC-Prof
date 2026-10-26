@@ -40,22 +40,31 @@ class NLPWorkloadGenerator(WorkloadGenerator):
         self._budget = InputBudget()
         self._params: dict = {}
         self._spec_metadata: dict = {}
+        self._task_workload: dict = {}
         if workload_spec_path:
             raw = Path(workload_spec_path).read_bytes()
             spec = json.loads(raw)
             if not isinstance(spec, dict) or spec.get("schema_version") != 1:
                 raise ValueError("NLP workload requires schema_version=1")
-            unknown = set(spec) - {"schema_version", "task", "params", "input_budget"}
+            unknown = set(spec) - {"schema_version", "task", "params", "input_budget", "task_workload"}
             if unknown or spec.get("task", task_type) != task_type:
                 raise ValueError(f"invalid NLP workload task or fields: {sorted(unknown)}")
             self._budget = InputBudget.from_value(spec.get("input_budget"))
             params = spec.get("params", {})
+            from acprof.task_workloads import GENERATION_KEYS, task_fingerprint, validate_generation
+            self._task_workload = spec.get("task_workload", {})
+            if self._task_workload:
+                if (self._task_workload.get("interface") != task_type
+                        or self._task_workload.get("fingerprint") != task_fingerprint(self._task_workload)):
+                    raise ValueError("task workload fingerprint or interface mismatch")
             allowed = ({"prompt", "prompt_name", "normalize_embeddings"} if task_type in
                        {"feature-extraction", "sentence-similarity"} else
-                       {"max_new_tokens"} if task_type in {"text-generation", "text2text-generation", "summarization",
+                       GENERATION_KEYS if task_type in {"text-generation", "text2text-generation", "summarization",
                                                           "translation", "conversational"} else set())
             if not isinstance(params, dict) or set(params) - allowed:
                 raise ValueError(f"unsupported params for NLP workload task {task_type}")
+            if allowed == GENERATION_KEYS:
+                validate_generation(params)
             if "max_new_tokens" in params and (type(params["max_new_tokens"]) is not int or params["max_new_tokens"] < 1):
                 raise ValueError("max_new_tokens must be a positive integer")
             if "normalize_embeddings" in params and not isinstance(params["normalize_embeddings"], bool):
@@ -83,6 +92,10 @@ class NLPWorkloadGenerator(WorkloadGenerator):
 
     def generate_for_word_count(self, word_count: int) -> dict[str, Any]:
         text = self._generate_text_from_word_count(word_count)
+        if self._task_workload:
+            from acprof.task_workloads import CORPORA, render_task_text
+            if self._task_workload["kind"] in CORPORA or self._task_workload["config"].get("input_text"):
+                text = render_task_text(self._task_workload, word_count)
 
         payload: dict[str, Any] = {
             "text": text, "params": {}, "batch_size": self.batch_size,
@@ -101,7 +114,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             payload["text"] = " ".join(words)
         elif self.task_type in ("text-generation", "text2text-generation",
                               "summarization", "translation", "conversational"):
-            payload["params"]["max_new_tokens"] = 64
+            if not (self._params.keys() & {"max_length", "max_new_tokens"}):
+                payload["params"]["max_new_tokens"] = 64
         elif self.task_type == "question-answering":
             payload["question"] = DEFAULT_QA_QUESTION
             payload["context"] = text
@@ -115,6 +129,8 @@ class NLPWorkloadGenerator(WorkloadGenerator):
             payload["documents"] = [text, " ".join(reversed(text.split()))]
 
         payload["params"].update(copy.deepcopy(self._params))
+        if self._task_workload:
+            payload["task_workload"] = {key: self._task_workload[key] for key in ("task_id", "fingerprint", "interface")}
         check_nlp_input(payload, self.task_type, embedding_prompt=self._params.get("prompt", ""))
         return payload
 
@@ -150,6 +166,13 @@ class NLPWorkloadGenerator(WorkloadGenerator):
 
     def plan_metadata(self) -> dict[str, Any]:
         metadata = copy.deepcopy(self._spec_metadata)
+        if self._task_workload:
+            from acprof.model_evidence import content_digest
+            from acprof.task_workloads import CORPORA
+            metadata.update(task_workload=copy.deepcopy(self._task_workload),
+                            data_source="acprof_builtin_text", seed=0,
+                            template_sha256=content_digest({"config": self._task_workload["config"],
+                                                           "corpus": CORPORA.get(self._task_workload["kind"], _CORPUS_WORDS)}))
         metadata["input_budget"] = self._budget.as_dict()
         if self.task_type == "table-question-answering":
             return {**metadata, "input_scale_type": "table_rows", "columns": ["name", "value"]}

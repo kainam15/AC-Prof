@@ -342,9 +342,9 @@ class MultimodalHandler(BaseHandler):
                                         "original_resolution": [int(decoded[0].shape[1]), int(decoded[0].shape[0])]}
         content.append({"type": "text", "text": text})
         inputs = self._generation_inputs(model_ctx, content, media_kwargs)
-        from acprof.container.handlers.nlp import _actual_input_tokens
+        from acprof.container.handlers.generation_evidence import count_input_tokens
 
-        actual_input_tokens = _actual_input_tokens(inputs)
+        actual_input_tokens = count_input_tokens(inputs)
         modality_facts["text"].update(tokens=actual_input_tokens, token_scope="model_input_including_modality_and_special_tokens")
         for modality, keys in (("images", ("pixel_values", "image_pixel_values")),
                                ("video", ("pixel_values_videos", "video_pixel_values", "pixel_values")),
@@ -581,11 +581,11 @@ class MultimodalHandler(BaseHandler):
             generated = generated.sequences
         if callable(getattr(generated, "detach", None)):
             generated = generated.detach().cpu()
-        from acprof.container.handlers.nlp import _generation_evidence
+        from acprof.container.handlers.generation_evidence import generation_evidence
 
         model = model_ctx["model"]
         generation_model = getattr(model, "thinker", model) if mode == "omni" else model
-        evidence = _generation_evidence(
+        evidence = generation_evidence(
             generated, getattr(generation_model, "generation_config", getattr(model, "config", None)),
             prompt_length=raw_output["prompt_length"],
             encoder_decoder=bool(getattr(model.config, "is_encoder_decoder", False)),

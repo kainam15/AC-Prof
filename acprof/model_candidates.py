@@ -295,3 +295,91 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
             "selection": {"task": selected, "backend": task_info.runtime_backend if selected else None,
                           "source": "explicit" if override_tag or override_backend or
                                     getattr(task_info, "model_spec", {}) else "metadata"}}
+
+
+def discover_declared_tasks(task_info: Any) -> dict:
+    """Collect explicit workload declarations without loading weights or model code."""
+    from acprof.extensions import CATALOG
+    from acprof.task_workloads import canonical_task_id, parse_task
+
+    config = task_info.model_config or {}
+    hub = task_info.hub_metadata or {}
+    metadata = task_info.repository_metadata or {}
+    encoder = config.get("is_encoder_decoder") is True or any(
+        "SEQ_TO_SEQ_CAUSAL_LM" in TASK_MAPPINGS.get(task, ())
+        for architecture in config.get("architectures", []) for task in _architecture_tasks(architecture))
+    found: dict[str, dict] = {}
+    blocked: set[str] = set()
+    unresolved, conflicts = [], []
+    declarations = config.get("task_specific_params") or {}
+    defaults = metadata.get("generation_config.json") or {}
+    if not isinstance(declarations, dict):
+        unresolved.append({"source": "config.task_specific_params", "reason": "expected an object"})
+        declarations = {}
+
+    def add(name, params, source):
+        identifier = canonical_task_id(name)
+        try:
+            candidate = parse_task(name, params, encoder_decoder=encoder, source=source,
+                                   default_generation=defaults)
+            identifier = candidate["task_id"]
+            if identifier in blocked:
+                return
+            if identifier in found:
+                if found[identifier]["fingerprint"] != candidate["fingerprint"]:
+                    conflicts.append(f"{source}: conflicting configurations for {identifier}")
+                    blocked.add(identifier)
+                    del found[identifier]
+                    return
+                found[identifier]["evidence"].append(source)
+                return
+            # Incompatible metadata is evidence of a conflict, not an extra executable task.
+            hints = {operation for architecture in config.get("architectures", [])
+                     for task in _architecture_tasks(architecture) for operation in TASK_MAPPINGS.get(task, ())}
+            operations = set(TASK_MAPPINGS.get(candidate["interface"], ()))
+            if hints and operations and hints.isdisjoint(operations):
+                conflicts.append(f"{source}: {name} conflicts with checkpoint loader")
+                return
+            found[identifier] = candidate
+        except (ValueError, TypeError) as exc:
+            blocked.add(identifier)
+            unresolved.append({"task": name, "source": source, "reason": str(exc)})
+
+    for name, params in sorted(declarations.items()):
+        add(name, params, f"config.task_specific_params.{name}")
+    labels = [(hub.get("pipeline_tag"), "hub.pipeline_tag")]
+    labels.append(((hub.get("transformers_info") or {}).get("pipeline_tag"),
+                   "hub.transformers_info.pipeline_tag"))
+    labels.extend((tag, "hub.tags") for tag in hub.get("tags", []) if isinstance(tag, str)
+                  and (tag in CATALOG.task_families or tag.startswith("translation_") or tag == "sentiment-analysis"))
+    if not hub and task_info.detection_method == "hub_api":
+        labels.append((task_info.pipeline_tag, "hub.pipeline_tag"))
+    spec = task_model_spec(task_info)
+    if spec and (task_info.model_spec or metadata.get("acprof_model.json")):
+        labels.append((spec.get("task"), "model_spec"))
+    for name, source in labels:
+        if not name or name == "unknown":
+            continue
+        if canonical_task_id(name) in blocked:
+            continue
+        matching = [item for item in found.values() if item["task_id"] == name or item["kind"] == name
+                    or item["interface"] == name]
+        if matching:
+            for item in matching:
+                if source not in item["evidence"]:
+                    item["evidence"].append(source)
+        elif not (declarations and name in {"text2text-generation", "text-generation", "translation"}):
+            add(name, {}, source)
+    for identifier, generic in list(found.items()):
+        if identifier != generic["interface"] or not all(source.startswith("hub.") for source in generic["evidence"]):
+            continue
+        specific = [item for item in found.values() if item["interface"] == identifier and item["task_id"] != identifier]
+        if specific:
+            for item in specific:
+                item["evidence"] = list(dict.fromkeys([*item["evidence"], *generic["evidence"]]))
+            del found[identifier]
+    tasks = sorted(found.values(), key=lambda item: item["task_id"])
+    return {"schema_version": 1, "status": "selection_required" if len(tasks) > 1 or conflicts else
+            "ready" if tasks else "needs_configuration", "tasks": tasks, "unresolved": unresolved,
+            "conflicts": conflicts, "inferred": list(config.get("architectures") or []),
+            "model_revision": task_info.model_revision}
