@@ -906,6 +906,14 @@ class AcprofTui(BarCursorApp):
     def on_log_export(self) -> None:
         self.logs.export()
 
+    @on(Button.Pressed, '#copy-log-export-path')
+    def on_log_export_copy_path(self) -> None:
+        self.logs.copy_export_path()
+
+    @on(Button.Pressed, '#view-log-export-path')
+    def on_log_export_view_path(self) -> None:
+        self.logs.view_export_path()
+
     @on(Button.Pressed, '#follow-log')
     def on_configuration_follow_latest_log(self) -> None:
         self.configuration.follow_latest_log()

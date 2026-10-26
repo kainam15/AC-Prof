@@ -1,4 +1,5 @@
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,24 @@ from acprof.tui.log import SelectableLog
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.progress_widgets import DownloadProgressPanel
 from acprof.tui.stages import Stage
+
+
+async def test_export_opens_save_dialog_and_cancel_has_no_side_effects(tmp_path):
+    app = AcprofTui(settings_path=tmp_path / 'settings.json')
+    with patch.object(Path, 'home', return_value=tmp_path / 'home'):
+        async with app.run_test(size=(80, 24)) as pilot:
+            app.query_one('#run-log', SelectableLog).write('保留日志')
+            app.logs.export()
+            await pilot.pause()
+            assert app.screen.id == 'log-export-screen'
+            assert app.screen.query_one('#log-export-directory', Input).value == str(
+                tmp_path / 'home' / 'AC-Prof' / 'exports' / 'logs')
+            assert not (tmp_path / 'home').exists()
+            await pilot.press('escape')
+            await pilot.pause()
+            assert not app.read_jobs
+            assert not (tmp_path / 'settings.json').exists()
+            assert not list(tmp_path.rglob('*.log'))
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
@@ -147,10 +166,13 @@ async def test_export_copies_retained_raw_text_and_holds_operation_gate(tmp_path
         app.query_one('#run-log', SelectableLog).write('[INFO] original\n[WARN] warning')
         app.query_one('#run-log', SelectableLog).set_view(level='ERROR')
         app.logs.export()
+        await pilot.pause()
+        app.screen.query_one('#log-export-directory', Input).value = str(tmp_path / 'exports')
         assert app.read_jobs
         assert app.query_one('#start-run', Button).disabled
+        await pilot.click('#log-export-save')
         await app.workers.wait_for_complete()
         await pilot.pause()
-        exported, = (tmp_path / 'logs').glob('*.log')
+        exported, = (tmp_path / 'exports').glob('*.log')
         assert exported.read_text() == '[INFO] original\n[WARN] warning'
         assert not app.read_jobs

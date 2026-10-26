@@ -54,6 +54,7 @@ class TuiSettings:
     last_result_dir: str = ""
     last_result_csv: str = ""
     last_html_report: str = ""
+    last_log_export_dir: str = ""
 
     def validate(self, *, project_dir: Path) -> TuiSettings:
         if not isinstance(self.ui, UiPreferences):
@@ -65,6 +66,8 @@ class TuiSettings:
             raise ValueError(message_id('ui.0908'))
         if type(self.last_html_report) is not str:
             raise ValueError(message_id('ui.0954'))
+        if type(self.last_log_export_dir) is not str:
+            raise ValueError(message_id('ui.2209'))
         config = self.run_defaults
         if config is not None:
             if not isinstance(config, RunConfig):
@@ -85,6 +88,7 @@ class TuiSettings:
             last_result_dir=self.last_result_dir.strip(),
             last_result_csv=self.last_result_csv.strip(),
             last_html_report=self.last_html_report.strip(),
+            last_log_export_dir=self.last_log_export_dir.strip(),
         )
 
 
@@ -156,6 +160,7 @@ def _decode_settings(payload: Any, project_dir: Path) -> TuiSettings:
         last_result_dir=payload.get("last_result_dir", ""),
         last_result_csv=payload.get("last_result_csv", ""),
         last_html_report=payload.get("last_html_report", ""),
+        last_log_export_dir=payload.get("last_log_export_dir", ""),
     ).validate(project_dir=project_dir)
 
 
@@ -193,6 +198,7 @@ def save_settings(path: Path, settings: TuiSettings, project_dir: Path) -> None:
         "last_result_dir": normalized.last_result_dir,
         "last_result_csv": normalized.last_result_csv,
         "last_html_report": normalized.last_html_report,
+        "last_log_export_dir": normalized.last_log_export_dir,
         "run_defaults": (
             {key: value for key, value in asdict(normalized.run_defaults).items()
              if key not in {"rebuild_image", "resume"}}

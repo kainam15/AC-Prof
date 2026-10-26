@@ -489,6 +489,12 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
                     yield app.localization.localized_widget(Input(placeholder="搜索保留日志", id="log-search", classes="log-control"))
                     yield app.localization.localized_widget(Button("导出", id="export-log", classes="log-control", compact=True))
                 yield Static("", id="log-status", markup=False)
+                with Horizontal(id="log-export-result"):
+                    yield app.localization.localized_widget(Static(message_id('ui.0937')))
+                    yield app.localization.localized_widget(Button(message_id('ui.2227'),
+                        id="copy-log-export-path", classes="log-control", compact=True))
+                    yield app.localization.localized_widget(Button(message_id('ui.2228'),
+                        id="view-log-export-path", classes="log-control", compact=True))
                 with Horizontal(id="log-toolbar", classes="action-bar"):
                     with Horizontal(classes="action-secondary"):
                         yield app.localization.localized_widget(Button("复制全部", id="copy-log-all", classes="log-tool log-control"))

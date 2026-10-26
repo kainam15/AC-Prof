@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,14 @@ from acprof.tui.diagnostic_buffer import BoundedLogBuffer
 from acprof.tui.i18n import message_id
 from acprof.tui.input import BarCursorInput as Input
 from acprof.tui.log import SelectableLog
+from acprof.tui.log_export import (
+    default_log_export_dir,
+    default_log_export_filename,
+    list_export_directories,
+    log_export_error,
+    write_log_export,
+)
+from acprof.tui.log_export_screen import ExportDirectoryScreen, LogExportScreen
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage
 
@@ -28,6 +37,7 @@ class LogController:
         self.stage: Stage | None = None
         self.stage_started = time.monotonic()
         self.tools_open = False
+        self.last_export_path: Path | None = None
 
     @property
     def pending_size(self) -> int:
@@ -137,37 +147,97 @@ class LogController:
             self.app.notify(self.app.localization.tr('ui.0935'))
 
     def export(self) -> None:
-        # Export may do disk I/O. Require the entire operation to be idle, and
-        # hold a read-job token until completion so a measurement cannot start.
-        if self.app.is_busy():
-            self.app.notify(self.app.localization.tr('ui.0807'), severity="warning")
+        if not self.app.operation_state().allows('log-export'):
+            self.app.notify(self.app.localization.tr(message_id('ui.0807')), severity="warning")
             return
         self.flush()
-        text = self.log.raw_text
-        if not text:
+        if not self.log.raw_text:
             return
+        token = self.begin_export_job()
+        previous = self.app.configuration.saved_settings.last_log_export_dir
+        self.app.push_screen(LogExportScreen(
+            Path(previous) if previous else default_log_export_dir(),
+            default_log_export_filename(), self.load_export_directories,
+        ), partial(self.export_chosen, token))
+
+    def begin_export_job(self) -> object:
+        # Keep all reads and writes owned until the actual thread returns,
+        # including directory reads whose dialog has already been cancelled.
         token = object()
         self.app.read_jobs.add(token)
         self.app.set_busy(True)
-        path = self.app.configuration.settings_path.parent / "logs" / f"retained-{time.time_ns()}.log"
+        return token
+
+    def finish_export_job(self, token: object) -> None:
+        self.app.read_jobs.discard(token)
+        self.app.set_busy(self.app.is_busy())
+
+    def load_export_directories(self, screen: ExportDirectoryScreen, path: Path, nearest_parent: bool) -> None:
+        token = self.begin_export_job()
+
+        def read() -> None:
+            directory, error = path, ""
+            entries: tuple[Path, ...] = ()
+            try:
+                directory, entries = list_export_directories(
+                    path, nearest_parent=nearest_parent, cancelled=screen.cancelled,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                error = log_export_error(exc)
+            self.app.process.safe_process_callback(finished, directory, entries, error)
+
+        def finished(directory: Path, entries: tuple[Path, ...], error: str) -> None:
+            self.finish_export_job(token)
+            screen.loaded(directory, entries, error)
+
+        self.app.run_worker(read, thread=True, group="log-export-directory", exit_on_error=False)
+
+    def export_chosen(self, token: object, path: Path | None) -> None:
+        if path is None:
+            self.finish_export_job(token)
+            return
+        self.flush()
+        text = self.log.raw_text
 
         def write() -> None:
+            destination = path
             error = ""
             try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("x", encoding="utf-8", newline="") as stream:
-                    stream.write(text)
-            except OSError as exc:
-                error = str(exc)
-            self.app.process.safe_process_callback(self.export_finished, token, path, error)
+                destination = write_log_export(path, text)
+            except (OSError, ValueError, UnicodeError) as exc:
+                error = log_export_error(exc)
+            self.app.process.safe_process_callback(self.export_finished, token, destination, error)
 
         self.app.run_worker(write, thread=True, group="log-export", exit_on_error=False)
 
     def export_finished(self, token: object, path: Path, error: str) -> None:
-        self.app.read_jobs.discard(token)
         if not self.app.is_running or self.app.ui_closing:
+            self.app.read_jobs.discard(token)
             return
-        self.app.set_busy(self.app.is_busy())
-        self.app.notify(self.app.localization.tr(message_id(
-            'ui.0936' if error else 'ui.0937', error or path,
-        )), severity="error" if error else "information", timeout=8)
+        if error:
+            self.finish_export_job(token)
+            self.app.notify(self.app.localization.tr(message_id('ui.0936', error)), severity="error", timeout=8)
+            return
+        self.last_export_path = path
+        self.app.configuration.remember_last_used(log_export_dir=str(path.parent))
+        self.app.query_one('#log-export-result').display = True
+        self.finish_export_job(token)
+        self.app.notify(self.app.localization.tr(message_id('ui.0937')))
+
+    def copy_export_path(self) -> None:
+        if self.last_export_path is not None and not self.app.latest_snapshot.measurement_active:
+            self.app.copy_to_clipboard(str(self.last_export_path))
+            self.app.notify(self.app.localization.tr(message_id('ui.2229')))
+
+    def view_export_path(self) -> None:
+        if self.last_export_path is None or self.app.latest_snapshot.measurement_active:
+            return
+        from acprof.tui.views import ConfirmActionScreen
+
+        def closed(copy: bool | None) -> None:
+            if copy:
+                self.copy_export_path()
+
+        self.app.push_screen(ConfirmActionScreen(
+            message_id('ui.2228'), str(self.last_export_path), message_id('ui.2227'),
+        ), closed)

@@ -23,6 +23,26 @@ from acprof.tui.settings import (
 
 
 class TestTuiSettings:
+    def test_old_settings_default_export_directory_without_rewriting(self):
+        self.write_payload({'version': SETTINGS_VERSION, 'ui': {'language': 'en'},
+                            'last_model': 'demo/model'})
+        original = self.path.read_bytes()
+        settings, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert settings.last_log_export_dir == ''
+        assert settings.ui.language == 'en'
+        assert settings.last_model == 'demo/model'
+        assert self.path.read_bytes() == original
+
+    def test_custom_log_export_directory_round_trips(self):
+        directory = str(self.project / '导出日志')
+        settings = TuiSettings(last_log_export_dir=directory, last_model='demo/model')
+        save_settings(self.path, settings, self.project)
+        restored, warning = load_settings(self.path, self.project)
+        assert not warning
+        assert restored == settings
+        assert not Path(directory).exists()
+
     @pytest.mark.parametrize("legacy_reuse", [False, True])
     def test_old_image_preference_migrates_without_changing_experiment(self, legacy_reuse):
         self.write_payload({"version": SETTINGS_VERSION, "run_defaults": {
@@ -231,7 +251,7 @@ class TestTuiSettings:
         assert ("token") not in (self.path.read_text(encoding="utf-8"))
         assert ("do-not-store") not in (self.path.read_text(encoding="utf-8"))
 
-    @pytest.mark.parametrize('settings_case', range(9))
+    @pytest.mark.parametrize('settings_case', range(10))
     def test_save_rejects_invalid_dataclasses_before_creating_file(self, settings_case):
         invalid = (
             TuiSettings(ui=UiPreferences(log_wrap=1)),
@@ -240,6 +260,7 @@ class TestTuiSettings:
             TuiSettings(last_model=False),
             TuiSettings(last_result_dir=False),
             TuiSettings(last_result_csv=Path("result_all.csv")),
+            TuiSettings(last_log_export_dir=False),
             TuiSettings(run_defaults=RunConfig(rebuild_image="false")),
             TuiSettings(run_defaults=RunConfig(repeat=True)),
             TuiSettings(run_defaults=RunConfig(sample_hz=10 ** 400)),
@@ -252,6 +273,7 @@ class TestTuiSettings:
             message_id('ui.0907'),
             message_id('ui.0908'),
             message_id('ui.0908'),
+            message_id('ui.2209'),
             message_id('ui.0913', message_id('ui.0910'), 'rebuild_image'),
             message_id('ui.0913', message_id('ui.0910'), 'repeat'),
             '[sample_hz]',

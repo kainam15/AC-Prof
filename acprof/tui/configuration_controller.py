@@ -403,6 +403,7 @@ class ConfigurationController:
 
     def remember_last_used(
         self, *, model: str = "", result_dir: str = "", result_csv: str = "", html_report: str = "",
+        log_export_dir: str = "",
     ) -> None:
         """Remember confirmed inputs, preserving explicitly saved preferences."""
         updates = {}
@@ -421,6 +422,7 @@ class ConfigurationController:
             last_result_dir=updates.get("last_result_dir", self.saved_settings.last_result_dir),
             last_result_csv=updates.get("last_result_csv", self.saved_settings.last_result_csv),
             last_html_report=html_report or self.saved_settings.last_html_report,
+            last_log_export_dir=log_export_dir or self.saved_settings.last_log_export_dir,
         )
         if settings == self.saved_settings:
             return

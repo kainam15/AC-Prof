@@ -256,6 +256,9 @@ Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disable
 #log-search { width: 1fr; min-width: 10; }
 #log-controls Button { min-width: 3; width: auto; height: 3; padding: 0 1; border: none; }
 #log-status { display: none; height: 1; padding: 0 2; color: $text-muted; text-overflow: ellipsis; }
+#log-export-result { display: none; height: 1; padding: 0 2; }
+#log-export-result Static { width: auto; margin-right: 2; color: $success; }
+#log-export-result Button { height: 1; min-width: 8; width: auto; border: none; margin-right: 2; padding: 0 1; }
 #log-panel { width: 100%; height: 1fr; min-height: 5; padding: 0; }
 #log-toolbar { height: 4; background: transparent; }
 #log-toolbar Button {
