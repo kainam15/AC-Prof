@@ -5,9 +5,11 @@ import errno
 import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from pathlib import Path
 from threading import Barrier
 from typing import TextIO
+from unittest.mock import patch
 
 import pytest
 
@@ -119,16 +121,17 @@ def test_failure_before_publication_closes_and_removes_temporary(tmp_path, monke
                      "publish": "replace" if overwrite else "link"}[phase]
         monkeypatch.setattr(os, operation, fail)
 
-    def write(stream: TextIO) -> None:
-        opened.append(stream)
-        stream.write("partial output\n")
-        if phase in {"write", "cancel"}:
-            raise failure
-        if phase == "flush":
-            monkeypatch.setattr(stream, "flush", fail)
+    with ExitStack() as patches:
+        def write(stream: TextIO) -> None:
+            opened.append(stream)
+            stream.write("partial output\n")
+            if phase in {"write", "cancel"}:
+                raise failure
+            if phase == "flush":
+                patches.enter_context(patch.object(stream, "flush", side_effect=failure))
 
-    with pytest.raises(type(failure)) as caught:
-        atomic_write(destination, write, overwrite=overwrite)
+        with pytest.raises(type(failure)) as caught:
+            atomic_write(destination, write, overwrite=overwrite)
     assert caught.value is failure
     assert opened[0].closed
     if overwrite:
