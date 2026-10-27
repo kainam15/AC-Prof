@@ -1,10 +1,10 @@
 """延迟模型残差和拟合曲线图表。"""
 
 import inspect
-import json
 import math
 import os
 from types import SimpleNamespace
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -409,7 +409,7 @@ def plot_latency_model_residuals(
 
 def plot_latency_model_fit_curves(
     residuals_path: str,
-    report_path: str,
+    report: dict[str, Any],
     out_png: str | None,
     *,
     show_plots: bool = False,
@@ -418,9 +418,8 @@ def plot_latency_model_fit_curves(
     if not os.path.exists(residuals_path):
         print(f"[skip] Cannot find {residuals_path}")
         return False
-    if not os.path.exists(report_path):
-        print(f"[skip] Cannot find {report_path}")
-        return False
+    if report.get("residuals_csv") != os.path.basename(residuals_path):
+        raise ValueError("latency report and residual CSV do not match")
 
     residual_df = pd.read_csv(residuals_path, skipinitialspace=True, float_precision="round_trip")
     required_columns = {
@@ -440,9 +439,6 @@ def plot_latency_model_fit_curves(
     if residual_df.empty:
         print(f"[skip] No latency fit rows in {residuals_path}")
         return False
-
-    with open(report_path, encoding="utf-8") as f:
-        report = json.load(f)
 
     for column in ("cpu_cores", "mem_cap_gb", "input_scale", "latency_s"):
         residual_df[column] = pd.to_numeric(residual_df[column], errors="coerce")

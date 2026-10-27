@@ -77,9 +77,15 @@ Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派�
 residual CSV 每行写入 environment_class。缺少源身份时标记 unknown，混合环境输入拒绝拟合。
 
 - `latency_model/latency_model_report.json`
-- `latency_model/latency_model_residuals.csv`
+- `latency_model/latency_model_residuals-<generation>.csv`（具体文件名由报告的 `residuals_csv` 指定）
 - `latency_model/latency_model_fit_curves.png`
 - `latency_model/latency_model_residuals.png`
+
+CSV 先以独立文件完成写入，随后原子替换 JSON 报告；读取时以 JSON 的 `residuals_csv`
+选择同一代 CSV，不根据目录中最新文件或旧固定文件名推断。schema v2、字段和数值单位不变。
+跳过拟合时报告指向新生成的仅含表头的 CSV。旧代 CSV（包括历史固定名文件）保留，
+避免已读取旧报告的消费者失去数据；写入中断也可能留下未被当前 JSON 引用的完整 CSV。
+绘图使用本次返回的报告快照，避免并发发布后重读另一代 JSON；PNG 仍分别生成。
 
 建模前会先按 `GPU mode × CPU × memory × input scale` 对正式测量重复取中位数，确保同一个 case 的重复不会被拆到训练与测试两侧。CPU-off 使用对数空间二次响应面；GPU-on 使用连续分段 log-linear 主模型，并为不稳定的上边界配置连续 affine latency tail：
 

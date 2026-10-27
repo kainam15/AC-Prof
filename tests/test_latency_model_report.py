@@ -223,7 +223,7 @@ class TestLatencyModelReport:
         ) as f:
             report = json.load(f)
         with open(
-            os.path.join(model_output_dir, analysis_latency_report.LATENCY_MODEL_RESIDUALS),
+            os.path.join(model_output_dir, report["residuals_csv"]),
             encoding="utf-8",
             newline="",
         ) as f:
@@ -242,9 +242,10 @@ class TestLatencyModelReport:
 
             model_output_dir = os.path.join(tmp, analysis_latency_report.LATENCY_MODEL_DIR)
             assert (os.path.isdir(model_output_dir))
+            report, residual_rows = self._read_artifacts(tmp)
             for artifact_name in (
                 analysis_latency_report.LATENCY_MODEL_REPORT,
-                analysis_latency_report.LATENCY_MODEL_RESIDUALS,
+                report["residuals_csv"],
                 plotting_config.LATENCY_MODEL_RESIDUAL_PLOT,
                 plotting_config.LATENCY_MODEL_FIT_CURVES_PLOT,
             ):
@@ -252,8 +253,6 @@ class TestLatencyModelReport:
                         os.path.join(model_output_dir, artifact_name)
                     ))
                 assert not (os.path.exists(os.path.join(tmp, artifact_name)))
-
-            report, residual_rows = self._read_artifacts(tmp)
 
         assert (report["report_schema_version"]) == (2)
         assert (report["status"]) == ("ok")
@@ -665,7 +664,7 @@ class TestLatencyModelReport:
         assert (report["status"]) == ("unvalidated")
         assert not (report["prediction_ready"])
 
-    def test_invalid_gpu_mode_skips_and_replaces_stale_residuals(self) -> None:
+    def test_invalid_gpu_mode_skips_without_reusing_stale_residuals(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             rows = self._rows(gpu_modes=("on",))
             for row in rows:
@@ -684,6 +683,8 @@ class TestLatencyModelReport:
             analysis_latency_report.write_latency_model_report(df, plotting_data.read_static_meta(csv_path), tmp)
             report, residual_rows = self._read_artifacts(tmp)
             with open(residuals_path, encoding="utf-8") as f:
+                legacy_text = f.read()
+            with open(os.path.join(model_output_dir, report["residuals_csv"]), encoding="utf-8") as f:
                 residual_text = f.read()
 
         assert (report["status"]) == ("skipped")
@@ -691,22 +692,20 @@ class TestLatencyModelReport:
         assert ("unsupported gpu_mode") in (report["reason"])
         assert (residual_rows) == ([])
         assert ("stale-marker") not in (residual_text)
+        assert legacy_text == "stale-marker\n"
         assert ("report_schema_version") in (residual_text.splitlines()[0])
 
     def test_residual_plot_writes_diagnostic_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = self._write_fixture(tmp, self._rows())
             df = pd.read_csv(csv_path)
-            analysis_latency_report.write_latency_model_report(
+            published = analysis_latency_report.write_latency_model_report(
                 df,
                 plotting_data.read_static_meta(csv_path),
                 tmp,
             )
             model_output_dir = os.path.join(tmp, analysis_latency_report.LATENCY_MODEL_DIR)
-            residuals_path = os.path.join(
-                model_output_dir,
-                analysis_latency_report.LATENCY_MODEL_RESIDUALS,
-            )
+            residuals_path = published.residuals_path
             out_png = os.path.join(
                 model_output_dir,
                 plotting_config.LATENCY_MODEL_RESIDUAL_PLOT,
@@ -725,20 +724,15 @@ class TestLatencyModelReport:
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = self._write_fixture(tmp, self._rows())
             df = pd.read_csv(csv_path)
-            analysis_latency_report.write_latency_model_report(
+            published = analysis_latency_report.write_latency_model_report(
                 df,
                 plotting_data.read_static_meta(csv_path),
                 tmp,
             )
+            # A later publication must not change the pair held by this renderer.
+            analysis_latency_report.write_latency_model_report(pd.DataFrame(), {}, tmp)
             model_output_dir = os.path.join(tmp, analysis_latency_report.LATENCY_MODEL_DIR)
-            residuals_path = os.path.join(
-                model_output_dir,
-                analysis_latency_report.LATENCY_MODEL_RESIDUALS,
-            )
-            report_path = os.path.join(
-                model_output_dir,
-                analysis_latency_report.LATENCY_MODEL_REPORT,
-            )
+            residuals_path = published.residuals_path
             out_png = os.path.join(
                 model_output_dir,
                 plotting_config.LATENCY_MODEL_FIT_CURVES_PLOT,
@@ -746,7 +740,7 @@ class TestLatencyModelReport:
 
             plotted = plotting_latency.plot_latency_model_fit_curves(
                 residuals_path,
-                report_path,
+                published.report,
                 out_png,
             )
 

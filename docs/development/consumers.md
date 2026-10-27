@@ -7,7 +7,10 @@
 `analysis/latency_model.py` 负责拟合、预测与验证，`latency_report.py` 负责报告和残差数据。
 `build_latency_model_report()` 只计算并返回 `LatencyModelReport`，不创建目录或写文件；
 CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write_latency_model_report()`
-负责发布既有 schema v2 JSON 与 CSV，包括跳过拟合时清空旧残差的行为。
+负责发布既有 schema v2 JSON 与 CSV：先独占写入每代 CSV，再原子更新 JSON 中的
+`residuals_csv` 引用；跳过拟合时选择新的仅含表头的 CSV，保留旧代文件供已有读者使用。
+返回的 `PublishedLatencyModelReport` 固定本次元数据与 CSV 路径，拟合曲线直接使用该快照，
+不再分别读取可被其他发布者替换的 JSON 与 CSV。
 `plotting` 内的 `config`、`data`、`styles` 分别管理图表声明、CSV 整理和样式；
 `metrics`、`diagnostics`、`latency` 分别渲染常规指标、诊断图和模型图。
 

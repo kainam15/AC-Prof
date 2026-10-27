@@ -6,6 +6,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -89,6 +90,15 @@ class LatencyModelReport:
 
     report: dict[str, Any]
     residuals: tuple[dict[str, object], ...]
+
+
+@dataclass(frozen=True)
+class PublishedLatencyModelReport:
+    """Pin the report and its immutable CSV for subsequent rendering."""
+
+    report: dict[str, Any]
+    report_path: str
+    residuals_path: str
 
 
 def _skipped_latency_model_report(static_meta: dict[str, object], reason: str) -> LatencyModelReport:
@@ -552,26 +562,34 @@ def build_latency_model_report(
     return LatencyModelReport(_clean_json_value(report), residuals)
 
 
-def write_latency_model_report(df: pd.DataFrame, static_meta: dict[str, object], output_dir: str) -> None:
-    """Publish the existing JSON/CSV protocol after all calculation has completed."""
+def write_latency_model_report(
+    df: pd.DataFrame, static_meta: dict[str, object], output_dir: str,
+) -> PublishedLatencyModelReport:
+    """Publish an immutable CSV, then atomically select it through the JSON report."""
     result = build_latency_model_report(df, static_meta)
     model_output_dir = os.path.join(output_dir, LATENCY_MODEL_DIR)
-    os.makedirs(model_output_dir, exist_ok=True)
-    residuals_path = os.path.join(model_output_dir, LATENCY_MODEL_RESIDUALS)
-    # A skipped calculation still replaces stale residuals with a header-only CSV.
+    stem, suffix = os.path.splitext(LATENCY_MODEL_RESIDUALS)
+    residuals_name = f"{stem}-{uuid4().hex}{suffix}"
+    residuals_path = os.path.join(model_output_dir, residuals_name)
+    # A skipped calculation selects a fresh header-only CSV. Older generations
+    # remain valid for readers that already hold their report snapshot.
     def write_residuals(stream) -> None:
         writer = csv.DictWriter(stream, fieldnames=LATENCY_MODEL_RESIDUAL_FIELDS)
         writer.writeheader()
         writer.writerows(result.residuals)
 
-    atomic_write(residuals_path, write_residuals)
+    atomic_write(residuals_path, write_residuals, overwrite=False)
     report_path = os.path.join(model_output_dir, LATENCY_MODEL_REPORT)
+    published_report = {**result.report, "residuals_csv": residuals_name}
 
     def write_report(stream) -> None:
-        json.dump(result.report, stream, ensure_ascii=True, indent=2)
+        json.dump(published_report, stream, ensure_ascii=True, indent=2)
         stream.write("\n")
 
+    # Do not remove the complete CSV on an error: replacement may have succeeded
+    # before a directory-sync failure. The JSON is the only current-generation selector.
     atomic_write(report_path, write_report)
     print(f"[saved] {report_path}")
     if result.residuals:
         print(f"[saved] {residuals_path}")
+    return PublishedLatencyModelReport(published_report, report_path, residuals_path)

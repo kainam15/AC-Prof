@@ -179,16 +179,9 @@ def main(argv=None):
                 else None
             ),
         )
-    analysis_latency_report.write_latency_model_report(df, static_meta, output_dir)
-    model_output_dir = os.path.join(output_dir, analysis_latency_report.LATENCY_MODEL_DIR)
-    residuals_path = os.path.join(
-        model_output_dir,
-        analysis_latency_report.LATENCY_MODEL_RESIDUALS,
-    )
-    report_path = os.path.join(
-        model_output_dir,
-        analysis_latency_report.LATENCY_MODEL_REPORT,
-    )
+    published = analysis_latency_report.write_latency_model_report(df, static_meta, output_dir)
+    model_output_dir = os.path.dirname(published.report_path)
+    residuals_path = published.residuals_path
     if os.path.exists(residuals_path):
         plotting_latency.plot_latency_model_residuals(
             residuals_path,
@@ -203,7 +196,7 @@ def main(argv=None):
         )
         plotting_latency.plot_latency_model_fit_curves(
             residuals_path,
-            report_path,
+            published.report,
             (
                 os.path.join(
                     model_output_dir,

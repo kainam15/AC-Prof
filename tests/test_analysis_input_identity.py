@@ -23,8 +23,8 @@ def fractional_rows():
 
 def test_residual_identity_roundtrips_fractional_resources_and_tiny_scales(tmp_path):
     rows = fractional_rows()
-    write_latency_model_report(pd.DataFrame(rows), {}, str(tmp_path))
-    with (tmp_path / "latency_model/latency_model_residuals.csv").open() as stream:
+    published = write_latency_model_report(pd.DataFrame(rows), {}, str(tmp_path))
+    with open(published.residuals_path) as stream:
         actual = list(csv.DictReader(stream))
     fields = ("cpu_cores", "mem_cap_gb", "input_scale")
     assert {tuple(float(row[k]) for k in fields) for row in actual} == {
@@ -33,8 +33,7 @@ def test_residual_identity_roundtrips_fractional_resources_and_tiny_scales(tmp_p
     try:
         with patch.object(plt, "close"):
             assert plot_latency_model_fit_curves(
-                str(tmp_path / "latency_model/latency_model_residuals.csv"),
-                str(tmp_path / "latency_model/latency_model_report.json"), None,
+                published.residuals_path, published.report, None,
             )
         assert len(plt.gcf().axes[0].lines) == 12
         assert all(min(line.get_xdata()) == 1e-8 for line in plt.gcf().axes[0].lines)
