@@ -105,7 +105,7 @@ def _format_input_scale_knot(input_scale: float) -> str:
     )
 
 
-def _model_feature_names(
+def model_feature_names(
     hardware_model: str,
     input_scale_spline_knots: list[float] | None = None,
 ) -> list[str]:
@@ -345,7 +345,7 @@ def _fit_log_latency_model(
         if hardware_model == "gpu"
         else []
     )
-    feature_names = _model_feature_names(
+    feature_names = model_feature_names(
         hardware_model,
         input_scale_spline_knots,
     )
@@ -412,7 +412,7 @@ def _fit_log_latency_model(
                     calibrate_gpu_upper_tail=False,
                 )
                 calibration_predictions = np.asarray([
-                    _predict_latency(row, calibration_model)
+                    predict_latency(row, calibration_model)
                     for row in calibration_test_rows
                 ])
                 calibration_actuals = np.asarray([
@@ -481,7 +481,7 @@ def _predict_primary_latency(row, model: dict) -> float:
     return float(math.exp(bounded_prediction))
 
 
-def _predict_latency(row, model: dict) -> float:
+def predict_latency(row, model: dict) -> float:
     primary_prediction = _predict_primary_latency(row, model)
     upper_tail_model = model.get("gpu_upper_tail", {})
     input_scale_max = model.get("input_scale_max")
@@ -742,7 +742,7 @@ def _resource_configuration_validation(
             continue
 
         fold_predictions = [
-            _predict_latency(row, fold_model) for row in test_rows
+            predict_latency(row, fold_model) for row in test_rows
         ]
         for row, prediction in zip(test_rows, fold_predictions, strict=True):
             predictions[_point_key(row)] = prediction
@@ -890,7 +890,7 @@ def _input_scale_validation(
         }, {}
 
     predictions = {
-        _point_key(row): _predict_latency(row, scale_model) for row in test_rows
+        _point_key(row): predict_latency(row, scale_model) for row in test_rows
     }
     actuals = [float(row.latency_s) for row in test_rows]
     predicted = [predictions[_point_key(row)] for row in test_rows]

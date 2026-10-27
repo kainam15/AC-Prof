@@ -18,7 +18,7 @@ from acprof.host.profiling.tools.compute_parsers import (
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
 
 
-def _tool_error_entries(
+def tool_error_entries(
     entries: list[dict[str, Any]],
     error: str,
     tool: str,
@@ -115,7 +115,7 @@ def _run_advisor_for_entry(
     }
 
 
-def _profile_cpu_entries(
+def profile_cpu_entries(
     *,
     entries: list[dict[str, Any]],
     advisor_bin: str | None,
@@ -133,7 +133,7 @@ def _profile_cpu_entries(
             "tool": "intel_advisor",
             "repeat": max(1, int(repeat)),
             "error": "advisor_not_found",
-            "entries": _tool_error_entries(
+            "entries": tool_error_entries(
                 entries,
                 "advisor_not_found",
                 "intel_advisor",

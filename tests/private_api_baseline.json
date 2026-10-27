@@ -29,11 +29,6 @@
     {
       "source": "acprof.analysis.latency_report",
       "target": "acprof.analysis.latency_model",
-      "symbol": "_predict_latency"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
       "symbol": "_regression_metrics"
     },
     {
@@ -217,56 +212,6 @@
       "symbol": "_friendly_mips_error"
     },
     {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.advisor",
-      "symbol": "_profile_cpu_entries"
-    },
-    {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.advisor",
-      "symbol": "_tool_error_entries"
-    },
-    {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.ncu",
-      "symbol": "_ncu_error_entries"
-    },
-    {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.ncu",
-      "symbol": "_profile_gpu_entries"
-    },
-    {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.torch",
-      "symbol": "_profile_torch_entries"
-    },
-    {
-      "source": "acprof.host.profiling.compute",
-      "target": "acprof.host.profiling.tools.torch",
-      "symbol": "_torch_error_entries"
-    },
-    {
-      "source": "acprof.host.profiling.tools.ncu",
-      "target": "acprof.host.profiling.tools.compute_parsers",
-      "symbol": "_finite_or_none"
-    },
-    {
-      "source": "acprof.host.profiling.tools.ncu",
-      "target": "acprof.host.profiling.tools.compute_parsers",
-      "symbol": "_is_ncu_flop_metric"
-    },
-    {
-      "source": "acprof.host.profiling.tools.ncu",
-      "target": "acprof.host.profiling.tools.compute_parsers",
-      "symbol": "_to_float"
-    },
-    {
-      "source": "acprof.host.profiling.tools.torch",
-      "target": "acprof.host.profiling.tools.compute_parsers",
-      "symbol": "_to_float"
-    },
-    {
       "source": "acprof.host.static_metadata",
       "target": "acprof.host.model_schema",
       "symbol": "_inference_precision_by_device"
@@ -295,16 +240,6 @@
       "source": "acprof.plotting.diagnostics",
       "target": "acprof.plotting.styles",
       "symbol": "_configurations_with_colors"
-    },
-    {
-      "source": "acprof.plotting.latency",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_model_feature_names"
-    },
-    {
-      "source": "acprof.plotting.latency",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_predict_latency"
     },
     {
       "source": "acprof.plotting.metrics",

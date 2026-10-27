@@ -21,10 +21,10 @@ from acprof.host.profiling.tools.compute_parsers import (
     NCU_DURATION_METRIC,
     NCU_SASS_FLOP_WEIGHTS,
     NCU_TENSOR_METRIC_RE,
-    _finite_or_none,
-    _is_ncu_flop_metric,
-    _to_float,
+    finite_or_none,
+    is_ncu_flop_metric,
     parse_ncu_profile_csv,
+    to_float,
 )
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
 
@@ -47,7 +47,7 @@ NCU_COMPLETE_ENTRY_FIELDS = (
 )
 
 
-def _ncu_error_entries(
+def ncu_error_entries(
     entries: list[dict[str, Any]],
     error: str,
 ) -> list[dict[str, Any]]:
@@ -74,7 +74,7 @@ def _parse_ncu_metric_names(query_output: str) -> list[str]:
             token = token.strip()
             if not token:
                 continue
-            if _is_ncu_flop_metric(token):
+            if is_ncu_flop_metric(token):
                 names.add(token)
     return sorted(names)
 
@@ -189,7 +189,7 @@ def _ncu_report_reference(profile_root: str, host_csv: str) -> str:
 
 def _ncu_entry_complete(entry: dict[str, Any]) -> bool:
     return not str(entry.get("error") or "").strip() and all(
-        math.isfinite(_to_float(entry.get(field)))
+        math.isfinite(to_float(entry.get(field)))
         for field in NCU_COMPLETE_ENTRY_FIELDS
     )
 
@@ -206,7 +206,7 @@ def _ncu_entry_from_csv(
     try:
         parsed = parse_ncu_profile_csv(host_csv, repeat=repeat)
     except Exception as exc:
-        error_entry = _ncu_error_entries(
+        error_entry = ncu_error_entries(
             [entry],
             f"ncu_parse_failed:{exc!r}",
         )[0]
@@ -214,17 +214,17 @@ def _ncu_entry_from_csv(
         return error_entry
 
     payload = runner_payload or {}
-    total_flops = _to_float(parsed.get("total_flops_per_request"))
+    total_flops = to_float(parsed.get("total_flops_per_request"))
     if not math.isfinite(total_flops):
-        error_entry = _ncu_error_entries(
+        error_entry = ncu_error_entries(
             [entry],
             "ncu_parse_failed:flop_metrics_missing",
         )[0]
         error_entry["report"] = report_path
         return error_entry
 
-    tensor_flops = _finite_or_none(parsed.get("tensor_flops_per_request"))
-    scalar_flops = _finite_or_none(parsed.get("scalar_flops_per_request"))
+    tensor_flops = finite_or_none(parsed.get("tensor_flops_per_request"))
+    scalar_flops = finite_or_none(parsed.get("scalar_flops_per_request"))
     result = {
         "input_scale": float(entry["input_scale"]),
         "tool": NCU_TOOL,
@@ -235,13 +235,13 @@ def _ncu_entry_from_csv(
         "gpu_executed_scalar_mflop_per_request_ncu": (
             scalar_flops / 1_000_000.0 if scalar_flops is not None else None
         ),
-        "gpu_executed_tensor_share_pct_ncu": _finite_or_none(
+        "gpu_executed_tensor_share_pct_ncu": finite_or_none(
             parsed.get("tensor_share_pct")
         ),
-        "gpu_kernel_launch_count_per_request_ncu": _finite_or_none(
+        "gpu_kernel_launch_count_per_request_ncu": finite_or_none(
             parsed.get("kernel_launch_count_per_request")
         ),
-        "gpu_kernel_time_sum_ms_per_request_ncu": _finite_or_none(
+        "gpu_kernel_time_sum_ms_per_request_ncu": finite_or_none(
             parsed.get("kernel_time_sum_ms_per_request")
         ),
         "gpu_compute_capability": str(
@@ -249,7 +249,7 @@ def _ncu_entry_from_csv(
             or parsed.get("gpu_compute_capability")
             or ""
         ),
-        "gpu_sm_count": _finite_or_none(
+        "gpu_sm_count": finite_or_none(
             payload.get("gpu_sm_count", parsed.get("gpu_sm_count"))
         ),
         "error": "",
@@ -258,10 +258,10 @@ def _ncu_entry_from_csv(
     missing = [
         field
         for field in NCU_COMPLETE_ENTRY_FIELDS
-        if not math.isfinite(_to_float(result.get(field)))
+        if not math.isfinite(to_float(result.get(field)))
     ]
     if missing:
-        error_entry = _ncu_error_entries(
+        error_entry = ncu_error_entries(
             [entry],
             "ncu_parse_failed:required_metrics_missing:" + ",".join(missing),
         )[0]
@@ -404,7 +404,7 @@ def _resume_ncu_for_entry(
 
     if checkpoint is not None and os.path.isfile(host_csv):
         checkpoint_entry = checkpoint.get("entry")
-        expected_size = _to_float(checkpoint.get("csv_size_bytes"))
+        expected_size = to_float(checkpoint.get("csv_size_bytes"))
         if (
             isinstance(checkpoint_entry, dict)
             and _ncu_entry_complete(checkpoint_entry)
@@ -542,7 +542,7 @@ def _run_ncu_for_entry(
     ) as base_cmd:
         result = run_command([*base_cmd, *collect_cmd], check=False)
     if result.returncode != 0:
-        return _ncu_error_entries(
+        return ncu_error_entries(
             [entry],
             f"ncu_failed:{result.stderr.strip() or result.stdout.strip()}",
         )[0]
@@ -564,7 +564,7 @@ def _run_ncu_for_entry(
             host_csv=host_csv,
         )
     if not exported:
-        error_entry = _ncu_error_entries(
+        error_entry = ncu_error_entries(
             [entry],
             f"ncu_import_failed:{detail}",
         )[0]
@@ -579,7 +579,7 @@ def _run_ncu_for_entry(
     )
 
 
-def _profile_gpu_entries(
+def profile_gpu_entries(
     *,
     entries: list[dict[str, Any]],
     ncu_bin: str | None,
@@ -598,7 +598,7 @@ def _profile_gpu_entries(
             "tool": NCU_TOOL,
             "repeat": max(1, int(repeat)),
             "error": "ncu_not_found",
-            "entries": _ncu_error_entries(entries, "ncu_not_found"),
+            "entries": ncu_error_entries(entries, "ncu_not_found"),
         }
     mount_roots = tool_mount_roots(ncu_bin, ncu_root)
     ncu_metrics, metric_error = _resolve_ncu_metrics(ncu_bin)
@@ -624,7 +624,7 @@ def _profile_gpu_entries(
             "tool": NCU_TOOL,
             "repeat": max(1, int(repeat)),
             "error": metric_error,
-            "entries": _ncu_error_entries(entries, metric_error),
+            "entries": ncu_error_entries(entries, metric_error),
         }
     collection_metrics = list(dict.fromkeys([*ncu_metrics, NCU_DURATION_METRIC]))
     profile_entries = []
@@ -679,7 +679,7 @@ def _profile_gpu_entries(
                         entry=profile_entry,
                     )
         except Exception as exc:
-            profile_entry = _ncu_error_entries(
+            profile_entry = ncu_error_entries(
                 [entry],
                 f"ncu_failed:{exc!r}",
             )[0]

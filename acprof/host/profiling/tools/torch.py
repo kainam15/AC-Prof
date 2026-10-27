@@ -11,13 +11,13 @@ from acprof.host.profiling.support import (
     profiler_container_command,
 )
 from acprof.host.profiling.tools.compute_parsers import (
-    _to_float,
+    to_float,
 )
 
 TORCH_PROFILER_TOOL = "torch_profiler_eager"
 
 
-def _torch_error_entries(
+def torch_error_entries(
     entries: list[dict[str, Any]],
     error: str,
 ) -> list[dict[str, Any]]:
@@ -61,7 +61,7 @@ def _run_torch_profiler_for_entry(
         )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        return _torch_error_entries(
+        return torch_error_entries(
             [entry],
             f"torch_profiler_eager_failed:{detail}",
         )[0]
@@ -72,19 +72,19 @@ def _run_torch_profiler_for_entry(
     )
     attention_verified = payload.get("attention_implementation_verified") is True
     if attention_implementation != "eager" or not attention_verified:
-        return _torch_error_entries(
+        return torch_error_entries(
             [entry],
             "torch_profiler_eager_parse_failed:"
             "attention_implementation_not_verified",
         )[0]
-    mflop = _to_float(
+    mflop = to_float(
         payload.get("model_logical_mflop_per_request_torch_profiler_eager")
     )
-    total_flops = _to_float(payload.get("total_flops"))
+    total_flops = to_float(payload.get("total_flops"))
     if mflop != mflop and total_flops == total_flops:
         mflop = (total_flops / 1_000_000.0) / float(max(1, int(repeat)))
     if mflop != mflop or mflop <= 0:
-        return _torch_error_entries(
+        return torch_error_entries(
             [entry],
             "torch_profiler_eager_parse_failed:model_logical_mflop_missing",
         )[0]
@@ -104,7 +104,7 @@ def _run_torch_profiler_for_entry(
     }
 
 
-def _profile_torch_entries(
+def profile_torch_entries(
     *,
     entries: list[dict[str, Any]],
     task_info: TaskInfo,
@@ -132,7 +132,7 @@ def _profile_torch_entries(
                 repeat=repeat,
             )
         except Exception as exc:
-            profile_entry = _torch_error_entries(
+            profile_entry = torch_error_entries(
                 [entry],
                 f"torch_profiler_eager_failed:{exc!r}",
             )[0]

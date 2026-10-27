@@ -48,7 +48,7 @@ def _clean_numeric_text(value: str) -> str:
     return value
 
 
-def _to_float(value: Any) -> float:
+def to_float(value: Any) -> float:
     try:
         if value is None:
             return float("nan")
@@ -59,8 +59,8 @@ def _to_float(value: Any) -> float:
         return float("nan")
 
 
-def _finite_or_none(value: Any) -> float | None:
-    number = _to_float(value)
+def finite_or_none(value: Any) -> float | None:
+    number = to_float(value)
     return number if math.isfinite(number) else None
 
 
@@ -83,7 +83,7 @@ def parse_advisor_self_gflop_csv(report_path: str) -> float:
             return float("nan")
         found = False
         for data_row in csv.DictReader(f, fieldnames=fieldnames):
-            value = _to_float(data_row.get(gflop_field))
+            value = to_float(data_row.get(gflop_field))
             if value == value:
                 total_gflop += value
                 found = True
@@ -104,10 +104,10 @@ def _metric_name_from_row(row: dict[str, str]) -> str:
 def _metric_value_from_row(row: dict[str, str]) -> float:
     for key in ("Metric Value", "Value"):
         if key in row:
-            return _to_float(row.get(key))
+            return to_float(row.get(key))
     for key, value in row.items():
         if key and key.strip().lower() in {"metric value", "value"}:
-            return _to_float(value)
+            return to_float(value)
     return float("nan")
 
 
@@ -133,7 +133,7 @@ def _ncu_metric_flop_weight(metric_name: str) -> float | None:
     return None
 
 
-def _is_ncu_flop_metric(metric_name: str) -> bool:
+def is_ncu_flop_metric(metric_name: str) -> bool:
     return _ncu_metric_flop_weight(metric_name) is not None
 
 
@@ -194,7 +194,7 @@ def _ncu_csv_rows(report_path: str) -> tuple[list[str], list[dict[str, str]]]:
             header_index = idx
             break
         if any(
-            _is_ncu_flop_metric(field.strip())
+            is_ncu_flop_metric(field.strip())
             or field.strip() == NCU_DURATION_METRIC
             for field in row
         ):
@@ -217,7 +217,7 @@ def _ncu_csv_rows(report_path: str) -> tuple[list[str], list[dict[str, str]]]:
 def _first_finite(rows: Sequence[dict[str, str]], fields: Sequence[str]) -> float:
     for row in rows:
         for field in fields:
-            value = _to_float(row.get(field))
+            value = to_float(row.get(field))
             if value == value:
                 return value
     return float("nan")
@@ -266,7 +266,7 @@ def _ncu_launch_count_long(rows: Sequence[dict[str, str]]) -> int:
     metric_counts: dict[str, int] = {}
     for row in rows:
         metric_name = _metric_name_from_row(row)
-        if _is_ncu_flop_metric(metric_name):
+        if is_ncu_flop_metric(metric_name):
             metric_counts[metric_name] = metric_counts.get(metric_name, 0) + 1
     return max(metric_counts.values(), default=0)
 
@@ -304,7 +304,7 @@ def parse_ncu_profile_csv(
             value = _metric_value_from_row(row)
             if value != value:
                 continue
-            if _is_ncu_flop_metric(metric_name):
+            if is_ncu_flop_metric(metric_name):
                 metric_values.append((metric_name, value, _metric_unit_from_row(row)))
             elif metric_name == NCU_DURATION_METRIC:
                 kernel_time_ms += _duration_to_ms(value, _metric_unit_from_row(row))
@@ -314,7 +314,7 @@ def parse_ncu_profile_csv(
         metric_fields = [
             field
             for field in fieldnames
-            if _is_ncu_flop_metric(field)
+            if is_ncu_flop_metric(field)
         ]
         duration_fields = [
             field for field in fieldnames if field == NCU_DURATION_METRIC
@@ -323,15 +323,15 @@ def parse_ncu_profile_csv(
         for row in rows:
             for field in [*metric_fields, *duration_fields]:
                 raw_value = str(row.get(field) or "").strip()
-                if raw_value and _to_float(raw_value) != _to_float(raw_value):
+                if raw_value and to_float(raw_value) != to_float(raw_value):
                     unit_by_field.setdefault(field, raw_value)
         for row in rows:
             for field in metric_fields:
-                value = _to_float(row.get(field))
+                value = to_float(row.get(field))
                 if value == value:
                     metric_values.append((field, value, unit_by_field.get(field, "")))
             for field in duration_fields:
-                value = _to_float(row.get(field))
+                value = to_float(row.get(field))
                 if value == value:
                     kernel_time_ms += _duration_to_ms(
                         value,

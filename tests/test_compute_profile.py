@@ -841,7 +841,7 @@ class TestComputeProfile:
                 "error": "",
             },
         ):
-            ncu._profile_gpu_entries(
+            ncu.profile_gpu_entries(
                 entries=[{"input_scale": 8.0}],
                 ncu_bin="/opt/nvidia/nsight-compute/2025.1.0/ncu",
                 ncu_root=None,
@@ -934,7 +934,7 @@ class TestComputeProfile:
                 "acprof.host.profiling.tools.ncu._run_ncu_for_entry",
                 side_effect=fake_collect,
             ):
-                result = ncu._profile_gpu_entries(
+                result = ncu.profile_gpu_entries(
                     entries=[
                         {"input_scale": 1.0},
                         {"input_scale": 20.0},
@@ -1123,10 +1123,10 @@ class TestComputeProfile:
                 "acprof.host.profiling.compute.find_executable",
             side_effect=AssertionError("none mode must not discover tools"),
         ), patch(
-            "acprof.host.profiling.tools.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch.profile_torch_entries",
             side_effect=AssertionError("none mode must not run Torch"),
         ), patch(
-            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu.profile_gpu_entries",
             side_effect=AssertionError("none mode must not run NCU"),
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1207,13 +1207,13 @@ class TestComputeProfile:
                 "acprof.host.profiling.compute.find_executable",
             side_effect=fake_find_executable,
         ), patch(
-            "acprof.host.profiling.tools.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch.profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor.profile_cpu_entries",
             side_effect=AssertionError("vendor CPU profiler should not run in both mode"),
         ), patch(
-            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu.profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1283,10 +1283,10 @@ class TestComputeProfile:
                 "acprof.host.profiling.compute.find_executable",
             return_value="/usr/bin/ncu",
         ), patch(
-            "acprof.host.profiling.tools.torch._profile_torch_entries",
+            "acprof.host.profiling.tools.torch.profile_torch_entries",
             side_effect=fake_torch_profile,
         ), patch(
-            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu.profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             plan_path = compute_profile.collect_compute_profile_plan(
@@ -1386,10 +1386,10 @@ class TestComputeProfile:
                 "acprof.host.profiling.compute.find_executable",
             return_value="/usr/bin/tool",
         ), patch(
-            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor.profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ), patch(
-            "acprof.host.profiling.tools.ncu._profile_gpu_entries",
+            "acprof.host.profiling.tools.ncu.profile_gpu_entries",
             side_effect=fake_gpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(
@@ -1438,7 +1438,7 @@ class TestComputeProfile:
             "acprof.host.profiling.compute._host_memory_gb_fraction",
             return_value=48,
         ), patch(
-            "acprof.host.profiling.tools.advisor._profile_cpu_entries",
+            "acprof.host.profiling.tools.advisor.profile_cpu_entries",
             side_effect=fake_cpu_profile,
         ):
             compute_profile.collect_compute_profile_plan(
@@ -1573,12 +1573,12 @@ class TestComputeProfileProgress:
             elapsed[0] += 100.0
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            torch, "_profile_torch_entries",
+            torch, "profile_torch_entries",
             side_effect=lambda **kwargs: profile_stage(
                 "GPU Torch" if kwargs["use_gpu"] else "CPU Torch", kwargs,
             ),
         ), patch.object(
-            ncu, "_profile_gpu_entries",
+            ncu, "profile_gpu_entries",
             side_effect=lambda **kwargs: profile_stage("NCU", kwargs),
         ), patch.object(
             compute_profile.time, "perf_counter", side_effect=lambda: elapsed[0],
@@ -1622,7 +1622,7 @@ class TestComputeProfileProgress:
             return self._torch_profile(**kwargs)
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            torch, "_profile_torch_entries", side_effect=torch_profile,
+            torch, "profile_torch_entries", side_effect=torch_profile,
         ):
             plan = self._collect(
                 tmp, compute_profile_tool="torch", progress_callback=completions.append,
@@ -1642,7 +1642,7 @@ class TestComputeProfileProgress:
             raise RuntimeError("notification failed")
 
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            torch, "_profile_torch_entries", side_effect=self._torch_profile,
+            torch, "profile_torch_entries", side_effect=self._torch_profile,
         ):
             expected = self._collect(tmp, compute_profile_tool="torch")
             actual = self._collect(
@@ -1655,11 +1655,11 @@ class TestComputeProfileProgress:
     @pytest.mark.parametrize(("mode", "gpu_list"), [('none', ['off', 'on']), ('ncu', ['off'])])
     def test_disabled_and_inapplicable_tools_do_not_notify(self, mode, gpu_list):
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            torch, "_profile_torch_entries",
+            torch, "profile_torch_entries",
         ) as torch_call, patch.object(
-            ncu, "_profile_gpu_entries",
+            ncu, "profile_gpu_entries",
         ) as ncu_call, patch.object(
-            advisor, "_profile_cpu_entries",
+            advisor, "profile_cpu_entries",
         ) as advisor_call:
             completions = []
             self._collect(

@@ -65,11 +65,11 @@ def _failed_tool_profile(
     error: str,
 ) -> dict[str, Any]:
     error_entries = (
-        ncu._ncu_error_entries(entries, error)
+        ncu.ncu_error_entries(entries, error)
         if tool == ncu.NCU_TOOL
-        else torch._torch_error_entries(entries, error)
+        else torch.torch_error_entries(entries, error)
         if tool == torch.TORCH_PROFILER_TOOL
-        else advisor._tool_error_entries(entries, error, tool)
+        else advisor.tool_error_entries(entries, error, tool)
     )
     return {
         "tool": tool,
@@ -248,7 +248,7 @@ def collect_compute_profile_plan(
                 tool="intel_advisor",
                 entries=entries,
                 repeat=advisor_repeat,
-                callback=lambda: advisor._profile_cpu_entries(
+                callback=lambda: advisor.profile_cpu_entries(
                     entries=entries,
                     advisor_bin=advisor_bin,
                     advisor_root=advisor_root,
@@ -274,7 +274,7 @@ def collect_compute_profile_plan(
                 tool=torch.TORCH_PROFILER_TOOL,
                 entries=entries,
                 repeat=torch_profiler_repeat,
-                callback=lambda: torch._profile_torch_entries(
+                callback=lambda: torch.profile_torch_entries(
                     entries=entries,
                     task_info=task_info,
                     image_tag=image_tag,
@@ -305,7 +305,7 @@ def collect_compute_profile_plan(
                 tool=torch.TORCH_PROFILER_TOOL,
                 entries=entries,
                 repeat=torch_profiler_repeat,
-                callback=lambda: torch._profile_torch_entries(
+                callback=lambda: torch.profile_torch_entries(
                     entries=entries,
                     task_info=task_info,
                     image_tag=image_tag,
@@ -331,7 +331,7 @@ def collect_compute_profile_plan(
                 tool=ncu.NCU_TOOL,
                 entries=entries,
                 repeat=ncu_repeat,
-                callback=lambda: ncu._profile_gpu_entries(
+                callback=lambda: ncu.profile_gpu_entries(
                     entries=entries,
                     ncu_bin=ncu_bin,
                     ncu_root=ncu_root,

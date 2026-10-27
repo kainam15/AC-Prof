@@ -28,12 +28,12 @@ from acprof.analysis.latency_model import (
     _input_scale_validation,
     _latency_model_frame,
     _point_key,
-    _predict_latency,
     _regression_metrics,
     _resource_configuration_validation,
     _training_range,
     _validation_is_evaluable,
     _validation_quality_failures,
+    predict_latency,
 )
 from acprof.artifacts import atomic_write
 from acprof.platform import recorded_identity
@@ -223,7 +223,7 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             continue
 
         hardware_fit_predictions = {
-            _point_key(row): _predict_latency(row, fitted_model)
+            _point_key(row): predict_latency(row, fitted_model)
             for row in hardware_rows
         }
         fit_predictions.update(hardware_fit_predictions)
