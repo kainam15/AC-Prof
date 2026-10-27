@@ -74,6 +74,8 @@ acprof report results/<model>/ --baseline '<config_id>' --output baseline.html
 默认在第一个实验目录生成新的 `report.html`，已有输出拒绝覆盖。HTML 内嵌数据与 Plotly.js，
 不依赖 CDN、服务器或 GUI；可复制到 Windows 用浏览器直接打开。生成过程在 Linux 遵守主机测量锁，
 不能与同用户正式采集并行。打开浏览器分析也应避开正式测量窗口。
+发布时仍会原子检查目标是否存在：若其他写入方抢先创建文件、目录或符号链接，生成失败并保留目标，
+不发出成功回执。输出文件系统不支持这种拒绝覆盖的发布操作时明确报错，不退回覆盖写入。
 
 报告聚焦三个视图，共用 model/task/runtime、CPU/GPU、CPU count、memory、concurrency、
 input case、experiment batch 和环境筛选；点击表格行或图中点后，其他视图保留同一配置的选中状态。

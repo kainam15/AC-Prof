@@ -62,5 +62,5 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     def write(stream: TextIO) -> None:
         stream.write(html)
 
-    atomic_write(output, write)
+    atomic_write(output, write, overwrite=False)
     return output
