@@ -52,15 +52,17 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
         "__STYLE__": resources.joinpath("report.css").read_text(encoding="utf-8"),
         "__LICENSE__": escape(resources.joinpath("plotly-LICENSE.txt").read_text(encoding="utf-8")),
     }
-    # Substitute only template tokens, never strings inside user-controlled JSON.
-    def substitute(match: re.Match[str]) -> str:
-        return replacements[match.group()]
-
-    html = re.sub("|".join(replacements), substitute,
-                  resources.joinpath("report.html").read_text(encoding="utf-8"))
+    template = resources.joinpath("report.html").read_text(encoding="utf-8")
 
     def write(stream: TextIO) -> None:
-        stream.write(html)
+        # Only scan the original template: asset and user-data tokens are literal.
+        # Write fragments directly, avoiding a second full page in memory.
+        position = 0
+        for match in re.finditer("|".join(replacements), template):
+            stream.write(template[position:match.start()])
+            stream.write(replacements[match.group()])
+            position = match.end()
+        stream.write(template[position:])
 
     atomic_write(output, write, overwrite=False)
     return output

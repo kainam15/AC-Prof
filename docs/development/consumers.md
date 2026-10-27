@@ -32,6 +32,8 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `plotting/report.py` 按需加载 Plotly 并内嵌 HTML/CSS/JavaScript；`view_model.js` 集中处理
 baseline、颜色、Pareto 和 Scaling 分组，`report.js` 处理交互。该入口复用现有 CSV 和布局协议，
 不引入 Web 服务或 TUI 依赖，详见[分析模型](../results/reports.md#统一分析模型与精简汇总)。
+HTML 按原始模板的占位符逐片段写入同目录临时文件，不再拼接完整页面副本；JSON 与资源文本
+中的同名标记保持原样。转义规则、独占原子发布和失败时临时文件清理保持不变。
 
 绘图函数从 `acprof.plotting.data`、`metrics`、`latency` 等模块导入，数值报告从
 `acprof.analysis.latency_report` 导入。`acprof.cli.plot` 只解析参数和调度；已移除
