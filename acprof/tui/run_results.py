@@ -4,14 +4,16 @@ from __future__ import annotations
 import json
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any, Literal
 
 from acprof.analysis.audit import audit_result
 from acprof.artifact_layout import ArtifactLayout
 from acprof.host.run_state import RunStateError, load_run_state
 from acprof.messages import Message, join_messages
 from acprof.tui.i18n import message_id
+from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.stages import Stage
 
 MAX_CAPABILITY_REPORT_BYTES = 4 * 1024 * 1024
@@ -215,3 +217,279 @@ def inspect_task_collection(before: RunArtifacts, pid: int) -> RunResult | None:
                          sum(result.total_cases for result in results), sum(result.new_cases for result in results),
                          "; ".join(details), str(before.directory))
     return None
+
+
+@dataclass(frozen=True)
+class NotificationSpec:
+    message: str
+    severity: Literal["information", "warning", "error"] = "information"
+    title: str = ""
+    timeout: int | None = None
+
+    def kwargs(self) -> dict[str, Any]:
+        options: dict[str, Any] = {"severity": self.severity}
+        if self.title:
+            options["title"] = self.title
+        if self.timeout is not None:
+            options["timeout"] = self.timeout
+        return options
+
+
+@dataclass(frozen=True)
+class ProcessCompletion:
+    launch_error: str
+    comparison_ready: bool
+    unsupported_task: bool
+    log_messages: tuple[str, ...]
+    primary_notice: NotificationSpec | None
+    run_notice: NotificationSpec | None
+    final_snapshot: ProgressSnapshot
+    current_csv: str = ""
+    summary_text: str = ""
+
+
+def _completion_log_and_notice(
+    kind: str,
+    returncode: int,
+    snapshot: ProgressSnapshot | None,
+    *,
+    launch_error: str,
+    stop_requested: bool,
+    comparison_ready: bool,
+    unsupported_task: bool,
+    stats_report_path: Path | None,
+    stats_report_reused: bool,
+) -> tuple[tuple[str, ...], NotificationSpec | None]:
+    if launch_error:
+        title = message_id('ui.0986') if kind == "html-report" else "任务启动失败"
+        return (
+            (message_id('ui.0786', launch_error),),
+            NotificationSpec(launch_error, severity="error", title=title, timeout=8),
+        )
+    if comparison_ready:
+        notice: str = message_id('ui.0488')
+        return (
+            (notice,),
+            NotificationSpec(notice, severity="information", timeout=8),
+        )
+    if returncode == 0 and kind != "run" and not stop_requested:
+        reused = kind == "stats" and stats_report_reused
+        notice = message_id('ui.0571', stats_report_path) if reused else "任务已完成"
+        return (
+            (message_id('ui.0788', kind),),
+            NotificationSpec(notice, severity="information", timeout=8 if stats_report_reused else 5),
+        )
+    if stop_requested:
+        notice = (
+            message_id('ui.0962')
+            if kind == "html-report"
+            else "任务已终止；部分 case 结果可能仍可续跑"
+        )
+        return (
+            (message_id('ui.0790', returncode),),
+            NotificationSpec(notice, severity="warning", timeout=7),
+        )
+    if unsupported_task and snapshot is not None:
+        return (
+            (snapshot.detail, message_id('ui.0587')),
+            NotificationSpec(snapshot.detail, severity="error", title="任务不支持", timeout=12),
+        )
+    if kind != "run":
+        return (
+            (message_id('ui.0792', kind, returncode),),
+            NotificationSpec(message_id('ui.0793', returncode), severity="error", timeout=8),
+        )
+    return (), None
+
+
+def _evaluate_run_outcome(
+    returncode: int,
+    snapshot: ProgressSnapshot | None,
+    latest_snapshot: ProgressSnapshot,
+    *,
+    launch_error: str,
+    stop_requested: bool,
+    run_result: RunResult,
+) -> tuple[ProgressSnapshot, str, str, NotificationSpec]:
+    stage = run_result.stage(returncode, stop_requested, launch_error)
+    final_state = snapshot or latest_snapshot
+    total_cases = run_result.total_cases or final_state.total_cases
+    detail: str = message_id('ui.0191', run_result.completed_cases, total_cases)
+    if run_result.detail:
+        detail = join_messages("\n", (detail, run_result.detail))
+    if run_result.new_cases and run_result.retained_dir:
+        detail = join_messages("\n", (detail, message_id('ui.0184', run_result.retained_dir)))
+    if run_result.complete and not run_result.result_csv and not run_result.new_cases:
+        detail = join_messages("\n", (detail, message_id('ui.0185')))
+    measurement_status = (
+        "passed" if stage is Stage.COMPLETED else "cancelled" if stop_requested else "failed"
+    )
+    final_snapshot = replace(
+        final_state,
+        stage=stage,
+        detail=detail,
+        completed_cases=run_result.completed_cases,
+        total_cases=total_cases,
+        measurement_active=False,
+        measurement_status=measurement_status,
+    )
+    current_csv = run_result.result_csv
+    summary_text = ""
+    if not current_csv:
+        summary_text = (
+            message_id('ui.0183', run_result.detail)
+            if run_result.detail and not run_result.belongs_to_attempt
+            else message_id('ui.0190', run_result.new_cases)
+        )
+    severity: Literal["information", "warning", "error"] = (
+        "information"
+        if stage is Stage.COMPLETED
+        else "warning"
+        if stage in {Stage.PARTIAL, Stage.STOPPED}
+        else "error"
+    )
+    return (
+        final_snapshot,
+        current_csv,
+        summary_text,
+        NotificationSpec(message_id('ui.0193', stage.label, detail), severity=severity),
+    )
+
+
+def _evaluate_probe_snapshot(
+    returncode: int,
+    snapshot: ProgressSnapshot | None,
+    latest_snapshot: ProgressSnapshot,
+    *,
+    launch_error: str,
+    stop_requested: bool,
+) -> ProgressSnapshot:
+    final_state = snapshot or latest_snapshot
+    if launch_error or (returncode != 0 and not stop_requested):
+        detail = launch_error or (
+            final_state.detail
+            if final_state.stage is Stage.PROBE_FAILED
+            else message_id('ui.0796', returncode)
+        )
+        return replace(
+            final_state,
+            stage=Stage.PROBE_FAILED,
+            detail=detail,
+            measurement_active=False,
+        )
+    if stop_requested:
+        return replace(
+            final_state,
+            stage=Stage.TERMINATED,
+            detail="用户终止了最大尺度探测",
+            measurement_active=False,
+        )
+    return final_state
+
+
+def _evaluate_auxiliary_snapshot(
+    kind: str,
+    returncode: int,
+    *,
+    launch_error: str,
+    stop_requested: bool,
+    comparison_ready: bool,
+) -> ProgressSnapshot:
+    if launch_error or (returncode != 0 and not stop_requested and not comparison_ready):
+        return ProgressSnapshot(
+            stage=Stage.FAILED,
+            detail=launch_error or message_id('ui.0799', kind, returncode),
+        )
+    if stop_requested:
+        return ProgressSnapshot(stage=Stage.TERMINATED, detail=message_id('ui.0800', kind))
+    return ProgressSnapshot(stage=Stage.COMPLETED, detail=message_id('ui.0801', kind))
+
+
+def evaluate_process_completion(
+    kind: str,
+    returncode: int,
+    snapshot: ProgressSnapshot | None,
+    latest_snapshot: ProgressSnapshot,
+    *,
+    launch_error: str = "",
+    stop_requested: bool = False,
+    run_result: RunResult = RunResult(),
+    stats_report_path: Path | None = None,
+    stats_report_reused: bool = False,
+    comparison_report_path: Path | None = None,
+) -> ProcessCompletion:
+    """Compute the pure state transition, logs, and notifications on process exit."""
+    if kind == "stats" and returncode == 0 and not launch_error and stats_report_path is None:
+        launch_error = "统计进程未返回报告路径"
+    if kind == "probe" and returncode == 0 and not launch_error and not stop_requested:
+        if (snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED
+                or not snapshot.probe_result or not snapshot.probe_summary):
+            launch_error = message_id('ui.0183', "missing structured probe result")
+    comparison_ready = (
+        kind == "compare" and returncode in {0, 1} and not launch_error
+        and not stop_requested and comparison_report_path is not None
+        and comparison_report_path.is_file()
+    )
+    if kind == "compare" and returncode == 0 and not launch_error and not stop_requested and not comparison_ready:
+        launch_error = "比较进程未返回报告路径"
+    if snapshot is not None and snapshot.measurement_status == "running":
+        snapshot = replace(
+            snapshot,
+            measurement_status="cancelled" if stop_requested else "failed" if returncode else "passed",
+        )
+    unsupported_task = (
+        snapshot is not None and snapshot.stage is Stage.TASK_UNSUPPORTED
+        and returncode != 0 and not stop_requested and not launch_error
+    )
+    log_messages, primary_notice = _completion_log_and_notice(
+        kind,
+        returncode,
+        snapshot,
+        launch_error=launch_error,
+        stop_requested=stop_requested,
+        comparison_ready=comparison_ready,
+        unsupported_task=unsupported_task,
+        stats_report_path=stats_report_path,
+        stats_report_reused=stats_report_reused,
+    )
+    current_csv = ""
+    summary_text = ""
+    run_notice: NotificationSpec | None = None
+    if unsupported_task and snapshot is not None:
+        final_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")
+    elif kind == "run":
+        final_snapshot, current_csv, summary_text, run_notice = _evaluate_run_outcome(
+            returncode,
+            snapshot,
+            latest_snapshot,
+            launch_error=launch_error,
+            stop_requested=stop_requested,
+            run_result=run_result,
+        )
+    elif kind == "probe":
+        final_snapshot = _evaluate_probe_snapshot(
+            returncode,
+            snapshot,
+            latest_snapshot,
+            launch_error=launch_error,
+            stop_requested=stop_requested,
+        )
+    else:
+        final_snapshot = _evaluate_auxiliary_snapshot(
+            kind,
+            returncode,
+            launch_error=launch_error,
+            stop_requested=stop_requested,
+            comparison_ready=comparison_ready,
+        )
+    return ProcessCompletion(
+        launch_error=launch_error,
+        comparison_ready=comparison_ready,
+        unsupported_task=unsupported_task,
+        log_messages=log_messages,
+        primary_notice=primary_notice,
+        run_notice=run_notice,
+        final_snapshot=final_snapshot,
+        current_csv=current_csv,
+        summary_text=summary_text,
+    )
