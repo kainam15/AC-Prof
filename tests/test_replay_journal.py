@@ -61,7 +61,7 @@ def rewrite_history(layout, index, mutate):
 @pytest.mark.parametrize("commit_index", [0, 2], ids=["initial-commit", "historical-checkpoint"])
 def test_corrupt_historical_commit_is_rejected_before_source_reads(tmp_path, monkeypatch, commit_index):
     layout = state_history(tmp_path, checkpoints=3)
-    commits = sorted(layout.result_store_path("commits").glob("*.json"))
+    commits: list[Path] = sorted(layout.result_store_path("commits").glob("*.json"))
     commits[commit_index].write_bytes(b"{}")
     source_opens = []
     raw_root = layout.path("raw")
