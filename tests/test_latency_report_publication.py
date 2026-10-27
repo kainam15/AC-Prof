@@ -69,7 +69,7 @@ def test_json_failure_preserves_the_previous_report_and_its_csv(tmp_path, previo
     def fail_publish(source, target):
         if Path(target).name == LATENCY_MODEL_REPORT:
             raise failure
-        return replace(source, target)
+        replace(source, target)
 
     if failure_stage == "json_publish":
         monkeypatch.setattr(os, "replace", fail_publish)
@@ -115,7 +115,7 @@ def test_concurrent_writers_publish_matching_json_and_csv(tmp_path, previous_pai
         if payload["model_name"] == "first":
             first_ready.set()
             assert second_committed.wait(timeout=10)
-        return dump(payload, stream, **kwargs)
+        dump(payload, stream, **kwargs)
 
     monkeypatch.setattr("acprof.analysis.latency_report.json.dump", ordered_dump)
 
@@ -133,8 +133,8 @@ def test_concurrent_writers_publish_matching_json_and_csv(tmp_path, previous_pai
         second.result(timeout=15)
     report = json.loads(report_path.read_bytes())
     assert report["model_name"] == "first"
-    with (report_path.parent / report["residuals_csv"]).open(newline="") as stream:
-        assert [row["case_id"] for row in csv.DictReader(stream)] == ["first"]
+    with (report_path.parent / report["residuals_csv"]).open(newline="") as csv_stream:
+        assert [row["case_id"] for row in csv.DictReader(csv_stream)] == ["first"]
 
 
 def test_skipped_report_selects_an_empty_csv_without_changing_the_old_one(tmp_path, previous_pair):
@@ -195,8 +195,8 @@ def test_first_json_failure_does_not_publish_a_selector(tmp_path, monkeypatch):
     assert not list(directory.glob(".*.tmp"))
     complete = list(directory.glob("*.csv"))
     assert len(complete) == 1
-    with complete[0].open(newline="") as stream:
-        assert [row["case_id"] for row in csv.DictReader(stream)] == ["new"]
+    with complete[0].open(newline="") as csv_stream:
+        assert [row["case_id"] for row in csv.DictReader(csv_stream)] == ["new"]
 
 
 @pytest.mark.parametrize("kind", ["file", "dangling-symlink"])
