@@ -77,7 +77,7 @@ def test_opening_writer_hashes_each_complete_projection_once(tmp_path, monkeypat
         return sha256(raw, *args, **kwargs)
 
     with monkeypatch.context() as guard:
-        guard.setattr(hashlib, "sha256", counted_sha256)
+        guard.setattr(hashlib, sha256().name, counted_sha256)
         with ResultWriter(tmp_path) as writer:
             for layer, raw in projections.items():
                 expected = sha256(raw).hexdigest()
@@ -139,12 +139,12 @@ def test_failed_publication_does_not_advance_recovered_hashes(tmp_path, monkeypa
     second = receipt(tmp_path, 1)
     before_manifest = layout.result_csv.read_bytes()
 
-    def publish(writer):
+    def publish(active_writer):
         if operation == "append":
-            return writer.append_window(second)
-        row = dict(next(iter(writer.rows.values())), latency_s="0.2",
+            return active_writer.append_window(second)
+        row = dict(next(iter(active_writer.rows.values())), latency_s="0.2",
                    compute_profile_error_ncu="fixture profiler error")
-        return writer.update_rows([row], reason="fixture failed replacement")
+        return active_writer.update_rows([row], reason="fixture failed replacement")
 
     def fail_commit(*_args, **_kwargs):
         raise OSError("fixture commit publication failed")
@@ -153,7 +153,7 @@ def test_failed_publication_does_not_advance_recovered_hashes(tmp_path, monkeypa
         previous = dict(writer.hashes)
         previous_digests = hash_digests(previous)
         with monkeypatch.context() as guard:
-            guard.setattr(writer_module, "save_commit", fail_commit)
+            guard.setattr(writer_module, writer_module.save_commit.__name__, fail_commit)
             with pytest.raises(OSError, match="fixture commit publication failed"):
                 publish(writer)
         assert writer.failed
