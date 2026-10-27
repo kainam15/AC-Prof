@@ -206,6 +206,8 @@ class AcprofTui(BarCursorApp):
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")
         self.form_ready = True
+        self.results.update_report_source_label()
+        self.results.update_report_actions()
         self.configuration.refresh_command_preview(notify=False)
         self.call_after_refresh(self.preflight.quick_check)
         self.query_one("#model", Input).focus()
@@ -302,6 +304,7 @@ class AcprofTui(BarCursorApp):
         self.images.sync_image_refresh_timer()
         self.preflight.refresh_preflight_state()
         self.profiles.update_action_availability()
+        self.results.update_report_actions()
 
     def activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -604,7 +607,7 @@ class AcprofTui(BarCursorApp):
                 self.results.open_report(str(report_path))
             else:
                 self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0570'))
+                self.results.clear_report(message_id('ui.0570'), phase="error")
         elif kind == "html-report":
             self.results.html_report_finished(error=completion.launch_error, cancelled=cancelled)
         elif kind == "compare":
@@ -615,7 +618,7 @@ class AcprofTui(BarCursorApp):
                 self.results.open_report(str(report_path))
             else:
                 self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0486'))
+                self.results.clear_report(message_id('ui.0486'), phase="error")
 
     @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:
@@ -876,6 +879,14 @@ class AcprofTui(BarCursorApp):
     @on(Input.Changed, '#report-source')
     def on_results_report_source_changed(self) -> None:
         self.results.report_source_changed()
+
+    @on(Input.Changed, '#report-json-path')
+    def on_results_report_json_changed(self) -> None:
+        self.results.report_json_changed()
+
+    @on(Input.Changed, '#html-report-path')
+    def on_results_html_path_changed(self) -> None:
+        self.results.update_report_actions()
 
     @on(Button.Pressed, '#report-open')
     def on_results_open_report_button(self) -> None:

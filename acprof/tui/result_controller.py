@@ -5,6 +5,7 @@ lifecycle; read-only work is never initiated from a measurement window.
 """
 from __future__ import annotations
 
+import csv
 import json
 from collections import deque
 from functools import partial
@@ -13,7 +14,7 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from rich.text import Text
-from textual.widgets import Collapsible, DataTable, Static
+from textual.widgets import Button, Collapsible, ContentSwitcher, DataTable, Static
 from textual.worker import Worker
 
 from acprof.experiment import RunConfigError
@@ -169,23 +170,99 @@ class ResultController:
             return
         self.app.launch(pending)
 
-    def clear_report(self, status: str) -> None:
+    def update_report_source_label(self) -> None:
+        source = self.app.configuration.input("report-source").strip()
+        title: str
+        if not source:
+            title = message_id("ui.2301")
+        else:
+            try:
+                values = [value.strip() for value in next(
+                    csv.reader([source], delimiter=";", skipinitialspace=True, strict=True)
+                ) if value.strip()]
+            except csv.Error:
+                values = [source]
+            if len(values) > 1:
+                title = message_id("ui.2302")
+            elif values:
+                path = Path(values[0].rstrip("/"))
+                title = path.parent.name if path.name == "result_layers.json" else path.name
+            else:
+                title = message_id("ui.2301")
+        label = self.app.query_one("#report-experiment", Static)
+        self.app.localization.set_text(label, message_id("ui.2300", title))
+        label.tooltip = source or None
+
+    def update_report_actions(self) -> None:
+        """Keep actions bound to the correct input and the existing operation lock."""
+        if not self.app.is_running or not self.app.form_ready or self.app.ui_closing:
+            return
+        state = self.app.operation_state()
+        source = self.app.configuration.input("report-source").strip()
+        json_path = self.app.configuration.input("report-json-path").strip()
+        html_path = self.app.configuration.input("html-report-path").strip()
+        self.app.query_one("#report-calculate", Button).disabled = not (
+            source and state.allows("stats")
+        )
+        self.app.query_one("#html-report-generate", Button).disabled = not (
+            source and state.allows("html-report")
+        )
+        self.app.query_one("#report-open", Button).disabled = not (
+            json_path and state.allows("report")
+        )
+        open_html = self.app.query_one("#html-report-open", Button)
+        open_html.display = bool(html_path)
+        open_html.disabled = not (html_path and state.allows("html-open"))
+        export_html = self.app.query_one("#html-report-export", Button)
+        export_html.disabled = not (html_path and state.allows("html-export"))
+        cancel = self.app.query_one("#html-report-cancel", Button)
+        cancel.display = self.app.process_kind == "html-report"
+        cancel.disabled = not (
+            self.app.process_kind == "html-report" and state.allows("stop")
+        )
+
+    def clear_report(self, status: str, *, phase: str = "empty") -> None:
         self.report_view = None
         self.app.query_one("#report-table", DataTable).clear(columns=True)
         self.app.localization.set_text(self.app.query_one("#report-status", Static), status)
-        self.app.localization.set_text(self.app.query_one("#report-detail", Static), "表格可滚动；选择一行查看口径与数据来源。")
+        self.app.localization.set_text(
+            self.app.query_one("#report-detail", Static),
+            "表格可滚动；选择一行查看口径与数据来源。",
+        )
+        target = {"empty": "report-empty", "loading": "report-loading", "error": "report-error"}[phase]
+        if phase != "empty":
+            self.app.localization.set_text(self.app.query_one("#" + target, Static), status)
+        else:
+            self.app.localization.set_text(self.app.query_one("#report-empty", Static), message_id("ui.2309"))
+        self.app.query_one("#report-content", ContentSwitcher).current = target
 
     def report_source_changed(self) -> None:
-        if self.app.form_ready:
-            if self.app.operation_state().allows("html-report"):
-                self.find_html_report()
-            if (self.report_request is not None and
-                    resolve_result_path(self.app.configuration.input("report-source"), self.app.project_dir) == self.report_path):
-                return
-            if self.report_request is not None:
-                self.report_request.set()
-            self.report_request = None
-            self.clear_report("CSV / 目录：生成 HTML 或 JSON 统计；JSON：查看统计。采集结束后操作。")
+        if not self.app.form_ready:
+            return
+        self.update_report_source_label()
+        if self.report_request is not None:
+            self.report_request.set()
+        self.report_request = None
+        with self.app.prevent(Input.Changed):
+            self.app.query_one("#report-json-path", Input).value = ""
+        if (self.app.operation_state().allows("html-report")
+                and self.app.configuration.input("report-source").strip()):
+            self.find_html_report()
+        self.clear_report(message_id("ui.2303"))
+        self.update_report_actions()
+
+    def report_json_changed(self) -> None:
+        if not self.app.form_ready:
+            return
+        source = self.app.configuration.input("report-json-path").strip()
+        if (self.report_request is not None and
+                resolve_result_path(source, self.app.project_dir) == self.report_path):
+            return
+        if self.report_request is not None:
+            self.report_request.set()
+        self.report_request = None
+        self.clear_report(message_id("ui.2316") if source else message_id("ui.2303"))
+        self.update_report_actions()
 
     def open_report_button(self) -> None:
         self.open_report()
@@ -194,19 +271,20 @@ class ResultController:
         if not self.app.allow_operation("report"):
             return
         self.app.activate_tab("reports-tab")
-        self.app.query_one("#html-report-panel", Collapsible).collapsed = True
-        source = path if path is not None else self.app.configuration.input("report-source")
+        source = path if path is not None else self.app.configuration.input("report-json-path")
         if not source.strip():
-            self.clear_report("请填写报告 JSON 路径，或使用当前结果计算统计。")
+            self.clear_report(message_id("ui.2315"), phase="error")
+            self.app.query_one("#report-file-options", Collapsible).collapsed = False
             return
         report_path = resolve_result_path(source, self.app.project_dir)
         if report_path.suffix.lower() != ".json":
-            self.clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。")
+            self.clear_report("请选择 JSON 报告；实验目录或 CSV 请点击“计算统计”。", phase="error")
+            self.app.query_one("#report-file-options", Collapsible).collapsed = False
             return
         with self.app.prevent(Input.Changed):
-            self.app.query_one("#report-source", Input).value = str(report_path)
-        self.clear_report(message_id('ui.0577', CALCULATING))
-        self.app.screen.set_focus(self.app.query_one("#report-table"), scroll_visible=False)
+            self.app.query_one("#report-json-path", Input).value = str(report_path)
+        self.update_report_actions()
+        self.clear_report(message_id("ui.2310"), phase="loading")
         if self.report_request is not None:
             self.report_request.set()
         token = self.report_request = Event()
@@ -234,12 +312,12 @@ class ResultController:
         if not self.app.is_running or self.app.ui_closing:
             return
         if (token is not self.report_request or
-                resolve_result_path(self.app.configuration.input("report-source"), self.app.project_dir) != self.report_path):
+                resolve_result_path(self.app.configuration.input("report-json-path"), self.app.project_dir) != self.report_path):
             self.app.set_busy(self.app.is_busy())
             return
         self.app.set_busy(self.app.is_busy())
         if view is None:
-            self.clear_report(message_id('ui.0578', error))
+            self.clear_report(message_id('ui.0578', error), phase="error")
             return
         self.report_view = view
         self.render_report_view()
@@ -251,6 +329,13 @@ class ResultController:
         table = self.app.query_one("#report-table", DataTable)
         cursor, scroll = table.cursor_coordinate, table.scroll_offset
         table.clear(columns=True)
+        if not view.rows:
+            self.app.localization.set_text(self.app.query_one("#report-status", Static), view.title)
+            self.app.localization.set_text(
+                self.app.query_one("#report-empty", Static), view.note or message_id("ui.2317"),
+            )
+            self.app.query_one("#report-content", ContentSwitcher).current = "report-empty"
+            return
         for column in view.columns:
             table.add_column(Text(self.app.localization.tr(column)), key=str(column))
         for index, row in enumerate(view.rows):
@@ -258,6 +343,7 @@ class ResultController:
         table.move_cursor(row=min(cursor.row, max(0, len(view.rows) - 1)), column=cursor.column, scroll=False)
         table.scroll_to(scroll.x, scroll.y, animate=False, force=True)
         self.app.localization.set_text(self.app.query_one("#report-status", Static), view.title)
+        self.app.query_one("#report-content", ContentSwitcher).current = "report-results"
         self.show_report_row(table.cursor_row)
 
     def report_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -291,22 +377,23 @@ class ResultController:
         self.app.activate_tab("reports-tab")
         source = path if path is not None else self.app.configuration.input("report-source")
         if not source.strip():
-            self.clear_report("请填写实验目录或结果 CSV 路径。")
+            self.clear_report(message_id("ui.2314"), phase="error")
             return
         try:
             pending = prepare_stats(source, project_dir=self.app.project_dir, python_executable=self.app.python_executable)
         except (OSError, ValueError) as exc:
-            self.clear_report(str(exc))
+            self.clear_report(error_message(exc), phase="error")
             return
         self.stats_report_path = None
         self.stats_report_reused = False
-        self.clear_report(message_id('ui.0582', CALCULATING))
+        self.clear_report(message_id("ui.2313"), phase="loading")
         self.app.launch(pending)
 
     def set_html_status(self, text: str, *, expand: bool = True) -> None:
         if expand:
             self.app.query_one("#html-report-panel", Collapsible).collapsed = False
         self.app.localization.set_text(self.app.query_one("#html-report-status", Static), text)
+        self.update_report_actions()
 
     def find_html_report(self) -> None:
         """Small directory lookup only; all result parsing stays in the CLI."""
