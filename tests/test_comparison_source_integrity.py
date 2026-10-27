@@ -12,6 +12,7 @@ from acprof.analysis.independent_comparison import compare_experiments
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.hardware_conditions import conditions_path
+from acprof.quality import combine_quality
 from acprof.result_store.writer import ResultWriter
 from acprof.telemetry import window_evidence
 from acprof.window_records import (
@@ -80,8 +81,6 @@ def legacy_snapshot(source):
 
 
 def change_during_aggregation(monkeypatch, change):
-    from acprof.analysis.independent_comparison import _aggregate_evidence
-
     changed = False
 
     def aggregate(records):
@@ -89,9 +88,10 @@ def change_during_aggregation(monkeypatch, change):
         if not changed:
             changed = True
             change()
-        return _aggregate_evidence(records)
+        return combine_quality(records)
 
-    monkeypatch.setattr("acprof.analysis.independent_comparison._aggregate_evidence", aggregate)
+    # Quality aggregation begins after the input rows and condition evidence are read.
+    monkeypatch.setattr("acprof.analysis.independent_comparison.combine_quality", aggregate)
 
 
 def test_state_identity_is_captured_before_its_first_read(pair, monkeypatch):
@@ -190,6 +190,7 @@ def test_explicit_csv_supplies_both_statistics_and_fingerprints(pair, relative, 
     with selected[0].open(newline="") as stream:
         reader = csv.DictReader(stream)
         fields, row = reader.fieldnames, next(reader)
+    assert fields is not None
     with selected[0].open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fields)
         writer.writeheader()
