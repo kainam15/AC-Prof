@@ -68,6 +68,7 @@ class ResultController:
                 self.summary_request.set()
             self.summary_request = None
             self.app.localization.set_text(self.app.query_one("#result-summary", Static), "结果选择已更改，请读取摘要。")
+            self.app.profiles.reset_overview()
 
     def summarize_results_button(self) -> None:
         self.update_result_summary(self.app.configuration.input("result-csv"))
@@ -86,6 +87,7 @@ class ResultController:
             self.summary_request.set()
         token = self.summary_request = Event()
         self.summary_path = path
+        self.app.profiles.reset_overview()
         self.app.read_jobs.add(token)
         self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('ui.0199', CALCULATING))
         self.app.set_busy(True)
@@ -103,9 +105,19 @@ class ResultController:
             summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
         except Exception as exc:
             summary, error = None, error_message(exc)
-        self.app.process.safe_process_callback(self.show_result_summary, path, token, summary, error, notify)
+        overview, profile_error = None, ""
+        if summary is not None and not token.is_set():
+            from acprof.tui.profile_status import inspect_profile_result
+            try:
+                overview = inspect_profile_result(path)
+            except (OSError, ValueError, RuntimeError) as exc:
+                profile_error = error_message(exc)
+        self.app.process.safe_process_callback(
+            self.show_result_summary, path, token, summary, error, notify, overview, profile_error)
 
-    def show_result_summary(self, path, token, summary, error: str, notify: bool) -> None:
+    def show_result_summary(
+        self, path, token, summary, error: str, notify: bool, overview=None, profile_error: str = "",
+    ) -> None:
         self.app.read_jobs.discard(token)
         if not self.app.is_running or self.app.ui_closing:
             return
@@ -114,6 +126,7 @@ class ResultController:
                 resolve_result_path(self.app.configuration.input("result-csv"), self.app.project_dir) != path):
             return
         if summary is None:
+            self.app.profiles.reset_overview()
             self.app.localization.set_text(self.app.query_one("#result-summary", Static), message_id('ui.0811', error))
             if notify:
                 self.app.notify(error, severity="error")
@@ -121,6 +134,7 @@ class ResultController:
         from acprof.tui.diagnostics import result_summary_text
         self.app.configuration.remember_last_used(result_csv=str(path))
         self.app.localization.set_text(self.app.query_one("#result-summary", Static), result_summary_text(summary, path))
+        self.app.profiles.show_overview(overview, profile_error)
         if notify:
             self.app.notify("结果摘要已更新", timeout=3)
 
@@ -134,6 +148,7 @@ class ResultController:
             self.report_request.set()
         self.summary_request = self.report_request = None
         self.app.localization.set_text(self.app.query_one("#result-summary", Static), "读取已取消；等待后台任务释放资源。")
+        self.app.profiles.reset_overview()
         self.clear_report("读取已取消；等待后台任务释放资源。")
         self.app.set_busy(self.app.is_busy())
 

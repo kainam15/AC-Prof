@@ -394,7 +394,7 @@ class TestTuiModelMemory:
             assert (restarted.query_one("#model", Input).value) == (model)
             assert (restarted.query_one("#cpus", Input).value) == ("1,3")
             assert (restarted.theme) == ("acprof-light")
-            assert (restarted.query_one("#result-dir", Input).value) == (expected.last_result_dir)
+            assert (restarted.configuration.saved_settings.last_result_dir) == (expected.last_result_dir)
             assert (restarted.query_one("#result-csv", Input).value) == (expected.last_result_csv)
 
     async def test_draft_preview_and_cancel_do_not_replace_last_model(self):
@@ -403,7 +403,6 @@ class TestTuiModelMemory:
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)) as pilot:
             app.query_one("#model", Input).value = "demo/draft"
-            app.query_one("#result-dir", Input).value = "results/draft"
             app.query_one("#result-csv", Input).value = "results/draft/custom.csv"
             await pilot.pause(0.12)
             assert (self.settings_path.read_bytes()) == (original)
@@ -492,9 +491,7 @@ class TestTuiModelMemory:
                 app.activate_tab("plot-tab")
                 await pilot.pause()
                 assert (app.query_one("#result-csv", Input).value) == (self.saved.last_result_csv)
-                app.activate_tab("profile-tab")
-                await pilot.pause()
-                assert (app.query_one("#result-dir", Input).value) == (self.saved.last_result_dir)
+                assert (app.configuration.saved_settings.last_result_dir) == (self.saved.last_result_dir)
                 read_results.assert_not_called()
         assert (self.settings_path.read_bytes()) == (original)
 
@@ -528,7 +525,7 @@ class TestTuiModelMemory:
                 # duplicate write or any write during the worker's lifetime.
                 save.assert_called_once()
             assert (app.query_one("#result-csv", Input).value) == (str(csv_path))
-            assert (app.query_one("#result-dir", Input).value) == (str(csv_path.parent))
+            assert (app.configuration.saved_settings.last_result_dir) == (str(csv_path.parent))
         expected = replace(
             self.saved, last_result_csv=str(csv_path), last_result_dir=str(csv_path.parent),
         )
@@ -536,14 +533,13 @@ class TestTuiModelMemory:
         restarted = AcprofTui(settings_path=self.settings_path)
         async with restarted.run_test(size=(120, 30)):
             assert (restarted.query_one("#result-csv", Input).value) == (str(csv_path))
-            assert (restarted.query_one("#result-dir", Input).value) == (str(csv_path.parent))
+            assert (restarted.configuration.saved_settings.last_result_dir) == (str(csv_path.parent))
 
     async def test_summary_remembers_only_successfully_read_csv(self):
         csv_path = self.write_result()
         save_settings(self.settings_path, self.saved, PROJECT_DIR)
         app = AcprofTui(settings_path=self.settings_path)
         async with app.run_test(size=(120, 30)):
-            app.query_one("#result-dir", Input).value = "results/unsubmitted-draft"
             app.query_one("#result-csv", Input).value = str(csv_path.relative_to(PROJECT_DIR))
             app.results.summarize_results_button()
             await app.workers.wait_for_complete()
@@ -585,21 +581,21 @@ class TestTuiModelMemory:
                         assert (self.settings_path.read_bytes()) == (original)
                         app.results.launch_plot(str(csv_path.relative_to(PROJECT_DIR)))
                     elif kind == "profile-dry-run":
-                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"))
+                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent / "missing"), tools="torch")
                         assert (self.settings_path.read_bytes()) == (original)
-                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)))
+                        app.profiles.launch_profile(dry_run=True, result_dir=str(csv_path.parent.relative_to(PROJECT_DIR)), tools="torch")
                     else:
-                        app.profiles.request_profile_run(result_dir=str(csv_path.parent))
+                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="torch")
                         await pilot.pause()
                         assert (await pilot.click("#confirm-no"))
                         await pilot.pause()
                         assert (self.settings_path.read_bytes()) == (original)
                         execute.assert_not_called()
-                        app.profiles.request_profile_run(result_dir=str(csv_path.parent))
+                        app.profiles.request_profile_run(result_dir=str(csv_path.parent), tools="torch")
                         await pilot.pause()
-                        # Confirmation must remember the frozen command's
-                        # directory, not a newer draft in the form.
-                        app.query_one("#result-dir", Input).value = "results/draft"
+                        # Confirmation retains its frozen directory if selected
+                        # result changes while the dialog is open.
+                        app.query_one("#result-csv", Input).value = "results/draft"
                         assert (await pilot.click("#confirm-yes"))
                         await pilot.pause()
                     execute.assert_called_once()

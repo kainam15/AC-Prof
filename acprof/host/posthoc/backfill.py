@@ -48,7 +48,7 @@ from acprof.host.profiling.execution_plan import (
 from acprof.metric_registry import order_csv_fields
 
 
-def _row_tool_complete(row: Mapping[str, Any], tool: str) -> bool:
+def row_tool_complete(row: Mapping[str, Any], tool: str) -> bool:
     error = str(row.get(TOOL_ERROR_FIELD[tool]) or "").strip()
     return not error and all(
         math.isfinite(_finite_float(row.get(field)))
@@ -64,7 +64,7 @@ def csv_tool_complete(context: ResultContext, tool: str) -> bool:
         if normalize_gpu_mode(row.get("gpu_mode")) in modes
     ]
     return bool(applicable_rows) and all(
-        _row_tool_complete(row, tool) for row in applicable_rows
+        row_tool_complete(row, tool) for row in applicable_rows
     )
 
 
@@ -167,7 +167,7 @@ def backfill_rows(
         for tool in selected:
             if mode not in TOOL_GPU_MODES[tool]:
                 continue
-            if not force and _row_tool_complete(row, tool):
+            if not force and row_tool_complete(row, tool):
                 continue
             if tool in {"torch", "ncu"}:
                 if compute_plan is None:

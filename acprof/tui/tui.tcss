@@ -208,18 +208,11 @@ Button:disabled, Button:disabled:hover, Button:disabled:focus, Button:disabled.-
 }
 Input:disabled { color: $ui-disabled; border: solid $ui-disabled; }
 Select:disabled > SelectCurrent { color: $ui-disabled; border: solid $ui-disabled; }
-#profile-tools {
-    grid-size: 2;
-    grid-columns: 1fr 1fr;
-    grid-rows: 3;
-    height: 6;
-}
-#profile-tools .option-checkbox { width: 1fr; margin-right: 0; }
-#profile-tools .option-checkbox > .toggle--button,
+#profile-section { height: auto; margin: 0; padding: 0; border: none; }
+#profile-status { height: auto; color: $text-muted; margin-bottom: 1; }
+#open-result-profiling { width: auto; }
 #permissions-tab .option-checkbox > .toggle--button { color: $panel; }
-#profile-tools .option-checkbox.-on > .toggle--button,
 #permissions-tab .option-checkbox.-on > .toggle--button { color: $background; }
-#profile-tools .option-checkbox:disabled > .toggle--button,
 #permissions-tab .option-checkbox:disabled > .toggle--button { color: $ui-disabled; background: $panel; }
 .settings-section {
     height: auto;

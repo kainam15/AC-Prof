@@ -517,10 +517,10 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
 
 
 def compose_plot_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("绘图工具", id="plot-tab"):
+    with TabPane("实验结果", id="plot-tab"):
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static(
-                "读取结果 CSV，查看摘要或生成 PNG 图表。", classes="page-summary", markup=False,
+                message_id("ui.2269"), classes="page-summary", markup=False,
             ))
         with VerticalScroll(id="plot-body", classes="pane-scroll"):
             with Grid(classes="form-grid tool-form-grid"):
@@ -528,6 +528,15 @@ def compose_plot_tab(app: AcprofTui) -> ComposeResult:
                 with Horizontal(classes="path-picker-row"):
                     yield app.localization.localized_widget(Input(app.configuration.saved_settings.last_result_csv, id="result-csv"))
                     yield app.localization.localized_widget(Button("选择实验", name="result-csv", id="choose-result-csv", classes="experiment-picker"))
+            with app.localization.localized_widget(Collapsible(
+                title="性能深度分析", collapsed=True, id="profile-section",
+            )):
+                yield app.localization.localized_widget(Static(
+                    message_id("ui.2253"), id="profile-status", markup=False,
+                ))
+                yield app.localization.localized_widget(Button(
+                    message_id("ui.2263"), id="open-result-profiling", disabled=True,
+                ))
             yield app.localization.localized_widget(Static(
                 "选择或完成一次实验后，这里会显示结果摘要。",
                 id="result-summary",
@@ -603,37 +612,6 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
                 yield app.localization.localized_widget(Button("计算 JSON 统计", id="report-calculate", classes="report-control"))
             with Horizontal(classes="action-primary"):
                 yield app.localization.localized_widget(Button("生成交互式报告", id="html-report-generate", classes="report-control", variant="primary"))
-
-
-def compose_profile_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("补采工具", id="profile-tab"):
-        with VerticalScroll(id="profile-body", classes="pane-scroll"):
-            with Grid(classes="form-grid tool-form-grid"):
-                yield app.localization.localized_widget(Label("结果目录"))
-                with Horizontal(classes="path-picker-row"):
-                    yield app.localization.localized_widget(Input(app.configuration.saved_settings.last_result_dir, id="result-dir"))
-                    yield app.localization.localized_widget(Button("选择实验", name="result-dir", id="choose-result-dir", classes="experiment-picker"))
-                yield app.localization.localized_widget(Label("补采工具"))
-                with Grid(id="profile-tools"):
-                    for tool, label, tooltip in (
-                        ("torch", "torch · CPU / GPU", "逻辑 FLOP；点击或按空格切换。"),
-                        ("ncu", "ncu · GPU", "GPU 实际执行 FLOP；点击或按空格切换。"),
-                        ("nsys", "nsys · GPU", "CUDA API、kernel 和 memcpy 时间线；点击或按空格切换。"),
-                        ("massif", "massif · CPU", "CPU-only 进程生命周期内存峰值；点击或按空格切换。"),
-                    ):
-                        yield app.localization.localized_widget(StatusCheckbox(
-                            label,
-                            value=tool in {"torch", "ncu"},
-                            name=tool,
-                            id=f"profile-tool-{tool}",
-                            classes="option-checkbox profile-tool",
-                            tooltip=tooltip,
-                        ))
-        with Horizontal(id="profile-actions", classes="action-bar"):
-            with Horizontal(classes="action-secondary"):
-                yield app.localization.localized_widget(Button("补采计划（dry-run）", id="profile-dry-run"))
-            with Horizontal(classes="action-primary"):
-                yield app.localization.localized_widget(Button("执行补采", id="profile-run", variant="warning"))
 
 
 def compose_settings_tab(app: AcprofTui) -> ComposeResult:

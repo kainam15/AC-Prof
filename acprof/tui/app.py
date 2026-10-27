@@ -79,7 +79,6 @@ from acprof.tui.views import (
     compose_images_tab,
     compose_monitor_tab,
     compose_plot_tab,
-    compose_profile_tab,
     compose_reports_tab,
     compose_run_tab,
     compose_settings_tab,
@@ -188,7 +187,6 @@ class AcprofTui(BarCursorApp):
             yield from compose_monitor_tab(self)
             yield from compose_plot_tab(self)
             yield from compose_reports_tab(self)
-            yield from compose_profile_tab(self)
             yield from compose_images_tab(self)
             yield from compose_settings_tab(self)
 
@@ -287,7 +285,7 @@ class AcprofTui(BarCursorApp):
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
             "#summarize-results": "summary", "#plot-results": "plot",
-            "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
+            "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
             "#html-report-generate": "html-report", "#html-report-open": "html-open",
             "#html-report-export": "html-export",
@@ -303,6 +301,7 @@ class AcprofTui(BarCursorApp):
         self.images.update_image_controls()
         self.images.sync_image_refresh_timer()
         self.preflight.refresh_preflight_state()
+        self.profiles.update_action_availability()
 
     def activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -332,6 +331,7 @@ class AcprofTui(BarCursorApp):
             self.configuration.remember_last_used(model=model)
             self.run_result = RunResult()
             self.results.summary_request = None
+            self.profiles.reset_overview()
             self.localization.set_text(self.query_one("#result-summary", Static),
                            "本次尚未产生结果；历史结果可通过原路径查看。")
         else:
@@ -593,6 +593,9 @@ class AcprofTui(BarCursorApp):
                     output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
         if completion.current_csv:
             self.results.update_result_summary(completion.current_csv, notify=False)
+        elif kind == "profile" and self.results.summary_path is not None:
+            # Posthoc can publish profiler layers without touching base rows.
+            self.results.update_result_summary(str(self.results.summary_path), notify=False)
         self.images.sync_image_refresh_timer()
         if kind == "stats":
             report_path, self.results.stats_report_path = self.results.stats_report_path, None
@@ -915,13 +918,9 @@ class AcprofTui(BarCursorApp):
     def on_preflight_open_model_store(self) -> None:
         self.preflight.open_model_store()
 
-    @on(Button.Pressed, '#profile-dry-run')
-    def on_profiles_profile_dry_run_button(self) -> None:
-        self.profiles.profile_dry_run_button()
-
-    @on(Button.Pressed, '#profile-run')
-    def on_profiles_profile_run_button(self) -> None:
-        self.profiles.profile_run_button()
+    @on(Button.Pressed, '#open-result-profiling')
+    def on_profiles_open_selection(self) -> None:
+        self.profiles.open_selection_dialog()
 
     @on(Input.Submitted, '#slash-command')
     def on_slash_slash_command_submitted(self, event: TextualInput.Submitted) -> None:

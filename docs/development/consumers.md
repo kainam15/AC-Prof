@@ -91,7 +91,8 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `configuration_controller` 管理表单、字段校验、设置保存、最近路径和预览；
 `experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
 `preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
-`profile_controller` 管理补采，`slash_controller` 分发快捷命令。
+`profile_controller` 管理补采决策和确认，`profile_status` 复用 posthoc 行级完成判定读取分层结果，
+`profile_screen` 提供实验结果页的按需补采弹窗，`slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
 HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_controller` 只管理输出路径、
 完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占创建导出文件；
 文件操作仍交给 App worker manager，导出使用既有 MeasurementLock。`platform.can_open_local_browser`

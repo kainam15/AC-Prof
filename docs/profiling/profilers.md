@@ -91,9 +91,10 @@ acprof profile results/google-bert--bert-base-uncased --tools torch,ncu
 ```
 
 不传 `--tools` 时，默认补齐适用且尚未成功的 `torch,ncu,nsys,massif`。
-TUI 的“补采工具”页提供这四项独立复选框，默认勾选 `torch`、`ncu`；
-鼠标点击或聚焦后按空格切换，可同时勾选四项。至少选择一项后再查看补采计划或执行补采。
-未显式指定工具的 `/profile`、`/profile-run` 使用当前勾选项；命令中指定工具时以命令为准。
+TUI 在“实验结果”页先读取实验摘要和分析指标状态，展开“性能深度分析”并点击
+“补充性能分析”后，只允许选择适用且未完成的工具；默认推荐缺失的 `torch`、`ncu`，
+`nsys`、`massif` 须主动勾选。已完成及不适用工具不可选，执行时再确认。
+缺省工具的 `/profile`、`/profile-run` 复用已读取结果的推荐项；显式传入目录与工具时以命令为准。
 Torch 匹配已有 CPU/GPU 数据，NCU/Nsys 只用于 GPU 行，Massif 只用于 CPU-only 行。
 补采沿用前述 Massif/Nsys 采样策略，也支持 `--massif-sampling full`、
 `--nsys-sampling per-scale` 或 `--nsys-sampling full`。
