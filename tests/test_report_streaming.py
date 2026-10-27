@@ -4,7 +4,6 @@ import errno
 import gc
 import tracemalloc
 from typing import TextIO
-from unittest.mock import patch
 
 import pytest
 
@@ -81,16 +80,15 @@ def test_failure_after_a_written_fragment_leaves_no_partial_report(tmp_path, mon
     def publish(path, write, **kwargs):
         def fail_late(stream: TextIO):
             opened.append(stream)
-            original_write = stream.write
 
-            def append(fragment):
-                if written:
-                    raise failure
-                written.append(fragment)
-                return original_write(fragment)
+            class FailingWriter:
+                def write(self, fragment: str) -> int:
+                    if written:
+                        raise failure
+                    written.append(fragment)
+                    return stream.write(fragment)
 
-            with patch.object(stream, "write", side_effect=append):
-                write(stream)
+            write(FailingWriter())
 
         atomic_write(path, fail_late, **kwargs)
 
