@@ -132,7 +132,7 @@ def test_cancelled_backup_copy_removes_only_the_incomplete_backup(tmp_path, monk
         Path(destination).write_bytes(b"partial backup")
         raise cancellation
 
-    monkeypatch.setattr(storage.shutil, "copy2", interrupt_copy)
+    monkeypatch.setattr(storage, "copy_backup_file", interrupt_copy)
     with pytest.raises(cancellation_type) as caught:
         storage.create_backup(context)
     assert caught.value is cancellation

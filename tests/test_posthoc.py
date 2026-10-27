@@ -969,7 +969,7 @@ class TestPosthocProfile:
             self._write_fixture(root)
             context = host_posthoc_context.load_result_context(root)
             backup_root = ArtifactLayout.discover(root).path(host_posthoc_context.BACKUP_DIRNAME)
-            real_copy2 = host_posthoc_storage.shutil.copy2
+            copy_file = host_posthoc_storage.copy_backup_file
             copy_count = 0
 
             def fail_second_copy(source, destination):
@@ -977,9 +977,9 @@ class TestPosthocProfile:
                 copy_count += 1
                 if copy_count == 2:
                     raise OSError("simulated backup copy failure")
-                return real_copy2(source, destination)
+                copy_file(source, destination)
 
-            with patch("acprof.host.posthoc.storage.shutil.copy2", side_effect=fail_second_copy), pytest.raises(
+            with patch("acprof.host.posthoc.storage.copy_backup_file", side_effect=fail_second_copy), pytest.raises(
                 OSError, match="simulated backup copy failure"
             ):
                 host_posthoc_storage.create_backup(context)

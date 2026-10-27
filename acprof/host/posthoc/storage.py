@@ -25,6 +25,7 @@ from acprof.host.posthoc.context import (
     ResultContext,
     _load_json_object,
 )
+from acprof.host.posthoc.copying import copy_backup_file
 from acprof.result_csv import allow_large_csv_fields
 
 
@@ -109,7 +110,7 @@ def create_backup(context: ResultContext) -> Path:
                 source = layout.contained(relative)
                 destination = backup / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
+                copy_backup_file(source, destination)
                 with destination.open("rb") as stream:
                     os.fsync(stream.fileno())
                 directories.update(parent for parent in destination.parents if parent.is_relative_to(backup))
@@ -211,7 +212,7 @@ def _restore_from_backup(destination: Path, backup_file: Path) -> None:
     os.close(fd)
     temporary_path = Path(temporary)
     try:
-        shutil.copy2(backup_file, temporary_path)
+        copy_backup_file(backup_file, temporary_path)
         with temporary_path.open("rb") as stream:
             os.fsync(stream.fileno())
         os.replace(temporary_path, destination)

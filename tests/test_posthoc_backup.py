@@ -101,15 +101,14 @@ def test_backup_syncs_every_nested_directory_after_its_contents(tmp_path, monkey
 def test_corrupt_copied_layer_is_rejected_before_backup_is_returned(tmp_path, monkeypatch, version):
     context = backup_context(tmp_path, version)
     before = context.result_csv.read_bytes()
-    copy = storage.shutil.copy2
+    copy = storage.copy_backup_file
 
     def corrupt_copy(source, destination):
-        result = copy(source, destination)
+        copy(source, destination)
         if Path(source).name == "summary.csv":
             Path(destination).write_bytes(b"broken copied layer\n")
-        return result
 
-    monkeypatch.setattr(storage.shutil, "copy2", corrupt_copy)
+    monkeypatch.setattr(storage, "copy_backup_file", corrupt_copy)
     with pytest.raises(ValueError, match="missing or modified|hash mismatch|invalid.*layer"):
         storage.create_backup(context)
     assert context.result_csv.read_bytes() == before
@@ -120,17 +119,16 @@ def test_corrupt_copied_layer_is_rejected_before_backup_is_returned(tmp_path, mo
 @pytest.mark.parametrize("attribute", ["static_meta_path", "collection_history_path"])
 def test_copied_metadata_must_remain_readable(tmp_path, monkeypatch, attribute):
     context = backup_context(tmp_path, "v3")
-    copy = storage.shutil.copy2
+    copy = storage.copy_backup_file
     target = getattr(context, attribute)
     original = target.read_bytes()
 
     def corrupt_copy(source, destination):
-        result = copy(source, destination)
+        copy(source, destination)
         if source == target:
             Path(destination).write_bytes(b"{")
-        return result
 
-    monkeypatch.setattr(storage.shutil, "copy2", corrupt_copy)
+    monkeypatch.setattr(storage, "copy_backup_file", corrupt_copy)
     with pytest.raises(PosthocError, match="cannot read backup"):
         storage.create_backup(context)
     assert target.read_bytes() == original
@@ -140,7 +138,7 @@ def test_copied_metadata_must_remain_readable(tmp_path, monkeypatch, attribute):
 def test_incremental_copy_holds_one_publication_lock(tmp_path, monkeypatch):
     context = backup_context(tmp_path, "v3")
     layout = ArtifactLayout.discover(context.result_dir)
-    copy = storage.shutil.copy2
+    copy = storage.copy_backup_file
     copied = []
 
     def locked_copy(source, destination):
@@ -148,9 +146,9 @@ def test_incremental_copy_holds_one_publication_lock(tmp_path, monkeypatch):
             with publication_lock(layout, exclusive=True, blocking=False):
                 pytest.fail("writer acquired the publication lock during backup")
         copied.append(source)
-        return copy(source, destination)
+        copy(source, destination)
 
-    monkeypatch.setattr(storage.shutil, "copy2", locked_copy)
+    monkeypatch.setattr(storage, "copy_backup_file", locked_copy)
     backup = storage.create_backup(context)
     assert context.result_csv in copied
     assert layout.layer_csv("summary") in copied
@@ -196,7 +194,7 @@ def test_failed_incremental_copy_releases_lock_and_preserves_prior_backup(tmp_pa
         Path(destination).write_bytes(b"partial backup")
         raise failure("interrupted backup copy")
 
-    monkeypatch.setattr(storage.shutil, "copy2", fail_copy)
+    monkeypatch.setattr(storage, "copy_backup_file", fail_copy)
     with pytest.raises(failure, match="interrupted backup copy"):
         storage.create_backup(context)
     assert list(previous.parent.iterdir()) == [previous]
