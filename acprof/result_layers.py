@@ -312,6 +312,16 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
     return publish()
 
 
+def consume_layer_rows(fields: Sequence[str], keys: Sequence[tuple[str, ...]],
+                       combined: dict[tuple[str, ...], dict[str, str]]) -> list[dict[str, str]]:
+    """Return canonical rows while releasing this read's owned join mapping."""
+    rows = []
+    for key in keys:
+        row = combined.pop(key)
+        rows.append({field: row.get(field, "nan") for field in fields})
+    return rows
+
+
 def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]]]:
     """Read a full logical result from independently hashed partition CSVs."""
     root = _result_root(root)
@@ -364,25 +374,24 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
             expected_keys = keys
             if len(keys) != manifest["row_count"]:
                 raise ResultValidationError("summary row count mismatch")
-            combined = {key: dict(row) for key, row in zip(keys, rows, strict=True)}
+            combined = dict(zip(keys, rows, strict=True))
         elif expected_keys is None:
             raise ResultValidationError("summary layer must be first")
         elif layer not in PROFILER_LAYERS and keys != expected_keys:
             raise ResultValidationError(f"measurement order mismatch in {layer}")
-        for key, row in zip(keys, rows, strict=True):
-            if key not in combined:
-                raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
-            if layer != "summary":
+        if layer != "summary":
+            value_fields = [name for name in assigned[layer] if name not in identity]
+            for key, row in zip(keys, rows, strict=True):
+                if key not in combined:
+                    raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
                 if "runtime_kind" in identity and row["runtime_kind"] != combined[key]["runtime_kind"]:
                     raise ResultValidationError(f"runtime identity mismatch in {layer}")
-                combined[key].update({name: row[name] for name in assigned[layer] if name not in identity})
+                combined[key].update({name: row[name] for name in value_fields})
+        del snapshot, columns, rows, keys
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")
     ordered = order_csv_fields(wide_fields)
-    return ordered, [
-        {field: combined[key].get(field, "nan") for field in ordered}
-        for key in expected_keys
-    ]
+    return ordered, consume_layer_rows(ordered, expected_keys, combined)
 
 
 def export_result_layers(root: str | Path, destination: str | Path) -> int:

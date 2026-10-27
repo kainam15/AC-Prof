@@ -6,7 +6,7 @@ import hashlib
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import loads_finite_json, read_json_object
 from acprof.result_csv import ResultCsvSnapshot, ResultValidationError, measurement_key
-from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_identity_fields
+from acprof.result_layers import BASE_LAYERS, LAYER_FILES, consume_layer_rows, layer_identity_fields
 from acprof.result_store.protocol import (
     digest,
     publication_lock,
@@ -83,12 +83,15 @@ def read_snapshot(root):
                 combined = dict(zip(keys, rows, strict=True))
             elif layer in BASE_LAYERS and keys != expected:
                 raise ResultValidationError(f"measurement order mismatch in {layer}")
-            for key, row in zip(keys, rows, strict=True):
-                if key not in combined:
-                    raise ResultValidationError(f"orphan profiler row in {layer}")
-                if any(row[name] != combined[key][name] for name in identity):
-                    raise ResultValidationError(f"measurement identity mismatch in {layer}")
-                combined[key].update({name: value for name, value in row.items() if name in info["fields"]})
+            if layer != "summary":
+                value_fields = [name for name in info["fields"] if name not in identity]
+                for key, row in zip(keys, rows, strict=True):
+                    if key not in combined:
+                        raise ResultValidationError(f"orphan profiler row in {layer}")
+                    if any(row[name] != combined[key][name] for name in identity):
+                        raise ResultValidationError(f"measurement identity mismatch in {layer}")
+                    combined[key].update({name: row[name] for name in value_fields})
+            del rows, keys
         fields = manifest["wide_fields"]
-        rows = [{field: combined[key].get(field, "nan") for field in fields} for key in expected]
+        rows = consume_layer_rows(fields, expected, combined)
         return ResultCsvSnapshot(layout.result_csv, fields, rows, digest(manifest_bytes))
