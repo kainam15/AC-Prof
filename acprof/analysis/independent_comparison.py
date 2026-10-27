@@ -1,6 +1,7 @@
 """Compare run means, resampling independent runs instead of individual requests."""
 from __future__ import annotations
 
+import csv
 import math
 import random
 import statistics
@@ -18,6 +19,33 @@ from acprof.hardware_conditions import conditions_path
 from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
 from acprof.result_csv import measurement_key, read_result_csv
+
+
+def _verify_source(artifact: Path, expected: str | None) -> None:
+    current = file_sha256(artifact) if artifact.exists() else None
+    if current != expected:
+        raise ValueError(f"experiment changed during comparison: {artifact}")
+    if artifact.name != "result_layers.json" or expected is None:
+        return
+    try:
+        manifest = read_json_object(artifact, label="result layers manifest")
+        if manifest.get("schema_version") == 3:
+            from acprof.result_store.protocol import publication_lock, validate_layer_files
+            layout = ArtifactLayout.discover(artifact.parent)
+            with publication_lock(layout, exclusive=False):
+                validate_layer_files(layout, manifest)
+        elif manifest.get("schema_version") == 2:
+            from acprof.result_layers import result_layer_paths
+            for layer, path in result_layer_paths(artifact.parent, manifest).items():
+                if file_sha256(path) != manifest["layers"][layer]["sha256"]:
+                    raise ValueError(f"missing or modified result layer: {path}")
+        else:
+            # v1 also treats its imported wide CSV as a mutable dependency.
+            read_result_csv(artifact)
+        if file_sha256(artifact) != expected:
+            raise ValueError("result manifest changed during verification")
+    except (OSError, ValueError, csv.Error) as error:
+        raise ValueError(f"experiment changed during comparison: {artifact}: {error}") from error
 
 
 def _interval(values: list[float], confidence: float):
@@ -73,6 +101,14 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         for path in paths:
             source = Path(path)
             layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
+            result_path = layout.result_csv if source.is_dir() else source.absolute()
+            # Capture identity before reading any state used to select runs.
+            for name in ("result_layers.json", "run_state.json", "input_scale_plan.json",
+                         "static_meta.json", "hardware_conditions.json", "quality_checks.json",
+                         "runtime_validation.json", "model_resolution.json", "runtime_failures.json"):
+                artifact = (result_path if name == "result_layers.json" else
+                            conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name))
+                fingerprints[artifact] = file_sha256(artifact) if artifact.exists() else None
             state = read_json_object(layout.path("run_state.json"), label="run state")
             run_id = state.get("run_id")
             if not isinstance(run_id, str) or not run_id:
@@ -80,13 +116,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             if run_id in run_ids:
                 raise ValueError(f"duplicate independent run: {run_id}")
             run_ids.add(run_id)
-            # Detect concurrent changes to the rows and their condition evidence.
-            for name in ("result_layers.json", "run_state.json", "input_scale_plan.json",
-                         "static_meta.json", "hardware_conditions.json", "quality_checks.json", "runtime_validation.json"):
-                artifact = (layout.result_csv if name == "result_layers.json" else
-                            conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name))
-                fingerprints[artifact] = file_sha256(artifact) if artifact.exists() else None
-            _, rows = read_result_csv(layout.result_csv)
+            _, rows = read_result_csv(result_path)
             summarize_windows(rows, metrics, confidence=confidence, resamples=1)
             complete = state.get("status") == "complete"
             cross = compare_results(left[0], path, purpose=purpose)
@@ -173,9 +203,7 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                     result["reason"] = "nonpositive_baseline_for_ratio"
         output.append(result)
     for artifact, digest in fingerprints.items():
-        current = file_sha256(artifact) if artifact.exists() else None
-        if current != digest:
-            raise ValueError(f"experiment changed during comparison: {artifact}")
+        _verify_source(artifact, digest)
     return {"schema_version": 1, "kind": "independent_experiment_comparison", "status": status,
             "allowed_resource_dimensions": ALLOWED_RESOURCE_DIMENSIONS if purpose == "resource-scaling" else [],
             "purpose": purpose, "confidence": confidence, "resamples": resamples, "seed": seed,

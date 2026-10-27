@@ -117,7 +117,11 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
 
 报告 `kind=independent_experiment_comparison`、schema v1，逐项包含有效／请求的实验数、缺失实验、
 失败与缺失窗口、各次均值、标准差、差值／比值及区间；保留完整条件检查和源文件 SHA256。
-统计期间源产物变化会拒绝结果。只对成功窗口的估计可能存在选择偏差，失败计数必须一起报告。
+显式 CSV 路径同时作为统计数据和来源 hash 的输入，目录输入读取其 `result_layers.json`。
+比较在读取运行状态前记录来源 SHA256，并在统计结束后复核。分层结果还验证 manifest
+引用的数据内容：v1 保留原始导入 CSV 的关联检查，v2 校验不可变代文件，v3 只校验已提交
+前缀，未提交尾部不进入比较。被引用数据在统计期间损坏或丢失时拒绝发布结果。
+只对成功窗口的估计可能存在选择偏差，失败计数必须一起报告。
 即使组间使用 `cross-hardware` 或 `resource-scaling`，每组内部也必须通过 `same-hardware`
 复验；`condition_checks` 用 `group`、`within_group` 标识组内问题。
 独立 `resource-scaling` 按 device/input 配对，每次实验在每个 device/input 下只能有一个资源配置，
@@ -133,7 +137,9 @@ passed 不是模型准确率合格证明；warning 保留 detail、observed、th
 `quality_checks` 保存全部原证据；`quality_reasons` 解释 `auto_selection_eligible` 的决定。
 blocked/unknown 暂停默认自动优选，但数值观测和描述统计仍保留；独立比较保留每个实验、每侧和每个 run 的证据，
 顶层 `quality.left/right` 提供聚合质量状态。读到部分历史缺证据时整组继续 unknown，不能由其他成功 run 覆盖。
-`quality_checks.json` 与回退来源 `runtime_validation.json` 纳入比较的源 SHA256，一旦变化便拒绝报告。
+`quality_checks.json`、回退来源 `runtime_validation.json`，以及审计读取的
+`model_resolution.json`、`runtime_failures.json` 均纳入 `source_sha256`；缺失文件记录为 `null`，
+读取前与统计结束后的存在状态或内容不同便拒绝报告。
 
 该入口读取正式实验；独立的 `load.json` 不可作为 `result_all.csv` 输入混入统计。
 
