@@ -97,16 +97,17 @@ def replay(layout, manifest):
                 or after.get("run_id") != manifest["run_id"]
                 or after.get("schema_sha256") != manifest["schema_sha256"]):
             raise ResultValidationError("broken result commit chain")
-        commits.append(commit)
+        # Keep replay inputs without retaining every historical manifest.
+        commits.append((after["row_count"], commit["sources"]))
         expected_sequence -= 1
         ref = commit.get("previous")
     if expected_sequence != -1:
         raise ResultValidationError("incomplete result commit chain")
     rows: dict[tuple[str, ...], dict[str, str]] = {}
     windows: dict[tuple[str, ...], str] = {}
-    for commit in reversed(commits):
-        for source in commit["sources"]:
+    for expected_rows, sources in reversed(commits):
+        for source in sources:
             apply_source(layout, manifest, source, rows, windows)
-        if len(rows) != commit["after"]["row_count"]:
+        if len(rows) != expected_rows:
             raise ResultValidationError("result transaction row count disagrees with its sources")
     return rows, windows
