@@ -3,6 +3,7 @@
 import errno
 import gc
 import tracemalloc
+from typing import TextIO
 from unittest.mock import patch
 
 import pytest
@@ -78,7 +79,7 @@ def test_failure_after_a_written_fragment_leaves_no_partial_report(tmp_path, mon
     written = []
 
     def publish(path, write, **kwargs):
-        def fail_late(stream):
+        def fail_late(stream: TextIO):
             opened.append(stream)
             original_write = stream.write
 
