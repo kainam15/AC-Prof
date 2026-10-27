@@ -11,6 +11,11 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `plotting` 内的 `config`、`data`、`styles` 分别管理图表声明、CSV 整理和样式；
 `metrics`、`diagnostics`、`latency` 分别渲染常规指标、诊断图和模型图。
 
+`plotting.data.prepare_df` 对数值列分别执行 `to_numeric`，再通过公开 DataFrame 构造器
+一次组装，避免逐列赋值造成宽结果表碎片化。保留各列 dtype、整数精度和原始列位置，
+不经统一浮点矩阵转换；GiB、像素派生量与过滤仍沿用原有顺序。
+该整理只读取已记录的结果，不回写 CSV，也不进入正式测量窗口。
+
 `analysis/model.py` 将历史或当前 CSV 转成统一长表、配置汇总和 Summary，不导入绘图库，
 不回写采集产物。`metric_registry.py` 同时维护采集单位与展示方向、分组、聚合等语义；
 展示信息直接声明在各 `Metric` 上；行组装字段由内部 `row_group` / `row_order` 和工具元数据派生，

@@ -109,6 +109,23 @@ def normalized_metric_spec(
     )
 
 
+def _convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    numeric = {
+        name: pd.to_numeric(df[name], errors="coerce")
+        for name in dict.fromkeys([*NUMERIC_FIELDS, "gpu_mem_total_bytes", *COMPUTE_NUMERIC_COLUMNS])
+        if name in df.columns
+    }
+    # Construct together so same-dtype columns share blocks rather than splitting
+    # the original frame once per assignment. Positions preserve duplicate labels
+    # on unknown columns; ambiguous numeric labels still fail in to_numeric above.
+    result = pd.DataFrame({
+        position: numeric[name] if name in numeric else df.iloc[:, position]
+        for position, name in enumerate(df.columns)
+    }, index=df.index)
+    result.columns = df.columns
+    return result
+
+
 def prepare_df(
     csv_path: str,
     *,
@@ -151,10 +168,7 @@ def prepare_df(
             errors="coerce",
         )
 
-    num_cols = [*NUMERIC_FIELDS, "gpu_mem_total_bytes", *COMPUTE_NUMERIC_COLUMNS]
-    for c in num_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = _convert_numeric_columns(df)
 
     bytes_to_gib = {
         "container_mem_usage_avg_bytes": "container_mem_usage_avg_gib",
