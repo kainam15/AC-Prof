@@ -6,6 +6,7 @@ import hashlib
 import io
 import struct
 import sys
+from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -187,9 +188,67 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
         return parse_result_stream(stream, path, expected)
 
 
-def open_result_text(path: str | Path):
-    """Open a CSV or an in-memory logical view of a layered experiment.
+class _CsvRowEncoder:
+    """Let csv.writer return one encoded record without retaining a text buffer."""
 
+    @staticmethod
+    def write(text: str) -> bytes:
+        return text.encode("utf-8")
+
+
+class _CsvRawReader(io.RawIOBase):
+    """Drain private parsed rows through a single encoded record at a time."""
+
+    def __init__(self, fields: list[str], rows: list[dict[str, str]]):
+        super().__init__()
+        self._rows = deque(rows)
+        self._pending = b""
+        self._offset = 0
+        self._writer: csv.DictWriter[str] | None = csv.DictWriter(_CsvRowEncoder(), fieldnames=fields)
+        try:
+            self._pending = self._writer.writeheader()
+        except BaseException:
+            self.close()
+            raise
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        if self.closed or self._writer is None:
+            raise ValueError("I/O operation on closed result view")
+        view = memoryview(buffer).cast("B")
+        copied = 0
+        try:
+            while copied < len(view):
+                if self._offset == len(self._pending):
+                    self._pending = b""
+                    self._offset = 0
+                    if not self._rows:
+                        break
+                    self._pending = self._writer.writerow(self._rows.popleft())
+                count = min(len(view) - copied, len(self._pending) - self._offset)
+                view[copied:copied + count] = self._pending[self._offset:self._offset + count]
+                copied += count
+                self._offset += count
+        except BaseException:
+            self.close()
+            raise
+        return copied
+
+    def close(self) -> None:
+        self._rows.clear()
+        self._pending = b""
+        self._writer = None
+        super().close()
+
+
+def open_result_text(path: str | Path):
+    """Open a CSV or a forward-only logical text stream of a layered experiment.
+
+    Layers are verified before returning. Parsed rows are released as consumed;
+    only a record and I/O buffers are serialized ahead of the consumer.
+    An explicit unbounded read still materializes the requested complete text.
     No complete wide CSV is written to the file system by readers.
     """
     allow_large_csv_fields()
@@ -199,12 +258,7 @@ def open_result_text(path: str | Path):
     if path.name != "result_layers.json":
         return path.open(encoding="utf-8-sig", newline="")
     fields, rows = read_result_csv(path)
-    stream = io.StringIO(newline="")
-    writer = csv.DictWriter(stream, fieldnames=fields)
-    writer.writeheader()
-    writer.writerows(rows)
-    stream.seek(0)
-    return stream
+    return io.TextIOWrapper(io.BufferedReader(_CsvRawReader(fields, rows)), encoding="utf-8", newline="")
 
 
 def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
