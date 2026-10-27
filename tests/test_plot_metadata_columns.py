@@ -23,7 +23,7 @@ def write_input(tmp_path, rows, metadata, *, fields=None):
     return path
 
 
-def native_metadata():
+def native_metadata() -> dict[str, object]:
     return {
         "environment_class": "native_linux", "runtime_kind": "docker",
         "collection_tier": "full", "comparability_class": "native_linux",
@@ -69,7 +69,7 @@ def test_wide_metadata_fallback_preserves_rows_columns_and_sources(
         assert frame["gpu_mem_total_bytes"].dtype == "int64"
         assert frame["gpu_mem_total_gib"].tolist() == [8.0] * len(expected_index)
     else:
-        assert "gpu_mem_total_bytes" not in frame
+        assert "gpu_mem_total_bytes" not in frame.columns
     assert frame.columns[len(fields):len(fields) + len(additions)].tolist() == additions
     assert frame["environment_class"].tolist() == [environment] * len(expected_index)
     assert frame["config"].tolist() == [f"{environment} / CPU+CPU1.5+Mem2.25"] * len(expected_index)
@@ -85,8 +85,8 @@ def test_capacity_fallback_preserves_missing_and_large_integer_semantics(tmp_pat
     metadata["gpu_mem_total_bytes"] = capacity
     frame = prepare_df(str(write_input(tmp_path, [row], metadata)))
     if not capacity:
-        assert "gpu_mem_total_bytes" not in frame
-        assert "gpu_mem_total_gib" not in frame
+        assert "gpu_mem_total_bytes" not in frame.columns
+        assert "gpu_mem_total_gib" not in frame.columns
     elif capacity == "bad":
         assert pd.isna(frame["gpu_mem_total_bytes"].iloc[0])
         assert pd.isna(frame["gpu_mem_total_gib"].iloc[0])
