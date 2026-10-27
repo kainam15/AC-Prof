@@ -21,7 +21,7 @@ from acprof.host.measurement.energy_validation import (
     check_case_gpu_idle_power_stable,
 )
 from acprof.host.measurement.publication import reconcile_sniff_group_sidecar
-from acprof.host.posthoc.context import RESULT_CSV_NAME, ResultContext
+from acprof.host.posthoc.context import ResultContext
 from acprof.host.posthoc.storage import commit_result_files, create_backup
 from acprof.result_csv import read_result_csv
 
@@ -127,7 +127,7 @@ def test_posthoc_transaction_preserves_long_fields_and_original_backup(tmp_path)
     commit_result_files(context, fieldnames=list(updated), rows=[updated], static_meta={"fixture": False},
                         collection_history=history, backup_dir=backup)
     assert read_result_csv(path)[1] == [updated]
-    assert (backup / RESULT_CSV_NAME).read_bytes() == original
+    assert (backup / path.name).read_bytes() == original
     assert json.loads(metadata.read_bytes()) == {"fixture": False}
 
 

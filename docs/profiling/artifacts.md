@@ -150,7 +150,7 @@ JSON object，拒绝非有限数值和损坏内容。未知或不一致的 manif
 | `metadata/execution_profile_plan.json` | 显式 execution profiling 的采样与 per-resource-config/per-scale 汇总。Massif 条目对应 `gpu_mode=off`，Nsight Systems 条目对应 `gpu_mode=on`；复用 entry 记录实际 source resource 与 sampling strategy，失败按工具记录且不阻断主实验。 |
 | `raw/compute_profiles/` | 默认保留的原始 compute profiler artifacts；`--discard-compute-profiles` 可在汇总后删除。 |
 | `raw/posthoc_profiles/` | `acprof profile` 生成的补采 plan、原始报告与可恢复 checkpoint。 |
-| `.acprof/recovery/posthoc_backups/<timestamp>/` | 成功补采替换文件前保留的原始 CSV、静态元数据与已有历史记录备份。 |
+| `.acprof/recovery/posthoc_backups/<timestamp>/` | 替换前保留原始相对路径的结果快照、静态元数据与已有历史记录。包含 Layout 路由清单及 schema v3 当前 commit 与读取锁，可独立回读结果；范围与失败语义见[补采备份](profilers.md#补采已有结果)。 |
 | `raw/probes/largest_scale_<timestamp>_<pid>/` | `acprof probe` 的独立输入计划与 `largest_scale_probe.json`，不含正式 CSV。 |
 | `raw/execution_profiles/` | 默认保留 raw Massif `.out` 与 Nsight Systems `.nsys-rep`；stats 导出的 `.sqlite` 缓存会自动删除。传入 `--discard-execution-profiles` 时 raw artifacts 也会在汇总后删除。 |
 | `logs/terminal.log` | 在 tmux pane 内运行 `acprof run` 时自动记录的完整终端显示。实验正常结束或报错退出时落盘，不受 tmux 历史行数上限影响。 |

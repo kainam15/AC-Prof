@@ -8,6 +8,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from typing import (
@@ -15,11 +16,10 @@ from typing import (
     TextIO,
 )
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, create_durable_directory, read_json_object
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.posthoc.context import (
     BACKUP_DIRNAME,
-    RESULT_CSV_NAME,
     STATIC_META_NAME,
     PosthocError,
     ResultContext,
@@ -66,8 +66,11 @@ def _timestamp_token() -> str:
 
 def create_backup(context: ResultContext) -> Path:
     from acprof.artifact_layout import ArtifactLayout
-    root = ArtifactLayout.discover(context.result_dir).path(BACKUP_DIRNAME)
-    root.mkdir(parents=True, exist_ok=True)
+    from acprof.result_csv import read_result_csv
+
+    layout = ArtifactLayout.discover(context.result_dir)
+    root = layout.path(BACKUP_DIRNAME)
+    create_durable_directory(root)
     base = _timestamp_token()
     backup = root / base
     suffix = 1
@@ -76,28 +79,48 @@ def create_backup(context: ResultContext) -> Path:
         suffix += 1
     backup.mkdir()
     try:
-        sources = [
-            (context.result_csv, RESULT_CSV_NAME),
-            (context.static_meta_path, STATIC_META_NAME),
-        ]
-        if context.result_csv.name == "result_layers.json":
-            from acprof.artifacts import read_json_object
-            from acprof.result_layers import read_result_layers, result_layer_paths
-            read_result_layers(context.result_dir)  # Reject broken snapshots before backup.
-            manifest = read_json_object(context.result_csv, label="result layers")
-            sources.extend((path, path.relative_to(context.result_dir.absolute()).as_posix())
-                           for path in result_layer_paths(context.result_dir, manifest).values())
+        directories = {backup}
+        with ExitStack() as locks:
+            sources = [context.result_csv, context.static_meta_path]
+            if context.result_csv.name == "result_layers.json":
+                from acprof.result_layers import read_result_layers, result_layer_paths
+
+                manifest = read_json_object(context.result_csv, label="result layers")
+                if manifest.get("schema_version") == 3:
+                    from acprof.result_store.protocol import publication_lock
+
+                    # A mutable store must stay on one commit throughout copying.
+                    locks.enter_context(publication_lock(layout, exclusive=False))
+                    manifest = read_json_object(context.result_csv, label="result layers")
+                # Preserve pending-recovery and legacy source-identity checks.
+                read_result_layers(layout.root)
+                sources.extend(result_layer_paths(layout.root, manifest).values())
+                if manifest.get("schema_version") == 3:
+                    # These are the reader's dependencies, not a full replay archive.
+                    sources.extend((layout.contained(manifest["commit"]["path"]),
+                                    layout.result_store_path("lock")))
+            routing = layout.contained("result_manifest.json")
+            if routing.is_file():
+                sources.append(routing)
+            if context.collection_history_existed:
+                sources.append(context.collection_history_path)
+            for source in sources:
+                relative = source.absolute().relative_to(layout.root)
+                source = layout.contained(relative)
+                destination = backup / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                with destination.open("rb") as stream:
+                    os.fsync(stream.fileno())
+                directories.update(parent for parent in destination.parents if parent.is_relative_to(backup))
+        # Verify the copy itself: valid source files do not prove a valid backup.
+        read_result_csv(backup / context.result_csv.absolute().relative_to(layout.root))
+        _load_json_object(backup / context.static_meta_path.absolute().relative_to(layout.root), "backup static metadata")
         if context.collection_history_existed:
-            sources.append(
-                (context.collection_history_path, context.collection_history_path.relative_to(context.result_dir).as_posix())
-            )
-        for source, name in sources:
-            destination = backup / name
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            with destination.open("rb") as stream:
-                os.fsync(stream.fileno())
-        _fsync_directory(backup)
+            normalize_collection_history(_load_json_object(
+                backup / context.collection_history_path.absolute().relative_to(layout.root), "backup collection history"))
+        for directory in sorted(directories, key=lambda path: (-len(path.parts), path.as_posix())):
+            _fsync_directory(directory)
         _fsync_directory(root)
     except BaseException:
         try:
@@ -286,7 +309,7 @@ def commit_result_files(
         return _commit_layer_result_files(context, fieldnames=fieldnames, rows=rows,
                                           static_meta=static_meta,
                                           collection_history=collection_history, backup_dir=backup_dir)
-    attempted_publications: list[tuple[Path, str]] = []
+    attempted_publications: list[Path] = []
     try:
         csv_temporary = _write_csv_temporary(
             context.result_csv,
@@ -316,13 +339,13 @@ def commit_result_files(
         )
         normalize_collection_history(temporary_history)
 
-        for temporary, destination, backup_name in (
-            (csv_temporary, context.result_csv, RESULT_CSV_NAME),
-            (meta_temporary, context.static_meta_path, STATIC_META_NAME),
-            (history_temporary, context.collection_history_path, COLLECTION_HISTORY_NAME),
+        for temporary, destination in (
+            (csv_temporary, context.result_csv),
+            (meta_temporary, context.static_meta_path),
+            (history_temporary, context.collection_history_path),
         ):
             # A signal can arrive after rename succeeds but before the next statement.
-            attempted_publications.append((destination, backup_name))
+            attempted_publications.append(destination)
             os.replace(temporary, destination)
         _fsync_parent_directories(
             context.result_csv,
@@ -338,13 +361,13 @@ def commit_result_files(
         recovery_errors: list[str] = []
         cancellation = primary_error if not isinstance(primary_error, Exception) else None
         # Attempt every potentially published file, including when cleanup is cancelled.
-        for destination, backup_name in attempted_publications:
+        for destination in attempted_publications:
             try:
-                if backup_name == COLLECTION_HISTORY_NAME and not context.collection_history_existed:
+                if destination == context.collection_history_path and not context.collection_history_existed:
                     destination.unlink(missing_ok=True)
                     _fsync_directory(destination.parent)
                 else:
-                    _restore_from_backup(destination, backup_dir / backup_name)
+                    _restore_from_backup(destination, backup_dir / destination.relative_to(context.result_dir))
             except BaseException as recovery_error:
                 recovery_errors.append(
                     f"{destination}: {type(recovery_error).__name__}: {recovery_error}"
