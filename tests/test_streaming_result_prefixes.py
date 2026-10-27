@@ -74,8 +74,9 @@ def test_premature_eof_cannot_accept_rows_before_a_later_hash_drain(tmp_path, mo
             self.calls += 1
             if self.calls == 2:
                 return 0
-            limit = first_row_end if self.calls == 1 else len(buffer)
-            return super().readinto(memoryview(buffer)[:limit])
+            view = memoryview(buffer)
+            limit = first_row_end if self.calls == 1 else len(view)
+            return super().readinto(view[:limit])
 
     raw = PrematureEOF(payload)
     monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: raw)
@@ -164,14 +165,11 @@ def test_exact_validation_does_not_treat_a_blocked_tail_check_as_eof(tmp_path, m
     layout, _ = snapshot_store(tmp_path, count=1, repetitions=1)
     target = layout.layer_csv("summary")
 
-    class BlockedTail(io.BytesIO):
-        def read(self, _size=-1):
-            return None
-
-    raw = BlockedTail(target.read_bytes())
+    raw = io.BytesIO(target.read_bytes())
+    monkeypatch.setattr(raw, "read", lambda _size=-1: None)
     open_path = Path.open
 
-    def open_file(path, *args, **kwargs):
+    def open_file(path: Path, *args, **kwargs):
         return raw if path == target else open_path(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", open_file)
