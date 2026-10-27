@@ -26,6 +26,7 @@ from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_fields
 SCHEMA_VERSION = 3
 IDENTITY_FIELDS = ("run_id", "case_id", "case_attempt_id", "window_id")
 STATES = frozenset(("initialized", "collecting", "processing", "complete", "interrupted"))
+_HASH_BUFFER_BYTES = 2**18
 
 
 def digest(raw: bytes) -> str:
@@ -114,27 +115,70 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict) -> dict[str, Path]
     return paths
 
 
-def _read_layer_bytes(path: Path, info: dict, *, exact=False) -> bytes:
-    with path.open("rb") as stream:
-        raw = stream.read(info["committed_bytes"])
-        if exact and stream.read(1):
-            raise ResultValidationError(f"uncommitted tail in {path}")
-    if len(raw) != info["committed_bytes"] or digest(raw) != info["sha256"]:
-        raise ResultValidationError(f"missing or modified {path} committed prefix")
-    return raw
+class _CommittedPrefixReader(io.RawIOBase):
+    """Hash one raw prefix without prefetching bytes from an uncommitted tail."""
+
+    def __init__(self, stream, path: Path, info: dict):
+        super().__init__()
+        self._stream = stream
+        self._path = path
+        self._remaining = info["committed_bytes"]
+        self._expected_digest = info["sha256"]
+        self._digest = hashlib.sha256()
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        if not self._remaining or not buffer:
+            return 0
+        view = memoryview(buffer)[:min(self._remaining, _HASH_BUFFER_BYTES)]
+        size = self._stream.readinto(view)
+        if size is None:
+            raise BlockingIOError("result layer read would block")
+        if not size:
+            raise ResultValidationError(f"missing or modified {self._path} committed prefix")
+        self._digest.update(view[:size])
+        self._remaining -= size
+        return size
+
+    def verify(self, *, exact=False) -> None:
+        if self._remaining:
+            buffer = bytearray(min(self._remaining, _HASH_BUFFER_BYTES))
+            while self._remaining:
+                self.readinto(buffer)
+        if exact:
+            tail = self._stream.read(1)
+            if tail is None:
+                raise BlockingIOError("result layer tail check would block")
+            if tail:
+                raise ResultValidationError(f"uncommitted tail in {self._path}")
+        if self._digest.hexdigest() != self._expected_digest:
+            raise ResultValidationError(f"missing or modified {self._path} committed prefix")
 
 
 def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False) -> None:
-    """Check every layer without retaining the verified payloads."""
+    """Check every layer with bounded buffers, without retaining its payload."""
     for layer, path in validate_manifest(layout, manifest).items():
-        _read_layer_bytes(path, manifest["layers"][layer], exact=exact)
+        info = manifest["layers"][layer]
+        with path.open("rb", buffering=0) as raw, _CommittedPrefixReader(raw, path, info) as prefix:
+            prefix.verify(exact=exact)
 
 
 def read_layer_rows(path: Path, info: dict) -> list[dict[str, str]]:
-    """Parse the verified bytes of one layer, then release its raw buffers."""
-    raw = _read_layer_bytes(path, info)
-    with io.StringIO(raw.decode("utf-8"), newline="") as stream:
-        columns, rows = parse_result_stream(stream, path, None, allow_empty=True)
+    """Hash and parse the same bounded prefix before returning any rows."""
+    with path.open("rb", buffering=0) as raw:
+        prefix = _CommittedPrefixReader(raw, path, info)
+        with io.TextIOWrapper(io.BufferedReader(prefix, buffer_size=_HASH_BUFFER_BYTES),
+                              encoding="utf-8", newline="") as stream:
+            try:
+                columns, rows = parse_result_stream(stream, path, None, allow_empty=True)
+            except (ValueError, csv.Error):
+                # Preserve integrity-error precedence even if decoding/CSV failed
+                # before reaching the end of the committed bytes.
+                prefix.verify()
+                raise
+            prefix.verify()
     if columns != info["fields"]:
         raise ResultValidationError(f"result layer header changed: {path}")
     return rows

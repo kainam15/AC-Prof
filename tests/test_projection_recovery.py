@@ -57,6 +57,11 @@ def watch_projection(monkeypatch, target, *, fragment_size=None, after_close=Non
             self.record.offsets.append(os.lseek(self.fileno(), 0, os.SEEK_CUR))
             return raw
 
+        def readinto(self, buffer):
+            raw = self.read(len(buffer))
+            buffer[:len(raw)] = raw
+            return len(raw)
+
         def truncate(self, size):
             observed.truncations.append(size)
             if error_on == "truncate":
