@@ -91,6 +91,10 @@ acprof compare --left results/a1/model --left results/a2/model --left results/a3
   --output internal-testing/independent-comparison.json
 ```
 
+`--output` 只接受新路径，已有文件、目录和符号链接（包括悬空链接）均拒绝覆盖。
+计算期间若目标被其他写入方创建，发布时仍会原子拒绝覆盖；写入、序列化或发布失败返回
+`比较失败` 和非零退出码，不留下未完成的 JSON。省略 `--output` 时继续向 stdout 输出 JSON。
+
 两侧分别代表同一实验定义的多次独立重启。每份源文件需要唯一 `run_id`；复制目录不能增加
 重复次数，同组中的模型／镜像／源码身份变化会阻止比较。使用现有条件审计匹配资源矩阵、
 物化输入、实际 Workload Contract、线程和硬件条件；`--purpose cross-hardware` 允许已知的硬件差异。

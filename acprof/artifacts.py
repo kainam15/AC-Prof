@@ -188,8 +188,9 @@ def atomic_write(
             temporary.unlink(missing_ok=True)
 
 
-def atomic_write_json(path: str | Path, payload: Any) -> None:
+def atomic_write_json(path: str | Path, payload: Any, *, overwrite: bool = True) -> None:
+    """Publish JSON; exclusive writes require a new destination entry."""
     def write(stream: TextIO) -> None:
         json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
         stream.write("\n")
-    atomic_write(path, write)
+    atomic_write(path, write, overwrite=overwrite)
