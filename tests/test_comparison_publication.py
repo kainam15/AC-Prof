@@ -47,7 +47,7 @@ def test_comparison_preserves_competing_directory_entries(tmp_path, monkeypatch,
         create()
         return {"status": "compatible", "groups": []}
 
-    monkeypatch.setattr(compare_cli, "compare_experiments", compare)
+    monkeypatch.setattr("acprof.cli.compare.compare_experiments", compare)
     if timing == "before":
         create()
     with pytest.raises(SystemExit) as failure:
@@ -86,7 +86,7 @@ def test_competing_comparison_commands_publish_only_one_complete_json(tmp_path, 
     def compare(left, _right, **_kwargs):
         return {"status": "compatible", "writer": str(left[0])}
 
-    monkeypatch.setattr(compare_cli, "compare_experiments", compare)
+    monkeypatch.setattr("acprof.cli.compare.compare_experiments", compare)
     monkeypatch.setattr(json, "dump", write_then_wait)
 
     def attempt(index):
@@ -109,7 +109,7 @@ def test_competing_comparison_commands_publish_only_one_complete_json(tmp_path, 
 def test_comparison_write_failures_are_reported_without_partial_output(tmp_path, monkeypatch, capsys, phase):
     output = tmp_path / "comparison.json"
     payload = {"status": "compatible", "value": float("nan") if phase == "serialize" else 1}
-    monkeypatch.setattr(compare_cli, "compare_experiments", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr("acprof.cli.compare.compare_experiments", lambda *_args, **_kwargs: payload)
 
     def fail(*_args, **_kwargs):
         raise OSError(errno.ENOSPC if phase == "sync" else errno.EOPNOTSUPP, f"{phase} failed")
@@ -131,7 +131,7 @@ def test_comparison_write_failures_are_reported_without_partial_output(tmp_path,
 @pytest.mark.parametrize("to_file", [False, True])
 def test_comparison_status_and_json_format_remain_unchanged(tmp_path, monkeypatch, capsys, status, to_file):
     payload = {"status": status, "label": "中文", "value": None}
-    monkeypatch.setattr(compare_cli, "compare_experiments", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr("acprof.cli.compare.compare_experiments", lambda *_args, **_kwargs: payload)
     output = tmp_path / "comparison.json"
     args = arguments(output) if to_file else ["--left", "left", "--right", "right"]
     assert compare_cli.main(args) == (0 if status == "compatible" else 1)
