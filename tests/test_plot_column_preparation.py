@@ -136,6 +136,7 @@ def test_existing_derived_fields_are_replaced_in_the_original_order(tmp_path):
 
 
 @pytest.mark.parametrize("column", ["extension", "latency_s"])
+@pytest.mark.filterwarnings("error:DataFrame columns are not unique:UserWarning")
 def test_padded_duplicate_labels_are_not_silently_dropped(tmp_path, column):
     row = {"cpu_cores": 1, "mem_cap_gb": 2, "gpu_mode": "off", "input_scale": 1,
            column: 7, f"{column} ": 11}
@@ -144,7 +145,6 @@ def test_padded_duplicate_labels_are_not_silently_dropped(tmp_path, column):
         with pytest.raises(TypeError, match="1-d array, or Series"):
             prepare_df(str(path))
     else:
-        with pytest.warns(UserWarning, match="columns are not unique"):
-            frame = prepare_df(str(path))
+        frame = prepare_df(str(path))
         assert frame.columns.tolist().count("extension") == 2
         assert frame.loc[:, "extension"].iloc[0].tolist() == [7, 11]

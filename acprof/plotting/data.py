@@ -60,8 +60,15 @@ def build_plot_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
 
 def _with_pixel_metrics(df: pd.DataFrame, static_meta: dict) -> pd.DataFrame:
     """只使用 CSV 的显式像素数；不从历史计划补写缺失的测量字段。"""
+    source_fields = list(dict.fromkeys([
+        *PIXEL_COUNT_FIELDS,
+        *(field for dependencies in PIXEL_RATE_SOURCES.values() for field in dependencies),
+    ]))
+    # Keep pandas scalar boxing, but only for inputs consumed by pixel metrics.
+    # Missing columns stay NaN; even an all-missing projection retains its rows.
+    inputs = df.loc[:, df.columns.isin(source_fields)].reindex(columns=source_fields)
     derived_rows = []
-    for row in df.to_dict("records"):
+    for row in inputs.to_dict("records"):
         counts = {}
         for field in PIXEL_COUNT_FIELDS:
             try:

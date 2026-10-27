@@ -14,6 +14,9 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `plotting.data.prepare_df` 对数值列分别执行 `to_numeric`，再通过公开 DataFrame 构造器
 一次组装，避免逐列赋值造成宽结果表碎片化。保留各列 dtype、整数精度和原始列位置，
 不经统一浮点矩阵转换；GiB、像素派生量与过滤仍沿用原有顺序。
+像素派生从 `PIXEL_COUNT_FIELDS` 和 `PIXEL_RATE_SOURCES` 推导所需字段，只将这些列
+转成行字典，保留 pandas 标量转换和既有纯计算函数。缺列仅在临时输入视图中补 NaN，
+所有来源列都缺失时仍保留行数；不把其他指标和未知列装入像素计算的行字典。
 该整理只读取已记录的结果，不回写 CSV，也不进入正式测量窗口。
 
 `analysis/model.py` 将历史或当前 CSV 转成统一长表、配置汇总和 Summary，不导入绘图库，
