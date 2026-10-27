@@ -82,10 +82,10 @@ def test_backup_syncs_every_nested_directory_after_its_contents(tmp_path, monkey
     def record_sync(fd):
         info = os.fstat(fd)
         events.append((info.st_dev, info.st_ino))
-        return sync(fd)
+        sync(fd)
 
-    def identity(path):
-        info = path.stat()
+    def identity(entry):
+        info = entry.stat()
         return info.st_dev, info.st_ino
 
     monkeypatch.setattr(storage.os, "fsync", record_sync)
@@ -213,7 +213,7 @@ def test_nested_directory_sync_failure_does_not_return_a_backup(tmp_path, monkey
     def fail_metadata_sync(path):
         if path.name == "metadata":
             raise OSError("backup directory sync failed")
-        return sync(path)
+        sync(path)
 
     monkeypatch.setattr(storage, "_fsync_directory", fail_metadata_sync)
     with pytest.raises(OSError, match="backup directory sync failed"):
