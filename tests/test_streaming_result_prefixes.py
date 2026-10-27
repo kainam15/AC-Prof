@@ -165,12 +165,14 @@ def test_exact_validation_does_not_treat_a_blocked_tail_check_as_eof(tmp_path, m
     layout, _ = snapshot_store(tmp_path, count=1, repetitions=1)
     target = layout.layer_csv("summary")
 
-    raw = io.BytesIO(target.read_bytes())
-    monkeypatch.setattr(raw, "read", lambda _size=-1: None)
-    open_path = Path.open
+    class BlockedTail(io.BytesIO):
+        def read(self, size=-1):
+            return None
+
+    raw = BlockedTail(target.read_bytes())
 
     def open_file(path: Path, *args, **kwargs):
-        return raw if path == target else open_path(path, *args, **kwargs)
+        return raw if path == target else open(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", open_file)
     with pytest.raises(BlockingIOError, match="tail check would block"):
