@@ -157,10 +157,12 @@ def atomic_write(
     write: Callable[[TextIO], None],
     *,
     default_mode: int = 0o644,
+    overwrite: bool = True,
 ) -> None:
+    """Publish a complete file; exclusive writes reject existing final entries."""
     destination = Path(path)
     create_durable_directory(destination.parent)
-    mode = stat.S_IMODE(destination.stat().st_mode) if destination.exists() else default_mode
+    mode = stat.S_IMODE(destination.stat().st_mode) if overwrite and destination.exists() else default_mode
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
@@ -172,7 +174,13 @@ def atomic_write(
             stream.flush()
             os.fchmod(stream.fileno(), mode)
             os.fsync(stream.fileno())
-        os.replace(temporary, destination)
+        if overwrite:
+            os.replace(temporary, destination)
+        else:
+            # Same-directory hard linking checks existence at publication time.
+            # Unsupported filesystems must fail, never fall back to replacement.
+            os.link(temporary, destination)
+            temporary.unlink()
         temporary = None
         sync_directory(destination.parent)
     finally:

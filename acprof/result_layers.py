@@ -95,12 +95,16 @@ def has_layer_evidence(value: object) -> bool:
     return str(value).strip().lower() not in {"", "nan", "none", "null", "compute_profile_disabled"}
 
 
-def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> bytes:
-    import io
-    stream = io.StringIO(newline="")
+def _write_csv_rows(stream: TextIO, fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> None:
     writer = csv.DictWriter(stream, fieldnames=fields, restval="nan", extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
+
+
+def _csv_bytes(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> bytes:
+    import io
+    stream = io.StringIO(newline="")
+    _write_csv_rows(stream, fields, rows)
     return stream.getvalue().encode("utf-8")
 
 
@@ -404,6 +408,8 @@ def export_result_layers(root: str | Path, destination: str | Path) -> int:
     if destination.exists() or destination.is_symlink():
         raise ResultValidationError(f"refusing to overwrite existing CSV: {destination}")
     fields, rows = read_result_layers(root)
-    raw = _csv_bytes(fields, rows)
-    atomic_write(destination, lambda stream: _write_csv_text(stream, raw))
+    try:
+        atomic_write(destination, lambda stream: _write_csv_rows(stream, fields, rows), overwrite=False)
+    except FileExistsError as exc:
+        raise ResultValidationError(f"refusing to overwrite existing CSV: {destination}") from exc
     return len(rows)
