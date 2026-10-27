@@ -17,7 +17,7 @@ from acprof.platform import recorded_identity
 from acprof.plotting.config import BYTES_PER_GIB, COMPUTE_NUMERIC_COLUMNS, PLOT_OUTPUT_DIRS
 
 
-def make_config_label(row) -> str:
+def _make_config_label(row) -> str:
     cpu = resource_coordinate(row["cpu_cores"]) if pd.notna(row["cpu_cores"]) else "inherited"
     mem = resource_coordinate(row["mem_cap_gb"]) if pd.notna(row["mem_cap_gb"]) else "inherited"
     if is_gpu_on(row["gpu_mode"]):
@@ -25,6 +25,16 @@ def make_config_label(row) -> str:
     else:
         label = f"CPU+CPU{cpu}+Mem{mem}"
     return f"{row['environment_class']} / {label}" if "environment_class" in row else label
+
+
+def make_config_labels(df: pd.DataFrame) -> pd.Series:
+    """Only materialize resource identity columns for the row formatter."""
+    if len(df.index) == 0:
+        return pd.Series(index=df.index, dtype="object")
+    columns = ["cpu_cores", "mem_cap_gb", "gpu_mode"]
+    if "environment_class" in df.columns:
+        columns.append("environment_class")
+    return df.loc[:, columns].apply(_make_config_label, axis=1)
 
 
 def is_gpu_on(gpu_mode: object) -> bool:
@@ -210,10 +220,7 @@ def prepare_df(
     if missing:
         raise ValueError(f"CSV missing required columns: {missing}")
 
-    if df.empty:
-        df["config"] = pd.Series(index=df.index, dtype="object")
-    else:
-        df["config"] = df.apply(make_config_label, axis=1)
+    df["config"] = make_config_labels(df)
     df = df[df["input_scale"].notna() & (df["input_scale"] > 0)].copy()
 
     return df
@@ -239,7 +246,7 @@ def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -
     else:
         agg_df = metric_df.groupby(group_cols, as_index=False)[metric].mean()
 
-    agg_df["config"] = agg_df.apply(make_config_label, axis=1)
+    agg_df["config"] = make_config_labels(agg_df)
     agg_df["gpu_on"] = agg_df["gpu_mode"].map(is_gpu_on)
     return agg_df
 
@@ -258,6 +265,6 @@ def aggregate_cold_start(df: pd.DataFrame, *, agg_func: str = "mean") -> pd.Data
     else:
         agg_df = metric_df.groupby(group_cols, as_index=False)["cold_start_s"].mean()
 
-    agg_df["config"] = agg_df.apply(make_config_label, axis=1)
+    agg_df["config"] = make_config_labels(agg_df)
     agg_df["gpu_on"] = agg_df["gpu_mode"].map(is_gpu_on)
     return agg_df

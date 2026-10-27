@@ -19,7 +19,7 @@ from acprof.plotting.config import (
 from acprof.plotting.data import (
     is_gpu_off,
     is_gpu_on,
-    make_config_label,
+    make_config_labels,
 )
 from acprof.plotting.styles import (
     _configurations_with_colors,
@@ -279,7 +279,7 @@ def _aggregate_tail_latency(df: pd.DataFrame) -> pd.DataFrame:
         return usable
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
     aggregated = usable.groupby(group_cols, as_index=False)[metric_columns].median()
-    aggregated["config"] = aggregated.apply(make_config_label, axis=1)
+    aggregated["config"] = make_config_labels(aggregated)
     aggregated["gpu_on"] = aggregated["gpu_mode"].map(is_gpu_on)
     return aggregated
 
@@ -659,7 +659,7 @@ def plot_cold_start_breakdown(
     ].median()
     aggregated = _representative_max_memory_rows(aggregated)
     aggregated["gpu_on"] = aggregated["gpu_mode"].map(is_gpu_on)
-    aggregated["config"] = aggregated.apply(make_config_label, axis=1)
+    aggregated["config"] = make_config_labels(aggregated)
     aggregated = aggregated.sort_values(
         ["gpu_on", "cpu_cores", "mem_cap_gb"],
         ascending=[False, True, True],
