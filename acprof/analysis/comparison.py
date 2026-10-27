@@ -1,6 +1,7 @@
 """只读比较已有实验条件；不替代严格的续跑身份或模型质量验收。"""
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from collections import Counter
@@ -21,7 +22,7 @@ from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import measurement_key, read_result_csv
+from acprof.result_csv import measurement_key, read_result_csv_snapshot
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -158,8 +159,15 @@ def _workload_condition(left, right):
 
 def load_comparison_snapshot(source: str | Path) -> dict:
     source = Path(source)
-    directory = source if source.is_dir() else source.parent
-    audit = audit_result(source)
+    result_path = source / "result_layers.json" if source.is_dir() else source
+    result_snapshot = None
+    read_error: OSError | ValueError | csv.Error | None = None
+    try:
+        result_snapshot = read_result_csv_snapshot(result_path)
+    except (OSError, ValueError, csv.Error) as error:
+        # Keep the failed read visible while the audit gathers metadata issues.
+        read_error = error
+    audit = audit_result(source, result_snapshot=result_snapshot)
     issues = []
 
     def read_json(name):
@@ -234,7 +242,10 @@ def load_comparison_snapshot(source: str | Path) -> dict:
     case_ids = set()
     rows: list[dict[str, str]] = []
     try:
-        _, rows = read_result_csv(directory / "result_layers.json" if source.is_dir() else source)
+        if read_error is not None:
+            raise read_error
+        assert result_snapshot is not None
+        rows = result_snapshot.rows
         actual = _actual_workload(rows)
         from acprof.artifact_layout import resource_case_id
         case_ids = {resource_case_id(row["cpu_cores"], row["mem_cap_gb"], row["gpu_mode"])
