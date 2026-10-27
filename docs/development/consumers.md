@@ -4,7 +4,9 @@
 
 ## 结果分析与补采
 
-`analysis/latency_model.py` 负责拟合、预测与验证，`latency_report.py` 负责报告和残差数据。
+`analysis/latency_model.py` 负责拟合、预测、特征与共享数值指标；`analysis/latency_validation.py`
+负责资源留一验证、最大尺度外推、共享 fold 汇总和质量门槛。报告与绘图通过明确的包内公共 API
+使用这些能力，不跨模块引用私有函数；`latency_report.py` 负责报告和残差数据。
 `build_latency_model_report()` 只计算并返回 `LatencyModelReport`，不创建目录或写文件；
 CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write_latency_model_report()`
 负责发布既有 schema v2 JSON 与 CSV：先独占写入每代 CSV，再原子更新 JSON 中的

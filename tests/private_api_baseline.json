@@ -2,61 +2,6 @@
   "schema_version": 1,
   "dependencies": [
     {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_aggregate_latency_model_points"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_fit_log_latency_model"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_input_scale_validation"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_latency_model_frame"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_point_key"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_predict_latency"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_regression_metrics"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_resource_configuration_validation"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_training_range"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_validation_is_evaluable"
-    },
-    {
-      "source": "acprof.analysis.latency_report",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_validation_quality_failures"
-    },
-    {
       "source": "acprof.container.handlers.multimodal",
       "target": "acprof.container.handlers.audio",
       "symbol": "_positive_int"
@@ -295,16 +240,6 @@
       "source": "acprof.plotting.diagnostics",
       "target": "acprof.plotting.styles",
       "symbol": "_configurations_with_colors"
-    },
-    {
-      "source": "acprof.plotting.latency",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_model_feature_names"
-    },
-    {
-      "source": "acprof.plotting.latency",
-      "target": "acprof.analysis.latency_model",
-      "symbol": "_predict_latency"
     },
     {
       "source": "acprof.plotting.metrics",

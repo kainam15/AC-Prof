@@ -23,17 +23,19 @@ from acprof.analysis.latency_model import (
     LATENCY_MODEL_MAX_VALIDATION_RELATIVE_MAE,
     LATENCY_MODEL_MIN_VALIDATION_POINTS,
     LATENCY_MODEL_MIN_VALIDATION_R2,
-    _aggregate_latency_model_points,
-    _fit_log_latency_model,
-    _input_scale_validation,
-    _latency_model_frame,
-    _point_key,
-    _predict_latency,
-    _regression_metrics,
-    _resource_configuration_validation,
-    _training_range,
-    _validation_is_evaluable,
-    _validation_quality_failures,
+    aggregate_latency_model_points,
+    fit_log_latency_model,
+    latency_model_frame,
+    point_key,
+    predict_latency,
+    regression_metrics,
+    training_range,
+)
+from acprof.analysis.latency_validation import (
+    input_scale_validation,
+    resource_configuration_validation,
+    validation_is_evaluable,
+    validation_quality_failures,
 )
 from acprof.artifacts import atomic_write
 from acprof.platform import recorded_identity
@@ -209,7 +211,7 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             continue
 
         try:
-            fitted_model = _fit_log_latency_model(hardware_rows, hardware_model)
+            fitted_model = fit_log_latency_model(hardware_rows, hardware_model)
         except ValueError as exc:
             reason = str(exc)
             model_reports[hardware_model] = {
@@ -223,32 +225,32 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             continue
 
         hardware_fit_predictions = {
-            _point_key(row): _predict_latency(row, fitted_model)
+            point_key(row): predict_latency(row, fitted_model)
             for row in hardware_rows
         }
         fit_predictions.update(hardware_fit_predictions)
-        fit_metrics = _regression_metrics(
+        fit_metrics = regression_metrics(
             [float(row.latency_s) for row in hardware_rows],
-            [hardware_fit_predictions[_point_key(row)] for row in hardware_rows],
+            [hardware_fit_predictions[point_key(row)] for row in hardware_rows],
         )
 
         configuration_validation, hardware_configuration_predictions = (
-            _resource_configuration_validation(hardware_rows, hardware_model)
+            resource_configuration_validation(hardware_rows, hardware_model)
         )
-        input_scale_validation, hardware_scale_predictions = (
-            _input_scale_validation(hardware_rows, hardware_model)
+        scale_validation, hardware_scale_predictions = (
+            input_scale_validation(hardware_rows, hardware_model)
         )
         configuration_predictions.update(hardware_configuration_predictions)
         scale_predictions.update(hardware_scale_predictions)
 
         quality_failures = []
-        quality_failures.extend(_validation_quality_failures(
+        quality_failures.extend(validation_quality_failures(
             "resource_configuration_holdout",
             configuration_validation,
         ))
-        quality_failures.extend(_validation_quality_failures(
+        quality_failures.extend(validation_quality_failures(
             "input_scale_holdout",
-            input_scale_validation,
+            scale_validation,
         ))
         if int(fit_metrics["nonfinite_prediction_count"] or 0) > 0:
             quality_failures.append("full fit contains non-finite predictions")
@@ -256,8 +258,8 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             quality_failures.append("full fit contains non-positive predictions")
 
         validation_evaluable = bool(
-            _validation_is_evaluable(configuration_validation)
-            and _validation_is_evaluable(input_scale_validation)
+            validation_is_evaluable(configuration_validation)
+            and validation_is_evaluable(scale_validation)
         )
         if quality_failures:
             model_status = "poor_fit" if validation_evaluable else "unvalidated"
@@ -288,7 +290,7 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             "smearing_correction_applied": False,
             "raw_rows": sum(int(row.repeat_count) for row in hardware_rows),
             "case_rows": len(hardware_rows),
-            "training_range": _training_range(hardware_rows),
+            "training_range": training_range(hardware_rows),
             "numerical_diagnostics": {
                 "solver": "numpy.linalg.lstsq",
                 "standardized_before_solve": True,
@@ -312,11 +314,11 @@ def _fit_hardware_reports(points: list) -> tuple[dict, dict, dict, dict, list[st
             "metrics": {
                 "fit": fit_metrics,
                 "resource_configuration_holdout": configuration_validation["metrics"],
-                "input_scale_holdout": input_scale_validation["metrics"],
+                "input_scale_holdout": scale_validation["metrics"],
             },
             "validation": {
                 "resource_configuration_holdout": configuration_validation,
-                "input_scale_holdout": input_scale_validation,
+                "input_scale_holdout": scale_validation,
             },
             "quality_gate": {
                 "passed": not quality_failures,
@@ -334,7 +336,7 @@ def _residual_rows(points: list, environment_class: str, fit_predictions: dict,
                    configuration_predictions: dict, scale_predictions: dict) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     for case_id, row in enumerate(points):
-        key = _point_key(row)
+        key = point_key(row)
         actual = float(row.latency_s)
         fitted_prediction = fit_predictions.get(key)
         configuration_prediction = configuration_predictions.get(key)
@@ -402,7 +404,7 @@ def build_latency_model_report(
         )
 
     try:
-        model_df = _latency_model_frame(df)
+        model_df = latency_model_frame(df)
     except ValueError as exc:
         return _skipped_latency_model_report(
             static_meta,
@@ -415,7 +417,7 @@ def build_latency_model_report(
             f"need at least 3 valid raw rows, got {len(model_df)}",
         )
 
-    points = _aggregate_latency_model_points(model_df)
+    points = aggregate_latency_model_points(model_df)
     if len(points) < 3:
         return _skipped_latency_model_report(
             static_meta,
@@ -441,10 +443,10 @@ def build_latency_model_report(
         status = "ok"
 
     def metrics_for_predictions(predictions: dict) -> dict:
-        predicted_rows = [row for row in points if _point_key(row) in predictions]
-        return _regression_metrics(
+        predicted_rows = [row for row in points if point_key(row) in predictions]
+        return regression_metrics(
             [float(row.latency_s) for row in predicted_rows],
-            [predictions[_point_key(row)] for row in predicted_rows],
+            [predictions[point_key(row)] for row in predicted_rows],
         )
 
     residuals = _residual_rows(points, identity["environment_class"], fit_predictions,

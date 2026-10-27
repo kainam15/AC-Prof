@@ -127,7 +127,9 @@ uv run python scripts/check_import_boundaries.py
 uv run pytest -q tests/test_import_boundaries.py
 ```
 
-本阶段 mypy 增加共享硬件证据协议和纯 `measurement.metrics`，逐步扩大范围而非一次改成全局严格模式。
+`analysis.latency_validation` 与共享硬件证据协议、纯 `measurement.metrics` 等已验证模块使用
+局部严格检查；后续继续逐模块收紧，而非一次改成全局严格模式。延迟报告和绘图使用公共数值 API，
+不再为 `latency_model` 的私有函数保留跨模块 baseline 条目。
 
 ## TUI 控制器拆分回归
 `tests/test_tui_action_ownership.py` 约束各 Textual handler 所属模块、App 的进程生命周期与代码体量。

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.analysis import latency_model as model
+from acprof.analysis import latency_model as model, latency_validation as validation
 
 
 def _rows(scales, hardware="gpu"):
@@ -18,7 +18,7 @@ def _rows(scales, hardware="gpu"):
 
 
 def _validate(rows, hardware, *, force_calibration=False):
-    fit = model._fit_log_latency_model
+    fit = model.fit_log_latency_model
     depth = 0
     calls = []
 
@@ -34,8 +34,8 @@ def _validate(rows, hardware, *, force_calibration=False):
         finally:
             depth -= 1
 
-    with patch.object(model, "_fit_log_latency_model", side_effect=spy):
-        result = model._resource_configuration_validation(rows, hardware)
+    with patch.object(validation, "fit_log_latency_model", side_effect=spy):
+        result = validation.resource_configuration_validation(rows, hardware)
     return result, calls
 
 
@@ -62,9 +62,9 @@ def test_loco_skips_only_unused_tail_and_preserves_every_result(scales, expected
 def test_formal_fit_and_scale_holdout_still_calibrate_gpu_tail():
     rows = _rows([(1, 4, 16, 64)] * 4)
     with patch.object(model, "_fit_gpu_upper_tail_model", wraps=model._fit_gpu_upper_tail_model) as fit_tail:
-        fitted = model._fit_log_latency_model(rows, "gpu")
+        fitted = model.fit_log_latency_model(rows, "gpu")
         assert "gpu_upper_tail" in fitted
         first_calls = fit_tail.call_count
         assert first_calls > 0
-        model._input_scale_validation(rows, "gpu")
+        validation.input_scale_validation(rows, "gpu")
         assert fit_tail.call_count > first_calls

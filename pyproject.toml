@@ -136,6 +136,7 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "acprof.analysis.precision",
+    "acprof.analysis.latency_validation",
     "acprof.host.measurement.metrics",
     "acprof.host.command",
     "acprof.host.images.identity",

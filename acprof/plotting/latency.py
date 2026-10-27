@@ -14,8 +14,8 @@ from matplotlib.lines import Line2D
 from acprof.analysis.inputs import resource_coordinate
 from acprof.analysis.latency_model import (
     LATENCY_MODEL_FEATURES,
-    _model_feature_names,
-    _predict_latency,
+    model_feature_names,
+    predict_latency,
 )
 from acprof.plotting.config import (
     CPU_FIXED_COLORS,
@@ -477,7 +477,7 @@ def plot_latency_model_fit_curves(
             "feature_columns",
             LATENCY_MODEL_FEATURES[hardware_model],
         )
-        if feature_names != _model_feature_names(
+        if feature_names != model_feature_names(
             hardware_model,
             input_scale_spline_knots,
         ):
@@ -550,7 +550,7 @@ def plot_latency_model_fit_curves(
             else:
                 curve_scales = np.linspace(min_scale, max_scale, 240)
             curve_predictions = [
-                _predict_latency(
+                predict_latency(
                     SimpleNamespace(
                         input_scale=input_scale,
                         cpu_cores=cpu_cores,

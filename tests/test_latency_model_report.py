@@ -21,7 +21,7 @@ from acprof.platform import Environment
 
 def test_latency_regression_rejects_mismatched_actuals_and_predictions():
     with pytest.raises(ValueError, match="zip\\(\\) argument"):
-        analysis_latency_model._regression_metrics([1.0, 2.0], [1.0])
+        analysis_latency_model.regression_metrics([1.0, 2.0], [1.0])
 
 
 class TestLatencyModelReport:
