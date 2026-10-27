@@ -108,7 +108,7 @@ def test_corrupt_copied_layer_is_rejected_before_backup_is_returned(tmp_path, mo
         if Path(source).name == "summary.csv":
             Path(destination).write_bytes(b"broken copied layer\n")
 
-    monkeypatch.setattr(storage, "copy_backup_file", corrupt_copy)
+    monkeypatch.setattr("acprof.host.posthoc.storage.copy_backup_file", corrupt_copy)
     with pytest.raises(ValueError, match="missing or modified|hash mismatch|invalid.*layer"):
         storage.create_backup(context)
     assert context.result_csv.read_bytes() == before
@@ -128,7 +128,7 @@ def test_copied_metadata_must_remain_readable(tmp_path, monkeypatch, attribute):
         if source == target:
             Path(destination).write_bytes(b"{")
 
-    monkeypatch.setattr(storage, "copy_backup_file", corrupt_copy)
+    monkeypatch.setattr("acprof.host.posthoc.storage.copy_backup_file", corrupt_copy)
     with pytest.raises(PosthocError, match="cannot read backup"):
         storage.create_backup(context)
     assert target.read_bytes() == original
@@ -148,7 +148,7 @@ def test_incremental_copy_holds_one_publication_lock(tmp_path, monkeypatch):
         copied.append(source)
         copy(source, destination)
 
-    monkeypatch.setattr(storage, "copy_backup_file", locked_copy)
+    monkeypatch.setattr("acprof.host.posthoc.storage.copy_backup_file", locked_copy)
     backup = storage.create_backup(context)
     assert context.result_csv in copied
     assert layout.layer_csv("summary") in copied
@@ -194,7 +194,7 @@ def test_failed_incremental_copy_releases_lock_and_preserves_prior_backup(tmp_pa
         Path(destination).write_bytes(b"partial backup")
         raise failure("interrupted backup copy")
 
-    monkeypatch.setattr(storage, "copy_backup_file", fail_copy)
+    monkeypatch.setattr("acprof.host.posthoc.storage.copy_backup_file", fail_copy)
     with pytest.raises(failure, match="interrupted backup copy"):
         storage.create_backup(context)
     assert list(previous.parent.iterdir()) == [previous]

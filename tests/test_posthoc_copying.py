@@ -107,7 +107,7 @@ def test_filesystem_reporting_only_data_keeps_the_standard_copy_path(tmp_path, m
 
 
 @pytest.mark.parametrize("bounds", [(-1, 4096), (0, 0), (0, 8 * 1024 * 1024)])
-def test_invalid_extent_bounds_are_rejected(tmp_path, monkeypatch, sparse_source, bounds):
+def test_invalid_extent_bounds_are_rejected(tmp_path, monkeypatch, sparse_source, bounds: tuple[int, int]):
     destination = tmp_path / "copy"
     monkeypatch.setattr(copying.os, "lseek", lambda _fd, _offset, whence: bounds[0 if whence == os.SEEK_DATA else 1])
     with pytest.raises(OSError, match="invalid or changed"):
