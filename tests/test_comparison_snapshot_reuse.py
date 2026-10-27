@@ -32,7 +32,7 @@ def test_each_independent_run_is_audited_once(runs, monkeypatch, explicit_csv):
         calls[Path(source)] += 1
         return audit(source)
 
-    monkeypatch.setattr(comparison, "audit_result", record_audit)
+    monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
     report = compare_experiments(left, right, metrics=["latency_app_s"], resamples=10)
     assert report["status"] == "compatible"
     group = report["groups"][0]
