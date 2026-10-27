@@ -2,7 +2,6 @@
 
 import csv
 import json
-import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -33,6 +32,7 @@ def write_plot_csv(
 
 @pytest.mark.parametrize("only_ok", [False, True])
 @pytest.mark.parametrize("exclude_warmup", [False, True])
+@pytest.mark.filterwarnings("error::pandas.errors.PerformanceWarning")
 def test_wide_plot_input_preserves_filters_without_fragmentation(
     tmp_path, only_ok, exclude_warmup,
 ):
@@ -40,7 +40,7 @@ def test_wide_plot_input_preserves_filters_without_fragmentation(
     for index, (status, warmup, scale) in enumerate([
         ("ok", 0, 64), ("error", 0, 128), ("ok", 1, 256), ("ok", 0, 0),
     ]):
-        row = dict.fromkeys(NUMERIC_FIELDS, 1)
+        row: dict[str, object] = dict.fromkeys(NUMERIC_FIELDS, 1)
         row.update(environment_class="native_linux", runtime_kind="docker",
                    cpu_cores=1.5, mem_cap_gb=2.25, gpu_mode="off",
                    status=status, warmup=warmup, input_scale=scale,
@@ -50,9 +50,7 @@ def test_wide_plot_input_preserves_filters_without_fragmentation(
     path = write_plot_csv(tmp_path, rows)
     original = path.read_bytes()
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", pd.errors.PerformanceWarning)
-        frame = prepare_df(str(path), only_ok=only_ok, exclude_warmup=exclude_warmup)
+    frame = prepare_df(str(path), only_ok=only_ok, exclude_warmup=exclude_warmup)
 
     expected = [0]
     if not only_ok:
@@ -96,13 +94,12 @@ def test_numeric_conversion_preserves_integer_precision_and_unknown_dtypes(tmp_p
 
 
 @pytest.mark.parametrize("all_filtered", [False, True])
+@pytest.mark.filterwarnings("error::pandas.errors.PerformanceWarning")
 def test_empty_wide_plot_input_retains_fields_and_attributes(tmp_path, all_filtered):
     row = {"cpu_cores": 1, "mem_cap_gb": 2, "gpu_mode": "off", "input_scale": 1,
            "status": "error", "warmup": 0}
     path = write_plot_csv(tmp_path, [row] if all_filtered else [])
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", pd.errors.PerformanceWarning)
-        frame = prepare_df(str(path), only_ok=True, exclude_warmup=False)
+    frame = prepare_df(str(path), only_ok=True, exclude_warmup=False)
     assert frame.empty
     assert set(CSV_FIELDS).issubset(frame.columns)
     assert frame["config"].dtype == "object"
