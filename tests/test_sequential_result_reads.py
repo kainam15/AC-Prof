@@ -13,7 +13,7 @@ from test_projection_recovery import watch_projection
 
 from acprof.artifacts import file_sha256
 from acprof.config import CSV_FIELDS
-from acprof.result_csv import ResultValidationError
+from acprof.result_csv import ResultCsvSnapshot, ResultValidationError
 from acprof.result_layers import LAYER_FILES
 from acprof.result_store.initialization import initial_files, initialize_results
 from acprof.result_store.protocol import publication_lock
@@ -43,7 +43,8 @@ def test_reader_does_not_retain_all_layer_payloads(tmp_path, operation):
     layout, expected_rows = snapshot_store(tmp_path)
     manifest_bytes = layout.result_csv.read_bytes()
     manifest = json.loads(manifest_bytes)
-    payload_size = sum(info["committed_bytes"] for info in manifest["layers"].values())
+    sizes: list[int] = [info["committed_bytes"] for info in manifest["layers"].values()]
+    payload_size = sum(sizes)
     assert payload_size > 4 * 1024 * 1024
     tracemalloc.start()
     try:
@@ -52,6 +53,7 @@ def test_reader_does_not_retain_all_layer_payloads(tmp_path, operation):
     finally:
         tracemalloc.stop()
     if operation == "snapshot":
+        assert isinstance(result, ResultCsvSnapshot)
         assert result.fields == list(CSV_FIELDS)
         assert result.rows == expected_rows
         assert result.sha256 == hashlib.sha256(manifest_bytes).hexdigest()
@@ -60,7 +62,7 @@ def test_reader_does_not_retain_all_layer_payloads(tmp_path, operation):
         assert peak - retained < payload_size, f"temporary snapshot memory: {peak - retained:,} bytes"
     else:
         assert result == manifest
-        largest = max(info["committed_bytes"] for info in manifest["layers"].values())
+        largest = max(sizes)
         assert peak < 2 * largest, f"validation allocated {peak:,} bytes for {largest:,}-byte layers"
     assert layout.result_csv.read_bytes() == manifest_bytes
 
@@ -97,7 +99,9 @@ def test_all_readers_validate_the_last_layer(tmp_path, operation, damage):
     actions = {"snapshot": lambda: read_snapshot(tmp_path),
                "initialize": lambda: initialize_results(layout), "prepare": lambda: initial_files(layout)}
     if damage == "tail" and operation == "snapshot":
-        assert actions[operation]().rows == []
+        snapshot = actions[operation]()
+        assert isinstance(snapshot, ResultCsvSnapshot)
+        assert snapshot.rows == []
     else:
         error = FileNotFoundError if damage == "missing" else ResultValidationError
         message = {"tail": "uncommitted tail", "truncated": "committed prefix", "missing": "massif"}[damage]
