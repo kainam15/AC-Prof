@@ -14,6 +14,7 @@ from acprof.notifications import (
     NotificationEvent,
     WeComWebhookNotifier,
 )
+from acprof.result_csv import allow_large_csv_fields
 
 
 @dataclass
@@ -35,6 +36,7 @@ def _result_status_counts(result_csv: str) -> tuple[int, int]:
     result_rows = 0
     error_rows = 0
     with open(result_csv, encoding="utf-8", newline="") as f:
+        allow_large_csv_fields()
         for row in csv.DictReader(f):
             result_rows += 1
             if str(row.get("status") or "").strip().lower() == "error":

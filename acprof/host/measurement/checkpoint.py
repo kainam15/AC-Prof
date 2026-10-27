@@ -23,7 +23,7 @@ from acprof.artifacts import (
     sync_directory,
 )
 from acprof.capabilities import require_profiling_mode
-from acprof.result_csv import measurement_key, read_result_csv
+from acprof.result_csv import allow_large_csv_fields, measurement_key, read_result_csv
 
 CHECKPOINT_SCHEMA = 1
 _FILE_NAMES = {"csv": "measurement.csv", "groups": "sniff_groups.jsonl",
@@ -71,6 +71,7 @@ def _receipt_paths(case: CaseArtifacts, attempt_id: str, csv_path: Path) -> set[
     from acprof.window_records import window_filename
     paths = set(case.window_records(attempt_id).glob("*.json"))
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        allow_large_csv_fields()
         for row in csv.DictReader(stream):
             if row.get("window_id", "").lower() not in {"", "nan", "none"}:
                 path = case.window_records(row["case_attempt_id"]) / window_filename(row["window_id"])
@@ -86,6 +87,7 @@ def _verify_window_coverage(case: CaseArtifacts, attempt_id: str, run_id: str,
 
     records = [read_window_record(path) for path in sorted(_receipt_paths(case, attempt_id, csv_path))]
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        allow_large_csv_fields()
         rows = {measurement_key(row): row for row in csv.DictReader(stream)}
     seen = set()
     for record in records:
@@ -128,6 +130,7 @@ def _verify_projections(csv_path: Path, files: dict[str, Path], records: list[di
     if not records:
         return
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        allow_large_csv_fields()
         rows = list(csv.DictReader(stream))
     with files["groups"].open(encoding="utf-8") as stream:
         groups = [loads_finite_json(line) for line in stream]

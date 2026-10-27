@@ -44,7 +44,7 @@ def _write_csv(case, row):
         return {"start_byte": start, "end_byte": stream.tell()}
 
 
-def _fixture(root, *, attempt=ATTEMPT, capture=True, receipt_case_id=None):
+def _fixture(root, *, attempt=ATTEMPT, capture=True, receipt_case_id=None, note=None):
     if (root / "result_manifest.json").exists():
         layout = ArtifactLayout.discover(root)
     else:
@@ -60,6 +60,8 @@ def _fixture(root, *, attempt=ATTEMPT, capture=True, receipt_case_id=None):
     row = {**dict(zip(KEY_FIELDS, ("2", "4", "off", "64", "0", "0"), strict=True)),
            "environment_class": "native_linux", "status": "ok", "error": "",
            "latency_app_s": "0.150000"}
+    if note is not None:
+        row["note"] = note
     with case.requests.open("w") as stream:
         request = append_request_window(stream, sniff_group_id=window_id, input_scale=64.0,
                                         warmup=0, repeat_idx=0, latencies=[0.1, 0.2])

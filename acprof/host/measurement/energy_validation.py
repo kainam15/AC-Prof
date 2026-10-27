@@ -8,6 +8,7 @@ import sys
 from typing import Any
 
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.result_csv import allow_large_csv_fields
 
 
 class EnergyProfilingError(RuntimeError):
@@ -94,6 +95,7 @@ def check_case_gpu_idle_power_stable(
     invalid_rows = 0
     idle_values: list[float] = []
     with open(csv_path, encoding="utf-8", newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         for row in reader:
             if ignore_error_rows and row_has_error_status(row):
@@ -139,6 +141,7 @@ def check_case_cpu_idle_power_stable(
     invalid_rows = 0
     idle_values: list[float] = []
     with open(csv_path, encoding="utf-8", newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         for row in reader:
             if ignore_error_rows and row_has_error_status(row):

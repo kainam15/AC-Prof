@@ -25,6 +25,7 @@ from acprof.host.posthoc.context import (
     ResultContext,
     _load_json_object,
 )
+from acprof.result_csv import allow_large_csv_fields
 
 
 def _write_csv_text(stream: TextIO, text: str) -> None:
@@ -305,6 +306,7 @@ def commit_result_files(
         with csv_temporary.open(
             "r", encoding=context.csv_encoding, newline=""
         ) as f:
+            allow_large_csv_fields()
             if sum(1 for _row in csv.DictReader(f)) != len(rows):
                 raise PosthocError("temporary result CSV row-count validation failed")
         _load_json_object(meta_temporary, "temporary static metadata")

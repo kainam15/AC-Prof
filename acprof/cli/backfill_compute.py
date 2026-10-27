@@ -28,6 +28,7 @@ from acprof.host.profiling.compute_plan import (
     find_compute_profile_entry,
     load_compute_profile_plan,
 )
+from acprof.result_csv import allow_large_csv_fields
 
 COMPUTE_PROFILE_FIELDS = (
     TORCH_LOGICAL_MFLOP_FIELD,
@@ -122,6 +123,7 @@ def _csv_encoding(path: str) -> str:
 def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
     encoding = _csv_encoding(path)
     with open(path, encoding=encoding, newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         if not fieldnames:
@@ -153,6 +155,7 @@ def _read_result_csv(path: str) -> tuple[list[str], list[dict[str, str]], str]:
 def _read_ncu_summary(path: str) -> list[tuple[float, dict[str, Any]]]:
     """Read the historical per-scale NCU sidecar without changing its paths."""
     with open(path, encoding=_csv_encoding(path), newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
         if not fieldnames:

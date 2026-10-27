@@ -16,6 +16,7 @@ from acprof.artifacts import (
 from acprof.latency_slo import latency_slo_threshold
 from acprof.metric_registry import order_csv_fields
 from acprof.pixel_metrics import per_megapixel
+from acprof.result_csv import allow_large_csv_fields
 
 SNIFF_GROUP_FIELD = "sniff_group_id"
 NETWORK_RECORD_TO_CSV_FIELD = {
@@ -289,6 +290,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         group_records[group_id].append(record)
 
     with open(in_csv, encoding="utf-8", newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         fields = reader.fieldnames
         rows = list(reader)

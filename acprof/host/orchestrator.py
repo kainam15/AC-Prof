@@ -68,6 +68,7 @@ from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.pixel_metrics import PIXEL_COUNT_FIELDS, PIXEL_RATE_SOURCES
 from acprof.progress_events import emit_event, measurement_boundary
+from acprof.result_csv import allow_large_csv_fields
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState
@@ -103,6 +104,7 @@ def _assert_packet_latency_csv_complete(
         raise _packet_latency_error(f"result CSV does not exist: {csv_path}")
 
     with open(csv_path, encoding="utf-8", newline="") as f:
+        allow_large_csv_fields()
         reader = csv.DictReader(f)
         if not reader.fieldnames:
             raise _packet_latency_error(f"result CSV is empty: {csv_path}")
@@ -585,6 +587,7 @@ def _client_ready_failure(csv_path: str) -> str | None:
     """
     try:
         with open(csv_path, newline="", encoding="utf-8-sig") as stream:
+            allow_large_csv_fields()
             reader = csv.DictReader(stream)
             first = next(reader, None)
             second = next(reader, None)
@@ -600,6 +603,7 @@ def _case_result_status(csv_path: str) -> str:
     """A zero client exit code does not establish successful measurement rows."""
     try:
         with open(csv_path, newline="", encoding="utf-8-sig") as stream:
+            allow_large_csv_fields()
             statuses = [row.get("status") for row in csv.DictReader(stream)]
     except (OSError, UnicodeError, csv.Error):
         return "error"
@@ -785,6 +789,7 @@ def _write_case_error_csv(
     existing_keys = set()
     if preserve_existing and os.path.exists(out_csv) and os.path.getsize(out_csv) > 0:
         with open(out_csv, encoding="utf-8", newline="") as f:
+            allow_large_csv_fields()
             reader = csv.DictReader(f)
             optional_pixel_fields = {*PIXEL_COUNT_FIELDS, *PIXEL_RATE_SOURCES}
             missing_fields = set(CSV_FIELDS) - set(reader.fieldnames or []) - optional_pixel_fields

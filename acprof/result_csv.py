@@ -4,6 +4,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import struct
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -17,6 +19,8 @@ from acprof.metric_registry import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
+# Python 3.12 accepts a C long; later versions accept a Py_ssize_t.
+_CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,16 @@ class ResultCsvSnapshot:
 
 class ResultValidationError(ValueError):
     """输入不完整或无法唯一归属到计划中的测量。"""
+
+
+def allow_large_csv_fields() -> None:
+    """Accept full diagnostics without lowering the shared interpreter limit.
+
+    csv has no per-reader limit. Do not restore it after a read: another
+    concurrent result reader may still be consuming a large field.
+    """
+    if csv.field_size_limit() < _CSV_FIELD_LIMIT:
+        csv.field_size_limit(_CSV_FIELD_LIMIT)
 
 
 def require_current_fields(fields: Iterable[str]) -> None:
@@ -108,6 +122,7 @@ class _DigestingRawReader(io.RawIOBase):
 
 def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *, allow_empty=False
                       ) -> tuple[list[str], list[dict[str, str]]]:
+    allow_large_csv_fields()
     reader = csv.DictReader(stream, strict=True)
     fields = list(reader.fieldnames or [])
     require_current_fields(fields)
@@ -177,6 +192,7 @@ def open_result_text(path: str | Path):
 
     No complete wide CSV is written to the file system by readers.
     """
+    allow_large_csv_fields()
     path = Path(path)
     if path.is_dir():
         path /= "result_layers.json"

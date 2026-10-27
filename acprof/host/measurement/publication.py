@@ -13,6 +13,7 @@ from acprof.artifacts import atomic_write, loads_finite_json
 from acprof.config import (
     CSV_FIELDS,
 )
+from acprof.result_csv import allow_large_csv_fields
 from acprof.window_records import (
     WindowPublicationContext,
     commit_window_record,
@@ -31,6 +32,7 @@ def reconcile_sniff_group_sidecar(csv_path: str | Path, sidecar_path: str | Path
         return
 
     with csv_file.open("r", encoding="utf-8-sig", newline="") as stream:
+        allow_large_csv_fields()
         reader = csv.reader(stream)
         if next(reader, None) is None:
             committed_rows = 0
