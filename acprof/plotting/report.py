@@ -35,6 +35,32 @@ def report_payload(model: AnalysisModel, baseline: str | None = None, *, compari
                         for s in model.sources]}
 
 
+def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
+    """Encode growing top-level lists one entry at a time with the C encoder."""
+    encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False)
+
+    def append(value: object) -> None:
+        encoded = encoder.encode(value)
+        stream.write(encoded.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
+
+    stream.write("{")
+    for index, (key, value) in enumerate(payload.items()):
+        if index:
+            stream.write(encoder.item_separator)
+        append(key)
+        stream.write(encoder.key_separator)
+        if isinstance(value, list):
+            stream.write("[")
+            for entry_index, entry in enumerate(value):
+                if entry_index:
+                    stream.write(encoder.item_separator)
+                append(entry)
+            stream.write("]")
+        else:
+            append(value)
+    stream.write("}")
+
+
 def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | None = None,
                  comparison_purpose="same-hardware") -> Path:
     output = Path(output)
@@ -45,7 +71,6 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
     from plotly.offline import get_plotlyjs
     resources = files("acprof.plotting")
     replacements = {
-        "__DATA__": json.dumps(payload, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
         "__PLOTLY__": get_plotlyjs().replace("</script", "<\\/script"),
         "__VIEW_MODEL__": resources.joinpath("view_model.js").read_text(encoding="utf-8"),
         "__APP__": resources.joinpath("report.js").read_text(encoding="utf-8"),
@@ -58,9 +83,12 @@ def write_report(model: AnalysisModel, output: str | Path, *, baseline: str | No
         # Only scan the original template: asset and user-data tokens are literal.
         # Write fragments directly, avoiding a second full page in memory.
         position = 0
-        for match in re.finditer("|".join(replacements), template):
+        for match in re.finditer("__DATA__|" + "|".join(replacements), template):
             stream.write(template[position:match.start()])
-            stream.write(replacements[match.group()])
+            if match.group() == "__DATA__":
+                _write_report_json(stream, payload)
+            else:
+                stream.write(replacements[match.group()])
             position = match.end()
         stream.write(template[position:])
 
