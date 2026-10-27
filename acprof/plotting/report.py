@@ -39,8 +39,8 @@ def _write_report_json(stream: TextIO, payload: dict[str, object]) -> None:
     """Encode growing top-level lists one entry at a time with the C encoder."""
     encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False)
 
-    def append(value: object) -> None:
-        encoded = encoder.encode(value)
+    def append(item: object) -> None:
+        encoded = encoder.encode(item)
         stream.write(encoded.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
 
     stream.write("{")
