@@ -300,7 +300,14 @@ def compare_results(left: str | Path, right: str | Path, *, purpose: str = "same
     """
     if purpose not in PURPOSES:
         raise ValueError(f"comparison purpose must be one of {PURPOSES}")
-    snapshots = {"left": load_comparison_snapshot(left), "right": load_comparison_snapshot(right)}
+    return compare_snapshots(load_comparison_snapshot(left), load_comparison_snapshot(right), purpose=purpose)
+
+
+def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware") -> dict:
+    """Compare loaded evidence without reading files or mutating the snapshots."""
+    if purpose not in PURPOSES:
+        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+    snapshots = {"left": left, "right": right}
     lhs, rhs = snapshots.values()
     conditions = {name: _condition(value, rhs["conditions"][name])
                   for name, value in lhs["conditions"].items()}

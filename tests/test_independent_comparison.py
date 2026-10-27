@@ -113,17 +113,17 @@ class TestIndependentComparison(IndependentComparisonFixture):
         assert report["status"] == "compatible"
 
     def test_quality_change_during_comparison_invalidates_snapshot(self):
-        from acprof.analysis.comparison import compare_results
+        from acprof.analysis.comparison import compare_snapshots
         left = self.replicate("left", 0, [2])
         right = self.replicate("right", 0, [3])
         self.fixture.write_json(right, "quality_checks.json", {"schema_version": 1, "checks": []})
 
         def change_after_read(a, b, **kwargs):
-            result = compare_results(a, b, **kwargs)
-            if b == right:
+            result = compare_snapshots(a, b, **kwargs)
+            if b["run_id"] == right.name:
                 self.fixture.write_json(right, "quality_checks.json", {"schema_version": 1, "checks": [], "changed": True})
             return result
 
-        with patch("acprof.analysis.independent_comparison.compare_results", side_effect=change_after_read):
+        with patch("acprof.analysis.independent_comparison.compare_snapshots", side_effect=change_after_read):
             with pytest.raises(ValueError, match="experiment changed.*quality_checks"):
                 self.compare([left], [right])

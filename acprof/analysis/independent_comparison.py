@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.analysis.audit import number
-from acprof.analysis.comparison import compare_results
+from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.artifact_layout import ArtifactLayout
@@ -96,8 +96,10 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
         lambda: {"left": [], "right": []}
     )
     checks = []
+    reference_snapshot = None
     for side, paths in sources.items():
         experiments[side] = []
+        group_snapshot = None
         for path in paths:
             source = Path(path)
             layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
@@ -119,14 +121,19 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             _, rows = read_result_csv(result_path)
             summarize_windows(rows, metrics, confidence=confidence, resamples=1)
             complete = state.get("status") == "complete"
-            cross = compare_results(left[0], path, purpose=purpose)
+            current_snapshot = load_comparison_snapshot(path)
+            if reference_snapshot is None:
+                reference_snapshot = current_snapshot
+            if group_snapshot is None:
+                group_snapshot = current_snapshot
+            cross = compare_snapshots(reference_snapshot, current_snapshot, purpose=purpose)
             snapshot = cross["experiments"]["right"]
             evidence = {key: snapshot[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
             experiments[side].append({"run_id": run_id, "source": str(source.resolve()),
                                       "state": state.get("status"), "eligible": complete, **evidence})
             checks.append({"left_run_id": next(iter(experiments["left"]))["run_id"],
                            "right_run_id": run_id, **cross})
-            within = compare_results(paths[0], path, purpose="same-hardware")
+            within = compare_snapshots(group_snapshot, current_snapshot, purpose="same-hardware")
             checks.append({**within, "group": side, "within_group": True, "run_id": run_id})
             if within and within["expected_differences"]:
                 checks.append({"status": "incompatible", "run_id": run_id,
