@@ -75,6 +75,41 @@ def _profile_generation(representative: dict, signature: dict) -> dict:
     return generation
 
 
+def _profile_id(signature: dict) -> str:
+    """Use the same deterministic identity for discovery and edited profiles."""
+    identifier = re.sub(r"[^a-z0-9]+", "-", signature["interface"].lower()).strip("-")
+    return f"{identifier}-{content_digest(signature)[:12]}"
+
+
+def profile_output_budget(profile: dict) -> dict:
+    """Keep length axes distinct when otherwise identical compute profiles merge.
+
+    Inactive decoding controls (such as length_penalty with num_beams=1) do
+    not create a separate inference path or prevent safe deduplication.
+    """
+    generation = profile["config"].get("generation", {})
+    return {name: generation[name] for name in (
+        "max_new_tokens", "max_length", "min_new_tokens", "min_length")
+        if name in generation}
+
+
+def reidentify_inference_profile(profile: dict) -> dict:
+    """Freeze edited compute settings under their actual execution identity.
+
+    Semantic declarations remain immutable provenance. In particular, changing a
+    decode strategy must not retain the old signature or directory identity.
+    """
+    if "execution_profile" not in profile:
+        raise ValueError("expected an inference profile")
+    updated = copy.deepcopy(profile)
+    recorded = updated["execution_profile"]["signature"]
+    signature = inference_signature(updated, backend=recorded["backend"])
+    updated["execution_profile"]["signature"] = signature
+    updated["task_id"] = _profile_id(signature)
+    updated["fingerprint"] = task_fingerprint(updated)
+    return updated
+
+
 def group_inference_tasks(tasks: list[dict], *, backend: str | Mapping[str, str] = "",
                           generation_override: dict | None = None) -> list[dict]:
     """Return one materializable workload per distinct inference signature.
@@ -108,8 +143,7 @@ def group_inference_tasks(tasks: list[dict], *, backend: str | Mapping[str, str]
     for digest, members in sorted(buckets.items()):
         signature = signatures[digest]
         representative = copy.deepcopy(members[0])
-        identifier = re.sub(r"[^a-z0-9]+", "-", signature["interface"].lower()).strip("-")
-        representative["task_id"] = f"{identifier}-{digest[:12]}"
+        representative["task_id"] = _profile_id(signature)
         if signature["interface"] in GENERATIVE_INTERFACES:
             representative["config"]["generation"] = _profile_generation(representative, signature)
         representative["semantic_tasks"] = copy.deepcopy(members)

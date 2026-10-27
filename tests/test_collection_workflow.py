@@ -27,6 +27,20 @@ def events(output):
             for line in output.getvalue().splitlines() if line.startswith("ACPROF_PREPARATION ")]
 
 
+def answer_with_parameter_defaults(*decisions):
+    """Simulate a user accepting the optional per-profile preparation page."""
+    queued = iter(decisions)
+
+    def respond(stage, kind, **fields):
+        if fields.get("purpose") == "workload_parameters":
+            review = fields["questions"] + fields.get("parameter_advanced", [])
+            return {"action": "answer", "answers": {
+                question["path"]: question["value"] for question in review}}
+        return next(queued)
+
+    return respond
+
+
 class TestCollectionWorkflow:
     @pytest.fixture(autouse=True)
     def _setup(self, request, tmp_path, monkeypatch):
@@ -263,14 +277,18 @@ class TestCollectionWorkflow:
         answer = {"multimodal.inputs.turns": {"template": [{"role": "user", "content": {"from": "text"}}]}}
         workflow = PreparationWorkflow(interactive=True, cache_dir=self.run.root / "decisions")
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
-            workflow, "ask", side_effect=[{"action": "answer", "answers": answer}, {"action": "confirm"}],
+            workflow, "ask", side_effect=answer_with_parameter_defaults(
+                {"action": "answer", "answers": answer}, {"action": "confirm"}),
         ) as ask, patch("sys.stdout", io.StringIO()):
             reviewed = workflow.resolve(self.args())
-            assert ask.call_count == 2
+            assert ask.call_count == 3
         assert (task_model_spec(reviewed)["multimodal"]["inputs"]["turns"]) == (answer["multimodal.inputs.turns"])
-        with patch("acprof.host.detect.detect_task", return_value=task), patch.object(workflow, "ask") as ask, patch("sys.stdout", io.StringIO()):
+        with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
+            workflow, "ask", side_effect=answer_with_parameter_defaults(),
+        ) as ask, patch("sys.stdout", io.StringIO()):
             cached = workflow.resolve(self.args())
-            ask.assert_not_called()
+            assert ask.call_count == 1
+            assert ask.call_args.kwargs["purpose"] == "workload_parameters"
         assert (task_model_spec(cached)) == (task_model_spec(reviewed))
         changed = copy.deepcopy(task)
         changed.model_revision = "b" * 40
@@ -291,9 +309,8 @@ class TestCollectionWorkflow:
         cache_dir = self.run.root / "decisions"
         workflow = PreparationWorkflow(interactive=True, cache_dir=cache_dir)
         with patch("acprof.host.detect.detect_task", return_value=task), patch.object(
-            workflow, "ask", side_effect=[
-                {"action": "answer", "answers": answer}, {"action": "confirm"}
-            ],
+            workflow, "ask", side_effect=answer_with_parameter_defaults(
+                {"action": "answer", "answers": answer}, {"action": "confirm"}),
         ), patch("sys.stdout", io.StringIO()):
             workflow.resolve(self.args())
 

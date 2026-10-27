@@ -212,11 +212,13 @@ class PreparationWorkflow:
                 **({"revision": args.revision} if args.revision else {}),
             )
             self._explicit(task, args)
-            from acprof.host.task_selection import select_tasks
+            from acprof.host.task_selection import review_selected_task_parameters, select_tasks
             task = select_tasks(task, args, self)
             self._explicit(task, args)
             if len(task.selected_tasks) > 1:
-                return task  # Each selected interface is validated by its own child run.
+                # The entire collection is ready; only now ask for workload
+                # parameters (once), not during repeated interface resolution.
+                return review_selected_task_parameters(task, args, self)
             identity = {"model": task.model_id, "revision": task.model_revision,
                         "source": getattr(task, "model_source", "huggingface"),
                         "contract": task.model_resolution.get("contract", {}).get("cache_key"),
@@ -271,6 +273,6 @@ class PreparationWorkflow:
             require_task_support(task, batch_size=args.batch_size, devices=args.gpus.split(","))
             if cache and decisions:
                 atomic_write_json(cache, {"schema_version": 1, "identity": identity, "decisions": decisions})
-            return task
+            return review_selected_task_parameters(task, args, self)
 
         return self.run("resolution", resolve_once)

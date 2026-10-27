@@ -120,8 +120,10 @@ class AutomaticRun:
                                override_backend=args.backend, model_spec_path=args.model_spec,
                                **({"revision": args.revision} if args.revision else {}))
         from acprof.host.collection_workflow import PreparationWorkflow
-        from acprof.host.task_selection import select_tasks
-        task = select_tasks(task, args, PreparationWorkflow.from_environment(args.output_dir))
+        from acprof.host.task_selection import review_selected_task_parameters, select_tasks
+        workflow = PreparationWorkflow.from_environment(args.output_dir)
+        task = select_tasks(task, args, workflow)
+        task = review_selected_task_parameters(task, args, workflow)
         write_model_resolution(task, self.root)
         if len(task.selected_tasks) <= 1:
             require_task_support(task, batch_size=args.batch_size)

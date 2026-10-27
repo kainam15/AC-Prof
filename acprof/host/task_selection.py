@@ -154,6 +154,47 @@ def select_tasks(task, args, workflow):
         raise ValueError("--task conflicts with the selected inference interface; use --tasks for workload selection")
     result = activate_task(task, chosen[0], backend=args.backend)
     result.selected_tasks = copy.deepcopy(chosen)
+    result.model_resolution["selected_task"] = copy.deepcopy(result.selected_tasks[0])
     if args.task:
         args.task = result.pipeline_tag
     return result
+
+
+def review_selected_task_parameters(task, args, workflow):
+    """Confirm workload controls once, *after* the full interface review.
+
+    select_tasks may run repeatedly as a user resolves missing model metadata.
+    Its pure selection step must never trigger this modal. Resume restores a
+    frozen task snapshot instead of asking for new values.
+    """
+    if (not task.selected_tasks or not workflow.interactive
+            or bool(getattr(args, "workload_spec", None)) or getattr(args, "resume", False)):
+        return task
+    from acprof.task_parameters import apply_parameter_review, parameter_review
+
+    result = copy.deepcopy(task)
+    batch_size = getattr(args, "batch_size", 1)
+    input_scales = getattr(args, "input_scales", "") or ""
+    review = parameter_review(result, result.selected_tasks,
+                              batch_size=batch_size, input_scales=input_scales)
+    if not review["questions"]:
+        return result
+    error = ""
+    while True:
+        reply = workflow.ask(
+            "resolution", "review", resolved=False, purpose="workload_parameters",
+            fields={"Model": result.model_id, "Revision": result.model_revision},
+            questions=review["questions"], parameter_advanced=review["parameter_advanced"],
+            detail=error,
+        )
+        try:
+            selected = apply_parameter_review(
+                result, result.selected_tasks, reply.get("answers"),
+                batch_size=batch_size, input_scales=input_scales,
+            )
+        except (TypeError, ValueError) as exc:
+            error = str(exc)
+            continue
+        result.selected_tasks = selected
+        result.model_resolution["selected_task"] = copy.deepcopy(selected[0])
+        return result

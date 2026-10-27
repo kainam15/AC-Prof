@@ -132,7 +132,9 @@ class PreparationScreen(ModalScreen):
         report = request.get("download_report")
         download = review and report is not None
         task_selection = any(item.get("kind") == "multi" for item in request.get("questions", []))
-        title = "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型"
+        parameter_review = request.get("purpose") == "workload_parameters"
+        title = (message_id("ui.2235") if parameter_review else
+                 "模型确认" if review else "模型无法正常运行" if failed else "正在检测模型")
         with Vertical(id="preparation-dialog", classes=(
             "task-selection" if task_selection else "download-confirmation" if download else "preparation-failure" if failed else ""
         )):
@@ -153,10 +155,21 @@ class PreparationScreen(ModalScreen):
                         yield Static(fields, id="preparation-fields", markup=False)
                     for index, question in enumerate(request.get("questions", [])):
                         if question.get("kind") != "multi":
-                            yield Label(tr(question["path"]))
-                            yield Static(tr(question.get("reason", "")), markup=False)
+                            name = (f"{tr(question['task_name'])} · {tr(question['caption'])}"
+                                    if parameter_review else tr(question["path"]))
+                            yield Label(name)
+                            if question.get("reason"):
+                                yield Static(tr(question["reason"]), markup=False)
                         if not question.get("read_only"):
                             yield review_input(question, identifier=f"preparation-answer-{index}", translate=tr)
+                    if parameter_review and request.get("parameter_advanced"):
+                        with Collapsible(title=tr(message_id("ui.2236")), collapsed=True):
+                            for index, question in enumerate(request["parameter_advanced"]):
+                                name = f"{tr(question['task_name'])} · {tr(question['caption'])}"
+                                yield Label(name)
+                                if question.get("reason"):
+                                    yield Static(tr(question["reason"]), markup=False)
+                                yield review_input(question, identifier=f"preparation-parameter-{index}", translate=tr)
                     if request.get("detail"):
                         yield Static(request["detail"], id="preparation-detail", markup=False)
                     summary = None if download else request.get("summary")
@@ -182,14 +195,20 @@ class PreparationScreen(ModalScreen):
             with Horizontal(id="preparation-actions", classes=(
                 "extra-action" if failed and download_failure(request) and self.event["stage"] in {"image", "runtime"} else ""
             )):
-                yield Button(tr(message_id("ui.0588")) if task_selection else tr("返回配置" if failed else "终止任务"), id="preparation-cancel",
+                cancel_label = (tr(message_id("ui.0588")) if task_selection else
+                                tr("返回配置" if failed or parameter_review else "终止任务"))
+                yield Button(cancel_label, id="preparation-cancel",
                              tooltip=tr(message_id("ui.2157")) if failed else None)
                 if task_selection:
                     yield Button(tr(message_id("ui.2163")), id="preparation-select-all")
                 if review:
                     if not ready:
-                        yield Button(tr("开始所选任务" if task_selection else "应用字段"), id="preparation-apply", variant="primary")
-                    if not task_selection:
+                        if parameter_review:
+                            yield Button(tr(message_id("ui.2237")), id="preparation-defaults")
+                        yield Button(tr(message_id("ui.2238") if parameter_review else
+                                        message_id("ui.2176") if task_selection else "应用字段"),
+                                     id="preparation-apply", variant="primary")
+                    if not task_selection and not parameter_review:
                         yield Button(tr("确认下载" if download else "确定"), id="preparation-continue",
                                      disabled=not ready, variant="primary" if ready else "default")
                 elif failed:
@@ -233,11 +252,26 @@ class PreparationScreen(ModalScreen):
             return
         self.send({"action": "confirm" if request.get("kind") == "review" else "retry"})
 
+    @on(Button.Pressed, "#preparation-defaults")
+    def use_default_parameters(self):
+        request = self.event["request"]
+        if request.get("purpose") != "workload_parameters":
+            return
+        fields = request.get("questions", []) + request.get("parameter_advanced", [])
+        answers = {field["path"]: field["value"] for field in fields}
+        encode_reply(request["id"], "answer", answers=answers)
+        self.send({"action": "answer", "answers": answers})
+
     @on(Button.Pressed, "#preparation-apply")
     def apply_answers(self):
         try:
-            answers = review_answers(self, self.event["request"].get("questions", []), prefix="preparation-answer")
-            encode_reply(self.event["request"]["id"], "answer", answers=answers)
+            request = self.event["request"]
+            answers = review_answers(self, request.get("questions", []), prefix="preparation-answer")
+            if request.get("purpose") == "workload_parameters":
+                answers.update(review_answers(
+                    self, request.get("parameter_advanced", []), prefix="preparation-parameter",
+                ))
+            encode_reply(request["id"], "answer", answers=answers)
         except (ValueError, TypeError) as exc:
             error = self.query_one("#preparation-error", Static)
             error.update(str(exc))
@@ -247,7 +281,9 @@ class PreparationScreen(ModalScreen):
 
     @on(Button.Pressed, "#preparation-cancel")
     def action_cancel(self):
-        if any(item.get("kind") == "multi" for item in self.event.get("request", {}).get("questions", [])):
+        request = self.event.get("request", {})
+        if (request.get("purpose") == "workload_parameters"
+                or any(item.get("kind") == "multi" for item in request.get("questions", []))):
             self.send({"action": "cancel"})
             return
         # Requesting stop opens the app-level confirmation first. Do not mark

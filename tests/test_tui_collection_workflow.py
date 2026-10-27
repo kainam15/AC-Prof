@@ -20,7 +20,7 @@ from acprof.tui.progress import RunProgressTracker
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-async def test_automatic_interface_selection_reaches_runtime_without_modal(tmp_path, language):
+async def test_automatic_interface_selection_reviews_parameters_before_runtime(tmp_path, language):
     script = textwrap.dedent('''
         from types import SimpleNamespace
         from acprof.host.collection_workflow import PreparationWorkflow
@@ -47,6 +47,14 @@ async def test_automatic_interface_selection_reaches_runtime_without_modal(tmp_p
             app.query_one("#ui-language", Select).value = language
             await pilot.pause()
             await pilot.click("#start-run")
+            async def parameter_screen():
+                while not (screen := app.preflight.preparation_screen):
+                    await pilot.pause()
+                return screen
+
+            screen = await asyncio.wait_for(parameter_screen(), timeout=15)
+            assert screen.event["request"]["purpose"] == "workload_parameters"
+            await pilot.click("#preparation-defaults")
             await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
             await pilot.pause()
             app.logs.flush()

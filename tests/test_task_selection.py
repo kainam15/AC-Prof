@@ -71,8 +71,8 @@ def test_interactive_selection_waits_then_runs_only_chosen_profile(monkeypatch, 
     task = two_profile_model()
     profile = next(item["profile_id"] for item in task.task_discovery["profiles"]
                    if "translation_en_to_de" in item["semantic_task_ids"])
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"id": 1, "action": "answer",
-                                                          "answers": {"tasks": [profile]}}) + "\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({
+        "id": 1, "action": "answer", "answers": {"tasks": [profile]}}) + "\n"))
     result = select_tasks(task, options(), PreparationWorkflow(interactive=True))
     assert [item["task_id"] for item in result.selected_tasks] == [profile]
     assert result.selected_tasks[0]["execution_profile"]["semantic_task_ids"] == ["translation_en_to_de"]
@@ -83,9 +83,16 @@ def test_review_transfers_effective_profiles_without_localized_labels():
     task = two_profile_model()
     workflow = Mock(interactive=True)
     profile_ids = [item["profile_id"] for item in task.task_discovery["profiles"]]
-    workflow.ask.return_value = {"answers": {"tasks": profile_ids}}
+    def answer(*args, **kwargs):
+        questions = kwargs["questions"]
+        if questions[0].get("kind") == "multi":
+            return {"answers": {"tasks": profile_ids}}
+        return {"answers": {field["path"]: field["value"] for field in
+                            questions + kwargs.get("parameter_advanced", [])}}
+
+    workflow.ask.side_effect = answer
     selected = select_tasks(task, options(), workflow)
-    question = workflow.ask.call_args.kwargs["questions"][0]
+    question = workflow.ask.call_args_list[0].kwargs["questions"][0]
     assert "profiles" in question, "The UI needs the complete effective signatures and declarations"
     assert question["profiles"] == selected.selected_tasks
     assert "labels" not in question
