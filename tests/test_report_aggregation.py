@@ -56,10 +56,15 @@ class TestReportAggregation:
         assert not result['successful']
         assert 'source or lock identity differs across Python versions' in result['errors']
 
-    @pytest.mark.parametrize('broken_case', range(3), ids=['reports[:1]', '[*reports, reports[0]]', "[*reports, {**reports[0], 'python': '3.10.9'}]"])
+    @pytest.mark.parametrize("broken_case", ["missing", "duplicate", "unknown_python"])
     def test_missing_duplicate_and_unknown_shards_fail(self, broken_case):
         reports = self.reports()
-        broken = tuple((reports[:1], [*reports, reports[0]], [*reports, {**reports[0], 'python': '3.10.9'}]))[broken_case]
+        if broken_case == "missing":
+            broken = reports[:1]
+        elif broken_case == "duplicate":
+            broken = [*reports, reports[0]]
+        else:
+            broken = [*reports, {**reports[0], "python": "3.10.9"}]
         assert not (self.summarize(broken)["successful"])
 
     def test_forged_green_reports_cannot_hide_coverage_or_failures(self):
