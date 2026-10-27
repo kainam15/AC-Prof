@@ -76,14 +76,14 @@ def test_result_readers_preserve_large_quoted_unicode_fields(tmp_path, size, rea
     if reader == "plain":
         fields, rows = read_result_csv(path)
         assert fields == list(expected)
+        assert rows == [expected]
     elif reader == "snapshot":
         snapshot = read_result_csv_snapshot(path)
         assert snapshot.sha256 == hashlib.sha256(raw).hexdigest()
-        rows = snapshot.rows
+        assert snapshot.rows == [expected]
     else:
         with open_result_text(path) as stream:
-            rows = list(csv.DictReader(stream, strict=True))
-    assert rows == [expected]
+            assert list(csv.DictReader(stream, strict=True)) == [expected]
     assert path.read_bytes() == raw
 
 

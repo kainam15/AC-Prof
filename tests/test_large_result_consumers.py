@@ -25,6 +25,8 @@ from acprof.host.posthoc.context import RESULT_CSV_NAME, ResultContext
 from acprof.host.posthoc.storage import commit_result_files, create_backup
 from acprof.result_csv import read_result_csv
 
+pytestmark = pytest.mark.usefixtures(default_csv_limit.__name__)
+
 
 @pytest.mark.parametrize("consumer", ["notification-counts", "case-status", "packet-completeness",
                                      "compute-backfill", "ncu-summary"])
