@@ -229,6 +229,45 @@ class TestAnalysisModel:
         assert (model.summary[0]["quality_checks"][0]["evidence"]["source"]) == ("loader")
         assert (model.sources[0]["quality_status"]) == ("blocked")
 
+    @pytest.mark.parametrize("storage", ["csv", "layers"])
+    def test_analysis_audits_once_per_load_and_refreshes_quality(self, storage, monkeypatch):
+        from acprof.analysis.model import load_analysis
+        from acprof.artifact_layout import ArtifactLayout
+        from acprof.quality import loading_quality
+        from acprof.result_csv import read_result_csv_snapshot
+        from acprof.result_layers import publish_result_layers
+
+        input_path = self.source([self.row()])
+        layout = ArtifactLayout.from_csv(input_path)
+        if storage == "layers":
+            layout = ArtifactLayout.for_new_run(self.root / "layers")
+            layout.initialize()
+            publish_result_layers(input_path, output_dir=layout.root)
+            input_path = layout.result_csv
+        reads = []
+
+        def record_snapshot(candidate, **kwargs):
+            reads.append(Path(candidate).resolve())
+            return read_result_csv_snapshot(candidate, **kwargs)
+
+        monkeypatch.setattr("acprof.analysis.audit.read_result_csv_snapshot", record_snapshot)
+        first = load_analysis([input_path])
+        assert reads == [input_path.resolve()]
+        assert first.sources[0]["quality_status"] == "unknown"
+        assert first.configs[0]["metrics"]["latency_app_p95_s"]["value"] == .04
+
+        checks = loading_quality({"missing_keys": ["head.weight"]}, source="loader")
+        layout.path("quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
+        second = load_analysis([input_path])
+        assert reads == [input_path.resolve(), input_path.resolve()]
+        assert second.sources[0]["quality_status"] == "blocked"
+        assert second.configs[0]["quality_checks"] == [{
+            **checks[0], "evidence": {**checks[0]["evidence"],
+                                      "artifact": str(layout.path("quality_checks.json"))}}]
+        assert not second.summary[0]["auto_selection_eligible"]
+        assert second.configs[0]["config_id"] == first.configs[0]["config_id"]
+        assert first.sources[0]["quality_status"] == "unknown"
+
     def test_legacy_quality_is_unknown_even_with_successful_rows(self):
         from acprof.analysis.model import load_analysis
         model = load_analysis([self.source([self.row()])])

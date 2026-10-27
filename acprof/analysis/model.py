@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from acprof.analysis.audit import audit_result
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, comparison_profile
 from acprof.artifact_layout import ArtifactLayout
@@ -199,11 +198,10 @@ def load_analysis(sources) -> AnalysisModel:
         meta = _json(layout.path("static_meta.json"))
         state = _json(layout.path("run_state.json"))
         run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
-        audit = audit_result(path)
-        condition_snapshots[str(path)] = load_comparison_snapshot(path)
+        snapshot = load_comparison_snapshot(path)
+        condition_snapshots[str(path)] = snapshot
         evidence = {"run_status": state.get("status", "unknown"),
-                    "measurement_status": audit["measurement_status"],
-                    "missing_metrics": audit["missing_metrics"], **read_quality(path)}
+                    **{key: snapshot[key] for key in ("measurement_status", "missing_metrics", *QUALITY_FIELDS)}}
         snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
                           "run_state": state.get("status", "unknown"), "metadata": meta, **evidence})
         device_quality = {}
