@@ -1,13 +1,14 @@
 """Repair mutable projections only; immutable source corruption is always fatal."""
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
 from acprof.artifacts import read_json_object, sync_directory
 from acprof.result_csv import ResultValidationError
 from acprof.result_layers import PROFILER_LAYERS, has_layer_evidence, layer_identity_fields
-from acprof.result_store.protocol import csv_bytes, digest, validate_manifest, write_bytes
+from acprof.result_store.protocol import csv_bytes, validate_manifest, write_bytes
 from acprof.result_store.sources import replay
 
 _COMPARE_CHUNK_BYTES = 64 * 1024
@@ -71,22 +72,27 @@ def recover_pending(layout):
         validate_manifest(layout, current)
 
 
+def _recover_layer(layout, manifest, layer, rows):
+    """Keep this layer's verified hash state, releasing its CSV buffer on return."""
+    info = manifest["layers"][layer]
+    selected = projected_rows(manifest, layer, rows.values())
+    raw = csv_bytes(info["fields"], selected, header=True)
+    checksum = hashlib.sha256(raw)
+    if (checksum.hexdigest() != info["sha256"] or len(raw) != info["committed_bytes"]
+            or len(selected) != info["row_count"]):
+        raise ResultValidationError(f"{layer} commit disagrees with immutable sources")
+    _repair_projection(layout.layer_csv(layer), raw)
+    return checksum
+
+
 def recover_projection(layout):
-    """Caller holds the publication lock and the single-writer lease."""
+    """Recover projections and hash states under the publication lock and writer lease."""
     recover_pending(layout)
     manifest = read_json_object(layout.result_csv)
     validate_manifest(layout, manifest)
     rows, windows = replay(layout, manifest)
-    payloads = {}
-    for layer, info in manifest["layers"].items():
-        selected = projected_rows(manifest, layer, list(rows.values()))
-        raw = csv_bytes(info["fields"], selected, header=True)
-        if (digest(raw) != info["sha256"] or len(raw) != info["committed_bytes"]
-                or len(selected) != info["row_count"]):
-            raise ResultValidationError(f"{layer} commit disagrees with immutable sources")
-        _repair_projection(layout.layer_csv(layer), raw)
-        payloads[layer] = raw
+    hashes = {layer: _recover_layer(layout, manifest, layer, rows) for layer in manifest["layers"]}
     from acprof.result_store.metadata import recover_metadata
     recover_metadata(layout, manifest)
     clear_pending(layout)
-    return manifest, rows, windows, payloads
+    return manifest, rows, windows, hashes

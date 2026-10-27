@@ -36,8 +36,7 @@ class ResultWriter:
         try:
             fcntl.flock(self.lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             with publication_lock(self.layout, exclusive=True):
-                self.manifest, self.rows, self.windows, payloads = recover_projection(self.layout)
-            self.hashes = {layer: hashlib.sha256(raw) for layer, raw in payloads.items()}
+                self.manifest, self.rows, self.windows, self.hashes = recover_projection(self.layout)
             return self
         except BaseException:
             self.lease.close()
