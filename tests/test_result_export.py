@@ -38,7 +38,7 @@ def test_export_streams_rows_and_preserves_exact_csv_bytes(tmp_path, monkeypatch
                     writes.append(len(text))
                     return stream.write(text)
             write(ObservedWriter())
-        return atomic_write(path, observed, **kwargs)
+        atomic_write(path, observed, **kwargs)
 
     monkeypatch.setattr("acprof.result_layers.atomic_write", observe_write)
     assert export_result_layers(root, destination) == len(rows)

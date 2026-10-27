@@ -7,6 +7,7 @@ import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
+from typing import TextIO
 
 import pytest
 
@@ -43,7 +44,11 @@ def test_atomic_write_publishes_complete_file_with_requested_mode(tmp_path, over
 def test_atomic_write_default_replacement_preserves_existing_mode(tmp_path):
     destination = tmp_path / "result.csv"
     create_competing_entry(destination, "file")
-    atomic_write(destination, lambda stream: stream.write("replacement\n"), default_mode=0o644)
+
+    def write(stream: TextIO) -> None:
+        stream.write("replacement\n")
+
+    atomic_write(destination, write, default_mode=0o644)
     assert destination.read_bytes() == b"replacement\n"
     assert destination.stat().st_mode & 0o777 == 0o600
     assert list(tmp_path.iterdir()) == [destination]
@@ -114,7 +119,7 @@ def test_failure_before_publication_closes_and_removes_temporary(tmp_path, monke
                      "publish": "replace" if overwrite else "link"}[phase]
         monkeypatch.setattr(os, operation, fail)
 
-    def write(stream):
+    def write(stream: TextIO) -> None:
         opened.append(stream)
         stream.write("partial output\n")
         if phase in {"write", "cancel"}:
@@ -139,17 +144,21 @@ def test_exclusive_publication_syncs_complete_file_before_link_and_directory_aft
 
     def sync(fd):
         events.append("directory_sync" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file_sync")
-        return real_fsync(fd)
+        real_fsync(fd)
 
     def publish(source, target):
         assert Path(source).read_bytes() == b"complete output\n"
         assert not destination.exists()
         events.append("publish")
-        return real_link(source, target)
+        real_link(source, target)
 
     monkeypatch.setattr(os, "fsync", sync)
     monkeypatch.setattr(os, "link", publish)
-    atomic_write(destination, lambda stream: stream.write("complete output\n"), overwrite=False)
+
+    def write(stream: TextIO) -> None:
+        stream.write("complete output\n")
+
+    atomic_write(destination, write, overwrite=False)
     assert events == ["file_sync", "publish", "directory_sync"]
     assert list(tmp_path.iterdir()) == [destination]
 
@@ -165,7 +174,7 @@ def test_error_after_exclusive_publication_keeps_complete_output(tmp_path, monke
         unlinks.append(path)
         if len(unlinks) == 1:
             raise failure
-        return real_unlink(path, **kwargs)
+        real_unlink(path, **kwargs)
 
     def fail_sync(_directory):
         raise failure
@@ -174,8 +183,12 @@ def test_error_after_exclusive_publication_keeps_complete_output(tmp_path, monke
         monkeypatch.setattr(Path, "unlink", unlink)
     else:
         monkeypatch.setattr("acprof.artifacts.sync_directory", fail_sync)
+
+    def write(stream: TextIO) -> None:
+        stream.write("complete output\n")
+
     with pytest.raises(OSError, match=phase) as caught:
-        atomic_write(destination, lambda stream: stream.write("complete output\n"), overwrite=False)
+        atomic_write(destination, write, overwrite=False)
     assert caught.value is failure
     assert destination.read_bytes() == b"complete output\n"
     assert list(tmp_path.iterdir()) == [destination]
