@@ -126,7 +126,9 @@ def normalized_metric_spec(
     )
 
 
-def _convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _convert_numeric_columns(
+    df: pd.DataFrame, additional_columns: dict[str, pd.Series],
+) -> pd.DataFrame:
     numeric = {
         name: pd.to_numeric(df[name], errors="coerce")
         for name in dict.fromkeys([*NUMERIC_FIELDS, "gpu_mem_total_bytes", *COMPUTE_NUMERIC_COLUMNS])
@@ -135,11 +137,16 @@ def _convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     # Construct together so same-dtype columns share blocks rather than splitting
     # the original frame once per assignment. Positions preserve duplicate labels
     # on unknown columns; ambiguous numeric labels still fail in to_numeric above.
-    result = pd.DataFrame({
+    columns = {
         position: numeric[name] if name in numeric else df.iloc[:, position]
         for position, name in enumerate(df.columns)
-    }, index=df.index)
-    result.columns = df.columns
+    }
+    columns.update({
+        len(df.columns) + position: values
+        for position, values in enumerate(additional_columns.values())
+    })
+    result = pd.DataFrame(columns, index=df.index)
+    result.columns = [*df.columns, *additional_columns]
     return result
 
 
@@ -170,22 +177,27 @@ def prepare_df(
     if len(kinds) > 1 or kinds and kinds != {static_meta.get("runtime_kind", "docker")}:
         raise ValueError("mixed or inconsistent execution runtime; split results by runtime")
     environment = recorded_identity(static_meta)["environment_class"]
+    # read_csv may already have one block per column. Validate fallback values
+    # here, but assemble missing columns with the numeric columns below.
+    additional_columns = {}
     if "environment_class" not in df:
-        df["environment_class"] = environment
+        environments = pd.Series(environment, index=df.index)
+        additional_columns["environment_class"] = environments
     else:
         df["environment_class"] = df["environment_class"].where(
             df["environment_class"].isin(["native_linux", "wsl2", "vm", "cloud", "container_host"]), "unknown")
-    if len(set(df["environment_class"])) > 1 or any(
-        value not in {"unknown", environment} for value in df["environment_class"]
+        environments = df["environment_class"]
+    if len(set(environments)) > 1 or any(
+        value not in {"unknown", environment} for value in environments
     ):
         raise ValueError("mixed or inconsistent environment_class; split results by recorded environment")
     if "gpu_mem_total_bytes" not in df.columns and static_meta.get("gpu_mem_total_bytes"):
-        df["gpu_mem_total_bytes"] = pd.to_numeric(
-            static_meta["gpu_mem_total_bytes"],
-            errors="coerce",
+        additional_columns["gpu_mem_total_bytes"] = pd.Series(
+            pd.to_numeric(static_meta["gpu_mem_total_bytes"], errors="coerce"),
+            index=df.index,
         )
 
-    df = _convert_numeric_columns(df)
+    df = _convert_numeric_columns(df, additional_columns)
 
     bytes_to_gib = {
         "container_mem_usage_avg_bytes": "container_mem_usage_avg_gib",
