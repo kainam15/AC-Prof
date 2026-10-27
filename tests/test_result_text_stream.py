@@ -106,10 +106,10 @@ def test_pandas_keeps_round_trip_numbers_missing_values_and_inference(tmp_path):
     assert all(name in fields for name in extra)
     publish_result_rows(fields, rows, tmp_path)
     fields, rows = read_result_csv(tmp_path / "result_layers.json")
-    options = {"skipinitialspace": True, "float_precision": "round_trip"}
-    expected = pd.read_csv(io.StringIO(csv_text(fields, rows), newline=""), **options)
+    expected = pd.read_csv(io.StringIO(csv_text(fields, rows), newline=""),
+                           skipinitialspace=True, float_precision="round_trip", iterator=False, chunksize=None)
     with open_result_text(tmp_path) as stream:
-        actual = pd.read_csv(stream, **options)
+        actual = pd.read_csv(stream, skipinitialspace=True, float_precision="round_trip", iterator=False, chunksize=None)
     pd.testing.assert_frame_equal(actual, expected, check_exact=True)
     assert actual["number"].iloc[0] == float("0.10000000000000002")
     assert actual["big_integer"].tolist() == [9007199254740993, 9007199254740994, 9007199254740995]

@@ -204,9 +204,10 @@ class _CsvRawReader(io.RawIOBase):
         self._rows = deque(rows)
         self._pending = b""
         self._offset = 0
-        self._writer: csv.DictWriter[str] | None = csv.DictWriter(_CsvRowEncoder(), fieldnames=fields)
+        csv_writer = csv.DictWriter(_CsvRowEncoder(), fieldnames=fields)
+        self._writer: csv.DictWriter[str] | None = csv_writer
         try:
-            self._pending = self._writer.writeheader()
+            self._pending = csv_writer.writeheader()
         except BaseException:
             self.close()
             raise
