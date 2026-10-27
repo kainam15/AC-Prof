@@ -9,9 +9,8 @@ from acprof.result_csv import ResultCsvSnapshot, ResultValidationError, measurem
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_identity_fields
 from acprof.result_store.protocol import (
     digest,
-    parse_layer,
     publication_lock,
-    read_layer_bytes,
+    read_layer_rows,
     validate_manifest,
 )
 
@@ -70,12 +69,12 @@ def read_snapshot(root):
             transaction = read_json_object(pending, bounded=False)
             if transaction.get("replacements") and manifest["commit"] == transaction["before"]["commit"]:
                 raise ResultValidationError("result module replacement requires recovery")
-        payloads = read_layer_bytes(layout, manifest)
+        paths = validate_manifest(layout, manifest)
         identity = layer_identity_fields(manifest["wide_fields"])
         combined, expected = {}, []
         for layer in LAYER_FILES:
             info = manifest["layers"][layer]
-            rows = parse_layer(layout.layer_csv(layer), info["fields"], payloads[layer])
+            rows = read_layer_rows(paths[layer], info)
             if len(rows) != info["row_count"]:
                 raise ResultValidationError(f"invalid {layer} row count")
             keys = [measurement_key(row) for row in rows]

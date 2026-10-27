@@ -114,24 +114,28 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict) -> dict[str, Path]
     return paths
 
 
-def read_layer_bytes(layout: ArtifactLayout, manifest: dict, *, exact=False) -> dict[str, bytes]:
-    paths = validate_manifest(layout, manifest)
-    result = {}
-    for layer, path in paths.items():
-        info = manifest["layers"][layer]
-        with path.open("rb") as stream:
-            raw = stream.read(info["committed_bytes"])
-            if exact and stream.read(1):
-                raise ResultValidationError(f"uncommitted tail in {layer}")
-        if len(raw) != info["committed_bytes"] or digest(raw) != info["sha256"]:
-            raise ResultValidationError(f"missing or modified {layer} committed prefix")
-        result[layer] = raw
-    return result
+def _read_layer_bytes(path: Path, info: dict, *, exact=False) -> bytes:
+    with path.open("rb") as stream:
+        raw = stream.read(info["committed_bytes"])
+        if exact and stream.read(1):
+            raise ResultValidationError(f"uncommitted tail in {path}")
+    if len(raw) != info["committed_bytes"] or digest(raw) != info["sha256"]:
+        raise ResultValidationError(f"missing or modified {path} committed prefix")
+    return raw
 
 
-def parse_layer(path: Path, fields, raw: bytes):
-    columns, rows = parse_result_stream(io.StringIO(raw.decode("utf-8"), newline=""), path, None, allow_empty=True)
-    if columns != fields:
+def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False) -> None:
+    """Check every layer without retaining the verified payloads."""
+    for layer, path in validate_manifest(layout, manifest).items():
+        _read_layer_bytes(path, manifest["layers"][layer], exact=exact)
+
+
+def read_layer_rows(path: Path, info: dict) -> list[dict[str, str]]:
+    """Parse the verified bytes of one layer, then release its raw buffers."""
+    raw = _read_layer_bytes(path, info)
+    with io.StringIO(raw.decode("utf-8"), newline="") as stream:
+        columns, rows = parse_result_stream(stream, path, None, allow_empty=True)
+    if columns != info["fields"]:
         raise ResultValidationError(f"result layer header changed: {path}")
     return rows
 

@@ -19,8 +19,8 @@ from acprof.result_store.protocol import (
     digest,
     json_bytes,
     publication_lock,
-    read_layer_bytes,
     save_commit,
+    validate_layer_files,
     write_bytes,
 )
 
@@ -37,7 +37,7 @@ def initial_files(layout: ArtifactLayout) -> set[str]:
         manifest = read_json_object(layout.result_csv)
         if manifest.get("sequence") != 0 or manifest.get("state") != "initialized":
             return set()
-        read_layer_bytes(layout, manifest, exact=True)
+        validate_layer_files(layout, manifest, exact=True)
     else:
         for layer, fields in layer_fields(CSV_FIELDS).items():
             path = layout.layer_csv(layer)
@@ -52,7 +52,7 @@ def initialize_results(layout: ArtifactLayout) -> dict:
     with publication_lock(layout, exclusive=True):
         if layout.result_csv.exists():
             manifest = read_json_object(layout.result_csv)
-            read_layer_bytes(layout, manifest, exact=True)
+            validate_layer_files(layout, manifest, exact=True)
             return manifest
         intent = layout.result_store_path("initialization.json")
         if intent.exists():
