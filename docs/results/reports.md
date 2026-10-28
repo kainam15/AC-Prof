@@ -19,6 +19,8 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 它只用于定位文件，不证明实验独立性。缺少 model/runtime/concurrency 或环境时保持 unknown/null；
 不能用当前主机身份补全历史实验。相邻 `static_meta.json` 按已有明确字段读取，不要求历史 schema
 升级；未知列完整保留，但已废弃且归因不明的能耗/计算字段不自动映射为当前指标。
+每个来源的数值列按表头准备一次，长表指标仍按登记顺序输出。已知缺失标记直接归为 null；
+其他值经过有限数值检查，派生能耗复用同一行已解析的 CPU、GPU 能耗和请求数。
 
 `config_id` 使用记录的 run ID 和配置条件摘要；目录名和 `experiment_batch` 展示标签不参与身份。
 移动或重命名原始目录不会改变配置 ID，来源路径和目录展示名仍保留。

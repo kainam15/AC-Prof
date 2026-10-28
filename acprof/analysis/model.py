@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from acprof.analysis.audit import MISSING
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.artifact_layout import ArtifactLayout
@@ -92,11 +93,11 @@ def _identity(row, meta, run_id, batch):
     ), strict=True))
 
 
-def _values(row, device):
-    values = {name: number(row.get(name)) for name in ANALYSIS_METRICS
-              if ANALYSIS_METRICS[name].kind == "number" and name in row}
-    cpu, gpu, count = (number(row.get(name)) for name in
-                       ("cpu_energy_total_j", "gpu_energy_total_j", "repeat_in_window"))
+def _values(row, device, numeric_fields):
+    values = {name: None if type(value := row[name]) is str and value in MISSING else number(value)
+              for name in numeric_fields if name in row}
+    cpu, gpu, count = (values.get(name) for name in
+                      ("cpu_energy_total_j", "gpu_energy_total_j", "repeat_in_window"))
     energy = None
     if cpu is not None and cpu >= 0:
         if device == "CPU":
@@ -213,9 +214,12 @@ def load_analysis(sources) -> AnalysisModel:
         device_quality = {}
         first_entry = len(entries)
         fields = [name.strip() for name in result_snapshot.fields]
-        if not fields or any(not name for name in fields) or len(fields) != len(set(fields)):
+        field_names = set(fields)
+        if not fields or any(not name for name in fields) or len(fields) != len(field_names):
             raise ValueError(f"missing or duplicate CSV columns: {path}")
         normalize_fields = fields != result_snapshot.fields
+        numeric_fields = tuple(name for name, metric in ANALYSIS_METRICS.items()
+                               if metric.kind == "number" and name in field_names)
         for line, original in enumerate(result_snapshot.rows, 2):
             raw = ({name.strip(): value for name, value in original.items()}
                    if normalize_fields else original)
@@ -246,7 +250,7 @@ def load_analysis(sources) -> AnalysisModel:
             if mode not in device_quality:
                 device_quality[mode] = read_quality(path, device=mode)
             entry = {**identity, "config_id": config_id, "source": str(path), "source_row": line,
-                     "row": raw, "eligible": eligible, "values": _values(row, identity["device"]),
+                     "row": raw, "eligible": eligible, "values": _values(row, identity["device"], numeric_fields),
                      **evidence, **device_quality[mode]}
             groups[config_id].append(entry)
             entries.append(entry)
