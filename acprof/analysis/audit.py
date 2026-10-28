@@ -5,7 +5,7 @@ import csv
 import hashlib
 import json
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
@@ -35,7 +35,8 @@ def number(value):
         return None
 
 
-def missing_reason(field: str, row: dict, metadata: dict) -> str:
+def missing_reason(field: str, row: dict, metadata: dict, *, environment_class: str) -> str:
+    """Use the audit's verified recorded identity; keep row-specific evidence separate."""
     if field not in row:
         return "not_recorded"
     metric = METRICS[field]
@@ -52,7 +53,7 @@ def missing_reason(field: str, row: dict, metadata: dict) -> str:
             return str(row.get("gpu_memory_status", "unavailable"))
         if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
             return "not_requested"
-    if recorded_identity(metadata)["environment_class"] == "wsl2" and native_only_metric(metric):
+    if environment_class == "wsl2" and native_only_metric(metric):
         return "unavailable_on_wsl2"
     if metric.applicability in {"gpu", "gpu_idle_debug"} and row.get("gpu_mode") == "off":
         return "not_applicable"
@@ -264,7 +265,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
                 issue("plan_coverage", "结果行与原实验计划不完全一致")
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             issue("invalid_run_state", error)
-    missing: dict[str, Counter[str]] = {}
+    missing: dict[str, Counter[str]] = defaultdict(Counter)
     for index, row in enumerate(rows, 2):
         status = row.get("status", "").strip().lower()
         warmup = number(row["warmup"]) == 1
@@ -312,7 +313,8 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             if raw not in MISSING and number(raw) is None:
                 issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
             elif formal and raw in MISSING:
-                missing.setdefault(field, Counter())[missing_reason(field, row, metadata)] += 1
+                reason = missing_reason(field, row, metadata, environment_class=report["environment_class"])
+                missing[field][reason] += 1
         if formal:
             for field, expected_value in _formula_checks(row).items():
                 actual_value = number(row.get(field))

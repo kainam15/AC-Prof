@@ -140,6 +140,9 @@ acprof audit --metrics
 或 `unavailable_unspecified`；后者表示现有产物无法确定原因。数值 `0` 保留为有效观测，
 不会被算作缺失，合法的负 effective 能耗也不会自动被判错。审计不会修改结果、计划或元数据。
 
+同一次审计复用从该来源元数据校验得到的平台身份，缺失原因仍按每行的 Runtime、设备及
+profiler 证据判断。每次调用重新读取来源元数据，历史 unknown 和不一致的身份仍保持 unknown。
+
 `--require-complete` 要求正式完成状态及完整计划；`--require-ok` 要求所有非 warmup 行为 `ok`
 且至少有一行。默认允许审计历史或失败实验，但结构/一致性错误仍以退出码 1 表示。
 
