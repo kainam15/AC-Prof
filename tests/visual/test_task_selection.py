@@ -10,6 +10,8 @@ from acprof.experiment import RunConfig
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.task_choices import TaskChoices
 
+pytestmark = pytest.mark.visual
+
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 def test_task_selection(snap_compare, tmp_path, language):

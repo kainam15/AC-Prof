@@ -18,8 +18,11 @@ def _normalize_svg(svg: str) -> str:
 
 
 @pytest.fixture
-def snap_compare(request: pytest.FixtureRequest, tmp_path: Path):
+def snap_compare(request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Compare headless Textual output against reviewed, checked-in SVG evidence."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
     def compare(app: App, *, terminal_size: tuple[int, int], run_before=None) -> bool:
         async def capture(pilot) -> None:
             if run_before is not None:
