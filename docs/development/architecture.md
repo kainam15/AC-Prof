@@ -5,7 +5,8 @@ AC-Prof 的命令入口负责参数和调度，业务模块按输入规划、运
 
 `acprof/platform.py` 是环境识别和平台能力策略的唯一入口，保持标准库依赖；
 `capabilities.py` 分开维护平台 support 与采集 evidence。`host/platform_metadata.py` 只在准备阶段
-采集版本信息，analysis/plotting 只读取保存的环境身份，不探测当前主机来解释历史结果。
+采集版本信息和发行版展示标签，`host/machine_metadata.py` 负责主机、GPU 与 Docker 探测；
+展示标签不替代测量环境分类。analysis/plotting 只读取保存的环境身份，不探测当前主机来解释历史结果。
 WSL2 PARTIAL 与 Native Linux FULL 的边界见 [WSL2](../platforms/wsl2.md)。
 Docker / Process 执行、能力探测、资源限制及恢复契约见 [Linux Runtime](../platforms/linux-runtimes.md)。
 

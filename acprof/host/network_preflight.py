@@ -312,8 +312,8 @@ def preflight(task, profile, project_dir, model_plan: dict, *, root=None,
     report["max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MAX_DOWNLOAD"))
     report["model_max_download_bytes"] = parse_bytes(os.environ.get("ACPROF_MODEL_MAX_DOWNLOAD"))
     report["model_store_path"] = str(Path(root).expanduser().resolve() if root is not None else store_root())
-    from acprof.host.static_metadata import _docker_storage_metadata
-    report["docker_storage"] = {} if runtime.get("kind") == "process" else _docker_storage_metadata()
+    from acprof.host.machine_metadata import docker_storage_metadata
+    report["docker_storage"] = {} if runtime.get("kind") == "process" else docker_storage_metadata()
     report["model"] = {"model_id": task.model_id, "revision": task.model_revision,
         "source": model_plan.get("source", "huggingface"),
         "total_bytes": model_plan.get("total_selected_bytes", model_plan["selected_bytes"]),

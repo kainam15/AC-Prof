@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host import static_metadata
+from acprof.host import machine_metadata
 
 
 @pytest.mark.parametrize(
@@ -17,13 +17,13 @@ def test_nvidia_smi_name_fallback_respects_gpu_index(device_index, expected):
     unavailable_nvml = SimpleNamespace(nvmlInit=lambda: (_ for _ in ()).throw(RuntimeError("unavailable")))
     with (
         patch.dict("sys.modules", {"pynvml": unavailable_nvml}),
-        patch("acprof.host.static_metadata.shutil.which", return_value="/usr/bin/nvidia-smi"),
+        patch("acprof.host.machine_metadata.shutil.which", return_value="/usr/bin/nvidia-smi"),
         patch(
-            "acprof.host.static_metadata.host_command.run_command",
+            "acprof.host.machine_metadata.host_command.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="GPU Zero\nGPU One\n"),
         ),
     ):
-        assert static_metadata._get_gpu_name(device_index) == expected
+        assert machine_metadata.get_gpu_name(device_index) == expected
 
 
 @pytest.mark.parametrize(
@@ -34,10 +34,10 @@ def test_nvidia_smi_memory_fallback_respects_gpu_index(device_index, expected):
     unavailable_nvml = SimpleNamespace(nvmlInit=lambda: (_ for _ in ()).throw(RuntimeError("unavailable")))
     with (
         patch.dict("sys.modules", {"pynvml": unavailable_nvml}),
-        patch("acprof.host.static_metadata.shutil.which", return_value="/usr/bin/nvidia-smi"),
+        patch("acprof.host.machine_metadata.shutil.which", return_value="/usr/bin/nvidia-smi"),
         patch(
-            "acprof.host.static_metadata.host_command.run_command",
+            "acprof.host.machine_metadata.host_command.run_command",
             return_value=SimpleNamespace(returncode=0, stdout="8192\n16384\n"),
         ),
     ):
-        assert static_metadata._get_gpu_mem_total_bytes(device_index) == expected
+        assert machine_metadata.get_gpu_mem_total_bytes(device_index) == expected

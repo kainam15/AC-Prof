@@ -140,6 +140,7 @@ module = [
     "acprof.host.measurement.metrics",
     "acprof.host.measurement.error_rows",
     "acprof.host.cases",
+    "acprof.host.machine_metadata",
     "acprof.host.command",
     "acprof.host.images.identity",
     "acprof.monitors.interfaces",

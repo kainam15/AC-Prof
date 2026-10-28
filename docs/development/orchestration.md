@@ -31,7 +31,8 @@
 | `matrix_plan` | 资源 case 与 input scale 的独立确定性排序、冻结计划、hash 与恢复校验，不采样硬件 |
 | `cases` | `MatrixRequest`、单 case 四类冻结配置和 `MatrixProgress`；不持有运行时状态或执行采集 |
 | `model_schema` | 从 catalog 读取任务 IO 模板与推理精度，返回独立副本供元数据补充 |
-| `static_metadata` | 主机、镜像、模型和 profiler 计划的静态元数据 |
+| `machine_metadata` | 准备期 GPU、内存、swap、Docker storage/image 与 CPU policy 探测；保留 unavailable/unknown 状态 |
+| `static_metadata` | `StaticMeta` 组装、enrich 与写出；不直接拥有主机或 Docker 探测实现 |
 | `measurement.capture` | tcpdump 前置检查及 capture/parser 命令构造 |
 | `orchestrator` | case/matrix 调度、idle 稳定性、失败与超时处理、OOM pruning 和 CSV 合并 |
 

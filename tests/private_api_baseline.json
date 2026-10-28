@@ -72,11 +72,6 @@
       "symbol": "_prepare_repository_plan"
     },
     {
-      "source": "acprof.host.network_preflight",
-      "target": "acprof.host.static_metadata",
-      "symbol": "_docker_storage_metadata"
-    },
-    {
       "source": "acprof.host.orchestrator",
       "target": "acprof.host.measurement.capture",
       "symbol": "_packet_latency_error"
