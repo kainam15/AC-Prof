@@ -35,12 +35,19 @@ def _save_unique_report(directory: Path, report: dict) -> tuple[Path, bool]:
             if identical:
                 return candidate, True
         timestamp = datetime.now()
-        destination = directory / f"window-statistics-{timestamp:%Y%m%d-%H%M%S-%f}.json"
-        while destination.exists():
-            timestamp += timedelta(microseconds=1)
+        while True:
             destination = directory / f"window-statistics-{timestamp:%Y%m%d-%H%M%S-%f}.json"
-        atomic_write_json(destination, report)
-        return destination, False
+            if not (destination.exists() or destination.is_symlink()):
+                try:
+                    atomic_write_json(destination, report, overwrite=False)
+                except FileExistsError:
+                    # Writers outside this directory lock can claim the name
+                    # after our check. Retry only a real destination collision.
+                    if not (destination.exists() or destination.is_symlink()):
+                        raise
+                else:
+                    return destination, False
+            timestamp += timedelta(microseconds=1)
     finally:
         os.close(descriptor)
 
@@ -61,7 +68,7 @@ def main(argv=None):
     output.add_argument("--output-dir", type=Path, help="按本地日期时间保存 JSON；内容相同时复用已有报告")
     args = parser.parse_args(argv)
     path = args.source / "result_layers.json" if args.source.is_dir() else args.source
-    if args.output and (args.output.resolve() == path.resolve() or args.output.exists()):
+    if args.output and (args.output.exists() or args.output.is_symlink() or args.output.resolve() == path.resolve()):
         parser.error("统计输出必须为新的文件，不能覆盖输入或已有产物")
     try:
         snapshot = read_result_csv_snapshot(path)
@@ -81,7 +88,7 @@ def main(argv=None):
             saved, reused = _save_unique_report(args.output_dir, report)
             print("ACPROF_STATS " + json.dumps({"report_path": str(saved), "reused": reused}, ensure_ascii=False))
         elif args.output:
-            atomic_write_json(args.output, report)
+            atomic_write_json(args.output, report, overwrite=False)
             print(f"已保存 {len(report['groups'])} 项窗口统计：{args.output}")
         else:
             print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))

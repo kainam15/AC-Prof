@@ -8,6 +8,12 @@ acprof stats results/<model>/ --metric latency_app_s --metric latency_s \
   --confidence 0.95 --resamples 5000 --seed 0 --output internal-testing/window-statistics.json
 ```
 
+`--output` 只接受新文件，拒绝覆盖已有文件、目录和符号链接（包括悬空链接）；计算期间
+目标被其他写入方创建时，发布也会失败并保留该目标。`--output-dir` 按日期时间命名，
+完整内容相同则复用已有报告，重名时选取下一个空闲名称；并发创建也不会覆盖原文件。
+写入、序列化或发布失败返回 `统计保存失败` 和非零退出码，不留下未完成的 JSON。
+省略两个输出选项时向 stdout 输出 JSON。
+
 每个资源配置和尺度分别汇总正式 `ok` 窗口，窗口均值等权；`repeat_in_window=1000` 的一行
 仍只贡献一个统计单位。报告包含有效/缺失窗口数、均值、样本标准差和 percentile bootstrap 区间。
 少于 3 个有效窗口时保留均值，区间为 `null`；少量窗口的区间本身也不稳定。
