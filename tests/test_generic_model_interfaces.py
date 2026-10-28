@@ -55,6 +55,7 @@ def test_native_univariate_forecast_list_preserves_batch_and_horizon():
 @pytest.mark.parametrize('scales', ['4', None])
 def test_embedding_parameters_survive_public_manual_and_auto_input_planning(scales):
     from acprof.host import input_plan
+    from acprof.host.input_plan import families
     task = TaskInfo(model_id="unseen/encoder", pipeline_tag="feature-extraction", task_family="nlp",
                     runtime_backend="sentence_transformers", library_name="sentence-transformers",
                     model_revision="a" * 40, detection_method="hub_api")
@@ -66,10 +67,10 @@ def test_embedding_parameters_survive_public_manual_and_auto_input_planning(scal
     with tempfile.TemporaryDirectory() as directory:
         spec = Path(directory, "embedding.json")
         spec.write_text(json.dumps({"schema_version": 1, "task": task.pipeline_tag, "params": params}))
-        with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_service_session",
-        ), patch.object(input_plan, "_post_probe_payload", side_effect=probe), patch.object(
-            input_plan, "_request_nlp_scale_meta", return_value={"max_effective_input_scale": 16, "reason": "test tokenizer"},
+        with patch.object(families, "start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
+            families, "stop_service_session",
+        ), patch.object(families, "post_probe_payload", side_effect=probe), patch.object(
+            families, "request_nlp_scale_meta", return_value={"max_effective_input_scale": 16, "reason": "test tokenizer"},
         ):
             planned = input_plan.plan_input_scales(task_info=task, image_info=None, cpu_list=[2], mem_list=[4],
                 gpu_list=["off"], batch_size=1, output_dir=directory, input_scales=scales, workload_spec_path=str(spec))

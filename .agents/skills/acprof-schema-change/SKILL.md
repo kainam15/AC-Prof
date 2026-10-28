@@ -37,7 +37,7 @@ description: 用于 AC-Prof 新增或修改采集指标、CSV 字段、静态元
 | [host/client.py](../../../acprof/host/client.py)、[client_metrics.py](../../../acprof/host/measurement/metrics.py) | 请求窗口、指标计算、聚合和主实验行的生成 |
 | [monitors/](../../../acprof/monitors) | 原始采样来源、时间边界、单位与失败处理 |
 | [packet/](../../../acprof/packet) | PCAP 解析、请求匹配和结果合并 |
-| [static_metadata.py](../../../acprof/host/static_metadata.py)、[input_plan.py](../../../acprof/host/input_plan.py)、[orchestrator.py](../../../acprof/host/orchestrator.py) | 静态元数据、输入计划、执行编排和结果输出 |
+| [static_metadata.py](../../../acprof/host/static_metadata.py)、[input_plan/](../../../acprof/host/input_plan)、[orchestrator.py](../../../acprof/host/orchestrator.py) | 静态元数据、输入计划、执行编排和结果输出 |
 | [compute_profile_plan.py](../../../acprof/host/profiling/compute_plan.py)、[execution_profile_plan.py](../../../acprof/host/profiling/execution_plan.py) | profiler 计划、状态、复用和来源 |
 | [host/posthoc/](../../../acprof/host/posthoc)、[cli/backfill_compute.py](../../../acprof/cli/backfill_compute.py) | 补采、回填、历史兼容和备份；职责见[结果分析与补采](../../../docs/development/consumers.md#结果分析与补采) |
 | [plotting/](../../../acprof/plotting)、[analysis/](../../../acprof/analysis) | CSV 读取、派生值、过滤条件、绘图和数值分析 |

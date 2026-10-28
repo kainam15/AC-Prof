@@ -62,11 +62,6 @@
       "symbol": "_platform_fingerprint"
     },
     {
-      "source": "acprof.host.model_inspection",
-      "target": "acprof.host.input_plan",
-      "symbol": "_get_task_generator"
-    },
-    {
       "source": "acprof.host.model_store",
       "target": "acprof.container.download_model",
       "symbol": "_prepare_repository_plan"

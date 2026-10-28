@@ -73,7 +73,8 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
                            memory_gb: int = 4, gpu: bool = False, timeout_seconds: float = 300,
                            reuse_existing: bool = True) -> RuntimeValidationReport:
     from acprof.host.images.runtime import prepare_image
-    from acprof.host.input_plan import PlannedInputScales, _get_task_generator, resolve_input_scales
+    from acprof.host.input_plan import PlannedInputScales, resolve_input_scales
+    from acprof.host.input_plan.materialize import get_task_generator
     from acprof.host.preflight import require_collection_host, require_native_docker
     from acprof.host.run_state import MeasurementLock, ResultDirectoryLock
     from acprof.host.runtime_validation import validate_runtime
@@ -95,7 +96,7 @@ def validate_model_runtime(task_info, output_dir: str | Path, *, cpus: int = 2,
         except (RuntimeError, ValueError, OSError) as exc:
             raise ProbePreparationError(str(exc)) from exc
         write_model_resolution(task_info, root)
-        generator = _get_task_generator(task_info, 1)
+        generator = get_task_generator(task_info, 1)
         scales = generator.default_input_scales()
         if not scales and not task_info.model_resolution.get("contract"):
             scales = resolve_input_scales(task_info.task_family)

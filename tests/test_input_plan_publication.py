@@ -9,6 +9,7 @@ import pytest
 from acprof import artifacts
 from acprof.host import input_plan
 from acprof.host.detect import TaskInfo
+from acprof.host.input_plan import materialize
 
 # Written independently of the serializer under test, including escaped Unicode,
 # a literal newline in a value, field order, native types, and the final newline.
@@ -79,7 +80,7 @@ def _entries():
 
 
 def _write_fixture(path, task_info, entries=None):
-    return input_plan._write_scale_plan_file(
+    return materialize.write_scale_plan_file(
         str(path), task_info, _entries() if entries is None else entries,
         workload={"name": "café"}, model_constraints={"max": 8},
     )
@@ -96,7 +97,7 @@ def test_publication_preserves_exact_historical_bytes_and_digest(
     existing_plan, task_info, monkeypatch, newline,
 ):
     path, mode = existing_plan
-    monkeypatch.setattr(input_plan.os, "linesep", newline)
+    monkeypatch.setattr(materialize.os, "linesep", newline)
 
     digest = _write_fixture(path, task_info)
 
@@ -115,8 +116,8 @@ def test_publication_size_limit_includes_platform_newlines(
     path, mode = existing_plan
     expected = EXPECTED_LF.replace(b"\n", newline.encode("ascii"))
     limit = len(expected) + limit_delta
-    monkeypatch.setattr(input_plan.os, "linesep", newline)
-    monkeypatch.setattr(input_plan, "MAX_JSON_ARTIFACT_BYTES", limit)
+    monkeypatch.setattr(materialize.os, "linesep", newline)
+    monkeypatch.setattr(materialize, "MAX_JSON_ARTIFACT_BYTES", limit)
     monkeypatch.setattr(artifacts, "MAX_JSON_ARTIFACT_BYTES", limit)
 
     if limit_delta:
@@ -193,7 +194,7 @@ def test_directory_fsync_failure_reports_error_after_complete_publication(
             raise OSError("fixture directory fsync failure")
         return real_fsync(fd)
 
-    monkeypatch.setattr(input_plan.os, "linesep", "\n")
+    monkeypatch.setattr(materialize.os, "linesep", "\n")
     monkeypatch.setattr(artifacts.os, "fsync", fsync)
 
     with pytest.raises(OSError, match="fixture directory fsync failure"):
@@ -204,7 +205,7 @@ def test_directory_fsync_failure_reports_error_after_complete_publication(
 
 
 def _stub_generator(monkeypatch, generate):
-    monkeypatch.setattr(input_plan, "_get_task_generator", lambda *args, **kwargs: SimpleNamespace(
+    monkeypatch.setattr(materialize, "get_task_generator", lambda *args, **kwargs: SimpleNamespace(
         generate=generate,
         effective_input_scale=lambda scale, payload: scale,
         scale_label=lambda scale: "small",

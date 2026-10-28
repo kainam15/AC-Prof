@@ -9,6 +9,7 @@ import pytest
 
 from acprof.host import detect, input_plan, model_schema
 from acprof.host.images import runtime as runtime_images
+from acprof.host.input_plan import families, planner
 from acprof.host.task_support import TaskSupportError, require_task_support
 
 
@@ -18,9 +19,9 @@ def info(task, family="nlp", backend="transformers_pipeline"):
 
 
 def test_chronos_default_scales_respect_loaded_model_context():
-    with tempfile.TemporaryDirectory() as tmp, patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-        input_plan, "stop_service_session"
-    ), patch.object(input_plan, "_request_scale_meta", return_value={
+    with tempfile.TemporaryDirectory() as tmp, patch.object(families, "start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
+        families, "stop_service_session"
+    ), patch.object(families, "request_scale_meta", return_value={
         "input_scale_type": "context_length", "max_effective_input_scale": 512,
         "reason": "model context length",
     }) as metadata:
@@ -66,7 +67,7 @@ def test_table_planning_uses_rows_instead_of_token_binary_search():
         input_metadata=lambda scale, payload: {"table_rows": len(payload["table"]["name"])},
     )
     with tempfile.TemporaryDirectory() as tmp, patch("acprof.workloads.get_generator", return_value=generator), patch.object(
-        input_plan, "_start_probe_session", side_effect=AssertionError("table rows entered token planner")
+        families, "start_probe_session", side_effect=AssertionError("table rows entered token planner")
     ):
         planned = input_plan.plan_input_scales(
             info("table-question-answering"), runtime_images.ImageInfo("unused"),
@@ -80,8 +81,8 @@ def test_table_planning_uses_rows_instead_of_token_binary_search():
 @pytest.mark.parametrize('task', ['text-to-speech', 'text-to-audio'])
 def test_text_audio_uses_token_planning_and_forwards_manifest(task):
     with tempfile.TemporaryDirectory() as tmp, patch.object(
-        input_plan, "_plan_manual_nlp_scales", return_value="planned tokens"
-    ) as plan, patch.object(input_plan, "_plan_audio_scales", side_effect=AssertionError("text treated as waveform")):
+        planner, "plan_manual_nlp_scales", return_value="planned tokens"
+    ) as plan, patch.object(planner, "plan_audio_scales", side_effect=AssertionError("text treated as waveform")):
         result = input_plan.plan_input_scales(
             info(task, "audio"), runtime_images.ImageInfo("unused"),
             [1], [2], ["off"], 1, tmp, input_scales="8,16", workload_spec_path="text.json",

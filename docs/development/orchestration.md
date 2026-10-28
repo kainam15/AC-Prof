@@ -26,7 +26,7 @@
 | `images.graph` | 从镜像元数据、依赖锁身份与层链解析父子关系、逻辑名称、共享层和按选择集合去重的释放估算；不访问 Docker |
 | `images.dependencies` | 匹配镜像身份与本地锁，核对构建阶段并生成本层依赖增量；不启动容器或扫描包 |
 | `runtime_validation` | 矩阵前的独立 CPU／GPU 完整推理验证及报告，不生成测量行 |
-| `input_plan` | 手动和自动尺度规划、规划用 probe、payload 物化与输入计划写入 |
+| `input_plan/` | `types` / `scales` 定义结果与尺度，`probe` 负责 HTTP 探测，`materialize` 发布输入计划，`families` 实现任务族规划，`planner` 统一分派 |
 | `startup_probe` | 独立 readiness-only 启动探测、Docker OOM 证据与保守连续前缀，不采集性能 |
 | `matrix_plan` | 资源 case 与 input scale 的独立确定性排序、冻结计划、hash 与恢复校验，不采样硬件 |
 | `cases` | `MatrixRequest`、单 case 四类冻结配置和 `MatrixProgress`；不持有运行时状态或执行采集 |

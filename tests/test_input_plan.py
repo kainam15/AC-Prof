@@ -11,6 +11,7 @@ import pytest
 from acprof.host import docker_runtime, input_plan, model_schema
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
+from acprof.host.input_plan import families, materialize, planner, probe
 
 
 class TestInputPlan:
@@ -42,12 +43,12 @@ class TestInputPlan:
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "acprof.host.input_plan._start_probe_session",
+            "acprof.host.input_plan.families.start_probe_session",
             return_value=session,
         ), patch(
-            "acprof.host.input_plan.stop_service_session",
+            "acprof.host.input_plan.families.stop_service_session",
         ), patch(
-            "acprof.host.input_plan._post_probe_payload",
+            "acprof.host.input_plan.families.post_probe_payload",
             return_value={
                 "effective_input_scale": 254.0,
                 "truncated_by_limit": False,
@@ -99,9 +100,9 @@ class TestInputPlan:
         with tempfile.TemporaryDirectory() as tmp, patch(
             "acprof.workloads.get_generator",
             return_value=FakeWorkloadGenerator(),
-        ), patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_service_session"
-        ), patch.object(input_plan, "_request_scale_meta", return_value={
+        ), patch.object(families, "start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
+            families, "stop_service_session"
+        ), patch.object(families, "request_scale_meta", return_value={
             "max_effective_input_scale": 512, "input_scale_type": "context_length",
             "reason": "test model context limit",
         }
@@ -175,8 +176,8 @@ class TestInputPlan:
             "acprof.workloads.get_generator",
             return_value=FakeWorkloadGenerator(),
         ), patch.object(
-            input_plan,
-            "_plan_audio_scales",
+            planner,
+            "plan_audio_scales",
             return_value=expected,
         ) as plan_audio:
             planned = input_plan.plan_input_scales(
@@ -215,11 +216,11 @@ class TestInputPlan:
             cold_start_s=0.0,
         )
         with patch.object(
-            input_plan,
-            "_request_scale_meta",
+            probe,
+            "request_scale_meta",
             return_value=response,
         ):
-            metadata = input_plan._request_audio_scale_meta(session, {})
+            metadata = probe.request_audio_scale_meta(session, {})
 
         assert (metadata["short_form_fixed_padding"])
         assert (metadata["fixed_frontend_num_samples"]) == (480000)
@@ -277,10 +278,10 @@ class TestInputPlan:
             detection_method="unit",
         )
         with tempfile.TemporaryDirectory() as tmp, patch.object(
-            input_plan,
-            "_start_probe_session",
+            families,
+            "start_probe_session",
         ) as start_probe, pytest.raises(ValueError, match="long-form workload"):
-            input_plan._plan_audio_scales(
+            families.plan_audio_scales(
                 task_info=task_info,
                 image_info=runtime_images.ImageInfo(tag="acprof-test:latest"),
                 cpu_list=[1],
@@ -325,7 +326,7 @@ class TestInputPlan:
             "acprof.workloads.get_generator",
             return_value=FakeWorkloadGenerator(),
         ):
-            planned = input_plan._materialize_scale_plan(
+            planned = materialize.materialize_scale_plan(
                 task_info=task_info,
                 scales=[1.0, 2.0],
                 batch_size=1,

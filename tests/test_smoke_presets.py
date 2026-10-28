@@ -13,6 +13,7 @@ from acprof.experiment import RunConfig, RunConfigError, build_run_command
 from acprof.host import input_plan
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
+from acprof.host.input_plan import families, planner as planner_api, probe
 from acprof.run_args import build_parser
 
 
@@ -29,13 +30,13 @@ def test_task_minimum_uses_workload_tokens_seconds_and_image_scale(task, family,
     with tempfile.TemporaryDirectory() as directory:
         info = TaskInfo("example/model", task, family,
             "transformers_pipeline" if family == "nlp" else "transformers_model", "transformers", "fixed", "unit")
-        with patch.object(input_plan, "_start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
-            input_plan, "stop_service_session"
-        ), patch.object(input_plan, "_request_scale_meta", return_value={
+        with patch.object(families, "start_probe_session", return_value=SimpleNamespace(name="probe")), patch.object(
+            families, "stop_service_session"
+        ), patch.object(probe, "request_scale_meta", return_value={
             "input_scale_type": "duration_s", "required_sampling_rate": 16000,
             "source_sampling_rate": 16000, "short_form_fixed_padding": True,
             "max_short_form_duration_s": 30.0, "model_type": "whisper", "reason": "Whisper short-form audio",
-        }), patch.object(input_plan, "_post_probe_payload", side_effect=lambda session, payload, description: {
+        }), patch.object(families, "post_probe_payload", side_effect=lambda session, payload, description: {
             "effective_input_scale": expected, "truncated_by_limit": False, "reason": "valid fixture input", "payload": payload,
         }):
             plan = input_plan.plan_input_scales(info, ImageInfo("unused"), [1], [4], ["off"],
@@ -85,7 +86,7 @@ def test_minimal_plan_freeze_and_resume_keep_source_scales_hash_and_static_metad
 
 def test_text_minimum_reuses_strict_token_planner():
     info = TaskInfo("example/model", "text-classification", "nlp", "transformers_pipeline", "transformers", "fixed", "unit")
-    with tempfile.TemporaryDirectory() as directory, patch.object(input_plan, "_plan_manual_nlp_scales",
+    with tempfile.TemporaryDirectory() as directory, patch.object(planner_api, "plan_manual_nlp_scales",
         return_value=input_plan.PlannedInputScales([64], "manual")) as planner:
         plan = input_plan.plan_input_scales(info, ImageInfo("unused"), [1], [4], ["off"],
             1, directory, input_scale_policy="minimal")
@@ -94,7 +95,7 @@ def test_text_minimum_reuses_strict_token_planner():
 
 def test_explicit_scales_are_never_replaced_by_minimal_policy():
     info = TaskInfo("example/model", "text-classification", "nlp", "transformers_pipeline", "transformers", "fixed", "unit")
-    with tempfile.TemporaryDirectory() as directory, patch.object(input_plan, "_plan_manual_nlp_scales",
+    with tempfile.TemporaryDirectory() as directory, patch.object(planner_api, "plan_manual_nlp_scales",
         side_effect=RuntimeError("manual scale exceeds model limit")) as planner:
         with pytest.raises(RuntimeError, match="manual scale"):
             input_plan.plan_input_scales(info, ImageInfo("unused"), [1], [4], ["off"],
