@@ -118,7 +118,7 @@ def summarize_resource_feasibility(df: pd.DataFrame) -> pd.DataFrame:
         record = dict(zip(group_cols, key, strict=True))
         record["state"] = _classify_feasibility_rows(rows)
         records.append(record)
-    summary = pd.DataFrame.from_records(records)
+    summary = pd.DataFrame.from_records(records, columns=[*group_cols, "state"])
     if not summary.empty:
         summary["gpu_on"] = summary["gpu_mode"].map(is_gpu_on)
     return summary
