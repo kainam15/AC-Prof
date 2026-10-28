@@ -189,7 +189,9 @@ setup/call/teardown；子进程测试显式传递该测试身份。生产入口�
 报告的 `shard` 记录编号、总片数、完整发现数、选中数和排序后 test ID 列表的 SHA256。
 `host-summary` job 自动下载两个 Python 版本的全部分片到各自目录；
 `scripts/aggregate_test_reports.py` 确认同一 Python 版本分片齐全且测试集摘要相同，所有 test ID 无重复，
-总执行数等于完整发现数；单片通过不代表主机回归完成。
+总执行数等于完整发现数；单片通过不代表主机回归完成。每个版本另输出 `shard_durations`，
+按分片记录 `wall_s` 与 `tests_s`，用于评估实际负载是否均衡。默认仍使用确定性的排序轮转；
+只有持续显著的失衡证据才引入耗时基线，不为分片增加远端状态依赖。
 
 ### Host coverage baseline
 
@@ -200,7 +202,9 @@ CI 仅在 Python 3.12 的八个 host shard 使用 branch coverage；Python 3.13 
 发布 `coverage-baseline-3.12` artifact。缺分片不能生成完整 baseline。
 
 仍不设全仓百分比 gate，也不排除错误与清理路径来提高数字。关键模块采用保守的逐文件 branch 覆盖门槛：result_csv 65%、result_layers 70%、matrix_plan 60%、run_state 65%、energy_cpu 55%、result_cleanup 75%，以及 host/client、host/window_execution、host/client_metrics 各 65%。原始下限源于 2026-10-18 的定向 host 测试基线；窗口生命周期和结果组装移出 client 后，原 65% 约束随职责分别检查，避免重构造成覆盖盲区。`scripts/check_critical_coverage.py` 对合并后的 coverage JSON 执行检查；缺失文件、无效计数或不足下限均会使 `host-summary` 失败。上传原始 coverage artifact 先于门禁执行，失败时仍保留报告用于排查。门槛不等于 Docker/硬件路径覆盖率。
-`pyproject.toml` 固定 `source=["acprof"]`、branch 和 relative paths；未运行的模块仍进入报告。
+`pyproject.toml` 固定 `source=["acprof"]`、branch、relative paths 和 `patch="subprocess"`；
+未运行的模块仍进入报告。子进程使用独立 parallel data，经同一 `coverage combine` 汇总；
+`tests/test_coverage_subprocess.py` 以真实父子进程验证配置、采集、合并和报告链路。
 默认本地产物位于已忽略的 `internal-testing/coverage/`，CI 用 `COVERAGE_FILE` 指向独立 evidence 目录。
 
 ```bash
@@ -220,8 +224,8 @@ uv run python -m coverage html
 ```
 
 优先查看 schema/merge、matrix planning、run recovery、energy math、error/cleanup 的未覆盖分支。
-该 baseline 只度量 host runner 进程；未启用对子进程的自动注入，不能代表子进程、Docker、
-GPU、RAPL 或 perf 的实际路径。测试中的 mock 覆盖也不等于 Native validation。
+该 baseline 覆盖 host runner 及 coverage 能正常收尾的 Python 子进程；异常退出、原生容器、
+GPU、RAPL 或 perf 的实际路径仍不能由此推断。测试中的 mock 覆盖也不等于 Native validation。
 设计复用 [Coverage.py 官方合并流程](https://github.com/coveragepy/coveragepy/blob/main/coverage/data.py)
 （Apache-2.0）与统一 pytest/evidence 插件；锁定版本、仅安装开发依赖，不进入采集环境。
 hidden files 行为见 [upload-artifact #602](https://github.com/actions/upload-artifact/issues/602)。

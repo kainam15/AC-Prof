@@ -148,7 +148,8 @@ git diff --check
 wheel CI 从 `uv.lock` 导出主机哈希约束，在空环境安装依赖并用 `--no-deps` 安装制品；
 另建环境直接安装 wheel，让安装器按公开依赖范围解析，再验证 `uv pip check`、隔离 import、
 CLI help 和 `test_hf_auto_download.py`。测试工具从 `runtime-test` 组导出，不约束这次公开依赖解析。
-这些工具只在编辑、提交和 CI 中执行，不进入正式测量窗口。
+这些工具只在编辑、提交和 CI 中执行，不进入正式测量窗口。coverage 子进程配置与合并链路
+由 `tests/test_coverage_subprocess.py` 独立验证，不在普通 pytest 或正式采集入口启用插桩。
 
 离线可视化的定向入口为 `test_metric_registry.py`、`test_analysis_model.py`、`test_report.py`；检查旧 CSV、
 分组隔离、能量范围、缺失值、冷启动去重、转义及公共 report 入口。浏览器交互由 CI 的独立

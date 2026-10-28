@@ -28,6 +28,20 @@ class TestReportAggregation:
         assert (report["successful"]), report["errors"]
         assert (report["versions"]["3.12"]["counts"]["passed"]) == (4)
 
+    def test_shard_wall_and_test_durations_are_preserved(self):
+        reports = self.reports()
+        for index, shard in enumerate(reports):
+            shard["duration_s"] = 10 + index * 5
+            for test in shard["tests"]:
+                test["duration_s"] = index + 1
+
+        report = self.summarize(reports)
+
+        assert report["versions"]["3.12"]["shard_durations"] == [
+            {"index": 0, "wall_s": 10, "tests_s": 2},
+            {"index": 1, "wall_s": 15, "tests_s": 4},
+        ]
+
     @pytest.mark.parametrize('field', ['source_sha256', 'tests_sha256', 'locks_sha256', 'packages', 'missing'])
     def test_mixed_or_missing_evidence_identity_is_rejected(self, field):
         reports = self.reports()

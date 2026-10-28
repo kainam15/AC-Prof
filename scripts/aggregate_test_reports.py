@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from collections import Counter, defaultdict
@@ -15,6 +16,10 @@ from acprof.artifacts import atomic_write_json  # noqa: E402 -- 脚本先设置�
 
 OUTCOMES = {"passed": "passed", "failed": "failed", "error": "errors", "skipped": "skipped",
             "expected_failure": "expected_failures", "unexpected_success": "unexpected_successes"}
+
+
+def _duration(value):
+    return value if type(value) in {int, float} and math.isfinite(value) and value >= 0 else None
 
 
 def aggregate_reports(reports, *, python_versions, shard_count):
@@ -102,10 +107,23 @@ def aggregate_reports(reports, *, python_versions, shard_count):
         for index, shard in shards.items():
             if sorted(test.get("id", "") for test in shard.get("tests", [])) != ids[index::shard_count]:
                 errors.append(f"Python {version}: shard {index} has incorrect test membership")
+        shard_durations = []
+        for index, shard in sorted(shards.items()):
+            test_durations = [
+                duration
+                for test in shard.get("tests", [])
+                if (duration := _duration(test.get("duration_s"))) is not None
+            ]
+            shard_durations.append({
+                "index": index,
+                "wall_s": _duration(shard.get("duration_s")),
+                "tests_s": sum(test_durations),
+            })
         versions[version] = {"shards": sorted(shards), "tests": len(ids), "suite_sha256": digest,
                              "provenance": identity[0] if identity else None,
                              "packages": identity[1] if identity else None,
-                             "counts": {name: totals[name] for name in OUTCOMES.values()}}
+                             "counts": {name: totals[name] for name in OUTCOMES.values()},
+                             "shard_durations": shard_durations}
     identities = [value["provenance"] for value in versions.values() if value["provenance"]]
     if identities and any(identity != identities[0] for identity in identities):
         errors.append("source or lock identity differs across Python versions")
