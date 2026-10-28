@@ -118,7 +118,7 @@ class TestTuiPresentation:
             with patch.object(app.results, 'execute_report_read'):
                 app.results.open_report(str(self.directory / "report.json"))
                 assert (app.is_busy())
-                assert (str(app.query_one("#report-status", Static).content).startswith("…"))
+                assert (str(app.query_one("#report-status", Static).content)) == ("正在读取统计报告…")
                 app.results.show_report(None, "broken JSON", app.results.report_request)
                 await pilot.pause()
                 assert not (app.is_busy())
