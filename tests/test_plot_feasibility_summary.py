@@ -15,7 +15,7 @@ DIMENSIONS = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
     ([("ok", ""), ("error", "")], "mixed"),
     ([("ok", "timeout")], "mixed"),
     ([("warn", "")], "warn"),
-    ([("warn", "timeout")], "timeout"),
+    ([("warn", "timeout")], "warn"),
     ([(None, pd.NA), (np.nan, None)], "unknown"),
     ([("unexpected status", "")], "unknown"),
     ([("error", "")], "error"),

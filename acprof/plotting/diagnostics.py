@@ -93,8 +93,14 @@ def _feasibility_error_state(error: str) -> str:
 
 def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str]) -> str:
     """Combine independently classified records without synthesizing evidence."""
-    status_values = set(statuses)
-    nonempty_errors = [error for error in errors if error]
+    status_values = set()
+    nonempty_errors = []
+    for status, error in zip(statuses, errors, strict=True):
+        status_values.add(status)
+        # The CSV error column also holds monitor and metric warnings. Their
+        # text is not evidence that the workload failed, even if it names OOM.
+        if error and status != "warn":
+            nonempty_errors.append(error)
     has_ok = "ok" in status_values
     has_warn = "warn" in status_values
     has_error = "error" in status_values or bool(nonempty_errors)
