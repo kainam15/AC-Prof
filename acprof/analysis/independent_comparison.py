@@ -12,13 +12,13 @@ from typing import Any
 from acprof.analysis.audit import number
 from acprof.analysis.comparison import compare_snapshots, load_comparison_snapshot
 from acprof.analysis.conditions import ALLOWED_RESOURCE_DIMENSIONS
-from acprof.analysis.uncertainty import summarize_windows
+from acprof.analysis.uncertainty import validate_window_options
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import file_sha256, read_json_object
 from acprof.hardware_conditions import conditions_path
 from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
-from acprof.result_csv import measurement_key, read_result_csv, verify_result_source
+from acprof.result_csv import measurement_key, read_result_csv_snapshot, verify_result_source
 
 
 def _verify_source(artifact: Path, expected: str | None) -> None:
@@ -65,7 +65,7 @@ def _aggregate_evidence(records):
 def compare_experiments(left, right, *, metrics, purpose="same-hardware",
                         confidence=0.95, resamples=5000, seed=0):
     # Reuse the metric/window validation contract; no profiler or lifecycle reuse values.
-    summarize_windows([], metrics, confidence=confidence, resamples=resamples, seed=seed)
+    validate_window_options(metrics, confidence=confidence, resamples=resamples)
     if not left or not right:
         raise ValueError("both comparison groups require at least one experiment")
     sources = {"left": list(left), "right": list(right)}
@@ -84,12 +84,13 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             source = Path(path)
             layout = ArtifactLayout.discover(source) if source.is_dir() else ArtifactLayout.from_csv(source)
             result_path = layout.result_csv if source.is_dir() else source.absolute()
+            result_snapshot = read_result_csv_snapshot(result_path)
+            fingerprints[result_path] = result_snapshot.sha256
             # Capture identity before reading any state used to select runs.
-            for name in ("result_layers.json", "run_state.json", "input_scale_plan.json",
+            for name in ("run_state.json", "input_scale_plan.json",
                          "static_meta.json", "hardware_conditions.json", "quality_checks.json",
                          "runtime_validation.json", "model_resolution.json", "runtime_failures.json"):
-                artifact = (result_path if name == "result_layers.json" else
-                            conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name))
+                artifact = conditions_path(layout) if name == "hardware_conditions.json" else layout.path(name)
                 fingerprints[artifact] = file_sha256(artifact) if artifact.exists() else None
             state = read_json_object(layout.path("run_state.json"), label="run state")
             run_id = state.get("run_id")
@@ -98,10 +99,10 @@ def compare_experiments(left, right, *, metrics, purpose="same-hardware",
             if run_id in run_ids:
                 raise ValueError(f"duplicate independent run: {run_id}")
             run_ids.add(run_id)
-            _, rows = read_result_csv(result_path)
-            summarize_windows(rows, metrics, confidence=confidence, resamples=1)
+            rows = result_snapshot.rows
             complete = state.get("status") == "complete"
-            current_snapshot = load_comparison_snapshot(path)
+            current_snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
+                                                        verify_result_snapshot=False)
             if reference_snapshot is None:
                 reference_snapshot = current_snapshot
             if group_snapshot is None:

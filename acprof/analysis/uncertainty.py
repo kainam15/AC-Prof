@@ -12,8 +12,9 @@ from acprof.metric_registry import METRICS
 from acprof.result_csv import measurement_key
 
 
-def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
-                      include_intervals=True, cancelled=lambda: False, precision_target=None):
+def validate_window_options(metrics, *, confidence=0.95, resamples=5000, block_size=1,
+                            precision_target=None):
+    """Validate shared metric and statistical options without computing a report."""
     if not 0 < confidence < 1 or not isinstance(resamples, int) or resamples < 1:
         raise ValueError("confidence 必须在 0 与 1 之间，resamples 必须为正整数")
     if not isinstance(block_size, int) or block_size < 1:
@@ -26,6 +27,13 @@ def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0,
         metric = METRICS.get(name)
         if metric is None or metric.kind != "number" or metric.window not in {"request_window", "matched_control"}:
             raise ValueError(f"{name} 不属于独立测量窗口；不对复用的 profiler/生命周期值计算区间")
+    return precision_target
+
+
+def summarize_windows(rows, metrics, *, confidence=0.95, resamples=5000, seed=0, block_size=1,
+                      include_intervals=True, cancelled=lambda: False, precision_target=None):
+    precision_target = validate_window_options(metrics, confidence=confidence, resamples=resamples,
+                                              block_size=block_size, precision_target=precision_target)
     cases, keys = defaultdict(list), set()
     excluded: defaultdict[tuple[str, ...], int] = defaultdict(int)
     for row in rows:
