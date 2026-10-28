@@ -161,16 +161,20 @@ def test_auto_selection_keeps_user_explicit_interface_and_checks_compatibility()
 
 
 def test_supplemented_configuration_automatically_selects_the_resolved_path(monkeypatch):
+    from test_collection_workflow import answer_with_parameter_defaults
+
     unknown = resolve(model())
     resolved = resolve(model(tag="fill-mask", config={"architectures": ["BertForMaskedLM"]}))
     workflow = PreparationWorkflow(interactive=True)
     monkeypatch.setattr("acprof.host.detect.detect_task", lambda **kwargs: unknown)
     monkeypatch.setattr("acprof.host.task_support.require_task_support", lambda *args, **kwargs: None)
     monkeypatch.setattr(workflow, "_apply", lambda *args: resolved)
-    monkeypatch.setattr(workflow, "ask", Mock(side_effect=[
-        {"action": "answer", "answers": {"model_spec": "model.json"}}, {"action": "confirm"}]))
+    ask = Mock(side_effect=answer_with_parameter_defaults(
+        {"action": "answer", "answers": {"model_spec": "model.json"}}, {"action": "confirm"}))
+    monkeypatch.setattr(workflow, "ask", ask)
     args = options(model=unknown.model_id, revision="", batch_size=1, gpus="off")
     result = workflow.resolve(args)
+    assert ask.call_count == 3
     assert len(result.selected_tasks) == 1
     assert result.selected_tasks[0]["execution_path"]["operation"] == "__call__"
 
