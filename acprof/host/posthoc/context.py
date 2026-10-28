@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import os
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
@@ -12,6 +12,7 @@ from typing import (
 )
 
 from acprof.artifacts import read_json_object
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.collection_history import COLLECTION_HISTORY_NAME, normalize_collection_history
 from acprof.host.detect import TaskInfo
@@ -31,6 +32,7 @@ from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_
 from acprof.installation import resource_root
 from acprof.metric_registry import tool_fields
 from acprof.model_repository import MODEL_SOURCES
+from acprof.result_csv import ResultCsvSnapshot
 
 PROJECT_DIR = resource_root()
 
@@ -168,46 +170,45 @@ def _integer(value: Any, field: str) -> int:
 
 def _load_json_object(
     path: Path, label: str, *, expected_sha256: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
+    check_cancelled(cancelled)
     if not path.is_file():
         raise PosthocError(f"missing {label}: {path}")
     try:
-        return read_json_object(path, label=label, expected_sha256=expected_sha256)
+        payload = read_json_object(path, label=label, expected_sha256=expected_sha256)
     except (OSError, ValueError) as exc:
         raise PosthocError(f"cannot read {label} {path}: {exc}") from exc
+    check_cancelled(cancelled)
+    return payload
 
 
-def _load_result_csv(path: Path) -> tuple[list[str], list[dict[str, str]], str]:
+def _load_result_csv(path: Path, *, result_snapshot: ResultCsvSnapshot | None = None,
+                     cancelled: Callable[[], bool] | None = None) -> tuple[list[str], list[dict[str, str]], str]:
+    check_cancelled(cancelled)
     if not path.is_file():
         raise PosthocError(
             f"missing completed {RESULT_CSV_NAME}: {path}; wait for acprof run to finish"
         )
-    from acprof.result_csv import read_result_csv
-    fieldnames, rows = read_result_csv(path)
-    encoding = "utf-8"
-    from acprof.result_csv import require_current_fields
-    try:
-        require_current_fields(fieldnames)
-    except ValueError as exc:
-        raise PosthocError(str(exc)) from exc
-    if not fieldnames:
-        raise PosthocError(f"empty result CSV: {path}")
-    required = {"cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"}
-    missing = sorted(required - set(fieldnames))
-    if missing:
-        raise PosthocError(
-            "result CSV is missing required columns: " + ", ".join(missing)
-        )
+    from acprof.result_csv import validate_result_rows
+    if result_snapshot is None:
+        from acprof.result_layers import read_result_layers
+        fieldnames, rows = read_result_layers(path.parent, cancelled=cancelled)
+    else:
+        if result_snapshot.path != path.resolve():
+            raise PosthocError(f"result snapshot path does not match {path}")
+        fieldnames = list(result_snapshot.fields)
+        rows = validate_result_rows(fieldnames, cancellable(result_snapshot.rows, cancelled), path,
+                                    allow_empty=True).rows
+    # Both paths use the shared structural, identity and retired-field validator.
     if not rows:
         raise PosthocError(f"result CSV has no rows: {path}")
-    if any(None in row for row in rows):
-        raise PosthocError(f"result CSV has rows wider than its header: {path}")
-    return fieldnames, rows, encoding
+    return fieldnames, rows, "utf-8"
 
 
-def _unique_scales(rows: Iterable[Mapping[str, Any]]) -> list[float]:
+def _unique_scales(rows: Iterable[Mapping[str, Any]], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
     scales: list[float] = []
-    for row in rows:
+    for row in cancellable(rows, cancelled):
         scale = _finite_float(row.get("input_scale"))
         if not math.isfinite(scale):
             raise PosthocError(
@@ -220,18 +221,18 @@ def _unique_scales(rows: Iterable[Mapping[str, Any]]) -> list[float]:
                 rel_tol=0.0,
                 abs_tol=INPUT_SCALE_ABS_TOLERANCE,
             )
-            for existing in scales
+            for existing in cancellable(scales, cancelled)
         ):
             scales.append(scale)
     return sorted(scales)
 
 
-def _input_plan_scales(plan: Mapping[str, Any]) -> list[float]:
+def _input_plan_scales(plan: Mapping[str, Any], *, cancelled: Callable[[], bool] | None = None) -> list[float]:
     entries = plan.get("entries")
     if not isinstance(entries, list) or not entries:
         raise PosthocError("input_scale_plan.json has no entries")
     scales: list[float] = []
-    for index, entry in enumerate(entries):
+    for index, entry in enumerate(cancellable(entries, cancelled)):
         if not isinstance(entry, Mapping) or not isinstance(entry.get("payload"), dict):
             raise PosthocError(
                 f"invalid input scale plan entry at index {index}: payload missing"
@@ -257,7 +258,14 @@ def _scale_is_present(scale: float, candidates: Iterable[float]) -> bool:
     )
 
 
-def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
+def load_result_context(result_dir: str | os.PathLike[str], *, result_snapshot: ResultCsvSnapshot | None = None,
+                        cancelled: Callable[[], bool] | None = None) -> ResultContext:
+    """Validate post-hoc inputs, optionally borrowing an enclosing read's snapshot.
+
+    Supplied rows are revalidated without modifying them. The enclosing consumer
+    owns final source verification after all work using that snapshot completes.
+    """
+    check_cancelled(cancelled)
     directory = Path(result_dir).expanduser().resolve()
     if not directory.is_dir():
         raise PosthocError(f"result directory does not exist: {directory}")
@@ -271,17 +279,19 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         input_scale_plan_path = layout.path(INPUT_SCALE_PLAN_NAME)
     except (OSError, ValueError) as exc:
         raise PosthocError(str(exc)) from exc
-    fieldnames, rows, encoding = _load_result_csv(result_csv)
+    fieldnames, rows, encoding = _load_result_csv(result_csv, result_snapshot=result_snapshot, cancelled=cancelled)
     from acprof.artifacts import read_static_metadata, require_schema_version
+    check_cancelled(cancelled)
     try:
         static_meta = read_static_metadata(directory, required=True)
     except (ValueError, OSError) as exc:
         raise PosthocError(str(exc)) from exc
+    check_cancelled(cancelled)
     if static_meta.get("runtime_kind") == "process":
         raise PosthocError("Independent post-hoc profilers currently require Docker Runtime")
     collection_history_existed = collection_history_path.is_file()
     collection_history_payload = (
-        _load_json_object(collection_history_path, COLLECTION_HISTORY_NAME)
+        _load_json_object(collection_history_path, COLLECTION_HISTORY_NAME, cancelled=cancelled)
         if collection_history_existed
         else None
     )
@@ -289,10 +299,12 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
         collection_history = normalize_collection_history(collection_history_payload)
     except ValueError as exc:
         raise PosthocError(f"invalid collection history: {exc}") from exc
+    check_cancelled(cancelled)
     expected_plan_hash = str(static_meta.get("input_scale_plan_sha256") or "").strip()
     input_plan = _load_json_object(
         input_scale_plan_path, INPUT_SCALE_PLAN_NAME,
         expected_sha256=expected_plan_hash or None,
+        cancelled=cancelled,
     )
     try:
         require_schema_version(input_plan, 2, INPUT_SCALE_PLAN_NAME)
@@ -318,7 +330,7 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
                     _integer(row.get("mem_cap_gb"), "mem_cap_gb"),
                     normalize_gpu_mode(row.get("gpu_mode")),
                 )
-                for row in rows
+                for row in cancellable(rows, cancelled)
             }
         )
     except ValueError as exc:
@@ -326,19 +338,19 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
 
     scales_by_mode = {
         mode: _unique_scales(
-            row
-            for row in rows
-            if normalize_gpu_mode(row.get("gpu_mode")) == mode
+            (row for row in cancellable(rows, cancelled)
+             if normalize_gpu_mode(row.get("gpu_mode")) == mode),
+            cancelled=cancelled,
         )
         for mode in ("off", "on")
         if any(case[2] == mode for case in resource_cases)
     }
-    planned_scales = _input_plan_scales(input_plan)
+    planned_scales = _input_plan_scales(input_plan, cancelled=cancelled)
     missing_scales = [
         scale
         for scales in scales_by_mode.values()
-        for scale in scales
-        if not _scale_is_present(scale, planned_scales)
+        for scale in cancellable(scales, cancelled)
+        if not _scale_is_present(scale, cancellable(planned_scales, cancelled))
     ]
     if missing_scales:
         labels = ", ".join(f"{scale:g}" for scale in sorted(set(missing_scales)))
@@ -374,6 +386,7 @@ def load_result_context(result_dir: str | os.PathLike[str]) -> ResultContext:
             "static_meta.json is missing pipeline_tag/task_family/runtime_backend"
         )
 
+    check_cancelled(cancelled)
     return ResultContext(
         result_dir=directory,
         result_csv=result_csv,

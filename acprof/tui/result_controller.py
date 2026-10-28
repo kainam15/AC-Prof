@@ -106,15 +106,10 @@ class ResultController:
             summary, error = summarize_result_csv(path, cancelled=token.is_set), ""
         except Exception as exc:
             summary, error = None, error_message(exc)
-        overview, profile_error = None, ""
-        if summary is not None and not token.is_set():
-            from acprof.tui.profile_status import inspect_profile_result
-            try:
-                overview = inspect_profile_result(path)
-            except (OSError, ValueError, RuntimeError) as exc:
-                profile_error = error_message(exc)
         self.app.process.safe_process_callback(
-            self.show_result_summary, path, token, summary, error, notify, overview, profile_error)
+            self.show_result_summary, path, token, summary, error, notify,
+            summary.profiler_overview if summary is not None else None,
+            summary.profiler_error if summary is not None else "")
 
     def show_result_summary(
         self, path, token, summary, error: str, notify: bool, overview=None, profile_error: str = "",

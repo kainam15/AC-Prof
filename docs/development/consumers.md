@@ -297,12 +297,20 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 完成后在后台读取一次报告并更新表格。读取期间锁定启动入口，允许切换读取目标和退出；不定时扫描 CSV 或自动运行开销实验。
 绘图页摘要复用 `analysis.uncertainty.summarize_windows` 的分组、过滤和窗口均值，只关闭 bootstrap。
 `diagnostics.summarize_result_csv` 直接消费 `ResultCsvSnapshot` 的解析行，与 `audit_result`
-共享同一快照，返回前复核所选路径，并通过 `verify_result_source` 复核内容。平面 CSV 只解析一次，
-随后流式 hash 复核；分层结果不再重编码为宽 CSV，也不为最终复核重新组装行表。
+及 `profile_status.inspect_profile_result` 共享同一快照。统计、质量审计及 Profiler 概览完成后，
+统一复核所选路径，并通过 `verify_result_source` 复核内容。平面 CSV 和各分层 CSV 均只解析一次，
+随后流式 hash 复核，不重编码宽 CSV 或为最终复核重新组装行表。
+`load_result_context` 借用快照时核对路径并重新执行共享行校验，不修改借用行，也不重复读取 CSV；
+外层消费者负责工作结束后的来源复核。上下文的元数据、模型、运行时、不可变镜像与输入计划规则保持不变。
+Profiler 完成计数在一次行遍历中复用 `row_tool_complete`，不保留各工具的行表副本或再次计算完成状态。
+`ResultSummary` 只携带统计结果、概览及其错误；原始快照不会保存在 TUI 状态中。概览的元数据错误
+保留为独立提示，仍可展示通过来源核验的统计；源文件变化则拒绝整个摘要。共享范围是结果行，
+不将各元数据文件宣称为跨文件事务快照。
 历史 CSV 的结构读取与严格审计保持分离，不放宽有效测量身份或 retired 字段规则。
 取消检查覆盖打开文件前、平面及 v1/v2/v3 分层 CSV 的原始块与文本行之间、逐行拼接及最终
-内容校验。`artifacts.file_sha256` 统一使用至多 256 KiB 的原始缓冲；v1 导入源的依赖校验也传递
-同一取消信号。v3 共享发布锁仅在传入取消检查时以非阻塞尝试和 50 ms 等待重试，取消会关闭
+内容校验，并继续传入 post-hoc 上下文校验与概览计数。`artifacts.file_sha256` 统一使用至多
+256 KiB 的原始缓冲；v1 导入源的依赖校验也传递同一取消信号。v3 共享发布锁仅在传入取消检查时
+以非阻塞尝试和 50 ms 等待重试，取消会关闭
 当前文件并释放本次已取得的锁，不释放其他发布者的锁。未传入取消检查的调用保持原有锁等待方式。
 取消通过 `CancelledError` 退出，不返回部分行表；未取消时仍执行完整的 hash、身份与行顺序校验，
 v3 只读取已提交前缀。检查机制集中在 `cancellation`，没有后台轮询任务。

@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
@@ -27,7 +28,10 @@ from acprof.result_csv import (
     verify_result_source,
 )
 from acprof.tui.commands import _csv_values
-from acprof.tui.i18n import message_id
+from acprof.tui.i18n import error_message, message_id
+
+if TYPE_CHECKING:
+    from acprof.tui.profile_status import ProfilerOverview
 
 
 @dataclass(frozen=True)
@@ -302,6 +306,8 @@ class ResultSummary:
     groups: tuple[dict, ...] = ()
     grouping_detail: str = ""
     quality: dict = field(default_factory=dict)
+    profiler_overview: ProfilerOverview | None = None
+    profiler_error: str = ""
 
 
 SUMMARY_METRICS = (
@@ -344,12 +350,21 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
     if cancelled():
         raise CancelledError()
     quality = {key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
+    from acprof.tui.profile_status import inspect_profile_result
+    overview, profile_error = None, ""
+    try:
+        overview = inspect_profile_result(snapshot.path, result_snapshot=snapshot, cancelled=cancelled)
+    except (OSError, ValueError, RuntimeError) as exc:
+        profile_error = error_message(exc)
+    if cancelled():
+        raise CancelledError()
     summary = ResultSummary(
         rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
         error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
         warmup_rows=sum(str(row.get("warmup", "0")).strip() == "1" for row in rows),
         cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
         groups=groups, grouping_detail=detail, quality=quality,
+        profiler_overview=overview, profiler_error=profile_error,
     )
     try:
         if path.resolve() != snapshot.path:

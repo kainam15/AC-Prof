@@ -23,7 +23,7 @@ def test_gpu_result_shows_complete_partial_failed_and_inapplicable(tmp_path):
     context = SimpleNamespace(result_dir=tmp_path, rows=[first, second])
     with patch("acprof.tui.profile_status.load_result_context", return_value=context) as load:
         overview = inspect_profile_result(tmp_path / "result_layers.json")
-    load.assert_called_once_with(tmp_path)
+    load.assert_called_once_with(tmp_path, result_snapshot=None, cancelled=None)
     statuses = {status.tool: status for status in overview.tools}
     assert [status.state for status in overview.tools] == [
         "complete", "partial", "failed", "inapplicable"]
