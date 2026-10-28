@@ -299,10 +299,12 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
             if expected is not None and {measurement_key(row) for row in snapshot.rows} != set(expected):
                 raise ResultValidationError("layered measurement plan mismatch")
             return snapshot
-        fields, rows = read_result_csv(path, expected=expected)
+        from acprof.result_layers import read_result_layers
         layer_digest = _file_sha256(path)
-        if not result_csv_snapshot_unchanged(ResultCsvSnapshot(path, fields, rows, layer_digest)):
-            raise ResultValidationError("layered results changed during read")
+        fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest)
+        if expected is not None and {measurement_key(row) for row in rows} != set(expected):
+            raise ResultValidationError("layered measurement plan mismatch")
+        verify_result_source(path, layer_digest)
         return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
@@ -350,13 +352,9 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None) -> N
         layout = ArtifactLayout.discover(artifact.parent)
         with publication_lock(layout, exclusive=False):
             validate_layer_files(layout, manifest)
-    elif manifest.get("schema_version") == 2:
-        from acprof.result_layers import result_layer_paths
-        for layer, path in result_layer_paths(artifact.parent, manifest).items():
-            if _file_sha256(path) != manifest["layers"][layer]["sha256"]:
-                raise ResultValidationError(f"missing or modified result layer: {path}")
     else:
-        read_result_csv(artifact)
+        from acprof.result_layers import verify_result_layer_files
+        verify_result_layer_files(artifact.parent, manifest)
     if _file_sha256(artifact) != expected_sha256:
         raise ResultValidationError("result manifest changed during verification")
 

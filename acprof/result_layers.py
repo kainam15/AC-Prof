@@ -13,7 +13,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from acprof.artifacts import atomic_write, atomic_write_json, read_json_object, sync_directory
+from acprof.artifacts import (
+    atomic_write,
+    atomic_write_json,
+    file_sha256,
+    read_json_object,
+    sync_directory,
+)
 from acprof.metric_registry import METRICS, order_csv_fields
 from acprof.result_csv import (
     KEY_FIELDS,
@@ -326,16 +332,7 @@ def consume_layer_rows(fields: Sequence[str], keys: Sequence[tuple[str, ...]],
     return rows
 
 
-def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]]]:
-    """Read a full logical result from independently hashed partition CSVs."""
-    root = _result_root(root)
-    manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest")
-    if manifest.get("schema_version") == 3:
-        from acprof.result_store.reader import read_snapshot
-        snapshot = read_snapshot(root)
-        return snapshot.fields, snapshot.rows
-    paths = result_layer_paths(root, manifest)
-    wide_fields = manifest["wide_fields"]
+def _validate_imported_source(root: Path, manifest: Mapping) -> None:
     source_name = manifest.get("source_name")
     if source_name is not None:
         source_digest = manifest.get("source_sha256")
@@ -347,9 +344,38 @@ def read_result_layers(root: str | Path) -> tuple[list[str], list[dict[str, str]
         # immutable snapshot. Keep v1's existing stale-source check unchanged.
         if manifest["schema_version"] == 1:
             source_path = _safe_path(root, source_name)
-            if (source_path.exists() and
-                    hashlib.sha256(source_path.read_bytes()).hexdigest() != source_digest):
+            if source_path.exists() and file_sha256(source_path) != source_digest:
                 raise ResultValidationError("source CSV has changed since layers were published")
+
+
+def verify_result_layer_files(root: str | Path, manifest: Mapping) -> None:
+    """Recheck v1/v2 snapshot content without parsing previously validated rows."""
+    root = _result_root(root)
+    version = manifest.get("schema_version")
+    if type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise ResultValidationError("content verification requires a v1/v2 snapshot")
+    paths = result_layer_paths(root, manifest)
+    _validate_imported_source(root, manifest)
+    for layer, path in paths.items():
+        if not path.is_file() or file_sha256(path) != manifest["layers"][layer]["sha256"]:
+            raise ResultValidationError(f"missing or modified {layer} layer: {path}")
+
+
+def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None = None
+                       ) -> tuple[list[str], list[dict[str, str]]]:
+    """Read hashed partitions, optionally bound to an outer consumer's manifest."""
+    root = _result_root(root)
+    manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest",
+                                expected_sha256=expected_manifest_sha256)
+    if manifest.get("schema_version") == 3:
+        from acprof.result_store.reader import read_snapshot
+        snapshot = read_snapshot(root)
+        if expected_manifest_sha256 is not None and snapshot.sha256 != expected_manifest_sha256:
+            raise ResultValidationError("layered results changed during read")
+        return snapshot.fields, snapshot.rows
+    paths = result_layer_paths(root, manifest)
+    wide_fields = manifest["wide_fields"]
+    _validate_imported_source(root, manifest)
     assigned = layer_fields(wide_fields)
     identity = layer_identity_fields(wide_fields)
     layers = manifest["layers"]

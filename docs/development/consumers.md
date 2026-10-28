@@ -35,7 +35,14 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 内容，分层结果直接消费解析行，不重新编码为宽 CSV。结束复核同时检查 manifest 引用的数据层，
 仅 manifest 未改变不足以证明内容未改变。报告与独立实验比较共用 `verify_result_source`：
 v2 逐文件核对 hash，v3 在 publication lock 内验证 committed prefix，不为复核重建完整行表；
-v1 保留原始导入 CSV 的依赖检查。原始行不被审计的环境归一化修改；历史 CSV
+v1 同样按内容 hash 复核，并保留原始导入 CSV 的依赖检查。v1/v2 初次快照在解析前固定
+manifest 摘要，读取时校验同一份 manifest，各数据层只解析和拼接一次，随后以流式 hash
+复核内容；即使行内容相同，读取中的 manifest 改写也会被拒绝。复核与解析共用源 CSV
+身份规则，历史 v1 源 CSV 的 hash 也使用有界内存。此处参考
+[restic 的内容身份校验](https://github.com/restic/restic/blob/master/internal/repository/repository.go)
+（BSD-2-Clause）及[避免校验副本的讨论](https://github.com/restic/restic/pull/22081)，
+沿用标准库实现，不引入备份、压缩或缓存依赖，也不跳过校验。
+原始行不被审计的环境归一化修改；历史 CSV
 可保留宽松展示能力，但身份缺失、旧字段或其他严格校验失败仍阻止作为有效可比证据。
 测量状态、缺失原因和来源质量复用同一次审计；设备级质量仍单独读取，下一次加载重新取得证据，
 不跨加载缓存。借鉴 [Polars collect_all](https://github.com/pola-rs/polars/blob/main/py-polars/src/polars/functions/lazy.py)
