@@ -133,14 +133,21 @@ def bootstrap_mean_interval(values, *, confidence=0.95, resamples=5000, seed=0, 
     if count < max(3, 3 * block_size):
         return None, None
     rng = random.Random(seed)
+
+    def block_samples():
+        # 每个块沿用一次随机起点；最后一块只贡献剩余窗口。
+        for consumed in range(0, count, block_size):
+            start = rng.randrange(count)
+            for offset in range(min(block_size, count - consumed)):
+                yield values[(start + offset) % count]
+
     estimates = []
     for _ in range(resamples):
         # 循环移动块；block_size=1 即普通 percentile bootstrap。
-        sampled: list[float] = []
-        while len(sampled) < count:
-            start = rng.randrange(count)
-            sampled.extend(values[(start + offset) % count] for offset in range(block_size))
-        estimates.append(statistics.fmean(sampled[:count]))
+        sampled = ((values[rng.randrange(count)] for _ in range(count))
+                   if block_size == 1 else block_samples())
+        # 与 fmean 相同的求和与除法；样本数已知，无需再次计数。
+        estimates.append(math.fsum(sampled) / count)
     estimates.sort()
 
     def quantile(probability):

@@ -57,6 +57,13 @@ manifest 引用的数据内容和读取前记录的元数据身份，复用证�
 实验内窗口区间；run 均值的等权重和独立 run bootstrap 算法、随机种子保持不变。
 校验与计算分离参考 [SciPy resampling](https://github.com/scipy/scipy/blob/main/scipy/stats/_resampling.py)
 （BSD-3-Clause），仅借鉴职责划分，不复制算法或新增依赖。
+窗口 bootstrap 逐项计算 `fsum / count`，沿用 `statistics.fmean` 的求和与除法，
+已知样本数时无需再次计数，也不再额外保留重采样窗口列表和截断副本；
+原始观测值与各次重采样均值仍保留在内存。默认单窗口采样直接生成索引，循环块保留一次
+`randrange` 对应一个起点及末块截断规则，因此固定 seed 的取样顺序与区间结果不变。
+均值计算参考 [CPython fmean 实现](https://github.com/python/cpython/blob/3.12/Lib/statistics.py)
+（PSF），并遵循 [random 文档的算法区别](https://github.com/python/cpython/blob/main/Doc/library/random.rst)：
+相同 seed 下 `choices` 与逐次取样不保证相同序列，因此保留当前随机数生成路径，不引入数组库。
 单个条件快照通过 `ResultCsvSnapshot` 复用审计已经消费的同一份解析行，用于实际工作负载
 和指标可用性判定；独立调用时由审计复核内容，共享快照时由外层消费者结束时统一复核。
 首次读取失败时继续收集审计中的元数据问题，
