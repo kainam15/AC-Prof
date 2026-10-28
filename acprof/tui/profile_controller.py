@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from textual.widgets import Button, Static
 
 from acprof.experiment import RunConfigError
-from acprof.messages import join_messages
+from acprof.messages import Message, join_messages
 from acprof.tui.commands import PendingLaunch, format_command, prepare_profile, resolve_result_path
 from acprof.tui.i18n import message_id
 from acprof.tui.profile_screen import ProfilerChoiceScreen
@@ -34,7 +34,7 @@ class ProfileController:
     def show_overview(self, overview: ProfilerOverview | None, error: str = "") -> None:
         self.overview = overview
         if overview is None:
-            status = message_id("ui.2254", error) if error else message_id("ui.2253")
+            status: Message = message_id("ui.2254", error) if error else message_id("ui.2253")
         else:
             from acprof.tui.profile_screen import tool_status_message
 
