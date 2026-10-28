@@ -44,7 +44,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - exercised before tests 
     raise
 
 from acprof.experiment import RunConfig
-from acprof.messages import join_messages, message
+from acprof.messages import message
 from acprof.tui.catalog_controller import CatalogController
 from acprof.tui.commands import (
     OperationState,
@@ -63,6 +63,7 @@ from acprof.tui.monitor import MonitorPhase, monitor_phase
 from acprof.tui.preflight_controller import PreflightController
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
+from acprof.tui.process_completion import build_process_completion
 from acprof.tui.process_controller import ProcessController
 from acprof.tui.profile_controller import ProfileController
 from acprof.tui.progress import ProgressSnapshot
@@ -522,136 +523,63 @@ class AcprofTui(BarCursorApp):
         snapshot: ProgressSnapshot | None,
         launch_error: str,
     ) -> None:
-        # The child has exited; flush preparation output before its final outcome.
         self.logs.suspend(False)
         cancelled = self.stop_requested
         if kind == "html-report" and not cancelled:
             launch_error = self.results.html_report_error(returncode, launch_error)
-        if kind == "stats" and returncode == 0 and not launch_error and self.results.stats_report_path is None:
-            launch_error = "统计进程未返回报告路径"
-        if kind == "probe" and returncode == 0 and not launch_error and not self.stop_requested:
-            if (snapshot is None or snapshot.stage is not Stage.PROBE_COMPLETED
-                    or not snapshot.probe_result or not snapshot.probe_summary):
-                launch_error = self.localization.tr(message_id('ui.0183', "missing structured probe result"))
-        comparison_ready = (kind == "compare" and returncode in {0, 1} and not launch_error
-                            and not self.stop_requested and self.results.comparison_report_path is not None
-                            and self.results.comparison_report_path.is_file())
-        if kind == "compare" and returncode == 0 and not launch_error and not self.stop_requested and not comparison_ready:
-            launch_error = "比较进程未返回报告路径"
+        comparison = self.results.comparison_report_path
+        completion = build_process_completion(
+            kind,
+            returncode,
+            snapshot,
+            launch_error,
+            stopped=self.stop_requested,
+            latest_snapshot=self.latest_snapshot,
+            run_result=self.run_result,
+            stats_report_path=self.results.stats_report_path,
+            stats_report_reused=self.results.stats_report_reused,
+            comparison_report_exists=comparison is not None and comparison.is_file(),
+        )
+        launch_error = self.localization.tr(completion.launch_error)
         self.preflight.close_preparation()
-        if snapshot is not None and snapshot.measurement_status == "running":
-            snapshot = replace(snapshot, measurement_status=(
-                "cancelled" if self.stop_requested else "failed" if returncode else "passed"))
-        # Stop the elapsed-time ticker.
         if self.elapsed_timer is not None:
             self.elapsed_timer.stop()
             self.elapsed_timer = None
-        # Show the final elapsed time.
         if self.started_monotonic:
             final_elapsed = self.format_elapsed(
                 time.monotonic() - self.started_monotonic
             )
             self.localization.set_text(self.query_one('#status-elapsed', Static), final_elapsed)
         if kind in {"stats", "compare", "html-report"}:
-            # Move focus before disabling the monitor page's focused Stop button;
-            # its queued focus event could otherwise reactivate that old page.
             self.activate_tab("reports-tab")
         log = self.query_one("#run-log", SelectableLog)
-        unsupported_task = (
-            snapshot is not None and snapshot.stage is Stage.TASK_UNSUPPORTED
-            and returncode != 0 and not self.stop_requested and not launch_error
-        )
-        if launch_error:
-            log.write(self.localization.tr(message_id('ui.0786', launch_error)))
-            self.notify(launch_error, title=message_id('ui.0986') if kind == "html-report" else "任务启动失败", severity="error", timeout=8)
-        elif comparison_ready:
-            notice: str = message_id('ui.0488')
-            log.write(self.localization.tr(notice))
-            self.notify(notice, severity="information", timeout=8)
-        elif returncode == 0 and kind != "run" and not self.stop_requested:
-            log.write(self.localization.tr(message_id('ui.0788', kind)))
-            notice = (message_id('ui.0571', self.results.stats_report_path)
-                      if kind == "stats" and self.results.stats_report_reused else "任务已完成")
-            self.notify(notice, severity="information", timeout=8 if self.results.stats_report_reused else 5)
-        elif self.stop_requested:
-            log.write(self.localization.tr(message_id('ui.0790', returncode)))
-            self.notify(message_id('ui.0962') if kind == "html-report" else "任务已终止；部分 case 结果可能仍可续跑", severity="warning", timeout=7)
-        elif unsupported_task and snapshot is not None:
-            log.write(self.localization.tr(snapshot.detail))
-            log.write(self.localization.tr(message_id(
-                'ui.0587'
-            )))
-            self.notify(snapshot.detail, title="任务不支持", severity="error", timeout=12)
-        elif kind != "run":
-            log.write(self.localization.tr(message_id('ui.0792', kind, returncode)))
-            self.notify(message_id('ui.0793', returncode), severity="error", timeout=8)
+        for entry in completion.log_messages:
+            log.write(self.localization.tr(entry))
+        if completion.notice is not None:
+            notice = completion.notice
+            self.notify(
+                notice.message,
+                title=notice.title,
+                severity=notice.severity,
+                timeout=notice.timeout,
+            )
 
-        current_csv = ""
-        if unsupported_task and snapshot is not None:
-            self.latest_snapshot = replace(snapshot, measurement_active=False, measurement_status="failed")
-            self.render_snapshot(self.latest_snapshot)
-        elif kind == "run":
-            result = self.run_result
-            stage = result.stage(returncode, self.stop_requested, launch_error)
-            final_state = snapshot or self.latest_snapshot
-            detail: str = message_id('ui.0191', result.completed_cases,
-                                     result.total_cases or final_state.total_cases)
-            if result.detail:
-                detail = join_messages("\n", (detail, result.detail))
-            if result.new_cases and result.retained_dir:
-                detail = join_messages("\n", (detail, message_id('ui.0184', result.retained_dir)))
-            if result.complete and not result.result_csv and not result.new_cases:
-                detail = join_messages("\n", (detail, message_id('ui.0185')))
-            self.latest_snapshot = replace(final_state, stage=stage, detail=detail,
-                completed_cases=result.completed_cases, total_cases=result.total_cases or final_state.total_cases,
-                measurement_active=False, measurement_status=("passed" if stage is Stage.COMPLETED else
-                    "cancelled" if self.stop_requested else "failed"))
-            self.render_snapshot(self.latest_snapshot)
-            current_csv = result.result_csv
-            if current_csv:
-                self.configuration.remember_last_used(result_csv=current_csv, result_dir=str(Path(current_csv).parent))
-            else:
-                summary_text = (message_id('ui.0183', result.detail)
-                                if result.detail and not result.belongs_to_attempt else
-                                message_id('ui.0190', result.new_cases))
-                self.localization.set_text(self.query_one("#result-summary", Static), summary_text)
-            self.notify(message_id('ui.0193', stage.label, detail),
-                        severity="information" if stage is Stage.COMPLETED else "warning" if stage in {Stage.PARTIAL, Stage.STOPPED} else "error")
-        elif kind == "probe":
-            final_state = snapshot or self.latest_snapshot
-            if launch_error or (returncode != 0 and not self.stop_requested):
-                detail = launch_error or (
-                    final_state.detail
-                    if final_state.stage is Stage.PROBE_FAILED
-                    else message_id('ui.0796', returncode)
-                )
-                final_state = replace(
-                    final_state,
-                    stage=Stage.PROBE_FAILED,
-                    detail=detail,
-                    measurement_active=False,
-                )
-            elif self.stop_requested:
-                final_state = replace(
-                    final_state,
-                    stage=Stage.TERMINATED,
-                    detail="用户终止了最大尺度探测",
-                    measurement_active=False,
-                )
-            self.latest_snapshot = final_state
-            self.render_snapshot(final_state)
-        else:
-            if launch_error or (returncode != 0 and not self.stop_requested and not comparison_ready):
-                stage = Stage.FAILED
-                detail = launch_error or message_id('ui.0799', kind, returncode)
-            elif self.stop_requested:
-                stage = Stage.TERMINATED
-                detail = message_id('ui.0800', kind)
-            else:
-                stage = Stage.COMPLETED
-                detail = message_id('ui.0801', kind)
-            self.latest_snapshot = ProgressSnapshot(stage=stage, detail=detail)
-            self.render_snapshot(self.latest_snapshot)
+        self.latest_snapshot = completion.snapshot
+        self.render_snapshot(self.latest_snapshot)
+        current_csv = completion.current_csv
+        if current_csv:
+            self.configuration.remember_last_used(
+                result_csv=current_csv,
+                result_dir=str(Path(current_csv).parent),
+            )
+        elif completion.summary_text is not None:
+            self.localization.set_text(
+                self.query_one("#result-summary", Static),
+                completion.summary_text,
+            )
+        if completion.run_notice is not None:
+            notice = completion.run_notice
+            self.notify(notice.message, severity=notice.severity)
 
         self.preflight.finish_download(cancelled=self.stop_requested)
         self.logs.flush()
@@ -687,7 +615,7 @@ class AcprofTui(BarCursorApp):
             report_path, self.results.comparison_report_path = self.results.comparison_report_path, None
             # The comparison CLI uses exit 1 for a valid incompatible/unknown
             # report too; its reasons are the primary result to display.
-            if comparison_ready:
+            if completion.comparison_ready:
                 self.results.open_report(str(report_path))
             else:
                 self.activate_tab("reports-tab")
