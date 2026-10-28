@@ -148,6 +148,16 @@ def _convert_numeric_columns(
         for name in dict.fromkeys([*NUMERIC_FIELDS, "gpu_mem_total_bytes", *COMPUTE_NUMERIC_COLUMNS])
         if name in df.columns
     }
+    if "input_scale" in numeric:
+        scales = numeric["input_scale"]
+        valid = np.isfinite(scales) & (scales > 0) & (not pd.api.types.is_bool_dtype(scales.dtype))
+        invalid = np.flatnonzero(~valid.fillna(False))
+        if invalid.size:
+            position = int(invalid[0])
+            value = str(df["input_scale"].iloc[position])
+            raise ValueError(
+                f"input_scale must be finite and positive at data row {position + 1}: {value!r}"
+            )
     # Construct together so same-dtype columns share blocks rather than splitting
     # the original frame once per assignment. Positions preserve duplicate labels
     # on unknown columns; ambiguous numeric labels still fail in to_numeric above.
@@ -247,7 +257,6 @@ def prepare_df(
         raise ValueError(f"CSV missing required columns: {missing}")
 
     df["config"] = make_config_labels(df)
-    df = df[df["input_scale"].notna() & (df["input_scale"] > 0)].copy()
 
     return df
 

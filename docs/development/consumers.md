@@ -38,6 +38,10 @@ Matplotlib API 和现有 pandas/NumPy，无新增依赖，也不进入正式测�
 `plotting.data.prepare_df` 对数值列分别执行 `to_numeric`，再通过公开 DataFrame 构造器
 一次组装，避免逐列赋值造成宽结果表碎片化。保留各列 dtype、整数精度和原始列位置，
 不经统一浮点矩阵转换；GiB、像素派生量与过滤仍沿用原有顺序。
+`input_scale` 在状态和 warmup 筛选前校验为有限正数，非法坐标报出数据行号；
+验证不重解析已有数值或改变 dtype。入口有限值检查参考
+[scikit-learn validation](https://github.com/scikit-learn/scikit-learn/blob/d685424bec8f8585d8017c1aab1db7535d3fa03d/sklearn/utils/validation.py#L103-L145)
+（BSD-3-Clause），使用现有 NumPy/pandas，不引入 scikit-learn 依赖。
 缺失的环境列和 metadata 中的 GPU 容量也在这一步组装，避免向 CSV 读取器产生的
 分散数据块提前插列；GPU、runtime 和环境身份仍在数值转换及行过滤前依次校验。
 像素派生从 `PIXEL_COUNT_FIELDS` 和 `PIXEL_RATE_SOURCES` 推导所需字段，只将这些列

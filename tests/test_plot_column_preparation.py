@@ -38,7 +38,7 @@ def test_wide_plot_input_preserves_filters_without_fragmentation(
 ):
     rows = []
     for index, (status, warmup, scale) in enumerate([
-        ("ok", 0, 64), ("error", 0, 128), ("ok", 1, 256), ("ok", 0, 0),
+        ("ok", 0, 64), ("error", 0, 128), ("ok", 1, 256),
     ]):
         row: dict[str, object] = dict.fromkeys(NUMERIC_FIELDS, 1)
         row.update(environment_class="native_linux", runtime_kind="docker",
