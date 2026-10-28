@@ -160,3 +160,101 @@ def test_prepared_profiles_preserve_snapshot_and_protect_cached_workload(multi_c
     profile["checks"].clear()
     assert prepared.profile(case=("1", "4", "off", "2")) == expected
     assert snapshot == before
+
+
+@pytest.mark.parametrize("cpu_count", [1, 4])
+def test_fixed_condition_tokens_are_prepared_once_per_source(multi_case_sources, monkeypatch, cpu_count):
+    fixture = multi_case_sources(cpu_count)
+    calls = []
+    original = conditions.digest
+
+    def record_digest(value):
+        if value == "structured":
+            calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(conditions, "digest", record_digest)
+    model = load_analysis([fixture.left, fixture.right])
+
+    assert len(model.configs) == 4 * cpu_count
+    assert all(profile["status"] == "compatible" for config in model.configs
+               for profile in config["comparison_profiles"].values())
+    assert len(calls) == 2
+
+
+def test_later_loads_refresh_fixed_conditions_without_changing_other_sources(multi_case_sources):
+    fixture = multi_case_sources(1)
+    before = [config["comparison_profiles"]["same-hardware"]
+              for config in load_analysis([fixture.left, fixture.right]).configs]
+    assert conditions.compare_profiles(before[0], before[2])["status"] == "compatible"
+
+    fixture.change_json(fixture.right, "input_scale_plan.json", lambda plan:
+                        plan["quality_constraints"].update(target="different"))
+    after = [config["comparison_profiles"]["same-hardware"]
+             for config in load_analysis([fixture.left, fixture.right]).configs]
+
+    assert after[:2] == before[:2]
+    assert conditions.compare_profiles(after[0], after[2])["reasons"] == ["quality_constraints"]
+    assert conditions.compare_profiles(before[0], before[2])["status"] == "compatible"
+
+
+@pytest.mark.parametrize(("value", "encoded"), [
+    (1, b"1"), (1., b"1.0"), (True, b"true"), (-0., b"-0.0"),
+    ([1, 2], b"[1,2]"), ([], None), ({}, None), (None, None),
+    ("unknown", None), (["known", None], None),
+])
+def test_fixed_tokens_preserve_types_and_incomplete_evidence(multi_case_sources, value, encoded):
+    fixture = multi_case_sources(2)
+    snapshot = load_comparison_snapshot(fixture.left)
+    snapshot["conditions"]["quality_constraints"] = value
+    prepared = conditions.PreparedComparison(snapshot)
+    expected = hashlib.sha256(encoded).hexdigest() if encoded is not None else None
+
+    for cpu in ("1", "2"):
+        for purpose in conditions.PURPOSES:
+            profile = prepared.profile(purpose=purpose, case=(cpu, "4", "off", "2"))
+            assert profile["checks"]["quality_constraints"] == {"value": expected, "difference": "incompatible"}
+            assert ("quality_constraints" in profile["reasons"]) is (expected is None)
+
+
+def test_condition_preparation_keeps_flattening_order_and_independent_results(multi_case_sources):
+    fixture = multi_case_sources(1)
+    snapshot = load_comparison_snapshot(fixture.left)
+    snapshot["conditions"]["quality_constraints"] = {"target": {"value": 1, "missing": None}, "target.value": 2}
+    prepared = conditions.PreparedComparison(snapshot)
+    first = prepared.profile()
+    sibling = prepared.profile()
+    assert first["checks"]["quality_constraints.target.value"] == {
+        "value": hashlib.sha256(b"2").hexdigest(), "difference": "incompatible"}
+    assert first["checks"]["quality_constraints.target.missing"]["value"] is None
+    first["checks"]["quality_constraints.target.value"]["value"] = "corrupted"
+    assert prepared.profile() == sibling
+
+
+def test_fixed_conditions_are_lazy_and_failed_preparation_is_not_reused(multi_case_sources):
+    fixture = multi_case_sources(1)
+    snapshot = load_comparison_snapshot(fixture.left)
+    snapshot["conditions"]["quality_constraints"] = {"valid": 1, "invalid": object()}
+    prepared = conditions.PreparedComparison(snapshot)
+    with pytest.raises(ValueError, match="comparison purpose"):
+        prepared.profile(purpose="invalid")
+    for _ in range(2):
+        with pytest.raises(TypeError, match="not JSON serializable"):
+            prepared.profile()
+
+
+def test_resource_and_runtime_thread_checks_still_follow_each_case(multi_case_sources):
+    fixture = multi_case_sources(2)
+    snapshot = load_comparison_snapshot(fixture.left)
+    snapshot["hardware"]["runtime_threads"] = {"1c_4g_off": 1, "2c_4g_off": 2}
+    prepared = conditions.PreparedComparison(snapshot)
+    for cpu in ("1", "2"):
+        for purpose in conditions.PURPOSES:
+            profile = prepared.profile(purpose=purpose, case=(cpu, "4", "off", "2"))
+            assert profile["checks"]["resources.cpus"] == {
+                "value": hashlib.sha256(json.dumps(cpu).encode()).hexdigest(),
+                "difference": "expected_difference" if purpose == "resource-scaling" else "incompatible"}
+            thread_key = "runtime_threads.off" if purpose == "resource-scaling" else f"runtime_threads.{cpu}c_4g_off"
+            encoded = f"[{cpu}]" if purpose == "resource-scaling" else cpu
+            assert profile["checks"][thread_key] == {
+                "value": hashlib.sha256(encoded.encode()).hexdigest(), "difference": "incompatible"}

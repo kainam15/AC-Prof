@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from collections import defaultdict
+from collections.abc import Iterator
 from fractions import Fraction
 
 PURPOSES = ("same-hardware", "cross-hardware", "resource-scaling")
@@ -46,6 +47,14 @@ def dimensions(contract, prefix=""):
         else:
             result[name] = value
     return result
+
+
+def _check_tokens(name: str, value) -> Iterator[tuple[str, str | None]]:
+    if isinstance(value, dict) and value:
+        for key, item in value.items():
+            yield from _check_tokens(f"{name}.{key}", item)
+    else:
+        yield name, None if unknown(value) else digest(value)
 
 
 def workload_case_profile(case):
@@ -105,6 +114,7 @@ class PreparedComparison:
         self._input_groups: dict[float, list[dict]] | None = None
         self._input_digests: dict[float, str | None] = {}
         self._workload_profiles: dict[str, dict] = {}
+        self._fixed_checks: dict[str, tuple[tuple[str, str | None], ...]] = {}
 
     def _planned_inputs(self, scale):
         entries = self._snapshot.get("planned_input_entries")
@@ -182,18 +192,22 @@ class PreparedComparison:
         checks = {}
 
         def add(name, value, difference="incompatible"):
-            if isinstance(value, dict) and value:
-                for key, item in value.items():
-                    add(f"{name}.{key}", item, difference)
-            else:
-                checks[name] = {"value": None if unknown(value) else digest(value), "difference": difference}
+            for key, token in _check_tokens(name, value):
+                checks[key] = {"value": token, "difference": difference}
 
         for name, value in conditions.items():
             if name == "resources" and purpose == "resource-scaling":
                 for key, item in value.items():
                     add(f"resources.{key}", item, "expected_difference" if key in {"cpus", "mems"} else "incompatible")
-            else:
+            elif name in {"resources", "planned_inputs", "runtime_threads"}:
                 add(name, value)
+            else:
+                # These source conditions are unchanged by case or purpose.
+                # Retain immutable tokens and give every profile its own checks.
+                if name not in self._fixed_checks:
+                    self._fixed_checks[name] = tuple(_check_tokens(name, value))
+                for key, token in self._fixed_checks[name]:
+                    checks[key] = {"value": token, "difference": "incompatible"}
         for name, value in hardware.items():
             if purpose == "cross-hardware" and name != "runtime_threads":
                 # Whole maps are allowed to differ, but every recorded leaf must exist.
