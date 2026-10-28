@@ -82,7 +82,11 @@ def missing_reason(field: str, row: dict, metadata: dict, *, environment_class: 
 
 def _formula_checks(row: dict) -> dict[str, float]:
     """仅检查可由同一行确定的关系，不重建 RAPL 分段归因或补猜缺失来源。"""
-    values = {name: number(value) for name, value in row.items()}
+    values = {name: number(row[name]) for name in (
+        "vcpu_energy_eff_j", "gpu_energy_eff_j", "packet_request_wire_bytes_per_request",
+        "packet_response_wire_bytes_per_request", "packet_total_wire_bytes_per_request",
+        "packet_tcp_payload_bytes_per_request",
+    ) if name in row}
     expected = {}
     cpu = values.get("vcpu_energy_eff_j")
     gpu = values.get("gpu_energy_eff_j") if row.get("gpu_mode") == "on" else 0.0

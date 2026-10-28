@@ -8,7 +8,7 @@ from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 
-from acprof.analysis.audit import audit_result, number
+from acprof.analysis.audit import MISSING, audit_result, number
 from acprof.analysis.conditions import (
     ALLOWED_RESOURCE_DIMENSIONS,
     PURPOSES,
@@ -157,6 +157,14 @@ def _workload_condition(left, right):
                        "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
 
 
+def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
+    """Recognize existing missing tokens before parsing numeric observations."""
+    return {name: any((value := row.get(name)) is not None
+                     and (type(value) is not str or value not in MISSING)
+                     and number(value) is not None for row in rows)
+            for name, metric in METRICS.items() if metric.kind == "number"}
+
+
 def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
                              verify_result_snapshot: bool = True) -> dict:
     """Share parsed input while its outer owner retains the final content check."""
@@ -267,9 +275,7 @@ def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSn
     measured_rows = [row for row in rows if row.get("status") == "ok" and measurement_key(row)[4] == "0"]
     return {
         **recorded_identity(metadata),
-        "metric_availability": {name: any(number(row.get(name)) is not None
-                                           for row in measured_rows)
-                                for name, metric in METRICS.items() if metric.kind == "number"},
+        "metric_availability": _metric_availability(measured_rows),
         "run_id": state.get("run_id"), "result_csv": audit["result_csv"],
         "run_status": audit["run_status"], "measurement_status": audit["measurement_status"],
         "missing_metrics": audit["missing_metrics"],
