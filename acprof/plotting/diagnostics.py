@@ -17,7 +17,6 @@ from acprof.plotting.config import (
     FEASIBILITY_TEXT_COLORS,
 )
 from acprof.plotting.data import (
-    is_gpu_off,
     is_gpu_on,
     make_config_labels,
 )
@@ -137,9 +136,6 @@ def plot_resource_feasibility_heatmap(
         return False
 
     summary = summarize_resource_feasibility(df)
-    summary = summary[
-        summary["gpu_mode"].map(lambda value: is_gpu_on(value) or is_gpu_off(value))
-    ].copy()
     if summary.empty:
         print("[skip] No resource feasibility data")
         return False
@@ -156,6 +152,14 @@ def plot_resource_feasibility_heatmap(
         print("[skip] Incomplete resource feasibility dimensions")
         return False
 
+    cell_states: dict[tuple[float, bool, float, float], str] = {}
+    for row in summary.dropna(subset=["cpu_cores", "mem_cap_gb", "input_scale"]).itertuples(index=False):
+        # Keep the first summary row if GPU mode aliases share a cell.
+        cell_states.setdefault(
+            (row.cpu_cores, row.gpu_on, row.mem_cap_gb, float(row.input_scale)),
+            str(row.state),
+        )
+
     cmap = ListedColormap([spec[2] for spec in FEASIBILITY_STATE_SPECS])
     fig, axes = plt.subplots(
         len(cpu_values),
@@ -167,10 +171,6 @@ def plot_resource_feasibility_heatmap(
     for row_index, cpu in enumerate(cpu_values):
         for column_index, gpu_on in enumerate(mode_values):
             axis = axes[row_index, column_index]
-            panel_df = summary[
-                (summary["cpu_cores"] == cpu)
-                & (summary["gpu_on"] == gpu_on)
-            ]
             matrix = np.full(
                 (len(mem_values), len(scale_values)),
                 FEASIBILITY_STATE_INDEX["unknown"],
@@ -178,11 +178,7 @@ def plot_resource_feasibility_heatmap(
             )
             for mem_index, mem in enumerate(mem_values):
                 for scale_index, input_scale in enumerate(scale_values):
-                    cell = panel_df[
-                        (panel_df["mem_cap_gb"] == mem)
-                        & (panel_df["input_scale"] == input_scale)
-                    ]
-                    state = "unknown" if cell.empty else str(cell.iloc[0]["state"])
+                    state = cell_states.get((cpu, gpu_on, mem, input_scale), "unknown")
                     if state == "unknown":
                         used_states.add(state)
                     matrix[mem_index, scale_index] = FEASIBILITY_STATE_INDEX[state]
