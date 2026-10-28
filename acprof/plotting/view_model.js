@@ -111,17 +111,27 @@ window.ACProfViews = (() => {
     if (directions.includes("neutral")) return [];
     const eligible = configs.filter(c => c.status === "ok" && c.auto_selection_eligible === true &&
       qualification(c, baseline, purpose).status === "compatible" && finite(value(c, xMetric)) && finite(value(c, yMetric)));
-    const objectives = config => [xMetric, yMetric].map((metric, i) =>
-      value(config, metric) * (directions[i] === "higher" ? -1 : 1));
-    // Equal points both survive. Missing and unsuccessful observations cannot dominate.
-    return eligible.filter(candidate => {
-      const a = objectives(candidate);
-      return !eligible.some(other => {
-        if (cohort(candidate, purpose) !== cohort(other, purpose)) return false;
-        const b = objectives(other);
-        return b[0] <= a[0] && b[1] <= a[1] && (b[0] < a[0] || b[1] < a[1]);
-      });
-    }).map(c => c.config_id);
+    const groups = new Map(), frontier = new Set();
+    const xSign = directions[0] === "higher" ? -1 : 1, ySign = directions[1] === "higher" ? -1 : 1;
+    for (const config of eligible) {
+      const group = cohort(config, purpose);
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push({config, x:value(config, xMetric) * xSign, y:value(config, yMetric) * ySign});
+    }
+    for (const points of groups.values()) {
+      points.sort((a, b) => a.x - b.x || a.y - b.y);
+      let bestX = null, bestY = Infinity;
+      for (const point of points) {
+        // After lexicographic sorting, only a new minimum y or an exact
+        // frontier tie survives. An equal y at a larger x is dominated.
+        if (point.y < bestY || (point.x === bestX && point.y === bestY)) {
+          bestX = point.x; bestY = point.y;
+          frontier.add(point.config);
+        }
+      }
+    }
+    // Preserve the caller's order and every tied configuration without sorting its input.
+    return eligible.filter(config => frontier.has(config)).map(config => config.config_id);
   }
   function scaling(configs, axis, metric) {
     const facets = new Map();

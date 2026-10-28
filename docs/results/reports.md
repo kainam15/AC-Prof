@@ -95,6 +95,8 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
   点大小可映射第三指标，runtime/device 由颜色及形状区分。frontier 只比较当前用途下条件已核验
   且质量允许优选的成功配置；选择 baseline 后还需与之可比。缺失坐标和 partial/failed 不参与支配判断，重复最优点全部保留。
   neutral 轴只画 scatter，不自动指定优化方向。筛选变化后重新计算 frontier。
+  二维 frontier 在各比较组内排序扫描，最坏时间复杂度为 O(N log N)，避免逐对比较。
+  使用原始数值的精确大小关系，保留配置输入顺序及所有并列点，不引入近似容差。
 - **Scaling**：CPU cores、memory、concurrency 可作资源轴，其他指标作 Y 轴；按 model/runtime、
   环境和输入条件分面。每条线固定其他资源、device、GPU 和 run，空值处断线；不跨配置条件连线。
   历史 CSV 没有 concurrency 时明确显示缺少该资源轴，不推断为 1。
@@ -109,7 +111,7 @@ HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置�
 实现直接复用 [Plotly](https://github.com/plotly/plotly.py) 的图形与离线 bundle，参考
 [HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py) 和
 [renderer 设计讨论 #1459](https://github.com/plotly/plotly.py/issues/1459)；Pareto 借鉴
-[Optuna 的方向归一化与非支配判断](https://github.com/optuna/optuna/blob/master/optuna/study/_multi_objective.py)
+[Optuna 的方向归一化、二维排序扫描与非支配判断](https://github.com/optuna/optuna/blob/master/optuna/study/_multi_objective.py)
 及[可行性可视化讨论 #2397](https://github.com/optuna/optuna/issues/2397)，没有复制优化器或引入 Optuna。
 两者使用 MIT；Plotly/Optuna 的公开仓库仍在维护。主机锁固定 Plotly 7.1.0（支持本项目 Python 3.12+），
 增加 Plotly 和 narwhals，复用已有 packaging；无 Web 服务、前端构建链或优化框架依赖。

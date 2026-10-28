@@ -149,6 +149,7 @@ class TestReportBrowser:
             metrics:{x:{value:x}, y:{value:y}}, ...extra});
           const rows = [make('a', 10, 4), make('b', 20, 5), make('c', 15, 6), make('tie', 20, 5),
             make('missing', null, 0), make('failure', 100, 0, {status:'failed'}),
+            make('nan', NaN, 0), make('inf', Infinity, 0), make('negative-inf', 100, -Infinity),
             make('bad-output',100,0,{auto_selection_eligible:false}),
             make('legacy',100,0,{auto_selection_eligible:undefined}),
             make('other', 100, 0, {comparison_profiles:{}})];
@@ -164,6 +165,110 @@ class TestReportBrowser:
         assert (result["lower"]) == (1)
         assert (result["higher"]) == (1)
         assert (result["logZero"]) is None
+
+    @pytest.mark.parametrize("x_direction", ["lower", "higher"])
+    @pytest.mark.parametrize("y_direction", ["lower", "higher"])
+    def test_pareto_matches_independent_oracle_for_ties_cohorts_and_baselines(self, x_direction, y_direction):
+        import math
+        import random
+
+        rng = random.Random(2731)
+        values = [-1e308, -1, -5e-324, -0.0, 0.0, 5e-324, 1, math.nextafter(1, 2), 1e308, None, True, "1"]
+
+        def row(index, x, y, **changes):
+            return {"config_id": str(index), "x": x, "y": y, "group": "alpha", "status": "ok",
+                    "auto_selection_eligible": True, "evidence": "known", **changes}
+
+        datasets = [[], [row(0, 0, 0)],
+                    [row(index, x, y) for index, (x, y) in enumerate(
+                        [(2, 3), (1, 3), (2, 1), (2, 1), (1, 4), (1, 3), (3, 1)])],
+                    [row(index, 0, 0) for index in range(30)],
+                    [row(index, rng.choice(values), rng.choice(values), group=rng.choice(["alpha", "beta"]),
+                         status=rng.choice(["ok", "ok", "partial", "failed"]),
+                         auto_selection_eligible=rng.choice([True, True, False, None]),
+                         evidence=rng.choice(["known", "known", "unknown", "invalid"])) for index in range(100)],
+                    [row(index, x, y) for index, (x, y) in enumerate(
+                        (x, y) for x in values[:9] for y in values[:9])]]
+        cases, expected = [], []
+        signs = (1 if x_direction == "lower" else -1, 1 if y_direction == "lower" else -1)
+
+        def finite(value):
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+        for purpose in ("same-hardware", "resource-scaling", "cross-hardware"):
+            for baseline in (None, row("baseline", 0, 0), row("baseline", 0, 0, evidence="unknown")):
+                for rows in datasets:
+                    eligible = [item for item in rows if item["status"] == "ok"
+                                and item["auto_selection_eligible"] is True and item["evidence"] == "known"
+                                and finite(item["x"]) and finite(item["y"])
+                                and (baseline is None or baseline["evidence"] == "known"
+                                     and item["group"] == baseline["group"])]
+                    front = []
+                    for candidate in eligible:
+                        a = (candidate["x"] * signs[0], candidate["y"] * signs[1])
+                        dominated = any(other["group"] == candidate["group"]
+                                        and other["x"] * signs[0] <= a[0] and other["y"] * signs[1] <= a[1]
+                                        and (other["x"] * signs[0] < a[0] or other["y"] * signs[1] < a[1])
+                                        for other in eligible)
+                        if not dominated:
+                            front.append(candidate["config_id"])
+                    expected.append(front)
+                    cases.append({"rows": rows, "purpose": purpose, "baseline": baseline})
+
+        actual = self.page.evaluate("""({cases, xDirection, yDirection}) => {
+          const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
+          const registry = {x:{direction:xDirection}, y:{direction:yDirection}};
+          const freeze = item => {
+            if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); }
+            return item;
+          };
+          return cases.map(({rows, purpose, baseline}) => {
+            const make = row => {
+              const profile = structuredClone(profiles[purpose]);
+              profile.cohort = row.group;
+              profile.checks.comparability_class.value = row.evidence === 'unknown' ? null : row.group;
+              profile.valid = row.evidence !== 'invalid';
+              return {...row, comparison_profiles:{[purpose]:profile}, metrics:{x:{value:row.x},y:{value:row.y}}};
+            };
+            return ACProfViews.pareto(freeze(rows.map(make)), 'x', 'y', registry, purpose,
+              baseline && freeze(make(baseline)));
+          });
+        }""", {"cases": cases, "xDirection": x_direction, "yDirection": y_direction})
+        assert actual == expected
+
+    def test_large_pareto_frontier_does_not_reread_observations_quadratically(self):
+        result = self.page.evaluate("""() => {
+          const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
+          let reads = 0;
+          const rows = Array.from({length:512}, (_,i) => ({config_id:String(i), status:'ok',
+            auto_selection_eligible:true, comparison_profiles:profiles,
+            metrics:{get x(){reads++;return {value:i}},get y(){reads++;return {value:512-i}}}}));
+          const front = ACProfViews.pareto(rows, 'x', 'y', {x:{direction:'lower'}, y:{direction:'lower'}});
+          return {reads,front};
+        }""")
+        assert result["front"] == [str(index) for index in range(512)]
+        # Generous per-observation work bound, independent of browser timings or
+        # the exact sorting implementation; all points here are non-dominated.
+        assert result["reads"] < 32 * 512
+
+    def test_pareto_frontier_recomputes_after_resource_filters(self):
+        self.page.click("[data-view=pareto]")
+        self.settled()
+
+        def coordinates():
+            return self.page.evaluate("""() => {
+              const front = document.getElementById('pareto-chart').data.find(t => t.name === 'Pareto frontier');
+              return front.x.map((x, i) => [x, front.y[i]]).sort((a,b) => a[0]-b[0]);
+            }""")
+
+        # The CSV energy columns already store J/request, not a window total.
+        assert coordinates() == [[.03, 5], [.09, 4]]
+        self.page.select_option("#filter-memory", "4")
+        self.settled()
+        assert coordinates() == [[.04, 5], [.1, 4]]
+        self.page.select_option("#filter-cpu", "8")
+        self.settled()
+        assert coordinates() == [[.08, 6]]
 
     def test_zero_baseline_and_environment_isolation(self):
         result = self.page.evaluate("""() => {
