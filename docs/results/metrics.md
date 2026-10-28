@@ -49,6 +49,11 @@ Runtime 身份、实际限制来源、GPU 整卡范围及缺失状态见 [Runtim
 `resources.csv`、`energy.csv`、`network.csv`，以及 `profiling/` 下的四个 profiler CSV。
 CSV 从完整表头开始，每个窗口结束后追加对应模块。未运行的 profiler 只有表头，没有数据行。
 
+读取逻辑宽表时，没有 profiler 记录的字段补为 `nan`，包括错误文本列。
+错误列中的空白、`nan`、`none`、`null`、`n/a` 表示没有错误文字（忽略大小写及首尾空白），
+不能据此判为采集失败，也不能据此认定采集成功；完成仍要求该工具的全部必要指标为有限数值。
+其他非空诊断仍按错误处理，包括含有这些词的完整错误消息；读取不会改写原始 CSV。
+
 - 每个分层文件共享资源/计划键 `cpu_cores`、`mem_cap_gb`、`gpu_mode`、`input_scale`、`warmup`、`repeat_idx`，并共享 `runtime_kind` 与 `run_id/case_id/case_attempt_id/window_id`。基础层与 summary 一一对应，profiler 只输出实际采集记录。
 - 除身份字段外，每个指标只有一个所属层，分类从 `metric_registry.py` 的来源及 tool 声明派生；未知历史扩展列归入 summary，不会丢弃。
 - schema v3 清单记录统一提交序号、模块路径、字段、行数、已提交字节偏移及 SHA256。`acprof results verify <目录>` 检查已提交前缀、字段归属与关联键；不会把未提交尾部当成测量。历史 schema v1/v2 仍可读取，不自动转换已有结果。

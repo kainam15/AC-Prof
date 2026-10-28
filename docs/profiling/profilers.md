@@ -104,6 +104,9 @@ NCU 和 Massif 会按 input scale 保存 checkpoint。NCU 可复用匹配的 CSV
 NCU metrics（适用时）必须匹配，才能恢复旧报告。分析固定使用不可变镜像 ID，
 旧 tag 形式的 Massif checkpoint 与新 ID 不匹配时会重采。完整成功的已有 plan 也可复用。
 默认保留已有成功 CSV 值；`--force-reprofile` 强制重新采集并替换所选 profiler 字段。
+CSV 错误列的[缺失标记](../results/metrics.md#分层结果-csv唯一正式结果)不计为失败：
+指标不完整时显示“尚未采集”或“部分完成”，全部必要指标有效且没有真实错误时保留已有值。
+这一缺失标记规则只用于 CSV；JSON profiler plan 中的非空错误字符串仍会阻止 plan 复用。
 
 写入前把受影响文件备份到 `.acprof/recovery/posthoc_backups/<timestamp>/`，验证暂存结果后，
 历史分层 schema v1/v2 发布为新的不可变 generation，最后切换 `result_layers.json`；元数据按事务发布，

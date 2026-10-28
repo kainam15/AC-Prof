@@ -8,7 +8,7 @@ from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 
-from acprof.analysis.audit import MISSING, audit_result, number
+from acprof.analysis.audit import audit_result, number
 from acprof.analysis.conditions import (
     ALLOWED_RESOURCE_DIMENSIONS,
     PURPOSES,
@@ -22,7 +22,12 @@ from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import ResultCsvSnapshot, measurement_key, read_result_csv_snapshot
+from acprof.result_csv import (
+    MISSING_CSV_TEXT,
+    ResultCsvSnapshot,
+    measurement_key,
+    read_result_csv_snapshot,
+)
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -160,7 +165,7 @@ def _workload_condition(left, right):
 def _metric_availability(rows: list[dict[str, str]]) -> dict[str, bool]:
     """Recognize existing missing tokens before parsing numeric observations."""
     return {name: any((value := row.get(name)) is not None
-                     and (type(value) is not str or value not in MISSING)
+                     and (type(value) is not str or value not in MISSING_CSV_TEXT)
                      and number(value) is not None for row in rows)
             for name, metric in METRICS.items() if metric.kind == "number"}
 

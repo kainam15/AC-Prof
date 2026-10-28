@@ -19,7 +19,7 @@ from acprof.host.posthoc.context import (
     TOOL_GPU_MODES,
     load_result_context,
 )
-from acprof.result_csv import ResultCsvSnapshot
+from acprof.result_csv import ResultCsvSnapshot, csv_diagnostic_text
 
 ToolState = Literal["complete", "partial", "failed", "missing", "inapplicable"]
 
@@ -87,7 +87,7 @@ def inspect_profile_result(source: Path, *, result_snapshot: ResultCsvSnapshot |
                 continue
             totals[tool] += 1
             completed[tool] += row_tool_complete(row, tool)
-            errors[tool] += bool(str(row.get(TOOL_ERROR_FIELD[tool]) or "").strip())
+            errors[tool] += bool(csv_diagnostic_text(row.get(TOOL_ERROR_FIELD[tool])))
     statuses: list[ProfilerStatus] = []
     for tool in SUPPORTED_TOOLS:
         state: ToolState = (

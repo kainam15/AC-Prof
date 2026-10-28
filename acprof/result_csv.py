@@ -21,8 +21,19 @@ from acprof.metric_registry import order_csv_fields
 
 KEY_FIELDS = ("cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", "warmup", "repeat_idx")
 MeasurementKey = tuple[str, ...]
+MISSING_CSV_TEXT = frozenset({"", "nan", "none", "null", "n/a"})
 # Python 3.12 accepts a C long; later versions accept a Py_ssize_t.
 _CSV_FIELD_LIMIT = min(sys.maxsize, (1 << (8 * struct.calcsize("l") - 1)) - 1)
+
+
+def csv_diagnostic_text(value: object) -> str:
+    """Read a CSV diagnostic without treating a missing marker as an error.
+
+    Match whole tokens only, preserving actual diagnostic text. JSON profiler
+    plans have their own error contract and must not use CSV missing markers.
+    """
+    text = "" if value is None else str(value).strip()
+    return "" if text.lower() in MISSING_CSV_TEXT else text
 
 
 @dataclass(frozen=True)

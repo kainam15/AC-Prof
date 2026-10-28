@@ -17,15 +17,15 @@ from acprof.metric_registry import METRICS, NUMERIC_FIELDS
 from acprof.platform import native_only_metric, recorded_identity
 from acprof.quality import read_quality, summarize_quality
 from acprof.result_csv import (
+    MISSING_CSV_TEXT,
     ResultCsvSnapshot,
+    csv_diagnostic_text,
     expected_measurements,
     measurement_key,
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
     validate_result_rows,
 )
-
-MISSING = {"", "nan", "none", "null", "n/a"}
 
 
 def number(value):
@@ -96,8 +96,8 @@ class MissingReasons:
             if metric.tool:
                 if metric.tool not in tool_reasons:
                     suffix = "torch_profiler_eager" if metric.tool == "torch" else metric.tool
-                    error = str(row.get(f"compute_profile_error_{suffix}", "")).strip()
-                    tool_reasons[metric.tool] = ("profiler_reported_error" if error.lower() not in MISSING else
+                    error = csv_diagnostic_text(row.get(f"compute_profile_error_{suffix}"))
+                    tool_reasons[metric.tool] = ("profiler_reported_error" if error else
                                                "tool_not_enabled" if not self._tool_enabled(metric.tool) else None)
                 tool_reason = tool_reasons[metric.tool]
                 if tool_reason is not None:
@@ -136,7 +136,7 @@ def _formula_checks(row: dict) -> dict[str, float]:
 
 def _check_workload_counts(row: dict) -> None:
     raw = row.get("workload_contract", "")
-    if str(raw).strip().lower() in MISSING:
+    if str(raw).strip().lower() in MISSING_CSV_TEXT:
         return
     summary = json.loads(raw)
     if not isinstance(summary, dict) or summary.get("schema_version") != 1:
@@ -276,7 +276,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
     report["unknown_columns"] = [name for name in fields if name not in METRICS]
     report["missing_columns"] = [name for name in METRICS if name not in fields]
     expected_hash = metadata.get("input_scale_plan_sha256")
-    if expected_hash and str(expected_hash).lower() not in MISSING:
+    if expected_hash and str(expected_hash).lower() not in MISSING_CSV_TEXT:
         try:
             plan = layout.path("input_scale_plan.json")
             if not plan.is_file() or hashlib.sha256(plan.read_bytes()).hexdigest() != expected_hash:
@@ -345,9 +345,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
                     and number(row.get(field)) is not None):
                 issue("unsupported_wsl_metric", f"WSL2 不允许记录 Native 专属指标 {field}", row=index, field=field)
             raw = str(row.get(field, "nan")).strip().lower()
-            if raw not in MISSING and number(raw) is None:
+            if raw not in MISSING_CSV_TEXT and number(raw) is None:
                 issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
-            elif formal and raw in MISSING:
+            elif formal and raw in MISSING_CSV_TEXT:
                 if reason_for_row is None:
                     reason_for_row = missing_reasons.for_row(row)
                 reason = reason_for_row(field)

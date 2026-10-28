@@ -46,10 +46,11 @@ from acprof.host.profiling.execution_plan import (
     ExecutionProfileResolver,
 )
 from acprof.metric_registry import order_csv_fields
+from acprof.result_csv import csv_diagnostic_text
 
 
 def row_tool_complete(row: Mapping[str, Any], tool: str) -> bool:
-    error = str(row.get(TOOL_ERROR_FIELD[tool]) or "").strip()
+    error = csv_diagnostic_text(row.get(TOOL_ERROR_FIELD[tool]))
     return not error and all(
         math.isfinite(_finite_float(row.get(field)))
         for field in TOOL_METRIC_FIELDS[tool]

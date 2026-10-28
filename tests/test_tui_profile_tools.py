@@ -1,14 +1,79 @@
+import asyncio
 from unittest.mock import patch
 
 import pytest
 from rich.cells import cell_len
-from textual.widgets import Button, Checkbox, Collapsible, Input, Select
+from test_layer_read_cancellation import source_hashes
+from test_profile_overview_snapshot import profile_store
+from textual.widgets import Button, Checkbox, Collapsible, Input, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.tui.profile_screen import ProfilerChoiceScreen
 from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
+from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
 from acprof.tui.views import ConfirmActionScreen
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_real_summary_missing_profiler_records_show_uncollected_choices(tmp_path, language):
+    root = tmp_path / "experiment"
+    profile_store(root, 3)
+    before = source_hashes(root)
+    settings = tmp_path / "settings.json"
+    save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
+    app = AcprofTui(settings_path=settings)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.activate_tab("plot-tab")
+        app.query_one("#result-csv", Input).value = str(root)
+        await pilot.pause()
+        summarize = app.query_one("#summarize-results", Button)
+        summarize.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(summarize)
+        await asyncio.wait_for(app.workers.wait_for_complete(), timeout=3)
+        await pilot.pause()
+        assert not app.read_jobs
+        assert app.profiles.overview is not None
+
+        title = app.query_one("#profile-section CollapsibleTitle")
+        title.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(title)
+        await pilot.pause()
+        choice = app.query_one("#open-result-profiling", Button)
+        choice.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(choice)
+        await pilot.pause()
+        assert isinstance(app.screen, ProfilerChoiceScreen)
+        assert app.screen.query_one("#profile-tool-torch", Checkbox).disabled
+        assert app.screen.selected_tools() == ("ncu",)
+        for tool in ("ncu", "nsys", "massif"):
+            box = app.screen.query_one(f"#profile-tool-{tool}", Checkbox)
+            box.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert not box.disabled
+            assert box.parent is not None
+            status_text = str(box.parent.query(Static).last().content)
+            assert status_text == ("尚未采集" if language == "zh" else "Not collected")
+            assert 0 <= box.region.x < box.region.right <= 80
+            assert 0 <= box.region.y < box.region.bottom <= 24
+
+        nsys = app.screen.query_one("#profile-tool-nsys", Checkbox)
+        nsys.scroll_visible(animate=False, immediate=True)
+        nsys.focus()
+        await pilot.press("space")
+        await pilot.pause()
+        assert app.screen.selected_tools() == ("ncu", "nsys")
+        app.logs.flush()
+        app.save_screenshot(path=str(tmp_path), filename=f"profile-missing-{language}.svg")
+        with patch.object(app, "launch") as launch:
+            await pilot.press("escape")
+            await pilot.pause()
+            launch.assert_not_called()
+        assert not isinstance(app.screen, ProfilerChoiceScreen)
+    assert source_hashes(root) == before
 
 
 class TestTuiProfileTools:

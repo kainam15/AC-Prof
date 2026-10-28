@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from acprof.analysis.audit import MISSING
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
@@ -22,6 +21,7 @@ from acprof.metric_registry import ANALYSIS_METRICS, VIEW_METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS, read_quality
 from acprof.result_csv import (
+    MISSING_CSV_TEXT,
     measurement_key,
     read_result_csv_snapshot,
     verify_result_source,
@@ -95,7 +95,7 @@ def _identity(row, meta, run_id, batch):
 
 
 def _values(row, device, numeric_fields):
-    values = {name: None if type(value := row[name]) is str and value in MISSING else number(value)
+    values = {name: None if type(value := row[name]) is str and value in MISSING_CSV_TEXT else number(value)
               for name in numeric_fields if name in row}
     cpu, gpu, count = (values.get(name) for name in
                       ("cpu_energy_total_j", "gpu_energy_total_j", "repeat_in_window"))
