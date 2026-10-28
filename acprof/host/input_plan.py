@@ -40,7 +40,7 @@ def _parse_float_list(s: str) -> list[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 
-def _format_scale_value(scale: float) -> str:
+def format_scale_value(scale: float) -> str:
     value = float(scale)
     if value.is_integer():
         return str(int(value))
@@ -49,7 +49,7 @@ def _format_scale_value(scale: float) -> str:
 
 
 def serialize_input_scales(scales: list[float]) -> str:
-    return ",".join(_format_scale_value(scale) for scale in scales)
+    return ",".join(format_scale_value(scale) for scale in scales)
 
 
 def resolve_input_scales(task_family: str, input_scales: str | None = None) -> list[float]:
@@ -131,7 +131,7 @@ def _materialize_scale_plan(
             raise RuntimeError(
                 f"workload generator returned a non-object payload for "
                 f"task_family={task_info.task_family}, "
-                f"input_scale={_format_scale_value(requested_scale)}"
+                f"input_scale={format_scale_value(requested_scale)}"
             )
 
         effective_scale = workload_gen.effective_input_scale(
@@ -142,7 +142,7 @@ def _materialize_scale_plan(
             raise RuntimeError(
                 f"cannot determine effective input scale for "
                 f"task_family={task_info.task_family}, "
-                f"input_scale={_format_scale_value(requested_scale)}"
+                f"input_scale={format_scale_value(requested_scale)}"
             )
 
         actual_scale = float(effective_scale)
@@ -150,8 +150,8 @@ def _materialize_scale_plan(
             raise RuntimeError(
                 f"input scale plan is not strictly increasing for "
                 f"task_family={task_info.task_family}: "
-                f"{_format_scale_value(effective_scales[-1])}, "
-                f"{_format_scale_value(actual_scale)}"
+                f"{format_scale_value(effective_scales[-1])}, "
+                f"{format_scale_value(actual_scale)}"
             )
 
         effective_scales.append(actual_scale)
@@ -163,7 +163,7 @@ def _materialize_scale_plan(
                 if not isinstance(candidate_metadata, dict):
                     raise RuntimeError(
                         "workload generator returned non-object input metadata "
-                        f"for input_scale={_format_scale_value(actual_scale)}"
+                        f"for input_scale={format_scale_value(actual_scale)}"
                     )
                 input_metadata = candidate_metadata
 
@@ -482,12 +482,12 @@ def _plan_manual_nlp_scales(
             result = _post_probe_payload(
                 session,
                 payload,
-                f"manual scale {_format_scale_value(scale)}",
+                f"manual scale {format_scale_value(scale)}",
             )
             if _probe_exceeds_limit(result):
                 invalid[scale] = (
                     f"{result['reason']}; effective_input_scale="
-                    f"{_format_scale_value(result['effective_input_scale'])}"
+                    f"{format_scale_value(result['effective_input_scale'])}"
                 )
                 continue
 
@@ -502,7 +502,7 @@ def _plan_manual_nlp_scales(
 
         if invalid:
             details = ", ".join(
-                f"{_format_scale_value(scale)} ({reason})" for scale, reason in invalid.items()
+                f"{format_scale_value(scale)} ({reason})" for scale, reason in invalid.items()
             )
             raise RuntimeError(f"manual NLP input scales exceed the usable tokenizer limit: {details}")
     finally:
@@ -626,9 +626,9 @@ def _plan_nlp_auto_scales(
             if actual_scale <= previous_scale:
                 raise RuntimeError(
                     "failed to derive 6 strictly increasing NLP input scales: "
-                    f"target={_format_scale_value(target_scale)} produced "
-                    f"{_format_scale_value(actual_scale)} after "
-                    f"{_format_scale_value(previous_scale)}"
+                    f"target={format_scale_value(target_scale)} produced "
+                    f"{format_scale_value(actual_scale)} after "
+                    f"{format_scale_value(previous_scale)}"
                 )
             previous_scale = actual_scale
             actual_scales.append(actual_scale)
@@ -742,7 +742,7 @@ def _plan_audio_scales(
             if invalid:
                 raise RuntimeError(
                     "audio input scales exceed the model short-form limit "
-                    f"of {_format_scale_value(float(max_short))} seconds: "
+                    f"of {format_scale_value(float(max_short))} seconds: "
                     f"{serialize_input_scales(invalid)}. Use a separate long-form workload."
                 )
 
@@ -750,12 +750,12 @@ def _plan_audio_scales(
             result = _post_probe_payload(
                 session,
                 payload,
-                f"audio scale {_format_scale_value(scale)}s",
+                f"audio scale {format_scale_value(scale)}s",
             )
             if _probe_exceeds_limit(result):
                 raise RuntimeError(
                     "audio input scale is not valid for short-form inference: "
-                    f"{_format_scale_value(scale)}s ({result['reason']})"
+                    f"{format_scale_value(scale)}s ({result['reason']})"
                 )
             if not math.isclose(
                 float(result["effective_input_scale"]),

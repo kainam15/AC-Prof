@@ -19,7 +19,7 @@ from acprof.config import CSV_FIELDS
 from acprof.host import client
 from acprof.host.client import ClientRunner
 from acprof.host.measurement.config import ClientConfig
-from acprof.host.orchestrator import _write_case_error_csv
+from acprof.host.measurement.error_rows import write_case_error_csv
 from acprof.packet import merge_packet_latency
 from acprof.pixel_metrics import pixel_counts_from_metadata
 
@@ -284,7 +284,7 @@ class TestPixelNormalization:
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
                 writer.writerow(original)
-            preserved, added = _write_case_error_csv(
+            preserved, added = write_case_error_csv(
                 task_info=SimpleNamespace(task_family="diffusion"), out_csv=str(path),
                 cpu=1, mem=4, gpu="off", warmup=0, repeat=1, repeat_in_window=1,
                 input_scales="128,256", error="request failed", preserve_existing=True)
@@ -309,7 +309,7 @@ class TestPixelNormalization:
 
             with patch("csv.DictWriter.writerows", side_effect=OSError("injected disk failure")):
                 with pytest.raises(OSError, match="injected disk failure"):
-                    _write_case_error_csv(
+                    write_case_error_csv(
                         task_info=SimpleNamespace(task_family="diffusion"), out_csv=str(path),
                         cpu=1, mem=4, gpu="off", warmup=0, repeat=1, repeat_in_window=1,
                         input_scales="128,256", error="request failed", preserve_existing=True)

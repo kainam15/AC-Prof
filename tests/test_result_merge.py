@@ -69,12 +69,12 @@ class TestResultMerge:
     def test_fractional_error_row_preserves_plan_scale(self):
         from acprof.host.detect import TaskInfo
         from acprof.host.input_plan import serialize_input_scales
-        from acprof.host.orchestrator import _write_case_error_csv
+        from acprof.host.measurement.error_rows import write_case_error_csv
         scale = 30 / 224
         serialized = serialize_input_scales([scale])
         assert (float(serialized)) == (scale)
         path = self.directory / 'error.csv'
-        _write_case_error_csv(task_info=TaskInfo('org/model', 'image-classification', 'cv',
+        write_case_error_csv(task_info=TaskInfo('org/model', 'image-classification', 'cv',
                                                 'transformers_pipeline', 'transformers', 'a' * 40, 'manual'),
                               out_csv=str(path), cpu=1, mem=4, gpu='off', warmup=0, repeat=1,
                               repeat_in_window=1, input_scales=serialized, error='injected startup failure')

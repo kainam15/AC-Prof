@@ -7,8 +7,8 @@ import pytest
 
 from acprof.artifact_layout import ArtifactLayout, case_sidecar
 from acprof.config import CSV_FIELDS
-from acprof.host import orchestrator
 from acprof.host.detect import TaskInfo
+from acprof.host.measurement import error_rows
 from acprof.packet.merge_packet_latency import main as merge_packet_latency
 
 
@@ -35,7 +35,7 @@ def partial_case(tmp_path, request):
 
 
 def complete_error_case(csv_path, error):
-    return orchestrator._write_case_error_csv(
+    return error_rows.write_case_error_csv(
         task_info=TaskInfo("org/model", "text-generation", "text",
                            "transformers", "transformers", "a" * 40, "manual"),
         out_csv=str(csv_path), cpu=1, mem=2, gpu="off", warmup=0, repeat=3,
@@ -99,14 +99,14 @@ def test_error_csv_failure_can_retry_without_duplicate_groups(partial_case):
 def test_sidecar_publication_failure_preserves_csv(partial_case, monkeypatch):
     csv_path, sidecar = partial_case
     original_csv, original_groups = csv_path.read_bytes(), sidecar.read_bytes()
-    publish = orchestrator.atomic_write
+    publish = error_rows.atomic_write
 
     def fail_sidecar(path, write, **kwargs):
         if str(path) == str(sidecar):
             raise OSError("sidecar disk full")
         publish(path, write, **kwargs)
 
-    monkeypatch.setattr("acprof.host.orchestrator.atomic_write", fail_sidecar)
+    monkeypatch.setattr("acprof.host.measurement.error_rows.atomic_write", fail_sidecar)
     with pytest.raises(OSError, match="sidecar disk full"):
         complete_error_case(csv_path, "runtime OOM")
     assert csv_path.read_bytes() == original_csv

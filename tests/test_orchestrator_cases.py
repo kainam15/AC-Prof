@@ -14,7 +14,7 @@ from acprof.config import CSV_FIELDS
 from acprof.host import docker_runtime, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
-from acprof.host.measurement import capture as packet_capture
+from acprof.host.measurement import capture as packet_capture, error_rows
 
 
 def _write_gpu_case_csv(
@@ -866,14 +866,14 @@ class TestOrchestratorCases:
         path = tmp_path / "client-error.json"
         path.write_text('{"input_scale": NaN}', encoding="utf-8")
 
-        assert orchestrator._load_client_error_context(str(path)) == {}
+        assert error_rows.load_client_error_context(str(path)) == {}
         assert "could not read structured client error context" in capsys.readouterr().err
 
     def test_client_error_context_rejects_oversized_json(self, tmp_path, capsys) -> None:
         path = tmp_path / "client-error.json"
         path.write_text(json.dumps({"padding": "x" * (4 * 1024 * 1024)}), encoding="utf-8")
 
-        assert orchestrator._load_client_error_context(str(path)) == {}
+        assert error_rows.load_client_error_context(str(path)) == {}
         assert "4 MiB read limit" in capsys.readouterr().err
 
     def test_run_single_case_records_request_timeout_and_returns(self) -> None:

@@ -50,6 +50,7 @@
 | `profilers/ncu` / `profilers/torch` / `profilers/advisor` | 各自的容器执行与产物处理；NCU 另拥有 checkpoint、export 和 resume |
 | `profilers/massif` / `profilers/nsys` | 隔离执行、错误条目与产物处理；Massif 拥有 checkpoint/resume，Nsys 拥有 stats、SQLite 与 raw stream 清理 |
 | `measurement.diagnostics` / `measurement.publication` | 窗口外 idle/NVIDIA 诊断，以及停止后请求 JSONL、CSV 与 sidecar 的发布 |
+| `measurement.error_rows` | case 失败、timeout 和 startup-OOM 行的纯归约与发布；校验 measurement key、保留已提交成功行，并维持 sniff sidecar 先于 CSV 的提交顺序 |
 | `monitors/resource_readers` / `monitors/resource_metrics` | cgroup/proc/sysfs discovery 和 raw reader；纯 sample reduction 与 counter 派生计算 |
 | `profilers/compute_parsers` / `profilers/execution_parsers` | Advisor/NCU CSV、Massif snapshot 和 Nsys stats 的纯标准库解析 |
 | `profilers/tool_discovery` | 可执行文件、版本目录优先级和完整工具挂载路径 |

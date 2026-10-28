@@ -78,11 +78,6 @@
     },
     {
       "source": "acprof.host.orchestrator",
-      "target": "acprof.host.input_plan",
-      "symbol": "_format_scale_value"
-    },
-    {
-      "source": "acprof.host.orchestrator",
       "target": "acprof.host.measurement.capture",
       "symbol": "_packet_latency_error"
     },

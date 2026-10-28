@@ -15,6 +15,7 @@ from acprof.cli import backfill_compute
 from acprof.host import orchestrator
 from acprof.host.collection_history import empty_collection_history
 from acprof.host.detect import TaskInfo
+from acprof.host.measurement import error_rows
 from acprof.host.measurement.energy_validation import (
     EnergyProfilingError,
     check_case_cpu_idle_power_stable,
@@ -134,7 +135,7 @@ def test_posthoc_transaction_preserves_long_fields_and_original_backup(tmp_path)
 def test_case_failure_completion_preserves_long_committed_diagnostics(tmp_path):
     detail = '诊断,"quoted"\n' * 16384
     path, _ = result_file(tmp_path, encoding="utf-8", note="", workload_contract=detail)
-    result = orchestrator._write_case_error_csv(
+    result = error_rows.write_case_error_csv(
         task_info=TaskInfo("fixture/model", "text-classification", "nlp", "transformers_pipeline",
                            "transformers", "a" * 40, "manual"),
         out_csv=str(path), cpu=1, mem=4, gpu="off", warmup=0, repeat=2,

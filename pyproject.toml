@@ -138,6 +138,7 @@ module = [
     "acprof.analysis.precision",
     "acprof.analysis.latency_validation",
     "acprof.host.measurement.metrics",
+    "acprof.host.measurement.error_rows",
     "acprof.host.command",
     "acprof.host.images.identity",
     "acprof.monitors.interfaces",
