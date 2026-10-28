@@ -167,7 +167,7 @@ class TestStatisticsOutput:
         assert (corrupt.read_bytes()) == (b'{"schema_version":')
 
     def test_same_timestamp_never_overwrites_different_report(self):
-        with patch("acprof.cli.stats.datetime") as clock:
+        with patch("acprof.analysis.statistics_report.datetime") as clock:
             clock.now.return_value = datetime(2026, 9, 27, 12, 34, 56, 123456)
             first = Path(self.calculate()["report_path"])
             original = first.read_bytes()
@@ -176,8 +176,18 @@ class TestStatisticsOutput:
         assert (second.name) == ("window-statistics-20260927-123456-123457.json")
         assert (first.read_bytes()) == (original)
 
-    def test_concurrent_calculations_publish_only_one_report(self):
-        command = [sys.executable, "-m", "acprof.cli.stats", *self.arguments()]
+    def test_concurrent_storage_writers_publish_only_one_report(self):
+        from acprof.analysis.statistics_report import build_statistics_report
+
+        report = build_statistics_report(self.csv, resamples=30)
+        code = """
+import json, sys
+from pathlib import Path
+from acprof.analysis.statistics_report import save_unique_statistics_report
+path, reused = save_unique_statistics_report(Path(sys.argv[1]), json.loads(sys.argv[2]))
+print("ACPROF_STATS " + json.dumps({"report_path": str(path), "reused": reused}))
+"""
+        command = [sys.executable, "-c", code, str(self.output), json.dumps(report)]
         processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                      for _ in range(2)]
         try:

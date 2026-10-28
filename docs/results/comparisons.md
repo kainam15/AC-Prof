@@ -2,6 +2,9 @@
 
 [← 返回专题目录](metrics.md)
 
+`stats` 和 `compare` 遵循 [CLI 离线入口的测量隔离](../usage/cli-tools.md#其他入口)：
+Linux 上与同用户的采集及其他离线命令互斥，占锁时立即报错；释放后重试仍可复用相同统计报告。
+
 ## 窗口置信区间与开销对照
 ```bash
 acprof stats results/<model>/ --metric latency_app_s --metric latency_s \

@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from acprof.analysis.conditions import PURPOSES
-from acprof.analysis.independent_comparison import compare_experiments
 from acprof.artifacts import atomic_write_json
 
 
@@ -19,16 +18,20 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
+    from acprof.host.run_state import RunStateError, offline_analysis_lock
     if args.output and (args.output.exists() or args.output.is_symlink()):
         parser.error("output must be a new file")
     try:
-        report = compare_experiments(args.left, args.right,
-            metrics=args.metric or ["latency_app_s", "container_attributed_energy_eff_j"],
-            purpose=args.purpose, confidence=args.confidence, resamples=args.resamples, seed=args.seed)
-        if args.output:
-            atomic_write_json(args.output, report, overwrite=False)
-        else:
-            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
-    except (OSError, ValueError) as error:
+        with offline_analysis_lock():
+            from acprof.analysis.independent_comparison import compare_experiments
+
+            report = compare_experiments(args.left, args.right,
+                metrics=args.metric or ["latency_app_s", "container_attributed_energy_eff_j"],
+                purpose=args.purpose, confidence=args.confidence, resamples=args.resamples, seed=args.seed)
+            if args.output:
+                atomic_write_json(args.output, report, overwrite=False)
+            else:
+                print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+    except (OSError, ValueError, RunStateError) as error:
         parser.exit(1, f"比较失败：{error}\n")
     return 0 if report["status"] == "compatible" else 1

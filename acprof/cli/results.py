@@ -5,8 +5,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from acprof.result_layers import export_result_layers, read_result_layers
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -20,15 +18,19 @@ def main() -> int:
     export.add_argument("directory", type=Path)
     export.add_argument("destination", type=Path)
     args = parser.parse_args()
+    from acprof.host.run_state import RunStateError, offline_analysis_lock
     try:
-        if args.action == "verify":
-            fields, rows = read_result_layers(args.directory)
-            print(f"[results] Verified {len(rows)} measurements and {len(fields)} fields")
+        with offline_analysis_lock():
+            from acprof.result_layers import export_result_layers, read_result_layers
+
+            if args.action == "verify":
+                fields, rows = read_result_layers(args.directory)
+                print(f"[results] Verified {len(rows)} measurements and {len(fields)} fields")
+                return 0
+            count = export_result_layers(args.directory, args.destination)
+            print(f"[results] Exported {count} measurements to {args.destination}")
             return 0
-        count = export_result_layers(args.directory, args.destination)
-        print(f"[results] Exported {count} measurements to {args.destination}")
-        return 0
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RunStateError) as exc:
         print(f"[results][ERROR] {exc}", file=sys.stderr)
         return 1
 

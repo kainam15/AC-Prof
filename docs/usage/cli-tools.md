@@ -44,6 +44,14 @@ TUI 在“实验结果”页读取已有完整实验后，通过“性能深度�
 | `--compute-profile-cpus` / `--compute-profile-mem` | host 逻辑 CPU / 75% host memory | 临时 compute profiler 的 CPU/内存上限，内存单位 GB。 |
 
 ## 其他入口
+
+Linux 上的 `plot`、`report`、`stats`、`compare`、结果 `audit` 及 `results verify/export`
+共用同机同用户的测量锁，覆盖结果读取、统计计算、绘图、发布和输出回执。采集、补采或另一个
+离线命令占锁时立即返回状态码 `1`，不读取结果或创建输出；等待占用者结束后重试。
+这也覆盖 TUI 启动的对应子命令。`--help` 和 `audit --metrics` 不取锁，仍可在采集中使用。
+Windows/macOS 的离线命令不申请 Linux 专用锁；这不改变采集平台支持范围，也不重写历史环境身份。
+输出的新文件保护与统计报告去重仍由各自的发布层执行，独立于测量锁。
+
 `acprof results verify <分层目录>` 校验正式结果的 SHA256、指标字段归属、行数和测量身份；
 `acprof results export <分层目录> <新文件.csv>` 按需重建完整宽表，不允许覆盖已有文件。
 新实验不会默认写出 `result_all.csv`；Posthoc 成功后仅更新发生变化的模块。旧宽表实验

@@ -6,6 +6,7 @@ import os
 
 import pytest
 
+from acprof.analysis import statistics_report
 from acprof.cli import stats
 
 
@@ -20,9 +21,9 @@ def test_unreadable_report_aborts_without_publication_or_retained_lock(tmp_path,
     def fail_read(*args, **kwargs):
         raise failure
 
-    monkeypatch.setattr(stats, "read_json_object", fail_read)
+    monkeypatch.setattr(statistics_report, "read_json_object", fail_read)
     with pytest.raises(OSError, match="simulated report read failure") as caught:
-        stats._save_unique_report(tmp_path, report)
+        statistics_report.save_unique_statistics_report(tmp_path, report)
 
     assert caught.value is failure
     assert list(tmp_path.iterdir()) == [existing]
@@ -43,8 +44,8 @@ def test_unusable_candidate_does_not_prevent_publication(tmp_path, monkeypatch, 
     def fail_read(*args, **kwargs):
         raise error_type("candidate vanished or is not a document")
 
-    monkeypatch.setattr(stats, "read_json_object", fail_read)
-    path, reused = stats._save_unique_report(tmp_path, {"schema_version": 1, "groups": []})
+    monkeypatch.setattr(statistics_report, "read_json_object", fail_read)
+    path, reused = statistics_report.save_unique_statistics_report(tmp_path, {"schema_version": 1, "groups": []})
 
     assert not reused
     assert path != existing
@@ -68,7 +69,7 @@ def test_cli_reports_storage_fault_instead_of_success_receipt(tmp_path, monkeypa
     def fail_read(*args, **kwargs):
         raise OSError(error_number, "simulated report read failure", str(existing))
 
-    monkeypatch.setattr(stats, "read_json_object", fail_read)
+    monkeypatch.setattr(statistics_report, "read_json_object", fail_read)
     with pytest.raises(SystemExit) as caught:
         stats.main([str(source), "--resamples", "30", "--output-dir", str(output)])
 

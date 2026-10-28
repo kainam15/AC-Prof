@@ -11,6 +11,7 @@ import re
 import shutil
 import socket
 import stat
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from acprof.artifacts import (
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host.execution_conditions import measurement_environment
 from acprof.messages import Message, join_messages, message
-from acprof.platform import detect_environment
+from acprof.platform import detect_environment, is_linux
 from acprof.result_csv import expected_measurements, read_result_csv
 from acprof.run_args import flatten_run_options
 from acprof.source_identity import measurement_sources, source_fingerprint
@@ -364,6 +365,11 @@ class MeasurementLock(ResultDirectoryLock):
             if self.guard is not None:
                 self.guard.close()
                 self.guard = None
+
+
+def offline_analysis_lock() -> AbstractContextManager:
+    """Exclude collection for offline work on Linux, including WSL and containers."""
+    return MeasurementLock() if is_linux() else nullcontext()
 
 
 class RunState:

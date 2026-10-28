@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import ExitStack
 from pathlib import Path
 
-from acprof.analysis.audit import audit_result
 from acprof.metric_registry import METRICS
 
 
@@ -29,45 +29,54 @@ def main(argv=None):
         parser.error("请提供结果目录或 CSV")
     if args.require_comparable and args.compare is None:
         parser.error("--require-comparable 需要 --compare")
-    report = audit_result(args.source)
-    passed = report["valid"]
-    if args.require_complete:
-        passed = passed and report["completion"] == "complete" and report["coverage"] is not None
-    if args.require_ok:
-        counts = report["counts"]
-        passed = passed and counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
-    if args.compare is not None:
-        from acprof.analysis.comparison import compare_results
-        report["comparison"] = compare_results(args.source, args.compare, purpose=args.comparison_purpose)
-        passed = passed and report["comparison"]["valid"]
-        if args.require_comparable:
-            passed = passed and report["comparison"]["status"] == "compatible"
-    report["accepted"] = bool(passed)
-    if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
-    else:
-        counts = report["counts"]
-        print(f"审计{'通过' if passed else '未通过'}；完成状态={report['completion']}；"
-              f"共 {counts['rows']} 行，正式有效 {counts['formal_ok']}，warmup {counts['warmup']}，"
-              f"warn {counts['warn']}，error {counts['error']}")
-        for issue in report["issues"]:
-            print(f"[{issue['severity']}] {issue['message']}")
-        if report["missing_metrics"]:
-            print(f"{len(report['missing_metrics'])} 个数值字段存在缺失；使用 --json 查看有证据支持的原因。")
-        if "comparison" in report:
-            for warning in report["comparison"]["warnings"]:
-                print(f"[WARN] {warning}")
-            print(f"比较条件：{report['comparison']['status']}；不表示模型质量已验证。")
-            for name, condition in report["comparison"]["conditions"].items():
-                print(f"  {name}: {condition['status']}")
-                if condition.get("reason"):
-                    print(f"    reason: {condition['reason']}")
-                for dimension in condition.get("changed_dimensions", {}):
-                    print(f"    changed: {dimension}")
-            for name in ("cpu_energy_total_j", "dram_window_energy_j", "gpu_energy_total_j"):
-                check = report["comparison"]["metric_comparability"][name]
-                print(f"  {name}: {check['status']} ({check['reason']})")
-    return 0 if passed else 1
+    from acprof.host.run_state import RunStateError, offline_analysis_lock
+
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(offline_analysis_lock())
+        except RunStateError as error:
+            parser.exit(1, f"审计失败：{error}\n")
+        from acprof.analysis.audit import audit_result
+
+        report = audit_result(args.source)
+        passed = report["valid"]
+        if args.require_complete:
+            passed = passed and report["completion"] == "complete" and report["coverage"] is not None
+        if args.require_ok:
+            counts = report["counts"]
+            passed = passed and counts["formal_ok"] > 0 and counts["formal_ok"] == counts["rows"] - counts["warmup"]
+        if args.compare is not None:
+            from acprof.analysis.comparison import compare_results
+            report["comparison"] = compare_results(args.source, args.compare, purpose=args.comparison_purpose)
+            passed = passed and report["comparison"]["valid"]
+            if args.require_comparable:
+                passed = passed and report["comparison"]["status"] == "compatible"
+        report["accepted"] = bool(passed)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+        else:
+            counts = report["counts"]
+            print(f"审计{'通过' if passed else '未通过'}；完成状态={report['completion']}；"
+                  f"共 {counts['rows']} 行，正式有效 {counts['formal_ok']}，warmup {counts['warmup']}，"
+                  f"warn {counts['warn']}，error {counts['error']}")
+            for issue in report["issues"]:
+                print(f"[{issue['severity']}] {issue['message']}")
+            if report["missing_metrics"]:
+                print(f"{len(report['missing_metrics'])} 个数值字段存在缺失；使用 --json 查看有证据支持的原因。")
+            if "comparison" in report:
+                for warning in report["comparison"]["warnings"]:
+                    print(f"[WARN] {warning}")
+                print(f"比较条件：{report['comparison']['status']}；不表示模型质量已验证。")
+                for name, condition in report["comparison"]["conditions"].items():
+                    print(f"  {name}: {condition['status']}")
+                    if condition.get("reason"):
+                        print(f"    reason: {condition['reason']}")
+                    for dimension in condition.get("changed_dimensions", {}):
+                        print(f"    changed: {dimension}")
+                for name in ("cpu_energy_total_j", "dram_window_energy_j", "gpu_energy_total_j"):
+                    check = report["comparison"]["metric_comparability"][name]
+                    print(f"  {name}: {check['status']} ({check['reason']})")
+        return 0 if passed else 1
 
 
 if __name__ == "__main__":

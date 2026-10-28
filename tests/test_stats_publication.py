@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from acprof.analysis import statistics_report
 from acprof.cli import stats
 
 
@@ -65,14 +66,14 @@ def assert_competitor_unchanged(output, kind, original):
 def test_explicit_output_preserves_competitors(source, tmp_path, monkeypatch, capsys, kind, timing):
     output = tmp_path / "statistics.json"
     entries = []
-    original_summarize = stats.summarize_windows
+    original_summarize = statistics_report.summarize_windows
 
     def summarize(*args, **kwargs):
         assert timing == "during", "Existing outputs must be rejected before analysis"
         entries.append(create_competitor(output, kind))
         return original_summarize(*args, **kwargs)
 
-    monkeypatch.setattr(stats, "summarize_windows", summarize)
+    monkeypatch.setattr(statistics_report, "summarize_windows", summarize)
     if timing == "before":
         entries.append(create_competitor(output, kind))
     with pytest.raises(SystemExit) as failure:
@@ -109,7 +110,7 @@ def test_timestamp_output_avoids_competitors(source, tmp_path, monkeypatch, caps
     monkeypatch.setattr(json, "dump", dump_then_compete)
     if timing == "before":
         entries.append(create_competitor(output, kind))
-    with patch.object(stats, "datetime") as clock:
+    with patch.object(statistics_report, "datetime") as clock:
         clock.now.return_value = datetime(2026, 10, 28, 12, 34, 56, 123456)
         assert stats.main(arguments(source, directory, "--output-dir")) == 0
 
@@ -127,7 +128,7 @@ def test_timestamp_output_avoids_competitors(source, tmp_path, monkeypatch, caps
     assert not list(directory.glob(".*.tmp"))
 
 
-def test_competing_explicit_outputs_publish_one_complete_report(source, tmp_path, monkeypatch, capsys):
+def test_competing_explicit_outputs_publish_one_complete_report(source, tmp_path, monkeypatch):
     output = tmp_path / "statistics.json"
     rendezvous = Barrier(2)
     original_dump = json.dump
@@ -138,11 +139,16 @@ def test_competing_explicit_outputs_publish_one_complete_report(source, tmp_path
 
     monkeypatch.setattr(json, "dump", dump_then_wait)
 
+    from acprof.artifacts import atomic_write_json
+
     def attempt(seed):
+        # Exercise the publication boundary independently of Linux CLI exclusion.
+        report = statistics_report.build_statistics_report(source, ["latency_app_s"], resamples=10, seed=seed)
         try:
-            return stats.main([*arguments(source, output), "--seed", str(seed)])
-        except SystemExit as error:
-            return error.code
+            atomic_write_json(output, report, overwrite=False)
+        except FileExistsError:
+            return 1
+        return 0
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         codes = list(pool.map(attempt, range(2)))
@@ -151,9 +157,6 @@ def test_competing_explicit_outputs_publish_one_complete_report(source, tmp_path
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["seed"] == codes.index(0)
     assert payload["groups"][0]["mean"] == pytest.approx(0.02)
-    captured = capsys.readouterr()
-    assert captured.out.count("已保存") == 1
-    assert "统计保存失败" in captured.err
     assert not list(tmp_path.glob(".statistics.json.*.tmp"))
 
 

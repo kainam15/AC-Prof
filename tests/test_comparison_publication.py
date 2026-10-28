@@ -47,7 +47,7 @@ def test_comparison_preserves_competing_directory_entries(tmp_path, monkeypatch,
         create()
         return {"status": "compatible", "groups": []}
 
-    monkeypatch.setattr("acprof.cli.compare.compare_experiments", compare)
+    monkeypatch.setattr("acprof.analysis.independent_comparison.compare_experiments", compare)
     if timing == "before":
         create()
     with pytest.raises(SystemExit) as failure:
@@ -74,7 +74,7 @@ def test_comparison_preserves_competing_directory_entries(tmp_path, monkeypatch,
     assert not list(tmp_path.glob(".comparison.json.*.tmp"))
 
 
-def test_competing_comparison_commands_publish_only_one_complete_json(tmp_path, monkeypatch, capsys):
+def test_competing_comparison_writers_publish_only_one_complete_json(tmp_path, monkeypatch):
     output = tmp_path / "comparison.json"
     rendezvous = Barrier(2)
     original_dump = json.dump
@@ -86,22 +86,25 @@ def test_competing_comparison_commands_publish_only_one_complete_json(tmp_path, 
     def compare(left, _right, **_kwargs):
         return {"status": "compatible", "writer": str(left[0])}
 
-    monkeypatch.setattr("acprof.cli.compare.compare_experiments", compare)
+    monkeypatch.setattr("acprof.analysis.independent_comparison.compare_experiments", compare)
     monkeypatch.setattr(json, "dump", write_then_wait)
 
+    from acprof.analysis.independent_comparison import compare_experiments
+    from acprof.artifacts import atomic_write_json
+
     def attempt(index):
+        # Storage still excludes external/API writers that do not use the CLI lock.
+        payload = compare_experiments([f"writer-{index}"], ["right"])
         try:
-            return compare_cli.main(["--left", f"writer-{index}", "--right", "right", "--output", str(output)])
-        except SystemExit as error:
-            return error.code
+            atomic_write_json(output, payload, overwrite=False)
+        except FileExistsError:
+            return 1
+        return 0
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         codes = list(pool.map(attempt, range(2)))
     assert codes.count(0) == codes.count(1) == 1
     assert json.loads(output.read_text()) == {"status": "compatible", "writer": f"writer-{codes.index(0)}"}
-    captured = capsys.readouterr()
-    assert "比较失败" in captured.err
-    assert not captured.out
     assert not list(tmp_path.glob(".comparison.json.*.tmp"))
 
 
@@ -109,7 +112,7 @@ def test_competing_comparison_commands_publish_only_one_complete_json(tmp_path, 
 def test_comparison_write_failures_are_reported_without_partial_output(tmp_path, monkeypatch, capsys, phase):
     output = tmp_path / "comparison.json"
     payload = {"status": "compatible", "value": float("nan") if phase == "serialize" else 1}
-    monkeypatch.setattr("acprof.cli.compare.compare_experiments", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr("acprof.analysis.independent_comparison.compare_experiments", lambda *_args, **_kwargs: payload)
 
     def fail(*_args, **_kwargs):
         raise OSError(errno.ENOSPC if phase == "sync" else errno.EOPNOTSUPP, f"{phase} failed")
@@ -131,7 +134,7 @@ def test_comparison_write_failures_are_reported_without_partial_output(tmp_path,
 @pytest.mark.parametrize("to_file", [False, True])
 def test_comparison_status_and_json_format_remain_unchanged(tmp_path, monkeypatch, capsys, status, to_file):
     payload = {"status": status, "label": "中文", "value": None}
-    monkeypatch.setattr("acprof.cli.compare.compare_experiments", lambda *_args, **_kwargs: payload)
+    monkeypatch.setattr("acprof.analysis.independent_comparison.compare_experiments", lambda *_args, **_kwargs: payload)
     output = tmp_path / "comparison.json"
     args = arguments(output) if to_file else ["--left", "left", "--right", "right"]
     assert compare_cli.main(args) == (0 if status == "compatible" else 1)
