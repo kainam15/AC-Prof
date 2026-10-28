@@ -131,7 +131,7 @@ HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_contro
 不新增调度器、后台事件循环或运行依赖。弹窗仍使用原生类型化结果和已有消息契约。
 环境检测由 `platform` 提供；预检、设置保存、摘要与报告读取在实际 controller 模块中导入。
 测试按实际查找位置替换依赖；不保留 App 的旧静态代理或尚未发布的 mixin 兼容入口。
-本次边界调整不更改进度事件、CSV、resume、进程树所有权或测量窗口语义。
+这些边界保持进度事件、CSV、resume、进程树所有权和测量窗口语义不变。
 `run_form` 负责 RunConfig 字段映射、验证及 preset 匹配，不导入 Textual、不访问 widget。
 `field_validation` 按稳定字段 ID 将共享校验错误呈现在现有控件旁；App 负责页面切换、展开和焦点。
 `preparation` 用同一弹窗呈现等待、字段确认与失败重试。`review_inputs` 提供 Select、路径及 JSON 输入；

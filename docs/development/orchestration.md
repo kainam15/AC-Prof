@@ -61,9 +61,9 @@
 | `application/terminal_log` | tmux pane pipe 的启动、停止与日志发布；不覆盖已有 pipe，由本次 `RunApplication` 持有并在 finally 清理 |
 
 `host.measurement.energy_validation` 在正式采样结束后读取 case CSV 并核验 CPU/GPU idle 功率基线，
-继续保留原来的错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
+保留既定错误状态、告警 sidecar 与阈值；`orchestrator` 仅调度该校验。
 `host.result_cleanup` 只有在合并结果存在且非空时才回收逐 case 临时文件，
-`cli.run` 不再直接拥有文件清理实现，保留既有 v2/flat 路由与请求证据保留策略。
+`cli.run` 只负责参数与调度，v2/flat 路由与请求证据保留策略由结果模块维护。
 
 `measurement.metrics` 对跨模块使用的 CPU/GPU/资源样本转换公开 `cpu_metrics_from_result`、
 `gpu_metrics_from_result` 与 `resource_usage_metrics_from_result`；其他局部计算保留模块私有，
@@ -73,7 +73,7 @@
 任务 schema；这些模块均不反向引用 `orchestrator`。调用方直接引用各模块。
 两类 profiler 单向依赖 `profiling.support`，TaskInfo 只在类型检查时导入；
 解析与工具查找使用 `profilers/` 下的实现。`profiling.execution` 通过 Massif/Nsys 的
-`profile` 与 `error_entry` 调度各工具，不再重导出其私有采集、恢复或解析入口。
+`profile` 与 `error_entry` 调度各工具，私有采集、恢复或解析实现只由所属模块调用。
 解析器不导入 Docker、模型检测或采集编排，单独读取报告无需安装推理框架。
 测试在函数实际查找依赖的位置 mock。
 
@@ -103,7 +103,7 @@ idle history 由执行器按 case 保存，GPU idle 来源在 workload stop 完�
 
 host 的短生命周期同步命令直接复用 `host.command.run_command`，覆盖 Docker、doctor、
 preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜像、状态、容器与调用方
-直接使用 runner，原 `docker_runtime._run` 已删除；需要非零退出抛错或直通输出的调用显式设置
+直接使用 runner；需要非零退出抛错或直通输出的调用显式设置
 `check=True` / `capture_output=False`。container-side subprocess 与开发 scripts 不在此执行边界中。
 
 runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和 `errors="replace"`。
@@ -207,8 +207,8 @@ profile 和延迟入口，读取声明不导入推理框架；声明文件参与
 `extensions/schema.py` 按类型注解校验声明，family 默认值与 task/backend 覆盖统一由 catalog 合并。
 `detect` 与 `model_candidates` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
 `model_schema`、`input_plan` 和 handler 消费选中声明。`config` 的尺度/任务参数与 TUI 的任务族列表由 catalog 派生。
-旧 `DEFAULT_BACKEND`、三个路由镜像字典、`default_backend()`、MOSS 常量及旧 architecture/profile 镜像导出均已移除，
-旧 extension schema v1 直接拒绝；完整字段与优先级见[扩展声明](../models/extensions.md#扩展声明与按需加载)。
+backend、路由和镜像身份只从当前扩展声明解析；旧 extension schema v1 直接拒绝，
+完整字段与优先级见[扩展声明](../models/extensions.md#扩展声明与按需加载)。
 `model_candidates` 只根据固定 commit 的仓库布局、Hub/作者声明和注册表推导候选；
 `model_support` 读取 `extensions/transformers` 的已审查 Auto 注册及本地 loader 能力。
 `model_resolution` 校验最终选定的执行接口，不重算候选，不加载模型权重；
@@ -257,7 +257,7 @@ OOM、请求超时和 readiness 失败继续保留已完成行与原有错误证
 
 `collect_execution_profile_plan` 接收 `ExecutionProfileRequest`、
 `ExecutionProfileOptions` 和独立进度回调。两个工具各自使用 `ProfilerSampling` 描述
-采样策略、重复次数和参考资源；与该实现无关的旧 `project_dir` 参数已移除。
+采样策略、重复次数和参考资源；执行配置不包含与工具无关的项目目录字段。
 资源规范化、工具环境准备、独立工具执行、资源网格展开和 JSON 发布分别实现。
 Massif/Nsys 仍按原顺序独立执行，工具不可用时保留原有诊断条目；
 扩展到未直接测量的资源 case 时保留来源 CPU、内存和采样策略，持久化 schema 不变。

@@ -85,7 +85,7 @@ GitHub 官方说明 [路径过滤导致的 Required Check Pending](https://docs.
 这类检查不安装推理依赖，也不需要 Docker/GPU。
 
 `.github/workflows/ci.yml` 在 Python 3.12 / 3.13 上安装同一 `uv.lock` 的项目与 `test` 组并执行主机回归；
-Python 3.13 的架构、私有 API、资源监控及测量契约回归由同版本 host 矩阵覆盖；不再为相同安装方式与环境重复运行单独 smoke 作业。
+Python 3.13 的架构、私有 API、资源监控及测量契约回归由同版本 host 矩阵覆盖；相同安装方式与环境复用这些证据。
 每个版本将完整测试集按排序后的 test ID 轮转分成八片，保留 20 分钟作业超时。
 工作流的 `HOST_TEST_SHARDS` 同时传入测试 runner、证据汇总与 coverage 完整性检查；
 修改分片数时同步矩阵 index，避免 coverage 开销使单片超时并丢失最终报告。
