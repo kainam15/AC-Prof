@@ -1,5 +1,7 @@
 """Summary statistics and quality must describe one unchanged source snapshot."""
+import asyncio
 import csv
+import fcntl
 import hashlib
 import json
 import os
@@ -242,3 +244,62 @@ async def test_changed_source_error_and_retry_remain_usable_at_80x24(
         assert "40 ms" in str(app.query_one("#result-summary", Static).content)
         assert not app.is_busy()
         assert not button.disabled
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_selection_change_releases_a_waiting_layer_reader_at_80x24(source, tmp_path, monkeypatch, language):
+    from test_layer_read_cancellation import source_hashes
+    from test_result_row_assembly import row_store
+    from textual.widgets import Button, Input, Static
+    from tui_fixtures import AcprofTui
+
+    from acprof.artifact_layout import ArtifactLayout
+    from acprof.result_store.protocol import publication_lock
+    from acprof.tui.settings import TuiSettings, UiPreferences, save_settings
+
+    blocked = tmp_path / "blocked"
+    row_store(blocked, 3, count=1, width=1)
+    before = source_hashes(blocked)
+    settings = tmp_path / "settings.json"
+    save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
+    app = AcprofTui(settings_path=settings)
+    attempted = Event()
+    original_flock = fcntl.flock
+
+    def observe(descriptor, flags):
+        if flags & fcntl.LOCK_SH:
+            attempted.set()
+        return original_flock(descriptor, flags)
+
+    monkeypatch.setattr(fcntl, "flock", observe)
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.activate_tab("plot-tab")
+        selector = app.query_one("#result-csv", Input)
+        selector.value = str(blocked)
+        await pilot.pause()
+        button = app.query_one("#summarize-results", Button)
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        with publication_lock(ArtifactLayout(blocked), exclusive=True):
+            assert await pilot.click(button)
+            assert await asyncio.to_thread(attempted.wait, 2)
+            assert app.read_jobs
+            selector.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert await pilot.click(selector)
+            await pilot.press("ctrl+a")
+            await pilot.press(*str(source))
+            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
+            await pilot.pause()
+            assert not app.read_jobs
+            assert not app.is_busy()
+            assert selector.value == str(source)
+            assert not button.disabled
+            button.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            assert await pilot.click(button)
+            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=2)
+            await pilot.pause()
+            assert "20 ms" in str(app.query_one("#result-summary", Static).content)
+            assert not app.is_busy()
+    assert source_hashes(blocked) == before

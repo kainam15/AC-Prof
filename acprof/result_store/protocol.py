@@ -7,6 +7,8 @@ import hashlib
 import io
 import json
 import re
+import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TextIO
@@ -20,6 +22,7 @@ from acprof.artifacts import (
     read_json_object,
     sync_directory,
 )
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.result_csv import ResultValidationError, ValidatedResultRows, parse_result_stream
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_fields
 
@@ -54,15 +57,28 @@ def write_bytes(path: Path, raw: bytes) -> None:
 
 
 @contextmanager
-def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool = True):
+def publication_lock(layout: ArtifactLayout, *, exclusive: bool, blocking: bool = True,
+                     cancelled: Callable[[], bool] | None = None):
     """Separate from the parent's lifetime result lock; readers never create files."""
+    check_cancelled(cancelled)
     path = layout.result_store_path("lock")
     if exclusive:
         create_durable_directory(path.parent)
     with path.open("a+b" if exclusive else "rb") as stream:
         operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-        fcntl.flock(stream.fileno(), operation | (0 if blocking else fcntl.LOCK_NB))
+        if blocking and cancelled is not None:
+            while True:
+                check_cancelled(cancelled)
+                try:
+                    fcntl.flock(stream.fileno(), operation | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    check_cancelled(cancelled)
+                    time.sleep(0.05)
+        else:
+            fcntl.flock(stream.fileno(), operation | (0 if blocking else fcntl.LOCK_NB))
         try:
+            check_cancelled(cancelled)
             yield
         finally:
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
@@ -118,18 +134,20 @@ def validate_manifest(layout: ArtifactLayout, manifest: dict) -> dict[str, Path]
 class _CommittedPrefixReader(io.RawIOBase):
     """Hash one raw prefix without prefetching bytes from an uncommitted tail."""
 
-    def __init__(self, stream, path: Path, info: dict):
+    def __init__(self, stream, path: Path, info: dict, cancelled: Callable[[], bool] | None = None):
         super().__init__()
         self._stream = stream
         self._path = path
         self._remaining = info["committed_bytes"]
         self._expected_digest = info["sha256"]
         self._digest = hashlib.sha256()
+        self._cancelled = cancelled
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, buffer) -> int:
+        check_cancelled(self._cancelled)
         if not self._remaining or not buffer:
             return 0
         view = memoryview(buffer)[:min(self._remaining, _HASH_BUFFER_BYTES)]
@@ -143,36 +161,42 @@ class _CommittedPrefixReader(io.RawIOBase):
         return size
 
     def verify(self, *, exact=False) -> None:
+        check_cancelled(self._cancelled)
         if self._remaining:
             buffer = bytearray(min(self._remaining, _HASH_BUFFER_BYTES))
             while self._remaining:
                 self.readinto(buffer)
+        check_cancelled(self._cancelled)
         if exact:
             tail = self._stream.read(1)
             if tail is None:
                 raise BlockingIOError("result layer tail check would block")
             if tail:
                 raise ResultValidationError(f"uncommitted tail in {self._path}")
+        check_cancelled(self._cancelled)
         if self._digest.hexdigest() != self._expected_digest:
             raise ResultValidationError(f"missing or modified {self._path} committed prefix")
 
 
-def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False) -> None:
+def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False,
+                         cancelled: Callable[[], bool] | None = None) -> None:
     """Check every layer with bounded buffers, without retaining its payload."""
-    for layer, path in validate_manifest(layout, manifest).items():
+    check_cancelled(cancelled)
+    for layer, path in cancellable(validate_manifest(layout, manifest).items(), cancelled):
         info = manifest["layers"][layer]
-        with path.open("rb", buffering=0) as raw, _CommittedPrefixReader(raw, path, info) as prefix:
+        with path.open("rb", buffering=0) as raw, _CommittedPrefixReader(raw, path, info, cancelled) as prefix:
             prefix.verify(exact=exact)
 
 
-def read_layer_rows(path: Path, info: dict) -> ValidatedResultRows:
+def read_layer_rows(path: Path, info: dict, *, cancelled: Callable[[], bool] | None = None) -> ValidatedResultRows:
     """Hash and parse the same bounded prefix before returning any rows."""
+    check_cancelled(cancelled)
     with path.open("rb", buffering=0) as raw:
-        prefix = _CommittedPrefixReader(raw, path, info)
+        prefix = _CommittedPrefixReader(raw, path, info, cancelled)
         with io.TextIOWrapper(io.BufferedReader(prefix, buffer_size=_HASH_BUFFER_BYTES),
                               encoding="utf-8", newline="") as stream:
             try:
-                columns, validated = parse_result_stream(stream, path, None, allow_empty=True)
+                columns, validated = parse_result_stream(stream, path, None, allow_empty=True, cancelled=cancelled)
             except (ValueError, csv.Error):
                 # Preserve integrity-error precedence even if decoding/CSV failed
                 # before reaching the end of the committed bytes.
@@ -181,6 +205,7 @@ def read_layer_rows(path: Path, info: dict) -> ValidatedResultRows:
             prefix.verify()
     if columns != info["fields"]:
         raise ResultValidationError(f"result layer header changed: {path}")
+    check_cancelled(cancelled)
     return validated
 
 

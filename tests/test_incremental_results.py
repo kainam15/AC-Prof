@@ -150,13 +150,13 @@ def test_snapshot_version_change_with_identical_rows_is_detected(tmp_path, monke
     with ResultWriter(tmp_path) as writer:
         writer.append_window(receipt(tmp_path))
     snapshot = result_csv.read_result_csv_snapshot(layout.result_csv)
-    original = result_csv._file_sha256
+    original = result_csv.file_sha256
     def commit_after_hash(path):
         checksum = original(path)
         with ResultWriter(tmp_path) as writer:
             writer.freeze()
         return checksum
-    monkeypatch.setattr(result_csv, "_file_sha256", commit_after_hash)
+    monkeypatch.setattr(result_csv, "file_sha256", commit_after_hash)
     assert not result_csv.result_csv_snapshot_unchanged(snapshot)
 
 

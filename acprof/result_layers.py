@@ -9,7 +9,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
@@ -20,6 +20,7 @@ from acprof.artifacts import (
     read_json_object,
     sync_directory,
 )
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.metric_registry import METRICS, order_csv_fields
 from acprof.result_csv import (
     KEY_FIELDS,
@@ -323,16 +324,17 @@ def publish_result_rows(fields: Sequence[str], rows: Sequence[Mapping[str, str]]
 
 
 def consume_layer_rows(fields: Sequence[str], keys: Sequence[tuple[str, ...]],
-                       combined: dict[tuple[str, ...], dict[str, str]]) -> list[dict[str, str]]:
+                       combined: dict[tuple[str, ...], dict[str, str]], *,
+                       cancelled: Callable[[], bool] | None = None) -> list[dict[str, str]]:
     """Return canonical rows while releasing this read's owned join mapping."""
     rows = []
-    for key in keys:
+    for key in cancellable(keys, cancelled):
         row = combined.pop(key)
         rows.append({field: row.get(field, "nan") for field in fields})
     return rows
 
 
-def _validate_imported_source(root: Path, manifest: Mapping) -> None:
+def _validate_imported_source(root: Path, manifest: Mapping, *, cancelled: Callable[[], bool] | None = None) -> None:
     source_name = manifest.get("source_name")
     if source_name is not None:
         source_digest = manifest.get("source_sha256")
@@ -344,44 +346,48 @@ def _validate_imported_source(root: Path, manifest: Mapping) -> None:
         # immutable snapshot. Keep v1's existing stale-source check unchanged.
         if manifest["schema_version"] == 1:
             source_path = _safe_path(root, source_name)
-            if source_path.exists() and file_sha256(source_path) != source_digest:
+            if source_path.exists() and file_sha256(source_path, cancelled=cancelled) != source_digest:
                 raise ResultValidationError("source CSV has changed since layers were published")
 
 
-def verify_result_layer_files(root: str | Path, manifest: Mapping) -> None:
+def verify_result_layer_files(root: str | Path, manifest: Mapping, *,
+                              cancelled: Callable[[], bool] | None = None) -> None:
     """Recheck v1/v2 snapshot content without parsing previously validated rows."""
+    check_cancelled(cancelled)
     root = _result_root(root)
     version = manifest.get("schema_version")
     if type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ResultValidationError("content verification requires a v1/v2 snapshot")
     paths = result_layer_paths(root, manifest)
-    _validate_imported_source(root, manifest)
-    for layer, path in paths.items():
-        if not path.is_file() or file_sha256(path) != manifest["layers"][layer]["sha256"]:
+    _validate_imported_source(root, manifest, cancelled=cancelled)
+    for layer, path in cancellable(paths.items(), cancelled):
+        if not path.is_file() or file_sha256(path, cancelled=cancelled) != manifest["layers"][layer]["sha256"]:
             raise ResultValidationError(f"missing or modified {layer} layer: {path}")
 
 
-def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None = None
+def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None = None,
+                       cancelled: Callable[[], bool] | None = None,
                        ) -> tuple[list[str], list[dict[str, str]]]:
     """Read hashed partitions, optionally bound to an outer consumer's manifest."""
+    check_cancelled(cancelled)
     root = _result_root(root)
     manifest = read_json_object(_safe_path(root, MANIFEST_NAME), label="result layers manifest",
                                 expected_sha256=expected_manifest_sha256)
     if manifest.get("schema_version") == 3:
         from acprof.result_store.reader import read_snapshot
-        snapshot = read_snapshot(root)
+        snapshot = read_snapshot(root, cancelled=cancelled)
         if expected_manifest_sha256 is not None and snapshot.sha256 != expected_manifest_sha256:
             raise ResultValidationError("layered results changed during read")
         return snapshot.fields, snapshot.rows
     paths = result_layer_paths(root, manifest)
     wide_fields = manifest["wide_fields"]
-    _validate_imported_source(root, manifest)
+    _validate_imported_source(root, manifest, cancelled=cancelled)
     assigned = layer_fields(wide_fields)
     identity = layer_identity_fields(wide_fields)
     layers = manifest["layers"]
     expected_keys: list[tuple[str, ...]] | None = None
     combined: dict[tuple[str, ...], dict[str, str]] = {}
-    for layer in LAYER_FILES:
+    for layer in cancellable(LAYER_FILES, cancelled):
         if layer not in layers:
             continue
         record = layers[layer]
@@ -391,7 +397,7 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
         if layer in PROFILER_LAYERS and not set(assigned[layer]) - set(identity):
             raise ResultValidationError(f"empty profiler schema: {layer}")
         try:
-            snapshot = read_result_csv_snapshot(path)
+            snapshot = read_result_csv_snapshot(path, cancelled=cancelled)
         except (ValueError, csv.Error) as exc:
             raise ResultValidationError(f"missing or modified {layer} layer: {path}: {exc}") from exc
         if snapshot.sha256 != record["sha256"]:
@@ -399,19 +405,19 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
         columns, rows = snapshot.fields, snapshot.rows
         if columns != assigned[layer] or len(rows) != record.get("row_count"):
             raise ResultValidationError(f"invalid {layer} layer rows or columns")
-        keys = [measurement_key(row) for row in rows]
+        keys = [measurement_key(row) for row in cancellable(rows, cancelled)]
         if layer == "summary":
             expected_keys = keys
             if len(keys) != manifest["row_count"]:
                 raise ResultValidationError("summary row count mismatch")
-            combined = dict(zip(keys, rows, strict=True))
+            combined = dict(cancellable(zip(keys, rows, strict=True), cancelled))
         elif expected_keys is None:
             raise ResultValidationError("summary layer must be first")
         elif layer not in PROFILER_LAYERS and keys != expected_keys:
             raise ResultValidationError(f"measurement order mismatch in {layer}")
         if layer != "summary":
             value_fields = [name for name in assigned[layer] if name not in identity]
-            for key, row in zip(keys, rows, strict=True):
+            for key, row in cancellable(zip(keys, rows, strict=True), cancelled):
                 if key not in combined:
                     raise ResultValidationError(f"orphan profiler measurement in {layer}: {key}")
                 if "runtime_kind" in identity and row["runtime_kind"] != combined[key]["runtime_kind"]:
@@ -421,7 +427,7 @@ def read_result_layers(root: str | Path, *, expected_manifest_sha256: str | None
     if expected_keys is None:
         raise ResultValidationError("missing summary measurements")
     ordered = order_csv_fields(wide_fields)
-    return ordered, consume_layer_rows(ordered, expected_keys, combined)
+    return ordered, consume_layer_rows(ordered, expected_keys, combined, cancelled=cancelled)
 
 
 def export_result_layers(root: str | Path, destination: str | Path) -> int:

@@ -300,11 +300,20 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 共享同一快照，返回前复核所选路径，并通过 `verify_result_source` 复核内容。平面 CSV 只解析一次，
 随后流式 hash 复核；分层结果不再重编码为宽 CSV，也不为最终复核重新组装行表。
 历史 CSV 的结构读取与严格审计保持分离，不放宽有效测量身份或 retired 字段规则。
-取消在打开文件前、平面 CSV 的原始块与文本行之间、统计/审计阶段边界检查；已启动的分层
-读取、层文件校验和审计需返回后才能释放任务，不承诺线程能立即中断。
+取消检查覆盖打开文件前、平面及 v1/v2/v3 分层 CSV 的原始块与文本行之间、逐行拼接及最终
+内容校验。`artifacts.file_sha256` 统一使用至多 256 KiB 的原始缓冲；v1 导入源的依赖校验也传递
+同一取消信号。v3 共享发布锁仅在传入取消检查时以非阻塞尝试和 50 ms 等待重试，取消会关闭
+当前文件并释放本次已取得的锁，不释放其他发布者的锁。未传入取消检查的调用保持原有锁等待方式。
+取消通过 `CancelledError` 退出，不返回部分行表；未取消时仍执行完整的 hash、身份与行顺序校验，
+v3 只读取已提交前缀。检查机制集中在 `cancellation`，没有后台轮询任务。
+统计/审计阶段边界仍检查取消；已开始的审计、元数据解析或单次系统 I/O 需返回后才能继续响应，
+不承诺线程能立即中断或固定的最坏退出延迟。
 流式哈希参考 [CPython file_digest](https://github.com/python/cpython/blob/v3.12.3/Lib/hashlib.py)（PSF），
 协作取消参考 [Textual thread workers](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/workers.md#thread-workers)
 及其[长任务取消说明讨论](https://github.com/Textualize/textual/pull/6514)（MIT）。
+锁等待借鉴 [filelock 的轮询获取实现](https://github.com/tox-dev/filelock/blob/main/src/filelock/_api.py)
+与[取消不能等待锁持有者退出的修复](https://github.com/tox-dev/filelock/pull/844)（MIT）；
+仅采用协作退出和资源归还思路，不引入其锁文件、异步封装或额外锁协议。
 复用已有实现，无新增依赖、跨请求缓存或测量窗口内的工作。
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；

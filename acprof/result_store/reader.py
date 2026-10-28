@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import loads_finite_json, read_json_object
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.result_csv import MeasurementKey, ResultCsvSnapshot, ResultValidationError
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, consume_layer_rows, layer_identity_fields
 from acprof.result_store.protocol import (
@@ -59,9 +61,10 @@ def committed_content_digest(root, *, cancelled, budget):
         return checksum.hexdigest()
 
 
-def read_snapshot(root):
+def read_snapshot(root, *, cancelled: Callable[[], bool] | None = None):
+    check_cancelled(cancelled)
     layout = ArtifactLayout.discover(root)
-    with publication_lock(layout, exclusive=False):
+    with publication_lock(layout, exclusive=False, cancelled=cancelled):
         manifest_bytes = layout.result_csv.read_bytes()
         manifest = loads_finite_json(manifest_bytes.decode("utf-8"))
         pending = layout.result_store_path("pending.json")
@@ -73,21 +76,21 @@ def read_snapshot(root):
         identity = layer_identity_fields(manifest["wide_fields"])
         combined = {}
         expected: tuple[MeasurementKey, ...] = ()
-        for layer in LAYER_FILES:
+        for layer in cancellable(LAYER_FILES, cancelled):
             info = manifest["layers"][layer]
-            validated = read_layer_rows(paths[layer], info)
+            validated = read_layer_rows(paths[layer], info, cancelled=cancelled)
             rows, keys = validated.rows, validated.keys
             assert keys is not None  # Layer parsing always validates measurements.
             if len(rows) != info["row_count"]:
                 raise ResultValidationError(f"invalid {layer} row count")
             if layer == "summary":
                 expected = keys
-                combined = dict(zip(keys, rows, strict=True))
+                combined = dict(cancellable(zip(keys, rows, strict=True), cancelled))
             elif layer in BASE_LAYERS and keys != expected:
                 raise ResultValidationError(f"measurement order mismatch in {layer}")
             if layer != "summary":
                 value_fields = [name for name in info["fields"] if name not in identity]
-                for key, row in zip(keys, rows, strict=True):
+                for key, row in cancellable(zip(keys, rows, strict=True), cancelled):
                     if key not in combined:
                         raise ResultValidationError(f"orphan profiler row in {layer}")
                     if any(row[name] != combined[key][name] for name in identity):
@@ -95,5 +98,6 @@ def read_snapshot(root):
                     combined[key].update({name: row[name] for name in value_fields})
             del validated, rows, keys
         fields = manifest["wide_fields"]
-        rows = consume_layer_rows(fields, expected, combined)
+        rows = consume_layer_rows(fields, expected, combined, cancelled=cancelled)
+        check_cancelled(cancelled)
         return ResultCsvSnapshot(layout.result_csv, fields, rows, digest(manifest_bytes))

@@ -8,14 +8,14 @@ import struct
 import sys
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from itertools import product
 from pathlib import Path
 from typing import cast
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, file_sha256
+from acprof.cancellation import cancellable, check_cancelled
 from acprof.config import CSV_FIELDS
 from acprof.metric_registry import order_csv_fields
 
@@ -116,17 +116,6 @@ def expected_measurements(cpus: Sequence[int | None], mems: Sequence[int | None]
 _HASH_BUFFER_BYTES = 2**18
 
 
-def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
-    if cancelled is not None and cancelled():
-        raise CancelledError()
-
-
-def _cancellable_lines(stream: Iterable[str], cancelled: Callable[[], bool]) -> Iterable[str]:
-    for line in stream:
-        _check_cancelled(cancelled)
-        yield line
-
-
 class _DigestingRawReader(io.RawIOBase):
     """Forward raw reads while hashing the exact bytes consumed by TextIOWrapper."""
 
@@ -140,7 +129,7 @@ class _DigestingRawReader(io.RawIOBase):
         return True
 
     def readinto(self, buffer) -> int | None:
-        _check_cancelled(self._cancelled)
+        check_cancelled(self._cancelled)
         size = self._stream.readinto(buffer)
         if size:
             self._digest.update(memoryview(buffer)[:size])
@@ -149,9 +138,10 @@ class _DigestingRawReader(io.RawIOBase):
 
 def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *,
                         allow_empty=False, validate_measurements=True,
+                        cancelled: Callable[[], bool] | None = None,
                       ) -> tuple[list[str], ValidatedResultRows]:
     allow_large_csv_fields()
-    reader = csv.DictReader(stream, strict=True)
+    reader = csv.DictReader(cancellable(stream, cancelled), strict=True)
     fields = list(reader.fieldnames or [])
     return fields, validate_result_rows(fields, reader, path, expected=expected, allow_empty=allow_empty,
                                        validate_measurements=validate_measurements)
@@ -203,23 +193,6 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
                 f"unexpected={len(keys.keys() - planned)}"
             )
     return ValidatedResultRows(rows, tuple(keys) if validate_measurements else None)
-
-
-def _file_sha256(path: Path, *, cancelled: Callable[[], bool] | None = None) -> str:
-    _check_cancelled(cancelled)
-    digest = hashlib.sha256()
-    buffer = bytearray(_HASH_BUFFER_BYTES)
-    view = memoryview(buffer)
-    with path.open("rb", buffering=0) as stream:
-        while True:
-            _check_cancelled(cancelled)
-            size = stream.readinto(buffer)
-            if size is None:
-                raise BlockingIOError("CSV hash read would block")
-            if size == 0:
-                break
-            digest.update(view[:size])
-    return digest.hexdigest()
 
 
 def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
@@ -318,10 +291,10 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
 
     Disabling measurement validation only affects flat CSV input. Layered
     storage always verifies its manifest, committed content and row identities.
-    Cancellation is checked per raw buffer/line for flat files and around the
-    existing verified layer read for manifests.
+    Cancellation reaches raw buffers, text lines, layer joins and publication
+    lock waits. It never returns partially verified rows.
     """
-    _check_cancelled(cancelled)
+    check_cancelled(cancelled)
     if not validate_measurements and expected is not None:
         raise ValueError("expected measurements require measurement validation")
     path = Path(path).resolve()
@@ -329,34 +302,36 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
         from acprof.artifacts import read_json_object
         if read_json_object(path).get("schema_version") == 3:
             from acprof.result_store.reader import read_snapshot
-            snapshot = read_snapshot(path.parent)
-            if expected is not None and {measurement_key(row) for row in snapshot.rows} != set(expected):
+            snapshot = read_snapshot(path.parent, cancelled=cancelled)
+            if (expected is not None
+                    and {measurement_key(row) for row in cancellable(snapshot.rows, cancelled)}
+                    != set(cancellable(expected, cancelled))):
                 raise ResultValidationError("layered measurement plan mismatch")
-            _check_cancelled(cancelled)
+            check_cancelled(cancelled)
             return snapshot
         from acprof.result_layers import read_result_layers
-        layer_digest = _file_sha256(path, cancelled=cancelled)
-        fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest)
-        if expected is not None and {measurement_key(row) for row in rows} != set(expected):
+        layer_digest = file_sha256(path, cancelled=cancelled)
+        fields, rows = read_result_layers(path.parent, expected_manifest_sha256=layer_digest, cancelled=cancelled)
+        if (expected is not None and {measurement_key(row) for row in cancellable(rows, cancelled)}
+                != set(cancellable(expected, cancelled))):
             raise ResultValidationError("layered measurement plan mismatch")
         verify_result_source(path, layer_digest, cancelled=cancelled)
-        _check_cancelled(cancelled)
+        check_cancelled(cancelled)
         return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=layer_digest)
     digest = hashlib.sha256()
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest, cancelled), buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            lines = _cancellable_lines(stream, cancelled) if cancelled is not None else stream
-            fields, validated = parse_result_stream(lines, path, expected,
+            fields, validated = parse_result_stream(stream, path, expected,
                                                    allow_empty=not validate_measurements,
-                                                   validate_measurements=validate_measurements)
-    _check_cancelled(cancelled)
+                                                   validate_measurements=validate_measurements, cancelled=cancelled)
+    check_cancelled(cancelled)
     return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=digest.hexdigest())
 
 
 def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
     """Verify the current file bytes still match a previously parsed snapshot."""
-    if _file_sha256(snapshot.path) != snapshot.sha256:
+    if file_sha256(snapshot.path) != snapshot.sha256:
         return False
     if snapshot.path.name == "result_layers.json":
         from acprof.result_layers import read_result_layers
@@ -365,7 +340,7 @@ def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
         except (ValueError, OSError, csv.Error):
             return False
         return (fields == snapshot.fields and rows == snapshot.rows
-                and _file_sha256(snapshot.path) == snapshot.sha256)
+                and file_sha256(snapshot.path) == snapshot.sha256)
     return True
 
 
@@ -377,9 +352,9 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
     prefixes under the publication lock; uncommitted tails are not results.
     Legacy v1 retains its imported-CSV dependency validation.
     """
-    _check_cancelled(cancelled)
+    check_cancelled(cancelled)
     artifact = Path(artifact)
-    current = _file_sha256(artifact, cancelled=cancelled) if artifact.exists() else None
+    current = file_sha256(artifact, cancelled=cancelled) if artifact.exists() else None
     if current != expected_sha256:
         raise ResultValidationError(f"result source changed: {artifact}")
     if artifact.name != "result_layers.json" or expected_sha256 is None:
@@ -390,12 +365,12 @@ def verify_result_source(artifact: str | Path, expected_sha256: str | None, *,
         from acprof.artifact_layout import ArtifactLayout
         from acprof.result_store.protocol import publication_lock, validate_layer_files
         layout = ArtifactLayout.discover(artifact.parent)
-        with publication_lock(layout, exclusive=False):
-            validate_layer_files(layout, manifest)
+        with publication_lock(layout, exclusive=False, cancelled=cancelled):
+            validate_layer_files(layout, manifest, cancelled=cancelled)
     else:
         from acprof.result_layers import verify_result_layer_files
-        verify_result_layer_files(artifact.parent, manifest)
-    if _file_sha256(artifact, cancelled=cancelled) != expected_sha256:
+        verify_result_layer_files(artifact.parent, manifest, cancelled=cancelled)
+    if file_sha256(artifact, cancelled=cancelled) != expected_sha256:
         raise ResultValidationError("result manifest changed during verification")
 
 

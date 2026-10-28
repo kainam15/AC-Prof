@@ -12,17 +12,29 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
+from acprof.cancellation import check_cancelled
+
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
-_HASH_CHUNK_BYTES = 1024 * 1024
+_HASH_CHUNK_BYTES = 2**18
 _JSON_READ_CHUNK_BYTES = 64 * 1024
 
 
-def file_sha256(path: str | Path) -> str:
+def file_sha256(path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> str:
     """Hash a file with bounded memory for large experiment artifacts."""
+    check_cancelled(cancelled)
     digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for block in iter(lambda: stream.read(_HASH_CHUNK_BYTES), b""):
-            digest.update(block)
+    buffer = bytearray(_HASH_CHUNK_BYTES)
+    view = memoryview(buffer)
+    with Path(path).open("rb", buffering=0) as stream:
+        while True:
+            check_cancelled(cancelled)
+            size = stream.readinto(buffer)
+            if size is None:
+                raise BlockingIOError("artifact hash read would block")
+            if size == 0:
+                break
+            digest.update(view[:size])
+    check_cancelled(cancelled)
     return digest.hexdigest()
 
 
