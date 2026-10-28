@@ -171,15 +171,10 @@ class TestArtifactLayout:
                 layout.path(name)
 
     def test_startup_error_is_written_directly_into_case_work_directory(self):
+        from acprof.host.cases import CaseMeasurement, CasePlans, CaseRequest, CaseWorkload
         from acprof.host.detect import TaskInfo
         from acprof.host.images.runtime import ImageInfo
-        from acprof.host.orchestrator import (
-            CaseMeasurement,
-            CasePlans,
-            CaseRequest,
-            CaseWorkload,
-            run_single_case,
-        )
+        from acprof.host.orchestrator import run_single_case
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ArtifactLayout.for_new_run(root).initialize()

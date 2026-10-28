@@ -174,7 +174,7 @@ class TestAuto:
             (root / "run_state.json").write_text(json.dumps({"schema_version": 1, "runtime": {"task": asdict(task)},
                                                             "options": {"profiling_mode": "basic"}}))
             args = Namespace(model=task.model_id, output_dir=directory, resume=True, revision=None,
-                             profiling_mode="basic", batch_size=1, gpus="off", sniff_iface="docker0")
+                             profiling_mode="basic", batch_size=1, gpus="off", sniff_iface="docker0", backend="", task="")
             with patch("acprof.host.detect.detect_task") as detect, patch("huggingface_hub.HfApi.auth_check") as access, patch(
                     "acprof.host.doctor.collect_checks", return_value=[DoctorCheck("docker", "available", "ok")]):
                 restored = AutomaticRun(args).prepare()

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import matplotlib.pyplot as matplotlib_pyplot
@@ -1411,6 +1412,13 @@ class TestResourceUsageCsvPlot:
                 )
                 modes_by_directory[output_directory] = set(group_df["gpu_mode"])
 
+            def publish(_frame, _meta, output_dir):
+                return SimpleNamespace(
+                    report_path=os.path.join(output_dir, "latency_model_report.json"),
+                    residuals_path=os.path.join(output_dir, "latency_model_residuals.csv"),
+                    report={},
+                )
+
             with patch.object(
                 plotting_metrics,
                 'plot_metric_overview',
@@ -1420,7 +1428,7 @@ class TestResourceUsageCsvPlot:
             ), patch.object(
                 plotting_metrics, 'plot_energy_power_overview'
             ), patch.object(plotting_metrics, 'plot_cold_start_bar'), patch.object(
-                analysis_latency_report, 'write_latency_model_report'
+                analysis_latency_report, 'write_latency_model_report', side_effect=publish
             ):
                 plot.main([csv_path])
 
