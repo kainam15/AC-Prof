@@ -175,9 +175,14 @@ def test_new_family_and_non_torch_runtime_reach_existing_consumers():
         generator = SimpleNamespace(default_input_scales=lambda: [2, 4], generate=lambda scale: {"values": [1] * int(scale)},
                                     effective_input_scale=lambda scale, payload: len(payload["values"]),
                                     scale_label=str, plan_metadata=lambda: {"input_scale_type": "readings"})
-        with patch.object(input_plan, "CATALOG", catalog), patch.object(model_schema, "CATALOG", catalog), patch.object(
-            input_plan, "_get_task_generator", return_value=generator,
-        ), patch.object(input_plan, "_start_probe_session") as start:
+        from acprof.host.input_plan import families, materialize, planner
+        with patch.object(planner, "CATALOG", catalog), patch.object(model_schema, "CATALOG", catalog), patch.object(
+            materialize, "CATALOG", catalog,
+        ), patch.object(
+            planner, "get_task_generator", return_value=generator,
+        ), patch.object(
+            materialize, "get_task_generator", return_value=generator,
+        ), patch.object(families, "start_probe_session") as start:
             planned = input_plan.plan_input_scales(task, None, [1], [2], ["off"], 1, tmp, workload_spec_path="fixture.json")
             assert (planned.scales) == ([2, 4])
             assert (json.loads(Path(planned.plan_file).read_text())["entries"][1]["payload"]) == ({"values": [1, 1, 1, 1]})
