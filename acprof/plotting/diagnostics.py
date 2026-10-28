@@ -35,7 +35,8 @@ def _format_axis_value(value: object) -> str:
         return str(value)
     if not math.isfinite(number):
         return str(value)
-    return f"{number:g}"
+    compact = f"{number:g}"
+    return compact if float(compact) == number else repr(number)
 
 
 def _classify_feasibility_rows(rows: pd.DataFrame) -> str:
@@ -179,7 +180,7 @@ def plot_resource_feasibility_heatmap(
                 for scale_index, input_scale in enumerate(scale_values):
                     cell = panel_df[
                         (panel_df["mem_cap_gb"] == mem)
-                        & np.isclose(panel_df["input_scale"], input_scale)
+                        & (panel_df["input_scale"] == input_scale)
                     ]
                     state = "unknown" if cell.empty else str(cell.iloc[0]["state"])
                     if state == "unknown":
@@ -515,7 +516,7 @@ def plot_latency_energy_pareto(
     for panel_index, input_scale in enumerate(scale_values):
         axis = flat_axes[panel_index]
         scale_df = pareto_df[
-            np.isclose(pareto_df["input_scale"], input_scale)
+            pareto_df["input_scale"] == input_scale
         ].copy()
         latency_values = scale_df[latency_column].to_numpy(dtype=float)
         energy_values = scale_df[energy_column].to_numpy(dtype=float)
