@@ -52,7 +52,7 @@ def plot_metric(
 
     agg_df = aggregate_metric(df, metric, agg_func=agg_func)
     if agg_df.empty:
-        print(f"[skip] {metric} all NaN")
+        print(f"[skip] {metric} has no finite observations")
         return
 
     cpu_values = sorted(resource_coordinate(value) for value in agg_df["cpu_cores"].unique())
@@ -214,7 +214,7 @@ def plot_metric_overview(
         else:
             candidate_df = aggregate_metric(df, metric, agg_func=agg_func)
             if candidate_df.empty:
-                print(f"[skip] {metric} all NaN")
+                print(f"[skip] {metric} has no finite observations")
             else:
                 agg_df = candidate_df
         aggregated_metrics[metric] = agg_df

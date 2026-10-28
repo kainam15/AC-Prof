@@ -19,6 +19,13 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 尾延迟和冷启动分解共用 `data.representative_max_memory_rows` 选择配置，
 常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色；CLI 直接引用职责所属模块。
 
+`data.aggregate_metric_series` 统一单指标、通用总览、能耗图和 Process input-scaling 的
+有限值聚合。它只投影配置、尺度和目标指标，将不可用值保留为 NaN，按已有尺度聚合后移除
+整条无有效值的配置曲线；Process 按已有配置标签分组，保留 inherited 资源语义。
+缺失处断线参考 [Matplotlib 官方示例](https://github.com/matplotlib/matplotlib/blob/v3.10.9/galleries/examples/lines_bars_and_markers/masked_demo.py)
+及其[已合并的说明改进](https://github.com/matplotlib/matplotlib/pull/14713)。使用项目已锁定的
+Matplotlib API 和现有 pandas/NumPy，无新增依赖，也不进入正式测量窗口。
+
 `analysis.lifecycle.unique_startup_observations` 以标准库实现共享的启动身份去重与冲突检查；
 分析报告、冷启动柱状图和阶段分解图使用同一规则。绘图只投影配置、启动身份与所需指标，
 先筛选有效源行再去重，最后一次分组计算 mean/median，不为每个配置构造单独的 DataFrame。

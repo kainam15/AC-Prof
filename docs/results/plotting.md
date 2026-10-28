@@ -50,6 +50,13 @@ acprof plot \
 - `latency_energy_pareto.png`
 - `cold_start_breakdown.png`
 
+单指标、通用总览、energy/power 和 Process input-scaling 折线只对有限的窗口值计算
+mean/median，保留有效的零值。纳入分析的配置和 input scale 已有记录、但该指标缺失或为
+Infinity 时，该尺度保留为 NaN，让曲线在缺失处断开；不删除中间尺度后连接两侧数据，
+也不为原始记录中不存在的尺度补点。整条配置曲线没有有效值时不绘制曲线或添加图例；
+聚合后仍非有限的值保持为空。无有效指标的总览子图显示 `No data`，Process 子图沿用
+`Unavailable / not requested`。
+
 13 张通用总览图统一使用 input scale 横轴、配置颜色和共享图例；每张最多 6 个子图。只有单位、语义和数值尺度都适合直接比较的子图才共享纵轴，例如 packet/application latency、NCU application/packet MFLOPS 以及 cache/dTLB 的同类比率。cache miss 和 dTLB miss 的单 request 计数可能相差多个数量级，因此使用独立纵轴。某个指标没有数据时，对应位置显示 `No data`；整张总览图的全部指标都没有数据时才跳过该 PNG。延迟总览使用 `3×2` 布局，同时展示 packet/application 的原始延迟、归一化延迟和 CV；service efficiency 总览集中展示吞吐、每 CPU core 吞吐、container-attributed energy、归一化能耗和 samples/J。分辨率类型的归一化子图使用每百万像素指标（Diffusion 为输出像素，CV/多模态为输入像素），其他尺度仍使用原来的每 input unit 指标。分辨率图缺少可靠像素数时显示 `No data`，不退回边长分母。
 
 通用总览图和 energy/power 总览图的 `Configuration` 图例按运行模式、CPU 核数分列：`GPU+CPU1` 表示启用 GPU、CPU 配额为 1 核，`CPU1` 表示仅使用 CPU、配额为 1 核；列内的 `Mem2`、`Mem4` 等对应 `mem_cap_gb`，按数值从小到大排列并对齐。GPU 组在前，CPU-only 组在后，各组 CPU 核数递增；本图没有有效数据的配置留空，不生成额外曲线。宽图最多并排 8 组，单列子图最多并排 4 组，更多配置整组换行；画布按实际图例高度预留空间，避免遮挡标题、idle 说明或子图。曲线颜色和聚合口径保持原有规则。

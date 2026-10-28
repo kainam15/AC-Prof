@@ -258,20 +258,33 @@ def read_static_meta(csv_path: str) -> dict[str, object]:
     return read_static_metadata(ArtifactLayout.from_csv(csv_path).root)
 
 
-def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -> pd.DataFrame:
-    group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
-    if "environment_class" in df:
-        group_cols.insert(0, "environment_class")
-    metric_df = df[group_cols + [metric]].copy()
-    metric_df = metric_df[metric_df[metric].notna()].copy()
+def aggregate_metric_series(
+    df: pd.DataFrame, metric: str, *, config_columns: Sequence[str], agg_func: str = "mean", sort: bool = True,
+) -> pd.DataFrame:
+    """Aggregate finite windows while retaining gaps within usable series."""
+    group_cols = [*config_columns, "input_scale"]
+    metric_df = df[[*group_cols, metric]].copy()
     if metric_df.empty:
         return metric_df
+    finite = np.isfinite(metric_df[metric].to_numpy(dtype=float, na_value=np.nan))
+    if not finite.any():
+        return metric_df.iloc[:0]
+    # Mask instead of dropping source rows: their scale still marks a gap.
+    metric_df[metric] = metric_df[metric].where(finite)
+    grouped = metric_df.groupby(group_cols, as_index=False, sort=sort)[metric]
+    aggregated = grouped.median() if agg_func == "median" else grouped.mean()
+    aggregated[metric] = aggregated[metric].where(np.isfinite(aggregated[metric]).fillna(False))
+    usable = aggregated.groupby(list(config_columns), sort=False)[metric].transform("count") > 0
+    return aggregated[usable].reset_index(drop=True)
 
-    if agg_func == "median":
-        agg_df = metric_df.groupby(group_cols, as_index=False)[metric].median()
-    else:
-        agg_df = metric_df.groupby(group_cols, as_index=False)[metric].mean()
 
+def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -> pd.DataFrame:
+    config_columns = ["cpu_cores", "mem_cap_gb", "gpu_mode"]
+    if "environment_class" in df:
+        config_columns.insert(0, "environment_class")
+    agg_df = aggregate_metric_series(df, metric, config_columns=config_columns, agg_func=agg_func)
+    if agg_df.empty:
+        return agg_df
     agg_df["config"] = make_config_labels(agg_df)
     agg_df["gpu_on"] = agg_df["gpu_mode"].map(is_gpu_on)
     return agg_df

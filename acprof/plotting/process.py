@@ -5,6 +5,8 @@ from pathlib import Path
 def plot_process_results(frame, directory, *, xlabel="input_scale"):
     import matplotlib.pyplot as plt
 
+    from acprof.plotting.data import aggregate_metric_series
+
     directory = Path(directory) / "process"
     directory.mkdir(parents=True, exist_ok=True)
     panels = (("latency_app_s", "Client latency (s)"),
@@ -17,13 +19,16 @@ def plot_process_results(frame, directory, *, xlabel="input_scale"):
     try:
         for axis, (metric, title) in zip(axes.flat, panels, strict=True):
             axis.set(title=title, xlabel=xlabel)
-            available = frame.dropna(subset=[metric]) if metric in frame else frame.iloc[:0]
+            available = (
+                aggregate_metric_series(frame, metric, config_columns=("config",), sort=False)
+                if metric in frame else frame.iloc[:0]
+            )
             if available.empty:
                 axis.text(.5, .5, "Unavailable / not requested", transform=axis.transAxes, ha="center")
                 continue
             for label, case in available.groupby("config", sort=False):
-                series = case.groupby("input_scale")[metric].mean().sort_index()
-                axis.plot(series.index, series.values, marker="o", label=label)
+                series = case.sort_values("input_scale")
+                axis.plot(series["input_scale"], series[metric], marker="o", label=label)
             axis.legend(fontsize="small")
         figure.suptitle("Process Runtime: input scaling; inherited resources are not imposed quotas")
         figure.tight_layout()
