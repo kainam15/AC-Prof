@@ -19,6 +19,15 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 尾延迟和冷启动分解共用 `data.representative_max_memory_rows` 选择配置，
 常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色；CLI 直接引用职责所属模块。
 
+`analysis.lifecycle.unique_startup_observations` 以标准库实现共享的启动身份去重与冲突检查；
+分析报告、冷启动柱状图和阶段分解图使用同一规则。绘图只投影配置、启动身份与所需指标，
+先筛选有效源行再去重，最后一次分组计算 mean/median，不为每个配置构造单独的 DataFrame。
+去重与冲突分离参考
+[Prometheus 同时间戳样本处理](https://github.com/prometheus/prometheus/blob/3cb40f50066011274b4e54ca7944045851a67d0a/tsdb/head_append.go#L706-L718)
+及其[批次间去重一致性讨论](https://github.com/prometheus/prometheus/issues/12531)（Apache-2.0，官方维护）；
+仅借鉴相同身份与值可复用、冲突显式拒绝的设计，不复制源码或新增依赖。语义见
+[冷启动汇总](../profiling/lifecycle.md#冷启动汇总)。
+
 `plotting.data.prepare_df` 对数值列分别执行 `to_numeric`，再通过公开 DataFrame 构造器
 一次组装，避免逐列赋值造成宽结果表碎片化。保留各列 dtype、整数精度和原始列位置，
 不经统一浮点矩阵转换；GiB、像素派生量与过滤仍沿用原有顺序。

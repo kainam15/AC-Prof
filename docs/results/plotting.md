@@ -64,6 +64,10 @@ acprof plot \
 
 Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派生列 `cpu_heap_peak_total_gib_massif`；不会改写原始 CSV。它衡量进程生命周期内的 heap peak，与 container cgroup 测量窗口指标口径不同，因此保留为独立 PNG。`nsys_timing_overview_vs_scale.png` 使用 `2×2` 布局展示 host wall、CUDA API sum、GPU kernel sum 和 GPU memcpy sum。未启用对应 probe、字段不存在或整组字段均为 `nan` 时，这些可选图表会自动跳过。
 
+`cold_start_bar.png` 在每个环境、GPU mode、CPU 和 memory 配置内按
+[启动身份去重](../profiling/lifecycle.md#冷启动汇总)，再取 mean（调用方可选择 median）。
+仅有限且非负的耗时参与绘图；同一次启动的重复窗口不增加权重，冲突或身份歧义明确报错。
+
 四张论文分析图使用独立口径：
 
 Feasibility 单元格和 Pareto 面板按记录的 input scale 精确分组，不用浮点容差合并相邻尺度。
@@ -86,7 +90,7 @@ Feasibility 状态汇总后按配置建立一次索引，避免每个单元格�
 - `resource_feasibility_heatmap.png` 是唯一保留 `status=warn/error` 行的图。每个 `GPU mode × CPU × memory × input scale` 单元格把正式测量重复折叠为 `OK`、warning、partial failure、timeout、startup/runtime OOM、timeout 后跳过、其他错误或未知。只要同一单元格同时出现成功与失败，就标记为 partial failure，不会被成功行掩盖。只有表头、没有记录时跳过绘图；矩阵中缺少记录的单元格显示为 unknown。
 - `tail_latency_overview_vs_scale.png` 为每个 GPU mode 和 CPU 数选择具有有效 P50/P95 配对的最大 memory cap，packet/application 共用该配置。每种口径先保留同一窗口中有限且满足 `0 < P50 <= P95` 的配对，再对 repeat window 分位数取中位数，绘制 P50–P95 区间和 `P95/P50`。不跨不完整记录拼出配对；已记录但缺少有效分位数的尺度以 NaN 保留断线位置，孤立有效点使用圆点标记，整种口径缺失时显示 `No data`。可选 P90 必须有限且位于对应 P50–P95 区间内，聚合后仍越界时保留为空；没有 P90 曲线时不显示其图例。窗口分位数不用于伪造 request-level violin distribution。
 - `latency_energy_pareto.png` 按 input scale 分面并在 log-log 坐标中标出同时最小化 latency 与 container-attributed effective energy 的非支配前沿。延迟列依次优先使用 application P95、packet P95、application mean、packet mean；同一面板不会混合不同 input scale。历史 CSV 没有 `container_attributed_energy_eff_j` 时，只在 source fields 可用的行按现有口径重建：CPU-only 使用 estimated vCPU effective energy，GPU 行使用 estimated vCPU 与 GPU effective energy 之和。
-- `cold_start_breakdown.png` 仅在五个阶段字段完整时生成，并为每个 GPU mode/CPU 数选择最大 memory cap。同一张 PNG 使用上下两个子图，共享配置横轴、独立缩放纵轴：上图堆叠 container launch、server setup、CUDA init、model load 和 ready wait，并用 `cold_start_s` 独立标记核对阶段和；下图单独展示 first-predict application latency，不计入 `/ready` 前的堆叠总量，缺少该指标时显示 `No data`。旧结果缺少阶段列时继续保留 `cold_start_bar.png`，并自动跳过分解图。
+- `cold_start_breakdown.png` 只使用同一源行中五个阶段都完整、有限且非负的记录；不拼接互补的不完整行。按启动身份去重后，对各阶段和可选的 total/first-predict 耗时取 median，并为每个 GPU mode/CPU 数选择有有效阶段的最大 memory cap。同一张 PNG 使用上下两个子图，共享配置横轴、独立缩放纵轴：上图堆叠 container launch、server setup、CUDA init、model load 和 ready wait，并用 `cold_start_s` 独立标记核对阶段和；下图单独展示 first-predict application latency，不计入 `/ready` 前的堆叠总量，缺少该指标时显示 `No data`。旧结果缺少阶段列时继续保留 `cold_start_bar.png`，并自动跳过分解图。
 
 延迟建模产物统一写入绘图根目录下的 `latency_model/`（v2 为 `plots/latency_model/`）：
 

@@ -19,6 +19,7 @@ from acprof.plotting.config import (
     FEASIBILITY_TEXT_COLORS,
 )
 from acprof.plotting.data import (
+    aggregate_cold_start,
     is_gpu_on,
     make_config_labels,
     representative_max_memory_rows,
@@ -480,25 +481,19 @@ def plot_cold_start_breakdown(
         for column in ("cold_start_s", "cold_start_first_predict_app_s")
         if column in df.columns
     ]
-    group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode"]
-    cold_df = df[group_cols + phase_columns + optional_columns].copy()
-    cold_df = cold_df.dropna(subset=phase_columns)
-    cold_df = cold_df[(cold_df[phase_columns] >= 0.0).all(axis=1)]
-    if cold_df.empty:
+    aggregated = aggregate_cold_start(
+        df, agg_func="median", metric_columns=phase_columns + optional_columns, required_columns=phase_columns,
+    )
+    if aggregated.empty:
         print("[skip] Cold-start phase breakdown all NaN or incomplete")
         return False
-    aggregated = cold_df.groupby(group_cols, as_index=False)[
-        phase_columns + optional_columns
-    ].median()
     aggregated = representative_max_memory_rows(aggregated)
-    aggregated["gpu_on"] = aggregated["gpu_mode"].map(is_gpu_on)
-    aggregated["config"] = make_config_labels(aggregated)
     aggregated = aggregated.sort_values(
         ["gpu_on", "cpu_cores", "mem_cap_gb"],
         ascending=[False, True, True],
     )
 
-    labels = aggregated["config"].tolist()
+    labels = make_config_labels(aggregated[["cpu_cores", "mem_cap_gb", "gpu_mode"]]).tolist()
     x_values = np.arange(len(labels), dtype=float)
     bottoms = np.zeros(len(labels), dtype=float)
     fig, (axis, first_predict_axis) = plt.subplots(

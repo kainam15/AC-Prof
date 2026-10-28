@@ -162,3 +162,15 @@ persistence mode，以及 `/meta` 的有效线程数。证据原子写入
 | `cold_start_ready_wait_s` | model load 完成到 host 首次收到成功 `/ready` 的时间，包括 Flask 开始监听、poll interval 和本地 HTTP 往返。 |
 | `cold_start_first_predict_app_s` | workload client 发出的第一个成功 `/predict` 的 application latency；默认 auto-window 模式下通常是已有 auto-warmup 请求，固定窗口模式下是已有首个 warmup/measurement 请求，不会为此新增请求。 |
 | `cold_start_s` | 当前 container 从 `docker run` 到 `/ready` 成功的时间，单位秒。 |
+
+### 冷启动汇总
+
+冷启动字段在同一次启动的多个 workload window 中复用，窗口数不能作为独立启动数。
+分析报告与 PNG 在各自的配置分组内按 `cold_start_started_at` 去重，再对启动观测等权汇总；
+不同启动即使耗时相同也分别计数。同一启动的同一指标出现不同值时不选择其中一条，
+分析报告将该指标标为 `lifecycle_conflict` / null，PNG 绘图入口报错并指出指标与配置。
+
+历史数据全部缺少启动身份时，只接受一致的复用值，计为一次观测；空值、`nan`、`N/A`
+和 `unknown` 等缺失标记不代表不同启动。缺少身份的观测与已知身份混用时，无法判断是否
+来自同一次启动，同样作为冲突处理，不按耗时猜测身份。不修改原始 CSV 或补造启动时间。
+各图的 mean/median、有效阶段和资源选择规则见[绘图说明](../results/plotting.md)。

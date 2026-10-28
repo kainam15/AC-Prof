@@ -154,6 +154,42 @@ class TestAnalysisModel:
         assert (metrics["cold_start_s"]["n"]) == (2)
         assert (metrics["cpu_cycles_per_request"]["value"]) is None
 
+    @pytest.mark.parametrize("missing", ["", "NaN", "unknown", "N/A"])
+    def test_mixed_startup_identity_is_reported_as_unavailable(self, missing):
+        from acprof.analysis.model import load_analysis
+
+        data = load_analysis([self.source([
+            self.row(cold_start_s="2", cold_start_started_at=missing),
+            self.row(repeat_idx="1", cold_start_s="2", cold_start_started_at="start-a"),
+        ])])
+
+        assert data.configs[0]["metrics"]["cold_start_s"] == {
+            "value": None, "n": 0, "aggregation": "lifecycle_conflict", "missing": 0,
+        }
+
+    def test_legacy_missing_startup_markers_share_one_reused_observation(self):
+        from acprof.analysis.model import load_analysis
+
+        data = load_analysis([self.source([
+            self.row(repeat_idx=str(index), cold_start_s="2", cold_start_started_at=identity)
+            for index, identity in enumerate(["", "nan", "N/A", "unknown"])
+        ])])
+
+        metric = data.configs[0]["metrics"]["cold_start_s"]
+        assert metric["value"] == 2.
+        assert metric["n"] == 1
+
+    def test_conflicting_startup_values_remain_unavailable(self):
+        from acprof.analysis.model import load_analysis
+
+        data = load_analysis([self.source([
+            self.row(cold_start_s="2", cold_start_started_at="start-a"),
+            self.row(repeat_idx="1", cold_start_s="4", cold_start_started_at="start-a"),
+        ])])
+
+        assert data.configs[0]["metrics"]["cold_start_s"]["aggregation"] == "lifecycle_conflict"
+        assert data.configs[0]["metrics"]["cold_start_s"]["value"] is None
+
     def test_csv_and_metadata_errors_are_visible(self):
         from acprof.analysis.model import load_analysis
         path = self.source([self.row(), self.row()])

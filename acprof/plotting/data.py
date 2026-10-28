@@ -2,10 +2,13 @@
 
 import math
 import os
+from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
 
 from acprof.analysis.inputs import resource_coordinate
+from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.metric_registry import NUMERIC_FIELDS
 from acprof.pixel_metrics import (
@@ -274,20 +277,46 @@ def aggregate_metric(df: pd.DataFrame, metric: str, *, agg_func: str = "mean") -
     return agg_df
 
 
-def aggregate_cold_start(df: pd.DataFrame, *, agg_func: str = "mean") -> pd.DataFrame:
+def aggregate_cold_start(
+    df: pd.DataFrame, *, agg_func: str = "mean",
+    metric_columns: Sequence[str] = ("cold_start_s",), required_columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Aggregate one observation per startup, never one vote per workload row."""
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode"]
     if "environment_class" in df:
         group_cols.insert(0, "environment_class")
-    metric_df = df[group_cols + ["cold_start_s"]].copy()
-    metric_df = metric_df[metric_df["cold_start_s"].notna()].copy()
+    columns = [*group_cols, *metric_columns]
+    identity = "cold_start_started_at"
+    metric_df = df[columns + ([identity] if identity in df else [])].copy()
     if metric_df.empty:
-        return metric_df
+        return metric_df[columns]
+    metrics = metric_df[list(metric_columns)]
+    metric_df[list(metric_columns)] = metrics.where((np.isfinite(metrics) & (metrics >= 0)).fillna(False))
+    if identity not in metric_df:
+        metric_df[identity] = None
+    # Require complete phase vectors in a source row before deduplicating them.
+    metric_df = metric_df.dropna(subset=list(required_columns if required_columns is not None else metric_columns))
+    if metric_df.empty:
+        return metric_df[columns]
 
-    if agg_func == "median":
-        agg_df = metric_df.groupby(group_cols, as_index=False)["cold_start_s"].median()
-    else:
-        agg_df = metric_df.groupby(group_cols, as_index=False)["cold_start_s"].mean()
-
+    records: list[dict[str, object]] = []
+    for key, rows in metric_df.groupby(group_cols, sort=True):
+        configuration = dict(zip(group_cols, key, strict=True))
+        observations = (
+            (row[0], {name: float(value) for name, value in zip(metric_columns, row[1:], strict=True)
+                      if pd.notna(value)})
+            for row in rows[[identity, *metric_columns]].itertuples(index=False, name=None)
+        )
+        try:
+            startups = unique_startup_observations(observations)
+        except LifecycleConflict as error:
+            raise LifecycleConflict(f"{error}; configuration={configuration}") from error
+        records.extend({**configuration, **startup} for startup in startups)
+    unique_rows = pd.DataFrame.from_records(records, columns=columns)
+    if unique_rows.empty:
+        return unique_rows
+    grouped = unique_rows.groupby(group_cols, as_index=False)[list(metric_columns)]
+    agg_df = grouped.median() if agg_func == "median" else grouped.mean()
     agg_df["config"] = make_config_labels(agg_df)
     agg_df["gpu_on"] = agg_df["gpu_mode"].map(is_gpu_on)
     return agg_df

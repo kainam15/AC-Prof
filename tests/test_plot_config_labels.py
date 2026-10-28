@@ -103,6 +103,8 @@ def test_aggregate_labels_keep_grouping_and_numeric_results(with_environment, ag
         "cpu_cores": [1.5] * 3, "mem_cap_gb": [2.25] * 3, "gpu_mode": ["on"] * 3,
         "input_scale": [64, 64, 128], metric: [2.0, 4.0, 8.0],
     })
+    if cold_start:
+        frame["cold_start_started_at"] = ["startup-a", "startup-b", "startup-c"]
     if with_environment:
         frame["environment_class"] = ["native_linux", "native_linux", "wsl2"]
     original = frame.copy(deep=True)

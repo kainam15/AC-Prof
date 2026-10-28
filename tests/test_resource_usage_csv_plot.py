@@ -1659,7 +1659,8 @@ class TestResourceUsageCsvPlot:
                         "cold_start_cuda_init_s": 0.0,
                         "cold_start_model_load_s": 0.6,
                         "cold_start_ready_wait_s": 0.1,
-                        "cold_start_first_predict_app_s": base_latency,
+                        "cold_start_first_predict_app_s": .5 / cpu,
+                        "cold_start_started_at": f"startup-{cpu}-{mem}",
                         "cold_start_s": 1.0,
                     })
         frame = pd.DataFrame(rows)

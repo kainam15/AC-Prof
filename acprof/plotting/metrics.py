@@ -600,7 +600,7 @@ def plot_cold_start_bar(
 
     agg_df = aggregate_cold_start(df, agg_func=agg_func)
     if agg_df.empty:
-        print("[skip] cold_start_s all NaN")
+        print("[skip] cold_start_s unavailable or invalid")
         return
 
     cpu_values = sorted(resource_coordinate(value) for value in agg_df["cpu_cores"].unique())

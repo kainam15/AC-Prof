@@ -14,6 +14,7 @@ from typing import Any
 from acprof.analysis.audit import MISSING
 from acprof.analysis.comparison import load_comparison_snapshot
 from acprof.analysis.conditions import PURPOSES, PreparedComparison
+from acprof.analysis.lifecycle import LifecycleConflict, unique_startup_observations
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
@@ -128,14 +129,14 @@ def _summarize(entries, name):
             valid.append((entry, numeric))
     n_windows = len(valid)
     if metric.aggregation == "lifecycle":
-        lifecycles: dict[str, float] = {}
-        for entry, lifecycle_value in valid:
-            # Without startup identity only one consistent reused value is defensible.
-            key = _text(entry["row"].get("cold_start_started_at"))
-            if key in lifecycles and lifecycles[key] != lifecycle_value:
-                return {"value": None, "n": 0, "aggregation": "lifecycle_conflict", "missing": 0}
-            lifecycles[key] = lifecycle_value
-        values = list(lifecycles.values())
+        try:
+            startups = unique_startup_observations(
+                (entry["row"].get("cold_start_started_at"), {name: lifecycle_value})
+                for entry, lifecycle_value in valid
+            )
+        except LifecycleConflict:
+            return {"value": None, "n": 0, "aggregation": "lifecycle_conflict", "missing": 0}
+        values = [startup[name] for startup in startups]
     else:
         values = [value for _, value in valid]
     value: float | None = None

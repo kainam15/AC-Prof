@@ -47,8 +47,8 @@ CSV 重复列、损坏行、重复测量键和元数据损坏会明确报错；�
 
 - 延迟、吞吐、IPC 等对成功窗口等权求均值；P50/P95 是各窗口分位数的均值，不能解释成
   合并全部请求后的分位数。峰值取成功窗口最大值。每项保留有效/缺失窗口数与 aggregation。
-- Cold start 按 `cold_start_started_at` 去重。同一次启动的冲突值不汇总；历史数据缺少启动时间时，
-  只接受一致的复用值并计为一次观测，不能当成多个独立启动样本。
+- Cold start 按[冷启动汇总规则](../profiling/lifecycle.md#冷启动汇总)去重，`n` 表示启动观测数。
+  同一启动值冲突或缺失身份与已知身份混用时，该指标保留为 `lifecycle_conflict` / null。
 - `observed_energy_j` 是成功窗口的 CPU package 与所选 GPU 总能量之和：
   每行 `(cpu_energy_total_j + gpu_energy_total_j) × repeat_in_window`；CPU-only 行只计 CPU package。
   GPU 行任一分量缺失、成功窗口能量或实际请求数缺失时，总量 unavailable，避免把部分和呈现为总量。
