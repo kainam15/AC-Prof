@@ -68,6 +68,8 @@ Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派�
 
 Feasibility 单元格和 Pareto 面板按记录的 input scale 精确分组，不用浮点容差合并相邻尺度。
 尺度标签保留可还原原数值的精度，避免不同尺度显示为同一个标签。
+Feasibility 的 status/error 文本在分组前各规范化一次，只有配置与状态列参与分组；
+每组仍保留原记录顺序和全部成功、警告、错误信息，以判定混合失败及故障类别。
 Feasibility 状态汇总后按配置建立一次索引，避免每个单元格重复扫描 DataFrame；
 索引与单元格查找的平均总开销为 `O(R + C)`，其中 `R` 是汇总行数、`C` 是绘制单元格数，
 不包含状态聚合和 Matplotlib 渲染。

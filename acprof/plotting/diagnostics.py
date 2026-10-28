@@ -1,6 +1,7 @@
 """可行性、尾延迟、Pareto 和冷启动诊断图表。"""
 
 import math
+from collections.abc import Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,32 +39,13 @@ def _format_axis_value(value: object) -> str:
     return compact if float(compact) == number else repr(number)
 
 
-def _classify_feasibility_rows(rows: pd.DataFrame) -> str:
-    if "status" in rows.columns:
-        statuses = (
-            rows["status"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-    else:
-        statuses = pd.Series("", index=rows.index, dtype="object")
-    if "error" in rows.columns:
-        errors = (
-            rows["error"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-    else:
-        errors = pd.Series("", index=rows.index, dtype="object")
-
-    has_ok = statuses.eq("ok").any()
-    has_warn = statuses.eq("warn").any()
-    error_mask = statuses.eq("error") | errors.ne("")
-    has_error = error_mask.any()
+def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str]) -> str:
+    """Classify normalized outcomes, preserving error order within a group."""
+    status_values = set(statuses)
+    nonempty_errors = [error for error in errors if error]
+    has_ok = "ok" in status_values
+    has_warn = "warn" in status_values
+    has_error = "error" in status_values or bool(nonempty_errors)
     if has_ok:
         if has_error:
             return "mixed"
@@ -73,21 +55,17 @@ def _classify_feasibility_rows(rows: pd.DataFrame) -> str:
     if has_warn and not has_error:
         return "warn"
     if has_error:
-        error_messages = errors[error_mask]
-        nonempty_errors = error_messages[error_messages.ne("")]
         if (
-            not nonempty_errors.empty
-            and nonempty_errors.str.contains(
-                "not_measured_after_startup_oom_pruning"
-            ).all()
+            nonempty_errors
+            and all("not_measured_after_startup_oom_pruning" in error for error in nonempty_errors)
         ):
             return "pruned_startup_oom"
         if (
-            not nonempty_errors.empty
-            and nonempty_errors.str.contains("not_measured_after_timeout").all()
+            nonempty_errors
+            and all("not_measured_after_timeout" in error for error in nonempty_errors)
         ):
             return "skipped"
-        combined_error = " ".join(nonempty_errors.tolist())
+        combined_error = " ".join(nonempty_errors)
         startup_oom = (
             ("oom" in combined_error or "out of memory" in combined_error)
             and (
@@ -112,10 +90,19 @@ def summarize_resource_feasibility(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=[*sorted(required), "state"])
 
     group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
+    if df.empty:
+        return pd.DataFrame(columns=[*group_cols, "state"])
+
+    outcomes = df[group_cols].copy()
+    for column in ("status", "error"):
+        outcomes[column] = (
+            df[column].fillna("").astype(str).str.strip().str.lower()
+            if column in df.columns else ""
+        )
     records = []
-    for key, rows in df.groupby(group_cols, dropna=False, sort=True):
+    for key, rows in outcomes.groupby(group_cols, dropna=False, sort=True):
         record = dict(zip(group_cols, key, strict=True))
-        record["state"] = _classify_feasibility_rows(rows)
+        record["state"] = _classify_feasibility_outcomes(rows["status"].tolist(), rows["error"].tolist())
         records.append(record)
     summary = pd.DataFrame.from_records(records, columns=[*group_cols, "state"])
     if not summary.empty:
