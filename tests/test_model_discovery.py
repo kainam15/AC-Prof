@@ -13,7 +13,7 @@ import pytest
 
 from acprof.host.detect import TaskInfo, detect_task
 from acprof.host.images.runtime import request_fingerprint
-from acprof.host.input_plan import _get_task_generator
+from acprof.host.input_plan.materialize import get_task_generator
 from acprof.host.task_support import TaskSupportError, require_task_support
 from acprof.runtime_profiles import PROFILES
 
@@ -88,10 +88,10 @@ class TestModelDiscovery:
         assert ("model.safetensors") in (task.repository_files)
         assert ("config.json") in (task.repository_metadata)
 
-    def test_two_architectures_are_ambiguous_instead_of_first_match(self):
+    def test_two_architectures_require_independent_path_selection(self):
         task = self.discover({"config.json": {"architectures": ["BertForMaskedLM", "BertForSequenceClassification"]}},
                              library="transformers")
-        assert (task.model_resolution["status"]) == ("ambiguous")
+        assert (task.model_resolution["status"]) == ("selection_required")
         with pytest.raises(TaskSupportError, match="fill-mask.*text-classification"):
             require_task_support(task)
 
@@ -176,7 +176,7 @@ class TestModelSpecification:
     def test_model_declaration_drives_workload_feature_width(self):
         task = self.task({"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                           "model_file": "iris.onnx", "feature_dim": 4})
-        generator = _get_task_generator(task, 1)
+        generator = get_task_generator(task, 1)
         assert (len(generator.generate(2)["features"][0])) == (4)
 
     def test_workload_cannot_silently_override_model_feature_width(self):
@@ -186,7 +186,7 @@ class TestModelSpecification:
             path = Path(directory) / "workload.json"
             path.write_text(json.dumps({"schema_version": 1, "feature_dim": 8}))
             with pytest.raises(ValueError, match="feature_dim"):
-                _get_task_generator(task, 1, workload_spec_path=str(path))
+                get_task_generator(task, 1, workload_spec_path=str(path))
 
     def test_declaration_changes_service_image_identity(self):
         task = self.task({"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
