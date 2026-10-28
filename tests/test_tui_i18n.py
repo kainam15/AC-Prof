@@ -313,7 +313,6 @@ class TestTuiLanguage:
                 ("run-tab", ("open-run-settings", "probe-largest", "start-run")),
                 ("monitor-tab", ("copy-log-all", "follow-log", "expand-log", "clear-log", "stop-run")),
                 ("plot-tab", ("result-csv", "summarize-results", "plot-results")),
-                ("profile-tab", ("result-dir", "profile-dry-run", "profile-run")),
             ):
                 tabs = app.query_one("#main-tabs", TabbedContent)
                 tab_button = tabs.get_tab(tab)

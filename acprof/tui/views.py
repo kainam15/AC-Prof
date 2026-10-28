@@ -14,7 +14,6 @@ from textual.widgets import (
     Collapsible,
     ContentSwitcher,
     Label,
-    Rule,
     Static,
     TabPane,
 )
@@ -517,10 +516,10 @@ def compose_monitor_tab(app: AcprofTui) -> ComposeResult:
 
 
 def compose_plot_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("绘图工具", id="plot-tab"):
+    with TabPane("实验结果", id="plot-tab"):
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static(
-                "读取结果 CSV，查看摘要或生成 PNG 图表。", classes="page-summary", markup=False,
+                message_id("ui.2269"), classes="page-summary", markup=False,
             ))
         with VerticalScroll(id="plot-body", classes="pane-scroll"):
             with Grid(classes="form-grid tool-form-grid"):
@@ -528,6 +527,15 @@ def compose_plot_tab(app: AcprofTui) -> ComposeResult:
                 with Horizontal(classes="path-picker-row"):
                     yield app.localization.localized_widget(Input(app.configuration.saved_settings.last_result_csv, id="result-csv"))
                     yield app.localization.localized_widget(Button("选择实验", name="result-csv", id="choose-result-csv", classes="experiment-picker"))
+            with app.localization.localized_widget(Collapsible(
+                title="性能深度分析", collapsed=True, id="profile-section",
+            )):
+                yield app.localization.localized_widget(Static(
+                    message_id("ui.2253"), id="profile-status", markup=False,
+                ))
+                yield app.localization.localized_widget(Button(
+                    message_id("ui.2263"), id="open-result-profiling", disabled=True,
+                ))
             yield app.localization.localized_widget(Static(
                 "选择或完成一次实验后，这里会显示结果摘要。",
                 id="result-summary",
@@ -544,11 +552,55 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
     with TabPane("统计报告", id="reports-tab"):
         with Vertical(classes="page-header"):
             yield app.localization.localized_widget(Static(
-                "CSV / 目录：生成 HTML 或 JSON 统计；JSON：查看统计。采集结束后操作。",
+                "选择实验后可计算窗口统计或生成交互式 HTML 报告。",
                 id="report-status", classes="page-summary", markup=False,
             ))
         with VerticalScroll(id="report-panel"):
-            with app.localization.localized_widget(Collapsible(title="独立实验比较", collapsed=True, id="comparison-options")):
+            with Horizontal(id="report-source-row"):
+                yield app.localization.localized_widget(Static(
+                    "当前实验：未选择", id="report-experiment", markup=False,
+                ))
+                yield app.localization.localized_widget(Button(
+                    "选择实验", name="report-source", id="choose-report-source", classes="experiment-picker",
+                ))
+            with app.localization.localized_widget(Collapsible(
+                title="实验路径与已有 JSON", collapsed=True, id="report-file-options",
+            )):
+                yield app.localization.localized_widget(Label("实验目录 / CSV"))
+                yield app.localization.localized_widget(Input(
+                    app.configuration.saved_settings.last_result_csv, id="report-source", classes="report-control",
+                    placeholder="实验目录、清单或 CSV（多项以分号分隔）",
+                ))
+                yield app.localization.localized_widget(Label("已有 JSON 报告"))
+                with Horizontal(classes="path-picker-row"):
+                    yield app.localization.localized_widget(Input(
+                        id="report-json-path", classes="report-control", placeholder="JSON 文件路径",
+                    ))
+                    yield app.localization.localized_widget(Button(
+                        "查看 JSON", id="report-open", classes="report-control",
+                    ))
+            with ContentSwitcher(initial="report-empty", id="report-content"):
+                yield app.localization.localized_widget(Static(
+                    "选择实验并点击“计算统计”，或展开“实验路径与已有 JSON”打开已保存的统计报告。",
+                    id="report-empty", markup=False,
+                ))
+                yield app.localization.localized_widget(Static(
+                    "正在读取统计报告…", id="report-loading", markup=False,
+                ))
+                yield app.localization.localized_widget(Static(
+                    "统计报告不可用", id="report-error", markup=False,
+                ))
+                with Vertical(id="report-results"):
+                    yield app.localization.localized_widget(ResizableDataTable(
+                        id="report-table", cursor_type="row", zebra_stripes=True, fixed_columns=1,
+                    ))
+                    yield app.localization.localized_widget(Static(
+                        "表格可滚动；选择一行查看口径与数据来源。",
+                        id="report-detail", markup=False,
+                    ))
+            with app.localization.localized_widget(Collapsible(
+                title="独立实验比较", collapsed=True, id="comparison-options",
+            )):
                 with Grid(classes="form-grid tool-form-grid"):
                     for side, label in (("left", "左侧实验"), ("right", "右侧实验")):
                         yield app.localization.localized_widget(Label(label))
@@ -563,12 +615,6 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
                     yield app.localization.localized_select((("相同硬件", "same-hardware"), ("跨硬件", "cross-hardware"), ("资源配置扩展", "resource-scaling")),
                         value="same-hardware", allow_blank=False, id="comparison-purpose", classes="report-control")
                 yield app.localization.localized_widget(Button("比较实验", id="report-compare", classes="report-control"))
-            with Horizontal(classes="path-picker-row"):
-                yield app.localization.localized_widget(Input(
-                    app.configuration.saved_settings.last_result_csv, id="report-source", classes="report-control",
-                    placeholder="实验目录 / CSV（多个用分号分隔）；或 JSON 报告",
-                ))
-                yield app.localization.localized_widget(Button("选择实验", name="report-source", id="choose-report-source", classes="experiment-picker"))
             with app.localization.localized_widget(Collapsible(title="交互式 HTML 报告", collapsed=True, id="html-report-panel")):
                 with Horizontal(classes="html-actions"):
                     yield app.localization.localized_widget(Button("打开 HTML", id="html-report-open", classes="report-control"))
@@ -590,50 +636,15 @@ def compose_reports_tab(app: AcprofTui) -> ComposeResult:
                         "SSH / 无桌面：用 SFTP 或远程 IDE 下载上方 HTML 到本机，再用浏览器打开；无需 Web 服务。",
                         markup=False,
                     ))
-            yield Rule(classes="content-divider")
-            yield app.localization.localized_widget(ResizableDataTable(
-                id="report-table", cursor_type="row", zebra_stripes=True, fixed_columns=1))
-            yield app.localization.localized_widget(Static(
-                "表格可滚动；选择一行查看口径与数据来源。",
-                id="report-detail", markup=False,
-            ))
         with Horizontal(id="report-actions", classes="action-bar"):
             with Horizontal(classes="action-secondary"):
-                yield app.localization.localized_widget(Button("查看 JSON", id="report-open", classes="report-control"))
-                yield app.localization.localized_widget(Button("计算 JSON 统计", id="report-calculate", classes="report-control"))
+                yield app.localization.localized_widget(Button(
+                    "生成 HTML", id="html-report-generate", classes="report-control",
+                ))
             with Horizontal(classes="action-primary"):
-                yield app.localization.localized_widget(Button("生成交互式报告", id="html-report-generate", classes="report-control", variant="primary"))
-
-
-def compose_profile_tab(app: AcprofTui) -> ComposeResult:
-    with TabPane("补采工具", id="profile-tab"):
-        with VerticalScroll(id="profile-body", classes="pane-scroll"):
-            with Grid(classes="form-grid tool-form-grid"):
-                yield app.localization.localized_widget(Label("结果目录"))
-                with Horizontal(classes="path-picker-row"):
-                    yield app.localization.localized_widget(Input(app.configuration.saved_settings.last_result_dir, id="result-dir"))
-                    yield app.localization.localized_widget(Button("选择实验", name="result-dir", id="choose-result-dir", classes="experiment-picker"))
-                yield app.localization.localized_widget(Label("补采工具"))
-                with Grid(id="profile-tools"):
-                    for tool, label, tooltip in (
-                        ("torch", "torch · CPU / GPU", "逻辑 FLOP；点击或按空格切换。"),
-                        ("ncu", "ncu · GPU", "GPU 实际执行 FLOP；点击或按空格切换。"),
-                        ("nsys", "nsys · GPU", "CUDA API、kernel 和 memcpy 时间线；点击或按空格切换。"),
-                        ("massif", "massif · CPU", "CPU-only 进程生命周期内存峰值；点击或按空格切换。"),
-                    ):
-                        yield app.localization.localized_widget(StatusCheckbox(
-                            label,
-                            value=tool in {"torch", "ncu"},
-                            name=tool,
-                            id=f"profile-tool-{tool}",
-                            classes="option-checkbox profile-tool",
-                            tooltip=tooltip,
-                        ))
-        with Horizontal(id="profile-actions", classes="action-bar"):
-            with Horizontal(classes="action-secondary"):
-                yield app.localization.localized_widget(Button("补采计划（dry-run）", id="profile-dry-run"))
-            with Horizontal(classes="action-primary"):
-                yield app.localization.localized_widget(Button("执行补采", id="profile-run", variant="warning"))
+                yield app.localization.localized_widget(Button(
+                    "计算统计", id="report-calculate", classes="report-control", variant="primary",
+                ))
 
 
 def compose_settings_tab(app: AcprofTui) -> ComposeResult:

@@ -7,11 +7,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import Button, DataTable, Input, Static, TabbedContent, TabPane
+from textual.widgets import (
+    Button,
+    Collapsible,
+    ContentSwitcher,
+    DataTable,
+    Input,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
 from acprof.tui.progress import ProgressSnapshot
+from acprof.tui.reports import ReportView
 from acprof.tui.run_results import RunResult
 
 
@@ -108,7 +118,8 @@ class TestTuiReports:
             assert (await pilot.click("#report-calculate"))
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")
-            output = Path(app.query_one("#report-source", Input).value)
+            output = Path(app.query_one("#report-json-path", Input).value)
+            assert app.query_one("#report-source", Input).value == str(self.csv_path)
             assert (output.suffix) == (".json")
             assert re.search(r"^window-statistics-\d{8}-\d{6}-\d{6}\.json$", output.name)
             data = json.loads(output.read_text())
@@ -132,7 +143,7 @@ class TestTuiReports:
             source.value = str(self.csv_path)
             assert (await pilot.click("#report-calculate"))
             await self.finish_workers(app, pilot)
-            generated = Path(str(source.value))
+            generated = Path(app.query_one("#report-json-path", Input).value)
             existing = generated.with_name("window-statistics-1b1047da59ca46f186c93ac5ad86f8d0.json")
             generated.rename(existing)
             saved = existing.read_bytes()
@@ -145,7 +156,8 @@ class TestTuiReports:
                 with patch.object(app, 'notify', wraps=app.notify) as notify:
                     assert (await pilot.click("#report-calculate"))
                     await self.finish_workers(app, pilot)
-                assert (Path(str(source.value))) == (existing)
+                assert (Path(app.query_one("#report-json-path", Input).value)) == (existing)
+                assert source.value == str(self.csv_path)
                 assert (list(existing.parent.glob("*.json"))) == ([existing])
                 assert (existing.read_bytes()) == (saved)
                 assert (existing.stat().st_mtime_ns) == (modified)
@@ -157,35 +169,39 @@ class TestTuiReports:
         assert (self.csv_path.read_bytes()) == (original)
 
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
-    async def test_empty_header_click_before_loading_and_after_read_failure(self, size):
+    async def test_report_empty_loading_error_and_recovery(self, size):
         report = self.overhead_report()
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             await self.open_tab(app, pilot)
             table = app.query_one("#report-table", DataTable)
+            content = app.query_one("#report-content", ContentSwitcher)
             for language in ("zh", "en"):
                 app.configuration.preferences = replace(app.configuration.preferences, language=language)
                 app.configuration.apply_ui_preferences()
                 await pilot.pause()
-                assert (len(table.columns)) == (0)
-                inset = table.content_region.offset - table.region.offset
-                assert (await pilot.click(table, offset=(inset.x + 38, inset.y)))
-                assert (app.is_running)
-                assert (app.mouse_captured) is None
-            source = app.query_one("#report-source", Input)
-            source.value = str(report)
-            assert (await pilot.click("#report-open"))
+                assert content.current == "report-empty"
+                assert table.region.width == 0, "Empty table should not occupy the report view"
+            app.query_one("#report-file-options", Collapsible).collapsed = False
+            json_path = app.query_one("#report-json-path", Input)
+            json_path.value = str(report)
+            await pilot.pause()
+            assert await pilot.click("#report-open")
             await self.finish_workers(app, pilot)
-            assert (table.row_count) == (1)
-            source.value = str(self.directory / "missing.json")
-            assert (await pilot.click("#report-open"))
+            assert content.current == "report-results"
+            assert table.row_count == 1
+            json_path.value = str(self.directory / "missing.json")
+            await pilot.pause()
+            assert content.current == "report-empty"
+            assert await pilot.click("#report-open")
             await self.finish_workers(app, pilot)
-            assert (len(table.columns)) == (0)
-            assert (await pilot.click(table, offset=(inset.x + 38, inset.y)))
-            source.value = str(report)
-            assert (await pilot.click("#report-open"))
+            assert content.current == "report-error"
+            assert table.row_count == 0
+            json_path.value = str(report)
+            assert await pilot.click("#report-open")
             await self.finish_workers(app, pilot)
-            assert (table.row_count) == (1), "空表头点击后仍能正常读取报告"
+            assert content.current == "report-results"
+            assert table.row_count == 1
 
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_open_overhead_at_all_sizes_and_language_switch_preserves_data_and_draft(self, size):
@@ -194,36 +210,43 @@ class TestTuiReports:
         app = self.make_app()
         async with app.run_test(size=size) as pilot:
             await self.open_tab(app, pilot)
-            source = app.query_one("#report-source", Input)
+            files = app.query_one("#report-file-options", Collapsible)
+            files.collapsed = False
+            source = app.query_one("#report-json-path", Input)
             source.value = str(report)
-            assert (await pilot.click("#report-open"))
+            await pilot.pause()
+            assert await pilot.click("#report-open")
             await self.finish_workers(app, pilot)
+            files.collapsed = True
+            await pilot.pause()
             table = app.query_one("#report-table", DataTable)
-            assert (table.row_count) == (1)
+            assert table.row_count == 1
             assert ("+2%") in ([str(cell) for cell in table.get_row_at(0)])
             assert ("方向不确定") in ([str(cell) for cell in table.get_row_at(0)])
-            for selector in ("#report-open", "#report-calculate", "#report-table"):
+            for selector in ("#report-calculate", "#report-table"):
                 region = app.query_one(selector).region
-                assert (region.height) > (0)
-                assert (region.bottom) <= (size[1] - 3)
+                assert region.height > 0
+                assert region.bottom <= (size[1] - 3)
             table.focus()
             await pilot.pause()
             await pilot.press("right", "left", "down")
             app.configuration.preferences = replace(app.configuration.preferences, language="en")
             app.configuration.apply_ui_preferences()
             await pilot.pause()
-            assert (source.value) == (str(report))
+            assert source.value == str(report)
             assert ("Uncertain direction") in ([str(cell) for cell in table.get_row_at(0)])
-            assert ("Report") in (app.query_one("#main-tabs", TabbedContent).get_tab("reports-tab").label.plain)
-        assert (report.read_bytes()) == (original)
+            assert ("Report") in app.query_one("#main-tabs", TabbedContent).get_tab("reports-tab").label.plain
+        assert report.read_bytes() == original
 
     async def test_invalid_or_failed_reports_clear_old_table_and_show_error_on_report_page(self):
         app = self.make_app()
         async with app.run_test(size=(80, 24)) as pilot:
             await self.open_tab(app, pilot)
-            source = app.query_one("#report-source", Input)
+            app.query_one("#report-file-options", Collapsible).collapsed = False
+            source = app.query_one("#report-json-path", Input)
             source.value = str(self.overhead_report())
-            await pilot.click("#report-open")
+            await pilot.pause()
+            assert await pilot.click("#report-open")
             await self.finish_workers(app, pilot)
             assert (app.query_one("#report-table", DataTable).row_count) == (1)
             invalid = self.directory / "损坏.json"
@@ -231,10 +254,12 @@ class TestTuiReports:
                             '{"schema_version":1,"kind":"ui_overhead","successful":false,"error":"interrupted"}'):
                 invalid.write_text(content)
                 source.value = str(invalid)
-                await pilot.click("#report-open")
+                await pilot.pause()
+                assert await pilot.click("#report-open")
                 await self.finish_workers(app, pilot)
                 assert (app.query_one("#report-table", DataTable).row_count) == (0)
-                assert ("报告读取失败") in (str(app.query_one("#report-status", Static).content))
+                assert ("报告读取失败") in (str(app.query_one("#report-error", Static).content))
+                assert app.query_one("#report-content", ContentSwitcher).current == "report-error"
                 assert not (app.is_busy())
                 assert not (app.query_one("#report-open", Button).disabled)
 
@@ -243,11 +268,14 @@ class TestTuiReports:
         async with app.run_test(size=(120, 30)) as pilot:
             await self.open_tab(app, pilot)
             app.query_one("#report-source", Input).value = str(self.csv_path)
+            await pilot.pause()
+            app.query_one("#report-json-path", Input).value = str(self.overhead_report())
+            await pilot.pause()
             app.process_kind = "run"
             app.latest_snapshot = ProgressSnapshot(measurement_active=True)
             app.set_busy(True)
             with patch.object(app.process, 'execute_command') as execute:
-                for selector in ("#report-open", "#report-calculate", "#report-source"):
+                for selector in ("#report-open", "#report-calculate", "#report-source", "#report-json-path"):
                     assert (app.query_one(selector).disabled)
                 for command in ("/stats", "/report"):
                     field = app.query_one("#slash-command", Input)
@@ -274,9 +302,50 @@ class TestTuiReports:
             source = app.query_one("#report-source", Input)
             assert (source.value) == (str(self.csv_path))
             assert not (list(app.workers))
-            source.value = str(self.overhead_report())
+            source.value = str(self.directory / "explicit.csv")
+            json_path = app.query_one("#report-json-path", Input)
+            json_path.value = str(self.overhead_report())
             app.configuration.remember_last_used(result_csv=str(self.directory / "another.csv"))
-            assert (source.value.endswith("开销.json"))
+            assert source.value.endswith("explicit.csv")
+            assert json_path.value.endswith("开销.json")
+
+    async def test_json_view_then_html_generation_keeps_original_experiment(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.open_tab(app, pilot)
+            source = app.query_one("#report-source", Input)
+            json_path = app.query_one("#report-json-path", Input)
+            source.value = str(self.csv_path)
+            assert await pilot.click("#report-calculate")
+            await self.finish_workers(app, pilot)
+            assert source.value == str(self.csv_path)
+            assert Path(json_path.value).is_file()
+            assert app.query_one("#report-content", ContentSwitcher).current == "report-results"
+            with patch.object(app, "launch") as launch:
+                app.results.launch_html_report()
+            launch.assert_called_once()
+            command = launch.call_args.args[0].command
+            assert str(self.csv_path) in command
+            assert json_path.value not in command
+            assert source.value == str(self.csv_path)
+            source.value = str(self.directory / "another.csv")
+            await pilot.pause()
+            assert json_path.value == ""
+            assert app.query_one("#report-content", ContentSwitcher).current == "report-empty"
+
+    async def test_report_without_rows_uses_empty_state_instead_of_blank_table(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await self.open_tab(app, pilot)
+            app.results.report_view = ReportView(
+                source=self.csv_path, title="无有效统计", columns=("字段",), rows=(),
+                note="本次实验没有可展示的数据行",
+            )
+            app.results.render_report_view()
+            await pilot.pause()
+            assert app.query_one("#report-content", ContentSwitcher).current == "report-empty"
+            assert "没有可展示的数据行" in str(app.query_one("#report-empty", Static).content)
+            assert app.query_one("#report-table", DataTable).row_count == 0
 
     async def test_failed_statistics_returns_to_reports_and_reenables_controls(self):
         self.csv_path.write_text("bad,csv\n1,2\n")
@@ -287,7 +356,8 @@ class TestTuiReports:
             await pilot.click("#report-calculate")
             await self.finish_workers(app, pilot)
             assert (app.query_one("#main-tabs", TabbedContent).active) == ("reports-tab")
-            assert ("统计未完成") in (str(app.query_one("#report-status", Static).content))
+            assert ("统计未完成") in (str(app.query_one("#report-error", Static).content))
+            assert app.query_one("#report-content", ContentSwitcher).current == "report-error"
             assert (app.query_one("#report-table", DataTable).row_count) == (0)
             assert not (app.is_busy())
             assert not (app.query_one("#report-calculate", Button).disabled)

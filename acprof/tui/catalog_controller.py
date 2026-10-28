@@ -32,7 +32,7 @@ class CatalogController:
     def catalog_roots(self) -> tuple[Path, ...]:
         roots = []
         for source in (self.app.configuration.input('output-dir'), self.app.configuration.saved_settings.last_result_dir,
-                       self.app.configuration.input('result-csv'), self.app.configuration.input('result-dir'), self.app.configuration.input('report-source')):
+                       self.app.configuration.input('result-csv'), self.app.configuration.saved_settings.last_result_dir, self.app.configuration.input('report-source')):
             if not source.strip():
                 continue
             path = resolve_result_path(source, self.app.project_dir)
@@ -104,6 +104,7 @@ class CatalogController:
             self.app.query_one('#result-csv', Input).value = str(csv_path)
             self.app.results.update_result_summary(str(csv_path), notify=False)
         else:
+            self.app.profiles.reset_overview()
             self.app.localization.set_text(self.app.query_one('#result-summary', Static),
                 message_id('ui.0172', experiment_choice(record).detail))
 

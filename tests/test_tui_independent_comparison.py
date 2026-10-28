@@ -152,7 +152,7 @@ class TestIndependentComparisonUi:
                     await app.workers.wait_for_complete()
                     await pilot.pause()
                 assert ("error") not in ([call.kwargs.get("severity") for call in notify.call_args_list])
-            report = Path(app.query_one("#report-source", Input).value)
+            report = Path(app.query_one("#report-json-path", Input).value)
             assert (report.is_file())
             payload = json.loads(report.read_text())
             assert (payload["kind"]) == ("independent_experiment_comparison")

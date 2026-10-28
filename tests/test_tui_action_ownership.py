@@ -30,7 +30,7 @@ from acprof.tui.slash_controller import SlashController
     ("process", ProcessController, "safe_process_callback"),
     ("results", ResultController, "execute_summary_read"),
     ("results", ResultController, "execute_report_read"),
-    ("profiles", ProfileController, "profile_run_button"),
+    ("profiles", ProfileController, "open_selection_dialog"),
     ("slash", SlashController, "slash_command_submitted"),
 ])
 def test_business_controller_has_one_explicit_owner(tmp_path, attribute, owner, method):

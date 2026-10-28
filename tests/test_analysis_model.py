@@ -231,6 +231,7 @@ class TestAnalysisModel:
 
     @pytest.mark.parametrize("storage", ["csv", "layers"])
     def test_analysis_audits_once_per_load_and_refreshes_quality(self, storage, monkeypatch):
+        from acprof.analysis.audit import audit_result
         from acprof.analysis.model import load_analysis
         from acprof.artifact_layout import ArtifactLayout
         from acprof.quality import loading_quality
@@ -245,14 +246,22 @@ class TestAnalysisModel:
             publish_result_layers(input_path, output_dir=layout.root)
             input_path = layout.result_csv
         reads = []
+        audits = []
 
         def record_snapshot(candidate, **kwargs):
             reads.append(Path(candidate).resolve())
             return read_result_csv_snapshot(candidate, **kwargs)
 
+        def record_audit(candidate, **kwargs):
+            audits.append(Path(candidate).resolve())
+            return audit_result(candidate, **kwargs)
+
+        monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
+        monkeypatch.setattr("acprof.analysis.comparison.read_result_csv_snapshot", record_snapshot)
         monkeypatch.setattr("acprof.analysis.audit.read_result_csv_snapshot", record_snapshot)
         first = load_analysis([input_path])
         assert reads == [input_path.resolve()]
+        assert audits == [input_path.resolve()]
         assert first.sources[0]["quality_status"] == "unknown"
         assert first.configs[0]["metrics"]["latency_app_p95_s"]["value"] == .04
 
@@ -260,6 +269,7 @@ class TestAnalysisModel:
         layout.path("quality_checks.json").write_text(json.dumps({"schema_version": 1, "checks": checks}))
         second = load_analysis([input_path])
         assert reads == [input_path.resolve(), input_path.resolve()]
+        assert audits == [input_path.resolve(), input_path.resolve()]
         assert second.sources[0]["quality_status"] == "blocked"
         assert second.configs[0]["quality_checks"] == [{
             **checks[0], "evidence": {**checks[0]["evidence"],

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 from rich.cells import cell_len
 from textual.containers import VerticalScroll
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
@@ -48,7 +48,7 @@ class TestTuiPageChrome:
             assert (action.region.y) == (primary.region.y), action.id
         assert (primary.region.x) >= (secondary[-1].region.right + 1)
 
-    @pytest.mark.parametrize(("page", "primary", "secondary"), [('run-tab', 'start-run', ('open-run-settings', 'probe-largest')), ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')), ('plot-tab', 'plot-results', ('summarize-results',)), ('reports-tab', 'html-report-generate', ('report-open', 'report-calculate')), ('profile-tab', 'profile-run', ('profile-dry-run',)), ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')), ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',))])
+    @pytest.mark.parametrize(("page", "primary", "secondary"), [('run-tab', 'start-run', ('open-run-settings', 'probe-largest')), ('monitor-tab', 'stop-run', ('copy-log-all', 'follow-log', 'expand-log', 'clear-log')), ('plot-tab', 'plot-results', ('summarize-results',)), ('reports-tab', 'report-calculate', ('html-report-generate',)), ('images-tab', 'image-delete', ('image-toggle', 'image-model', 'image-clear')), ('settings-tab', 'save-ui-settings', ('restore-ui-defaults',))])
     @pytest.mark.parametrize('language', ['zh', 'en'])
     @pytest.mark.parametrize('size', [(80, 24), (120, 30), (150, 45)])
     async def test_all_pages_keep_top_content_and_rightmost_actions_fixed_when_scrolling_and_resizing(self, page, primary, secondary, language, size):
@@ -65,7 +65,7 @@ class TestTuiPageChrome:
             assert (button.region.bottom) == (pane.region.bottom)
             assert (button.region.right) == (pane.region.right - 2)
             self.assert_actions_aligned(pane, secondary, button)
-            top = pane.query_one("#profile-body" if page == "profile-tab" else ".page-header")
+            top = pane.query_one(".page-header")
             top_region, button_region = top.region, button.region
             assert (top_region.y) == (pane.region.y)
             for scroll in pane.query(VerticalScroll):
@@ -99,7 +99,7 @@ class TestTuiPageChrome:
             assert (hue) >= (low)
             assert (hue) <= (high)
 
-    @pytest.mark.parametrize(("page", "selector", "family"), [('run-tab', '#start-run', 'cyan'), ('profile-tab', '#profile-run', 'yellow'), ('images-tab', '#image-delete', 'red')])
+    @pytest.mark.parametrize(("page", "selector", "family"), [('run-tab', '#start-run', 'cyan'), ('images-tab', '#image-delete', 'red')])
     @pytest.mark.parametrize("theme", UI_THEMES)
     async def test_action_semantics_survive_theme_hover_focus_and_disabled_states(self, page, selector, family, theme):
         app = self.app
@@ -167,10 +167,8 @@ class TestTuiPageChrome:
                 await pilot.pause()
                 launch.assert_called_once()
                 launch.reset_mock()
-                app.activate_tab("profile-tab")
-                app.query_one("#result-dir", Input).value = str(app.configuration.settings_path.parent)
-                await pilot.pause()
-                assert (await pilot.click("#profile-run"))
+                app.profiles.request_profile_run(
+                    result_dir=str(app.configuration.settings_path.parent), tools="torch")
                 await pilot.pause()
                 self.assert_color_family(app.screen.query_one("#confirm-yes").styles.color, "yellow")
                 await pilot.press("escape")

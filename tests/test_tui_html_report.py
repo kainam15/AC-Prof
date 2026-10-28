@@ -221,7 +221,11 @@ async def test_html_actions_fit_visible_report_page(tmp_path, size, language):
         app.activate_tab("reports-tab")
         app.query_one("#html-report-panel", Collapsible).collapsed = False
         await pilot.pause()
-        for name in ("generate", "open", "cancel"):
+        assert not app.query_one("#html-report-open", Button).display
+        assert not app.query_one("#html-report-cancel", Button).display
+        app.query_one("#html-report-path", Input).value = str(tmp_path / "existing.html")
+        await pilot.pause()
+        for name in ("generate", "open"):
             button = app.query_one(f"#html-report-{name}", Button)
             button.scroll_visible(animate=False, immediate=True)
             await pilot.pause()

@@ -63,14 +63,13 @@ from acprof.tui.monitor import MonitorPhase, monitor_phase
 from acprof.tui.preflight_controller import PreflightController
 from acprof.tui.presentation import NOT_APPLICABLE, UNKNOWN
 from acprof.tui.process import ProcessLifecycle, StopResult
-from acprof.tui.process_completion import build_process_completion
 from acprof.tui.process_controller import ProcessController
 from acprof.tui.profile_controller import ProfileController
 from acprof.tui.progress import ProgressSnapshot
 from acprof.tui.recovery_controller import RecoveryController
 from acprof.tui.rendering import CjkScreen
 from acprof.tui.result_controller import ResultController
-from acprof.tui.run_results import RunResult
+from acprof.tui.run_results import RunResult, evaluate_process_completion
 from acprof.tui.slash_controller import SlashController
 from acprof.tui.stages import Stage
 from acprof.tui.table import ResizableDataTable
@@ -80,7 +79,6 @@ from acprof.tui.views import (
     compose_images_tab,
     compose_monitor_tab,
     compose_plot_tab,
-    compose_profile_tab,
     compose_reports_tab,
     compose_run_tab,
     compose_settings_tab,
@@ -189,7 +187,6 @@ class AcprofTui(BarCursorApp):
             yield from compose_monitor_tab(self)
             yield from compose_plot_tab(self)
             yield from compose_reports_tab(self)
-            yield from compose_profile_tab(self)
             yield from compose_images_tab(self)
             yield from compose_settings_tab(self)
 
@@ -209,6 +206,8 @@ class AcprofTui(BarCursorApp):
         self.update_responsive_layout()
         self.configuration.selected_preset = self.configuration.select("run-preset")
         self.form_ready = True
+        self.results.update_report_source_label()
+        self.results.update_report_actions()
         self.configuration.refresh_command_preview(notify=False)
         self.call_after_refresh(self.preflight.quick_check)
         self.query_one("#model", Input).focus()
@@ -288,7 +287,7 @@ class AcprofTui(BarCursorApp):
         for selector, operation in {
             "#start-run": "run", "#probe-largest": "probe",
             "#summarize-results": "summary", "#plot-results": "plot",
-            "#profile-dry-run": "profile", "#profile-run": "profile", "#report-open": "report",
+            "#report-open": "report",
             "#report-calculate": "stats", "#stop-run": "stop",
             "#html-report-generate": "html-report", "#html-report-open": "html-open",
             "#html-report-export": "html-export",
@@ -304,6 +303,8 @@ class AcprofTui(BarCursorApp):
         self.images.update_image_controls()
         self.images.sync_image_refresh_timer()
         self.preflight.refresh_preflight_state()
+        self.profiles.update_action_availability()
+        self.results.update_report_actions()
 
     def activate_tab(self, tab_id: str) -> None:
         if self.screen.maximized is not None:
@@ -333,6 +334,7 @@ class AcprofTui(BarCursorApp):
             self.configuration.remember_last_used(model=model)
             self.run_result = RunResult()
             self.results.summary_request = None
+            self.profiles.reset_overview()
             self.localization.set_text(self.query_one("#result-summary", Static),
                            "本次尚未产生结果；历史结果可通过原路径查看。")
         else:
@@ -523,65 +525,59 @@ class AcprofTui(BarCursorApp):
         snapshot: ProgressSnapshot | None,
         launch_error: str,
     ) -> None:
+        # The child has exited; flush preparation output before its final outcome.
         self.logs.suspend(False)
         cancelled = self.stop_requested
         if kind == "html-report" and not cancelled:
             launch_error = self.results.html_report_error(returncode, launch_error)
-        comparison = self.results.comparison_report_path
-        completion = build_process_completion(
+        completion = evaluate_process_completion(
             kind,
             returncode,
             snapshot,
-            launch_error,
-            stopped=self.stop_requested,
-            latest_snapshot=self.latest_snapshot,
+            self.latest_snapshot,
+            launch_error=launch_error,
+            stop_requested=cancelled,
             run_result=self.run_result,
             stats_report_path=self.results.stats_report_path,
             stats_report_reused=self.results.stats_report_reused,
-            comparison_report_exists=comparison is not None and comparison.is_file(),
+            comparison_report_path=self.results.comparison_report_path,
         )
-        launch_error = self.localization.tr(completion.launch_error)
         self.preflight.close_preparation()
+        # Stop the elapsed-time ticker.
         if self.elapsed_timer is not None:
             self.elapsed_timer.stop()
             self.elapsed_timer = None
+        # Show the final elapsed time.
         if self.started_monotonic:
             final_elapsed = self.format_elapsed(
                 time.monotonic() - self.started_monotonic
             )
             self.localization.set_text(self.query_one('#status-elapsed', Static), final_elapsed)
         if kind in {"stats", "compare", "html-report"}:
+            # Move focus before disabling the monitor page's focused Stop button;
+            # its queued focus event could otherwise reactivate that old page.
             self.activate_tab("reports-tab")
         log = self.query_one("#run-log", SelectableLog)
-        for entry in completion.log_messages:
-            log.write(self.localization.tr(entry))
-        if completion.notice is not None:
-            notice = completion.notice
-            self.notify(
-                notice.message,
-                title=notice.title,
-                severity=notice.severity,
-                timeout=notice.timeout,
-            )
-
-        self.latest_snapshot = completion.snapshot
+        for message_line in completion.log_messages:
+            log.write(self.localization.tr(message_line))
+        if completion.primary_notice is not None:
+            self.notify(completion.primary_notice.message, **completion.primary_notice.kwargs())
+        self.latest_snapshot = completion.final_snapshot
         self.render_snapshot(self.latest_snapshot)
-        current_csv = completion.current_csv
-        if current_csv:
+        if completion.current_csv:
             self.configuration.remember_last_used(
-                result_csv=current_csv,
-                result_dir=str(Path(current_csv).parent),
+                result_csv=completion.current_csv,
+                result_dir=str(Path(completion.current_csv).parent),
             )
-        elif completion.summary_text is not None:
+        elif completion.summary_text:
             self.localization.set_text(
                 self.query_one("#result-summary", Static),
                 completion.summary_text,
             )
         if completion.run_notice is not None:
-            notice = completion.run_notice
-            self.notify(notice.message, severity=notice.severity)
+            self.notify(completion.run_notice.message, **completion.run_notice.kwargs())
 
-        self.preflight.finish_download(cancelled=self.stop_requested)
+        self.preflight.finish_download(cancelled=cancelled)
         self.logs.flush()
         self.active_command = ()
         self.process_kind = ""
@@ -598,19 +594,22 @@ class AcprofTui(BarCursorApp):
                     model_source="modelscope", download_mode="auto", task="", task_family="", backend="",
                     model_spec="", resume=False, rebuild_image=False,
                     output_dir=str(Path(config.output_dir) / ("modelscope-" + uuid4().hex[:8]))))
-        if current_csv:
-            self.results.update_result_summary(current_csv, notify=False)
+        if completion.current_csv:
+            self.results.update_result_summary(completion.current_csv, notify=False)
+        elif kind == "profile" and self.results.summary_path is not None:
+            # Posthoc can publish profiler layers without touching base rows.
+            self.results.update_result_summary(str(self.results.summary_path), notify=False)
         self.images.sync_image_refresh_timer()
         if kind == "stats":
             report_path, self.results.stats_report_path = self.results.stats_report_path, None
             self.results.stats_report_reused = False
-            if returncode == 0 and not launch_error and report_path is not None:
+            if returncode == 0 and not completion.launch_error and report_path is not None:
                 self.results.open_report(str(report_path))
             else:
                 self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0570'))
+                self.results.clear_report(message_id('ui.0570'), phase="error")
         elif kind == "html-report":
-            self.results.html_report_finished(error=launch_error, cancelled=cancelled)
+            self.results.html_report_finished(error=completion.launch_error, cancelled=cancelled)
         elif kind == "compare":
             report_path, self.results.comparison_report_path = self.results.comparison_report_path, None
             # The comparison CLI uses exit 1 for a valid incompatible/unknown
@@ -619,7 +618,7 @@ class AcprofTui(BarCursorApp):
                 self.results.open_report(str(report_path))
             else:
                 self.activate_tab("reports-tab")
-                self.results.clear_report(message_id('ui.0486'))
+                self.results.clear_report(message_id('ui.0486'), phase="error")
 
     @on(Button.Pressed, "#stop-run")
     def stop_button(self) -> None:
@@ -881,6 +880,14 @@ class AcprofTui(BarCursorApp):
     def on_results_report_source_changed(self) -> None:
         self.results.report_source_changed()
 
+    @on(Input.Changed, '#report-json-path')
+    def on_results_report_json_changed(self) -> None:
+        self.results.report_json_changed()
+
+    @on(Input.Changed, '#html-report-path')
+    def on_results_html_path_changed(self) -> None:
+        self.results.update_report_actions()
+
     @on(Button.Pressed, '#report-open')
     def on_results_open_report_button(self) -> None:
         self.results.open_report_button()
@@ -922,13 +929,9 @@ class AcprofTui(BarCursorApp):
     def on_preflight_open_model_store(self) -> None:
         self.preflight.open_model_store()
 
-    @on(Button.Pressed, '#profile-dry-run')
-    def on_profiles_profile_dry_run_button(self) -> None:
-        self.profiles.profile_dry_run_button()
-
-    @on(Button.Pressed, '#profile-run')
-    def on_profiles_profile_run_button(self) -> None:
-        self.profiles.profile_run_button()
+    @on(Button.Pressed, '#open-result-profiling')
+    def on_profiles_open_selection(self) -> None:
+        self.profiles.open_selection_dialog()
 
     @on(Input.Submitted, '#slash-command')
     def on_slash_slash_command_submitted(self, event: TextualInput.Submitted) -> None:

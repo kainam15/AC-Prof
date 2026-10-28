@@ -28,9 +28,9 @@ def test_each_independent_run_is_audited_once(runs, monkeypatch, explicit_csv):
     calls = Counter()
     audit = comparison.audit_result
 
-    def record_audit(source):
+    def record_audit(source, **kwargs):
         calls[Path(source)] += 1
-        return audit(source)
+        return audit(source, **kwargs)
 
     monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
     report = compare_experiments(left, right, metrics=["latency_app_s"], resamples=10)

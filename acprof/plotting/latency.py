@@ -54,18 +54,16 @@ def _residual_plot_metrics(
     return r2, relative_mae, mean_absolute_percentage_error
 
 
-def plot_latency_model_residuals(
-    residuals_path: str,
-    out_png: str | None,
-    *,
-    show_plots: bool = False,
-) -> bool:
-    """Plot OOF latency residual diagnostics from a model residual artifact."""
+def _prepare_residual_dataframe(residuals_path: str) -> pd.DataFrame | None:
     if not os.path.exists(residuals_path):
         print(f"[skip] Cannot find {residuals_path}")
-        return False
+        return None
 
-    residual_df = pd.read_csv(residuals_path, skipinitialspace=True, float_precision="round_trip")
+    residual_df = pd.read_csv(
+        residuals_path,
+        skipinitialspace=True,
+        float_precision="round_trip",
+    )
     required_columns = {
         "hardware_model",
         "input_scale",
@@ -79,10 +77,10 @@ def plot_latency_model_residuals(
             "[skip] Latency residual CSV missing required columns: "
             f"{missing_columns}"
         )
-        return False
+        return None
     if residual_df.empty:
         print(f"[skip] No latency residual rows in {residuals_path}")
-        return False
+        return None
 
     numeric_columns = [
         "input_scale",
@@ -120,11 +118,17 @@ def plot_latency_model_residuals(
     residual_df = residual_df[valid_mask].copy()
     if residual_df.empty:
         print(f"[skip] No valid latency residual rows in {residuals_path}")
-        return False
+        return None
 
     residual_df["relative_residual_pct"] = (
         100.0 * residual_df["resource_config_oof_residual_s"] / residual_df["latency_s"]
     )
+    return residual_df
+
+
+def _hardware_plot_styles(
+    residual_df: pd.DataFrame,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
     hardware_order = [
         hardware_model
         for hardware_model in ("cpu", "gpu")
@@ -134,7 +138,7 @@ def plot_latency_model_residuals(
         sorted(set(residual_df["hardware_model"]).difference(hardware_order))
     )
     fallback_colors = plt.get_cmap("tab10")
-    hardware_styles = {
+    hardware_styles: dict[str, dict[str, Any]] = {
         "cpu": {
             "color": CPU_FIXED_COLORS[1],
             "marker": "o",
@@ -155,10 +159,15 @@ def plot_latency_model_residuals(
                 "label": hardware_model.upper(),
             },
         )
+    return hardware_order, hardware_styles
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    parity_axis, prediction_axis, distribution_axis, scale_axis = axes.flat
 
+def _draw_residual_parity_panel(
+    parity_axis: Any,
+    residual_df: pd.DataFrame,
+    hardware_order: list[str],
+    hardware_styles: dict[str, dict[str, Any]],
+) -> None:
     for hardware_model in hardware_order:
         hardware_df = residual_df[
             residual_df["hardware_model"] == hardware_model
@@ -245,6 +254,13 @@ def plot_latency_model_residuals(
         },
     )
 
+
+def _draw_residual_vs_predicted_panel(
+    prediction_axis: Any,
+    residual_df: pd.DataFrame,
+    hardware_order: list[str],
+    hardware_styles: dict[str, dict[str, Any]],
+) -> None:
     for hardware_model in hardware_order:
         hardware_df = residual_df[
             residual_df["hardware_model"] == hardware_model
@@ -266,6 +282,13 @@ def plot_latency_model_residuals(
     prediction_axis.set_ylabel("Relative residual (%)")
     prediction_axis.grid(True, which="both", linestyle="-", alpha=0.25)
 
+
+def _draw_residual_distribution_panel(
+    distribution_axis: Any,
+    residual_df: pd.DataFrame,
+    hardware_order: list[str],
+    hardware_styles: dict[str, dict[str, Any]],
+) -> None:
     distribution_values = []
     distribution_labels = []
     distribution_colors = []
@@ -318,6 +341,18 @@ def plot_latency_model_residuals(
     distribution_axis.set_ylabel("Relative residual (%)")
     distribution_axis.grid(True, axis="y", linestyle="-", alpha=0.25)
 
+
+def _draw_residual_vs_scale_panel(
+    scale_axis: Any,
+    residual_df: pd.DataFrame,
+    hardware_order: list[str],
+    hardware_styles: dict[str, dict[str, Any]],
+) -> None:
+    holdout_columns = {
+        "max_scale_holdout_predicted_latency_s",
+        "max_scale_holdout_residual_s",
+    }
+    has_holdout_columns = holdout_columns.issubset(residual_df.columns)
     for hardware_model in hardware_order:
         hardware_df = residual_df[
             residual_df["hardware_model"] == hardware_model
@@ -346,12 +381,7 @@ def plot_latency_model_residuals(
             linewidth=1.8,
             label=f"{style['label']} OOF median",
         )
-
-        holdout_columns = {
-            "max_scale_holdout_predicted_latency_s",
-            "max_scale_holdout_residual_s",
-        }
-        if holdout_columns.issubset(residual_df.columns):
+        if has_holdout_columns:
             holdout_df = hardware_df.dropna(subset=list(holdout_columns)).copy()
             holdout_df = holdout_df[
                 np.isfinite(
@@ -384,6 +414,47 @@ def plot_latency_model_residuals(
     scale_axis.grid(True, which="both", linestyle="-", alpha=0.25)
     scale_axis.legend(fontsize=8, ncol=2)
 
+
+def plot_latency_model_residuals(
+    residuals_path: str,
+    out_png: str | None,
+    *,
+    show_plots: bool = False,
+) -> bool:
+    """Plot OOF latency residual diagnostics from a model residual artifact."""
+    residual_df = _prepare_residual_dataframe(residuals_path)
+    if residual_df is None:
+        return False
+
+    hardware_order, hardware_styles = _hardware_plot_styles(residual_df)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    parity_axis, prediction_axis, distribution_axis, scale_axis = axes.flat
+
+    _draw_residual_parity_panel(
+        parity_axis,
+        residual_df,
+        hardware_order,
+        hardware_styles,
+    )
+    _draw_residual_vs_predicted_panel(
+        prediction_axis,
+        residual_df,
+        hardware_order,
+        hardware_styles,
+    )
+    _draw_residual_distribution_panel(
+        distribution_axis,
+        residual_df,
+        hardware_order,
+        hardware_styles,
+    )
+    _draw_residual_vs_scale_panel(
+        scale_axis,
+        residual_df,
+        hardware_order,
+        hardware_styles,
+    )
+
     fig.suptitle("Latency Model Residual Diagnostics", fontsize=15)
     fig.text(
         0.5,
@@ -407,21 +478,21 @@ def plot_latency_model_residuals(
     return True
 
 
-def plot_latency_model_fit_curves(
+def _prepare_fit_curve_dataframe(
     residuals_path: str,
     report: dict[str, Any],
-    out_png: str | None,
-    *,
-    show_plots: bool = False,
-) -> bool:
-    """Plot full-fit latency curves for every CPU/memory configuration."""
+) -> pd.DataFrame | None:
     if not os.path.exists(residuals_path):
         print(f"[skip] Cannot find {residuals_path}")
-        return False
+        return None
     if report.get("residuals_csv") != os.path.basename(residuals_path):
         raise ValueError("latency report and residual CSV do not match")
 
-    residual_df = pd.read_csv(residuals_path, skipinitialspace=True, float_precision="round_trip")
+    residual_df = pd.read_csv(
+        residuals_path,
+        skipinitialspace=True,
+        float_precision="round_trip",
+    )
     required_columns = {
         "hardware_model",
         "cpu_cores",
@@ -435,10 +506,10 @@ def plot_latency_model_fit_curves(
             "[skip] Latency residual CSV missing fit-curve columns: "
             f"{missing_columns}"
         )
-        return False
+        return None
     if residual_df.empty:
         print(f"[skip] No latency fit rows in {residuals_path}")
-        return False
+        return None
 
     for column in ("cpu_cores", "mem_cap_gb", "input_scale", "latency_s"):
         residual_df[column] = pd.to_numeric(residual_df[column], errors="coerce")
@@ -456,9 +527,13 @@ def plot_latency_model_fit_curves(
         & (residual_df["input_scale"] > 0.0)
         & (residual_df["latency_s"] > 0.0)
     )
-    residual_df = residual_df[valid_mask].copy()
+    return residual_df[valid_mask].copy()
 
-    fitted_models = {}
+
+def _extract_fitted_latency_models(
+    report: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    fitted_models: dict[str, dict[str, Any]] = {}
     report_models = report.get("models", {})
     for hardware_model in ("cpu", "gpu"):
         model_report = report_models.get(hardware_model, {})
@@ -496,6 +571,22 @@ def plot_latency_model_fit_curves(
             "input_scale_spline_knots": input_scale_spline_knots,
             "coefficients": coefficients,
         }
+    return fitted_models
+
+
+def plot_latency_model_fit_curves(
+    residuals_path: str,
+    report: dict[str, Any],
+    out_png: str | None,
+    *,
+    show_plots: bool = False,
+) -> bool:
+    """Plot full-fit latency curves for every CPU/memory configuration."""
+    residual_df = _prepare_fit_curve_dataframe(residuals_path, report)
+    if residual_df is None:
+        return False
+
+    fitted_models = _extract_fitted_latency_models(report)
 
     hardware_order = [
         hardware_model

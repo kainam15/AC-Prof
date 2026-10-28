@@ -38,6 +38,9 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 条件与审计快照，供组间和组内检查复用；保留当前 run 与两组基准所需的快照，
 不建立跨调用缓存。统计结束后仍复核来源 hash 和 manifest 引用的数据内容，
 复用证据不削弱对并发改写或数据损坏的拒绝行为。
+单个条件快照通过 `ResultCsvSnapshot` 复用审计已经消费的同一份解析行，用于实际工作负载
+和指标可用性判定；审计仍执行来源内容复核。首次读取失败时继续收集审计中的元数据问题，
+保留首次读取错误，后续成功读取不能将该快照变成有效结果。
 `metric_registry.py` 同时维护采集单位与展示方向、分组、聚合等语义；
 展示信息直接声明在各 `Metric` 上；行组装字段由内部 `row_group` / `row_order` 和工具元数据派生，
 不再在 client 中重复列出整组名称。内部分组不写入 `Metric.to_dict()`，保持 CSV 顺序及已有指标元数据。
@@ -92,7 +95,8 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `configuration_controller` 管理表单、字段校验、设置保存、最近路径和预览；
 `experiment_controller` 负责预设、采集及探测确认，实际 `launch` 仍由 App 执行。
 `preflight_controller` 管理启动检测与模型准备弹窗，`result_controller` 管理摘要/报告读取及请求身份，
-`profile_controller` 管理补采，`slash_controller` 分发快捷命令。
+`profile_controller` 管理补采决策和确认，`profile_status` 复用 posthoc 行级完成判定读取分层结果，
+`profile_screen` 提供实验结果页的按需补采弹窗，`slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
 HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_controller` 只管理输出路径、
 完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占创建导出文件；
 文件操作仍交给 App worker manager，导出使用既有 MeasurementLock。`platform.can_open_local_browser`

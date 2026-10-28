@@ -412,10 +412,11 @@ class ConfigurationController:
             report_source.value = result_csv
         if model.strip():
             updates["last_model"] = model.strip()
-        for widget_id, value in (("result-dir", result_dir), ("result-csv", result_csv)):
-            if value:
-                self.app.query_one(f"#{widget_id}", Input).value = value
-                updates[f"last_{widget_id.replace('-', '_')}"] = value
+        if result_dir:
+            updates["last_result_dir"] = result_dir
+        if result_csv:
+            self.app.query_one("#result-csv", Input).value = result_csv
+            updates["last_result_csv"] = result_csv
         settings = replace(
             self.saved_settings,
             last_model=updates.get("last_model", self.saved_settings.last_model),
