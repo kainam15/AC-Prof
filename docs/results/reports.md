@@ -104,6 +104,9 @@ input case、experiment batch 和环境筛选；点击表格行或图中点后�
 HTML 的 `comparison_profiles` 从相同 Python 规则生成，按当前配置选择物化输入与实际 workload；
 浏览器只比较归一化证据和精确有理数分布，不自行放宽 task 或硬件策略。
 `--comparison-purpose` 指定初始用途，报告内也可切换。没有 baseline 时按完整证据分组；选择后立即显示成对原因。
+每次刷新在独立的比较上下文中核验各配置一次，摘要、所选配置详情、各指标差值和 Pareto
+共享该结果；显示更多指标不会重复核验 workload。下一次刷新重新建立上下文，baseline、
+用途或筛选变化后不沿用上一轮的判断，也不在配置对象上保存缓存。
 这些比较用于探索已记录数据，不证明不同模型质量等价、持续硬件隔离或统计显著性。
 独立实验的条件审计和 CI 继续使用[跨独立实验比较](comparisons.md#跨独立实验比较)；已有 `acprof compare` 语义保持不变。
 首期未接入 TUI Results、Run Detail/Profile、原始证据交互钻取或完整 CSV 导出工作流。

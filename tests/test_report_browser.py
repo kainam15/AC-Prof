@@ -141,6 +141,79 @@ class TestReportBrowser:
         self.settled()
         assert ("3 个有效点") in (self.page.locator("#pareto-note").inner_text())
 
+    def test_comparison_work_is_independent_of_metric_count_and_shared_with_pareto(self):
+        self.page.add_init_script("""(() => {
+          const parse = JSON.parse;
+          window.workloadReads = 0;
+          JSON.parse = function(...args) {
+            const parsed = parse.apply(this, args);
+            if (parsed && parsed.registry && Array.isArray(parsed.configs)) {
+              for (const config of parsed.configs) {
+                for (const profile of Object.values(config.comparison_profiles)) {
+                  const workload = profile.workload;
+                  Object.defineProperty(profile, 'workload', {get() { window.workloadReads++; return workload; }});
+                }
+              }
+            }
+            return parsed;
+          };
+        })()""")
+        self.page.reload()
+        self.settled()
+        baseline = self.page.locator("#baseline option").nth(1).get_attribute("value")
+        self.page.select_option("#baseline", baseline)
+        self.page.select_option("#preset", "Custom")
+        self.settled()
+        self.page.locator("details:has(#metrics) summary").click()
+        metrics = self.page.locator("#metrics option").evaluate_all("options => options.map(item => item.value)")
+        reads = {}
+        for name, selected in (("one_metric", metrics[:1]), ("all_metrics", metrics)):
+            self.page.evaluate("window.workloadReads = 0")
+            self.page.select_option("#metrics", selected)
+            self.settled()
+            reads[name] = self.page.evaluate("window.workloadReads")
+        self.page.evaluate("window.workloadReads = 0")
+        self.page.click("[data-view=pareto]")
+        self.settled()
+        reads["pareto"] = self.page.evaluate("window.workloadReads")
+        if self.artifacts:
+            (self.artifacts / "comparison-reads.json").write_text(json.dumps(reads, indent=2), encoding="utf-8")
+        assert reads["one_metric"] > 0
+        assert reads["all_metrics"] == reads["one_metric"]
+        assert reads["pareto"] == reads["one_metric"]
+
+    def test_comparison_refreshes_after_baseline_purpose_and_selection_changes(self):
+        configs = self.page.evaluate("JSON.parse(document.getElementById('report-data').textContent).configs")
+        baseline = next(config for config in configs if config["cpu"] == 2 and config["memory"] == 4)
+        target = next(config for config in configs if config["cpu"] == 4 and config["memory"] == 4)
+        row = self.page.locator(f'tr[data-config-id="{target["config_id"]}"]')
+        self.page.select_option("#baseline", baseline["config_id"])
+        self.settled()
+        assert "Δ -0.06 s" in row.inner_text()
+        row.locator("td").first.click()
+        self.settled()
+        self.page.select_option("#comparison-purpose", "same-hardware")
+        self.settled()
+        assert "可比性 incompatible" in row.inner_text()
+        assert "Δ" not in row.inner_text()
+        details = json.loads(self.page.locator("#quality-detail").text_content())
+        assert details["comparison"]["status"] == "incompatible"
+        self.page.select_option("#baseline", target["config_id"])
+        self.settled()
+        assert "Δ 0 s · 0%" in row.inner_text()
+        self.page.select_option("#filter-memory", "8")
+        self.settled()
+        assert "当前筛选隐藏" in self.page.locator("#selection").inner_text()
+        assert json.loads(self.page.locator("#quality-detail").text_content())["comparison"]["status"] == "compatible"
+        self.page.select_option("#comparison-purpose", "resource-scaling")
+        self.page.select_option("#baseline", baseline["config_id"])
+        self.page.click("#reset")
+        self.settled()
+        assert "Δ -0.06 s" in row.inner_text()
+        self.page.select_option("#baseline", "")
+        self.settled()
+        assert "Δ" not in row.inner_text()
+
     def test_pareto_direction_ties_missing_and_neutral(self):
         result = self.page.evaluate("""() => {
           const profiles = JSON.parse(document.getElementById('report-data').textContent).configs[0].comparison_profiles;
@@ -230,8 +303,8 @@ class TestReportBrowser:
               profile.valid = row.evidence !== 'invalid';
               return {...row, comparison_profiles:{[purpose]:profile}, metrics:{x:{value:row.x},y:{value:row.y}}};
             };
-            return ACProfViews.pareto(freeze(rows.map(make)), 'x', 'y', registry, purpose,
-              baseline && freeze(make(baseline)));
+            const comparison = ACProfViews.comparisonContext(baseline && freeze(make(baseline)), purpose);
+            return ACProfViews.pareto(freeze(rows.map(make)), 'x', 'y', registry, comparison);
           });
         }""", {"cases": cases, "xDirection": x_direction, "yDirection": y_direction})
         assert actual == expected
@@ -277,9 +350,13 @@ class TestReportBrowser:
           const b = {...a,metrics:{x:{value:4}}};
           const changed = structuredClone(profiles);
           changed['same-hardware'].checks.comparability_class.value = 'other-environment';
-          return {zero:ACProfViews.delta(b,a,'x'),
-            mixed:ACProfViews.delta({...b,comparison_profiles:changed},a,'x'),
-            unknown:ACProfViews.delta({...b,comparison_profiles:{}},a,'x'),
+          const comparison = ACProfViews.comparisonContext(a);
+          return {zero:comparison.delta(b,'x'),
+            mixed:comparison.delta({...b,comparison_profiles:changed},'x'),
+            unknown:comparison.delta({...b,comparison_profiles:{}},'x'),
+            missing:comparison.delta({...b,metrics:{x:{value:null}}},'x'),
+            noBaseline:ACProfViews.comparisonContext().delta(b,'x'),
+            negative:ACProfViews.comparisonContext({...a,metrics:{x:{value:-2}}}).delta(b,'x'),
             sorted:ACProfViews.sort([{...a,config_id:'zero'}, {...b,config_id:'four'},
               {...a,config_id:'missing',metrics:{x:{value:null}}}], 'x', true).map(c=>c.config_id)};
         }""")
@@ -287,6 +364,9 @@ class TestReportBrowser:
         assert (result["zero"]["percent"]) is None
         assert (result["mixed"]["reason"]) == ("incompatible")
         assert (result["unknown"]["reason"]) == ("unknown")
+        assert result["missing"] == {"delta": None, "percent": None, "reason": "missing"}
+        assert result["noBaseline"] == {"delta": None, "percent": None, "reason": "no_baseline"}
+        assert result["negative"] == {"delta": 6, "percent": 300, "reason": ""}
         assert (result["sorted"]) == (["four", "zero", "missing"])
 
     def test_scaling_keeps_other_resources_fixed_and_clicks_link_back(self):

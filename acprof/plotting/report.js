@@ -106,11 +106,10 @@
       return !chosen || chosen === text(config[field]);
     }));
   }
-  function drawMatrix(configs) {
-    const purpose = $("comparison-purpose").value;
+  function drawMatrix(configs, comparison) {
+    const {baseline, purpose} = comparison;
     const metrics = $("preset").value === "Core" ? data.default_matrix :
       [...$("metrics").selectedOptions].map(item => item.value);
-    const baseline = data.configs.find(config => config.config_id === $("baseline").value);
     const head = $("matrix").tHead, body = $("matrix").tBodies[0];
     head.replaceChildren(); body.replaceChildren();
     const header = element("tr");
@@ -125,7 +124,7 @@
     head.append(header);
     const ranges = V.colorRanges(configs, metrics, registry, purpose);
     for (const config of V.sort(configs, state.sort, state.descending)) {
-      const qualification = V.qualification(config, baseline, purpose);
+      const qualification = comparison.qualification(config);
       const row = element("tr"); row.dataset.configId = config.config_id;
       row.classList.toggle("selected", state.selected === config.config_id);
       row.onclick = () => selectConfig(config);
@@ -150,7 +149,7 @@
         const stats = config.metrics[name];
         cell.title = `${name} · ${registry[name].unit} · ${stats.aggregation} · n=${stats.n} · missing=${stats.missing}`;
         if (baseline) {
-          const change = V.delta(config, baseline, name, purpose);
+          const change = comparison.delta(config, name);
           const content = change.delta == null ? (change.reasons ? `${change.reason}: ${change.reasons.join(", ")}` : "— vs baseline") :
             `Δ ${signed(change.delta)} ${registry[name].unit} · ${change.percent == null ? "% —（baseline=0）" : signed(change.percent) + "%"}`;
           cell.append(element("small", content));
@@ -182,13 +181,11 @@
   function tooltip(config) {
     return `${escape(label(config))}<br>${escape(inputLabel(config.input_case, true))}<br>${escape(config.environment_class)} · ${escape(config.status)} · n=${config.valid_windows}<br>${escape(config.config_id)}`;
   }
-  async function drawPareto(configs) {
+  async function drawPareto(configs, comparison) {
     const x = $("x-metric").value, y = $("y-metric").value, size = $("size-metric").value;
     const visible = configs.filter(c => V.finite(V.value(c, x)) && V.finite(V.value(c, y)) &&
       (registry[x].scale !== "log" || V.value(c, x) > 0) && (registry[y].scale !== "log" || V.value(c, y) > 0));
-    const purpose = $("comparison-purpose").value;
-    const baseline = data.configs.find(config => config.config_id === $("baseline").value);
-    const frontier = new Set(V.pareto(visible, x, y, registry, purpose, baseline));
+    const frontier = new Set(V.pareto(visible, x, y, registry, comparison));
     const neutral = registry[x].direction === "neutral" || registry[y].direction === "neutral";
     const sizes = visible.map(c => V.value(c, size)).filter(v => V.finite(v) && v >= 0);
     const maxSize = Math.max(0, ...sizes);
@@ -262,7 +259,8 @@
     const configs = filtered();
     const purpose = $("comparison-purpose").value;
     const baseline = data.configs.find(config => config.config_id === $("baseline").value);
-    const qualifications = configs.map(config => V.qualification(config, baseline, purpose));
+    const comparison = V.comparisonContext(baseline, purpose);
+    const qualifications = configs.map(config => comparison.qualification(config));
     $("comparison-note").textContent = `用途：${purpose} · ` + ["compatible", "incompatible", "unknown"]
       .map(status => `${status}: ${qualifications.filter(item => item.status === status).length}`).join(" · ") +
       (purpose === "resource-scaling" ? "。允许 CPU / memory 配额变化；双轴同时变化不能归因某一个轴。" : "。") +
@@ -271,15 +269,15 @@
     $("counts").replaceChildren(element("strong", String(configs.length)), document.createTextNode(`/ ${data.configs.length} 配置`));
     const selected = data.configs.find(c => c.config_id === state.selected);
     $("quality-detail").textContent = selected ? JSON.stringify({run_status: selected.run_status,
-      measurement_status: selected.measurement_status, comparison: V.qualification(selected, baseline, purpose),
+      measurement_status: selected.measurement_status, comparison: comparison.qualification(selected),
       comparison_profile: selected.comparison_profiles[purpose],
       quality_status: selected.quality_status, auto_selection_eligible: selected.auto_selection_eligible,
       quality_reasons: selected.quality_reasons, quality_checks: selected.quality_checks}, null, 2) : "选择配置后查看状态、原因和原始证据。";
     $("selection").textContent = selected ? `已选：${fullLabel(selected)}${configs.includes(selected) ? "" : "（当前筛选隐藏）"}` :
       "点击表格行或图中数据点，可在三个视图中定位同一配置。";
     for (const view of ["matrix", "pareto", "scaling"]) $(view + "-panel").hidden = state.view !== view;
-    if (state.view === "matrix") drawMatrix(configs);
-    else if (state.view === "pareto") await drawPareto(configs);
+    if (state.view === "matrix") drawMatrix(configs, comparison);
+    else if (state.view === "pareto") await drawPareto(configs, comparison);
     else await drawScaling(configs);
     document.body.dataset.ready = "true";
   }
