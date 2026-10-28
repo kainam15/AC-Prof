@@ -149,7 +149,6 @@ module = [
     "acprof.pixel_metrics",
     "acprof.source_identity",
     "acprof.tui.commands",
-    "acprof.tui.process_completion",
     "acprof.tui.experiment_controller",
     "acprof.tui.profile_controller",
     "acprof.run_options",

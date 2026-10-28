@@ -85,8 +85,8 @@ App 保留进程启动、停止及退出清理，正式测量快照、全局操�
 配置、镜像、预检、结果、恢复和选择器各自拥有本职责的状态；共享进程及 `read_jobs` 只有 App 一个拥有者。
 `process.ProcessLifecycle` 统一拥有子进程和停止策略，`process_controller.ProcessController`
 负责输出读取、跨线程 UI 回调、产物关联和未退出进程的延迟回收。
-`process_completion` 只根据退出码、取消状态、结构化进度和产物证据计算最终快照、日志与通知意图；
-App 仍执行这些副作用并持有进程、busy/measurement 状态、计时器和页面生命周期。
+`run_results` 负责退出证据关联与纯完成判定；App 执行日志、通知、页面切换和计时器等副作用，
+并继续持有进程、busy/measurement 状态与页面生命周期。
 controller 通过 App 的 `project_dir` 与 `python_executable` 读取当前路径；不缓存或复制进程所有权。
 正式测量窗口内延迟重要日志、抑制常规输出及定时器恢复沿用原语义。
 `views` 以已注解的 `AcprofTui` 组合页面，通过 `app.configuration` 与 `app.localization` 读取相应能力。
@@ -150,7 +150,6 @@ HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_contro
 `commands.OperationState` 统一操作可用性；系统忙碌与存在可停止的子进程分别判断。
 `run_results` 在子进程退出后关联现有 `run_state.run_id/attempts/pid` 与启动前快照，并调用 `audit_result`；
 manifest 只用于路径路由，CSV 存在或退出码 0 都不单独构成当前运行成功证据，不另写结果协议。
-`process_completion` 消费 `RunResult` 和报告证据，不重新读取实验产物，也不改变成功判定。
 摘要与报告线程保留独立请求身份，切换路径后旧结果只释放任务占用，不更新页面；退出阶段先检查应用生命周期。
 后台读取尚未返回时继续禁止新的采集，避免取消 UI 请求后仍有读取干扰正式窗口。
 `host.collection_workflow` 在原采集进程内执行准备阶段和用户裁决；`tui.preparation` 只呈现未决项／错误，
