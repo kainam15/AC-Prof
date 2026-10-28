@@ -24,6 +24,7 @@ from acprof.capabilities import (
 )
 from acprof.experiment import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
+from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRequest
 from acprof.host.collection_history import (
     COLLECTION_HISTORY_NAME,
 )
@@ -154,10 +155,174 @@ class RunApplication:
                 finally:
                     self.notifications.reset()
 
-    @gpu_device_scope()
-    def _execute(self, config: RunConfig, *, prepared_task=None,
-                 preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
-        start_time = time.perf_counter()
+    def _execute_task_child(self, child_config, child_task, *, command: str) -> RunOutcome:
+        status = "failed"
+        primary_error: BaseException | None = None
+        try:
+            result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
+            status = result.status
+            return result
+        except BaseException as exc:
+            primary_error = exc
+            if isinstance(exc, KeyboardInterrupt):
+                status = "cancelled"
+            raise
+        finally:
+            try:
+                self._finalize(status)
+            except BaseException as cleanup_error:
+                if primary_error is None:
+                    raise
+                primary_error.add_note(f"Task finalization also failed: {type(cleanup_error).__name__}")
+
+    def _run_host_preflight(self, args, *, dram_enabled: bool, workflow):
+        def host_preflight():
+            if args.runtime == "process":
+                from acprof.host.run_state import MeasurementLock
+                from acprof.host.runtimes.gpu import process_gpu_device
+                from acprof.host.runtimes.process_control import require_process_supervision
+                from acprof.host.runtimes.resources import preflight_resources
+                with MeasurementLock():
+                    require_process_supervision()
+                    cpus, mems, gpus = resource_matrix(args)
+                    preflight_resources(cpus, mems, args.cpuset_cpus)
+                    args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}
+                return "not_used", {}, {}
+            version = require_cgroup_prerequisites()
+            from acprof.monitors.rapl_topology import discover_rapl_topology
+            from acprof.platform import detect_environment
+            topology = discover_rapl_topology() if detect_environment().native else {}
+            measurements = {}
+            if dram_enabled and args.dram_energy == "required" and topology["dram_status"] != "available":
+                raise RuntimeError(f"required DRAM RAPL unavailable: {topology['dram_status']}; "
+                                   f"missing packages={topology['dram_missing_packages']}")
+            if measurement_requested(args.profiling_mode, "packet_latency"):
+                require_packet_latency_prerequisites(sniff_iface=args.sniff_iface)
+            if measurement_requested(args.profiling_mode, "cpu_energy"):
+                measurements["cpu_energy"] = require_cpu_energy_prerequisites()
+            if measurement_requested(args.profiling_mode, "cpu_instructions"):
+                measurements["cpu_instructions"] = require_mips_prerequisites()
+            if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
+                pin_gpu_device(args.gpu_device)
+            return version, topology, measurements
+
+        return workflow.run("preflight", host_preflight)
+
+    def _publish_matrix_results(self, csv_paths: list[str], *, args, output_dir: str, layout,
+                                run_state: RunState, capability_report, start_time: float,
+                                static_meta_json: str, collection_history_json: str) -> RunOutcome:
+        from acprof.host.orchestrator import merge_all_csvs
+
+        if csv_paths:
+            final_csv = str(layout.result_csv)
+            emit_event("results_merging")
+            merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
+            from acprof.result_csv import read_result_csv
+            _, collected_rows = read_result_csv(final_csv)
+            apply_collection_result(capability_report, collected_rows)
+            from acprof.artifacts import atomic_write_json
+            atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
+            missing = missing_required_measurements(capability_report, collected_rows)
+            if missing:
+                print(f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"
+                      "能力报告和 CSV 已保留；本次画像失败。", file=sys.stderr)
+                raise CollectionFailed("required measurements missing: " + ", ".join(missing))
+            run_state.finish(final_csv)
+            emit_event("result_published", final_csv=final_csv)
+            cleanup_intermediate_results(csv_paths, output_dir, final_csv)
+            elapsed = format_elapsed(time.perf_counter() - start_time)
+            print(f"\n{'='*60}")
+            print("Profiling complete!")
+            print(f"  Profiling mode:   {args.profiling_mode}")
+            if not capability_report.to_dict()["requested_measurements_complete"]:
+                print("  [WARN] 请求指标存在缺失；能力报告保留具体状态，结果不标记为完整画像。")
+            print(f"  Static meta:      {static_meta_json}")
+            print(f"  Collection log:   {collection_history_json}")
+            print(f"  Frozen matrix:    {layout.path('matrix_plan.json')}")
+            if args.prune_startup_oom:
+                print(f"  Startup evidence: {layout.path('startup_oom_pruning.json')}")
+            print(f"  Merged results:   {final_csv}")
+            print(f"  Total elapsed:    {elapsed}")
+            print("  Intermediate files from this run were cleaned up.")
+            print(f"{'='*60}")
+            self.notifications.record_completion(
+                final_csv=final_csv,
+                completed_cases=len(csv_paths),
+            )
+            return RunOutcome("ok", final_csv, len(csv_paths))
+
+        elapsed = format_elapsed(time.perf_counter() - start_time)
+        print(f"\n[WARN] No results produced after {elapsed}. Static meta is still available: {static_meta_json}")
+        self.notifications.record_completion(final_csv=None, completed_cases=0)
+        return RunOutcome("no_results")
+
+    def _collect_matrix(self, args, *, task_info, prepared, cpu_list, mem_list, gpu_list,
+                        output_dir: str, run_state: RunState) -> list[str]:
+        from acprof.host.input_plan import serialize_input_scales
+        from acprof.host.orchestrator import run_matrix
+
+        try:
+            return (self.matrix_runner or run_matrix)(MatrixRequest(
+                task_info=task_info,
+                image_info=prepared.image_info,
+                cpu_list=cpu_list,
+                mem_list=mem_list,
+                gpu_list=gpu_list,
+                output_dir=output_dir,
+                project_dir=PROJECT_DIR,
+                workload=CaseWorkload(
+                    batch_size=args.batch_size,
+                    warmup=args.warmup,
+                    repeat=args.repeat,
+                    repeat_in_window=args.repeat_in_window,
+                    repeat_window_seconds=args.repeat_window_seconds,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                ),
+                measurement=CaseMeasurement(
+                    sample_hz=args.sample_hz,
+                    sampling_policy=args.sampling_policy,
+                    raw_sample_limit=args.raw_sample_limit,
+                    idle_seconds=args.idle_seconds,
+                    idle_cooldown_seconds=args.idle_cooldown_seconds,
+                    idle_debug=args.idle_debug,
+                    sniff_iface=args.sniff_iface,
+                    profiling_mode=args.profiling_mode,
+                    dram_energy=args.dram_energy,
+                ),
+                plans=CasePlans(
+                    input_scales=serialize_input_scales(prepared.planned_input_scales.scales),
+                    input_scale_plan_file=prepared.planned_input_scales.plan_file,
+                    compute_profile_plan_file=prepared.compute_profile_plan_file,
+                    execution_profile_plan_file=prepared.execution_profile_plan_file,
+                ),
+                progress_callback=(
+                    self.notifications.notify_case
+                    if self.notifications.active()
+                    else None
+                ),
+                prune_startup_oom=args.prune_startup_oom,
+                run_state=run_state,
+                matrix_order=args.matrix_order,
+                matrix_seed=args.matrix_seed,
+                cpuset_cpus=args.cpuset_cpus,
+            ))
+        except PacketLatencyError as exc:
+            print(f"\n[sniff][ERROR] {exc}", file=sys.stderr)
+            raise CollectionFailed(str(exc)) from exc
+        except EnergyProfilingError as exc:
+            print(f"\n[energy][ERROR] {exc}", file=sys.stderr)
+            raise CollectionFailed(str(exc)) from exc
+        except MIPSProfilingError as exc:
+            print(f"\n[mips][ERROR] {exc}", file=sys.stderr)
+            raise CollectionFailed(str(exc)) from exc
+        finally:
+            from acprof.failures import collect_failures
+            from acprof.quality import collect_quality
+            recorded_cases = [run_state.artifact_path(name) for name in run_state.data["cases"]]
+            collect_quality(Path(output_dir), recorded_cases)
+            collect_failures(Path(output_dir), recorded_cases)
+
+    def _validate_execution_options(self, config: RunConfig):
         args = config.validate(project_dir=Path.cwd()).to_namespace()
         self.environment_setup(args)
         try:
@@ -166,7 +331,7 @@ class RunApplication:
             )
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
-        from acprof.monitors.rapl_topology import discover_rapl_topology, dram_policy
+        from acprof.monitors.rapl_topology import dram_policy
         try:
             dram_enabled = dram_policy(args.profiling_mode, args.dram_energy)
         except ValueError as exc:
@@ -178,7 +343,6 @@ class RunApplication:
                 raise ValueError("--cpuset-cpus includes CPUs unavailable to this process")
         except (ValueError, OSError) as exc:
             raise ValueError(str(exc)) from exc
-        run_command = command
         if args.repeat_in_window < 0:
             raise ValueError("--repeat-in-window must be >= 0")
         if args.repeat_window_seconds <= 0.0:
@@ -208,7 +372,14 @@ class RunApplication:
         require_collection_host(profiling_mode=args.profiling_mode,
                                 compute_tool=args.compute_profile_tool,
                                 execution_tool=args.execution_profile_tool, dram_energy=args.dram_energy)
+        return args, latency_slo_rules, dram_enabled
 
+    @gpu_device_scope()
+    def _execute(self, config: RunConfig, *, prepared_task=None,
+                 preparation_artifacts=None, command: str, task_child: bool = False) -> RunOutcome:
+        start_time = time.perf_counter()
+        args, latency_slo_rules, dram_enabled = self._validate_execution_options(config)
+        run_command = command
         terminal_output_dir = str(config.result_dir(Path.cwd()))
 
         # ── Step 1: Detect task ──
@@ -253,26 +424,11 @@ class RunApplication:
         if task_info.selected_tasks and not task_child and not (saved_run and args.task_run_id):
             from acprof.application.task_runs import TaskCollection
             collection = collection or TaskCollection(config, task_info)
-            def execute_task(child_config, child_task):
-                status = "failed"
-                primary_error: BaseException | None = None
-                try:
-                    result = self._execute(child_config, prepared_task=child_task, command=command, task_child=True)
-                    status = result.status
-                    return result
-                except BaseException as exc:
-                    primary_error = exc
-                    if isinstance(exc, KeyboardInterrupt):
-                        status = "cancelled"
-                    raise
-                finally:
-                    try:
-                        self._finalize(status)
-                    except BaseException as cleanup_error:
-                        if primary_error is None:
-                            raise
-                        primary_error.add_note(f"Task finalization also failed: {type(cleanup_error).__name__}")
-            result = collection.run(execute_task)
+            result = collection.run(
+                lambda child_config, child_task: self._execute_task_child(
+                    child_config, child_task, command=command,
+                )
+            )
             if result.status != "ok":
                 raise CollectionFailed(f"Some tasks failed; see {collection.path}",
                                        task_collection_path=str(collection.path))
@@ -285,38 +441,9 @@ class RunApplication:
                                     run_command=run_command)
         self.notifications.notify_started()
 
-        def host_preflight():
-            if args.runtime == "process":
-                from acprof.host.run_state import MeasurementLock
-                from acprof.host.runtimes.gpu import process_gpu_device
-                from acprof.host.runtimes.process_control import require_process_supervision
-                from acprof.host.runtimes.resources import preflight_resources
-                # CUDA driver discovery can create a context. Serialize this
-                # preflight too; it must not overlap another formal experiment.
-                with MeasurementLock():
-                    require_process_supervision()
-                    cpus, mems, gpus = resource_matrix(args)
-                    preflight_resources(cpus, mems, args.cpuset_cpus)
-                    args.process_gpu = process_gpu_device(args.gpu_device) if "on" in gpus else {}
-                return "not_used", {}, {}
-            version = require_cgroup_prerequisites()
-            from acprof.platform import detect_environment
-            topology = discover_rapl_topology() if detect_environment().native else {}
-            measurements = {}
-            if dram_enabled and args.dram_energy == "required" and topology["dram_status"] != "available":
-                raise RuntimeError(f"required DRAM RAPL unavailable: {topology['dram_status']}; "
-                                   f"missing packages={topology['dram_missing_packages']}")
-            if measurement_requested(args.profiling_mode, "packet_latency"):
-                require_packet_latency_prerequisites(sniff_iface=args.sniff_iface)
-            if measurement_requested(args.profiling_mode, "cpu_energy"):
-                measurements["cpu_energy"] = require_cpu_energy_prerequisites()
-            if measurement_requested(args.profiling_mode, "cpu_instructions"):
-                measurements["cpu_instructions"] = require_mips_prerequisites()
-            if "on" in [normalize_gpu_mode(part) for part in args.gpus.split(",")]:
-                pin_gpu_device(args.gpu_device)
-            return version, topology, measurements
-
-        cgroup_version, rapl_topology, preflight_measurements = workflow.run("preflight", host_preflight)
+        cgroup_version, rapl_topology, preflight_measurements = self._run_host_preflight(
+            args, dram_enabled=dram_enabled, workflow=workflow,
+        )
         from acprof.platform import detect_environment
         collection_environment = detect_environment()
         cgroup_collection_mode = ("process_tree" if args.runtime == "process" else
@@ -362,7 +489,6 @@ class RunApplication:
         self.terminal_log = self.terminal_start(output_dir, command)
 
         from acprof.host.input_plan import serialize_input_scales
-        from acprof.host.orchestrator import merge_all_csvs, run_matrix
 
         cpu_list, mem_list, gpu_list = resource_matrix(args)
         prepared = None
@@ -381,10 +507,8 @@ class RunApplication:
                     # No measurement has run. Preserve model/host decisions, invalidate
                     # all downstream evidence affected by a rebuilt immutable image.
                     continue
-        task_info, image_info = prepared.task_info, prepared.image_info
+        task_info = prepared.task_info
         planned_input_scales = prepared.planned_input_scales
-        compute_profile_plan_file = prepared.compute_profile_plan_file
-        execution_profile_plan_file = prepared.execution_profile_plan_file
         capability_report = prepared.capability_report
         input_scales_arg = serialize_input_scales(planned_input_scales.scales)
         layout = run_state.layout
@@ -419,108 +543,25 @@ class RunApplication:
         print(f"  Output: {output_dir}")
         print()
 
-        try:
-            csv_paths = (self.matrix_runner or run_matrix)(
-                task_info=task_info,
-                image_info=image_info,
-                cpu_list=cpu_list,
-                mem_list=mem_list,
-                gpu_list=gpu_list,
-                output_dir=output_dir,
-                project_dir=PROJECT_DIR,
-                batch_size=args.batch_size,
-                warmup=args.warmup,
-                repeat=args.repeat,
-                repeat_in_window=args.repeat_in_window,
-                repeat_window_seconds=args.repeat_window_seconds,
-                request_timeout_seconds=args.request_timeout_seconds,
-                sample_hz=args.sample_hz,
-                sampling_policy=args.sampling_policy,
-                raw_sample_limit=args.raw_sample_limit,
-                idle_seconds=args.idle_seconds,
-                idle_cooldown_seconds=args.idle_cooldown_seconds,
-                idle_debug=args.idle_debug,
-                sniff_iface=args.sniff_iface,
-                input_scales=input_scales_arg,
-                input_scale_plan_file=planned_input_scales.plan_file,
-                compute_profile_plan_file=compute_profile_plan_file,
-                execution_profile_plan_file=execution_profile_plan_file,
-                progress_callback=(
-                    self.notifications.notify_case
-                    if self.notifications.active()
-                    else None
-                ),
-                prune_startup_oom=args.prune_startup_oom,
-                matrix_order=args.matrix_order,
-                matrix_seed=args.matrix_seed,
-                dram_energy=args.dram_energy,
-                cpuset_cpus=args.cpuset_cpus,
-                run_state=run_state,
-                profiling_mode=args.profiling_mode,
-            )
-        except PacketLatencyError as exc:
-            print(f"\n[sniff][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        except EnergyProfilingError as exc:
-            print(f"\n[energy][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        except MIPSProfilingError as exc:
-            print(f"\n[mips][ERROR] {exc}", file=sys.stderr)
-            raise CollectionFailed(str(exc)) from exc
-        finally:
-            # run_matrix has unwound all measurement/container scopes. Publish
-            # evidence for completed and interrupted cases before any CSV cleanup.
-            from acprof.failures import collect_failures
-            from acprof.quality import collect_quality
-            recorded_cases = [run_state.artifact_path(name) for name in run_state.data["cases"]]
-            collect_quality(Path(output_dir), recorded_cases)
-            collect_failures(Path(output_dir), recorded_cases)
+        csv_paths = self._collect_matrix(
+            args,
+            task_info=task_info,
+            prepared=prepared,
+            cpu_list=cpu_list,
+            mem_list=mem_list,
+            gpu_list=gpu_list,
+            output_dir=output_dir,
+            run_state=run_state,
+        )
 
-        # ── Step 5: Merge all CSVs ──
-        if csv_paths:
-            final_csv = str(layout.result_csv)
-            emit_event("results_merging")
-            merge_all_csvs(csv_paths, final_csv, expected=run_state.expected())
-            from acprof.result_csv import read_result_csv
-            _, collected_rows = read_result_csv(final_csv)
-            apply_collection_result(capability_report, collected_rows)
-            from acprof.artifacts import atomic_write_json
-            # static_meta is the immutable pre-matrix snapshot used by resume.
-            # Publish final measurement evidence in its dedicated sidecar.
-            atomic_write_json(layout.path("capability_report.json"), capability_report.to_dict())
-            missing = missing_required_measurements(capability_report, collected_rows)
-            if missing:
-                print(f"[capability][ERROR] {args.profiling_mode} 必需指标缺少有效测量：{', '.join(missing)}。"
-                      "能力报告和 CSV 已保留；本次画像失败。", file=sys.stderr)
-                raise CollectionFailed("required measurements missing: " + ", ".join(missing))
-            run_state.finish(final_csv)
-            emit_event("result_published", final_csv=final_csv)
-            cleanup_intermediate_results(csv_paths, output_dir, final_csv)
-            elapsed = format_elapsed(time.perf_counter() - start_time)
-            print(f"\n{'='*60}")
-            print("Profiling complete!")
-            print(f"  Profiling mode:   {args.profiling_mode}")
-            if not capability_report.to_dict()["requested_measurements_complete"]:
-                print("  [WARN] 请求指标存在缺失；能力报告保留具体状态，结果不标记为完整画像。")
-            print(f"  Static meta:      {static_meta_json}")
-            print(f"  Collection log:   {collection_history_json}")
-            print(f"  Frozen matrix:    {layout.path('matrix_plan.json')}")
-            if args.prune_startup_oom:
-                print(
-                    "  Startup evidence: "
-                    f"{layout.path('startup_oom_pruning.json')}"
-                )
-            print(f"  Merged results:   {final_csv}")
-            print(f"  Total elapsed:    {elapsed}")
-            print("  Intermediate files from this run were cleaned up.")
-            print(f"{'='*60}")
-            self.notifications.record_completion(
-                final_csv=final_csv,
-                completed_cases=len(csv_paths),
-            )
-            return RunOutcome("ok", final_csv, len(csv_paths))
-        else:
-            elapsed = format_elapsed(time.perf_counter() - start_time)
-            print(f"\n[WARN] No results produced after {elapsed}. Static meta is still available: {static_meta_json}")
-            self.notifications.record_completion(final_csv=None, completed_cases=0)
-            return RunOutcome("no_results")
+        return self._publish_matrix_results(
+            csv_paths,
+            args=args,
+            output_dir=output_dir,
+            layout=layout,
+            run_state=run_state,
+            capability_report=capability_report,
+            start_time=start_time,
+            static_meta_json=static_meta_json,
+            collection_history_json=collection_history_json,
+        )

@@ -10,6 +10,7 @@ import requests
 from acprof.cli.probe import main as probe_main
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.largest_scale_probe import (
     PROBE_SUMMARY_NAME,
@@ -18,7 +19,6 @@ from acprof.host.largest_scale_probe import (
     select_minimum_resources,
     write_probe_summary,
 )
-from acprof.host.orchestrator import ImageInfo
 
 
 def _task_info() -> TaskInfo:

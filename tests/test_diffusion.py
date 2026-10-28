@@ -9,9 +9,9 @@ import pytest
 
 from acprof.container.handlers.diffusion import DiffusionHandler
 from acprof.host.detect import TaskInfo
+from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import plan_input_scales
 from acprof.host.model_schema import _inference_precision_by_device, _model_io_formats
-from acprof.host.orchestrator import ImageInfo
 from acprof.workloads.diffusion import (
     BASE_SEED,
     DEFAULT_GUIDANCE_SCALE,

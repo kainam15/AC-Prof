@@ -6,7 +6,7 @@ import sys
 import time
 from dataclasses import dataclass, replace
 
-from acprof.host.orchestrator import MatrixProgress
+from acprof.host.cases import MatrixProgress
 from acprof.host.profiling.progress import ProfilerProgress
 from acprof.notifications import (
     NotificationConfigError,

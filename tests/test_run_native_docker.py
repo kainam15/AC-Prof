@@ -683,15 +683,15 @@ class TestNativeDockerGuard:
 
         assert (raised.value.code) == (1)
         assert ("[energy][ERROR] gpu_idle_power_w unstable") in (stderr.getvalue())
-        _, kwargs = run_matrix.call_args
-        assert (kwargs["image_info"]) is (built_image)
-        assert (kwargs["repeat_in_window"]) == (0)
-        assert (kwargs["repeat_window_seconds"]) == (10.0)
-        assert (kwargs["request_timeout_seconds"]) == (300.0)
-        assert (kwargs["idle_seconds"]) == (20.0)
-        assert (kwargs["idle_cooldown_seconds"]) == (5.0)
-        assert (kwargs["compute_profile_plan_file"]) == ("")
-        assert (kwargs["prune_startup_oom"])
+        request = run_matrix.call_args.args[0]
+        assert (request.image_info) is (built_image)
+        assert (request.workload.repeat_in_window) == (0)
+        assert (request.workload.repeat_window_seconds) == (10.0)
+        assert (request.workload.request_timeout_seconds) == (300.0)
+        assert (request.measurement.idle_seconds) == (20.0)
+        assert (request.measurement.idle_cooldown_seconds) == (5.0)
+        assert (request.plans.compute_profile_plan_file) == ("")
+        assert (request.prune_startup_oom)
         assert not (collect_static_meta.call_args.kwargs["compute_profile_enabled"])
 
     def test_main_can_enable_dual_compute_profiles_and_keep_artifacts(self) -> None:
@@ -780,8 +780,9 @@ class TestNativeDockerGuard:
         assert (kwargs["torch_profiler_repeat"]) == (1)
         assert (kwargs["ncu_repeat"]) == (1)
         assert (kwargs["keep_profiles"])
-        assert not (run_matrix.call_args.kwargs["prune_startup_oom"])
-        assert (run_matrix.call_args.kwargs["request_timeout_seconds"]) == (123.5)
+        request = run_matrix.call_args.args[0]
+        assert not (request.prune_startup_oom)
+        assert (request.workload.request_timeout_seconds) == (123.5)
 
     def test_main_rejects_invalid_request_timeout(self) -> None:
         with patch.object(

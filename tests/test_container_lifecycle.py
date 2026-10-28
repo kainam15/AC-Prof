@@ -162,6 +162,7 @@ class TestContainerCleanup:
         from pathlib import Path
 
         from acprof.host import orchestrator
+        from acprof.host.cases import CaseMeasurement, CasePlans, MatrixRequest
         from acprof.host.detect import TaskInfo
         from acprof.host.docker_runtime import RunningContainer
         from acprof.host.images.runtime import ImageInfo
@@ -173,8 +174,17 @@ class TestContainerCleanup:
             'acprof.host.command.run_command', side_effect=subprocess.TimeoutExpired(['docker'], 1),
         ):
             with pytest.raises(RuntimeError):
-                orchestrator.run_matrix(task, ImageInfo('fixture'), [1, 2], [2], ['off'], directory,
-                                        directory, profiling_mode='basic', input_scales='1', prune_startup_oom=False)
+                orchestrator.run_matrix(MatrixRequest(
+                    task_info=task,
+                    image_info=ImageInfo('fixture'),
+                    cpu_list=[1, 2],
+                    mem_list=[2],
+                    gpu_list=['off'],
+                    output_dir=directory,
+                    project_dir=directory,
+                    measurement=CaseMeasurement(profiling_mode='basic'),
+                    plans=CasePlans(input_scales='1'),
+                ))
             assert (start.call_count) == (1)
             paths = list(Path(directory).rglob('*cleanup_error.json'))
             assert (len(paths)) == (1)

@@ -52,7 +52,7 @@ def test_case_cleanup_failure_cannot_emit_success():
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from acprof.host import orchestrator
+    from acprof.host import cases, orchestrator
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import RunningContainer
     from acprof.host.images.runtime import ImageInfo
@@ -67,7 +67,7 @@ def test_case_cleanup_failure_cannot_emit_success():
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         with pytest.raises(RuntimeError, match="cleanup failed"):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task,
                     cpu=1,
                     mem=4,
@@ -76,10 +76,10 @@ def test_case_cleanup_failure_cannot_emit_success():
                     output_dir=directory,
                     project_dir=directory,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     profiling_mode='basic',
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='1',
                 ),
             )
@@ -92,7 +92,7 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    from acprof.host import orchestrator
+    from acprof.host import cases, orchestrator
     from acprof.host.detect import TaskInfo
     from acprof.host.docker_runtime import RunningContainer
     from acprof.host.images.runtime import ImageInfo
@@ -108,7 +108,7 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
         stack.enter_context(patch("acprof.host.command.run_command", side_effect=failed_client))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         orchestrator.run_single_case(
-            orchestrator.CaseRequest(
+            cases.CaseRequest(
                 task_info=task,
                 cpu=1,
                 mem=4,
@@ -117,10 +117,10 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
                 output_dir=directory,
                 project_dir=directory,
             ),
-            measurement=orchestrator.CaseMeasurement(
+            measurement=cases.CaseMeasurement(
                 profiling_mode='basic',
             ),
-            plans=orchestrator.CasePlans(
+            plans=cases.CasePlans(
                 input_scales='1',
             ),
         )

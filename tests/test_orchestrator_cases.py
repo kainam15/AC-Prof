@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.config import CSV_FIELDS
-from acprof.host import docker_runtime, orchestrator
+from acprof.host import cases, docker_runtime, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.measurement import capture as packet_capture, error_rows
@@ -285,7 +285,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -294,15 +294,15 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -345,7 +345,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -354,15 +354,15 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                     compute_profile_plan_file='results/test-unit/compute_profile_plan.json',
                 ),
@@ -406,7 +406,7 @@ class TestOrchestratorCases:
             side_effect=fake_run,
         ):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -415,15 +415,15 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                     execution_profile_plan_file='results/test-unit/execution_profile_plan.json',
                 ),
@@ -461,7 +461,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -470,17 +470,17 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     idle_cooldown_seconds=4.5,
                     idle_debug=True,
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -523,7 +523,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -532,17 +532,17 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=0,
                     repeat_window_seconds=10.0,
                     request_timeout_seconds=123.5,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -582,7 +582,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -591,16 +591,16 @@ class TestOrchestratorCases:
                     output_dir=self.output_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1000,
                     repeat_window_seconds=10.0,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -651,7 +651,7 @@ class TestOrchestratorCases:
                 RuntimeFailure if recorded_failure else orchestrator.EnergyProfilingError
             ) as raised:
                 orchestrator.run_single_case(
-                    orchestrator.CaseRequest(
+                    cases.CaseRequest(
                         task_info=task_info,
                         cpu=1,
                         mem=4,
@@ -660,15 +660,15 @@ class TestOrchestratorCases:
                         output_dir=self.output_dir,
                         project_dir='.',
                     ),
-                    workload=orchestrator.CaseWorkload(
+                    workload=cases.CaseWorkload(
                         warmup=0,
                         repeat=1,
                         repeat_in_window=0,
                     ),
-                    measurement=orchestrator.CaseMeasurement(
+                    measurement=cases.CaseMeasurement(
                         require_packet_latency=False,
                     ),
-                    plans=orchestrator.CasePlans(
+                    plans=cases.CasePlans(
                         input_scales='64',
                     ),
                 )
@@ -758,7 +758,7 @@ class TestOrchestratorCases:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=2,
                     mem=2,
@@ -767,15 +767,15 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64,128,256',
                 ),
             )
@@ -840,7 +840,7 @@ class TestOrchestratorCases:
         ):
             with pytest.raises(orchestrator.MIPSProfilingError):
                 orchestrator.run_single_case(
-                    orchestrator.CaseRequest(
+                    cases.CaseRequest(
                         task_info=task_info,
                         cpu=1,
                         mem=4,
@@ -849,15 +849,15 @@ class TestOrchestratorCases:
                         output_dir=self.output_dir,
                         project_dir='.',
                     ),
-                    workload=orchestrator.CaseWorkload(
+                    workload=cases.CaseWorkload(
                         warmup=0,
                         repeat=1,
                         repeat_in_window=1,
                     ),
-                    measurement=orchestrator.CaseMeasurement(
+                    measurement=cases.CaseMeasurement(
                         require_packet_latency=False,
                     ),
-                    plans=orchestrator.CasePlans(
+                    plans=cases.CasePlans(
                         input_scales='64',
                     ),
                 )
@@ -932,7 +932,7 @@ class TestOrchestratorCases:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -941,16 +941,16 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=1,
                     repeat=2,
                     repeat_in_window=0,
                     request_timeout_seconds=120.0,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64,128',
                 ),
             )
@@ -1046,7 +1046,7 @@ class TestOrchestratorCases:
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -1055,15 +1055,15 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=1,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64,128',
                 ),
             )
@@ -1102,7 +1102,7 @@ class TestOrchestratorCases:
             ),
         ):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=2,
@@ -1111,11 +1111,11 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=1,
                     repeat=2,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='85,170',
                 ),
             )
@@ -1171,7 +1171,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -1180,15 +1180,15 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=3,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -1224,7 +1224,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -1233,15 +1233,15 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=3,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -1284,7 +1284,7 @@ class TestOrchestratorCases:
             "acprof.host.orchestrator.stop_service_session"
         ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
-                orchestrator.CaseRequest(
+                cases.CaseRequest(
                     task_info=task_info,
                     cpu=1,
                     mem=4,
@@ -1293,15 +1293,15 @@ class TestOrchestratorCases:
                     output_dir=tmp_dir,
                     project_dir='.',
                 ),
-                workload=orchestrator.CaseWorkload(
+                workload=cases.CaseWorkload(
                     warmup=0,
                     repeat=3,
                     repeat_in_window=1,
                 ),
-                measurement=orchestrator.CaseMeasurement(
+                measurement=cases.CaseMeasurement(
                     require_packet_latency=False,
                 ),
-                plans=orchestrator.CasePlans(
+                plans=cases.CasePlans(
                     input_scales='64',
                 ),
             )
@@ -1392,7 +1392,7 @@ class TestOrchestratorCases:
         ):
             with pytest.raises(packet_capture.PacketLatencyError) as raised:
                 orchestrator.run_single_case(
-                    orchestrator.CaseRequest(
+                    cases.CaseRequest(
                         task_info=task_info,
                         cpu=1,
                         mem=4,
@@ -1401,12 +1401,12 @@ class TestOrchestratorCases:
                         output_dir=self.output_dir,
                         project_dir='.',
                     ),
-                    workload=orchestrator.CaseWorkload(
+                    workload=cases.CaseWorkload(
                         warmup=0,
                         repeat=1,
                         repeat_in_window=1,
                     ),
-                    plans=orchestrator.CasePlans(
+                    plans=cases.CasePlans(
                         input_scales='64',
                     ),
                 )

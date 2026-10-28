@@ -29,6 +29,7 @@
 | `input_plan` | 手动和自动尺度规划、规划用 probe、payload 物化与输入计划写入 |
 | `startup_probe` | 独立 readiness-only 启动探测、Docker OOM 证据与保守连续前缀，不采集性能 |
 | `matrix_plan` | 资源 case 与 input scale 的独立确定性排序、冻结计划、hash 与恢复校验，不采样硬件 |
+| `cases` | `MatrixRequest`、单 case 四类冻结配置和 `MatrixProgress`；不持有运行时状态或执行采集 |
 | `model_schema` | 从 catalog 读取任务 IO 模板与推理精度，返回独立副本供元数据补充 |
 | `static_metadata` | 主机、镜像、模型和 profiler 计划的静态元数据 |
 | `measurement.capture` | tcpdump 前置检查及 capture/parser 命令构造 |
@@ -174,6 +175,9 @@ machine events 继续由 `RunProgressTracker` 解析。
 `cli.run` 只适配参数、SIGTERM 与退出码，原始参数的 `None` 保留未显式覆盖环境设置的含义。
 `RunConfig.from_namespace` 和 `to_namespace` 复用既有参数声明，并保留 seed、SLO 等额外公共选项，
 不另建配置 schema。准备阶段返回 `PreparedRuntime`，汇总镜像、输入计划、profiler 计划与能力报告。
+`_execute()` 只串联执行选项校验、任务集合分派、主机预检、准备、矩阵执行和结果发布；
+`_collect_matrix()` 消费单一 `MatrixRequest`，`_publish_matrix_results()` 负责 capability 校验、
+CSV 合并、RunState 完成与清理，task child 继续使用同一 `_finalize()` 所有权和异常优先级。
 `RunNotifications` 在预检前、每个 profiler/case 窗口结束后及终态完成时创建通知事件，
 并负责 CSV 摘要、保密错误回显与尽力发送；不同应用实例之间不共享通知上下文。
 终态通知必须在 tmux 日志关闭及 RunState 清理后执行；通知异常不得改变实验结果、污染采集窗口或泄露 webhook。
@@ -237,10 +241,11 @@ CPU 与资源监控共享 PID 查询和采样调度，NVML 保留自己的首采
 
 ### 单 case 请求与独立 profiler 编排
 
-`run_single_case` 接收四类冻结配置：`CaseRequest` 描述任务、镜像、资源与目录，
+`host.cases` 定义四类冻结配置：`CaseRequest` 描述任务、镜像、资源与目录，
 `CaseWorkload` 描述请求次数和超时，`CaseMeasurement` 描述采样与采集策略，
-`CasePlans` 引用准备阶段已生成的输入和 profiler 计划。`RunState` 作为显式执行依赖传入，
-不混入配置对象。调用方创建这些对象；内部接口不保留展开全部参数的旧入口。
+`CasePlans` 引用准备阶段已生成的输入和 profiler 计划。`run_matrix` 统一接收 `MatrixRequest`，
+按冻结计划生成每个 case 的配置；`run_single_case` 接收这些配置，并将 `RunState` 作为显式执行依赖传入，
+不混入配置对象。
 
 单次 `_CaseExecution` 拥有该 case 的容器和 tcpdump 进程，并分别处理启动、客户端环境、
 客户端失败、测量完成检查点、结果后处理和清理。只有客户端调用位于原有

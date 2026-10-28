@@ -1,11 +1,13 @@
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from acprof.host import orchestrator
+from acprof.host.cases import CaseMeasurement, CasePlans, CaseWorkload, MatrixRequest
 from acprof.host.detect import TaskInfo
 from acprof.host.images.runtime import ImageInfo
 
@@ -19,10 +21,19 @@ class TestMatrixPlan:
         self.image = ImageInfo('sha256:' + 'b' * 64)
 
     def run_matrix(self, directory, **options):
-        return orchestrator.run_matrix(
-            self.task, self.image, [4, 1, 2], [8, 2, 4], ['off'],
-            str(directory), str(directory), input_scales='16,32,64,128',
-            warmup=0, repeat=1, profiling_mode='basic', **options)
+        request = MatrixRequest(
+            task_info=self.task,
+            image_info=self.image,
+            cpu_list=[4, 1, 2],
+            mem_list=[8, 2, 4],
+            gpu_list=['off'],
+            output_dir=str(directory),
+            project_dir=str(directory),
+            workload=CaseWorkload(warmup=0, repeat=1),
+            measurement=CaseMeasurement(profiling_mode='basic'),
+            plans=CasePlans(input_scales='16,32,64,128'),
+        )
+        return orchestrator.run_matrix(replace(request, **options))
 
     def test_matrix_freezes_actual_case_and_scale_order(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(

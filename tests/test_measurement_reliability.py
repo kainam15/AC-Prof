@@ -8,7 +8,7 @@ import pytest
 
 from acprof.artifact_layout import case_sidecar
 from acprof.config import CSV_FIELDS
-from acprof.host import client, docker_runtime, orchestrator
+from acprof.host import cases, client, docker_runtime, orchestrator
 from acprof.host.client import ClientRunner
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
@@ -133,7 +133,7 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
         "acprof.host.orchestrator.stop_service_session"
     ), patch("acprof.host.command.run_command", side_effect=fake_run):
         path = orchestrator.run_single_case(
-            orchestrator.CaseRequest(
+            cases.CaseRequest(
                 task_info=task_info,
                 cpu=1,
                 mem=4,
@@ -142,15 +142,15 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
                 output_dir=str(tmp_path),
                 project_dir='.',
             ),
-            workload=orchestrator.CaseWorkload(
+            workload=cases.CaseWorkload(
                 warmup=1,
                 repeat=2,
                 repeat_in_window=1,
             ),
-            measurement=orchestrator.CaseMeasurement(
+            measurement=cases.CaseMeasurement(
                 require_packet_latency=False,
             ),
-            plans=orchestrator.CasePlans(
+            plans=cases.CasePlans(
                 input_scales='64,128',
             ),
         )

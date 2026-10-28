@@ -14,7 +14,7 @@ import pytest
 from acprof.application import notifications as notices, run
 from acprof.cli import run as run_cli
 from acprof.experiment import RunConfig
-from acprof.host import input_plan, orchestrator
+from acprof.host import cases, input_plan, orchestrator
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.profiling.progress import ProfilerProgress
@@ -216,7 +216,7 @@ class TestRunNotificationLifecycle:
 
             self.notices.context = self._context(CapturingNotifier())
             self.notices.notify_case(
-                orchestrator.MatrixProgress(
+                cases.MatrixProgress(
                     completed_cases=1,
                     total_cases=2,
                     cpu=2,
@@ -339,7 +339,7 @@ class TestRunNotificationLifecycle:
                     callback(ProfilerProgress(profiler, "success", 2.0, 1, 0))
             return os.path.join(kwargs["output_dir"], "mock_profile_plan.json")
 
-        def run_matrix(**_kwargs):
+        def run_matrix(_request):
             order.append("matrix")
             return []
 
@@ -436,7 +436,7 @@ class TestRunNotificationLifecycle:
             "acprof.host.orchestrator.run_single_case",
             side_effect=fake_case,
         ):
-            result_csvs = orchestrator.run_matrix(
+            result_csvs = orchestrator.run_matrix(cases.MatrixRequest(
                 task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface", selected_tasks=[]),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
@@ -446,7 +446,7 @@ class TestRunNotificationLifecycle:
                 output_dir=tmp,
                 project_dir=tmp,
                 progress_callback=progress,
-            )
+            ))
 
         assert (len(result_csvs)) == (4)
         assert (len(progress_events)) == (4)
@@ -468,7 +468,7 @@ class TestRunNotificationLifecycle:
             "acprof.host.orchestrator.run_single_case",
             return_value="/tmp/result.csv",
         ), redirect_stderr(io.StringIO()):
-            result_csvs = orchestrator.run_matrix(
+            result_csvs = orchestrator.run_matrix(cases.MatrixRequest(
                 task_info=Mock(model_id="org/model", model_revision="main", task_family="nlp", model_source="huggingface", selected_tasks=[]),
                 image_info=Mock(tag="sha256:" + "b" * 64),
                 matrix_order="declared",
@@ -478,7 +478,7 @@ class TestRunNotificationLifecycle:
                 output_dir=tmp,
                 project_dir=tmp,
                 progress_callback=Mock(side_effect=RuntimeError("notify failed")),
-            )
+            ))
 
         assert (result_csvs) == (["/tmp/result.csv"])
 

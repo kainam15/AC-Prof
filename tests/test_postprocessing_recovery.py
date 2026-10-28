@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, CSV_FIELDS, SERVER_PORT
-from acprof.host import orchestrator, run_state
+from acprof.host import cases, orchestrator, run_state
 from acprof.host.container_lifecycle import ContainerCleanupError
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
@@ -87,15 +87,15 @@ def measured_case(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator.time, "sleep", lambda *a: None)
     monkeypatch.setattr(orchestrator.host_command, "run_command", client)
     arguments = {
-        "request": orchestrator.CaseRequest(
+        "request": cases.CaseRequest(
             task_info=TaskInfo("org/model", "fill-mask", "nlp", "transformers_pipeline",
                                "transformers", "a" * 40, "manual"),
             image_info=ImageInfo(tag="sha256:" + "b" * 64), cpu=1, mem=4, gpu="off",
             output_dir=str(state.directory), project_dir=".",
         ),
-        "workload": orchestrator.CaseWorkload(warmup=0, repeat=1),
-        "measurement": orchestrator.CaseMeasurement(profiling_mode="full"),
-        "plans": orchestrator.CasePlans(input_scales="64"),
+        "workload": cases.CaseWorkload(warmup=0, repeat=1),
+        "measurement": cases.CaseMeasurement(profiling_mode="full"),
+        "plans": cases.CasePlans(input_scales="64"),
         "run_state": state,
     }
     yield state, case, calls, arguments

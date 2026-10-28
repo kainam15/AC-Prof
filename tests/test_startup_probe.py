@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from acprof.host import container_state, docker_runtime as docker, orchestrator, startup_probe
+from acprof.host.cases import CasePlans, CaseWorkload, MatrixRequest
 from acprof.host.detect import TaskInfo
 from acprof.host.images import runtime as runtime_images
 from acprof.host.matrix_plan import freeze_matrix_plan, matrix_identity
@@ -76,9 +77,20 @@ class TestStartupProbe:
              patch("acprof.host.container_state.inspect_container_state", return_value={'Running': True}), \
              patch.object(docker, 'stop_container_session'), \
              patch.object(orchestrator, 'run_single_case', side_effect=formal) as case:
-            result = orchestrator.run_matrix(self.task, self.image, [2, 1], [4, 2], ['off'],
-                directory, directory, warmup=0, repeat=1, input_scales='64',
-                prune_startup_oom=True, matrix_order='declared')
+            request = MatrixRequest(
+                task_info=self.task,
+                image_info=self.image,
+                cpu_list=[2, 1],
+                mem_list=[4, 2],
+                gpu_list=['off'],
+                output_dir=directory,
+                project_dir=directory,
+                workload=CaseWorkload(warmup=0, repeat=1),
+                plans=CasePlans(input_scales='64'),
+                prune_startup_oom=True,
+                matrix_order='declared',
+            )
+            result = orchestrator.run_matrix(request)
             assert (case.call_count) == (2)
             assert (len(result)) == (2)
             for path in result:
@@ -89,9 +101,7 @@ class TestStartupProbe:
             report = json.loads((Path(directory) / 'startup_oom_pruning.json').read_text())
             assert (report['status']) == ('complete')
             with patch("acprof.host.docker_runtime.start_container_session", side_effect=AssertionError('reprobe')):
-                orchestrator.run_matrix(self.task, self.image, [2, 1], [4, 2], ['off'],
-                    directory, directory, warmup=0, repeat=1, input_scales='64',
-                    prune_startup_oom=True, matrix_order='declared')
+                orchestrator.run_matrix(request)
 
     def test_frozen_plan_rejects_nonfinite_probe_evidence_before_formal_collection(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,20 +130,19 @@ class TestStartupProbe:
                 "run_single_case",
                 side_effect=AssertionError("formal collection must not start"),
             ), pytest.raises(ValueError, match="invalid startup probe report JSON"):
-                orchestrator.run_matrix(
-                    self.task,
-                    self.image,
-                    [2, 1],
-                    [8, 2, 4],
-                    ["off"],
-                    tmp,
-                    tmp,
-                    warmup=0,
-                    repeat=1,
-                    input_scales="64",
+                orchestrator.run_matrix(MatrixRequest(
+                    task_info=self.task,
+                    image_info=self.image,
+                    cpu_list=[2, 1],
+                    mem_list=[8, 2, 4],
+                    gpu_list=["off"],
+                    output_dir=tmp,
+                    project_dir=tmp,
+                    workload=CaseWorkload(warmup=0, repeat=1),
+                    plans=CasePlans(input_scales="64"),
                     prune_startup_oom=True,
                     matrix_order="declared",
-                )
+                ))
 
     def test_interrupted_probe_resumes_completed_attempts(self):
         oom = container_state.ContainerStartupError('OOM', state={'OOMKilled': True, 'Running': False})

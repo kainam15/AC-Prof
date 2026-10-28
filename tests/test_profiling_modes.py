@@ -11,6 +11,7 @@ import pytest
 from client_fixtures import patch_client
 
 from acprof.host import client, orchestrator
+from acprof.host.cases import CaseMeasurement, CasePlans, MatrixRequest
 from acprof.host.client import ClientRunner
 from acprof.host.detect import TaskInfo
 from acprof.host.docker_runtime import RunningContainer
@@ -47,7 +48,17 @@ class TestProfilingMode:
             stack.enter_context(patch.object(orchestrator, "_resolve_packet_latency_runtime", side_effect=AssertionError("basic must not resolve packet capture")))
             stack.enter_context(patch.object(orchestrator, "check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
             stack.enter_context(redirect_stdout(output))
-            paths = orchestrator.run_matrix(task, ImageInfo(tag="test"), [1, 2], [1], ["off"], root, ".", profiling_mode="basic", input_scales="1")
+            paths = orchestrator.run_matrix(MatrixRequest(
+                task_info=task,
+                image_info=ImageInfo(tag="test"),
+                cpu_list=[1, 2],
+                mem_list=[1],
+                gpu_list=["off"],
+                output_dir=root,
+                project_dir=".",
+                measurement=CaseMeasurement(profiling_mode="basic"),
+                plans=CasePlans(input_scales="1"),
+            ))
         assert (len(paths)) == (2)
         assert ([env["CPU_CORES"] for env in captured]) == (["1", "2"])
         assert (all(env["USE_MIPS"] == "0" and env["PROFILING_MODE"] == "basic" for env in captured))

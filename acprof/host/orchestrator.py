@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -17,21 +16,11 @@ from uuid import uuid4
 from acprof.artifact_layout import ArtifactLayout, resource_case_id
 from acprof.artifacts import atomic_write, read_json_object, replace_file_durably
 from acprof.capabilities import measurement_requested, require_profiling_mode
-from acprof.config import (
-    CLIENT_REQUEST_TIMEOUT_EXIT_CODE,
-    DEFAULT_IDLE_COOLDOWN_SECONDS,
-    DEFAULT_IDLE_SECONDS,
-    DEFAULT_REPEAT_IN_WINDOW,
-    DEFAULT_REPEAT_WINDOW_SECONDS,
-    DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    SERVER_PORT,
-)
+from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host import command as host_command
-from acprof.host.detect import TaskInfo
+from acprof.host import cases, command as host_command
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.images.identity import model_token
-from acprof.host.images.runtime import ImageInfo
 from acprof.host.input_plan import resolve_input_scales, serialize_input_scales
 from acprof.host.measurement.capture import (
     PacketLatencyRuntime,
@@ -73,18 +62,6 @@ if TYPE_CHECKING:
     from acprof.host.run_state import RunState
 
 _LOG = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class MatrixProgress:
-    """One safely completed resource case in a matrix sweep."""
-
-    completed_cases: int
-    total_cases: int
-    cpu: int
-    mem: int
-    gpu: str
-    result_csv: str | None
 
 
 class MIPSProfilingError(RuntimeError):
@@ -136,59 +113,6 @@ def _assert_packet_latency_csv_complete(
 
 
 @dataclass(frozen=True)
-class CaseRequest:
-    """Identity, resources, and locations for one container execution."""
-
-    task_info: TaskInfo
-    cpu: int
-    mem: int
-    gpu: str
-    image_info: ImageInfo
-    output_dir: str
-    project_dir: str
-    cpuset_cpus: str = ""
-
-
-@dataclass(frozen=True)
-class CaseWorkload:
-    """Request counts and deadlines, independent of host collector settings."""
-
-    batch_size: int = 1
-    warmup: int = 2
-    repeat: int = 5
-    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW
-    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS
-    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
-
-
-@dataclass(frozen=True)
-class CaseMeasurement:
-    """Collector policy for a case; no mutable execution state."""
-
-    sample_hz: float = 20.0
-    idle_seconds: float = DEFAULT_IDLE_SECONDS
-    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS
-    idle_debug: bool = False
-    sniff_iface: str = "docker0"
-    require_packet_latency: bool = True
-    profiling_mode: str = "full"
-    dram_energy: str = "auto"
-    sampling_policy: str = "burst"
-    raw_sample_limit: int = 100000
-
-
-@dataclass(frozen=True)
-class CasePlans:
-    """Previously prepared plans consumed by the measured client."""
-
-    input_scales: str | None = None
-    input_scale_plan_file: str | None = None
-    compute_profile_plan_file: str | None = None
-    execution_profile_plan_file: str | None = None
-    input_scale_order: list[float] | None = None
-
-
-@dataclass(frozen=True)
 class _ClientOutcome:
     incomplete: bool = False
     completed_rows: int = 0
@@ -196,10 +120,10 @@ class _ClientOutcome:
 
 
 def run_single_case(
-    request: CaseRequest,
-    workload: CaseWorkload = CaseWorkload(),
-    measurement: CaseMeasurement = CaseMeasurement(),
-    plans: CasePlans = CasePlans(),
+    request: cases.CaseRequest,
+    workload: cases.CaseWorkload = cases.CaseWorkload(),
+    measurement: cases.CaseMeasurement = cases.CaseMeasurement(),
+    plans: cases.CasePlans = cases.CasePlans(),
     *,
     run_state: RunState | None = None,
 ) -> str:
@@ -227,10 +151,10 @@ class _CaseExecution:
 
     def __init__(
         self,
-        request: CaseRequest,
-        workload: CaseWorkload,
-        measurement: CaseMeasurement,
-        plans: CasePlans,
+        request: cases.CaseRequest,
+        workload: cases.CaseWorkload,
+        measurement: cases.CaseMeasurement,
+        plans: cases.CasePlans,
         run_state: RunState | None,
     ) -> None:
         self.request = request
@@ -710,40 +634,7 @@ def _finalize_case(capture_available: bool, sniff_runtime, case_incomplete, comp
                 ignore_error_rows=case_incomplete,
             )
 
-def run_matrix(
-    task_info: TaskInfo,
-    image_info: ImageInfo,
-    cpu_list: list[int],
-    mem_list: list[int],
-    gpu_list: list[str],
-    output_dir: str,
-    project_dir: str,
-    batch_size: int = 1,
-    warmup: int = 2,
-    repeat: int = 5,
-    repeat_in_window: int = DEFAULT_REPEAT_IN_WINDOW,
-    repeat_window_seconds: float = DEFAULT_REPEAT_WINDOW_SECONDS,
-    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
-    sample_hz: float = 20.0,
-    idle_seconds: float = DEFAULT_IDLE_SECONDS,
-    idle_cooldown_seconds: float = DEFAULT_IDLE_COOLDOWN_SECONDS,
-    idle_debug: bool = False,
-    sniff_iface: str = "docker0",
-    input_scales: str | None = None,
-    input_scale_plan_file: str | None = None,
-    compute_profile_plan_file: str | None = None,
-    execution_profile_plan_file: str | None = None,
-    progress_callback: Callable[[MatrixProgress], None] | None = None,
-    prune_startup_oom: bool = False,
-    run_state=None,
-    profiling_mode: str = "full",
-    matrix_order: str = "seeded",
-    matrix_seed: int = 0,
-    dram_energy: str = "auto",
-    cpuset_cpus: str = "",
-    sampling_policy: str = "burst",
-    raw_sample_limit: int = 100000,
-) -> list[str]:
+def run_matrix(request: cases.MatrixRequest) -> list[str]:
     """Run a frozen resource plan after independent readiness-only probes."""
     from acprof.cpu_affinity import normalize_cpu_set
     from acprof.host.matrix_plan import (
@@ -754,26 +645,30 @@ def run_matrix(
     )
     from acprof.host.startup_probe import PROBE_NAME, run_startup_probes, startup_oom_prefixes
 
-    cpuset_cpus = normalize_cpu_set(cpuset_cpus)
-    request_timeout_seconds = float(request_timeout_seconds)
-    require_profiling_mode(profiling_mode)
+    task_info = request.task_info
+    image_info = request.image_info
+    cpu_list, mem_list, gpu_list = request.cpu_list, request.mem_list, request.gpu_list
+    workload, measurement = request.workload, request.measurement
+    run_state = request.run_state
+    cpuset_cpus = normalize_cpu_set(request.cpuset_cpus)
+    request_timeout_seconds = float(workload.request_timeout_seconds)
+    require_profiling_mode(measurement.profiling_mode)
     if request_timeout_seconds <= 0 or not math.isfinite(request_timeout_seconds):
         raise ValueError("request_timeout_seconds must be a finite value > 0")
-    os.makedirs(output_dir, exist_ok=True)
-    if runtime_kind(image_info) == "process":
-        prune_startup_oom = False
-    scales = resolve_input_scales(task_info.task_family, input_scales)
-    identity = matrix_identity(task_info, image_info, cpu_list, mem_list, gpu_list, scales,
-                               order=matrix_order, seed=matrix_seed, prune=prune_startup_oom,
-                               input_plan_file=input_scale_plan_file, cpuset_cpus=cpuset_cpus)
-    layout = ArtifactLayout.discover(output_dir)
+    os.makedirs(request.output_dir, exist_ok=True)
+    prune_startup_oom = request.prune_startup_oom and runtime_kind(image_info) != "process"
+    scales = resolve_input_scales(task_info.task_family, request.plans.input_scales)
+    identity = matrix_identity(
+        task_info, image_info, cpu_list, mem_list, gpu_list, scales,
+        order=request.matrix_order, seed=request.matrix_seed, prune=prune_startup_oom,
+        input_plan_file=request.plans.input_scale_plan_file, cpuset_cpus=cpuset_cpus,
+    )
+    layout = ArtifactLayout.discover(request.output_dir)
     plan_path = layout.path(MATRIX_PLAN_NAME)
     if plan_path.exists():
         plan = load_matrix_plan(plan_path, identity)
         if prune_startup_oom:
-            evidence = read_json_object(
-                layout.path(PROBE_NAME), label="startup probe report"
-            )
+            evidence = read_json_object(layout.path(PROBE_NAME), label="startup probe report")
             if (evidence.get("schema_version") != 2 or evidence.get("status") != "complete"
                     or evidence.get("identity") != identity
                     or startup_oom_prefixes(evidence) != plan["startup_oom_prefixes"]):
@@ -783,13 +678,18 @@ def run_matrix(
             raise ValueError("missing frozen matrix plan for existing cases; start a new experiment")
         prefixes = {}
         if prune_startup_oom:
-            evidence = run_startup_probes(output_dir, identity, task_info, image_info,
-                                          request_timeout_seconds=request_timeout_seconds)
+            evidence = run_startup_probes(
+                request.output_dir, identity, task_info, image_info,
+                request_timeout_seconds=request_timeout_seconds,
+            )
             prefixes = startup_oom_prefixes(evidence)
         plan = freeze_matrix_plan(plan_path, identity, prefixes)
     if run_state is not None:
         run_state.bind_matrix_plan(plan)
-    print(f"[matrix] Frozen plan: {plan_path}; order={matrix_order}, seed={matrix_seed}, hash={plan['plan_sha256']}")
+    print(
+        f"[matrix] Frozen plan: {plan_path}; order={request.matrix_order}, "
+        f"seed={request.matrix_seed}, hash={plan['plan_sha256']}"
+    )
     result_csvs = []
     total = len(plan["cases"])
     for current, case in enumerate(plan["cases"], 1):
@@ -806,42 +706,27 @@ def run_matrix(
             emit_event("case_skipped", case_name, status="completed")
         elif case["result_origin"] == "inferred_not_measured":
             csv_path = write_startup_oom_pruned_case_csv(
-                task_info=task_info, output_dir=output_dir, cpu=cpu, mem=mem, gpu=gpu,
-                reference_cpu=min(cpu_list), warmup=warmup, repeat=repeat,
-                repeat_in_window=repeat_in_window, input_scales=input_scales)
+                task_info=task_info, output_dir=request.output_dir, cpu=cpu, mem=mem, gpu=gpu,
+                reference_cpu=min(cpu_list), warmup=workload.warmup, repeat=workload.repeat,
+                repeat_in_window=workload.repeat_in_window, input_scales=request.plans.input_scales)
             emit_event("case_skipped", case_name, status="oom_pruned")
         else:
             csv_path = run_single_case(
-                CaseRequest(
-                    task_info=task_info, cpu=cpu, mem=mem, gpu=gpu, image_info=image_info,
-                    output_dir=output_dir, project_dir=project_dir, cpuset_cpus=cpuset_cpus,
-                ),
-                workload=CaseWorkload(
-                    batch_size=batch_size, warmup=warmup, repeat=repeat,
-                    repeat_in_window=repeat_in_window, repeat_window_seconds=repeat_window_seconds,
-                    request_timeout_seconds=request_timeout_seconds,
-                ),
-                measurement=CaseMeasurement(
-                    sample_hz=sample_hz, idle_seconds=idle_seconds,
-                    idle_cooldown_seconds=idle_cooldown_seconds, idle_debug=idle_debug,
-                    sniff_iface=sniff_iface, profiling_mode=profiling_mode, dram_energy=dram_energy,
-                    sampling_policy=sampling_policy, raw_sample_limit=raw_sample_limit,
-                ),
-                plans=CasePlans(
-                    input_scales=input_scales, input_scale_plan_file=input_scale_plan_file,
-                    compute_profile_plan_file=compute_profile_plan_file,
-                    execution_profile_plan_file=execution_profile_plan_file,
-                    input_scale_order=case["input_scales"],
-                ),
+                request.case_request(cpu, mem, gpu),
+                workload=workload,
+                measurement=measurement,
+                plans=request.case_plans(case["input_scales"]),
                 run_state=run_state,
             )
         if run_state is not None and csv_path and not cached_case:
             run_state.finish_case(csv_path, cpu, mem, gpu)
         if csv_path:
             result_csvs.append(csv_path)
-        if progress_callback is not None:
+        if request.progress_callback is not None:
             try:
-                progress_callback(MatrixProgress(current, total, cpu, mem, gpu, csv_path or None))
+                request.progress_callback(
+                    cases.MatrixProgress(current, total, cpu, mem, gpu, csv_path or None)
+                )
             except Exception as exc:
                 print(f"[progress][WARN] Progress callback failed: {type(exc).__name__}", file=sys.stderr)
     return result_csvs
