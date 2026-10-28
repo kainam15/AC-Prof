@@ -121,32 +121,50 @@ class _DigestingRawReader(io.RawIOBase):
         return size
 
 
-def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *, allow_empty=False
+def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *,
+                        allow_empty=False, validate_measurements=True,
                       ) -> tuple[list[str], list[dict[str, str]]]:
     allow_large_csv_fields()
     reader = csv.DictReader(stream, strict=True)
     fields = list(reader.fieldnames or [])
-    require_current_fields(fields)
+    return fields, validate_result_rows(fields, reader, path, expected=expected, allow_empty=allow_empty,
+                                       validate_measurements=validate_measurements)
+
+
+def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], path: Path, *,
+                         expected: Iterable[MeasurementKey] | None = None, allow_empty=False,
+                         validate_measurements=True) -> list[dict[str, str]]:
+    """Validate parsed rows without modifying a consumer's source snapshot.
+
+    Historical report input can retain its original values with structural
+    validation only. Audits and measurement consumers always use the default
+    identity, retired-field and diagnostic checks.
+    """
+    if not validate_measurements and expected is not None:
+        raise ValueError("expected measurements require measurement validation")
+    if validate_measurements:
+        require_current_fields(fields)
     if not fields or len(fields) != len(set(fields)):
         raise ResultValidationError(f"missing or duplicate CSV columns: {path}")
     missing = set(KEY_FIELDS) - set(fields)
-    if missing:
+    if validate_measurements and missing:
         raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
     rows, keys = [], set()
-    for index, row in enumerate(reader, 2):
+    for index, row in enumerate(source_rows, 2):
         if None in row or any(value is None for value in row.values()):
             raise ResultValidationError(f"malformed CSV row: {path}:{index}")
-        try:
-            key = measurement_key(row)
-        except ResultValidationError as exc:
-            raise ResultValidationError(f"{path}:{index}: {exc}") from exc
-        if key in keys:
-            raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
-        if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
-            raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
-        keys.add(key)
-        if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host"}:
-            row["environment_class"] = "unknown"
+        if validate_measurements:
+            try:
+                key = measurement_key(row)
+            except ResultValidationError as exc:
+                raise ResultValidationError(f"{path}:{index}: {exc}") from exc
+            if key in keys:
+                raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
+            if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
+                raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
+            keys.add(key)
+            if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host", "unknown"}:
+                row = {**row, "environment_class": "unknown"}
         rows.append(cast(dict[str, str], row))
     if not rows and not allow_empty:
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
@@ -157,7 +175,7 @@ def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[Me
                 f"measurement plan mismatch: {path}; missing={len(planned - keys)}, "
                 f"unexpected={len(keys - planned)}"
             )
-    return fields, rows
+    return rows
 
 
 def _file_sha256(path: Path) -> str:
@@ -262,9 +280,16 @@ def open_result_text(path: str | Path):
     return io.TextIOWrapper(io.BufferedReader(_CsvRawReader(fields, rows)), encoding="utf-8", newline="")
 
 
-def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None
+def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[MeasurementKey] | None = None,
+                             validate_measurements: bool = True,
                              ) -> ResultCsvSnapshot:
-    """Parse the CSV once while hashing its exact source bytes."""
+    """Parse once while hashing the exact bytes; retain raw historical rows on request.
+
+    Disabling measurement validation only affects flat CSV input. Layered
+    storage always verifies its manifest, committed content and row identities.
+    """
+    if not validate_measurements and expected is not None:
+        raise ValueError("expected measurements require measurement validation")
     path = Path(path).resolve()
     if path.name == "result_layers.json":
         from acprof.artifacts import read_json_object
@@ -283,7 +308,9 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            fields, rows = parse_result_stream(stream, path, expected)
+            fields, rows = parse_result_stream(stream, path, expected,
+                                              allow_empty=not validate_measurements,
+                                              validate_measurements=validate_measurements)
     return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest.hexdigest())
 
 
@@ -300,6 +327,38 @@ def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
         return (fields == snapshot.fields and rows == snapshot.rows
                 and _file_sha256(snapshot.path) == snapshot.sha256)
     return True
+
+
+def verify_result_source(artifact: str | Path, expected_sha256: str | None) -> None:
+    """Recheck source bytes and referenced layers without rebuilding current tables.
+
+    The caller has already parsed its snapshot. Schema v3 checks committed
+    prefixes under the publication lock; uncommitted tails are not results.
+    Legacy v1 retains its imported-CSV dependency validation.
+    """
+    artifact = Path(artifact)
+    current = _file_sha256(artifact) if artifact.exists() else None
+    if current != expected_sha256:
+        raise ResultValidationError(f"result source changed: {artifact}")
+    if artifact.name != "result_layers.json" or expected_sha256 is None:
+        return
+    from acprof.artifacts import read_json_object
+    manifest = read_json_object(artifact, label="result layers manifest", expected_sha256=expected_sha256)
+    if manifest.get("schema_version") == 3:
+        from acprof.artifact_layout import ArtifactLayout
+        from acprof.result_store.protocol import publication_lock, validate_layer_files
+        layout = ArtifactLayout.discover(artifact.parent)
+        with publication_lock(layout, exclusive=False):
+            validate_layer_files(layout, manifest)
+    elif manifest.get("schema_version") == 2:
+        from acprof.result_layers import result_layer_paths
+        for layer, path in result_layer_paths(artifact.parent, manifest).items():
+            if _file_sha256(path) != manifest["layers"][layer]["sha256"]:
+                raise ResultValidationError(f"missing or modified result layer: {path}")
+    else:
+        read_result_csv(artifact)
+    if _file_sha256(artifact) != expected_sha256:
+        raise ResultValidationError("result manifest changed during verification")
 
 
 def merge_result_csvs(paths: Sequence[str], destination: str, *,

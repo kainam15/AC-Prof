@@ -30,9 +30,17 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 该整理只读取已记录的结果，不回写 CSV，也不进入正式测量窗口。
 
 `analysis/model.py` 将历史或当前 CSV 转成统一长表、配置汇总和 Summary，不导入绘图库，
-不回写采集产物。一次加载中，每个来源复用可比性快照已有的测量状态、缺失原因和来源质量
-证据，避免再次完整审计；设备级质量仍单独读取，下一次加载重新取得证据，不跨加载缓存。
-历史 CSV 的宽松分析解析与严格审计保持各自边界。
+不回写采集产物。一次加载中，每个来源通过 `ResultCsvSnapshot` 共享解析行与来源摘要，
+供严格审计、可比性检查和分析行组装使用；普通 CSV 一次解析并计算 SHA256，结束时再复核
+内容，分层结果直接消费解析行，不重新编码为宽 CSV。结束复核同时检查 manifest 引用的数据层，
+仅 manifest 未改变不足以证明内容未改变。报告与独立实验比较共用 `verify_result_source`：
+v2 逐文件核对 hash，v3 在 publication lock 内验证 committed prefix，不为复核重建完整行表；
+v1 保留原始导入 CSV 的依赖检查。原始行不被审计的环境归一化修改；历史 CSV
+可保留宽松展示能力，但身份缺失、旧字段或其他严格校验失败仍阻止作为有效可比证据。
+测量状态、缺失原因和来源质量复用同一次审计；设备级质量仍单独读取，下一次加载重新取得证据，
+不跨加载缓存。借鉴 [Polars collect_all](https://github.com/pola-rs/polars/blob/main/py-polars/src/polars/functions/lazy.py)
+的公共扫描复用及 [cache 保留讨论](https://github.com/pola-rs/polars/pull/27421)（MIT），使用现有标准库
+解析与快照实现，不复制上游源码、不新增依赖或测量期开销。
 `analysis/comparison.py` 分开读取 `load_comparison_snapshot` 与纯比较 `compare_snapshots`；
 路径入口 `compare_results` 组合两者。独立实验比较在一次调用中只为每个 run 加载一份
 条件与审计快照，供组间和组内检查复用；保留当前 run 与两组基准所需的快照，

@@ -25,6 +25,8 @@ run_id, model, runtime, device, cpu, memory, concurrency, metric, value, unit
 同时导入原件与副本时，同一记录的 `run_id + measurement_key` 明确拒绝为重复；数据或配置条件
 不同则报告内容冲突，并给出两个 CSV 的行号。旧 CSV 的内容标识仅能识别完全相同的已知内容，
 不能推断缺失的真实 run ID。CSV 与 run state 各自记录的 run ID 不一致时也拒绝导入。
+同一次加载复用来源解析快照，完成后复核内容；读取期间 CSV 或 manifest 引用的数据层改变时
+拒绝生成报告。历史 CSV 能显示原始观测，不代表它已通过严格的实验身份和可比性校验。
 
 `summary` 默认提供 19 列：配置 ID、model/runtime/device、CPU quota、memory cap、GPU 身份，
 应用 P50/P95、samples/s、QPS、CPU/memory/GPU/VRAM peak、cold start、观测总能量、

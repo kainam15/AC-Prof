@@ -98,14 +98,21 @@ class TestAnalysisModel:
         assert data.sources[0]["sha256"] == expected
         assert data.configs[0]["metrics"]["latency_app_p95_s"]["value"] == .04
 
-    def test_result_csv_change_during_streaming_analysis_is_rejected(self):
-        from acprof.analysis.model import load_analysis
+    def test_result_csv_change_during_streaming_analysis_is_rejected(self, monkeypatch):
+        from acprof.analysis import model
 
         path = self.source([self.row()])
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        with patch("acprof.analysis.model.file_sha256", side_effect=[digest, "0" * 64]):
-            with pytest.raises(ValueError, match="changed during analysis"):
-                load_analysis([path])
+        identity = model._identity
+
+        def mutate_during_analysis(*args, **kwargs):
+            result = identity(*args, **kwargs)
+            with path.open("a") as stream:
+                stream.write("\n")
+            return result
+
+        monkeypatch.setattr(model, "_identity", mutate_during_analysis)
+        with pytest.raises(ValueError, match="changed during analysis"):
+            model.load_analysis([path])
 
     def test_cases_and_sources_never_collapse_across_workload_or_environment(self):
         from acprof.analysis.model import load_analysis
@@ -257,6 +264,7 @@ class TestAnalysisModel:
             return audit_result(candidate, **kwargs)
 
         monkeypatch.setattr("acprof.analysis.comparison.audit_result", record_audit)
+        monkeypatch.setattr("acprof.analysis.model.read_result_csv_snapshot", record_snapshot)
         monkeypatch.setattr("acprof.analysis.comparison.read_result_csv_snapshot", record_snapshot)
         monkeypatch.setattr("acprof.analysis.audit.read_result_csv_snapshot", record_snapshot)
         first = load_analysis([input_path])

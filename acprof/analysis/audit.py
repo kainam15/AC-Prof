@@ -21,6 +21,7 @@ from acprof.result_csv import (
     measurement_key,
     read_result_csv_snapshot,
     result_csv_snapshot_unchanged,
+    validate_result_rows,
 )
 
 MISSING = {"", "nan", "none", "null", "n/a"}
@@ -208,6 +209,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         if snapshot.path != path.resolve():
             raise ValueError("result CSV snapshot belongs to a different path")
         fields, rows = snapshot.fields, snapshot.rows
+        if result_snapshot is not None:
+            rows = validate_result_rows(fields, rows, snapshot.path,
+                                        allow_empty=path.name == "result_layers.json")
         report["result_sha256"] = snapshot.sha256
         if verify_result_snapshot and not result_csv_snapshot_unchanged(snapshot):
             issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")

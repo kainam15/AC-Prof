@@ -18,32 +18,12 @@ from acprof.artifacts import file_sha256, read_json_object
 from acprof.hardware_conditions import conditions_path
 from acprof.metric_registry import METRICS
 from acprof.quality import QUALITY_FIELDS, combine_quality
-from acprof.result_csv import measurement_key, read_result_csv
+from acprof.result_csv import measurement_key, read_result_csv, verify_result_source
 
 
 def _verify_source(artifact: Path, expected: str | None) -> None:
-    current = file_sha256(artifact) if artifact.exists() else None
-    if current != expected:
-        raise ValueError(f"experiment changed during comparison: {artifact}")
-    if artifact.name != "result_layers.json" or expected is None:
-        return
     try:
-        manifest = read_json_object(artifact, label="result layers manifest")
-        if manifest.get("schema_version") == 3:
-            from acprof.result_store.protocol import publication_lock, validate_layer_files
-            layout = ArtifactLayout.discover(artifact.parent)
-            with publication_lock(layout, exclusive=False):
-                validate_layer_files(layout, manifest)
-        elif manifest.get("schema_version") == 2:
-            from acprof.result_layers import result_layer_paths
-            for layer, path in result_layer_paths(artifact.parent, manifest).items():
-                if file_sha256(path) != manifest["layers"][layer]["sha256"]:
-                    raise ValueError(f"missing or modified result layer: {path}")
-        else:
-            # v1 also treats its imported wide CSV as a mutable dependency.
-            read_result_csv(artifact)
-        if file_sha256(artifact) != expected:
-            raise ValueError("result manifest changed during verification")
+        verify_result_source(artifact, expected)
     except (OSError, ValueError, csv.Error) as error:
         raise ValueError(f"experiment changed during comparison: {artifact}: {error}") from error
 

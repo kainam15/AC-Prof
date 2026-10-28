@@ -22,9 +22,9 @@ def test_comparison_parses_plain_csv_once(source, monkeypatch, relative):
     parse = result_csv.parse_result_stream
     calls = Counter()
 
-    def record_parse(stream, path, expected=None):
+    def record_parse(stream, path, expected=None, **kwargs):
         calls[Path(path).resolve()] += 1
-        return parse(stream, path, expected)
+        return parse(stream, path, expected, **kwargs)
 
     monkeypatch.setattr("acprof.result_csv.parse_result_stream", record_parse)
     if relative:
@@ -89,12 +89,12 @@ def test_first_read_error_is_not_hidden_by_a_later_successful_audit(source, monk
     parse = result_csv.parse_result_stream
     calls = 0
 
-    def fail_once(stream, path, expected=None):
+    def fail_once(stream, path, expected=None, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 1:
             raise ValueError("first parse failed")
-        return parse(stream, path, expected)
+        return parse(stream, path, expected, **kwargs)
 
     monkeypatch.setattr("acprof.result_csv.parse_result_stream", fail_once)
     snapshot = comparison.load_comparison_snapshot(source)

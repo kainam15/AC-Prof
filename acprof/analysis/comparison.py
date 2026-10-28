@@ -22,7 +22,7 @@ from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
 from acprof.metric_registry import METRICS
 from acprof.platform import recorded_identity
 from acprof.quality import QUALITY_FIELDS
-from acprof.result_csv import measurement_key, read_result_csv_snapshot
+from acprof.result_csv import ResultCsvSnapshot, measurement_key, read_result_csv_snapshot
 from acprof.runtime_settings import RUNTIME_ENV_NAMES
 
 MEASUREMENT_OPTIONS = (
@@ -157,17 +157,24 @@ def _workload_condition(left, right):
                        "actual_workload_evidence_incomplete" if incomplete else "output_distribution_equivalence_unverified")}
 
 
-def load_comparison_snapshot(source: str | Path) -> dict:
+def load_comparison_snapshot(source: str | Path, *, result_snapshot: ResultCsvSnapshot | None = None,
+                             verify_result_snapshot: bool = True) -> dict:
+    """Share parsed input while its outer owner retains the final content check."""
     source = Path(source)
     result_path = source / "result_layers.json" if source.is_dir() else source
-    result_snapshot = None
     read_error: OSError | ValueError | csv.Error | None = None
-    try:
-        result_snapshot = read_result_csv_snapshot(result_path)
-    except (OSError, ValueError, csv.Error) as error:
-        # Keep the failed read visible while the audit gathers metadata issues.
-        read_error = error
-    audit = audit_result(source, result_snapshot=result_snapshot)
+    if result_snapshot is None:
+        try:
+            result_snapshot = read_result_csv_snapshot(result_path)
+        except (OSError, ValueError, csv.Error) as error:
+            # Keep the failed read visible while the audit gathers metadata issues.
+            read_error = error
+    audit = audit_result(source, result_snapshot=result_snapshot,
+                         verify_result_snapshot=verify_result_snapshot)
+    if read_error is None:
+        invalid_csv = next((issue for issue in audit["issues"] if issue["code"] == "invalid_csv"), None)
+        if invalid_csv is not None:
+            read_error = ValueError(invalid_csv["message"])
     issues = []
 
     def read_json(name):
