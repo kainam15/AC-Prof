@@ -80,10 +80,11 @@ def test_bad_hardware_artifacts_never_unlock_release(tmp_path, tamper):
         validate(tmp_path, matrix_file, report)
 
 
-def test_hardware_workflow_is_weekly_and_never_exposes_fork_prs():
+def test_hardware_workflow_is_manual_and_never_exposes_fork_prs():
     hardware = yaml.load((ROOT / ".github/workflows/hardware.yml").read_text(), Loader=yaml.BaseLoader)
-    assert hardware["on"]["schedule"]
-    assert "pull_request" not in hardware["on"]
+    trigger = hardware.get("on", hardware.get(True))
+    assert trigger["workflow_dispatch"]
+    assert "pull_request" not in trigger
     job = hardware["jobs"]["profile"]
     assert "refs/heads/main" in job["if"]
     tracked = next(step["run"] for step in job["steps"] if "git diff --cached --quiet" in step.get("run", ""))

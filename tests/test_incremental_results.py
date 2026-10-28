@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,8 +60,15 @@ def test_plot_directory_uses_its_own_metadata_and_output_directory(tmp_path, mon
         writer.append_window(receipt(tmp_path))
     captured = []
     monkeypatch.setattr(plot.plotting_data, "build_plot_groups", lambda _frame: [])
-    monkeypatch.setattr(plot.analysis_latency_report, "write_latency_model_report",
-                        lambda frame, meta, path: captured.append((frame, meta, path)))
+    def publish(frame, meta, path):
+        captured.append((frame, meta, path))
+        return SimpleNamespace(
+            report_path=str(Path(path, "latency_model_report.json")),
+            residuals_path=str(Path(path, "latency_model_residuals.csv")),
+            report={},
+        )
+
+    monkeypatch.setattr(plot.analysis_latency_report, "write_latency_model_report", publish)
     plot.main([str(tmp_path)])
     frame, meta, output = captured[0]
     assert list(frame["environment_class"]) == ["native_linux"]
