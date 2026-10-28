@@ -1,13 +1,14 @@
 """Explicit file actions for completed HTML artifacts; no analysis or inference."""
 from __future__ import annotations
 
-import os
+import errno
 import shutil
 import webbrowser
-from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
+from typing import BinaryIO
 
 from acprof.artifact_layout import ArtifactLayout
+from acprof.artifacts import atomic_write_binary
 from acprof.tui.i18n import message_id
 
 
@@ -36,16 +37,14 @@ def export_html_file(source: Path, destination: Path) -> None:
     require_html_file(source)
     if destination.suffix.lower() != ".html":
         raise ValueError(message_id('ui.0957'))
-    guard: AbstractContextManager = nullcontext()
-    if os.name == "posix":
-        from acprof.host.run_state import MeasurementLock
-        guard = MeasurementLock()
-    with guard:
-        # Exclusive creation protects existing files and dangling symlinks too.
-        with destination.open("xb") as target:
-            try:
-                with source.open("rb") as stream:
-                    shutil.copyfileobj(stream, target)
-            except BaseException:
-                destination.unlink()
-                raise
+    from acprof.host.run_state import offline_analysis_lock
+
+    with offline_analysis_lock():
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(errno.EEXIST, "File exists", str(destination))
+
+        def copy(target: BinaryIO) -> None:
+            with source.open("rb") as stream:
+                shutil.copyfileobj(stream, target, length=1024 * 1024)
+
+        atomic_write_binary(destination, copy, default_mode=0o600, overwrite=False)

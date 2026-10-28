@@ -8,12 +8,21 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 from threading import Barrier
-from typing import TextIO
 from unittest.mock import patch
 
 import pytest
 
-from acprof.artifacts import atomic_write
+from acprof.artifacts import atomic_write, atomic_write_binary
+
+
+@pytest.fixture(params=[atomic_write, atomic_write_binary], ids=["text", "binary"])
+def publisher(request):
+    return request.param
+
+
+@pytest.fixture
+def content(publisher):
+    return (lambda text: text.encode()) if publisher is atomic_write_binary else (lambda text: text)
 
 
 def create_competing_entry(destination: Path, kind: str) -> None:
@@ -27,30 +36,30 @@ def create_competing_entry(destination: Path, kind: str) -> None:
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
-def test_atomic_write_publishes_complete_file_with_requested_mode(tmp_path, overwrite):
+def test_atomic_write_publishes_complete_file_with_requested_mode(tmp_path, overwrite, publisher, content):
     destination = tmp_path / "result.csv"
     opened = []
 
     def write(stream):
         opened.append(stream)
-        stream.write('诊断,"quoted"\r\n')
+        stream.write(content('诊断,"quoted"\r\n'))
         assert not destination.exists()
 
-    atomic_write(destination, write, default_mode=0o640, overwrite=overwrite)
+    publisher(destination, write, default_mode=0o640, overwrite=overwrite)
     assert destination.read_bytes() == '诊断,"quoted"\r\n'.encode()
     assert destination.stat().st_mode & 0o777 == 0o640
     assert opened[0].closed
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_atomic_write_default_replacement_preserves_existing_mode(tmp_path):
+def test_atomic_write_default_replacement_preserves_existing_mode(tmp_path, publisher, content):
     destination = tmp_path / "result.csv"
     create_competing_entry(destination, "file")
 
-    def write(stream: TextIO) -> None:
-        stream.write("replacement\n")
+    def write(stream):
+        stream.write(content("replacement\n"))
 
-    atomic_write(destination, write, default_mode=0o644)
+    publisher(destination, write, default_mode=0o644)
     assert destination.read_bytes() == b"replacement\n"
     assert destination.stat().st_mode & 0o777 == 0o600
     assert list(tmp_path.iterdir()) == [destination]
@@ -58,18 +67,18 @@ def test_atomic_write_default_replacement_preserves_existing_mode(tmp_path):
 
 @pytest.mark.parametrize("kind", ["file", "directory", "symlink"])
 @pytest.mark.parametrize("timing", ["before", "during"])
-def test_exclusive_write_preserves_existing_directory_entries(tmp_path, kind, timing):
+def test_exclusive_write_preserves_existing_directory_entries(tmp_path, kind, timing, publisher, content):
     destination = tmp_path / "result.csv"
     if timing == "before":
         create_competing_entry(destination, kind)
 
     def write(stream):
-        stream.write("new output\n")
+        stream.write(content("new output\n"))
         if timing == "during":
             create_competing_entry(destination, kind)
 
     with pytest.raises(FileExistsError):
-        atomic_write(destination, write, overwrite=False)
+        publisher(destination, write, overwrite=False)
     if kind == "file":
         assert destination.read_bytes() == b"previous output\n"
         assert destination.stat().st_mode & 0o777 == 0o600
@@ -82,17 +91,17 @@ def test_exclusive_write_preserves_existing_directory_entries(tmp_path, kind, ti
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_exclusive_writers_publish_only_one_complete_output(tmp_path):
+def test_exclusive_writers_publish_only_one_complete_output(tmp_path, publisher, content):
     destination = tmp_path / "result.csv"
     barrier = Barrier(2)
     payloads = [f"writer {index}: 诊断\n" * 2048 for index in range(2)]
 
     def attempt(payload):
         def write(stream):
-            stream.write(payload)
+            stream.write(content(payload))
             barrier.wait(timeout=10)
         try:
-            atomic_write(destination, write, overwrite=False)
+            publisher(destination, write, overwrite=False)
         except FileExistsError:
             return False
         return True
@@ -105,8 +114,10 @@ def test_exclusive_writers_publish_only_one_complete_output(tmp_path):
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
-@pytest.mark.parametrize("phase", ["write", "cancel", "flush", "mode", "file_sync", "publish"])
-def test_failure_before_publication_closes_and_removes_temporary(tmp_path, monkeypatch, overwrite, phase):
+@pytest.mark.parametrize("phase", ["write", "cancel", "flush", "close", "mode", "file_sync", "publish"])
+def test_failure_before_publication_closes_and_removes_temporary(
+    tmp_path, monkeypatch, overwrite, phase, publisher, content,
+):
     destination = tmp_path / "result.csv"
     if overwrite:
         create_competing_entry(destination, "file")
@@ -122,16 +133,24 @@ def test_failure_before_publication_closes_and_removes_temporary(tmp_path, monke
         monkeypatch.setattr(os, operation, fail)
 
     with ExitStack() as patches:
-        def write(stream: TextIO) -> None:
+        def write(stream):
             opened.append(stream)
-            stream.write("partial output\n")
+            stream.write(content("partial output\n"))
             if phase in {"write", "cancel"}:
                 raise failure
             if phase == "flush":
                 patches.enter_context(patch.object(stream, "flush", side_effect=failure))
+            if phase == "close":
+                close = stream.file.close
+
+                def close_then_fail():
+                    close()
+                    raise failure
+
+                patches.enter_context(patch.object(stream.file, "close", close_then_fail))
 
         with pytest.raises(type(failure)) as caught:
-            atomic_write(destination, write, overwrite=overwrite)
+            publisher(destination, write, overwrite=overwrite)
     assert caught.value is failure
     assert opened[0].closed
     if overwrite:
@@ -140,7 +159,9 @@ def test_failure_before_publication_closes_and_removes_temporary(tmp_path, monke
     assert list(tmp_path.iterdir()) == ([destination] if overwrite else [])
 
 
-def test_exclusive_publication_syncs_complete_file_before_link_and_directory_after(tmp_path, monkeypatch):
+def test_exclusive_publication_syncs_complete_file_before_link_and_directory_after(
+    tmp_path, monkeypatch, publisher, content,
+):
     destination = tmp_path / "result.csv"
     events = []
     real_fsync, real_link = os.fsync, os.link
@@ -158,16 +179,16 @@ def test_exclusive_publication_syncs_complete_file_before_link_and_directory_aft
     monkeypatch.setattr(os, "fsync", sync)
     monkeypatch.setattr(os, "link", publish)
 
-    def write(stream: TextIO) -> None:
-        stream.write("complete output\n")
+    def write(stream):
+        stream.write(content("complete output\n"))
 
-    atomic_write(destination, write, overwrite=False)
+    publisher(destination, write, overwrite=False)
     assert events == ["file_sync", "publish", "directory_sync"]
     assert list(tmp_path.iterdir()) == [destination]
 
 
 @pytest.mark.parametrize("phase", ["unlink", "directory_sync"])
-def test_error_after_exclusive_publication_keeps_complete_output(tmp_path, monkeypatch, phase):
+def test_error_after_exclusive_publication_keeps_complete_output(tmp_path, monkeypatch, phase, publisher, content):
     destination = tmp_path / "result.csv"
     failure = OSError(errno.EIO, phase)
     real_unlink = Path.unlink
@@ -187,11 +208,23 @@ def test_error_after_exclusive_publication_keeps_complete_output(tmp_path, monke
     else:
         monkeypatch.setattr("acprof.artifacts.sync_directory", fail_sync)
 
-    def write(stream: TextIO) -> None:
-        stream.write("complete output\n")
+    def write(stream):
+        stream.write(content("complete output\n"))
 
     with pytest.raises(OSError, match=phase) as caught:
-        atomic_write(destination, write, overwrite=False)
+        publisher(destination, write, overwrite=False)
     assert caught.value is failure
     assert destination.read_bytes() == b"complete output\n"
     assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_mode_setting_without_descriptor_chmod(tmp_path, monkeypatch, publisher, content):
+    monkeypatch.delattr(os, "fchmod")
+    destination = tmp_path / "result.dat"
+
+    def write(stream):
+        stream.write(content("complete output\n"))
+
+    publisher(destination, write, default_mode=0o600, overwrite=False)
+    assert destination.read_bytes() == b"complete output\n"
+    assert destination.stat().st_mode & 0o777 == 0o600

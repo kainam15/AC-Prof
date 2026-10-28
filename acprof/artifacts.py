@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any, TextIO, cast
+from typing import Any, BinaryIO, TextIO
 
 MAX_JSON_ARTIFACT_BYTES = 4 * 1024 * 1024
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -159,20 +159,45 @@ def atomic_write(
     default_mode: int = 0o644,
     overwrite: bool = True,
 ) -> None:
-    """Publish a complete file; exclusive writes reject existing final entries."""
+    """Publish UTF-8 text; exclusive writes reject existing final entries."""
+    _atomic_write(path, write, binary=False, default_mode=default_mode, overwrite=overwrite)
+
+
+def atomic_write_binary(
+    path: str | Path,
+    write: Callable[[BinaryIO], None],
+    *,
+    default_mode: int = 0o644,
+    overwrite: bool = True,
+) -> None:
+    """Publish bytes without text conversion, using the same durability contract."""
+    _atomic_write(path, write, binary=True, default_mode=default_mode, overwrite=overwrite)
+
+
+def _atomic_write(
+    path: str | Path,
+    write: Callable[[Any], None],
+    *,
+    binary: bool,
+    default_mode: int,
+    overwrite: bool,
+) -> None:
     destination = Path(path)
     create_durable_directory(destination.parent)
     mode = stat.S_IMODE(destination.stat().st_mode) if overwrite and destination.exists() else default_mode
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+        with tempfile.NamedTemporaryFile(mode="wb" if binary else "w",
+                                         encoding=None if binary else "utf-8", newline=None if binary else "",
                                          dir=destination.parent, prefix=f".{destination.name}.",
                                          suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
-            # NamedTemporaryFile delegates the complete text stream interface.
-            write(cast(TextIO, stream))
+            write(stream)
             stream.flush()
-            os.fchmod(stream.fileno(), mode)
+            if hasattr(os, "fchmod"):
+                os.fchmod(stream.fileno(), mode)
+            else:
+                os.chmod(temporary, mode)
             os.fsync(stream.fileno())
         if overwrite:
             os.replace(temporary, destination)

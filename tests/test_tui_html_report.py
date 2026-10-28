@@ -161,11 +161,22 @@ async def test_no_valid_windows_retains_evidence_and_displays_limit(tmp_path, cs
         assert "没有有效正式窗口" in str(app.query_one("#html-report-status", Static).content)
 
 
-async def test_export_button_and_failure_keep_generated_artifact(tmp_path):
+@pytest.mark.parametrize(("language", "failed", "exported"), [
+    ("zh", "失败", "HTML 已导出"), ("en", "failed", "HTML exported"),
+])
+@pytest.mark.parametrize("failure_kind", ["existing", "copy", "directory_sync"])
+async def test_export_button_and_failure_keep_generated_artifact(
+    tmp_path, monkeypatch, language, failed, exported, failure_kind,
+):
+    from acprof import artifacts
+    from acprof.tui import report_files
+
     source = tmp_path / "report.html"
     source.write_bytes(b"<html>complete offline report</html>")
     destination = tmp_path / "export.html"
-    app = AcprofTui(settings_path=tmp_path / "settings.json")
+    settings = tmp_path / "settings.json"
+    save_settings(settings, TuiSettings(ui=UiPreferences(language=language)), tmp_path)
+    app = AcprofTui(settings_path=settings)
     async with app.run_test(size=(80, 24)) as pilot:
         app.activate_tab("reports-tab")
         app.query_one("#html-report-panel", Collapsible).collapsed = False
@@ -180,12 +191,37 @@ async def test_export_button_and_failure_keep_generated_artifact(tmp_path):
         await app.workers.wait_for_complete()
         await pilot.pause()
         assert destination.read_bytes() == source.read_bytes()
-        app.results.export_html_report()
+        assert exported in str(app.query_one("#html-report-status", Static).content)
+
+        def fail_copy(_reader, writer, **_kwargs):
+            writer.write(b"partial")
+            raise OSError("injected copy failure")
+
+        def fail_sync(_directory):
+            raise OSError("injected directory sync failure")
+
+        if failure_kind != "existing":
+            destination = tmp_path / "retry.html"
+            app.query_one("#html-export-path", Input).value = str(destination)
+            if failure_kind == "copy":
+                monkeypatch.setattr(report_files.shutil, "copyfileobj", fail_copy)
+            else:
+                monkeypatch.setattr(artifacts, "sync_directory", fail_sync)
+        button.scroll_visible(animate=False, immediate=True)
+        await pilot.pause()
+        assert await pilot.click(button)
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert "失败" in str(app.query_one("#html-report-status", Static).content)
-        assert destination.read_bytes() == source.read_bytes()
+        assert failed in str(app.query_one("#html-report-status", Static).content)
+        if failure_kind == "copy":
+            assert not destination.exists()
+        else:
+            assert destination.read_bytes() == source.read_bytes()
+        assert source.read_bytes() == b"<html>complete offline report</html>"
+        assert not list(tmp_path.glob(".retry.html.*.tmp"))
         assert app.query_one("#html-report-path", Input).value == str(source)
+        assert not app.is_busy()
+        assert not button.disabled
 
 
 def test_measurement_lock_blocks_html_export(tmp_path):

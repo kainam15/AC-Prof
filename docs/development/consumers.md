@@ -164,13 +164,23 @@ App 的 `tr/notify` 是 Textual 与小部件使用的展示接口，不翻译原
 `profile_controller` 管理补采决策和确认，`profile_status` 复用 posthoc 行级完成判定读取分层结果，
 `profile_screen` 提供实验结果页的按需补采弹窗，`slash_controller` 分发快捷命令。Profiler 仍通过独立 CLI 运行，不进入正式测量窗口。
 HTML 报告复用 `PendingLaunch` 与 `acprof report` 子进程；`result_controller` 只管理输出路径、
-完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占创建导出文件；
-文件操作仍交给 App worker manager，导出使用既有 MeasurementLock。`platform.can_open_local_browser`
+完成回执和展示，不导入分析或绘图库。`report_files` 负责已有 HTML 的发现、主动浏览器打开和独占发布导出文件；
+文件操作仍交给 App worker manager，导出使用 `offline_analysis_lock()`。`platform.can_open_local_browser`
 集中判断 SSH / 图形桌面前提，浏览器失败不改变生成结果。没有新增运行依赖或测量窗口内的工作。
 设计参考 [Textual worker 生命周期](https://github.com/Textualize/textual/blob/main/docs/guide/workers.md)、
 [线程取消限制的 PR](https://github.com/Textualize/textual/pull/6514) 和
 [Plotly HTML renderer](https://github.com/plotly/plotly.py/blob/main/plotly/io/_html.py)（均为 MIT，官方维护）；
 使用已有调度和内嵌 Plotly.js，只借鉴边界设计，不复制上游源码或添加 Web 服务。
+
+HTML 导出按 1 MiB 分块复制原始字节，通过 `artifacts.atomic_write_binary` 与文本/JSON 写入
+共用同目录临时文件、文件同步、独占发布及目录同步逻辑，不解码或重新渲染页面。
+发布前失败只清理自己的临时路径；目标在复制期间被占用时保持原有项，拒绝覆盖。
+发布后的目录同步错误保留完整目标并报告失败，不把原子可见性当作持久性已确认。
+参考 MIT 许可的 [python-atomicwrites 发布实现](https://github.com/untitaker/python-atomicwrites/blob/master/atomicwrites/__init__.py)
+及其[目录同步修复](https://github.com/untitaker/python-atomicwrites/pull/15)；不新增上游依赖或复制平台兼容层。
+缺少 `os.fchmod` 的平台使用 `os.chmod` 设置临时文件模式；Windows 的权限位能力遵循
+[Python 文档](https://docs.python.org/3.12/library/os.html#os.chmod)，不宣称提供 POSIX 权限或目录同步保证。
+
 `log_controller` 管理日志批量展示、搜索、筛选和保留原文导出；`log_records` 保留有界原文并生成可逆的显示投影，
 `SelectableLog` 继续负责 TextArea 选择、滚动及样式。采用 [TextArea.get_line](https://textual.textualize.io/widgets/text_area/#textual.widgets.TextArea.get_line)
 扩展点（MIT），不往原文写 Rich markup，不引入独立日志框架。
