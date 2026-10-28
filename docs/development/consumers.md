@@ -17,7 +17,13 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 `metrics`、`diagnostics`、`latency` 分别渲染常规指标、可行性/Pareto/冷启动诊断图和模型图；
 `tail_latency` 独立准备与渲染窗口分位数，按同一窗口的有效 P50/P95 配对聚合，保留缺失尺度的断线。
 尾延迟和冷启动分解共用 `data.representative_max_memory_rows` 选择配置，
-常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色；CLI 直接引用职责所属模块。
+常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色。
+`plotting.pipeline.plot_results` 组织数据准备、PNG 渲染和模型报告发布；CLI 负责参数与锁的生命周期，
+在 Linux 取得 `MeasurementLock` 后才导入 pipeline。直接调用业务 API 时，调用方负责与采集互斥。
+Linux 平台判断由 `platform.is_linux` 提供，不扫描设备或用当前环境重写历史身份。
+非阻塞失败与锁归属参考 [filelock 的 Unix 实现](https://github.com/tox-dev/filelock/blob/715a8deed5fd1158f1e08cf303d192307ddb9252/src/filelock/_unix.py)
+及其[子进程锁归属修复](https://github.com/tox-dev/filelock/pull/868)（MIT，已合并）；
+复用项目现有锁，不新增依赖、后台轮询或测量窗口内的逻辑。
 
 `data.aggregate_metric_series` 统一单指标、通用总览、能耗图和 Process input-scaling 的
 有限值聚合。它只投影配置、尺度和目标指标，将不可用值保留为 NaN，按已有尺度聚合后移除

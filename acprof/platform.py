@@ -74,6 +74,11 @@ def _read(path: str) -> str:
         return ""
 
 
+def is_linux() -> bool:
+    """Select Linux host policies without an environment or device probe."""
+    return platform.system() == "Linux"
+
+
 def can_open_local_browser(*, environ: Mapping[str, str] | None = None,
                            system: str | None = None) -> bool:
     """A local GUI is a prerequisite, not proof that browser startup will succeed.

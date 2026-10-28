@@ -13,6 +13,7 @@ import acprof.analysis.latency_model as analysis_latency_model
 import acprof.analysis.latency_report as analysis_latency_report
 import acprof.plotting.config as plotting_config
 import acprof.plotting.data as plotting_data
+import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
 from acprof.cli import plot
@@ -90,7 +91,7 @@ class TestLatencyModelReport:
             with ExitStack() as stack:
                 # Exercise the real CLI and report writer; raster rendering has its own tests.
                 renderers = []
-                for module in (plotting_metrics, plot.plotting_diagnostics, plotting_latency):
+                for module in (plotting_metrics, plotting_diagnostics, plotting_latency):
                     for name in dir(module):
                         if name.startswith("plot_") and callable(getattr(module, name)):
                             renderers.append(stack.enter_context(patch.object(module, name)))

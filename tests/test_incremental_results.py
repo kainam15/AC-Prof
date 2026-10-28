@@ -50,7 +50,9 @@ def test_empty_initialization_can_be_retried_without_changing_identity(tmp_path)
 
 
 def test_plot_directory_uses_its_own_metadata_and_output_directory(tmp_path, monkeypatch):
+    from acprof.analysis import latency_report
     from acprof.cli import plot
+    from acprof.plotting import data
 
     layout = initialized(tmp_path)
     layout.path("static_meta.json").write_text(json.dumps({"schema_version": 7,
@@ -59,7 +61,7 @@ def test_plot_directory_uses_its_own_metadata_and_output_directory(tmp_path, mon
     with ResultWriter(tmp_path) as writer:
         writer.append_window(receipt(tmp_path))
     captured = []
-    monkeypatch.setattr(plot.plotting_data, "build_plot_groups", lambda _frame: [])
+    monkeypatch.setattr(data, "build_plot_groups", lambda _frame: [])
     def publish(frame, meta, path):
         captured.append((frame, meta, path))
         return SimpleNamespace(
@@ -68,7 +70,7 @@ def test_plot_directory_uses_its_own_metadata_and_output_directory(tmp_path, mon
             report={},
         )
 
-    monkeypatch.setattr(plot.analysis_latency_report, "write_latency_model_report", publish)
+    monkeypatch.setattr(latency_report, "write_latency_model_report", publish)
     plot.main([str(tmp_path)])
     frame, meta, output = captured[0]
     assert list(frame["environment_class"]) == ["native_linux"]
