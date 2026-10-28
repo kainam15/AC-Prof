@@ -41,17 +41,18 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
     CSS = """
     ProfilerChoiceScreen { align: center middle; }
     #profiler-choice-dialog {
-        width: 92%; max-width: 84; height: auto; max-height: 85%;
+        width: 92%; max-width: 84; height: 90%; max-height: 30;
         border: round $accent; background: $surface; padding: 1 2;
     }
     #profiler-choice-title { height: auto; text-style: bold; margin-bottom: 1; }
-    #profiler-choice-experiment { height: auto; max-height: 2; color: $text-muted; }
-    #profiler-choice-list { height: auto; max-height: 45vh; margin: 1 0; }
+    #profiler-choice-body { height: 1fr; }
+    #profiler-choice-experiment { height: auto; color: $text-muted; margin-bottom: 1; }
     .profiler-choice-row { grid-size: 2; grid-columns: 1fr 24; height: auto; min-height: 3; }
     .profiler-choice-row Checkbox { width: 1fr; min-width: 0; }
-    .profiler-choice-row Static { width: 1fr; height: auto; margin-top: 1; }
-    #profiler-choice-note { height: auto; color: $text-muted; }
-    #profiler-choice-actions { height: auto; align-horizontal: right; margin-top: 1; }
+    /* Checkbox inherits Static; its border box must not receive this margin. */
+    .profiler-choice-status { width: 1fr; height: auto; margin-top: 1; }
+    #profiler-choice-note { height: auto; color: $text-muted; margin-top: 1; }
+    #profiler-choice-actions { height: 3; align-horizontal: right; margin-top: 1; }
     #profiler-choice-actions Button { margin-left: 1; }
     """
 
@@ -64,8 +65,8 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
         tr = translated_app(self.app).tr
         with Vertical(id="profiler-choice-dialog"):
             yield Static(tr(message_id("ui.2252")), id="profiler-choice-title")
-            yield Static(str(self.overview.result_dir), id="profiler-choice-experiment", markup=False)
-            with VerticalScroll(id="profiler-choice-list"):
+            with VerticalScroll(id="profiler-choice-body"):
+                yield Static(str(self.overview.result_dir), id="profiler-choice-experiment", markup=False)
                 for status in self.overview.tools:
                     with Grid(classes="profiler-choice-row"):
                         yield StatusCheckbox(
@@ -76,8 +77,8 @@ class ProfilerChoiceScreen(ModalScreen[tuple[str, tuple[str, ...]] | None]):
                             disabled=not status.needs_collection,
                             classes="option-checkbox profile-tool",
                         )
-                        yield Static(tr(tool_status_message(status)), markup=False)
-            yield Static(tr(message_id("ui.2261")), id="profiler-choice-note", markup=False)
+                        yield Static(tr(tool_status_message(status)), classes="profiler-choice-status", markup=False)
+                yield Static(tr(message_id("ui.2261")), id="profiler-choice-note", markup=False)
             with Horizontal(id="profiler-choice-actions"):
                 yield Button(tr("取消"), id="profile-choice-close")
                 yield Button(tr(message_id("ui.2262")), id="profile-choice-plan")

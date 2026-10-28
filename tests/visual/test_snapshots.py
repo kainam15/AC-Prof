@@ -14,6 +14,8 @@ from acprof.tui.app import AcprofTui
 from acprof.tui.log import SelectableLog
 from acprof.tui.preparation import PreparationScreen
 from acprof.tui.process import StopResult
+from acprof.tui.profile_screen import ProfilerChoiceScreen
+from acprof.tui.profile_status import ProfilerOverview, ProfilerStatus
 from acprof.tui.progress import ProgressSnapshot, RunProgressTracker
 from acprof.tui.reports import ReportRow, ReportView
 from acprof.tui.stages import Stage
@@ -35,6 +37,8 @@ pytestmark = pytest.mark.visual
     ("en", (120, 30), "wsl-preparation"),
     ("zh", (80, 24), "wsl-review"),
     ("en", (120, 30), "wsl-review"),
+    ("zh", (80, 24), "profiler"),
+    ("en", (80, 24), "profiler"),
 ])
 def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
@@ -116,6 +120,22 @@ def test_fixed_scenes(snap_compare, tmp_path, monkeypatch, language, size, scene
                 assert app.focused.id in {"preparation-cancel", "preparation-continue"}
         elif scene == "modal":
             app.push_screen(ConfirmActionScreen("终止当前任务？", "确认后将请求采集进程安全停止。", "终止任务"))
+        elif scene == "profiler":
+            app.activate_tab("plot-tab")
+            overview = ProfilerOverview(Path("/workspace/results/fixture-model"), (
+                ProfilerStatus("torch", "complete", 8, 8, 0),
+                ProfilerStatus("ncu", "missing", 0, 4, 0),
+                ProfilerStatus("nsys", "partial", 1, 4, 0),
+                ProfilerStatus("massif", "inapplicable", 0, 0, 0),
+            ))
+            app.profiles.show_overview(overview)
+            await app.push_screen(ProfilerChoiceScreen(overview))
+            await pilot.pause()
+            nsys = app.screen.query_one("#profile-tool-nsys")
+            nsys.scroll_visible(animate=False, immediate=True)
+            nsys.focus()
+            await pilot.press("space")
+            app.logs.flush()
         elif scene == "resized-table":
             app.results.report_view = ReportView(Path("fixture.json"), "Latency report", ("Metric", "Mean", "Status"),
                 (ReportRow(("Application latency", "25 ms", "ok"), "Fixed fixture"),), "Fixed fixture")
