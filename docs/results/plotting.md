@@ -68,6 +68,8 @@ Massif 图使用 `cpu_heap_peak_total_bytes_massif / 1024^3` 得到绘图期派�
 
 Feasibility 单元格和 Pareto 面板按记录的 input scale 精确分组，不用浮点容差合并相邻尺度。
 尺度标签保留可还原原数值的精度，避免不同尺度显示为同一个标签。
+静态 Pareto 前沿按 latency、energy 排序后扫描，计算复杂度为 `O(N log N)`，临时空间为 `O(N)`；
+完全相同的非支配点全部保留，返回标记仍对应原始点顺序。
 
 - `resource_feasibility_heatmap.png` 是唯一保留 `status=warn/error` 行的图。每个 `GPU mode × CPU × memory × input scale` 单元格把正式测量重复折叠为 `OK`、warning、partial failure、timeout、startup/runtime OOM、timeout 后跳过、其他错误或未知。只要同一单元格同时出现成功与失败，就标记为 partial failure，不会被成功行掩盖。
 - `tail_latency_overview_vs_scale.png` 为每个 GPU mode 和 CPU 数选择有成功数据的最大 memory cap，先对 repeat window 的 P50/P90/P95 取中位数，再绘制 P50–P95 区间和 `P95/P50`。它同时展示 packet/application 口径，但不会用窗口分位数伪造 request-level violin distribution。

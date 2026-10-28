@@ -442,20 +442,23 @@ def plot_tail_latency_overview(
 
 
 def _pareto_frontier_mask(latencies: np.ndarray, energies: np.ndarray) -> np.ndarray:
-    """Return points not dominated while minimizing latency and energy."""
+    """Find the exact two-objective frontier in O(N log N) time and O(N) space."""
     frontier = np.ones(len(latencies), dtype=bool)
-    for index in range(len(latencies)):
-        dominated = (
-            (latencies <= latencies[index])
-            & (energies <= energies[index])
-            & (
-                (latencies < latencies[index])
-                | (energies < energies[index])
-            )
-        )
-        dominated[index] = False
-        if dominated.any():
-            frontier[index] = False
+    # NaN coordinates never participate in a successful dominance comparison.
+    comparable = np.flatnonzero(~(np.isnan(latencies) | np.isnan(energies)))
+    if not len(comparable):
+        return frontier
+    order = comparable[np.lexsort((energies[comparable], latencies[comparable]))]
+    x, y = latencies[order], energies[order]
+    distinct = np.ones(len(order), dtype=bool)
+    distinct[1:] = (x[1:] != x[:-1]) | (y[1:] != y[:-1])
+    starts = np.flatnonzero(distinct)
+    unique_y = y[starts]
+    best = np.ones(len(starts), dtype=bool)
+    # Once sorted, a distinct point survives only if it improves on every
+    # preceding energy. Restore all duplicates of each surviving coordinate.
+    best[1:] = unique_y[1:] < np.minimum.accumulate(unique_y[:-1])
+    frontier[order] = np.repeat(best, np.diff(np.append(starts, len(order))))
     return frontier
 
 
