@@ -12,9 +12,9 @@ from acprof.analysis.audit import audit_result, number
 from acprof.analysis.conditions import (
     ALLOWED_RESOURCE_DIMENSIONS,
     PURPOSES,
+    PreparedComparison,
     compare_profiles,
     compare_workload_profiles,
-    comparison_profile,
     workload_case_profile,
 )
 from acprof.artifacts import read_json_object
@@ -356,7 +356,7 @@ def compare_snapshots(left: dict, right: dict, *, purpose: str = "same-hardware"
     # Observed formal-server threads supersede independent-probe approximations.
     if not _unknown(lhs["hardware"].get("runtime_threads")) and not _unknown(rhs["hardware"].get("runtime_threads")):
         conditions["runtime_threads"] = conditions["hardware_runtime_threads"]
-    profiles = {side: comparison_profile(snapshot, purpose=purpose) for side, snapshot in snapshots.items()}
+    profiles = {side: PreparedComparison(snapshot).profile(purpose=purpose) for side, snapshot in snapshots.items()}
     qualification = compare_profiles(profiles["left"], profiles["right"])
     for name, item in conditions.items():
         statuses = {value for key, value in qualification["checks"].items() if key == name or key.startswith(name + ".")}

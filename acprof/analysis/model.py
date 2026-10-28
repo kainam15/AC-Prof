@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from acprof.analysis.comparison import load_comparison_snapshot
-from acprof.analysis.conditions import PURPOSES, comparison_profile
+from acprof.analysis.conditions import PURPOSES, PreparedComparison
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
@@ -190,7 +190,7 @@ def load_analysis(sources) -> AnalysisModel:
     snapshots, groups, seen_paths = [], defaultdict(list), set()
     entries: list[dict[str, Any]] = []
     seen_keys: dict[object, tuple[str, str]] = {}
-    condition_snapshots = {}
+    comparisons = {}
     for source in sources:
         path = Path(source).expanduser().resolve()
         layout = ArtifactLayout.discover(path) if path.is_dir() else ArtifactLayout.from_csv(path)
@@ -205,7 +205,7 @@ def load_analysis(sources) -> AnalysisModel:
         run_id = _text(state.get("run_id"), "legacy-" + digest[:16])
         snapshot = load_comparison_snapshot(path, result_snapshot=result_snapshot,
                                             verify_result_snapshot=False)
-        condition_snapshots[str(path)] = snapshot
+        comparisons[str(path)] = PreparedComparison(snapshot)
         evidence = {"run_status": state.get("status", "unknown"),
                     **{key: snapshot[key] for key in ("measurement_status", "missing_metrics", *QUALITY_FIELDS)}}
         snapshots.append({"path": str(path), "display_name": path.parent.name, "sha256": digest, "run_id": run_id,
@@ -271,7 +271,7 @@ def load_analysis(sources) -> AnalysisModel:
             case = measurement_key(rows[0]["row"])[:4]
         except ValueError:
             case = None
-        config["comparison_profiles"] = {purpose: comparison_profile(condition_snapshots[rows[0]["source"]],
+        config["comparison_profiles"] = {purpose: comparisons[rows[0]["source"]].profile(
             purpose=purpose, case=case) for purpose in PURPOSES}
         config["comparability"] = config["comparison_profiles"]["same-hardware"]["status"]
         config.update(config_id=config_id, status=status, valid_windows=valid,

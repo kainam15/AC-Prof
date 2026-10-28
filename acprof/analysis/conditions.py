@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections import defaultdict
 from fractions import Fraction
 
@@ -92,81 +93,123 @@ def compare_workload_profiles(left, right):
     return status
 
 
-def comparison_profile(snapshot, *, purpose="same-hardware", case=None):
-    """Project recorded evidence to a selected CSV case, without rereading files."""
-    if purpose not in PURPOSES:
-        raise ValueError(f"comparison purpose must be one of {PURPOSES}")
-    conditions = dict(snapshot["conditions"])
-    hardware = dict(snapshot["hardware"])
-    workload = conditions.pop("actual_workload")
-    if case is not None:
-        cpu, memory, gpu, scale = case
-        from acprof.artifact_layout import resource_case_id
-        case_id = resource_case_id(cpu, memory, gpu)
-        conditions["resources"] = {**conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu}
-        entries = snapshot.get("planned_input_entries")
-        selected = [entry for entry in entries or [] if float(entry["input_scale"]) == float(scale)]
-        conditions["planned_inputs"] = digest(selected) if selected else None
-        selected_case = canonical(list(case))
-        workload = ({selected_case: workload[selected_case]} if workload and selected_case in workload else None)
-        hardware = {name: {case_id: values.get(case_id)} if isinstance(values, dict) else None
-                    for name, values in hardware.items()}
-    if not unknown(hardware.get("runtime_threads")):
-        conditions["runtime_threads"] = hardware["runtime_threads"]
-    workload_profiles: dict[str, dict[str, object]] | None = None
-    if workload is not None:
-        workload_profiles = {}
-        for key, item in workload.items():
-            normalized_key = canonical(json.loads(key)[2:]) if purpose == "resource-scaling" else key
-            profile = workload_case_profile(item)
-            previous = workload_profiles.get(normalized_key)
-            if previous and previous != profile:
-                profile = {"ambiguous": True}
-            workload_profiles[normalized_key] = profile
-    if purpose == "resource-scaling":
-        # Resource labels in case maps are coordinates, not hardware facts.
-        # Different measured policies/threads across resource cases stay visible.
-        def remove_resource_keys(values):
-            if not isinstance(values, dict):
-                return values
-            by_device: dict[str, dict[str, object]] = {}
-            for key, value in values.items():
-                by_device.setdefault(key.rsplit("_", 1)[-1], {})[canonical(value)] = value
-            return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}
-        hardware = {name: remove_resource_keys(values) for name, values in hardware.items()}
-        if not unknown(snapshot["hardware"].get("runtime_threads")):
+class PreparedComparison:
+    """Reuse derived evidence during one read-only snapshot's lifetime.
+
+    The caller owns the snapshot and must not mutate it while preparing profiles.
+    Returned profiles own their mutable values; no cache escapes into report data.
+    """
+
+    def __init__(self, snapshot: dict):
+        self._snapshot = snapshot
+        self._input_groups: dict[float, list[dict]] | None = None
+        self._input_digests: dict[float, str | None] = {}
+        self._workload_profiles: dict[str, dict] = {}
+
+    def _planned_inputs(self, scale):
+        entries = self._snapshot.get("planned_input_entries")
+        if not entries:
+            return None
+        if self._input_groups is None:
+            groups: dict[float, list[dict]] = defaultdict(list)
+            for entry in entries:
+                key = float(entry["input_scale"])
+                # Float equality never matches NaN, even the same object.
+                if not math.isnan(key):
+                    groups[key].append(entry)
+            self._input_groups = groups
+        key = float(scale)
+        if math.isnan(key):
+            return None
+        if key not in self._input_digests:
+            selected = self._input_groups.get(key)
+            self._input_digests[key] = digest(selected) if selected else None
+        return self._input_digests[key]
+
+    def _workload_profile(self, key, item):
+        if key not in self._workload_profiles:
+            self._workload_profiles[key] = workload_case_profile(item)
+        profile = self._workload_profiles[key]
+        # Evidence leaves are canonical strings or booleans. Copy their owning
+        # containers so consumers cannot mutate cached or sibling profiles.
+        return {**profile, "variants": [
+            {**variant, "fields": dict(variant["fields"]), "controlled": list(variant["controlled"])}
+            for variant in profile["variants"]]}
+
+    def profile(self, *, purpose="same-hardware", case=None):
+        """Project recorded evidence to a selected CSV case, without rereading files."""
+        if purpose not in PURPOSES:
+            raise ValueError(f"comparison purpose must be one of {PURPOSES}")
+        snapshot = self._snapshot
+        conditions = dict(snapshot["conditions"])
+        hardware = dict(snapshot["hardware"])
+        workload = conditions.pop("actual_workload")
+        if case is not None:
+            cpu, memory, gpu, scale = case
+            from acprof.artifact_layout import resource_case_id
+            case_id = resource_case_id(cpu, memory, gpu)
+            conditions["resources"] = {**conditions["resources"], "cpus": str(cpu), "mems": str(memory), "gpus": gpu}
+            conditions["planned_inputs"] = self._planned_inputs(scale)
+            selected_case = canonical(list(case))
+            workload = ({selected_case: workload[selected_case]} if workload and selected_case in workload else None)
+            hardware = {name: {case_id: values.get(case_id)} if isinstance(values, dict) else None
+                        for name, values in hardware.items()}
+        if not unknown(hardware.get("runtime_threads")):
             conditions["runtime_threads"] = hardware["runtime_threads"]
-    checks = {}
+        workload_profiles: dict[str, dict[str, object]] | None = None
+        if workload is not None:
+            workload_profiles = {}
+            for key, item in workload.items():
+                normalized_key = canonical(json.loads(key)[2:]) if purpose == "resource-scaling" else key
+                profile = self._workload_profile(key, item)
+                previous = workload_profiles.get(normalized_key)
+                if previous and previous != profile:
+                    profile = {"ambiguous": True}
+                workload_profiles[normalized_key] = profile
+        if purpose == "resource-scaling":
+            # Resource labels in case maps are coordinates, not hardware facts.
+            # Different measured policies/threads across resource cases stay visible.
+            def remove_resource_keys(values):
+                if not isinstance(values, dict):
+                    return values
+                by_device: dict[str, dict[str, object]] = {}
+                for key, value in values.items():
+                    by_device.setdefault(key.rsplit("_", 1)[-1], {})[canonical(value)] = value
+                return {device: [items[key] for key in sorted(items)] for device, items in by_device.items()}
+            hardware = {name: remove_resource_keys(values) for name, values in hardware.items()}
+            if not unknown(snapshot["hardware"].get("runtime_threads")):
+                conditions["runtime_threads"] = hardware["runtime_threads"]
+        checks = {}
 
-    def add(name, value, difference="incompatible"):
-        if isinstance(value, dict) and value:
-            for key, item in value.items():
-                add(f"{name}.{key}", item, difference)
-        else:
-            checks[name] = {"value": None if unknown(value) else digest(value), "difference": difference}
+        def add(name, value, difference="incompatible"):
+            if isinstance(value, dict) and value:
+                for key, item in value.items():
+                    add(f"{name}.{key}", item, difference)
+            else:
+                checks[name] = {"value": None if unknown(value) else digest(value), "difference": difference}
 
-    for name, value in conditions.items():
-        if name == "resources" and purpose == "resource-scaling":
-            for key, item in value.items():
-                add(f"resources.{key}", item, "expected_difference" if key in {"cpus", "mems"} else "incompatible")
-        else:
-            add(name, value)
-    for name, value in hardware.items():
-        if purpose == "cross-hardware" and name != "runtime_threads":
-            # Whole maps are allowed to differ, but every recorded leaf must exist.
-            checks[f"hardware_{name}"] = {"value": None if unknown(value) else digest(value),
-                                         "difference": "expected_difference"}
-        else:
-            add(f"hardware_{name}", value)
-    profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
-    verdict = compare_profiles(profile, profile)
-    profile["status"] = verdict["status"]
-    profile["reasons"] = verdict["reasons"]
-    # Identical complete evidence forms an equivalence group. Expected differences
-    # do not split it; incomplete evidence cannot create an automatic candidate.
-    profile["cohort"] = digest({"checks": {key: item["value"] if item["difference"] != "expected_difference" else True
-                                            for key, item in checks.items()}, "workload": workload_profiles})
-    return profile
+        for name, value in conditions.items():
+            if name == "resources" and purpose == "resource-scaling":
+                for key, item in value.items():
+                    add(f"resources.{key}", item, "expected_difference" if key in {"cpus", "mems"} else "incompatible")
+            else:
+                add(name, value)
+        for name, value in hardware.items():
+            if purpose == "cross-hardware" and name != "runtime_threads":
+                # Whole maps are allowed to differ, but every recorded leaf must exist.
+                checks[f"hardware_{name}"] = {"value": None if unknown(value) else digest(value),
+                                             "difference": "expected_difference"}
+            else:
+                add(f"hardware_{name}", value)
+        profile = {"purpose": purpose, "valid": snapshot["valid"], "checks": checks, "workload": workload_profiles}
+        verdict = compare_profiles(profile, profile)
+        profile["status"] = verdict["status"]
+        profile["reasons"] = verdict["reasons"]
+        # Identical complete evidence forms an equivalence group. Expected differences
+        # do not split it; incomplete evidence cannot create an automatic candidate.
+        profile["cohort"] = digest({"checks": {key: item["value"] if item["difference"] != "expected_difference" else True
+                                                for key, item in checks.items()}, "workload": workload_profiles})
+        return profile
 
 
 def compare_profiles(left, right):
