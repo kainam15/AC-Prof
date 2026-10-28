@@ -296,8 +296,16 @@ CLI 的权威预检。`views.EnvironmentPreflightScreen` 只展示缓存问题�
 统计页通过 `commands.build_stats_command` 启动既有 `acprof stats`，沿用 App 的进程互斥、停止和日志流程；
 完成后在后台读取一次报告并更新表格。读取期间锁定启动入口，允许切换读取目标和退出；不定时扫描 CSV 或自动运行开销实验。
 绘图页摘要复用 `analysis.uncertainty.summarize_windows` 的分组、过滤和窗口均值，只关闭 bootstrap。
-借鉴 [Textual 8.2.8 thread worker 示例](https://github.com/Textualize/textual/blob/v8.2.8/docs/examples/guide/workers/weather05.py)
-及 [Worker 实现](https://github.com/Textualize/textual/blob/v8.2.8/src/textual/worker.py) 的取消与 UI 回传边界（MIT，当前已有依赖）；
+`diagnostics.summarize_result_csv` 直接消费 `ResultCsvSnapshot` 的解析行，与 `audit_result`
+共享同一快照，返回前复核所选路径，并通过 `verify_result_source` 复核内容。平面 CSV 只解析一次，
+随后流式 hash 复核；分层结果不再重编码为宽 CSV，也不为最终复核重新组装行表。
+历史 CSV 的结构读取与严格审计保持分离，不放宽有效测量身份或 retired 字段规则。
+取消在打开文件前、平面 CSV 的原始块与文本行之间、统计/审计阶段边界检查；已启动的分层
+读取、层文件校验和审计需返回后才能释放任务，不承诺线程能立即中断。
+流式哈希参考 [CPython file_digest](https://github.com/python/cpython/blob/v3.12.3/Lib/hashlib.py)（PSF），
+协作取消参考 [Textual thread workers](https://github.com/Textualize/textual/blob/v8.2.8/docs/guide/workers.md#thread-workers)
+及其[长任务取消说明讨论](https://github.com/Textualize/textual/pull/6514)（MIT）。
+复用已有实现，无新增依赖、跨请求缓存或测量窗口内的工作。
 请求身份在主线程再次核对，取消线程任务不等于底层工作已停止。沿用当前版本，不复制线程框架或增加依赖；所有结果读取都在测量窗口之外。
 `experiment_catalog` 只扫描显式已知结果根目录，以 `run_id` 合并路径副本，按元数据、枚举与重复内容预算限制读取；
 schema v3 的重复内容核验在非阻塞共享锁内按 64 KiB 分块校验已提交 CSV 前缀，避免整层缓冲，

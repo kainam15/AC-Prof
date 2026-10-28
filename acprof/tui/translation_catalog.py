@@ -373,7 +373,6 @@ SOURCE_BY_ID: dict[str, str] = {
     "ui.0198": '结果选择已更改，请读取摘要。',
     "ui.0199": '{0} 正在读取结果摘要',
     "ui.0200": '结果 CSV 缺少有效表头',
-    "ui.0201": '结果 CSV 包含不完整的行',
     "ui.0202": '缺少配置身份字段，无法分组比较：{0}',
     "ui.0203": '当前选择：{0}',
     "ui.0204": '结果已读取\n行数：{0}（成功 {1} / 错误 {2}）\n资源 case：{3}\nWarmup 行：{4}（统计排除）',
@@ -1166,6 +1165,7 @@ SOURCE_BY_ID: dict[str, str] = {
     "ui.2315": "请选择 JSON 报告文件后继续。",
     "ui.2316": "报告路径已更改，点击“查看 JSON”读取。",
     "ui.2317": "该报告没有可显示的数据行。",
+    "ui.2318": "无法确认摘要对应的结果快照：{0}\n请等待采集或补采结束后重新读取。",
 }
 
 ENGLISH_BY_ID: dict[str, str] = {
@@ -1540,7 +1540,6 @@ ENGLISH_BY_ID: dict[str, str] = {
     "ui.0198": 'Selection changed; read the summary to update it.',
     "ui.0199": '{0} Reading result summary',
     "ui.0200": 'Result CSV has no valid header',
-    "ui.0201": 'Result CSV contains a malformed row',
     "ui.0202": 'Cannot compare configurations; missing identity fields: {0}',
     "ui.0203": 'Selected result: {0}',
     "ui.0204": 'Results loaded\nRows: {0} (OK {1} / errors {2})\nResource cases: {3}\nWarmup rows: {4} (excluded from statistics)',
@@ -2333,6 +2332,7 @@ ENGLISH_BY_ID: dict[str, str] = {
     "ui.2315": "Select a JSON report file to continue.",
     "ui.2316": "Report path changed; select View JSON to load it.",
     "ui.2317": "This report has no data rows to display.",
+    "ui.2318": "Cannot verify the result snapshot used by this summary: {0}\nWait until collection or profiling finishes, then read it again.",
 }
 
 SOURCE_TO_ID: dict[str, str] = {source: key for key, source in SOURCE_BY_ID.items()}

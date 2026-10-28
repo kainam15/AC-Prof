@@ -8,7 +8,6 @@ import traceback
 import tracemalloc
 import weakref
 from concurrent.futures import CancelledError
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -214,21 +213,15 @@ def test_flat_csv_keeps_bom_newline_and_seek_behavior(tmp_path):
     assert path.read_bytes() == before
 
 
-def test_summary_cancellation_closes_the_logical_stream(tmp_path, monkeypatch):
+def test_cancelled_summary_does_not_open_a_logical_stream(tmp_path, monkeypatch):
     from acprof.tui.diagnostics import summarize_result_csv
 
     layout, _ = snapshot_store(tmp_path, count=2, repetitions=1)
     before = artifact_hashes(layout)
-    streams = []
+    def forbidden(_path):
+        pytest.fail("cancelled summary opened a logical CSV stream")
 
-    def open_view(path: Path):
-        stream = open_result_text(path)
-        streams.append(stream)
-        return stream
-
-    monkeypatch.setattr("acprof.result_csv.open_result_text", open_view)
+    monkeypatch.setattr("acprof.result_csv.open_result_text", forbidden)
     with pytest.raises(CancelledError):
         summarize_result_csv(layout.result_csv, cancelled=lambda: True)
-    assert len(streams) == 1
-    assert streams[0].closed
     assert artifact_hashes(layout) == before

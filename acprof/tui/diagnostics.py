@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import os
 import shutil
 import subprocess
@@ -21,7 +20,12 @@ from acprof.host.measurement.capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
 from acprof.messages import join_messages, message
 from acprof.platform import capability_matrix, collection_policy_error, detect_environment
-from acprof.result_csv import KEY_FIELDS, require_current_fields
+from acprof.result_csv import (
+    KEY_FIELDS,
+    read_result_csv_snapshot,
+    require_current_fields,
+    verify_result_source,
+)
 from acprof.tui.commands import _csv_values
 from acprof.tui.i18n import message_id
 
@@ -308,21 +312,16 @@ SUMMARY_METRICS = (
 
 def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool] = lambda: False) -> ResultSummary:
     """Use the stats window grouping/filter, without bootstrap work in a preview."""
+    if cancelled():
+        raise CancelledError()
     path = Path(result_csv).expanduser()
-    from acprof.result_csv import open_result_text
-    with open_result_text(path) as handle:
-        reader = csv.DictReader(handle, strict=True)
-        fields = reader.fieldnames or []
-        if not fields or len(fields) != len(set(fields)) or "status" not in fields:
-            raise ValueError(message_id('ui.0200'))
-        require_current_fields(fields)
-        rows = []
-        for row in reader:
-            if cancelled():
-                raise CancelledError()
-            if None in row or any(value is None for value in row.values()):
-                raise ValueError(message_id('ui.0201'))
-            rows.append(row)
+    if path.is_dir():
+        path /= "result_layers.json"
+    snapshot = read_result_csv_snapshot(path, validate_measurements=False, cancelled=cancelled)
+    fields, rows = snapshot.fields, snapshot.rows
+    if "status" not in fields:
+        raise ValueError(message_id('ui.0200'))
+    require_current_fields(fields)
     missing = set(KEY_FIELDS) - set(fields)
     metrics = [name for name in SUMMARY_METRICS if name in fields]
     groups: tuple[dict, ...] = ()
@@ -337,17 +336,28 @@ def summarize_result_csv(result_csv: str | Path, *, cancelled: Callable[[], bool
                                group["input_scale"], group["environment_class"], metrics.index(group["metric"]))))
     else:
         detail = message_id('ui.0579')
+    if cancelled():
+        raise CancelledError()
     from acprof.analysis.audit import audit_result
     from acprof.quality import QUALITY_FIELDS
-    audit = audit_result(path)
+    audit = audit_result(snapshot.path, result_snapshot=snapshot, verify_result_snapshot=False)
+    if cancelled():
+        raise CancelledError()
     quality = {key: audit[key] for key in (*QUALITY_FIELDS, "run_status", "measurement_status")}
-    return ResultSummary(
+    summary = ResultSummary(
         rows=len(rows), ok_rows=sum(str(row["status"]).strip().lower() == "ok" for row in rows),
         error_rows=sum(str(row["status"]).strip().lower() == "error" for row in rows),
         warmup_rows=sum(str(row.get("warmup", "0")).strip() == "1" for row in rows),
         cases=len({tuple(row.get(field, "") for field in KEY_FIELDS[:3]) for row in rows}),
         groups=groups, grouping_detail=detail, quality=quality,
     )
+    try:
+        if path.resolve() != snapshot.path:
+            raise ValueError(f"result source changed: {path}")
+        verify_result_source(snapshot.path, snapshot.sha256, cancelled=cancelled)
+    except (ValueError, OSError) as exc:
+        raise ValueError(message_id('ui.2318', str(exc))) from exc
+    return summary
 
 
 def result_summary_text(summary: ResultSummary, path: Path) -> str:
