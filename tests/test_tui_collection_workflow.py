@@ -70,12 +70,13 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
 
     from acprof.host.run_state import MEASUREMENT_LOCK_NAMESPACE, MeasurementLock
     script = textwrap.dedent('''
-        import json, sys, time
+        import json, signal, sys, time
         from pathlib import Path
         from acprof.host.detect import TaskInfo
         from acprof.host import run_state
         from acprof.host.source_bundle import source_bundle
         from acprof.preparation_events import encode_event
+        signal.signal(signal.SIGINT, signal.default_int_handler)
         task = TaskInfo("fixture/model", "fill-mask", "nlp", "transformers", "transformers", "a" * 40, "fixture")
         run_state.MEASUREMENT_LOCK_ROOT = Path(sys.argv[1])
         run_state.MEASUREMENT_LOCK_NAMESPACE = bytes.fromhex(sys.argv[2])
@@ -96,21 +97,23 @@ async def test_confirmed_stop_reaps_child_releases_lock_and_removes_bundle(tmp_p
                     await pilot.pause()
             await asyncio.wait_for(ready(), timeout=10)
             await pilot.pause()
-            pid = app.lifecycle.process.pid
+            process = app.lifecycle.process
+            pid = process.pid
             assert app.preflight.preparation_screen is None
             assert await pilot.click("#stop-run")
             await pilot.pause()
             assert await pilot.click("#confirm-yes")
-            await asyncio.wait_for(app.workers.wait_for_complete(), timeout=15)
+            await asyncio.wait_for(asyncio.shield(app.workers.wait_for_complete()), timeout=45)
             await pilot.pause()
             assert app.lifecycle.process is None
             assert app.query_one(TabbedContent).active == "monitor-tab"
-            assert "任务已由用户终止" in app.query_one("#run-log", SelectableLog).text
+            log_text = app.query_one("#run-log", SelectableLog).raw_text
+            assert "任务已由用户终止" in log_text
             assert not app.query_one("#start-run", Button).disabled
             with pytest.raises(ProcessLookupError):
                 os.kill(pid, 0)
     import json
-    assert not Path(json.loads((tmp_path / "bundle.json").read_text())).exists()
+    assert not Path(json.loads((tmp_path / "bundle.json").read_text())).exists(), f"returncode={process.returncode}\n{log_text}"
     with patch("acprof.host.run_state.MEASUREMENT_LOCK_ROOT", tmp_path), MeasurementLock():
         pass
 

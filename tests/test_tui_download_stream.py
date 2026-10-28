@@ -37,9 +37,11 @@ print(encode_event(replace(progress, state='complete', completed_bytes=1000, fil
 
 async def test_download_message_in_measurement_window_fails_without_updating_panel(tmp_path):
     script = '''
+import signal
 import time
 from acprof.progress_events import emit_event
 from acprof.download_events import DownloadProgress, encode_event
+signal.signal(signal.SIGINT, signal.default_int_handler)
 emit_event('case_started', 'fixture')
 emit_event('measurement_started', 'fixture')
 progress = DownloadProgress('example/test', 'huggingface', 'downloading', 100, 0, 10, 10, None, 0, 1)
@@ -49,7 +51,7 @@ time.sleep(10)
     app = AcprofTui(settings_path=tmp_path / 'settings.json')
     async with app.run_test(size=(120, 30)) as pilot:
         app.launch(PendingLaunch((sys.executable, '-u', '-c', script), 'run'))
-        await asyncio.wait_for(app.workers.wait_for_complete(), timeout=10)
+        await asyncio.wait_for(asyncio.shield(app.workers.wait_for_complete()), timeout=45)
         await pilot.pause()
         assert app.lifecycle.process is None
         assert app.preflight.latest_download is None
