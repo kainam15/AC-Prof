@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
@@ -35,49 +36,77 @@ def number(value):
         return None
 
 
-def missing_reason(field: str, row: dict, metadata: dict, *, environment_class: str) -> str:
-    """Use the audit's verified recorded identity; keep row-specific evidence separate."""
-    if field not in row:
-        return "not_recorded"
-    metric = METRICS[field]
-    if row.get("runtime_kind", metadata.get("runtime_kind")) == "process":
-        if field in {"cpu_cores", "mem_cap_gb"}:
-            return "inherited_limit_not_controlled"
-        if field.startswith("container_") or field.startswith("cold_start_"):
-            return "unsupported_by_process_runtime"
-        if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
-            return str(row.get("process_resource_status", "unavailable"))
-        if field.startswith("gpu_util_"):
-            return str(row.get("gpu_utilization_status", "unavailable"))
-        if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
-            return str(row.get("gpu_memory_status", "unavailable"))
-        if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
-            return "not_requested"
-    if environment_class == "wsl2" and native_only_metric(metric):
-        return "unavailable_on_wsl2"
-    if metric.applicability in {"gpu", "gpu_idle_debug"} and row.get("gpu_mode") == "off":
-        return "not_applicable"
-    if metric.applicability == "cpu" and row.get("gpu_mode") == "on":
-        return "not_applicable"
-    if str(row.get("status", "")).strip().lower() == "error":
-        return "measurement_failed"
-    if metric.tool:
-        suffix = "torch_profiler_eager" if metric.tool == "torch" else metric.tool
-        error = str(row.get(f"compute_profile_error_{suffix}", "")).strip()
-        if error.lower() not in MISSING:
-            return "profiler_reported_error"
-        key = "compute_profile_tools" if metric.tool in {"torch", "ncu"} else "execution_profile_tools"
-        enabled = metadata.get(key)
-        if isinstance(enabled, str):
-            try:
-                enabled = json.loads(enabled)
-            except ValueError:
-                enabled = enabled.split(",")
-        if isinstance(enabled, list) and not any(metric.tool in str(tool) for tool in enabled):
-            return "tool_not_enabled"
-    if row.get("runtime_kind") == "process":
-        return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips", "gpu_runtime_state"} else "unavailable"
-    return "unavailable_unspecified"
+class MissingReasons:
+    """Prepare settings for one read-only source, with separate evidence per row."""
+
+    def __init__(self, metadata: dict, *, environment_class: str):
+        self._metadata = metadata
+        self._wsl = environment_class == "wsl2"
+        self._settings: dict[str, object] = {}
+        self._enabled: dict[str, bool] = {}
+
+    def _tool_enabled(self, tool: str) -> bool:
+        if tool not in self._enabled:
+            key = "compute_profile_tools" if tool in {"torch", "ncu"} else "execution_profile_tools"
+            if key not in self._settings:
+                enabled = self._metadata.get(key)
+                if isinstance(enabled, str):
+                    try:
+                        enabled = json.loads(enabled)
+                    except ValueError:
+                        enabled = enabled.split(",")
+                self._settings[key] = enabled
+            enabled = self._settings[key]
+            self._enabled[tool] = not isinstance(enabled, list) or any(tool in str(item) for item in enabled)
+        return self._enabled[tool]
+
+    def for_row(self, row: dict) -> Callable[[str], str]:
+        """Bind row state; the row must stay read-only while resolving its fields."""
+        process = row.get("runtime_kind", self._metadata.get("runtime_kind")) == "process"
+        row_process = row.get("runtime_kind") == "process"
+        gpu = row.get("gpu_mode")
+        failed = str(row.get("status", "")).strip().lower() == "error"
+        tool_reasons: dict[str, str | None] = {}
+
+        def reason(field: str) -> str:
+            if field not in row:
+                return "not_recorded"
+            metric = METRICS[field]
+            if process:
+                if field in {"cpu_cores", "mem_cap_gb"}:
+                    return "inherited_limit_not_controlled"
+                if field.startswith("container_") or field.startswith("cold_start_"):
+                    return "unsupported_by_process_runtime"
+                if field in {"process_cpu_time_s", "process_cpu_util_avg_pct", "process_rss_avg_bytes", "process_rss_peak_bytes"}:
+                    return str(row.get("process_resource_status", "unavailable"))
+                if field.startswith("gpu_util_"):
+                    return str(row.get("gpu_utilization_status", "unavailable"))
+                if field in {"gpu_mem_used_avg_bytes", "gpu_mem_used_peak_bytes"}:
+                    return str(row.get("gpu_memory_status", "unavailable"))
+                if field in {"gpu_mem_util_avg_pct", "gpu_mem_util_peak_pct"}:
+                    return "not_requested"
+            if self._wsl and native_only_metric(metric):
+                return "unavailable_on_wsl2"
+            if metric.applicability in {"gpu", "gpu_idle_debug"} and gpu == "off":
+                return "not_applicable"
+            if metric.applicability == "cpu" and gpu == "on":
+                return "not_applicable"
+            if failed:
+                return "measurement_failed"
+            if metric.tool:
+                if metric.tool not in tool_reasons:
+                    suffix = "torch_profiler_eager" if metric.tool == "torch" else metric.tool
+                    error = str(row.get(f"compute_profile_error_{suffix}", "")).strip()
+                    tool_reasons[metric.tool] = ("profiler_reported_error" if error.lower() not in MISSING else
+                                               "tool_not_enabled" if not self._tool_enabled(metric.tool) else None)
+                tool_reason = tool_reasons[metric.tool]
+                if tool_reason is not None:
+                    return tool_reason
+            if row_process:
+                return "not_requested" if metric.row_group in {"cpu_energy", "gpu_energy", "mips", "gpu_runtime_state"} else "unavailable"
+            return "unavailable_unspecified"
+
+        return reason
 
 
 def _formula_checks(row: dict) -> dict[str, float]:
@@ -270,6 +299,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             issue("invalid_run_state", error)
     missing: dict[str, Counter[str]] = defaultdict(Counter)
+    missing_reasons = MissingReasons(metadata, environment_class=report["environment_class"])
     for index, row in enumerate(rows, 2):
         status = row.get("status", "").strip().lower()
         warmup = number(row["warmup"]) == 1
@@ -306,6 +336,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             _check_workload_counts(row)
         except (ValueError, TypeError) as error:
             issue("workload_contract", error, row=index)
+        reason_for_row = None
         for field in NUMERIC_FIELDS:
             if (runtime == "process" and (field.startswith("container_") or field.startswith("cold_start_"))
                     and number(row.get(field)) is not None):
@@ -317,7 +348,9 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
             if raw not in MISSING and number(raw) is None:
                 issue("invalid_number", f"{field} 不是有限数值或 nan", row=index, field=field)
             elif formal and raw in MISSING:
-                reason = missing_reason(field, row, metadata, environment_class=report["environment_class"])
+                if reason_for_row is None:
+                    reason_for_row = missing_reasons.for_row(row)
+                reason = reason_for_row(field)
                 missing[field][reason] += 1
         if formal:
             for field, expected_value in _formula_checks(row).items():

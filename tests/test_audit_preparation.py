@@ -101,3 +101,60 @@ def test_missing_reasons_keep_row_evidence_and_formal_filter(audit_source):
     assert missing["model_logical_mflop_per_request_torch_profiler_eager"] == {
         "tool_not_enabled": 2, "profiler_reported_error": 1,
     }
+
+
+@pytest.mark.parametrize("row_count", [1, 7])
+def test_profiler_settings_are_decoded_once_per_audit(audit_source, monkeypatch, row_count):
+    settings = '["torch", "ncu", "nsys", "perf"]'
+    calls = []
+    original = audit.json.loads
+
+    def record_load(value, *args, **kwargs):
+        if value == settings:
+            calls.append(value)
+        return original(value, *args, **kwargs)
+
+    path = audit_source([{"gpu_mode": "on"} for _ in range(row_count)], {
+        **Environment("native_linux", "Linux").metadata(),
+        "compute_profile_tools": settings, "execution_profile_tools": settings,
+    })
+    monkeypatch.setattr(audit.json, "loads", record_load)
+
+    for _ in range(2):
+        calls.clear()
+        report = audit.audit_result(path)
+        assert report["valid"], report["issues"]
+        assert len(calls) == 2
+
+
+def test_profiler_settings_are_not_decoded_without_missing_formal_metrics(audit_source, monkeypatch):
+    settings = '["torch", "ncu"]'
+    original = audit.json.loads
+
+    def reject_settings(value, *args, **kwargs):
+        assert value != settings
+        return original(value, *args, **kwargs)
+
+    path = audit_source([{"warmup": "1"}, {"status": "error", "error": "failed"}], {
+        **Environment("native_linux", "Linux").metadata(), "compute_profile_tools": settings,
+    })
+    monkeypatch.setattr(audit.json, "loads", reject_settings)
+    assert audit.audit_result(path)["missing_metrics"] == {}
+
+
+@pytest.mark.parametrize(("settings", "reason"), [
+    ([], "tool_not_enabled"), ('["torch"]', "unavailable_unspecified"),
+    ("torch,ncu", "unavailable_unspecified"), ('["ncu"]', "tool_not_enabled"),
+    ({"torch": False}, "unavailable_unspecified"), ("null", "unavailable_unspecified"),
+    (['custom-torch-mode'], "unavailable_unspecified"),
+])
+def test_missing_profiler_reasons_keep_legacy_settings_and_refresh(audit_source, settings, reason):
+    metadata = {**Environment("native_linux", "Linux").metadata(), "compute_profile_tools": settings}
+    rows = [{}, {"compute_profile_error_torch_profiler_eager": "failed"}, {}]
+    field = "model_logical_mflop_per_request_torch_profiler_eager"
+    report = audit.audit_result(audit_source(rows, metadata))
+    assert report["missing_metrics"][field] == {reason: 2, "profiler_reported_error": 1}
+    metadata["compute_profile_tools"] = [] if reason != "tool_not_enabled" else ["torch"]
+    refreshed = "tool_not_enabled" if reason != "tool_not_enabled" else "unavailable_unspecified"
+    report = audit.audit_result(audit_source(rows, metadata))
+    assert report["missing_metrics"][field] == {refreshed: 2, "profiler_reported_error": 1}
