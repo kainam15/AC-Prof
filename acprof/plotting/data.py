@@ -68,6 +68,17 @@ def build_plot_groups(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     return list(zip(PLOT_OUTPUT_DIRS, (cpu_df, gpu_df, combined_df), strict=True))
 
 
+def representative_max_memory_rows(
+    df: pd.DataFrame, *, available: pd.Series | None = None,
+) -> pd.DataFrame:
+    """Select the largest usable memory per mode/CPU, retaining its data gaps."""
+    if df.empty:
+        return df.copy()
+    memory = df["mem_cap_gb"] if available is None else df["mem_cap_gb"].where(available)
+    max_memory = memory.groupby([df["gpu_mode"], df["cpu_cores"]]).transform("max")
+    return df[df["mem_cap_gb"] == max_memory].copy()
+
+
 def _with_pixel_metrics(df: pd.DataFrame, static_meta: dict) -> pd.DataFrame:
     """只使用 CSV 的显式像素数；不从历史计划补写缺失的测量字段。"""
     source_fields = list(dict.fromkeys([

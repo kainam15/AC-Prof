@@ -1,4 +1,4 @@
-"""可行性、尾延迟、Pareto 和冷启动诊断图表。"""
+"""可行性、Pareto 和冷启动诊断图表。"""
 
 import math
 import re
@@ -21,11 +21,9 @@ from acprof.plotting.config import (
 from acprof.plotting.data import (
     is_gpu_on,
     make_config_labels,
+    representative_max_memory_rows,
 )
-from acprof.plotting.styles import (
-    _configurations_with_colors,
-    build_cpu_base_colors,
-)
+from acprof.plotting.styles import build_cpu_base_colors
 
 _UNMEASURED_ERROR = re.compile(
     r"^(not_measured_after_startup_oom_pruning|not_measured_after_timeout)(?![a-z0-9_])"
@@ -272,200 +270,6 @@ def plot_resource_feasibility_heatmap(
     return True
 
 
-def _representative_max_memory_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Select one high-memory configuration per CPU count and hardware mode."""
-    if df.empty:
-        return df.copy()
-    group_cols = ["gpu_mode", "cpu_cores"]
-    max_memory = df.groupby(group_cols)["mem_cap_gb"].transform("max")
-    return df[df["mem_cap_gb"] == max_memory].copy()
-
-
-def _aggregate_tail_latency(df: pd.DataFrame) -> pd.DataFrame:
-    metric_columns = [
-        column
-        for column in (
-            "latency_p50_s",
-            "latency_p90_s",
-            "latency_p95_s",
-            "latency_app_p50_s",
-            "latency_app_p90_s",
-            "latency_app_p95_s",
-        )
-        if column in df.columns
-    ]
-    if not metric_columns:
-        return pd.DataFrame()
-    usable = df[
-        ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale", *metric_columns]
-    ].copy()
-    usable = usable[usable[metric_columns].notna().any(axis=1)]
-    usable = _representative_max_memory_rows(usable)
-    if usable.empty:
-        return usable
-    group_cols = ["cpu_cores", "mem_cap_gb", "gpu_mode", "input_scale"]
-    aggregated = usable.groupby(group_cols, as_index=False)[metric_columns].median()
-    aggregated["config"] = make_config_labels(aggregated)
-    aggregated["gpu_on"] = aggregated["gpu_mode"].map(is_gpu_on)
-    return aggregated
-
-
-def plot_tail_latency_overview(
-    df: pd.DataFrame,
-    *,
-    xlabel: str,
-    out_png: str | None,
-    show_plots: bool = False,
-) -> bool:
-    """Show within-window P50/P90/P95 and P95/P50 tail inflation."""
-    aggregated = _aggregate_tail_latency(df)
-    if aggregated.empty:
-        print("[skip] Tail latency percentile columns unavailable or all NaN")
-        return False
-
-    configs, config_colors = _configurations_with_colors(aggregated)
-    fig, axes = plt.subplots(2, 2, figsize=(18, 11), sharex="col", squeeze=False)
-    families = (
-        (
-            "Packet latency percentiles",
-            "latency_p50_s",
-            "latency_p90_s",
-            "latency_p95_s",
-        ),
-        (
-            "Application latency percentiles",
-            "latency_app_p50_s",
-            "latency_app_p90_s",
-            "latency_app_p95_s",
-        ),
-    )
-    plotted_any = False
-    for column_index, (title, p50_column, p90_column, p95_column) in enumerate(families):
-        percentile_axis = axes[0, column_index]
-        ratio_axis = axes[1, column_index]
-        percentile_axis.set_title(title)
-        ratio_axis.set_title("P95 / P50 tail inflation")
-        family_available = {
-            p50_column,
-            p95_column,
-        }.issubset(aggregated.columns)
-        if not family_available:
-            for axis in (percentile_axis, ratio_axis):
-                axis.text(
-                    0.5,
-                    0.5,
-                    "No data",
-                    ha="center",
-                    va="center",
-                    transform=axis.transAxes,
-                )
-            continue
-
-        for cpu, mem, gpu_on in configs:
-            sub_df = aggregated[
-                (aggregated["cpu_cores"] == cpu)
-                & (aggregated["mem_cap_gb"] == mem)
-                & (aggregated["gpu_on"] == gpu_on)
-            ].sort_values("input_scale")
-            sub_df = sub_df.dropna(subset=[p50_column, p95_column])
-            sub_df = sub_df[
-                (sub_df[p50_column] > 0.0)
-                & (sub_df[p95_column] >= sub_df[p50_column])
-            ]
-            if sub_df.empty:
-                continue
-            plotted_any = True
-            color = config_colors[(cpu, mem, gpu_on)]
-            x_values = sub_df["input_scale"].to_numpy(dtype=float)
-            p50_values = sub_df[p50_column].to_numpy(dtype=float)
-            p95_values = sub_df[p95_column].to_numpy(dtype=float)
-            percentile_axis.fill_between(
-                x_values,
-                p50_values,
-                p95_values,
-                color=color,
-                alpha=0.12,
-            )
-            percentile_axis.plot(
-                x_values,
-                p50_values,
-                color=color,
-                linestyle="-",
-                linewidth=1.8,
-            )
-            if p90_column in sub_df.columns:
-                p90_rows = sub_df[sub_df[p90_column].notna()]
-                if not p90_rows.empty:
-                    percentile_axis.plot(
-                        p90_rows["input_scale"],
-                        p90_rows[p90_column],
-                        color=color,
-                        linestyle="--",
-                        linewidth=1.4,
-                    )
-            percentile_axis.plot(
-                x_values,
-                p95_values,
-                color=color,
-                linestyle=":",
-                linewidth=1.8,
-            )
-            ratio_axis.plot(
-                x_values,
-                p95_values / p50_values,
-                color=color,
-                marker="o",
-                linewidth=1.8,
-                markersize=5,
-            )
-
-        percentile_axis.set_ylabel("Latency (s)")
-        ratio_axis.set_ylabel("P95 / P50")
-        ratio_axis.set_xlabel(xlabel)
-        for axis in (percentile_axis, ratio_axis):
-            axis.grid(True, which="both", linestyle="-", alpha=0.35)
-
-    if not plotted_any:
-        plt.close(fig)
-        print("[skip] Tail latency percentiles have no valid P50/P95 pairs")
-        return False
-
-    config_handles = [
-        Line2D([0], [0], color=config_colors[config], linewidth=2)
-        for config in configs
-    ]
-    config_labels = [
-        f"{'GPU' if gpu_on else 'CPU'}+CPU{cpu}+Mem{mem}"
-        for cpu, mem, gpu_on in configs
-    ]
-    percentile_handles = [
-        Line2D([0], [0], color="black", linestyle="-", label="P50"),
-        Line2D([0], [0], color="black", linestyle="--", label="P90"),
-        Line2D([0], [0], color="black", linestyle=":", label="P95"),
-        Patch(facecolor="gray", alpha=0.18, label="P50–P95 band"),
-    ]
-    fig.suptitle(
-        "Tail Latency at Representative Max-Memory Configurations",
-        y=0.995,
-    )
-    fig.legend(
-        handles=config_handles + percentile_handles,
-        labels=config_labels + [handle.get_label() for handle in percentile_handles],
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.965),
-        ncol=min(6, max(1, len(config_handles + percentile_handles))),
-        fontsize=8,
-    )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.90))
-    if out_png:
-        fig.savefig(out_png, dpi=200)
-        print(f"[saved] {out_png}")
-    if show_plots:
-        plt.show()
-    plt.close(fig)
-    return True
-
-
 def _pareto_frontier_mask(latencies: np.ndarray, energies: np.ndarray) -> np.ndarray:
     """Find the exact two-objective frontier in O(N log N) time and O(N) space."""
     frontier = np.ones(len(latencies), dtype=bool)
@@ -686,7 +490,7 @@ def plot_cold_start_breakdown(
     aggregated = cold_df.groupby(group_cols, as_index=False)[
         phase_columns + optional_columns
     ].median()
-    aggregated = _representative_max_memory_rows(aggregated)
+    aggregated = representative_max_memory_rows(aggregated)
     aggregated["gpu_on"] = aggregated["gpu_mode"].map(is_gpu_on)
     aggregated["config"] = make_config_labels(aggregated)
     aggregated = aggregated.sort_values(

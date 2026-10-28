@@ -172,16 +172,6 @@
       "symbol": "_resolve_container_metric_readers"
     },
     {
-      "source": "acprof.plotting.diagnostics",
-      "target": "acprof.plotting.styles",
-      "symbol": "_configurations_with_colors"
-    },
-    {
-      "source": "acprof.plotting.metrics",
-      "target": "acprof.plotting.styles",
-      "symbol": "_configurations_with_colors"
-    },
-    {
       "source": "acprof.plotting.metrics",
       "target": "acprof.plotting.styles",
       "symbol": "_sort_key"

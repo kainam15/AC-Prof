@@ -24,11 +24,11 @@ from acprof.plotting.data import (
     normalized_metric_spec,
 )
 from acprof.plotting.styles import (
-    _configurations_with_colors,
     _sort_key,
     build_cpu_base_colors,
     build_gpu_mixed_colors,
     color_for_mem,
+    configurations_with_colors,
     shade_for_cpu,
     shade_for_mem,
 )
@@ -228,7 +228,7 @@ def plot_metric_overview(
         return
 
     combined_df = pd.concat(available_frames, ignore_index=True)
-    configs, config_colors = _configurations_with_colors(combined_df)
+    configs, config_colors = configurations_with_colors(combined_df)
     if "container_mem_util_avg_pct" in aggregated_metrics:
         # The memory/process overview uses GPU memory caps for green shades
         # across all panels and the legend, including GPU-only figures.

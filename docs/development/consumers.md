@@ -14,7 +14,10 @@ CPU/GPU 拟合、尺度基函数说明和残差整理各有独立函数。`write
 返回的 `PublishedLatencyModelReport` 固定本次元数据与 CSV 路径，拟合曲线直接使用该快照，
 不再分别读取可被其他发布者替换的 JSON 与 CSV。
 `plotting` 内的 `config`、`data`、`styles` 分别管理图表声明、CSV 整理和样式；
-`metrics`、`diagnostics`、`latency` 分别渲染常规指标、诊断图和模型图。
+`metrics`、`diagnostics`、`latency` 分别渲染常规指标、可行性/Pareto/冷启动诊断图和模型图；
+`tail_latency` 独立准备与渲染窗口分位数，按同一窗口的有效 P50/P95 配对聚合，保留缺失尺度的断线。
+尾延迟和冷启动分解共用 `data.representative_max_memory_rows` 选择配置，
+常规指标和尾延迟共用 `styles.configurations_with_colors` 取得颜色；CLI 直接引用职责所属模块。
 
 `plotting.data.prepare_df` 对数值列分别执行 `to_numeric`，再通过公开 DataFrame 构造器
 一次组装，避免逐列赋值造成宽结果表碎片化。保留各列 dtype、整数精度和原始列位置，

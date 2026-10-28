@@ -79,7 +79,7 @@ def color_for_mem(mem: float, mem_rank: int) -> tuple[float, float, float]:
     return color_map(mem_rank % color_map.N)[:3]
 
 
-def _configurations_with_colors(
+def configurations_with_colors(
     agg_df: pd.DataFrame,
 ) -> tuple[
     list[tuple[float, float, bool]],

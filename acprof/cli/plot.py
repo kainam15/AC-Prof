@@ -9,6 +9,7 @@ import acprof.plotting.data as plotting_data
 import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.latency as plotting_latency
 import acprof.plotting.metrics as plotting_metrics
+import acprof.plotting.tail_latency as plotting_tail_latency
 from acprof.artifact_layout import ArtifactLayout
 
 CSV_PATH = "results/result_layers.json"
@@ -86,7 +87,7 @@ def main(argv=None):
             print(f"[skip] No successful data available for {group_name} metric plots")
             continue
 
-        plotting_diagnostics.plot_tail_latency_overview(
+        plotting_tail_latency.plot_tail_latency_overview(
             group_df,
             xlabel=xlabel,
             out_png=(

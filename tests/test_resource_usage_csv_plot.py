@@ -17,6 +17,7 @@ import acprof.plotting.config as plotting_config
 import acprof.plotting.data as plotting_data
 import acprof.plotting.diagnostics as plotting_diagnostics
 import acprof.plotting.metrics as plotting_metrics
+import acprof.plotting.tail_latency as plotting_tail_latency
 from acprof.cli import plot
 from acprof.config import CSV_FIELDS
 
@@ -1676,7 +1677,7 @@ class TestResourceUsageCsvPlot:
                     xlabel="seq_length",
                     out_png=outputs["feasibility"],
                 ),
-                plotting_diagnostics.plot_tail_latency_overview(
+                plotting_tail_latency.plot_tail_latency_overview(
                     frame,
                     xlabel="seq_length",
                     out_png=outputs["tail"],
@@ -1698,7 +1699,7 @@ class TestResourceUsageCsvPlot:
 
         assert (plotted) == ([True, True, True, True])
         assert (all(size > 0 for size in output_sizes.values()))
-        tail_rows = plotting_diagnostics._aggregate_tail_latency(frame)
+        tail_rows = plotting_tail_latency._aggregate_tail_latency(frame)
         assert (set(tail_rows["mem_cap_gb"])) == ({8})
 
     def test_pareto_frontier_excludes_dominated_points(self) -> None:
