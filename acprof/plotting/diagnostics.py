@@ -1,6 +1,7 @@
 """可行性、尾延迟、Pareto 和冷启动诊断图表。"""
 
 import math
+import re
 from collections.abc import Iterable
 
 import matplotlib.pyplot as plt
@@ -26,6 +27,29 @@ from acprof.plotting.styles import (
     build_cpu_base_colors,
 )
 
+_UNMEASURED_ERROR = re.compile(
+    r"^(not_measured_after_startup_oom_pruning|not_measured_after_timeout)(?![a-z0-9_])"
+)
+_OOM_CODES = ("oom", "container_runtime_oom", "runtime_oom", "startup_oom", "container_oom_killed")
+_OOM_FLAG_NAMES = (*_OOM_CODES, "docker_oom_killed", "oom_killed", "oomkilled")
+_OOM_FLAG = re.compile(
+    rf"(?<![a-z0-9_])(?P<name>{'|'.join(_OOM_FLAG_NAMES)})[\"']?\s*[:=]\s*[\"']?"
+    r"(?P<value>true|false|0|1|null|none|unknown)(?![a-z0-9_])"
+)
+_OOM_ERROR = re.compile(
+    r"(?<![a-z0-9_])(?:" + "|".join(_OOM_CODES)
+    + r"|outofmemory(?:error|exception)|memoryerror|out[\s_-]+of[\s_-]+memory"
+    r"|defaultcpuallocator:\s*(?:can't|cannot) allocate memory)(?![a-z0-9_])"
+)
+_RUNTIME_OOM = re.compile(r"(?<![a-z0-9_])(?:container_)?runtime_oom(?![a-z0-9_])")
+_STARTUP_ERROR = re.compile(
+    r"(?<![a-z0-9_])(?:startup|startup_oom|container_start_failed|container_exited_before_ready)(?![a-z0-9_])"
+)
+_TIMEOUT_ERROR = re.compile(
+    r"(?<![a-z0-9_])(?:client_request_timeout|request_timeout|"
+    r"(?:read|connect|write|pool)?timeout(?:error|expired)?|timed[\s_-]+out)(?![a-z0-9_])"
+)
+
 
 def _format_axis_value(value: object) -> str:
     try:
@@ -39,8 +63,36 @@ def _format_axis_value(value: object) -> str:
     return compact if float(compact) == number else repr(number)
 
 
+def _feasibility_error_state(error: str) -> str:
+    """Interpret one normalized diagnostic without borrowing another row's evidence."""
+    unmeasured = _UNMEASURED_ERROR.match(error)
+    if unmeasured:
+        return (
+            "pruned_startup_oom"
+            if unmeasured.group(1) == "not_measured_after_startup_oom_pruning"
+            else "skipped"
+        )
+
+    positive_flags = {
+        match.group("name") for match in _OOM_FLAG.finditer(error)
+        if match.group("value") in {"true", "1"}
+    }
+    # A false/unknown Docker OOM flag is not an allocation failure. Separate
+    # CUDA OOM evidence in the same diagnostic still remains meaningful.
+    message = _OOM_FLAG.sub("", error)
+    if positive_flags or _OOM_ERROR.search(message):
+        if positive_flags & {"container_runtime_oom", "runtime_oom"} or _RUNTIME_OOM.search(message):
+            return "runtime_oom"
+        if "startup_oom" in positive_flags or _STARTUP_ERROR.search(message):
+            return "startup_oom"
+        return "runtime_oom"
+    if _TIMEOUT_ERROR.search(message):
+        return "timeout"
+    return "error"
+
+
 def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str]) -> str:
-    """Classify normalized outcomes, preserving error order within a group."""
+    """Combine independently classified records without synthesizing evidence."""
     status_values = set(statuses)
     nonempty_errors = [error for error in errors if error]
     has_ok = "ok" in status_values
@@ -55,30 +107,14 @@ def _classify_feasibility_outcomes(statuses: Iterable[str], errors: Iterable[str
     if has_warn and not has_error:
         return "warn"
     if has_error:
-        if (
-            nonempty_errors
-            and all("not_measured_after_startup_oom_pruning" in error for error in nonempty_errors)
-        ):
+        states = {_feasibility_error_state(error) for error in nonempty_errors}
+        if states == {"pruned_startup_oom"}:
             return "pruned_startup_oom"
-        if (
-            nonempty_errors
-            and all("not_measured_after_timeout" in error for error in nonempty_errors)
-        ):
+        if states == {"skipped"}:
             return "skipped"
-        combined_error = " ".join(nonempty_errors)
-        startup_oom = (
-            ("oom" in combined_error or "out of memory" in combined_error)
-            and (
-                "startup" in combined_error
-                or "container_start_failed" in combined_error
-            )
-        )
-        if startup_oom:
-            return "startup_oom"
-        if "oom" in combined_error or "out of memory" in combined_error:
-            return "runtime_oom"
-        if "timeout" in combined_error:
-            return "timeout"
+        for state in ("startup_oom", "runtime_oom", "timeout"):
+            if state in states:
+                return state
         return "error"
     return "unknown"
 
