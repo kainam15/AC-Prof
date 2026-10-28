@@ -140,9 +140,9 @@ def test_concurrent_readers_never_restore_a_smaller_limit(tmp_path):
             second = pool.submit(parse_result_stream, lines(1), path, None)
             assert started[1].wait(5), "second reader did not start"
             proceed[0].set()
-            assert first.result(timeout=5)[1] == [expected]
+            assert first.result(timeout=5)[1].rows == [expected]
             proceed[1].set()
-            assert second.result(timeout=5)[1] == [expected]
+            assert second.result(timeout=5)[1].rows == [expected]
             assert csv.field_size_limit() >= len(expected["note"])
         finally:
             for event in proceed:

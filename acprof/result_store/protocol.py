@@ -20,7 +20,7 @@ from acprof.artifacts import (
     read_json_object,
     sync_directory,
 )
-from acprof.result_csv import ResultValidationError, parse_result_stream
+from acprof.result_csv import ResultValidationError, ValidatedResultRows, parse_result_stream
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, layer_fields
 
 SCHEMA_VERSION = 3
@@ -165,14 +165,14 @@ def validate_layer_files(layout: ArtifactLayout, manifest: dict, *, exact=False)
             prefix.verify(exact=exact)
 
 
-def read_layer_rows(path: Path, info: dict) -> list[dict[str, str]]:
+def read_layer_rows(path: Path, info: dict) -> ValidatedResultRows:
     """Hash and parse the same bounded prefix before returning any rows."""
     with path.open("rb", buffering=0) as raw:
         prefix = _CommittedPrefixReader(raw, path, info)
         with io.TextIOWrapper(io.BufferedReader(prefix, buffer_size=_HASH_BUFFER_BYTES),
                               encoding="utf-8", newline="") as stream:
             try:
-                columns, rows = parse_result_stream(stream, path, None, allow_empty=True)
+                columns, validated = parse_result_stream(stream, path, None, allow_empty=True)
             except (ValueError, csv.Error):
                 # Preserve integrity-error precedence even if decoding/CSV failed
                 # before reaching the end of the committed bytes.
@@ -181,7 +181,7 @@ def read_layer_rows(path: Path, info: dict) -> list[dict[str, str]]:
             prefix.verify()
     if columns != info["fields"]:
         raise ResultValidationError(f"result layer header changed: {path}")
-    return rows
+    return validated
 
 
 def save_commit(layout: ArtifactLayout, before: dict | None, after: dict, sources: list[dict], *, transaction: str) -> dict:

@@ -5,7 +5,7 @@ import hashlib
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import loads_finite_json, read_json_object
-from acprof.result_csv import ResultCsvSnapshot, ResultValidationError, measurement_key
+from acprof.result_csv import MeasurementKey, ResultCsvSnapshot, ResultValidationError
 from acprof.result_layers import BASE_LAYERS, LAYER_FILES, consume_layer_rows, layer_identity_fields
 from acprof.result_store.protocol import (
     digest,
@@ -71,13 +71,15 @@ def read_snapshot(root):
                 raise ResultValidationError("result module replacement requires recovery")
         paths = validate_manifest(layout, manifest)
         identity = layer_identity_fields(manifest["wide_fields"])
-        combined, expected = {}, []
+        combined = {}
+        expected: tuple[MeasurementKey, ...] = ()
         for layer in LAYER_FILES:
             info = manifest["layers"][layer]
-            rows = read_layer_rows(paths[layer], info)
+            validated = read_layer_rows(paths[layer], info)
+            rows, keys = validated.rows, validated.keys
+            assert keys is not None  # Layer parsing always validates measurements.
             if len(rows) != info["row_count"]:
                 raise ResultValidationError(f"invalid {layer} row count")
-            keys = [measurement_key(row) for row in rows]
             if layer == "summary":
                 expected = keys
                 combined = dict(zip(keys, rows, strict=True))
@@ -91,7 +93,7 @@ def read_snapshot(root):
                     if any(row[name] != combined[key][name] for name in identity):
                         raise ResultValidationError(f"measurement identity mismatch in {layer}")
                     combined[key].update({name: row[name] for name in value_fields})
-            del rows, keys
+            del validated, rows, keys
         fields = manifest["wide_fields"]
         rows = consume_layer_rows(fields, expected, combined)
         return ResultCsvSnapshot(layout.result_csv, fields, rows, digest(manifest_bytes))

@@ -245,7 +245,7 @@ def audit_result(source: str | Path, *, result_snapshot: ResultCsvSnapshot | Non
         fields, rows = snapshot.fields, snapshot.rows
         if result_snapshot is not None:
             rows = validate_result_rows(fields, rows, snapshot.path,
-                                        allow_empty=path.name == "result_layers.json")
+                                        allow_empty=path.name == "result_layers.json").rows
         report["result_sha256"] = snapshot.sha256
         if verify_result_snapshot and not result_csv_snapshot_unchanged(snapshot):
             issue("changing_snapshot", "读取期间 CSV 发生变化，请采集结束后重新审计")

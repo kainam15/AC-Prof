@@ -34,6 +34,18 @@ class ResultCsvSnapshot:
     sha256: str
 
 
+@dataclass(frozen=True)
+class ValidatedResultRows:
+    """Rows and keys produced together for one private read.
+
+    Structural-only reads have no measurement keys. These keys are not a
+    validation certificate for rows exposed to a consumer and later mutated.
+    """
+
+    rows: list[dict[str, str]]
+    keys: tuple[MeasurementKey, ...] | None
+
+
 class ResultValidationError(ValueError):
     """输入不完整或无法唯一归属到计划中的测量。"""
 
@@ -123,7 +135,7 @@ class _DigestingRawReader(io.RawIOBase):
 
 def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[MeasurementKey] | None, *,
                         allow_empty=False, validate_measurements=True,
-                      ) -> tuple[list[str], list[dict[str, str]]]:
+                      ) -> tuple[list[str], ValidatedResultRows]:
     allow_large_csv_fields()
     reader = csv.DictReader(stream, strict=True)
     fields = list(reader.fieldnames or [])
@@ -133,7 +145,7 @@ def parse_result_stream(stream: Iterable[str], path: Path, expected: Iterable[Me
 
 def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], path: Path, *,
                          expected: Iterable[MeasurementKey] | None = None, allow_empty=False,
-                         validate_measurements=True) -> list[dict[str, str]]:
+                         validate_measurements=True) -> ValidatedResultRows:
     """Validate parsed rows without modifying a consumer's source snapshot.
 
     Historical report input can retain its original values with structural
@@ -149,7 +161,8 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
     missing = set(KEY_FIELDS) - set(fields)
     if validate_measurements and missing:
         raise ResultValidationError(f"missing identity columns {sorted(missing)}: {path}")
-    rows, keys = [], set()
+    rows = []
+    keys: dict[MeasurementKey, None] = {}
     for index, row in enumerate(source_rows, 2):
         if None in row or any(value is None for value in row.values()):
             raise ResultValidationError(f"malformed CSV row: {path}:{index}")
@@ -162,7 +175,7 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
                 raise ResultValidationError(f"duplicate measurement: {path}:{index}: {key}")
             if row.get("status", "").strip().lower() == "error" and not row.get("error", "").strip():
                 raise ResultValidationError(f"status=error without an error diagnostic: {path}:{index}")
-            keys.add(key)
+            keys[key] = None
             if row.get("environment_class") not in {"native_linux", "wsl2", "vm", "cloud", "container_host", "unknown"}:
                 row = {**row, "environment_class": "unknown"}
         rows.append(cast(dict[str, str], row))
@@ -170,12 +183,12 @@ def validate_result_rows(fields: Sequence[str], source_rows: Iterable[dict], pat
         raise ResultValidationError(f"empty case CSV (no measurement rows): {path}")
     if expected is not None:
         planned = set(expected)
-        if keys != planned:
+        if keys.keys() != planned:
             raise ResultValidationError(
-                f"measurement plan mismatch: {path}; missing={len(planned - keys)}, "
-                f"unexpected={len(keys - planned)}"
+                f"measurement plan mismatch: {path}; missing={len(planned - keys.keys())}, "
+                f"unexpected={len(keys.keys() - planned)}"
             )
-    return rows
+    return ValidatedResultRows(rows, tuple(keys) if validate_measurements else None)
 
 
 def _file_sha256(path: Path) -> str:
@@ -203,7 +216,8 @@ def read_result_csv(path: str | Path, *, expected: Iterable[MeasurementKey] | No
             raise ResultValidationError("layered measurement plan mismatch")
         return fields, rows
     with path.open(encoding="utf-8-sig", newline="") as stream:
-        return parse_result_stream(stream, path, expected)
+        fields, validated = parse_result_stream(stream, path, expected)
+        return fields, validated.rows
 
 
 class _CsvRowEncoder:
@@ -310,10 +324,10 @@ def read_result_csv_snapshot(path: str | Path, *, expected: Iterable[Measurement
     with path.open("rb", buffering=0) as raw:
         buffered = io.BufferedReader(_DigestingRawReader(raw, digest), buffer_size=_HASH_BUFFER_BYTES)
         with io.TextIOWrapper(buffered, encoding="utf-8-sig", newline="") as stream:
-            fields, rows = parse_result_stream(stream, path, expected,
-                                              allow_empty=not validate_measurements,
-                                              validate_measurements=validate_measurements)
-    return ResultCsvSnapshot(path=path, fields=fields, rows=rows, sha256=digest.hexdigest())
+            fields, validated = parse_result_stream(stream, path, expected,
+                                                   allow_empty=not validate_measurements,
+                                                   validate_measurements=validate_measurements)
+    return ResultCsvSnapshot(path=path, fields=fields, rows=validated.rows, sha256=digest.hexdigest())
 
 
 def result_csv_snapshot_unchanged(snapshot: ResultCsvSnapshot) -> bool:
