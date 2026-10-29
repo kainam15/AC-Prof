@@ -68,6 +68,19 @@ Textual `run_test()` 通过 async context manager 完成退出；不要遗留后
 Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行结果；CI 沿用
 [确定性分片与完整性验收](ci.md#ci-与环境测试)，数量以 workflow 的 `HOST_TEST_SHARDS` 为准。
 
+静态门槛由 pre-commit 与 CI 共用：全仓库启用 Ruff `S110`，禁止新增无说明的
+`try/except/pass`。诊断回调自身失败的两个保留位置使用局部、带理由的豁免，原始失败和失败状态仍被记录。
+共享参数、输入预算、图像解码与 GPU 探测模块额外检查 `BLE001` 与 `C901`，复杂度上限为 12；
+这是控制流复杂度上限，不是函数行数。需要捕获第三方任意异常的 GPU 边界必须保留结构化错误，
+并在局部说明宽捕获的理由。历史模块没有批量新增复杂度豁免。
+这些共享模块与 `host.measurement.config` 同时纳入严格 mypy 注解检查；完整类型入口仍为
+`uv run --locked python -m mypy`，定向规则可用以下命令复现：
+
+```bash
+uv run --locked ruff check --select BLE001,C901 acprof/config_constraints.py acprof/input_budget.py acprof/image_inputs.py acprof/gpu_probe.py acprof/host/gpu_metadata.py
+uv run --locked python -m pre_commit run shared-boundaries --all-files
+```
+
 `test_architecture.py` 禁止根目录出现任何 `.py` 文件，检查标准库 `profile/cProfile` 可直接导入。
 `test_distribution.py`、`test_tui_interaction.py` 与 terminal-log 回归保护公开帮助、
 TUI 预览及日志中的 `acprof <command>` 展示，并保留含空格或 shell 特殊字符的参数。

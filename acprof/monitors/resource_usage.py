@@ -1,6 +1,7 @@
 """Container CPU/memory and NVML GPU utilization monitoring."""
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -9,6 +10,8 @@ from acprof.monitors import resource_metrics, resource_readers
 from acprof.monitors.common import sample_periodically
 from acprof.monitors.interfaces import ResourceStopResult
 from acprof.monitors.sampling import DEFAULT_RAW_SAMPLE_LIMIT, SamplingDiagnostics, SamplingPolicy
+
+_LOG = logging.getLogger(__name__)
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 
@@ -295,8 +298,8 @@ class ResourceUsageMonitor:
         if self._gpu_initialized and pynvml is not None:
             try:
                 pynvml.nvmlShutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOG.warning("NVML resource monitor shutdown failed: %s: %s", type(exc).__name__, exc)
         self._closed = True
 
     def _record_runtime_error(self, error: str) -> None:

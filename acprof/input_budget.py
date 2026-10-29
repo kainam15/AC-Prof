@@ -15,7 +15,7 @@ class InputBudgetExceeded(ValueError):
     """Construction was refused before allocation; no inference OOM occurred."""
 
 
-def positive_integer(value: Any, name: str, *, allow_integral_float: bool = True) -> int:
+def positive_integer(value: object, name: str, *, allow_integral_float: bool = True) -> int:
     """Parse numeric integers without truncation; strict fields reject floats."""
     try:
         parsed = integer(value, allow_integral_float=allow_integral_float)
@@ -33,7 +33,7 @@ class InputBudget:
     max_pixels: int = 67_108_864
 
     @classmethod
-    def from_value(cls, value: Any = None) -> "InputBudget":
+    def from_value(cls, value: object = None) -> "InputBudget":
         if value is None:
             return cls()
         if not isinstance(value, dict) or set(value) - set(cls.__dataclass_fields__):
@@ -73,13 +73,13 @@ class InputBudget:
         self._check("pixels", width * height * frames * batch, self.max_pixels)
 
 
-def check_nlp_input(raw: dict, task: str, *, embedding_prompt: str = "") -> InputBudget:
+def check_nlp_input(raw: dict[str, Any], task: str, *, embedding_prompt: str = "") -> InputBudget:
     """Count request expansion without allocating samples or invoking a tokenizer."""
     budget = InputBudget.from_value(raw.get("input_budget"))
     batch = positive_integer(raw.get("batch_size", 1), "batch_size")
     budget.batch(batch)
 
-    def length(value):
+    def length(value: object) -> int:
         return len(value) if isinstance(value, str) else 0
 
     items = 1

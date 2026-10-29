@@ -20,6 +20,14 @@ repos:
         types_or: [python, pyi, jupyter]
         require_serial: true
 
+      - id: shared-boundaries
+        name: Check exception and complexity limits in shared boundaries
+        entry: uv run --locked ruff check --select BLE001,C901 --force-exclude
+        language: system
+        types: [python]
+        files: '^acprof/(config_constraints|input_budget|image_inputs|gpu_probe|host/gpu_metadata)\.py$'
+        require_serial: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
     hooks:

@@ -49,7 +49,7 @@ class PreparationEvidence:
         try:
             self._stderr.write(f"[WARN] Preparation evidence is incomplete: {detail}\n")
             self._stderr.flush()
-        except Exception:
+        except Exception:  # noqa: S110 - original failure is already in evidence_errors; stderr may be closed
             pass  # The original error and normal process cleanup still own the outcome.
 
     def _publish(self) -> None:

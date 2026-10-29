@@ -108,7 +108,7 @@ class PreparationLog:
             line.reset()
         try:
             self._on_error(exc)
-        except Exception:
+        except Exception:  # noqa: S110 - failed status is retained; a broken error callback must not recurse
             pass  # Diagnostic reporting must not replace the observed operation.
 
     def _append(self, line: _PendingLine, text: str, start: int, end: int) -> None:

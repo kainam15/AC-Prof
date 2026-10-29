@@ -1,6 +1,7 @@
 """Linux perf based retired-instruction and memory-behavior monitoring."""
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -16,6 +17,8 @@ from typing import Any
 
 from acprof.host.command import run_command
 from acprof.monitors import common
+
+_LOG = logging.getLogger(__name__)
 
 MIPS_EXIT_CODE = 8
 PERF_EVENT = "instructions"
@@ -613,5 +616,5 @@ class PerfMIPSMonitor:
             self._proc.kill()
             try:
                 self._proc.communicate(timeout=PERF_STOP_TIMEOUT_S)
-            except Exception:
-                pass
+            except (OSError, subprocess.SubprocessError) as exc:
+                _LOG.warning("Perf cleanup failed after kill: %s: %s", type(exc).__name__, exc)

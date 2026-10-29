@@ -1,11 +1,14 @@
 """Discover cgroup/proc/sysfs readers before sampling and read raw counters."""
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from acprof.monitors.common import docker_container_pid
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass
@@ -212,8 +215,8 @@ def _discover_cpu_ids(cpu_sysfs_root: str) -> list[int]:
                 cpu_ids = _parse_online_cpu_ids(f.read())
             if cpu_ids:
                 return cpu_ids
-        except Exception:
-            pass
+        except (OSError, ValueError) as exc:
+            _LOG.warning("CPU online map unavailable; scanning CPU directories: %s: %s", type(exc).__name__, exc)
 
     cpu_ids = []
     try:

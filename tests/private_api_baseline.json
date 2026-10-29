@@ -2,29 +2,14 @@
   "schema_version": 1,
   "dependencies": [
     {
-      "source": "acprof.container.handlers.multimodal",
-      "target": "acprof.container.handlers.audio",
-      "symbol": "_positive_int"
-    },
-    {
       "source": "acprof.container.handlers.onnx_tasks",
       "target": "acprof.container.handlers.structured",
       "symbol": "_artifact_path"
     },
     {
-      "source": "acprof.container.handlers.onnx_tasks",
-      "target": "acprof.container.handlers.structured",
-      "symbol": "_positive_integer"
-    },
-    {
       "source": "acprof.container.handlers.onnxruntime",
       "target": "acprof.container.handlers.structured",
       "symbol": "_dense_matrix"
-    },
-    {
-      "source": "acprof.container.handlers.onnxruntime",
-      "target": "acprof.container.handlers.structured",
-      "symbol": "_positive_integer"
     },
     {
       "source": "acprof.container.onnx_session",

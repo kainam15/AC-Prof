@@ -118,7 +118,11 @@ extend-exclude = ["internal-testing", "results", "evidence"]
 
 [tool.ruff.lint]
 # 基础错误、import 排序、Python 3.12 语法及 pytest 约束。
-select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "B905", "I", "UP", "PT", "RUF010", "RUF013", "SIM101"]
+select = ["E4", "E7", "E9", "F", "B006", "B012", "B904", "B905", "I", "UP", "PT", "RUF010", "RUF013", "SIM101", "S110"]
+
+# Incremental complexity gate for shared validation/input/GPU boundaries.
+[tool.ruff.lint.mccabe]
+max-complexity = 12
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -136,6 +140,12 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "acprof.analysis.precision",
+    "acprof.config_constraints",
+    "acprof.input_budget",
+    "acprof.image_inputs",
+    "acprof.gpu_probe",
+    "acprof.host.gpu_metadata",
+    "acprof.host.measurement.config",
     "acprof.analysis.latency_validation",
     "acprof.host.measurement.metrics",
     "acprof.host.measurement.error_rows",

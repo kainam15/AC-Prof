@@ -1,3 +1,4 @@
+import logging
 import math
 import threading
 import time
@@ -21,6 +22,8 @@ from acprof.monitors.sampling import (
     SamplingPolicy,
     next_deadline,
 )
+
+_LOG = logging.getLogger(__name__)
 
 SAMPLER_STOP_TIMEOUT_S = 1.0
 COUNTER_SAMPLE_POWER_TOLERANCE = 0.25
@@ -351,8 +354,8 @@ class GPUEnergyMonitor:
             self.stop()
         try:
             pynvml.nvmlShutdown()
-        except Exception:
-            pass
+        except Exception as exc:
+            _LOG.warning("NVML energy monitor shutdown failed: %s: %s", type(exc).__name__, exc)
         self._closed = True
 
     def _sample_loop(self) -> None:

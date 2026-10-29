@@ -15,11 +15,14 @@ import math
 import wave
 from itertools import chain, repeat
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from acprof.image_inputs import load_image_groups
 from acprof.input_budget import InputBudget
 from acprof.workloads import WorkloadGenerator, register_generator
+
+if TYPE_CHECKING:
+    from PIL import Image
 
 TASK_MODALITY = {
     "audio-text-to-text": "audio",
@@ -176,7 +179,7 @@ class MultimodalWorkloadGenerator(WorkloadGenerator):
         self._audio_duration = _positive_number(spec.get("audio_duration_s", 2), "audio_duration_s")
         self._video_count = int(_positive_number(spec.get("video_num_frames", 4), "video_num_frames", integer=True))
         self._image = None
-        self._frames = None
+        self._frames: list[Image.Image] | None = None
         self._words: list[str] = []
         self._boxes: list[list[float]] = []
         self._load_visual_assets(spec)
