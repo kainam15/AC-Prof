@@ -16,7 +16,6 @@ from acprof.gpu_probe import (
     record_gpu_probe_error,
     set_gpu_probe_value,
 )
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.support import (
     format_scale_value,
@@ -35,6 +34,7 @@ from acprof.host.profiling.tools.compute_parsers import (
     to_float,
 )
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
+from acprof.system.command import run_command
 
 NCU_TOOL = "ncu"
 

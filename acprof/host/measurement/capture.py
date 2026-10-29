@@ -7,8 +7,8 @@ import shutil
 from dataclasses import dataclass
 
 from acprof.config import SERVER_PORT
-from acprof.host import command as host_command
 from acprof.installation import module_command
+from acprof.system import command as host_command
 
 
 @dataclass

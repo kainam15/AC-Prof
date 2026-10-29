@@ -43,7 +43,7 @@ def test_short_host_commands_use_the_registered_runner():
     violations = []
     for path in (PROJECT_DIR / "acprof").rglob("*.py"):
         relative = path.relative_to(PROJECT_DIR).as_posix()
-        if relative.startswith("acprof/container/") or relative == "acprof/host/command.py":
+        if relative.startswith("acprof/container/") or relative == "acprof/system/command.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         aliases = {}

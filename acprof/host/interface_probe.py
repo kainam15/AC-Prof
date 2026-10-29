@@ -14,7 +14,6 @@ from pathlib import Path
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, loads_finite_json
 from acprof.container.model_probe import RESULT_PREFIX
-from acprof.host.command import run_command
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -31,6 +30,7 @@ from acprof.model_spec import encode_model_spec, task_model_spec
 from acprof.preparation_events import preparation_stage
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
+from acprof.system.command import run_command
 
 
 class InterfaceProbeError(RuntimeError):

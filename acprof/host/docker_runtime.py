@@ -20,8 +20,7 @@ from acprof.config import (
     SERVER_PORT,
 )
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host import command as host_command, container_state
-from acprof.host.command import DOCKER_RUN_TIMEOUT_S
+from acprof.host import container_state
 from acprof.host.container_lifecycle import (
     container_owner_labels,
     recover_abandoned_containers,
@@ -35,6 +34,8 @@ from acprof.host.env_utils import hf_offline_docker_env_args
 from acprof.host.gpu_device import gpu_docker_args, resolve_gpu_device
 from acprof.host.images.runtime import ImageInfo
 from acprof.runtime_settings import runtime_docker_env_args
+from acprof.system import command as host_command
+from acprof.system.command import DOCKER_RUN_TIMEOUT_S
 
 
 @dataclass

@@ -111,7 +111,7 @@ class TestModelCandidate(ModelCandidateFixture):
         record = replace(record, state={**record.state, 'runtime': {'task': task}})
         config = RunConfig.smoke(record.model_id)
         with patch.dict('os.environ', {}, clear=True), patch('acprof.host.images.runtime.shutil.which', return_value='/usr/bin/nvidia-smi'), patch(
-                'acprof.host.command.run_command', return_value=SimpleNamespace(returncode=0, stdout='CUDA Version: 12.4')) as command:
+                'acprof.system.command.run_command', return_value=SimpleNamespace(returncode=0, stdout='CUDA Version: 12.4')) as command:
             assert (select_nlp_torch_index_url().endswith('/cu124'))
             assert (command.call_args.kwargs['timeout']) == (10)
             command.reset_mock()

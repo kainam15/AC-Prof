@@ -6,8 +6,8 @@ import platform
 from pathlib import Path
 
 from acprof import __version__
-from acprof.host.command import run_command
 from acprof.platform import Environment, detect_environment
+from acprof.system.command import run_command
 
 
 def collect_platform_metadata(environment: Environment, project_dir: str | Path, *, runtime_kind='docker') -> dict:

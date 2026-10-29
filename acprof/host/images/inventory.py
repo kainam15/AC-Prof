@@ -8,7 +8,7 @@ import re
 import subprocess
 from dataclasses import dataclass, replace
 
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 
 class ImageManagementError(RuntimeError):

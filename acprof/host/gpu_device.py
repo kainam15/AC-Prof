@@ -6,7 +6,7 @@ import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 _SELECTED: ContextVar[dict | None] = ContextVar("acprof_gpu_device", default=None)
 

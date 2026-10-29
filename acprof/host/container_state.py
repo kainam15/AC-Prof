@@ -6,8 +6,8 @@ import logging
 import subprocess
 from typing import Any
 
-from acprof.host.command import run_command
 from acprof.host.container_lifecycle import INSPECT_TIMEOUT_S
+from acprof.system.command import run_command
 
 _LOG = logging.getLogger(__name__)
 

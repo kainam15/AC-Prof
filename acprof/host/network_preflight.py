@@ -16,7 +16,6 @@ from urllib.parse import urlsplit
 
 from acprof.artifacts import read_json_object
 from acprof.dependency_locks import content_digest
-from acprof.host import command as host_command
 from acprof.host.download_probe import failure_reason, probe_allowance, probe_record
 from acprof.host.images.environment import (
     DEFAULT_RUNTIME_REGISTRY,
@@ -35,6 +34,7 @@ from acprof.network_policy import (
     summarize_downloads,
 )
 from acprof.runtime_profiles import environment_identity
+from acprof.system import command as host_command
 
 
 class PolicyRedirectHandler(urllib.request.HTTPRedirectHandler):

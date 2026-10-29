@@ -105,7 +105,7 @@ class TestRuntimeSettings:
         commands = []
         environment = {} if override is None else {'ACPROF_REQUEST_TIMEOUT_S': override}
         with patch.dict(os.environ, environment, clear=True), patch(
-            'acprof.host.command.run_command', side_effect=lambda command, **kwargs:
+            'acprof.system.command.run_command', side_effect=lambda command, **kwargs:
             commands.append(command) or SimpleNamespace(returncode=0, stdout='b' * 64 if command[:2] == ['docker', 'run'] else '', stderr=''),
         ), patch('requests.get', return_value=SimpleNamespace(status_code=200, json=lambda: {'status': 'ok'})):
             start_container_session(task, 1, 1, 'off', ImageInfo(tag='fixture'), 'test-deadline', '[test]',

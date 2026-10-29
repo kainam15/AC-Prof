@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from acprof.host import command
 from acprof.host.images import environment, runtime
 from acprof.host.profiling.tools import execution_environment
+from acprof.system import command
 
 
 def test_image_identity_and_manifest_reads_have_separate_budgets(monkeypatch):

@@ -131,7 +131,7 @@ def test_ready_failure_materializes_full_error_matrix_without_packet_misdiagnosi
         base_url="http://127.0.0.1:8106", host_port=8106, cold_start_s=1,
     )), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
         "acprof.host.orchestrator.stop_service_session"
-    ), patch("acprof.host.command.run_command", side_effect=fake_run):
+    ), patch("acprof.system.command.run_command", side_effect=fake_run):
         path = orchestrator.run_single_case(
             cases.CaseRequest(
                 task_info=task_info,

@@ -122,7 +122,7 @@ class TestStaticMetadata:
             return_value="/usr/bin/lsblk",
         ):
             with patch(
-                "acprof.host.command.run_command",
+                "acprof.system.command.run_command",
                 return_value=SimpleNamespace(
                     returncode=0,
                     stdout=json.dumps({"blockdevices": [device_metadata]}),
@@ -147,7 +147,7 @@ class TestStaticMetadata:
 
     def test_select_nlp_torch_index_url_uses_cu124_for_cuda_12_4_driver(self) -> None:
         with patch("acprof.host.images.runtime.shutil.which", return_value="/usr/bin/nvidia-smi"), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             return_value=SimpleNamespace(
                 returncode=0,
                 stdout="Driver Version: 550.78    CUDA Version: 12.4\n",

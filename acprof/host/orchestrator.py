@@ -18,7 +18,7 @@ from acprof.artifacts import atomic_write, read_json_object, replace_file_durabl
 from acprof.capabilities import measurement_requested, require_profiling_mode
 from acprof.config import CLIENT_REQUEST_TIMEOUT_EXIT_CODE, SERVER_PORT
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host import cases, command as host_command
+from acprof.host import cases
 from acprof.host.hardware_conditions import record_case_conditions
 from acprof.host.images.identity import model_token
 from acprof.host.input_plan import resolve_input_scales, serialize_input_scales
@@ -57,6 +57,7 @@ from acprof.installation import module_command
 from acprof.monitors.perf_mips import MIPS_EXIT_CODE
 from acprof.progress_events import emit_event, measurement_boundary
 from acprof.result_csv import allow_large_csv_fields
+from acprof.system import command as host_command
 
 if TYPE_CHECKING:
     from acprof.host.run_state import RunState

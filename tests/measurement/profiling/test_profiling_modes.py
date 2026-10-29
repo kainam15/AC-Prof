@@ -44,7 +44,7 @@ class TestProfilingMode:
         with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
             stack.enter_context(patch.object(orchestrator, "start_service_session", return_value=RunningContainer("test", "http://localhost", 8000, 0.1)))
             stack.enter_context(patch.object(orchestrator, "stop_service_session"))
-            stack.enter_context(patch("acprof.host.command.run_command", side_effect=fake_run))
+            stack.enter_context(patch("acprof.system.command.run_command", side_effect=fake_run))
             stack.enter_context(patch.object(orchestrator, "_resolve_packet_latency_runtime", side_effect=AssertionError("basic must not resolve packet capture")))
             stack.enter_context(patch.object(orchestrator, "check_case_cpu_idle_power_stable", side_effect=AssertionError("basic must not require RAPL")))
             stack.enter_context(redirect_stdout(output))

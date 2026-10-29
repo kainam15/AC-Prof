@@ -9,7 +9,7 @@ from pathlib import Path
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import replace_file_durably
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 TMUX_TERMINAL_LOG_FILENAME = "tmux_all.log"
 

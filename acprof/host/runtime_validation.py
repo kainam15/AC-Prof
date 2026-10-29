@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from acprof.artifacts import loads_finite_json
 from acprof.container.runtime_validate import RESULT_PREFIX, STAGE_PREFIX
 from acprof.failures import Failure, RuntimeFailure, failure_from_exception
-from acprof.host.command import run_command
 from acprof.host.container_lifecycle import (
     ContainerCleanupError,
     container_owner_labels,
@@ -28,6 +27,7 @@ from acprof.host.container_lifecycle import (
 from acprof.host.gpu_device import gpu_docker_args
 from acprof.host.validation_logs import ValidationLog
 from acprof.runtime_settings import runtime_docker_env_args
+from acprof.system.command import run_command
 
 if TYPE_CHECKING:
     from acprof.host.detect import TaskInfo

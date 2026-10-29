@@ -111,7 +111,7 @@ def modelscope_api():
 def modelscope_revision(model_id: str, revision: str | None) -> str:
     from huggingface_hub.utils import validate_repo_id
 
-    from acprof.host import command as host_command
+    from acprof.system import command as host_command
     validate_repo_id(model_id)
     if revision and re.fullmatch(r"[0-9a-f]{40}", revision):
         return revision

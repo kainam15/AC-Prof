@@ -1,7 +1,7 @@
 """Reject reverse dependencies between AC-Prof implementation layers.
 
 Only runtime imports are checked; imports guarded by TYPE_CHECKING do not cause
-runtime coupling. A two-edge exception documents existing monitor command use.
+runtime coupling. Shared command execution belongs to acprof.system.
 """
 from __future__ import annotations
 
@@ -18,12 +18,6 @@ FORBIDDEN = {
     "monitors": frozenset({"host", "cli", "tui", "plotting", "analysis", "container"}),
     "workloads": frozenset({"host", "cli", "tui"}),
     "packet": frozenset({"cli", "tui"}),
-}
-# Monitor discovery currently uses the shared host subprocess runner.
-# Keep this exception narrow until command ownership is independently migrated.
-EXISTING_EXCEPTIONS = {
-    ("acprof.monitors.common", "acprof.host.command"),
-    ("acprof.monitors.perf_mips", "acprof.host.command"),
 }
 
 
@@ -50,9 +44,6 @@ class ImportChecker(ast.NodeVisitor):
             return
         if parts[1] not in FORBIDDEN.get(self.layer, ()):
             return
-        for source, target in EXISTING_EXCEPTIONS:
-            if self.module == source and (imported == target or imported.startswith(target + ".")):
-                return
         self.violations.append(f"{self.module}:{line}: forbidden import {imported}")
 
     def visit_If(self, node: ast.If) -> None:

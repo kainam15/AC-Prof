@@ -5,13 +5,13 @@ import threading
 import time
 from collections.abc import Callable
 
-from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, run_command
 from acprof.monitors.sampling import (
     SamplingDiagnostics,
     SamplingPolicy,
     next_deadline,
     sampling_policy,
 )
+from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S, run_command
 
 
 def docker_container_pid(container_name: str, *, error_type: type[RuntimeError] = RuntimeError) -> int:

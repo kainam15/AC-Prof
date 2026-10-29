@@ -36,13 +36,13 @@ class TestContainerOwnership:
         def failed(args, **kwargs):
             self.commands.append(args)
             return SimpleNamespace(returncode=1, stdout="", stderr="container name already in use")
-        with patch("acprof.host.command.run_command", side_effect=failed), pytest.raises(RuntimeError):
+        with patch("acprof.system.command.run_command", side_effect=failed), pytest.raises(RuntimeError):
             self.start()
         assert not (any(args[:2] == ["docker", "rm"] for args in self.commands))
 
     def test_sessions_have_unique_names_and_cleanup_uses_the_owned_immutable_id(self):
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
-        with patch("acprof.host.command.run_command", side_effect=self.command), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
+        with patch("acprof.system.command.run_command", side_effect=self.command), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
             first, second = self.start(), self.start()
             docker_runtime.stop_container_session(first)
         assert (first.name) != (second.name)
@@ -53,7 +53,7 @@ class TestContainerOwnership:
         response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
         mount = SimpleNamespace(args=[], close=Mock())
         with patch("acprof.host.model_store.acquire_mount", return_value=mount), patch(
-            "acprof.host.command.run_command", side_effect=self.command
+            "acprof.system.command.run_command", side_effect=self.command
         ), patch("requests.get", return_value=response), redirect_stdout(io.StringIO()):
             session = self.start()
             mount.close.assert_not_called()
@@ -72,7 +72,7 @@ class TestContainerOwnership:
             "acprof.host.docker_runtime.runtime_docker_env_args",
             side_effect=RuntimeError("runtime env setup failed"),
         ), patch(
-            "acprof.host.command.run_command", side_effect=fake_run,
+            "acprof.system.command.run_command", side_effect=fake_run,
         ), pytest.raises(RuntimeError, match="runtime env setup failed"):
             self.start()
 
@@ -80,7 +80,7 @@ class TestContainerOwnership:
 
     def test_launched_container_records_process_ownership_for_crash_recovery(self):
         response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})
-        with patch("acprof.host.command.run_command", side_effect=self.command), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
+        with patch("acprof.system.command.run_command", side_effect=self.command), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
             self.start()
         command = next(args for args in self.commands if args[:2] == ['docker', 'run'])
         labels = dict(command[i + 1].split('=', 1) for i, arg in enumerate(command) if arg == '--label')
@@ -118,7 +118,7 @@ class TestContainerOwnership:
             return SimpleNamespace(returncode=0, stdout=self.identifier if args[:2] == ['docker', 'run'] else '', stderr='')
 
         response = SimpleNamespace(status_code=200, text='', json=lambda: {'status': 'ok'})
-        with patch("acprof.host.command.run_command", side_effect=execute), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
+        with patch("acprof.system.command.run_command", side_effect=execute), patch('requests.get', return_value=response), redirect_stdout(io.StringIO()):
             self.start()
         removed = [args[-1] for args in self.commands if args[:2] == ['docker', 'rm']]
         assert (removed) == (['1' * 64])
@@ -126,7 +126,7 @@ class TestContainerOwnership:
 
     def test_startup_failure_removes_only_the_created_id(self):
         state = {"Running": False, "Restarting": False, "OOMKilled": True, "ExitCode": 137}
-        with patch("acprof.host.command.run_command", side_effect=self.command), patch("acprof.host.container_state.inspect_container_state", return_value=state), patch(
+        with patch("acprof.system.command.run_command", side_effect=self.command), patch("acprof.host.container_state.inspect_container_state", return_value=state), patch(
             "requests.get", side_effect=ConnectionError("not ready")
         ), redirect_stdout(io.StringIO()), pytest.raises(container_state.ContainerStartupError):
             self.start()
@@ -139,12 +139,12 @@ class TestContainerOwnership:
                 self.commands.append(args)
                 return SimpleNamespace(returncode=125, stdout="", stderr="port already allocated")
             return self.command(args, **kwargs)
-        with patch("acprof.host.command.run_command", side_effect=failed), pytest.raises(RuntimeError, match="port already allocated"):
+        with patch("acprof.system.command.run_command", side_effect=failed), pytest.raises(RuntimeError, match="port already allocated"):
             self.start()
         assert ([args[-1] for args in self.commands if args[:2] == ["docker", "rm"]]) == ([self.identifier])
 
     def test_docker_run_timeout_reclaims_only_the_cidfile_container(self):
-        from acprof.host.command import DOCKER_RUN_TIMEOUT_S
+        from acprof.system.command import DOCKER_RUN_TIMEOUT_S
 
         def stall(args, **kwargs):
             assert kwargs['timeout'] == DOCKER_RUN_TIMEOUT_S
@@ -158,7 +158,7 @@ class TestContainerOwnership:
         remove.assert_called_once_with(self.identifier, run)
 
     def test_cancelled_readiness_cleans_only_owned_container(self):
-        with patch("acprof.host.command.run_command", side_effect=self.command), patch(
+        with patch("acprof.system.command.run_command", side_effect=self.command), patch(
             "requests.get", side_effect=KeyboardInterrupt
         ), pytest.raises(KeyboardInterrupt):
             self.start()

@@ -8,10 +8,10 @@ import os
 from typing import Any
 
 from acprof.gpu_probe import require_gpu_identity
-from acprof.host.command import run_command
 from acprof.host.measurement.metrics import (
     to_float_or_nan as _to_float_or_nan,
 )
+from acprof.system.command import run_command
 
 
 def _run_json_lines(cmd: list[str], timeout: float = 2.0) -> list[dict[str, Any]]:

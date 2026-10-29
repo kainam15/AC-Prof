@@ -674,8 +674,8 @@ class RunState:
                 recover_process(record["cleanup_process"])
                 recovery = {"kind": "process", "status": "complete"}
             else:
-                from acprof.host import command as host_command
                 from acprof.host.container_lifecycle import recover_cleanup_debt
+                from acprof.system import command as host_command
                 recovery = recover_cleanup_debt(
                     [{"container_id": record.get("cleanup_container_id", "")}], host_command.run_command,
                 )

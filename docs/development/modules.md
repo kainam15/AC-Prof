@@ -99,7 +99,7 @@ flowchart TD
 提前加载 Textual。容器内推理与主机通过现有 HTTP、输入计划和产物协议交互。
 `scripts/check_import_boundaries.py` 在 CI 中用 AST 检查各关键包的运行时导入方向，
 不允许分析、容器与负载层倒向采集或 UI 层。`TYPE_CHECKING` 导入不形成运行时耦合；
-monitor 使用共享 `host.command` 的两条现有边精确豁免，待命令归属迁移时再删除。
+监测器与主机端共用 `system.command`，无需跨层的 host 命令导入例外。
 
 跨模块调用应引用职责所属模块的公共能力。`scripts/check_private_api.py` 用标准库 AST
 记录 `acprof/` 中的 `(source, target, symbol)`，CI 拒绝未登记的新 private dependency，

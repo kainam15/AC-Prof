@@ -152,7 +152,7 @@ def test_startup_error_keeps_python_stderr():
         stderr = "ValueError: custom code is required" if command[:2] == ["docker", "logs"] else ""
         return subprocess.CompletedProcess(command, 0, stdout="b" * 64 if command[:2] == ["docker", "run"] else "", stderr=stderr)
 
-    with patch("acprof.host.command.run_command", side_effect=fake_run), patch("acprof.host.container_state.inspect_container_state", return_value={
+    with patch("acprof.system.command.run_command", side_effect=fake_run), patch("acprof.host.container_state.inspect_container_state", return_value={
             "Status": "exited", "Running": False, "ExitCode": 1,
         },
     ), patch("requests.get", side_effect=ConnectionError), pytest.raises(RuntimeError, match="custom code is required"):

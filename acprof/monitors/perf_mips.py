@@ -15,8 +15,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from acprof.host.command import run_command
 from acprof.monitors import common
+from acprof.system.command import run_command
 
 _LOG = logging.getLogger(__name__)
 

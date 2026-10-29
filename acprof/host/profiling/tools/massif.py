@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from acprof.artifacts import read_json_object
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.support import (
     execution_thread_environment,
@@ -25,6 +24,7 @@ from acprof.host.profiling.tools.execution_parsers import (
     finite_float,
     parse_massif_output,
 )
+from acprof.system.command import run_command
 
 MASSIF_TOOL = "massif"
 

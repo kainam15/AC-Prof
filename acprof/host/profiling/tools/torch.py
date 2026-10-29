@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.support import (
     parse_last_json_line,
@@ -13,6 +12,7 @@ from acprof.host.profiling.support import (
 from acprof.host.profiling.tools.compute_parsers import (
     to_float,
 )
+from acprof.system.command import run_command
 
 TORCH_PROFILER_TOOL = "torch_profiler_eager"
 

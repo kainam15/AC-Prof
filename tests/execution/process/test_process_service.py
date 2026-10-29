@@ -43,7 +43,7 @@ server.serve_forever(poll_interval=.01)
 
 def test_process_service_owns_ephemeral_ports_and_no_docker(service, monkeypatch):
     task, info = service
-    from acprof.host import command
+    from acprof.system import command
     monkeypatch.setattr(command, 'run_command', lambda *a, **kw: pytest.fail('service must not execute Docker/host commands'))
     runtime = ProcessRuntime()
     sessions = []

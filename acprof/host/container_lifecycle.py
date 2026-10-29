@@ -10,8 +10,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
 from acprof.host.runtimes.contracts import RuntimeCleanupError
+from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S
 
 LIFECYCLE_LABEL = "org.acprof.container.lifecycle"
 OWNER_PREFIX = "org.acprof.owner."

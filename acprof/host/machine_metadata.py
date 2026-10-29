@@ -8,7 +8,7 @@ import re
 import shutil
 from typing import Any
 
-from acprof.host import command as host_command
+from acprof.system import command as host_command
 
 CPU_SYSFS_ROOT = "/sys/devices/system/cpu"
 

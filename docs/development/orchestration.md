@@ -10,7 +10,7 @@
 | `model_candidates` / `task_workloads` / `inference_groups` / `host/task_selection` | 分离模型声明、语义输入模板、计算配置分组与交互选择；不以架构候选替代明确任务证据，也不为 prompt-only 变化重跑资源矩阵 |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `network_preflight` / `download_probe` | Docker/Process 下载计划与确认、来源元数据检查及共享预算的限量 GET；复用 HF transport，全部在准备阶段执行 |
-| `host/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
+| `system/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
 | `docker_runtime` | 推理服务容器的所有权、启停、ready 检查及原有冷启动分段 |
 | `runtimes/contracts` / `runtimes/service` | 统一执行契约、Runtime dispatch、客户端执行证据；编排不依赖 Docker 生命周期细节 |
 | `runtimes/docker` / `runtimes/process` | 原 Docker adapter 与无 Docker 的受管理服务；启动就绪和停止清理均由 adapter 完整持有 |
@@ -101,7 +101,7 @@ idle history 由执行器按 case 保存，GPU idle 来源在 workload stop 完�
 
 ### Host command 与 diagnostics
 
-host 的短生命周期同步命令直接复用 `host.command.run_command`，覆盖 Docker、doctor、
+host 的短生命周期同步命令直接复用 `system.command.run_command`，覆盖 Docker、doctor、
 preflight、perf probe、profiler、TUI diagnostics 和 packet 后处理。镜像、状态、容器与调用方
 直接使用 runner；需要非零退出抛错或直通输出的调用显式设置
 `check=True` / `capture_output=False`。container-side subprocess 与开发 scripts 不在此执行边界中。
@@ -110,7 +110,7 @@ runner 接收 literal argv，禁止隐式 shell；stdout/stderr 使用 UTF-8 和
 返回值保留 `CompletedProcess` 的 args、returncode、stdout/stderr，并增加 `duration_s` 和 metadata。
 默认捕获输出、`check=False`；调用方原有的 check、capture 和 timeout 选择保持原义，未设置 timeout
 仍为无限等待；与 Docker daemon 交互的生产路径应显式使用有界 timeout，启动和 inspect
-预算由 `host.command` 集中定义。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
+预算由 `system.command` 集中定义。`env` 保留完整替换语义，`env_overrides` 在它或父环境上覆盖，不修改父进程环境。
 非零退出按 check 决定是否抛出 `CalledProcessError`；timeout、OSError 和取消继续传播原异常。
 timeout 的部分输出保留标准库的 bytes 语义。runner 不增加 retry、进程组或 Docker 容器清理策略。
 长期进程继续由 `ProcessLifecycle`、`PerfMIPSMonitor`、orchestrator/load 的 tcpdump owner 管理。

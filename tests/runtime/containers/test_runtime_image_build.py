@@ -69,7 +69,7 @@ class TestRuntimeImageBuild:
         self.failed_dockerfile = None
         for mocked in (
             patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "build"}, clear=True),
-            patch("acprof.host.command.run_command", side_effect=self.fake_run),
+            patch("acprof.system.command.run_command", side_effect=self.fake_run),
             patch.object(runtime_images, "inspect_identity", side_effect=self.images.get),
             patch.object(runtime_images, "verified_image", side_effect=self.verified_image),
             patch("acprof.host.model_store.plan_model", return_value={}),
@@ -262,7 +262,7 @@ class TestRuntimeImageBuild:
                 return subprocess.CompletedProcess(command, 0, "", "")
             return self.fake_run(command, **kwargs)
 
-        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.host.command.run_command", side_effect=registry_run,
+        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.system.command.run_command", side_effect=registry_run,
         ), patch.object(runtime_images, "inspect_identity", side_effect=self.images.get):
             reused = prepare_environment_image(environment)
         assert (reused.image_id) == (prepared.image_id)
@@ -273,7 +273,7 @@ class TestRuntimeImageBuild:
     def test_pull_only_failure_never_builds_locally(self):
         from acprof.host.images.environment import prepare_environment_image
         from acprof.runtime_profiles import ENVIRONMENTS
-        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.host.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
+        with patch.dict(os.environ, {"ACPROF_RUNTIME_IMAGE_SOURCE": "pull"}), patch("acprof.system.command.run_command", return_value=subprocess.CompletedProcess([], 1, "", "manifest unknown"),
         ) as command:
             with pytest.raises(RuntimeError, match="拉取"):
                 prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"])
@@ -288,7 +288,7 @@ class TestRuntimeImageBuild:
                 return subprocess.CompletedProcess(command, 1, "", "registry unavailable")
             return self.fake_run(command, **kwargs)
 
-        with patch("acprof.host.command.run_command", side_effect=unavailable_registry):
+        with patch("acprof.system.command.run_command", side_effect=unavailable_registry):
             image = prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         assert (image.image_id.startswith("sha256:"))
         assert (len(self.build_commands())) == (2)
@@ -302,7 +302,7 @@ class TestRuntimeImageBuild:
             self.images[command[-1]] = {"image_id": "sha256:" + "f" * 64, "labels": {}}
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        with patch("acprof.host.command.run_command", side_effect=corrupted_registry):
+        with patch("acprof.system.command.run_command", side_effect=corrupted_registry):
             with pytest.raises(RuntimeError, match="标签内容不匹配"):
                 prepare_environment_image(ENVIRONMENTS["onnxruntime-cpu"], image_source="auto")
         assert (self.build_commands()) == ([])
@@ -398,7 +398,7 @@ class TestRuntimeImageBuild:
                 source = next(arg.split("=", 1)[1] for arg in command if arg.startswith("PLATFORM_IMAGE="))
                 self.images[source] = {"image_id": "sha256:" + "e" * 64, "labels": {}}
             return result
-        with patch("acprof.host.command.run_command", side_effect=changed), pytest.raises(RuntimeError, match="父镜像引用发生变化"):
+        with patch("acprof.system.command.run_command", side_effect=changed), pytest.raises(RuntimeError, match="父镜像引用发生变化"):
             prepare_environment_image(ENVIRONMENTS["audio-cpu"], PROJECT_ROOT)
         assert not (any(name.startswith("acprof-runtime-env:") for name in self.images))
 
@@ -414,7 +414,7 @@ class TestRuntimeImageBuild:
                     recipe = root / "dockerfiles/platform.Dockerfile"
                     recipe.write_text(recipe.read_text() + "\n# changed during build\n")
                 return result
-            with patch("acprof.host.command.run_command", side_effect=changed), pytest.raises(RuntimeError, match="发生变化"):
+            with patch("acprof.system.command.run_command", side_effect=changed), pytest.raises(RuntimeError, match="发生变化"):
                 prepare_environment_image(ENVIRONMENTS["audio-cpu"], root)
             assert not (any(name.startswith("acprof-platform-") for name in self.images))
 

@@ -6,8 +6,8 @@ import os
 import re
 from typing import Any
 
-from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S, DOCKER_RUN_TIMEOUT_S, run_command
 from acprof.host.profiling.tools.tool_discovery import find_nsys_importer
+from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S, DOCKER_RUN_TIMEOUT_S, run_command
 
 MASSIF_TOOL = "massif"
 NSYS_TOOL = "nsys"

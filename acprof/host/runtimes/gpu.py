@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 _CUDA_PROBE = '''
 import ctypes as c, json

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from acprof.artifacts import atomic_write_json
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 
 @dataclass(frozen=True)

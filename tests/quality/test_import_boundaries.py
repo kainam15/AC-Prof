@@ -21,13 +21,14 @@ def test_reverse_dependencies_are_rejected(module, source):
 
 
 def test_runtime_type_only_imports_are_excluded():
-    source = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from acprof.host.command import run_command\n"
+    source = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from acprof.system.command import run_command\n"
     assert violations_in_text("acprof.analysis.report", source) == []
 
 
-def test_known_monitor_runner_exception_is_narrow():
-    assert violations_in_text("acprof.monitors.common", "from acprof.host.command import run_command") == []
-    assert violations_in_text("acprof.monitors.resource_usage", "from acprof.host.command import run_command")
+def test_shared_runner_has_no_monitor_host_exception():
+    assert violations_in_text("acprof.monitors.common", "from acprof.system.command import run_command") == []
+    assert violations_in_text("acprof.monitors.resource_usage", "from acprof.system.command import run_command") == []
+    assert violations_in_text("acprof.monitors.common", "from acprof.host.command import run_command")
 
 
 def test_actual_repository_does_not_reverse_import():

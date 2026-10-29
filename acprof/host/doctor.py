@@ -13,10 +13,10 @@ from pathlib import Path
 
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.host import preflight
-from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.installation import resource_root
 from acprof.platform import capability_matrix, detect_environment
+from acprof.system.command import run_command
 
 
 @dataclass(frozen=True)

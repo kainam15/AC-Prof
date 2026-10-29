@@ -466,7 +466,7 @@ def test_cli_delegates_planning_and_probe_with_requested_matrix(
     run_probe.side_effect = fake_run
 
     built_image = ImageInfo(tag="acprof-nlp-demo--model:latest")
-    with tempfile.TemporaryDirectory() as temporary_dir, patch("acprof.host.command.run_command", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
+    with tempfile.TemporaryDirectory() as temporary_dir, patch("acprof.system.command.run_command", return_value=Mock(returncode=1, stdout="", stderr="No such image"),
     ), patch("acprof.host.images.runtime.build_runtime_image", return_value=built_image,
     ) as build_image:
         plan_path = Path(temporary_dir) / "planned.json"

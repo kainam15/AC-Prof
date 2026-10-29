@@ -11,7 +11,6 @@ from typing import (
 
 from acprof.artifact_layout import ArtifactLayout
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host.command import run_command
 from acprof.host.input_plan import PlannedInputScales
 from acprof.host.posthoc.context import (
     COMPUTE_PLAN_METRIC_FIELDS,
@@ -31,6 +30,7 @@ from acprof.host.profiling.compute_plan import (
     find_compute_profile_entry,
 )
 from acprof.host.profiling.execution_plan import ExecutionProfileResolver
+from acprof.system.command import run_command
 
 
 def parse_tools(value: str | Iterable[str]) -> tuple[str, ...]:

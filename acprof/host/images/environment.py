@@ -16,7 +16,6 @@ from acprof.dependency_locks import (
     require_exact_packages,
     system_lock_identity,
 )
-from acprof.host import command as host_command
 from acprof.installation import resource_root
 from acprof.runtime_profiles import (
     DependencyEnvironment,
@@ -24,6 +23,7 @@ from acprof.runtime_profiles import (
     environment_identity,
     platform_identity,
 )
+from acprof.system import command as host_command
 
 PROJECT_ROOT = resource_root()
 PLATFORM_LABEL = "org.acprof.platform-build-fingerprint"

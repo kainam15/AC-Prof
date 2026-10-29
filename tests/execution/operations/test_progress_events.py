@@ -62,7 +62,7 @@ def test_case_cleanup_failure_cannot_emit_success():
         for name, result in (("start_service_session", session), ("record_case_conditions", None),
                              ("_finalize_case", None)):
             stack.enter_context(patch.object(orchestrator, name, return_value=result))
-        stack.enter_context(patch("acprof.host.command.run_command", return_value=SimpleNamespace(returncode=0)))
+        stack.enter_context(patch("acprof.system.command.run_command", return_value=SimpleNamespace(returncode=0)))
         stack.enter_context(patch.object(orchestrator, "stop_service_session", side_effect=RuntimeError("cleanup failed")))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         with pytest.raises(RuntimeError, match="cleanup failed"):
@@ -105,7 +105,7 @@ def test_client_error_row_cannot_emit_success_even_when_client_exits_zero():
         for name, result in (("start_service_session", session), ("record_case_conditions", None),
                              ("stop_service_session", None), ("_finalize_case", None)):
             stack.enter_context(patch.object(orchestrator, name, return_value=result))
-        stack.enter_context(patch("acprof.host.command.run_command", side_effect=failed_client))
+        stack.enter_context(patch("acprof.system.command.run_command", side_effect=failed_client))
         emitted = stack.enter_context(patch.object(orchestrator, "emit_event"))
         orchestrator.run_single_case(
             cases.CaseRequest(

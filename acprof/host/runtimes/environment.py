@@ -11,10 +11,10 @@ from pathlib import Path
 
 from acprof.artifacts import atomic_write_json, file_sha256, read_json_object
 from acprof.dependency_locks import content_digest, package_versions, read_python_lock
-from acprof.host.command import run_command
 from acprof.host.runtimes.contracts import ProcessInfo
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint
+from acprof.system.command import run_command
 
 
 def host_abi() -> dict:

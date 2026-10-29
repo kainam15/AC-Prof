@@ -652,7 +652,7 @@ class TestNativeDockerGuard:
             "acprof.host.detect.detect_task",
             return_value=task_info,
         ), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="No such image"),
         ), patch(
             "acprof.host.images.runtime.build_runtime_image",

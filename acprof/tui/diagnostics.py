@@ -15,7 +15,6 @@ from acprof.analysis.uncertainty import summarize_windows
 from acprof.capabilities import Capability, CapabilityStatus, measurement_requested
 from acprof.experiment import RunConfig
 from acprof.gpu_mode import normalize_gpu_mode
-from acprof.host.command import run_command
 from acprof.host.env_utils import load_project_env
 from acprof.host.measurement.capture import tcpdump_capability_available
 from acprof.host.preflight import probe_cpu_energy, probe_perf_instructions
@@ -27,6 +26,7 @@ from acprof.result_csv import (
     require_current_fields,
     verify_result_source,
 )
+from acprof.system.command import run_command
 from acprof.tui.commands import _csv_values
 from acprof.tui.i18n import error_message, message_id
 

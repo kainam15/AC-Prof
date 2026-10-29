@@ -14,7 +14,6 @@ from typing import Any
 
 from acprof.config import DOCKER_IMAGE_PREFIX
 from acprof.dependency_locks import content_digest
-from acprof.host import command as host_command
 from acprof.host.detect import TaskInfo
 from acprof.host.images.environment import (
     platform_fingerprint,
@@ -41,6 +40,7 @@ from acprof.runtime_profiles import (
     select_runtime_profile,
 )
 from acprof.source_identity import service_context_files, source_fingerprint, stage_service_context
+from acprof.system import command as host_command
 
 PROJECT_ROOT = resource_root()
 FINGERPRINT_LABEL = "org.acprof.build-fingerprint"

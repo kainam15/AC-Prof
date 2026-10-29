@@ -17,7 +17,7 @@ class ProcessCleanupError(RuntimeCleanupError):
 
 
 def require_process_supervision() -> str:
-    from acprof.host.command import run_command
+    from acprof.system.command import run_command
     result = run_command([sys.executable, "-I", str(Path(__file__).with_name("supervisor.py")), "--probe"],
                          check=False, timeout=10)
     if result.returncode:

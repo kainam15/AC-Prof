@@ -18,11 +18,11 @@ from acprof.model_repository import (
 def test_modelscope_pins_repository_ref_not_per_file_revision(monkeypatch):
     commit = "a" * 40
     completed = SimpleNamespace(returncode=0, stdout=f"{commit}\trefs/heads/master\n")
-    with patch("acprof.host.command.run_command", return_value=completed) as git:
+    with patch("acprof.system.command.run_command", return_value=completed) as git:
         assert modelscope_revision("demo/model", None) == commit
     assert git.call_args.args[0][:3] == ["git", "ls-remote", "--exit-code"]
     assert "clone" not in git.call_args.args[0]
-    with patch("acprof.host.command.run_command") as git:
+    with patch("acprof.system.command.run_command") as git:
         assert modelscope_revision("demo/model", commit) == commit
         git.assert_not_called()
 
@@ -40,7 +40,7 @@ def test_modelscope_access_check_never_queries_huggingface():
 @pytest.mark.parametrize(("returncode", "reason"), [(2, "revision_not_found"), (128, "network_error")])
 def test_modelscope_ref_failure_retains_lookup_reason(returncode, reason):
     from acprof.host.model_errors import model_lookup_error
-    with patch("acprof.host.command.run_command", return_value=SimpleNamespace(returncode=returncode, stdout="")):
+    with patch("acprof.system.command.run_command", return_value=SimpleNamespace(returncode=returncode, stdout="")):
         with pytest.raises((OSError, ValueError)) as caught:
             modelscope_revision("demo/model", "release")
     assert model_lookup_error("demo/model", caught.value, revision="release").reason_code == reason

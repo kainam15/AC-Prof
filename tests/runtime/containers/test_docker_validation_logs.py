@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 import tests.models.contracts.test_model_contract as contracts
-from acprof.host import command as host_command
+from acprof.system import command as host_command
 from tests.runtime.environment.test_runtime_validation import (
     TestRuntimeValidation as _RuntimeFixture,
 )

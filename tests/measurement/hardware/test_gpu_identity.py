@@ -54,7 +54,7 @@ def test_container_exposes_only_the_selected_uuid_and_records_identity():
                     model_revision="main", detection_method="fixture")
     commands = []
     response = SimpleNamespace(status_code=200, text="", json=lambda: {"status": "ok"})
-    with patch.object(docker_runtime, "resolve_gpu_device", return_value=DEVICE, create=True), patch("acprof.host.command.run_command", side_effect=lambda cmd, **kw: (
+    with patch.object(docker_runtime, "resolve_gpu_device", return_value=DEVICE, create=True), patch("acprof.system.command.run_command", side_effect=lambda cmd, **kw: (
             commands.append(cmd) or SimpleNamespace(returncode=0, stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "", stderr="")
         )
     ), patch("requests.get", return_value=response):

@@ -104,7 +104,7 @@ class TestContainerCleanup:
             'owned', 'http://localhost', 8002, 0, container_id='a' * 64,
             _model_store_mount=mount,
         )
-        with patch('acprof.host.command.run_command', side_effect=execute):
+        with patch('acprof.system.command.run_command', side_effect=execute):
             stop_container_session(session)
         return session
 
@@ -171,7 +171,7 @@ class TestContainerCleanup:
         with tempfile.TemporaryDirectory() as directory, patch.object(
             orchestrator, 'start_service_session', return_value=session,
         ) as start, patch.object(orchestrator, 'record_case_conditions', side_effect=ValueError('original runtime failure')), patch(
-            'acprof.host.command.run_command', side_effect=subprocess.TimeoutExpired(['docker'], 1),
+            'acprof.system.command.run_command', side_effect=subprocess.TimeoutExpired(['docker'], 1),
         ):
             with pytest.raises(RuntimeError):
                 orchestrator.run_matrix(MatrixRequest(

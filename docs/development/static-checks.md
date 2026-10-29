@@ -118,8 +118,8 @@ uv run python scripts/run_tests.py --pattern test_private_api_guard.py \
 ## 关键模块导入方向检查
 `scripts/check_import_boundaries.py` 使用标准库 AST 检查源码层的依赖方向，
 禁止 `analysis → host`、`host → cli/tui`、`container → host/tui` 等反向运行时导入。
-明确跳过 `if TYPE_CHECKING` 内的类型引用，并且只允许两条已有的
-`monitors.* → host.command` 例外，避免扩大隐式耦合。
+明确跳过 `if TYPE_CHECKING` 内的类型引用；监测器与主机端命令统一复用
+`system.command`，不再需要跨层导入例外。
 CI 与 `tests/quality/test_import_boundaries.py` 同时验证真实仓库与反例；动态 import 不在静态检测范围。
 
 ```bash

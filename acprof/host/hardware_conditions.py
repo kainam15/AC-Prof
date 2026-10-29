@@ -12,7 +12,7 @@ from acprof.artifact_layout import ArtifactLayout
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.cpu_affinity import normalize_cpu_set, parse_cpu_set
 from acprof.hardware_conditions import HARDWARE_FIELDS, conditions_path
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 
 def _read(path) -> str | None:

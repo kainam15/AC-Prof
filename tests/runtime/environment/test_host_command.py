@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from acprof.host.command import run_command
+from acprof.system.command import run_command
 
 
 def test_process_group_timeout_reaps_parser_and_descendant(tmp_path):
@@ -80,7 +80,7 @@ def test_evidence_and_debug_are_redacted_without_changing_execution(caplog):
     secret = "unique-test-credential"
     args = [sys.executable, "-c", "import sys; print(sys.argv[1])", secret, "--token", secret,
             "API_KEY=" + secret, "https://user:" + secret + "@example.test/path?token=" + secret]
-    with caplog.at_level("DEBUG", logger="acprof.host.command"):
+    with caplog.at_level("DEBUG", logger="acprof.system.command"):
         result = run_command(args, capture_output=True, env_overrides={"API_KEY": secret, "OMP_NUM_THREADS": "2"}, redact_values=[secret])
     assert (result.stdout.strip()) == (secret)
     serialized = json.dumps(result.metadata.as_dict())
@@ -90,7 +90,7 @@ def test_evidence_and_debug_are_redacted_without_changing_execution(caplog):
     assert ("PATH") not in (serialized)
 
 def test_default_redaction_handles_flags_environment_and_urls(caplog):
-    with caplog.at_level("DEBUG", logger="acprof.host.command"):
+    with caplog.at_level("DEBUG", logger="acprof.system.command"):
         result = run_command([sys.executable, "-c", "pass", "--password", "flag-secret", "HF_TOKEN=env-secret", "https://a:url-secret@host.test/?key=query-secret"],
                              capture_output=True, env_overrides={"CUSTOM_PASSWORD": "override-secret"})
     evidence = json.dumps(result.metadata.as_dict()) + caplog.text

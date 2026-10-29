@@ -94,7 +94,7 @@ class TestOrchestratorCases:
         )
 
         with patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=lambda cmd, **_kwargs: (
                 commands.append(cmd)
                 or SimpleNamespace(returncode=0, stdout="b" * 64 if cmd[:2] == ["docker", "run"] else "", stderr="")
@@ -166,7 +166,7 @@ class TestOrchestratorCases:
             )
 
         with patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ), patch(
             "acprof.host.container_state.inspect_container_state",
@@ -219,7 +219,7 @@ class TestOrchestratorCases:
             "Error": "",
         }
         with patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ), patch(
             "acprof.host.container_state.inspect_container_state",
@@ -283,7 +283,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -343,7 +343,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -402,7 +402,7 @@ class TestOrchestratorCases:
         ), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             orchestrator.run_single_case(
@@ -459,7 +459,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -521,7 +521,7 @@ class TestOrchestratorCases:
             ),
         ) as start_container, patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -580,7 +580,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -644,7 +644,7 @@ class TestOrchestratorCases:
         ), patch(
             "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             if typed_failure:
                 recorded_failure = Failure("predict", "inference_failed", "typed inference error")
             with pytest.raises(
@@ -754,7 +754,7 @@ class TestOrchestratorCases:
         ) as inspect_state, patch(
             "acprof.host.orchestrator.stop_service_session"
         ) as stop_container, patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -835,7 +835,7 @@ class TestOrchestratorCases:
         ), patch(
             "acprof.host.orchestrator.stop_service_session"
         ), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             with pytest.raises(orchestrator.MIPSProfilingError):
@@ -928,7 +928,7 @@ class TestOrchestratorCases:
             "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -1042,7 +1042,7 @@ class TestOrchestratorCases:
             "acprof.host.container_state.container_runtime_oom_error",
             return_value=None,
         ), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             csv_path = orchestrator.run_single_case(
@@ -1169,7 +1169,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run):
             csv_path = orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -1222,7 +1222,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -1282,7 +1282,7 @@ class TestOrchestratorCases:
             ),
         ), patch("acprof.host.orchestrator._resolve_packet_latency_runtime", return_value=None), patch(
             "acprof.host.orchestrator.stop_service_session"
-        ), patch("acprof.host.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
+        ), patch("acprof.system.command.run_command", side_effect=fake_run), redirect_stderr(stdout):
             csv_path = orchestrator.run_single_case(
                 cases.CaseRequest(
                     task_info=task_info,
@@ -1342,7 +1342,7 @@ class TestOrchestratorCases:
             return SimpleNamespace(returncode=1, stdout="", stderr="")
 
         with patch("acprof.host.measurement.capture.shutil.which", side_effect=fake_which), patch(
-            "acprof.host.command.run_command",
+            "acprof.system.command.run_command",
             side_effect=fake_run,
         ):
             runtime = packet_capture._resolve_packet_latency_runtime(
@@ -1360,7 +1360,7 @@ class TestOrchestratorCases:
     def test_resolve_packet_latency_runtime_requires_administrator_setup(self):
         with patch('acprof.host.measurement.capture.shutil.which', side_effect=lambda name: '/usr/bin/' + name), patch(
             'acprof.host.measurement.capture.os.geteuid', return_value=1000,
-        ), patch('acprof.host.command.run_command', return_value=SimpleNamespace(
+        ), patch('acprof.system.command.run_command', return_value=SimpleNamespace(
             returncode=0, stdout='', stderr='',
         )) as run:
             with pytest.raises(packet_capture.PacketLatencyError, match='capture capability'):

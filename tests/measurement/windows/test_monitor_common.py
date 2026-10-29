@@ -5,10 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.host.command import DOCKER_INSPECT_TIMEOUT_S
 from acprof.monitors.common import docker_container_pid, sample_periodically
 from acprof.monitors.perf_mips import MIPSProfilingError
 from acprof.monitors.sampling import SamplingDiagnostics
+from acprof.system.command import DOCKER_INSPECT_TIMEOUT_S
 
 
 @pytest.mark.parametrize('error_type_case', range(2), ids=['RuntimeError', 'MIPSProfilingError'])

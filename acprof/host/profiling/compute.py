@@ -13,7 +13,6 @@ from acprof.capabilities import declared_profiler_error
 from acprof.config import DEFAULT_COMPUTE_PROFILE_TOOL
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.gpu_probe import gpu_compute_value, is_gpu_probe_report, record_gpu_probe_error
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.gpu_device import selected_gpu_device
 from acprof.host.profiling.cleanup import discard_profile_artifacts
@@ -24,6 +23,7 @@ from acprof.host.profiling.progress import (
 from acprof.host.profiling.support import load_input_scale_plan_entries, write_profile_json
 from acprof.host.profiling.tools import advisor, ncu, torch
 from acprof.host.profiling.tools.tool_discovery import find_executable
+from acprof.system.command import run_command
 
 _LOG = logging.getLogger(__name__)
 

@@ -5,7 +5,6 @@ import os
 from collections.abc import Sequence
 from typing import Any
 
-from acprof.host.command import run_command
 from acprof.host.detect import TaskInfo
 from acprof.host.profiling.support import (
     format_scale_value,
@@ -16,6 +15,7 @@ from acprof.host.profiling.tools.compute_parsers import (
     parse_advisor_self_gflop_csv,
 )
 from acprof.host.profiling.tools.tool_discovery import tool_mount_roots
+from acprof.system.command import run_command
 
 
 def tool_error_entries(

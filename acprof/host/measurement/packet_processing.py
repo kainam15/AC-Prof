@@ -4,8 +4,8 @@ import math
 import os
 import subprocess
 
-from acprof.host import command as host_command
 from acprof.host.measurement.capture import PacketLatencyError
+from acprof.system import command as host_command
 
 
 def postprocessing_timeout() -> float:

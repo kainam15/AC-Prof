@@ -8,8 +8,8 @@ from pathlib import Path
 
 from acprof.artifacts import read_json_object
 from acprof.capabilities import Capability, CapabilityStatus, capability_from_error
-from acprof.host.command import run_command
 from acprof.platform import collection_policy_error, detect_environment, recorded_identity
+from acprof.system.command import run_command
 
 NATIVE_DOCKER_SOCKET = "/var/run/docker.sock"
 

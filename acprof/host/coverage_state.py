@@ -44,10 +44,10 @@ def confirm_previous_cleanup(row: dict, attempts: list[dict], configuration: dic
     current = configuration.get("preparation_environment", {})
     if any(name not in previous or previous[name] != current.get(name) for name in ("DOCKER_HOST", "DOCKER_CONTEXT")):
         raise ValueError("cleanup recovery must use the original Docker endpoint/context")
-    from acprof.host.command import run_command
     from acprof.host.container_lifecycle import recover_cleanup_debt
     from acprof.host.preflight import require_native_docker
     from acprof.host.run_state import MeasurementLock
+    from acprof.system.command import run_command
 
     with MeasurementLock():
         require_native_docker()
