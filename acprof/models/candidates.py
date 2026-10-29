@@ -5,8 +5,8 @@ import copy
 from functools import cache
 from typing import Any
 
-from acprof.model_spec import FORMAT_BACKENDS, task_model_spec, validate_model_spec
-from acprof.model_support import TASK_MAPPINGS, transformers_support
+from acprof.models.spec import FORMAT_BACKENDS, task_model_spec, validate_model_spec
+from acprof.models.support import TASK_MAPPINGS, transformers_support
 
 _AUTO_TASKS = {
     "AutoModelForCausalLM": "text-generation", "AutoModelForSeq2SeqLM": "text2text-generation",
@@ -277,7 +277,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
         status = "needs_configuration"
     if conflicts:
         status = "ambiguous"
-    from acprof.model_evidence import resolution_provenance
+    from acprof.models.evidence import resolution_provenance
     provenance = resolution_provenance(task_info, candidates, hub_task=(
         raw_hub_task if raw_hub_task != hub_task and hub_metadata.get("task_hint_source") == "registered_architecture"
         else hub_task), selected=selected,
@@ -309,7 +309,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                 item["unsupported_reason"] = str(exc)
                 if item["task"] == selected:
                     errors.append(str(exc))
-    from acprof.model_tasks import build_task_discovery
+    from acprof.models.tasks import build_task_discovery
     discovery = build_task_discovery(task_info, resolution, component_scope=encoder,
                                      override_backend=override_backend or "", explicit_task=bool(override_tag or declared_task))
     resolution["task_discovery"] = discovery
@@ -343,7 +343,7 @@ def discover_model_candidates(task_info: Any, *, override_tag: str | None = None
                                     selected_task=resolution["selection"]["task"])
     resolution["provenance"]["raw_evidence"] = copy.deepcopy({
         "hub": hub_metadata, "config": config, "metadata": metadata})
-    from acprof.model_evidence import content_digest
+    from acprof.models.evidence import content_digest
     resolution["provenance"]["resolver_version"] = "model-interfaces-v1"
     resolution["provenance"]["identity_sha256"] = content_digest({
         "sources": resolution["provenance"]["sources"], "raw": resolution["provenance"]["raw_evidence"],

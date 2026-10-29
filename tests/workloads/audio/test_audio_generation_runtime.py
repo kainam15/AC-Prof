@@ -140,12 +140,12 @@ class TestAudioGenerationRuntime:
     def test_composite_omni_snapshot_loads_only_registered_multimodal_text_head(self, device):
         import transformers
 
-        from acprof.model_support import audio_text_loader
+        from acprof.models.support import audio_text_loader
 
         if not audio_text_loader(transformers.__version__, {'model_type': 'qwen2_5_omni_thinker'}):
             # The default version cannot expose this head through Auto. Host
             # preflight must select the newer environment instead of direct classes.
-            from acprof.model_support import supports_transformers_task
+            from acprof.models.support import supports_transformers_task
             assert not (supports_transformers_task(transformers.__version__, 'audio-text-to-text', 'qwen2_5_omni'))
             return
         from safetensors.torch import save_file

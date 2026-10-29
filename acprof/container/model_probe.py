@@ -14,8 +14,8 @@ RESULT_PREFIX = "ACPROF_INTERFACE_VALIDATION="
 def validate_interface(payload: dict) -> dict:
     from acprof.container.handlers import HandlerRegistry, resolve_model_source
     from acprof.container.local_pipeline import load_local_pipeline_class
-    from acprof.model_source_analysis import SOURCE_METADATA_FILES
-    from acprof.model_spec import load_model_spec, pipeline_task
+    from acprof.models.inspection.source import SOURCE_METADATA_FILES
+    from acprof.models.spec import load_model_spec, pipeline_task
 
     source = resolve_model_source(os.environ["MODEL_ID"])
     task = os.environ["TASK_TYPE"]

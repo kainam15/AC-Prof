@@ -7,7 +7,7 @@
 | 模块 | 职责 |
 | --- | --- |
 | `application/task_runs` | 保存推理组集合与配置，按不同执行路径串行调度独立 `RunApplication`；组间失败隔离、恢复及 workload 物化均在测量外 |
-| `model_candidates` / `task_workloads` / `inference_groups` / `host/task_selection` | 分离模型声明、语义输入模板、计算配置分组与交互选择；不以架构候选替代明确任务证据，也不为 prompt-only 变化重跑资源矩阵 |
+| `models/candidates` / `task_workloads` / `inference_groups` / `host/task_selection` | 分离模型声明、语义输入模板、计算配置分组与交互选择；不以架构候选替代明确任务证据，也不为 prompt-only 变化重跑资源矩阵 |
 | `preflight` | 原生 Linux、本机 Docker、cgroup 与 CPU 能耗前置检查 |
 | `network_preflight` / `download_probe` | Docker/Process 下载计划与确认、来源元数据检查及共享预算的限量 GET；复用 HF transport，全部在准备阶段执行 |
 | `system/command` | host 同步命令的 UTF-8、timeout、环境、退出码、耗时与脱敏 metadata；不拥有长期进程 |
@@ -206,15 +206,15 @@ CSV 格式化、像素指标和 profiler 关联集中于 `WindowMetrics.build_ro
 供 server、输入规划和 profiler 共用。`extensions/*/manifest.json` 同时提供 config 映射、任务支持、
 profile 和延迟入口，读取声明不导入推理框架；声明文件参与服务镜像指纹。
 `extensions/schema.py` 按类型注解校验声明，family 默认值与 task/backend 覆盖统一由 catalog 合并。
-`detect` 与 `model_candidates` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
+`detect` 与 `models/candidates` 共用 `CATALOG.resolve()`，规则同级使用显式 priority，冲突和未知组合明确报错；
 `model_schema`、`input_plan` 和 handler 消费选中声明。`config` 的尺度/任务参数与 TUI 的任务族列表由 catalog 派生。
 backend、路由和镜像身份只从当前扩展声明解析；旧 extension schema v1 直接拒绝，
 完整字段与优先级见[扩展声明](../models/extensions.md#扩展声明与按需加载)。
-`model_candidates` 只根据固定 commit 的仓库布局、Hub/作者声明和注册表推导候选；
-`model_support` 读取 `extensions/transformers` 的已审查 Auto 注册及本地 loader 能力。
-`model_resolution` 校验最终选定的执行接口，不重算候选，不加载模型权重；
+`models/candidates` 只根据固定 commit 的仓库布局、Hub/作者声明和注册表推导候选；
+`models/support` 读取 `extensions/transformers` 的已审查 Auto 注册及本地 loader 能力。
+`models/resolution` 校验最终选定的执行接口，不重算候选，不加载模型权重；
 profile 选择按任务／架构匹配已锁定环境，平台切换保留版本线。
-标准库模块 `model_spec` 共用本地／仓库模型声明及代码引用检查；候选记录保留证据和歧义，
+标准库模块 `models/spec` 共用本地／仓库模型声明及代码引用检查；候选记录保留证据和歧义，
 有效声明参与服务镜像与恢复身份，并传入容器 loader。自定义 pipeline 复用标准任务 Handler，
 不在采集器增加模型分支；是否可运行由独立验证的各阶段结果判断。
 元数据解析不加载模型，静态候选与独立推理、正式采集证据分别记录。timm、Chronos 三代及句向量

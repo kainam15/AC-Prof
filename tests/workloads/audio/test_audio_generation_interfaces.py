@@ -39,7 +39,7 @@ def test_new_auto_registration_selects_new_environment():
     assert (select_runtime_profile(info).profile_id) == ('multimodal-transformers5104-cu128')
 
 def test_text_generation_subconfig_uses_registered_auto_not_full_speech_output():
-    from acprof import model_support
+    from acprof.models import support as model_support
 
     config = {'model_type': 'qwen2_5_omni', 'thinker_config': {
         'model_type': 'qwen2_5_omni_thinker', 'audio_config': {'model_type': 'qwen2_5_omni_audio_encoder'},

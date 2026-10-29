@@ -10,8 +10,8 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from acprof.container.local_pipeline import load_local_pipeline_class
-from acprof.model_spec import pipeline_task
-from acprof.model_transforms import transform_inputs
+from acprof.models.spec import pipeline_task
+from acprof.models.transforms import transform_inputs
 
 
 def load_custom_pipeline(model_source, task_type, device, dtype, spec, attention_options, *, trust_remote_code=False):

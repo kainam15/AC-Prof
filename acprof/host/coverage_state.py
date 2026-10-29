@@ -8,7 +8,7 @@ from typing import Any
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.host.run_state import utc_now
-from acprof.model_evidence import content_digest
+from acprof.models.evidence import content_digest
 
 
 def coverage_configuration(*, probe, resources, budgets, device):

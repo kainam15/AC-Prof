@@ -11,7 +11,7 @@ from typing import TextIO
 
 from acprof.artifacts import atomic_write
 from acprof.failures import Failure, compatibility_status
-from acprof.model_repository import MODEL_SOURCES
+from acprof.hub.repository import MODEL_SOURCES
 from acprof.quality import combine_quality, read_quality, summarize_quality
 
 MAX_COMPATIBILITY_ARTIFACT_BYTES = 4 * 1024 * 1024

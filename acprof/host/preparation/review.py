@@ -1,75 +1,17 @@
-"""Explicit field-level decisions over a pinned, reviewable draft contract."""
+"""Apply model-review decisions with host-owned resolution and downloads."""
 from __future__ import annotations
 
 import copy
 
-from acprof.model_evidence import content_digest
-from acprof.model_spec import validate_model_spec
-
-
-def review_questions(task_info) -> list[dict]:
-    report = task_info.model_resolution.get("contract", {})
-    fields = report.get("fields", {})
-    pending = report.get("unresolved_fields", [])
-    draft = report.get("draft_spec", {})
-    inputs = draft.get("multimodal", {}).get("inputs", {})
-    input_gaps = [name for name in pending if name.startswith("multimodal.inputs.")]
-    questions = []
-    unassigned = {name.removeprefix("pipeline.inputs."): item["value"] for name, item in fields.items()
-                  if name.startswith("pipeline.inputs.") and name.removeprefix("pipeline.inputs.") not in inputs}
-    targets = [name for name, item in unassigned.items() if item.get("required")]
-    text_names = {"prompt", "text", "messages", "turns"}
-    if "multimodal.inputs.text" in input_gaps and not text_names.intersection(targets):
-        targets.extend(name for name in unassigned if name in text_names and name not in targets)
-    if input_gaps:
-        for target in targets:
-            questions.append({"path": "multimodal.inputs." + target, "value": None,
-                              "reason": "; ".join(fields[name].get("reason", name) for name in input_gaps)})
-        if not targets:
-            questions.append({"path": "multimodal.inputs", "value": inputs,
-                              "reason": "canonical input mapping is unresolved"})
-    for name in pending:
-        if name in input_gaps or name == "model_spec" and questions:
-            continue
-        if name == "pipeline_task" and fields[name]["state"] == "ambiguous":
-            config = task_info.repository_metadata.get("config.json", task_info.model_config)
-            questions.append({"path": name, "value": None, "reason": fields[name]["reason"],
-                              "options": sorted(config.get("custom_pipelines", {}))})
-        elif name in {"dependencies", "multimodal.forward_kwargs"}:
-            editable = True
-            blocked = False
-            if name == "dependencies":
-                value = []
-                editable = False
-                for candidate in report.get("dependency_candidates", []):
-                    if candidate.get("activation") == "inactive" or candidate.get("dependency_kind") == "main_model":
-                        continue
-                    choice = {"repo_id": candidate["repo_id"], "role": candidate["role"], "required": True}
-                    if choice not in value:
-                        value.append(choice)
-                    undecided = (not candidate.get("repo_id") or candidate.get("role") == "unknown"
-                                 or candidate.get("activation", "active") != "active" or "conditional" in candidate)
-                    editable |= undecided
-                    blocked |= not undecided and candidate.get("resolution", {}).get("status") != "pinned"
-            else:
-                value = draft.get("multimodal", {}).get("forward_kwargs", {})
-            question = {"path": name, "value": value, "reason": fields[name].get("reason", name)}
-            if name == "dependencies" and (not editable or blocked):
-                # An identified dependency with a failed lookup/file selection
-                # needs repair, not permission to silently omit that dependency.
-                question["read_only"] = True
-            questions.append(question)
-        else:
-            # Arbitrary source/control-flow failures cannot be fixed by accepting
-            # a checkbox. They require an explicit adapter/declaration.
-            questions.append({"path": name, "value": None, "reason": fields[name].get("reason", name), "read_only": True})
-    return questions
+from acprof.models.evidence import content_digest
+from acprof.models.review import review_questions
+from acprof.models.spec import validate_model_spec
 
 
 def apply_review(task_info, answers: dict, *, resolve_repository=None):
     """Return a new task; failed/partial decisions leave the original untouched."""
     from acprof.host.task_support import require_task_support
-    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 
     questions = review_questions(task_info)
     if any(item.get("read_only") for item in questions):
@@ -80,7 +22,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     task = copy.deepcopy(task_info)
     if set(answers) == {"pipeline_task"}:
         from acprof.host.detect import dependency_metadata, read_model_source
-        from acprof.model_contract import apply_model_contract
+        from acprof.models.contract import apply_model_contract
         if answers["pipeline_task"] not in questions[0].get("options", []):
             raise ValueError("select a declared Pipeline")
         previous = task.model_resolution["contract"]
@@ -97,7 +39,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     for path, value in answers.items():
         if path == "dependencies":
             from acprof.host.detect import dependency_metadata
-            from acprof.model_dependencies import resolve_dependencies
+            from acprof.models.dependencies import resolve_dependencies
             if not isinstance(value, list) or len(value) > 16 or any(
                 not isinstance(item, dict) or set(item) - {"repo_id", "role", "required"}
                 or type(item.get("required", True)) is not bool
@@ -132,7 +74,7 @@ def apply_review(task_info, answers: dict, *, resolve_repository=None):
     # Decisions are resolver inputs. Never clear unresolved fields or force a
     # final status on the previous contract.
     from acprof.host.detect import read_model_source
-    from acprof.model_contract import apply_model_contract
+    from acprof.models.contract import apply_model_contract
     previous = report
     task.model_spec = draft
     task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))

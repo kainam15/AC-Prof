@@ -10,7 +10,7 @@ import copy
 import re
 from collections.abc import Mapping
 
-from acprof.model_evidence import content_digest
+from acprof.models.evidence import content_digest
 from acprof.task_workloads import (
     GENERATION_KEYS,
     GENERATIVE_INTERFACES,

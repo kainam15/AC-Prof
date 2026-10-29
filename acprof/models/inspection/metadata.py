@@ -6,9 +6,9 @@ import json
 from collections.abc import Callable
 from pathlib import PurePosixPath
 
-from acprof.model_evidence import ModelEvidence
-from acprof.model_source_analysis import model_card_examples, parse_source, top_level_bound_names
-from acprof.model_spec import custom_code_files
+from acprof.models.evidence import ModelEvidence
+from acprof.models.inspection.source import model_card_examples, parse_source, top_level_bound_names
+from acprof.models.spec import custom_code_files
 
 MAX_SOURCE_FILES = 32
 MAX_TOTAL_SOURCE_BYTES = 2 * 1024 * 1024
@@ -122,7 +122,7 @@ def collect_source_evidence(task_info, evidence: ModelEvidence, config: dict,
                     if required and initializer_binds(module_path, alias.name):
                         required = False
                     enqueue_module(module_path / alias.name, required=required)
-    from acprof.model_dependency_flow import analyze_dependencies
+    from acprof.models.inspection.dependency_flow import analyze_dependencies
     from acprof.runtime_profiles import ENVIRONMENTS, locked_transformers_version
     evidence.source("repository-file-listing", json.dumps(sorted(files)).encode())
     evidence.dependency_candidates.extend(analyze_dependencies(

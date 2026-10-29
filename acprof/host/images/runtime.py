@@ -27,7 +27,7 @@ from acprof.host.images.identity import model_token
 from acprof.host.runtime_settings import runtime_build_overrides
 from acprof.hub.huggingface.auth import hf_token_for_url
 from acprof.installation import resource_root
-from acprof.model_spec import (
+from acprof.models.spec import (
     encode_model_dependencies,
     encode_model_spec,
     model_download_request,
@@ -133,7 +133,7 @@ def model_fingerprint(task_info: Any, runtime_id: str, project_dir: str | Path =
         "adapter": select_runtime_profile(task_info).adapter, "policy": download_policy(task_info),
         "dependencies": task_model_spec(task_info).get("dependencies", []),
     }, sort_keys=True).encode())
-    for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/model_spec.py", "acprof/hub/huggingface/endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
+    for relative in ("acprof/container/download_model.py", "acprof/container/model_files.py", "acprof/models/spec.py", "acprof/hub/huggingface/endpoints.py", "dockerfiles/runtime-model.Dockerfile"):
         digest.update((root / relative).read_bytes())
     return digest.hexdigest()
 
@@ -242,7 +242,7 @@ def prepare_runtime_image(task_info: Any, project_dir: str, *, reuse_existing: b
         try:
             from acprof.hub.huggingface.download import try_hf_endpoints
             from acprof.hub.huggingface.transport import configure_hf_transport
-            from acprof.model_repository import modelscope_revision
+            from acprof.hub.repository import modelscope_revision
             if getattr(task_info, "model_source", "huggingface") == "modelscope":
                 revision = modelscope_revision(task_info.model_id, task_info.model_revision)
             else:

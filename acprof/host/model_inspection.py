@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acprof.artifacts import atomic_write_json
-from acprof.model_contract import write_model_resolution
+from acprof.models.contract import write_model_resolution
 
 if TYPE_CHECKING:
     from acprof.host.runtime_validation import RuntimeValidationReport

@@ -280,7 +280,7 @@ def validate_runtime(
         report["status"] = "inconclusive"
     atomic_write_json(layout.path("runtime_validation.json"), report)
     if getattr(task_info, "model_resolution", {}):
-        from acprof.model_contract import record_runtime_validation, write_model_resolution
+        from acprof.models.contract import record_runtime_validation, write_model_resolution
         record_runtime_validation(task_info, report)
         write_model_resolution(task_info, root)
     if cleanup_failure is not None:

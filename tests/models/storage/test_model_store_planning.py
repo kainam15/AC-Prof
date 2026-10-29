@@ -106,9 +106,9 @@ def _install_metadata_downloads(monkeypatch, root, on_download):
     monkeypatch.setattr("huggingface_hub.HfApi.model_info",
         lambda self, repo_id, **kwargs: information(repo_id))
     monkeypatch.setattr("huggingface_hub.hf_hub_download", hf_file)
-    monkeypatch.setattr("acprof.model_repository.modelscope_info",
+    monkeypatch.setattr("acprof.hub.repository.modelscope_info",
         lambda repo_id, revision: information(repo_id))
-    monkeypatch.setattr("acprof.model_repository.modelscope_file", modelscope_file)
+    monkeypatch.setattr("acprof.hub.repository.modelscope_file", modelscope_file)
     return written
 
 

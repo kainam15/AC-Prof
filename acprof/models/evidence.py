@@ -25,7 +25,7 @@ def resolution_provenance(task_info, candidates: list[dict], *, hub_task: str | 
                           explicit_backend: str | None, overridden_conflicts: list[str],
                           loader_hint: str | None, unsupported_task_hint: str | None) -> dict:
     """Capture correlated observations; no counting of fields as independent votes."""
-    from acprof.model_spec import task_model_spec
+    from acprof.models.spec import task_model_spec
     revision = task_info.model_revision
     snapshot = {"model_id": task_info.model_id, "revision": revision,
                 "source": getattr(task_info, "model_source", "huggingface"),

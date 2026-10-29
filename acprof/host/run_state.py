@@ -126,7 +126,7 @@ def run_options(args) -> dict:
     for name in ("tasks", "task_run_id"):
         if not options.get(name):
             options.pop(name, None)
-    from acprof.model_repository import model_source
+    from acprof.hub.repository import model_source
     source = model_source(options.get("model_source"))
     if source == "huggingface":
         options.pop("model_source", None)  # Preserve historical HF resume options.

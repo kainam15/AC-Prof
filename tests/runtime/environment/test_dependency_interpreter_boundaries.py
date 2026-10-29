@@ -3,7 +3,7 @@ import ast
 
 import pytest
 
-from acprof.model_dependency_domain import (
+from acprof.models.inspection.dependency_domain import (
     MAX_ANALYSIS_STEPS,
     MAX_CALL_CONTEXTS,
     MAX_CALL_DEPTH,
@@ -15,8 +15,8 @@ from acprof.model_dependency_domain import (
     known_truth,
     merge,
 )
-from acprof.model_dependency_eval import DependencyEvaluationMixin
-from acprof.model_dependency_flow import DependencyAnalyzer, analyze_dependencies
+from acprof.models.inspection.dependency_eval import DependencyEvaluationMixin
+from acprof.models.inspection.dependency_flow import DependencyAnalyzer, analyze_dependencies
 
 
 def test_abstract_value_merge_is_conservative():

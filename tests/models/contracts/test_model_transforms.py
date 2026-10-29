@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from acprof.container.handlers.custom_pipeline import pipeline_inputs
-from acprof.model_spec import validate_model_spec
+from acprof.models.spec import validate_model_spec
 
 
 def spec(inputs):

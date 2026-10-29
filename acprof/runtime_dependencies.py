@@ -11,9 +11,9 @@ from typing import Any
 from acprof.dependency_locks import normalized_name, package_versions, read_python_lock
 from acprof.failures import Failure, RuntimeFailure
 from acprof.installation import resource_root
-from acprof.model_evidence import pinned_revision
-from acprof.model_source_analysis import top_level_bound_names
-from acprof.model_spec import custom_code_files
+from acprof.models.evidence import pinned_revision
+from acprof.models.inspection.source import top_level_bound_names
+from acprof.models.spec import custom_code_files
 
 # Import names and distribution names are different namespaces. Unknown names
 # remain unresolved; in particular, never suggest installing an import name.

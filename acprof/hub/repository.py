@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from acprof.container.model_files import ModelFilesError, safe_path
+from acprof.models.files import ModelFilesError, safe_path
 
 MODEL_SOURCES = ("huggingface", "modelscope")
 MODELSCOPE_ENDPOINT = "https://modelscope.cn"
@@ -177,11 +177,10 @@ def modelscope_file(model_id: str, name: str, revision: str, root: Path, *, sha2
         local_dir=modelscope_snapshot(root, model_id, revision), expected_sha256=sha256))
 
 
-def modelscope_metadata(model_id: str, name: str, revision: str | None, max_bytes: int) -> MetadataFile:
-    from acprof.host.model_store import store_root
+def modelscope_metadata(model_id: str, name: str, revision: str | None, max_bytes: int, *, cache_root: Path) -> MetadataFile:
     info = modelscope_info(model_id, revision)
     item = next((f for f in info.siblings if f.rfilename == name), None)
     if item is None or not 0 <= item.size <= max_bytes:
         raise ModelFilesError(f"ModelScope metadata missing or exceeds {max_bytes} bytes: {name}")
-    path = modelscope_file(model_id, name, info.sha, store_root(), sha256=item.lfs["sha256"])
+    path = modelscope_file(model_id, name, info.sha, cache_root, sha256=item.lfs["sha256"])
     return read_metadata_file(path, max_bytes=max_bytes, expected_size=item.size, expected_sha256=item.lfs["sha256"])

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from acprof.model_evidence import pinned_revision
+from acprof.models.evidence import pinned_revision
 from acprof.tui.experiment_catalog import ExperimentRecord
 
 CONDITION_KEYS = ('revision', 'runtime_profile', 'runtime_environment', 'device',

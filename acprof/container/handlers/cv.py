@@ -15,7 +15,7 @@ from acprof.container.handlers import (
 from acprof.container.load_policy import load_policy, load_processor
 from acprof.image_inputs import decode_image_groups
 from acprof.input_budget import InputBudget
-from acprof.model_spec import pipeline_task
+from acprof.models.spec import pipeline_task
 
 
 class CVHandler(BaseHandler):

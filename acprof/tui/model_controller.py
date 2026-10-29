@@ -8,7 +8,7 @@ from textual.suggester import SuggestFromList
 from textual.widgets import Input as TextualInput, Select
 
 from acprof.experiment import RunConfigError
-from acprof.model_evidence import pinned_revision
+from acprof.models.evidence import pinned_revision
 from acprof.tui.experiment_catalog import scan_experiments
 from acprof.tui.experiment_picker import SearchPickerScreen
 from acprof.tui.i18n import message_id

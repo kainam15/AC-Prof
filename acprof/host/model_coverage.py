@@ -11,8 +11,8 @@ from typing import Any, cast
 
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.hub.huggingface.auth import hf_token_for_url
-from acprof.model_evidence import pinned_revision
-from acprof.model_repository import MODEL_SOURCES, model_source_scope
+from acprof.hub.repository import MODEL_SOURCES, model_source_scope
+from acprof.models.evidence import pinned_revision
 
 
 def validate_sample(sample: dict) -> None:
@@ -132,7 +132,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
     from acprof.host.detect import detect_task
     from acprof.host.model_inspection import validate_model_runtime
     from acprof.host.task_support import require_task_support
-    from acprof.model_contract import write_model_resolution
+    from acprof.models.contract import write_model_resolution
 
     row = {"source": item.get("source", "huggingface"),
            "model_id": item["model_id"], "revision": item["revision"], "weight": item["weight"],
@@ -170,7 +170,7 @@ def _evaluate_model(item: dict, output: Path, *, probe, cpus, memory_gb, gpu,
                 raise RuntimeFailure(Failure(**budget["failure"]))
         if probe == "full":
             from acprof.host.automation import check_repository_access
-            from acprof.model_spec import task_model_spec
+            from acprof.models.spec import task_model_spec
             stage = "access"
             check_repository_access(task.model_id, source=task.model_source, revision=task.model_revision)
             # Dependencies declared by the model spec retain their own HF snapshots.

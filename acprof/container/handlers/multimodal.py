@@ -96,7 +96,7 @@ class MultimodalHandler(BaseHandler):
         }
         model_spec_format = declaration.handler_options.get("model_spec_format")
         if model_spec_format:
-            from acprof.model_spec import load_model_spec
+            from acprof.models.spec import load_model_spec
             spec = load_model_spec(model_source, task_type, expected_format=model_spec_format)
             if "multimodal" in spec:
                 from acprof.container.handlers.custom_pipeline import load_custom_pipeline
@@ -126,7 +126,7 @@ class MultimodalHandler(BaseHandler):
                 )
             class_name, mode = "Qwen2_5OmniForConditionalGeneration", "omni"
         elif task_type == "audio-text-to-text":
-            from acprof.model_support import audio_text_loader
+            from acprof.models.support import audio_text_loader
 
             selection = audio_text_loader(transformers.__version__, config.to_dict())
             if selection is None:

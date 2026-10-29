@@ -16,7 +16,7 @@ from acprof.artifacts import MAX_JSON_ARTIFACT_BYTES
 from acprof.host.collection_workflow import PreparationWorkflow, retain_validation_failure
 from acprof.host.detect import detect_task
 from acprof.host.model_inspection import explain_resolution
-from acprof.model_spec import task_model_spec
+from acprof.models.spec import task_model_spec
 from acprof.preparation_events import MAX_MESSAGE
 from acprof.result_csv import read_result_csv
 from tests.models.contracts.test_model_lookup import hub_error
@@ -394,7 +394,7 @@ class TestCollectionWorkflow:
         assert (self.run.calls) == ([1, 2])
 
     def test_conflicting_metadata_requests_configuration_without_task_menu(self):
-        from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+        from acprof.models.candidates import apply_model_candidate, discover_model_candidates
         task = copy.deepcopy(self.run.task)
         task.hub_metadata = {"pipeline_tag": "fill-mask", "transformers_info": {"pipeline_tag": "text-classification"}}
         task.model_resolution = apply_model_candidate(task, discover_model_candidates(task))

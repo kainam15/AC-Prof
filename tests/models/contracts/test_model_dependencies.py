@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 import tests.models.contracts.test_model_contract as fixture
-from acprof.model_spec import task_model_spec
+from acprof.models.spec import task_model_spec
 
 
 class TestModelDependency:
@@ -85,7 +85,7 @@ class TestModelDependency:
 
 def test_custom_index_shards_match_primary_checkpoint_selection():
     from acprof.container.model_files import plan_download
-    from acprof.model_dependencies import dependency_files
+    from acprof.models.dependencies import dependency_files
     index = 'model.safetensors.index.json'
     names = ['config.json', index, 'weights/encoder.safetensors', 'weights/decoder.safetensors', 'pytorch_model.bin']
     metadata = {'config.json': {'model_type': 'bert'}, index: {
@@ -98,7 +98,7 @@ def test_custom_index_shards_match_primary_checkpoint_selection():
     assert ([item['path'] for item in plan['files']]) == (expected)
 
 def test_missing_shard_does_not_fall_back_to_incomplete_numbered_files():
-    from acprof.model_dependencies import dependency_files
+    from acprof.models.dependencies import dependency_files
     index = 'model.safetensors.index.json'
     first = 'model-00001-of-00002.safetensors'
     missing = 'model-00002-of-00002.safetensors'
@@ -108,7 +108,7 @@ def test_missing_shard_does_not_fall_back_to_incomplete_numbered_files():
 
 @pytest.mark.parametrize('name', ['../outside.safetensors', '/outside.safetensors', 'bad\\name.safetensors'])
 def test_invalid_index_paths_and_selection_limit_still_fail(name):
-    from acprof.model_dependencies import dependency_files
+    from acprof.models.dependencies import dependency_files
     index = 'model.safetensors.index.json'
     with pytest.raises(ValueError, match='invalid model file path'):
         dependency_files(['config.json', index], {'weights'}, read_json=lambda _: {'weight_map': {'a': name}})

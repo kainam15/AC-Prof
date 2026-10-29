@@ -18,6 +18,9 @@ FORBIDDEN = {
     "monitors": frozenset({"host", "cli", "tui", "plotting", "analysis", "container"}),
     "workloads": frozenset({"host", "cli", "tui"}),
     "packet": frozenset({"cli", "tui"}),
+    "models": frozenset({"host", "container", "monitors", "plotting", "tui", "cli", "analysis"}),
+    "hub": frozenset({"host", "container", "monitors", "plotting", "tui", "cli", "analysis"}),
+    "system": frozenset({"host", "container", "monitors", "plotting", "tui", "cli", "analysis", "models", "hub"}),
 }
 
 

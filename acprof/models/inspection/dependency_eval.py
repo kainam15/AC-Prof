@@ -7,7 +7,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-from acprof.model_dependency_domain import (
+from acprof.models.inspection.dependency_domain import (
     MAX_ANALYSIS_STEPS,
     MAX_CALL_CONTEXTS,
     MAX_CALL_DEPTH,

@@ -90,7 +90,7 @@ def test_automatic_resume_preserves_historical_decision_without_resolving(
     for target in (
         "acprof.host.detect.detect_task",
         "acprof.host.automation.check_repository_access",
-        "acprof.model_evidence.resolution_provenance",
+        "acprof.models.evidence.resolution_provenance",
     ):
         monkeypatch.setattr(target, Mock(side_effect=AssertionError("frozen evidence was resolved again")))
     monkeypatch.setattr("acprof.host.doctor.collect_checks",

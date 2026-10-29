@@ -12,7 +12,7 @@ import pytest
 
 from acprof.host.detect import detect_task
 from acprof.host.task_support import TaskSupportError, require_task_support
-from acprof.model_spec import task_model_spec, validate_model_spec
+from acprof.models.spec import task_model_spec, validate_model_spec
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "custom_pipeline_audio_like"
 SOURCE = (FIXTURE / "pipeline.py").read_text()
@@ -165,7 +165,7 @@ class TestModelContract:
         assert not (task_model_spec(task))
 
     def test_literal_inputs_readme_evidence_and_report_export(self):
-        from acprof.model_contract import write_model_resolution
+        from acprof.models.contract import write_model_resolution
         source = SOURCE.replace('inputs.get("audio", None)', 'inputs["audio"]')
         task = self.discover(source, readme='''```python
 pipe = pipeline("listen-and-answer")
@@ -181,7 +181,7 @@ pipe({"turns": turns, "audio": audio, "sampling_rate": rate}, max_new_tokens=3)
             assert not (Path(directory, "acprof_model.json").exists())
 
     def test_config_loader_candidates_include_plain_config_and_remain_unpinned(self):
-        from acprof.model_source_analysis import dependency_candidates
+        from acprof.models.inspection.source import dependency_candidates
         source = '''AutoConfig.from_pretrained(config.audio_model_id)
 AutoModel.from_pretrained(config.text_model_name_or_path)
 GenerationConfig.from_pretrained("example/generation")
@@ -197,7 +197,7 @@ AutoProcessor.from_pretrained(dynamic_repo())
         assert (all("revision" not in item for item in candidates))
 
     def test_cache_identity_changes_with_revision_and_source_and_is_not_mutable(self):
-        from acprof.model_source_analysis import analyze_pipeline
+        from acprof.models.inspection.source import analyze_pipeline
         first = self.discover().model_resolution["contract"]
         second = self.discover().model_resolution["contract"]
         assert (first["cache_key"]) == (second["cache_key"])
@@ -220,7 +220,7 @@ AutoProcessor.from_pretrained(dynamic_repo())
         assert (task.model_resolution["contract"]["status"]) == ("needs_confirmation")
 
     def test_reanalysis_cannot_reuse_a_previous_generated_spec_as_authority(self):
-        from acprof.model_contract import apply_model_contract
+        from acprof.models.contract import apply_model_contract
         task = self.discover()
         changed_source = SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["messages"]')
         apply_model_contract(task, lambda _: changed_source)

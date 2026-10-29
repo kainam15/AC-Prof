@@ -17,7 +17,7 @@ from acprof.container.handlers import (
 from acprof.container.handlers.generation_evidence import count_input_tokens, generation_evidence
 from acprof.container.load_policy import load_policy
 from acprof.input_budget import check_nlp_input, positive_integer
-from acprof.model_spec import pipeline_task
+from acprof.models.spec import pipeline_task
 
 # Tasks that generate text output
 _GENERATIVE_TASKS = {

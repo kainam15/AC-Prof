@@ -303,7 +303,7 @@ def config_from_record(record: ExperimentRecord, *, reuse: bool) -> RunConfig:
     derived = {'measurement_environment', 'model_spec_sha256', 'workload_spec_sha256'}
     extra = {name: value for name, value in options.items() if name not in explicit | derived}
     config = replace(config, extra_options=extra)
-    from acprof.model_evidence import pinned_revision
+    from acprof.models.evidence import pinned_revision
     if reuse and pinned_revision(record.revision):
         config = replace(config, revision=record.revision)
     root = record.directory.parents[3] if config.task_run_id else record.directory.parent

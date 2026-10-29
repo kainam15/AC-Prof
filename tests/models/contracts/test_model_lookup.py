@@ -20,7 +20,7 @@ from huggingface_hub.errors import (
 from acprof.cli.main import main
 from acprof.host.detect import detect_task
 from acprof.host.model_errors import ModelLookupError
-from acprof.model_repository import MetadataFile
+from acprof.hub.repository import MetadataFile
 
 
 def hub_error(kind, status):

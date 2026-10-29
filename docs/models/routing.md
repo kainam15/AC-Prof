@@ -98,8 +98,8 @@ Hub 与模型声明的任务冲突必须显式选择；底层 loader 标签按�
 ONNX 文件本身只能证明格式，不能凭输入 shape 猜分类、回归或预处理；这些语义须显式补充。
 
 `discover_model_candidates()` 是唯一任务发现入口，同时返回 `task_discovery` schema v2。
-`inference_interfaces` 读取 Extension 协议，`model_tasks` 只将已确认接口与用途转换为可分组的 workload，
-不再维护第二套任务识别规则。`model_candidates` 基于已审查的 `model_support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
+`inference_interfaces` 读取 Extension 协议，`models/tasks` 只将已确认接口与用途转换为可分组的 workload，
+不再维护第二套任务识别规则。`models/candidates` 基于已审查的 `models/support` Auto 注册表、Hub、声明与文件清单生成候选及证据；
 `model_resolution` 再对选中候选执行无权重的接口约束检查。候选发现是无副作用查询，
 只有编排入口显式调用 `apply_model_candidate` 才更新 `TaskInfo.pipeline_tag/task_family/runtime_backend/task_discovery`；
 两者不使用模型 ID 猜任务，也不在静态解析阶段导入推理框架。

@@ -31,7 +31,7 @@ TASK_MAPPINGS = {
 
 
 def _transformers_support_catalog(version: str) -> dict:
-    path = Path(__file__).parent / "extensions" / "transformers" / f"{version}.json"
+    path = Path(__file__).resolve().parents[1] / "extensions" / "transformers" / f"{version}.json"
     if not path.is_file():
         raise ValueError(f"No reviewed support catalog for transformers=={version}; register and validate this runtime first")
     data = json.loads(path.read_text(encoding="utf-8"))

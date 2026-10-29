@@ -73,8 +73,8 @@ def test_full_probe_accepts_native_models_and_preserves_feature_width():
         assert ("params") not in (plan["entries"][0]["payload"])
 
 def test_review_provenance_survives_export_and_subprocess_inspection():
-    from acprof.model_contract import write_model_resolution
-    from acprof.model_spec import task_model_spec
+    from acprof.models.contract import write_model_resolution
+    from acprof.models.spec import task_model_spec
     task = fixture.TestModelContract().discover()
     original = task.model_resolution["contract"]
     declaration = task_model_spec(task)
@@ -93,8 +93,8 @@ def test_review_provenance_survives_export_and_subprocess_inspection():
 
 
 def test_corrupt_previous_review_provenance_is_not_reused():
-    from acprof.model_contract import write_model_resolution
-    from acprof.model_spec import task_model_spec
+    from acprof.models.contract import write_model_resolution
+    from acprof.models.spec import task_model_spec
 
     task = fixture.TestModelContract().discover()
     declaration = task_model_spec(task)

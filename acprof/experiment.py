@@ -196,7 +196,7 @@ class RunConfig(RunOptions):
         if not isinstance(self.revision, str) or any(character.isspace() for character in self.revision):
             errors.append(ConfigIssue("revision", message("模型 revision 必须是无空白的 branch、tag 或 commit SHA")))
         from acprof.hub.huggingface.endpoints import HF_DOWNLOAD_MODES
-        from acprof.model_repository import MODEL_SOURCES
+        from acprof.hub.repository import MODEL_SOURCES
         if self.model_source not in MODEL_SOURCES:
             errors.append(ConfigIssue("model_source", message("模型来源必须是 huggingface 或 modelscope")))
         from acprof.network_policy import parse_bytes
@@ -329,7 +329,7 @@ class RunConfig(RunOptions):
             if not model_path.is_absolute():
                 model_path = project_dir / model_path
             try:
-                from acprof.model_spec import read_model_spec
+                from acprof.models.spec import read_model_spec
                 read_model_spec(model_path)
             except (OSError, ValueError) as exc:
                 errors.append(ConfigIssue("model_spec", message('模型接口声明无效：{0}；{1}', model_spec, str(exc))))

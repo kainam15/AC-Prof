@@ -8,10 +8,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from acprof.model_evidence import content_digest, pinned_revision
-from acprof.model_metadata_analysis import MAX_SOURCE_FILES, MAX_TOTAL_SOURCE_BYTES
-from acprof.model_source_analysis import MAX_SOURCE_BYTES, SOURCE_METADATA_FILES, parse_source
-from acprof.model_spec import custom_code_files, task_model_spec
+from acprof.models.evidence import content_digest, pinned_revision
+from acprof.models.inspection.ast_parser import MAX_SOURCE_BYTES, parse_source
+from acprof.models.inspection.metadata import MAX_SOURCE_FILES, MAX_TOTAL_SOURCE_BYTES
+from acprof.models.inspection.source import SOURCE_METADATA_FILES
+from acprof.models.spec import custom_code_files, task_model_spec
 
 _WEIGHTS = {".safetensors", ".bin", ".pt", ".pth", ".ckpt", ".gguf", ".onnx"}
 

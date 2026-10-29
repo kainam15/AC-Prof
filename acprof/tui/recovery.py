@@ -13,7 +13,7 @@ from acprof.host.run_state import (
     validate_resume,
 )
 from acprof.messages import join_messages, message
-from acprof.model_evidence import pinned_revision
+from acprof.models.evidence import pinned_revision
 from acprof.run_args import build_parser
 from acprof.tui.commands import PendingLaunch
 from acprof.tui.experiment_catalog import (

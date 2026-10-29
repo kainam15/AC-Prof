@@ -7,7 +7,7 @@ from acprof.task_workloads import parse_task, task_fingerprint
 
 
 def activate_task(task, selected: dict, *, backend: str = ""):
-    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
 
     result = copy.deepcopy(task)
     result.selected_tasks = [copy.deepcopy(selected)]
@@ -95,7 +95,7 @@ def select_tasks(task, args, workflow):
                                               "无法确认完整推理接口，请补充模型声明或输入配置。"])
         return task
     from acprof.inference_groups import group_inference_tasks
-    from acprof.model_candidates import resolve_task_backends
+    from acprof.models.candidates import resolve_task_backends
 
     backends = resolve_task_backends(task, candidates, override_backend=args.backend)
     from acprof.inference_interfaces import execution_path

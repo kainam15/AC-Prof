@@ -7,8 +7,8 @@ import pytest
 from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import TaskInfo
 from acprof.host.task_selection import select_tasks
-from acprof.model_candidates import apply_model_candidate, discover_model_candidates
-from acprof.model_resolution import require_resolved_candidate
+from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+from acprof.models.resolution import require_resolved_candidate
 
 
 def model(*, tag="unknown", config=None, metadata=None, hub=None, library="transformers"):
@@ -131,7 +131,7 @@ def test_module_configuration_is_read_at_the_pinned_revision(tmp_path, monkeypat
     import json
 
     from acprof.host import detect
-    from acprof.model_repository import MetadataFile
+    from acprof.hub.repository import MetadataFile
     snapshot = {"modules.json": [{"idx": 0, "path": "encoder", "type": "sentence_transformers.models.Transformer"},
                                   {"idx": 1, "path": "pooling", "type": "sentence_transformers.models.Pooling"}],
                 "encoder/config.json": {"model_type": "bert"},

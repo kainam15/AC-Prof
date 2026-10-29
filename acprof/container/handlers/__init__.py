@@ -178,7 +178,7 @@ def load_handler(handler: BaseHandler, model_source: str, task_type: str, backen
     declaration = handler_declaration(task_type, backend)
     model_spec_format = declaration.handler_options.get("model_spec_format")
     if model_spec_format:
-        from acprof.model_spec import load_model_spec
+        from acprof.models.spec import load_model_spec
         spec = load_model_spec(model_source, task_type, expected_format=model_spec_format)
         if spec:
             context["model_spec"] = spec

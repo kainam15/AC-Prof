@@ -93,7 +93,7 @@ class TestCustomMultimodalRuntime:
 
     def test_full_pipeline_loads_transitive_imports_before_inference(self):
         from acprof.container.runtime_validate import validate
-        from acprof.model_spec import encode_model_spec
+        from acprof.models.spec import encode_model_spec
 
         with tempfile.TemporaryDirectory(prefix="acprof_nested_pipeline_") as directory:
             root = Path(directory)
@@ -123,7 +123,7 @@ class TestCustomMultimodalRuntime:
 
         from acprof.container.handlers.multimodal import MultimodalHandler
         from acprof.container.runtime_validate import validate
-        from acprof.model_spec import encode_model_spec
+        from acprof.models.spec import encode_model_spec
 
         device = os.getenv("ACPROF_TEST_DEVICE", "cpu")
         if device == "cuda" and not torch.cuda.is_available():
@@ -206,7 +206,7 @@ class TestLocalPipelineDependencyRuntime:
 
     @staticmethod
     def probe(root: Path, cache: Path, *, native: bool = False):
-        from acprof.model_spec import encode_model_spec
+        from acprof.models.spec import encode_model_spec
 
         spec = pipeline_spec()
         spec.pop("dependencies")

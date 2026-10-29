@@ -6,8 +6,9 @@ from unittest.mock import patch
 import pytest
 
 import tests.models.contracts.test_model_contract as fixture
-from acprof.model_review import apply_review, review_questions
-from acprof.model_spec import task_model_spec
+from acprof.host.preparation.review import apply_review
+from acprof.models.review import review_questions
+from acprof.models.spec import task_model_spec
 
 
 def test_pipeline_selection_reanalyzes_only_the_selected_interface():
@@ -80,9 +81,9 @@ def test_review_of_unknown_loader_still_preserves_source_revision():
 
 
 def test_review_reenters_the_contract_resolver():
-    from acprof.model_contract import resolve_model_contract
+    from acprof.models.contract import resolve_model_contract
     task = fixture.TestModelContract().discover(fixture.SOURCE.replace('inputs.get("prompt", "Listen.")', 'inputs["turns"]'))
-    with patch("acprof.model_contract.resolve_model_contract", wraps=resolve_model_contract) as resolve:
+    with patch("acprof.models.contract.resolve_model_contract", wraps=resolve_model_contract) as resolve:
         reviewed = apply_review(task, {"multimodal.inputs.turns": "text"})
     assert resolve.call_count == 1
     assert reviewed.model_resolution["contract"]["status"] == "resolved"

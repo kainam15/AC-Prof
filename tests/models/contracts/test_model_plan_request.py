@@ -64,7 +64,7 @@ def test_preparation_binds_plan_to_task_before_any_cache_or_transport(task, plan
     root = tmp_path / "store"
     with patch.object(model_store, "configure_hf_transport") as transport, patch(
             "huggingface_hub.snapshot_download", side_effect=AssertionError("unexpected download")) as hf, patch(
-            "acprof.model_repository.modelscope_file", side_effect=AssertionError("unexpected download")) as ms:
+            "acprof.hub.repository.modelscope_file", side_effect=AssertionError("unexpected download")) as ms:
         with pytest.raises(ModelFilesError, match=field):
             model_store.prepare_model(task, wrong, root)
     transport.assert_not_called()

@@ -25,8 +25,8 @@ from acprof.host.images.environment import prepare_environment_image
 from acprof.host.source_bundle import source_bundle
 from acprof.host.validation_logs import ValidationLog
 from acprof.installation import resource_root
-from acprof.model_contract import write_model_resolution
-from acprof.model_spec import encode_model_spec, task_model_spec
+from acprof.models.contract import write_model_resolution
+from acprof.models.spec import encode_model_spec, task_model_spec
 from acprof.preparation_events import preparation_stage
 from acprof.runtime_profiles import select_runtime_profile
 from acprof.source_identity import service_sources, source_fingerprint

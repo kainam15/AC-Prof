@@ -20,7 +20,7 @@ from acprof.container.handlers import (
 )
 from acprof.container.load_policy import load_policy, load_processor
 from acprof.input_budget import positive_integer
-from acprof.model_spec import pipeline_task
+from acprof.models.spec import pipeline_task
 
 _ASR_TASK_TYPES = {
     "automatic-speech-recognition",

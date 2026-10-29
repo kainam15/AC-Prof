@@ -15,7 +15,7 @@ import numpy as np
 
 from acprof.container.handlers import BaseHandler, handler_declaration
 from acprof.input_budget import positive_integer
-from acprof.model_spec import load_model_spec
+from acprof.models.spec import load_model_spec
 
 TASK_OUTPUT_TYPES = {
     "tabular-classification": "classification", "tabular-regression": "regression",

@@ -30,8 +30,8 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
             "  请检查 HF_ENDPOINT、网络、仓库访问权限及 JSON 内容后重试。",
             "  本次未进入镜像准备、资源矩阵或推理测量。",
         ]))
-    from acprof.model_resolution import require_resolved_candidate
-    from acprof.model_spec import custom_code_files
+    from acprof.models.resolution import require_resolved_candidate
+    from acprof.models.spec import custom_code_files
     try:
         require_resolved_candidate(task_info)
         custom_code_files(task_info.model_config or {})
@@ -60,7 +60,7 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
         except ValueError as exc:
             reason = str(exc)
     if reason is None:
-        from acprof.model_resolution import resolve_model_interface
+        from acprof.models.resolution import resolve_model_interface
         from acprof.runtime_profiles import select_runtime_profile
 
         try:
@@ -70,7 +70,7 @@ def require_task_support(task_info: TaskInfo, *, batch_size: int = 1, devices=()
             task_info.model_resolution["runtime_profile"] = profile.profile_id
             from acprof.runtime_dependencies import dependency_preflight
             dependency_preflight(task_info, profile)
-            from acprof.model_support import supports_transformers_task
+            from acprof.models.support import supports_transformers_task
             from acprof.precision import remote_code_allowed, resolve_precision
             from acprof.runtime_profiles import locked_transformers_version
             extension = select_extension(task_info)

@@ -15,7 +15,7 @@ import pytest
 from acprof.container.download_model import verify_download
 from acprof.container.model_files import PLAN_FILENAME, ModelFilesError, plan_download, seal_plan
 from acprof.host import detect, model_store
-from acprof.model_repository import modelscope_snapshot
+from acprof.hub.repository import modelscope_snapshot
 
 MODEL_ID = "fixture/model"
 REVISION = "a" * 40

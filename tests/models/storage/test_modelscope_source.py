@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.container.model_files import ModelFilesError
-from acprof.model_repository import (
+from acprof.hub.repository import (
     MetadataFile,
     modelscope_info,
     modelscope_metadata,
@@ -30,7 +30,7 @@ def test_modelscope_pins_repository_ref_not_per_file_revision(monkeypatch):
 def test_modelscope_access_check_never_queries_huggingface():
     from acprof.host.automation import check_repository_access
     with patch("acprof.host.model_store.cached_model_info", return_value=None), patch(
-            "acprof.model_repository.modelscope_info", return_value=object()) as ms, patch(
+            "acprof.hub.repository.modelscope_info", return_value=object()) as ms, patch(
             "huggingface_hub.HfApi.auth_check", side_effect=AssertionError("ModelScope queried HF")):
         evidence = check_repository_access("demo/model", source="modelscope")
     ms.assert_called_once_with("demo/model", None)
@@ -51,7 +51,7 @@ def test_modelscope_metadata_requires_known_size_and_hash_before_transfer(monkey
     api.get_repo.return_value = SimpleNamespace(tags=["library:pytorch"], tasks=["text-generation"], license="apache-2.0")
     item = {"Path": "config.json", "Type": "blob", "Size": 20, "Sha256": "b" * 64, "Revision": "c" * 40}
     api.legacy.list_repo_files.return_value = [item]
-    monkeypatch.setattr("acprof.model_repository.modelscope_api", lambda: api)
+    monkeypatch.setattr("acprof.hub.repository.modelscope_api", lambda: api)
     info = modelscope_info("demo/model", "a" * 40)
     assert info.sha == "a" * 40
     assert info.siblings[0].lfs["sha256"] == "b" * 64
@@ -61,12 +61,12 @@ def test_modelscope_metadata_requires_known_size_and_hash_before_transfer(monkey
     api.download_file.assert_not_called()
 
 
-def test_modelscope_metadata_size_guard_prevents_weight_download(monkeypatch):
+def test_modelscope_metadata_size_guard_prevents_weight_download(monkeypatch, tmp_path):
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(rfilename="model.safetensors", size=10**10)])
-    monkeypatch.setattr("acprof.model_repository.modelscope_info", lambda *_: info)
-    with patch("acprof.model_repository.modelscope_file") as download:
+    monkeypatch.setattr("acprof.hub.repository.modelscope_info", lambda *_: info)
+    with patch("acprof.hub.repository.modelscope_file") as download:
         with pytest.raises(ModelFilesError, match="exceeds"):
-            modelscope_metadata("demo/model", "model.safetensors", "a" * 40, 1024)
+            modelscope_metadata("demo/model", "model.safetensors", "a" * 40, 1024, cache_root=tmp_path)
     download.assert_not_called()
 
 
@@ -78,10 +78,10 @@ def test_modelscope_metadata_checks_downloaded_bytes_against_repository_record(t
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(
         rfilename="config.json", size=len(original), lfs={"sha256": hashlib.sha256(original).hexdigest()},
     )])
-    with patch("acprof.model_repository.modelscope_info", return_value=info), patch(
-        "acprof.model_repository.modelscope_file", return_value=str(path),
+    with patch("acprof.hub.repository.modelscope_info", return_value=info), patch(
+        "acprof.hub.repository.modelscope_file", return_value=str(path),
     ), pytest.raises(ModelFilesError, match="SHA256|size"):
-        modelscope_metadata("demo/model", "config.json", "a" * 40, 1024)
+        modelscope_metadata("demo/model", "config.json", "a" * 40, 1024, cache_root=tmp_path)
 
 
 def test_modelscope_metadata_returns_verified_content_with_snapshot_identity(tmp_path):
@@ -94,10 +94,10 @@ def test_modelscope_metadata_returns_verified_content_with_snapshot_identity(tmp
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(
         rfilename="config.json", size=len(content), lfs={"sha256": digest},
     )])
-    with patch("acprof.model_repository.modelscope_info", return_value=info), patch(
-        "acprof.model_repository.modelscope_file", return_value=str(path),
+    with patch("acprof.hub.repository.modelscope_info", return_value=info), patch(
+        "acprof.hub.repository.modelscope_file", return_value=str(path),
     ) as download:
-        metadata = modelscope_metadata("demo/model", "config.json", "a" * 40, 1024)
+        metadata = modelscope_metadata("demo/model", "config.json", "a" * 40, 1024, cache_root=tmp_path)
     path.unlink()
     assert metadata == MetadataFile(path, content)
     assert download.call_args.kwargs["sha256"] == digest
@@ -107,7 +107,7 @@ def test_configured_endpoint_cannot_change_huggingface_source():
     from acprof.container.download_model import _prepare_repository_plan
     info = SimpleNamespace(sha="a" * 40, siblings=[SimpleNamespace(rfilename="config.json", size=2)])
     with patch("huggingface_hub.HfApi.model_info", return_value=info) as hf, patch(
-            "acprof.model_repository.modelscope_info", side_effect=AssertionError("silent source change")), patch(
+            "acprof.hub.repository.modelscope_info", side_effect=AssertionError("silent source change")), patch(
             "acprof.container.download_model._library_versions", return_value={}):
         plan = _prepare_repository_plan("https://modelscope.cn", "demo/model", "a" * 40,
                                         dependency={"allow_patterns": ["config.json"]})
@@ -132,7 +132,7 @@ def test_frozen_source_preserves_historical_hf_options_and_records_modelscope(mo
 def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_path, monkeypatch):
     from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
     from acprof.host import model_store
-    from acprof.model_repository import modelscope_snapshot
+    from acprof.hub.repository import modelscope_snapshot
     content = b"{}"
     digest = hashlib.sha256(content).hexdigest()
     task = SimpleNamespace(model_id="demo/model", model_revision="a" * 40, model_source="modelscope",
@@ -149,7 +149,7 @@ def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_pa
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
         return str(target)
-    with patch("acprof.model_repository.modelscope_file", side_effect=download) as ms, patch(
+    with patch("acprof.hub.repository.modelscope_file", side_effect=download) as ms, patch(
             "huggingface_hub.snapshot_download", side_effect=AssertionError("ModelScope used HF")):
         record = model_store.prepare_model(task, plan, tmp_path)
         assert ms.call_count == 1
@@ -174,7 +174,7 @@ def test_modelscope_lookup_failure_cannot_be_bypassed_by_manual_task(monkeypatch
     from acprof.host.model_errors import ModelLookupError
     monkeypatch.setenv("ACPROF_MODEL_SOURCE", "modelscope")
     failure = getattr(errors, error)("source failure")
-    with patch("acprof.model_repository.modelscope_info", side_effect=failure), patch(
+    with patch("acprof.hub.repository.modelscope_info", side_effect=failure), patch(
             "acprof.host.model_store.cached_model_info", return_value=None), patch(
             "acprof.host.model_store.cached_metadata", return_value=None):
         with pytest.raises(ModelLookupError) as caught:

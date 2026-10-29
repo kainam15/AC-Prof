@@ -14,8 +14,8 @@ from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.collection_workflow import PreparationWorkflow
 from acprof.host.detect import _detect_from_hub
 from acprof.host.task_support import require_task_support
-from acprof.model_candidates import apply_model_candidate, discover_model_candidates
-from acprof.model_evidence import content_digest
+from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+from acprof.models.evidence import content_digest
 
 
 def _hub(architecture, tag="pretraining", transformer_tag=None, auto_model=None):

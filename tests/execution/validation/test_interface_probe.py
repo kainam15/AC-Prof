@@ -149,7 +149,7 @@ def test_source_content_must_match_static_evidence():
 
 def test_explicit_declaration_keeps_a_complete_source_graph():
     task = contracts.TestModelContract().discover()
-    from acprof.model_spec import task_model_spec
+    from acprof.models.spec import task_model_spec
     explicit = contracts.TestModelContract().discover(spec=task_model_spec(task))
     assert explicit.model_resolution["contract"]["fields"]["custom_code"]["value"]["files"] == ["pipeline.py"]
 
@@ -163,8 +163,8 @@ def test_bundle_cancellation_removes_temporary_directory():
 
 
 def test_static_graph_includes_package_initializers_and_imported_submodules():
-    from acprof.model_evidence import ModelEvidence
-    from acprof.model_metadata_analysis import collect_source_evidence
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
     task = contracts.TestModelContract().discover()
     sources = {"pipeline.py": "from .processors import audio\n", "processors/__init__.py": "",
                "processors/audio.py": "from .helpers.codec import decode\n",
@@ -178,8 +178,8 @@ def test_static_graph_includes_package_initializers_and_imported_submodules():
 
 
 def test_static_graph_accepts_name_exported_by_package_initializer():
-    from acprof.model_evidence import ModelEvidence
-    from acprof.model_metadata_analysis import collect_source_evidence
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
     task = contracts.TestModelContract().discover()
     sources = {
         "pipeline.py": "from . import RATE\n",
@@ -193,8 +193,8 @@ def test_static_graph_accepts_name_exported_by_package_initializer():
 
 
 def test_static_graph_accepts_name_defined_by_package_initializer():
-    from acprof.model_evidence import ModelEvidence
-    from acprof.model_metadata_analysis import collect_source_evidence
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
     task = contracts.TestModelContract().discover()
     sources = {
         "pipeline.py": "from . import RATE\n",
@@ -207,8 +207,8 @@ def test_static_graph_accepts_name_defined_by_package_initializer():
 
 
 def test_static_graph_rejects_unbound_package_name():
-    from acprof.model_evidence import ModelEvidence
-    from acprof.model_metadata_analysis import collect_source_evidence
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
     task = contracts.TestModelContract().discover()
     sources = {
         "pipeline.py": "from . import MISSING\n",
@@ -226,8 +226,8 @@ def test_static_graph_rejects_unbound_package_name():
     "from . import RATE\n",
 ])
 def test_static_graph_does_not_treat_unproven_initializer_bindings_as_exports(initializer):
-    from acprof.model_evidence import ModelEvidence
-    from acprof.model_metadata_analysis import collect_source_evidence
+    from acprof.models.evidence import ModelEvidence
+    from acprof.models.inspection.metadata import collect_source_evidence
     task = contracts.TestModelContract().discover()
     sources = {"pipeline.py": "from . import RATE\n", "__init__.py": initializer}
     task.repository_files = tuple(sources)
@@ -246,7 +246,7 @@ def test_bundle_rejects_graph_with_missing_declared_dependency():
 
 def test_tokenizer_metadata_keeps_its_source_graph_and_small_metadata():
     from acprof.host.detect import TaskInfo
-    from acprof.model_contract import apply_model_contract
+    from acprof.models.contract import apply_model_contract
     task = TaskInfo("fixture/tokenizer", "fill-mask", "nlp", "transformers_pipeline", "transformers", "a" * 40, "fixture",
                     model_config={"model_type": "bert"}, repository_files=("custom_tokenizer.py",),
                     repository_metadata={"tokenizer_config.json": {"auto_map": {"AutoTokenizer": ["custom_tokenizer.Tokenizer", None]}}})

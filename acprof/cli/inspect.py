@@ -29,7 +29,7 @@ def main(argv=None) -> int:
     from acprof.host.env_utils import bootstrap_project_env
     from acprof.host.interface_probe import probe_interface
     from acprof.host.model_inspection import explain_resolution
-    from acprof.model_contract import write_model_resolution
+    from acprof.models.contract import write_model_resolution
     apply_download_arguments(args)
     bootstrap_project_env(Path.cwd())
     task = detect_task(args.model, model_spec_path=args.model_spec, override_tag=args.task, override_backend=args.backend,
@@ -48,8 +48,8 @@ def main(argv=None) -> int:
         # Preserve that explanation only for the same pinned model and exact spec;
         # a prior runtime observation never becomes evidence for this new probe.
         from acprof.artifacts import read_json_object
-        from acprof.model_evidence import RESOLVER_VERSION
-        from acprof.model_spec import task_model_spec
+        from acprof.models.evidence import RESOLVER_VERSION
+        from acprof.models.spec import task_model_spec
         previous = output / "model_resolution.json"
         if previous.is_file():
             try:

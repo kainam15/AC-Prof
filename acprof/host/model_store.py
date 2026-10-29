@@ -44,8 +44,8 @@ from acprof.hub.huggingface.transport import (
     observed_hf_provenance,
     observed_hf_sources,
 )
-from acprof.model_repository import MetadataFile, read_metadata_file
-from acprof.model_spec import model_download_request, validate_dependencies
+from acprof.hub.repository import MetadataFile, read_metadata_file
+from acprof.models.spec import model_download_request, validate_dependencies
 from acprof.network_policy import (
     DownloadPolicyError,
     DownloadSource,
@@ -336,7 +336,7 @@ def plan_model(task, root: Path | None = None) -> dict:
         if cached:
             validate_plan_request(cached, request)
             return cached
-        from acprof.model_repository import MODELSCOPE_ENDPOINT
+        from acprof.hub.repository import MODELSCOPE_ENDPOINT
         source = getattr(task, "model_source", "huggingface")
         endpoints = [MODELSCOPE_ENDPOINT] if source == "modelscope" else hf_endpoints()
         def prepare(endpoint):
@@ -364,7 +364,7 @@ def plan_model(task, root: Path | None = None) -> dict:
 
 def cached_file(root: Path, plan: dict, record: dict) -> Path | None:
     if plan.get("source", "huggingface") == "modelscope":
-        from acprof.model_repository import modelscope_snapshot
+        from acprof.hub.repository import modelscope_snapshot
         path = modelscope_snapshot(root, plan["model_id"], plan["model_revision"]) / record["path"]
         return path if _cached_file_matches(path, record.get("size")) else None
     from huggingface_hub import try_to_load_from_cache
@@ -559,7 +559,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
             def download(endpoint):
                 progress.start_attempt()
                 if source == "modelscope":
-                    from acprof.model_repository import modelscope_file, modelscope_snapshot
+                    from acprof.hub.repository import modelscope_file, modelscope_snapshot
                     if not offline:
                         for record in repo["files"]:
                             modelscope_file(repo["model_id"], record["path"], repo["model_revision"], root,

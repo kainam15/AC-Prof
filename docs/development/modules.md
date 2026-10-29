@@ -39,7 +39,11 @@
 | `acprof/tui/` | Textual 页面、事件、命令构造、进度、设置和日志控件 |
 | `acprof/analysis/` | 延迟模型的数值计算、验证与报告文件 |
 | `acprof/plotting/` | 当前 CSV 校验、图表配置、颜色与渲染 |
+| `acprof/models/` | 模型契约、静态候选、任务支持与检查点文件规则；inspection/ 只解析受限源码与依赖证据 |
+| `acprof/hub/` | 来源身份、HF/ModelScope 仓库访问与受约束的下载传输 |
+| `acprof/system/` | 主机和监测器共享的同步命令执行能力，不依赖 host 编排 |
 | `acprof/host/` | 模型检测、环境预检、输入计划、容器与采集编排、profiler |
+| `acprof/host/preparation/` | 将用户模型确认结果应用于源码读取、依赖解析和主机准备流程 |
 | `acprof/host/images/` | `environment` 构建依赖环境镜像，`dependencies` / `scan` 收集依赖证据，`inventory` / `graph` 管理清单和层关系，`runtime` / `identity` 组装并标识模型镜像 |
 | `acprof/host/measurement/` | 客户端配置、请求窗口、监测器编排、纯指标计算、检查点与发布；`host.client` 保留进程入口 |
 | `acprof/host/profiling/` | 独立 compute/execution 计划、进度及工具支持；`tools/` 放置各 profiler 的执行和解析实现 |
@@ -57,14 +61,14 @@
 | `acprof/artifact_layout.py` | 结果清单、v2/flat 布局识别、受限相对路径及 case sidecar 路由；采集、恢复、补采和分析共用 |
 | `acprof/pixel_metrics.py` | 像素计数和能耗/延迟归一化的纯计算，由 client、packet 和 plotting 共用 |
 | `acprof/runtime_profiles.py` | 平台、依赖环境、逻辑 profile 与锁身份；从扩展声明读取路由 |
-| `acprof/model_support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
-| `acprof/model_candidates.py` | 唯一静态接口发现入口，同时生成候选、作用域证据和 `task_discovery`；查询不修改 `TaskInfo`，编排显式应用决策；不加载权重 |
+| `acprof/models/support.py` | 精确版本的 Transformers 注册与能力目录，判断 Auto 类和 Pipeline 任务支持；只读静态数据，不导入模型 |
+| `acprof/models/candidates.py` | 唯一静态接口发现入口，同时生成候选、作用域证据和 `task_discovery`；查询不修改 `TaskInfo`，编排显式应用决策；不加载权重 |
 | `acprof/inference_interfaces.py` | 从 Extension 解析 loader、四阶段调用、模块链、组件及 IO，记录执行身份并在恢复前核验；不导入模型代码 |
-| `acprof/model_tasks.py`、`acprof/inference_groups.py` | 将统一接口决策与用途声明转成 workload，按真实执行路径和有效计算参数分组；保留原始用途，不重复识别架构 |
-| `acprof/model_resolution.py`、`acprof/model_spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
-| `acprof/model_evidence.py`、`acprof/model_metadata_analysis.py`、`acprof/model_source_analysis.py`、`acprof/model_contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
-| `acprof/model_dependency_domain.py`、`acprof/model_dependency_eval.py`、`acprof/model_dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
-| `acprof/model_dependencies.py`、`acprof/model_review.py`、`acprof/model_transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
+| `acprof/models/tasks.py`、`acprof/inference_groups.py` | 将统一接口决策与用途声明转成 workload，按真实执行路径和有效计算参数分组；保留原始用途，不重复识别架构 |
+| `acprof/models/resolution.py`、`acprof/models/spec.py` | 已选择接口的格式/loader 校验与模型 spec schema；本地／作者声明优先于自动生成 |
+| `acprof/models/evidence.py`、`acprof/models/inspection/metadata.py`、`acprof/models/inspection/source.py`、`acprof/models/contract.py` | 固定 snapshot 的来源记录、结构化元数据、受限 AST 与 Pipeline 契约生成；仅在主机准备阶段分析文本，细节见[自动生成模型契约](../models/contracts.md#自动生成模型契约m1m6) |
+| `acprof/models/inspection/dependency_domain.py`、`acprof/models/inspection/dependency_eval.py`、`acprof/models/inspection/dependency_flow.py` | 受限抽象值与推断预算 → AST 调用／分支求值 → 源码索引和依赖证据汇总；只做静态解释，不执行仓库代码 |
+| `acprof/models/dependencies.py`、`acprof/models/review.py` / `acprof/host/preparation/review.py`、`acprof/models/transforms.py` | 按 loader 角色固定依赖与文件选择、未决字段的显式决策、有界 JSON 输入转换；下载复用既有镜像 planner |
 | `acprof/host/source_bundle.py`、`acprof/host/interface_probe.py`、`acprof/container/model_probe.py` | 固定源码图、无权重的隔离 import／signature 检查，独立接口报告 |
 | `acprof/host/model_inspection.py`、`acprof/tui/preparation.py` | 静态解释、统一模型确认与准备弹窗；完整 Smoke 复用 `runtime_validation` |
 | `acprof/host/automation.py`、`acprof/host/model_coverage.py` | 精确模型的访问／能力预检、自动运行报告，以及固定样本的解析／运行覆盖率；`cli/auto.py` 委派现有 run 入口，不复制测量循环 |

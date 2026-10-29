@@ -4,8 +4,8 @@ import copy
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import apply_model_candidate, discover_model_candidates
-from acprof.model_resolution import require_resolved_candidate
+from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+from acprof.models.resolution import require_resolved_candidate
 
 
 def candidate(*, tag="unknown", config=None, hub=None):
@@ -160,7 +160,7 @@ def test_pretraining_registry_does_not_infer_unrelated_protocols(architecture, m
                    for item in task.model_resolution["provenance"]["observations"])
 
 def test_runtime_observation_cannot_rewrite_static_semantics():
-    from acprof.model_contract import record_runtime_validation
+    from acprof.models.contract import record_runtime_validation
     task = candidate(tag="text-generation")
     before = copy.deepcopy(task.model_resolution)
     record_runtime_validation(task, {"mode": "full", "status": "ok", "image_id": "sha256:" + "b" * 64,

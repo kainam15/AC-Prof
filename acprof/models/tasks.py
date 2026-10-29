@@ -5,7 +5,7 @@ from typing import Any
 
 from acprof.inference_groups import group_inference_tasks
 from acprof.inference_interfaces import execution_path
-from acprof.model_support import TASK_MAPPINGS
+from acprof.models.support import TASK_MAPPINGS
 from acprof.task_workloads import canonical_task_id, parse_task, task_fingerprint
 
 

@@ -9,7 +9,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-from acprof.model_evidence import content_digest
+from acprof.models.evidence import content_digest
 
 type ConfigPath = tuple[str | int, ...]
 _MISSING = object()

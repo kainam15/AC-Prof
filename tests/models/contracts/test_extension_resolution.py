@@ -106,7 +106,7 @@ def test_invalid_io_template_is_rejected_when_loading_manifest():
             load_catalog([path])
 
 def test_candidate_discovery_records_unknown_library_without_fallback():
-    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
     task = TaskInfo("fixture/model", "text-generation", "nlp", "transformers_pipeline", "undeclared", "fixed", "manual")
     result = apply_model_candidate(task, discover_model_candidates(task))
     assert (result["status"]) == ("needs_configuration")
@@ -126,7 +126,7 @@ def test_candidate_discovery_records_unknown_library_without_fallback():
 
 def test_catalog_inference_does_not_become_author_declared_hub_task():
     from acprof.host.detect import _detect_from_hub
-    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
     hub = SimpleNamespace(pipeline_tag=None, library_name="transformers", sha="a" * 40,
                           config={"architectures": ["BertForMaskedLM"], "model_type": "bert"})
     with patch("huggingface_hub.HfApi.model_info", return_value=hub):

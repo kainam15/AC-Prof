@@ -73,7 +73,7 @@ def collect_manifest() -> dict:
             raise RuntimeError(f"model download plan differs from runtime: {key}")
     if any(not (source / item["path"]).is_file() for item in download["files"]):
         raise RuntimeError("model snapshot is missing files from its download plan")
-    from acprof.model_spec import load_model_dependencies
+    from acprof.models.spec import load_model_dependencies
     dependencies = download.get("dependencies", [])
     if [{key: value for key, value in item.items() if key != "download"} for item in dependencies] != load_model_dependencies():
         raise RuntimeError("model dependency plan differs from the baked declaration")
@@ -115,7 +115,7 @@ def collect_manifest() -> dict:
 
 def _mounted_manifest(dependency: dict, packages: dict, lock_hash: str, store: dict) -> dict:
     from acprof.container.model_files import validate_plan
-    from acprof.model_spec import load_model_dependencies
+    from acprof.models.spec import load_model_dependencies
     plan = store["model_download"]
     validate_plan(plan)
     if (store.get("schema_version") != 1 or plan.get("verification") != "sha256"

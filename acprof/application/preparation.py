@@ -119,7 +119,7 @@ def prepare_runtime(args, *, run_state, task_info, output_dir, cpu_list, mem_lis
             image_info.runtime_environment["gpu_device"] = getattr(args, "process_gpu", {})
         os.makedirs(output_dir, exist_ok=True)
         if task_info.model_resolution:
-            from acprof.model_contract import write_model_resolution
+            from acprof.models.contract import write_model_resolution
             write_model_resolution(task_info, output_dir)
 
         scaling_cfg = SCALING_DIMENSIONS.get(task_info.task_family)

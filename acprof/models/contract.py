@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from acprof.artifacts import atomic_write_json
-from acprof.model_evidence import ModelEvidence, pinned_revision
-from acprof.model_metadata_analysis import collect_source_evidence, collect_structured_evidence
-from acprof.model_source_analysis import analyze_pipeline
-from acprof.model_spec import (
+from acprof.models.evidence import ModelEvidence, pinned_revision
+from acprof.models.inspection.metadata import collect_source_evidence, collect_structured_evidence
+from acprof.models.inspection.source import analyze_pipeline
+from acprof.models.spec import (
     MULTIMODAL_PIPELINE_INPUTS,
     custom_code_files,
     task_model_spec,
@@ -154,7 +154,7 @@ def resolve_model_contract(task_info, read_text: Callable[[str], str], *, resolv
                 if selected_pipeline:
                     evidence.add("pipeline_task", selected_pipeline, "declared", "user.review")
                 if evidence.dependency_candidates:
-                    from acprof.model_dependencies import resolve_dependencies
+                    from acprof.models.dependencies import resolve_dependencies
                     dependencies, errors = resolve_dependencies(evidence.dependency_candidates, resolve_repository)
                     if dependencies:
                         draft["dependencies"] = dependencies
@@ -189,7 +189,7 @@ def apply_model_contract(task_info, read_text: Callable[[str], str], *, override
     task_info.model_resolution["contract"] = report
     if report["status"] == "resolved":
         if not task_model_spec(task_info):
-            from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+            from acprof.models.candidates import apply_model_candidate, discover_model_candidates
             task_info.model_resolution["generated_spec"] = report["draft_spec"]
             selection = apply_model_candidate(task_info, discover_model_candidates(
                 task_info, override_tag=override_tag, override_backend=override_backend))
@@ -213,7 +213,7 @@ def write_model_resolution(task_info, output_dir: str | Path) -> Path:
 
 def record_runtime_validation(task_info, report: Mapping[str, Any]) -> None:
     """Keep runtime facts scoped to the execution artifact, payload and devices."""
-    from acprof.model_evidence import content_digest
+    from acprof.models.evidence import content_digest
     mode = report["mode"]
     passed = report["status"] == "ok"
     status = ("verified" if mode == "full" else "basic_verified") if passed else report["status"]

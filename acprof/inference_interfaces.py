@@ -5,8 +5,8 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from acprof.extensions import CATALOG
-from acprof.model_evidence import content_digest
-from acprof.model_spec import task_model_spec
+from acprof.models.evidence import content_digest
+from acprof.models.spec import task_model_spec
 
 
 def structured_interface(task_info: Any) -> str | None:

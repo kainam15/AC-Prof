@@ -14,7 +14,8 @@ from collections.abc import Callable
 from pathlib import PurePosixPath
 from typing import Any
 
-from acprof.model_spec import validate_dependencies, validate_repository_identity
+from acprof.models.files import ModelFilesError, resolve_checkpoint, safe_path
+from acprof.models.spec import validate_dependencies, validate_repository_identity
 
 PLAN_VERSION = 1
 PLAN_FILENAME = "model_download_plan.json"
@@ -31,18 +32,8 @@ _WEIGHTS = re.compile(
 )
 
 
-class ModelFilesError(ValueError):
-    """模型文件声明不完整或不合法；重试下载不能修复这个错误。"""
 
 
-def safe_path(name: str) -> str:
-    if not isinstance(name, str):
-        raise ModelFilesError(f"invalid model file path: {name!r}")
-    path = PurePosixPath(name)
-    if (not name or name == "." or "\0" in name or path.is_absolute()
-            or ".." in path.parts or "\\" in name or str(path) != name):
-        raise ModelFilesError(f"invalid model file path: {name!r}")
-    return name
 
 
 def seal_plan(plan: dict) -> dict:
@@ -124,29 +115,6 @@ def validate_plan_request(plan: dict, request: dict) -> None:
             raise ModelFilesError(f"model download plan differs from request: {field}")
 
 
-def resolve_checkpoint(names: set[str], read_json: Callable, prefix: str = "", *, diffusion: bool = False) -> dict | None:
-    stems = [("diffusion_pytorch_model", "safetensors"), ("diffusion_pytorch_model", "bin")] if diffusion else [
-        ("model", "safetensors"), ("pytorch_model", "bin"),
-    ]
-    for stem, extension in stems:
-        base = prefix + stem + "." + extension
-        if base in names:
-            return {"component": prefix.rstrip("/") or ".", "format": extension, "variant": None, "files": [base]}
-        index = base + ".index.json"
-        if index in names:
-            data = read_json(index)
-            weight_map = data.get("weight_map") if isinstance(data, dict) else None
-            if not isinstance(weight_map, dict) or not weight_map:
-                raise ModelFilesError(f"invalid or empty weight_map: {index}")
-            if not all(isinstance(value, str) for value in weight_map.values()):
-                raise ModelFilesError(f"invalid shard filenames: {index}")
-            shards = {prefix + safe_path(value) for value in weight_map.values()}
-            missing = shards - names
-            if missing:
-                raise ModelFilesError(f"missing checkpoint shards for {index}: {', '.join(sorted(missing))}")
-            return {"component": prefix.rstrip("/") or ".", "format": extension, "variant": None,
-                    "files": [index, *sorted(shards)]}
-    return None
 
 
 def _alternate_weights(name: str, prefix: str) -> bool:

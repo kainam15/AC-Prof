@@ -8,22 +8,10 @@ import re
 from functools import lru_cache
 from typing import Any
 
-MAX_SOURCE_BYTES = 256 * 1024
+from acprof.models.inspection.ast_parser import parse_source
+
 SOURCE_METADATA_FILES = ("config.json", "tokenizer_config.json", "processor_config.json", "preprocessor_config.json")
-MAX_AST_NODES = 20000
 _MISSING = object()
-
-
-def parse_source(source: str, filename: str) -> ast.Module:
-    if len(source.encode()) > MAX_SOURCE_BYTES:
-        raise ValueError(f"{filename}: source exceeds {MAX_SOURCE_BYTES} bytes")
-    try:
-        tree = ast.parse(source, filename=filename)
-    except (SyntaxError, RecursionError, ValueError) as exc:
-        raise ValueError(f"{filename}: cannot parse Python source: {exc}") from exc
-    if sum(1 for _ in ast.walk(tree)) > MAX_AST_NODES:
-        raise ValueError(f"{filename}: AST exceeds {MAX_AST_NODES} nodes")
-    return tree
 
 
 def top_level_bound_names(tree: ast.Module) -> set[str]:
@@ -271,7 +259,7 @@ def analyze_pipeline(source: str, filename: str, class_name: str) -> dict:
 
 
 def dependency_candidates(source: str, filename: str, config: dict, model_id: str) -> list[dict]:
-    from acprof.model_dependency_flow import analyze_dependencies
+    from acprof.models.inspection.dependency_flow import analyze_dependencies
     return analyze_dependencies({filename: source}, config, model_id)
 
 

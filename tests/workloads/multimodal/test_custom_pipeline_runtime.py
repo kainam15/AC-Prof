@@ -49,7 +49,7 @@ class TestCustomPipelineRuntime:
         (root / "custom_pipeline.py").write_text(
             "from transformers import TextClassificationPipeline\n\nclass Classifier(TextClassificationPipeline):\n" + method)
         # The declaration is carried by the image rather than altering the Hub snapshot.
-        from acprof.model_spec import encode_model_spec
+        from acprof.models.spec import encode_model_spec
         return encode_model_spec({"schema_version": 1, "format": "transformers-pipeline",
                                   "task": "text-classification", "pipeline_task": "acme-classify"})
 

@@ -8,9 +8,9 @@ from unittest.mock import Mock, call
 
 import pytest
 
-from acprof import model_repository
 from acprof.analysis.compatibility import report_results
 from acprof.host.model_coverage import run_sample, snapshot_sample, validate_sample
+from acprof.hub import repository as model_repository
 from tests.execution.planning.test_resolution_decisions import candidate
 
 REVISION = "a" * 40
@@ -40,7 +40,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr("acprof.host.run_state.host_identity", lambda *args: {"machine_id_sha256": "fixture"})
     monkeypatch.setattr("acprof.host.run_state.MeasurementLock", nullcontext)
     monkeypatch.setattr("acprof.host.task_support.require_task_support", Mock())
-    monkeypatch.setattr("acprof.model_contract.write_model_resolution", Mock())
+    monkeypatch.setattr("acprof.models.contract.write_model_resolution", Mock())
     access = Mock()
     runtime = Mock(return_value={"status": "ok", "devices": {}})
     monkeypatch.setattr("acprof.host.automation.check_repository_access", access)
@@ -111,7 +111,7 @@ def test_resolver_source_mismatch_is_not_counted_as_success(tmp_path, monkeypatc
 
 
 def test_modelscope_main_keeps_huggingface_dependency_and_its_own_revision(tmp_path, monkeypatch, isolated):
-    monkeypatch.setattr("acprof.model_spec.task_model_spec", lambda task: {
+    monkeypatch.setattr("acprof.models.spec.task_model_spec", lambda task: {
         "dependencies": [{"repo_id": "example/dependency", "revision": DEPENDENCY_REVISION}],
     })
     run_sample(sample(item(source="modelscope")), tmp_path / "report", probe="full")

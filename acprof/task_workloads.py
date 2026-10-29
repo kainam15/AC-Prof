@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 import re
 
-from acprof.model_evidence import content_digest
+from acprof.models.evidence import content_digest
 
 LANGUAGES = {
     "en": ("English", "英语"), "de": ("German", "德语"), "fr": ("French", "法语"),

@@ -144,7 +144,7 @@ def locked_transformers_version(environment: DependencyEnvironment, *, lock_path
 
 
 def _native_compatible(task_info: Any, profile: RuntimeProfile) -> bool | None:
-    from acprof.model_support import supports_transformers_task
+    from acprof.models.support import supports_transformers_task
     if task_info.runtime_backend not in {"transformers_model", "transformers_pipeline"}:
         return None
     config = getattr(task_info, "model_config", {}) or {}
@@ -227,7 +227,7 @@ def select_runtime_profile(task_info: Any) -> RuntimeProfile:
         return profile
     family = task_info.task_family
     default = DEFAULT_PROFILES.get((family, "cu128"), "")
-    from acprof.model_spec import declared_multimodal_pipeline
+    from acprof.models.spec import declared_multimodal_pipeline
     custom_pipeline = declared_multimodal_pipeline(task_info)
     if custom_pipeline:
         default = "custom-multimodal-cu128"

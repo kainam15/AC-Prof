@@ -6,9 +6,9 @@ import pytest
 
 import tests.models.contracts.test_model_contract as fixture
 from acprof.host.detect import TaskInfo
-from acprof.model_contract import resolve_model_contract
-from acprof.model_dependencies import resolve_dependencies
-from acprof.model_source_analysis import dependency_candidates
+from acprof.models.contract import resolve_model_contract
+from acprof.models.dependencies import resolve_dependencies
+from acprof.models.inspection.source import dependency_candidates
 
 
 class TestDependencyFlow:

@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from acprof.host.detect import TaskInfo, _architecture_metadata
-from acprof.model_candidates import discover_model_candidates
+from acprof.models.candidates import discover_model_candidates
 from tests.support.task_selection_fixtures import t5_task as pinned_t5_task
 
 

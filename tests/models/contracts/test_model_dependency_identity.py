@@ -141,7 +141,7 @@ def test_distinct_repositories_keep_independent_offline_refs_and_sources(tmp_pat
         plan["files"][0]["lfs_sha256"] = hashlib.sha256(b"{}").hexdigest()
         seal_plan(plan)
     with patch("huggingface_hub.snapshot_download", side_effect=snapshot), patch(
-            "acprof.model_repository.modelscope_file", side_effect=modelscope_file):
+            "acprof.hub.repository.modelscope_file", side_effect=modelscope_file):
         record = model_store.prepare_model(_task(plan), plan, tmp_path)
     cache = tmp_path / "entries" / record["entry_id"] / "hf"
     for repo_id, revision, expected in (("example/model", "a" * 40, b"{}"), ("example/base", dependency_revision, b"[]")):

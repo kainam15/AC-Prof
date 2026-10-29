@@ -10,9 +10,9 @@ import copy
 from pathlib import PurePosixPath
 from typing import Any
 
-from acprof.model_dependency_domain import MAX_CANDIDATES, UNKNOWN, Instance, Symbol
-from acprof.model_dependency_eval import DependencyEvaluationMixin
-from acprof.model_source_analysis import parse_source
+from acprof.models.inspection.ast_parser import parse_source
+from acprof.models.inspection.dependency_domain import MAX_CANDIDATES, UNKNOWN, Instance, Symbol
+from acprof.models.inspection.dependency_eval import DependencyEvaluationMixin
 
 
 class DependencyAnalyzer(DependencyEvaluationMixin):

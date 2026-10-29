@@ -25,7 +25,7 @@ async def test_automatic_interface_selection_reviews_parameters_before_runtime(t
         from types import SimpleNamespace
         from acprof.host.collection_workflow import PreparationWorkflow
         from acprof.host.detect import TaskInfo
-        from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+        from acprof.models.candidates import apply_model_candidate, discover_model_candidates
         task = TaskInfo("fixture/model", "unknown", "unknown", "unknown", "transformers",
                         "a" * 40, "config_infer", model_config={"model_type": "bert",
                         "architectures": ["BertForMaskedLM"]})

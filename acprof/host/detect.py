@@ -15,7 +15,7 @@ from typing import Any
 from acprof.extensions import CATALOG, UnsupportedExtensionError
 from acprof.host.model_errors import ModelLookupError, model_lookup_error
 from acprof.hub.huggingface.auth import hf_token_for_url
-from acprof.model_repository import MetadataFile, read_metadata_file
+from acprof.hub.repository import MetadataFile, read_metadata_file
 
 
 @dataclass
@@ -74,19 +74,19 @@ def _download_metadata(
     max_bytes: int = METADATA_MAX_BYTES, source: str | None = None,
 ) -> MetadataFile:
     """Bound pinned downloads and preserve the SDK's mutable-ref fallback cache."""
-    from acprof.host.model_store import cached_metadata
-    from acprof.model_repository import model_source, modelscope_metadata
+    from acprof.host.model_store import cached_metadata, store_root
+    from acprof.hub.repository import model_source, modelscope_metadata
     source = model_source(source)
     cached = cached_metadata(model_id, name, revision, source=source, max_bytes=max_bytes)
     if cached is not None:
         return cached
     if source == "modelscope":
-        return modelscope_metadata(model_id, name, revision, max_bytes)
+        return modelscope_metadata(model_id, name, revision, max_bytes, cache_root=store_root())
     from huggingface_hub import hf_hub_download
 
     from acprof.hub.huggingface.download import try_hf_endpoints
     from acprof.hub.huggingface.transport import configure_hf_transport
-    from acprof.model_evidence import pinned_revision
+    from acprof.models.evidence import pinned_revision
 
     configure_hf_transport()
     def download(endpoint):
@@ -118,7 +118,7 @@ def _repository_metadata(model_id: str, revision: str, info: Any) -> dict[str, A
     files = tuple(sorted({str(getattr(item, "rfilename", "")) for item in
                           (getattr(info, "siblings", None) or []) if getattr(item, "rfilename", "")}))
     metadata, errors = {}, []
-    from acprof.model_evidence import pinned_revision
+    from acprof.models.evidence import pinned_revision
     if files and not pinned_revision(revision):
         return {"repository_files": files, "repository_metadata": {},
                 "metadata_errors": ("model revision must be a full commit SHA before metadata reads",)}
@@ -170,7 +170,7 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
                 repo_id, revision=revision, files_metadata=False))
         def read_json(name):
             from acprof.container.model_files import safe_path
-            from acprof.model_evidence import pinned_revision
+            from acprof.models.evidence import pinned_revision
             if not pinned_revision(info.sha):
                 raise ValueError("dependency metadata requires a fixed commit SHA")
             name = safe_path(name)
@@ -183,8 +183,8 @@ def dependency_metadata(repo_id: str, revision: str) -> dict:
 
 
 def read_model_source(model_id: str, name: str, revision: str) -> str:
-    from acprof.model_evidence import pinned_revision
-    from acprof.model_source_analysis import MAX_SOURCE_BYTES
+    from acprof.models.evidence import pinned_revision
+    from acprof.models.inspection.ast_parser import MAX_SOURCE_BYTES
     if not pinned_revision(revision):
         raise ValueError("source analysis requires a fixed commit SHA")
     try:
@@ -468,7 +468,7 @@ def _detect_from_hub(
         from acprof.host.model_store import cached_model_info
         from acprof.hub.huggingface.download import try_hf_endpoints
         from acprof.hub.huggingface.transport import configure_hf_transport
-        from acprof.model_repository import model_source, modelscope_info
+        from acprof.hub.repository import model_source, modelscope_info
         info = cached_model_info(model_id, revision, source=model_source())
         if info is None:
             if model_source() == "modelscope":
@@ -488,7 +488,7 @@ def _detect_from_hub(
     task_hint_source = "extension_catalog"
     library_name = getattr(info, "library_name", None) or ""
     sha = getattr(info, "sha", None) or "main"
-    from acprof.model_evidence import pinned_revision
+    from acprof.models.evidence import pinned_revision
     if revision is not None and pinned_revision(revision) and sha != revision:
         raise ValueError("Hub returned a different commit than the requested revision")
     transformers_info = getattr(info, "transformers_info", None)
@@ -559,7 +559,7 @@ def _detect_from_config(
     config_data = {}
     revision = "main"
     try:
-        from acprof.model_evidence import pinned_revision
+        from acprof.models.evidence import pinned_revision
         metadata = _download_metadata(model_id, "config.json", requested_revision) if requested_revision else _download_metadata(model_id, "config.json")
         # hf_hub_download pins the ref before returning the cache snapshot.
         revision = metadata.path.parent.name
@@ -647,18 +647,18 @@ def detect_task(
         )
 
     if model_spec_path:
-        from acprof.model_spec import read_model_spec
+        from acprof.models.spec import read_model_spec
         info.model_spec = read_model_spec(Path(model_spec_path).expanduser())
-    from acprof.model_repository import model_source
+    from acprof.hub.repository import model_source
     info.model_source = model_source()
     info.requested_revision = revision
     if info.model_source == "modelscope":
         info.model_metadata_source = "modelscope_hub"
-    from acprof.model_candidates import apply_model_candidate, discover_model_candidates
+    from acprof.models.candidates import apply_model_candidate, discover_model_candidates
     info.model_resolution = apply_model_candidate(info, discover_model_candidates(
         info, override_tag=override_tag, override_backend=override_backend))
     if not info.metadata_errors:
-        from acprof.model_contract import apply_model_contract
+        from acprof.models.contract import apply_model_contract
         source_revision = info.model_revision
         def source_text(name):
             if name not in info.repository_sources:

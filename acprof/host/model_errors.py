@@ -31,7 +31,7 @@ class ModelLookupError(ValueError):
         summary, hint = _MESSAGES[self.reason_code]
         self.summary = message(summary, model_id, revision)
         self.hint = message(hint)
-        from acprof.model_repository import model_source
+        from acprof.hub.repository import model_source
         if model_source() == "modelscope" and self.reason_code in {"repository_unavailable", "access_denied"}:
             self.hint = message("请核对 ModelScope 模型 ID、访问权限和 MODELSCOPE_API_TOKEN。")
         super().__init__(f"{self.summary}\n{self.hint}\n{self.detail}".rstrip())
@@ -67,7 +67,7 @@ def _reason(exc: BaseException) -> str:
         ServerError,
     )
 
-    from acprof.model_repository import ModelScopeRevisionError
+    from acprof.hub.repository import ModelScopeRevisionError
 
     # GatedRepoError subclasses RepositoryNotFoundError. Status 401 alone cannot
     # distinguish a missing repository from a private, inaccessible repository.

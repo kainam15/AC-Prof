@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import apply_model_candidate, discover_model_candidates
-from acprof.model_contract import apply_model_contract
-from acprof.model_spec import task_model_spec
+from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+from acprof.models.contract import apply_model_contract
+from acprof.models.spec import task_model_spec
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "ultravox_dependency_snapshot"
 MODEL = "fixie-ai/ultravox-v0_5-llama-3_2-1b"

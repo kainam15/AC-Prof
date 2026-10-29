@@ -29,9 +29,9 @@ from acprof.host.profiling.compute_plan import (
     TORCH_LOGICAL_MFLOP_FIELD,
 )
 from acprof.host.profiling.execution_plan import MASSIF_ERROR_FIELD, NSYS_ERROR_FIELD
+from acprof.hub.repository import MODEL_SOURCES
 from acprof.installation import resource_root
 from acprof.metric_registry import tool_fields
-from acprof.model_repository import MODEL_SOURCES
 from acprof.result_csv import ResultCsvSnapshot
 
 PROJECT_DIR = resource_root()

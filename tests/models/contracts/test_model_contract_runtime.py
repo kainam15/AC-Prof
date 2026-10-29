@@ -10,9 +10,9 @@ import pytest
 
 import tests.workloads.multimodal.test_custom_multimodal_runtime as multimodal_fixture
 from acprof.host.detect import TaskInfo
-from acprof.model_candidates import apply_model_candidate, discover_model_candidates
-from acprof.model_contract import apply_model_contract
-from acprof.model_spec import encode_model_spec, task_model_spec
+from acprof.models.candidates import apply_model_candidate, discover_model_candidates
+from acprof.models.contract import apply_model_contract
+from acprof.models.spec import encode_model_spec, task_model_spec
 from tests.workloads.multimodal.test_multimodal_handler import audio_payload
 
 MODEL = '''from transformers import BertConfig, BertForSequenceClassification
@@ -93,7 +93,7 @@ def test_interface_imports_and_binds_without_loading_weights():
 @pytest.mark.skipif(not (all(importlib.util.find_spec(name) for name in ("torch", "transformers"))), reason="requires the custom multimodal container")
 def test_reviewed_chat_transform_runs_through_real_model():
     from acprof.container.runtime_validate import validate
-    from acprof.model_review import apply_review
+    from acprof.host.preparation.review import apply_review
     with tempfile.TemporaryDirectory(prefix="acprof_chat_contract_") as directory:
         root = Path(directory)
         multimodal_fixture.TestCustomMultimodalRuntime.snapshot(root)

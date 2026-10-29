@@ -15,7 +15,7 @@ from typing import Any
 
 from acprof.artifacts import atomic_write_json, loads_finite_json, read_json_object, sync_directory
 from acprof.host.model_errors import ModelLookupError
-from acprof.model_evidence import content_digest, pinned_revision
+from acprof.models.evidence import content_digest, pinned_revision
 from acprof.preparation_events import MAX_MESSAGE, encode_event
 
 
@@ -143,7 +143,7 @@ class PreparationWorkflow:
 
     @staticmethod
     def questions(task, args) -> list[dict]:
-        from acprof.model_review import review_questions
+        from acprof.models.review import review_questions
         if task.metadata_errors:
             return []
         questions = review_questions(task)
@@ -190,7 +190,7 @@ class PreparationWorkflow:
 
     def _apply(self, task, answers: dict, args):
         from acprof.host.detect import dependency_metadata
-        from acprof.model_review import apply_review
+        from acprof.host.preparation.review import apply_review
         def lookup(repo, revision):
             return self.run("dependencies", dependency_metadata, repo, revision)
         if set(answers) == {"model_spec"}:

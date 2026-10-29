@@ -144,7 +144,7 @@ class TestModelDiscovery:
 
 class TestModelSpecification:
     def test_invalid_format_reports_a_declaration_error(self):
-        from acprof.model_spec import validate_model_spec
+        from acprof.models.spec import validate_model_spec
         with pytest.raises(ValueError, match="format"):
             validate_model_spec({"schema_version": 1, "format": [], "task": "text-classification"})
 
@@ -196,7 +196,7 @@ class TestModelSpecification:
         assert (before) != (request_fingerprint(task))
 
     def test_baked_declaration_takes_precedence_over_repository_file(self):
-        from acprof.model_spec import load_model_spec
+        from acprof.models.spec import load_model_spec
         spec = {"schema_version": 1, "format": "onnxruntime", "task": "tabular-classification",
                 "model_file": "selected.onnx", "feature_dim": 4}
         with tempfile.TemporaryDirectory() as directory:

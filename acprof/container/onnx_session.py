@@ -8,7 +8,7 @@ import numpy as np
 import onnxruntime as ort
 
 from acprof.container.handlers.structured import _artifact_path, _local_snapshot
-from acprof.model_spec import load_model_spec
+from acprof.models.spec import load_model_spec
 from acprof.runtime_settings import onnx_runtime_parameters
 
 TENSOR_DTYPES = {

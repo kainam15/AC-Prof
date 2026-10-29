@@ -60,7 +60,7 @@ def run_validation(task, info, module, prefix, output_dir, *, gpu="off", payload
 def probe_interface(task, root, environment, output_dir, *, timeout_seconds=300):
     from acprof.container.model_probe import RESULT_PREFIX
     from acprof.host.source_bundle import source_bundle
-    from acprof.model_contract import write_model_resolution
+    from acprof.models.contract import write_model_resolution
     report = {"schema_version": 1, "status": "running", "runtime_kind": "process",
               "scope": "import_and_signature_only", "inference": "not_run",
               "environment_id": environment["environment_id"]}
@@ -84,7 +84,7 @@ def probe_interface(task, root, environment, output_dir, *, timeout_seconds=300)
 
 def validate_process(*, task_info, image_info, planned, cpu_list, mem_list, gpu_list, output_dir, timeout_seconds=300):
     from acprof.container.runtime_validate import RESULT_PREFIX
-    from acprof.model_contract import record_runtime_validation, write_model_resolution
+    from acprof.models.contract import record_runtime_validation, write_model_resolution
     from acprof.platform import detect_environment
     plan = read_input_scale_plan(planned.plan_file)
     entry = min(plan["entries"], key=lambda item: float(item["input_scale"]))

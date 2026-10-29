@@ -61,7 +61,7 @@ def validate_multimodal_pipeline(task: str, protocol: Any) -> dict:
     if required is None or not isinstance(protocol, dict) or set(protocol) - {"inputs", "forward_kwargs"}:
         raise ValueError("multimodal pipeline requires a supported text-output task and protocol")
     inputs = protocol.get("inputs")
-    from acprof.model_transforms import input_references
+    from acprof.models.transforms import input_references
     input_references(inputs, required)
     kwargs = protocol.get("forward_kwargs", {"max_new_tokens": "$max_new_tokens", "do_sample": "$do_sample"})
     if (not isinstance(kwargs, dict) or not kwargs or any(not isinstance(key, str) or not key.isidentifier()

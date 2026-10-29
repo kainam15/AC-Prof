@@ -151,7 +151,7 @@ def materialize_scale_plan(
 
 def get_task_generator(task_info: TaskInfo, batch_size: int, **kwargs: Any):
     """Carry the selected adapter into workload defaults, including model aliases."""
-    from acprof.model_spec import task_model_spec
+    from acprof.models.spec import task_model_spec
     from acprof.workloads import get_generator
 
     if task_info.model_adapter != "family-default":

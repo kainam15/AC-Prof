@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from acprof.model_spec import (
+from acprof.models.spec import (
     FORMAT_BACKENDS,
     custom_code_files,
     task_model_spec,
     validate_model_spec,
 )
-from acprof.model_support import supports_pipeline_task, supports_transformers_task
+from acprof.models.support import supports_pipeline_task, supports_transformers_task
 
 
 def require_resolved_candidate(task_info: Any) -> None:
@@ -61,7 +61,7 @@ def resolve_model_interface(task_info: Any) -> dict:
         raise ValueError(f"custom code is absent from snapshot: {sorted(code_files - files)}")
     pipeline_name = spec.get("pipeline_task", task_info.pipeline_tag)
     if spec.get("format") == "transformers-pipeline":
-        from acprof.model_spec import declared_multimodal_pipeline
+        from acprof.models.spec import declared_multimodal_pipeline
         if (task_info.task_family not in {"nlp", "cv", "audio"} and not declared_multimodal_pipeline(task_info)) or task_info.pipeline_tag in {
             "video-classification", "keypoint-detection", "sentence-similarity", "text-ranking",
         }:

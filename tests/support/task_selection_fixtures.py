@@ -4,7 +4,7 @@ from pathlib import Path
 
 from acprof.host.detect import TaskInfo
 from acprof.inference_groups import group_inference_tasks
-from acprof.model_candidates import discover_model_candidates
+from acprof.models.candidates import discover_model_candidates
 
 
 def t5_task():

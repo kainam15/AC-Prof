@@ -6,7 +6,7 @@ import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
-_SERVICE_DIRECTORIES = {"container", "extensions", "workloads"}
+_SERVICE_DIRECTORIES = {"container", "extensions", "workloads", "models", "hub", "system"}
 _PRESENTATION_DIRECTORIES = {"tui", "plotting", "analysis"}
 # Internal source modules excluded from measurement identity, not launcher names.
 _PRESENTATION_CLI_MODULES = {"tui", "plot", "stats", "audit", "compare"}

@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from acprof.host import detect
-from acprof.model_repository import MetadataFile, read_metadata_file
+from acprof.hub.repository import MetadataFile, read_metadata_file
 
 SHA = "a" * 40
 METADATA_LIMIT = 1024 * 1024
@@ -282,7 +282,7 @@ def test_metadata_checks_bytes_if_file_changes_after_fstat(tmp_path, replacement
         path.write_bytes(replacement)
         return info
 
-    with patch("acprof.model_repository.os.fstat", side_effect=change_after_stat):
+    with patch("acprof.hub.repository.os.fstat", side_effect=change_after_stat):
         with pytest.raises(ValueError, match="exceeds|size"):
             read_metadata_file(path, max_bytes=8, expected_size=2)
 
@@ -309,7 +309,7 @@ def test_metadata_rejects_fifo_without_waiting_for_a_writer(tmp_path):
     path = tmp_path / "config.json"
     os.mkfifo(path)
     result = subprocess.run([sys.executable, "-c",
-        "from acprof.model_repository import read_metadata_file; "
+        "from acprof.hub.repository import read_metadata_file; "
         "import sys; read_metadata_file(sys.argv[1], max_bytes=1024)", str(path)],
         capture_output=True, text=True, timeout=5, check=False)
     assert result.returncode != 0

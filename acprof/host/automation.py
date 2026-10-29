@@ -7,7 +7,7 @@ from pathlib import Path
 from acprof.artifacts import atomic_write_json, read_json_object
 from acprof.gpu_mode import normalize_gpu_mode
 from acprof.hub.huggingface.auth import hf_token_for_url
-from acprof.model_evidence import pinned_revision
+from acprof.models.evidence import pinned_revision
 
 
 def check_repository_access(repo_id: str, *, source: str = "huggingface", revision: str | None = None) -> dict:
@@ -18,7 +18,7 @@ def check_repository_access(repo_id: str, *, source: str = "huggingface", revisi
     from acprof.host.model_store import cached_model_info
     from acprof.hub.huggingface.download import HfDownloadError, exception_chain, try_hf_endpoints
     from acprof.hub.huggingface.transport import configure_hf_transport
-    from acprof.model_repository import model_source, modelscope_info
+    from acprof.hub.repository import model_source, modelscope_info
     source = model_source(source)
     if cached_model_info(repo_id, revision, source=source) is not None:
         return {"repo_id": repo_id, "source": source, "status": "cached", "scope": "local_model_store_only"}
@@ -80,8 +80,8 @@ class AutomaticRun:
         from acprof.host.doctor import collect_checks
         from acprof.host.run_state import file_sha256, load_run_state
         from acprof.host.task_support import require_task_support
-        from acprof.model_contract import write_model_resolution
-        from acprof.model_spec import task_model_spec
+        from acprof.models.contract import write_model_resolution
+        from acprof.models.spec import task_model_spec
 
         args = self.args
         if not args.resume:
@@ -112,7 +112,7 @@ class AutomaticRun:
             self.data["access"] = {"status": "not_requested", "reason": "resume reuses immutable local image"}
         else:
             self.data["stage"] = "access"
-            from acprof.model_repository import model_source
+            from acprof.hub.repository import model_source
             self.data["access"] = {"repositories": [check_repository_access(args.model,
                 source=model_source(), revision=args.revision or None)]}
             self.data["stage"] = "resolution"

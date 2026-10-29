@@ -167,7 +167,7 @@ class NLPWorkloadGenerator(WorkloadGenerator):
     def plan_metadata(self) -> dict[str, Any]:
         metadata = copy.deepcopy(self._spec_metadata)
         if self._task_workload:
-            from acprof.model_evidence import content_digest
+            from acprof.models.evidence import content_digest
             from acprof.task_workloads import CORPORA
             metadata.update(task_workload=copy.deepcopy(self._task_workload),
                             data_source="acprof_builtin_text", seed=0,

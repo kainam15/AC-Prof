@@ -5,9 +5,9 @@ import fnmatch
 from collections.abc import Callable
 from pathlib import PurePosixPath
 
-from acprof.container.model_files import resolve_checkpoint
-from acprof.model_evidence import pinned_revision
-from acprof.model_spec import validate_dependencies
+from acprof.models.evidence import pinned_revision
+from acprof.models.files import resolve_checkpoint
+from acprof.models.spec import validate_dependencies
 
 _TOKENIZER = ("config.json", "tokenizer*.json", "special_tokens_map.json", "added_tokens.json",
               "vocab.json", "vocab.txt", "merges.txt", "*.model", "*.tiktoken", "chat_template.jinja", "chat_templates/*.jinja")
