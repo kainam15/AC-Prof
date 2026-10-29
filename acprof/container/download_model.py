@@ -7,6 +7,7 @@ import importlib.metadata
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 
 from acprof.container.model_files import (
@@ -122,29 +123,75 @@ def _prepare_repository_plan(endpoint: str, model_id: str, revision: str, *, dep
 
 
 
+_FileIdentity = tuple[int, int, int, int, int]
+
+
+def _file_identity(info: os.stat_result) -> _FileIdentity:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _open_model_file(path: Path):
+    # Snapshot symlinks are intentional; a FIFO must not wait for a writer.
+    return open(path, "rb", opener=lambda name, flags: os.open(name, flags | getattr(os, "O_NONBLOCK", 0)))
+
+
+def _require_file_identity(path: Path, expected: _FileIdentity) -> None:
+    try:
+        # Use fstat consistently: path stat and handle stat can expose different
+        # ctime semantics on Windows. Reopening also detects replaced symlinks.
+        with _open_model_file(path) as stream:
+            current = os.fstat(stream.fileno())
+            if not stat.S_ISREG(current.st_mode) or _file_identity(current) != expected:
+                raise ModelFilesError(f"model file changed during verification: {path.name}")
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        raise ModelFilesError(f"model file changed during verification: {path.name}") from exc
+
+
+def _hash_model_file(path: Path, item: dict,
+                     hashes: dict[_FileIdentity, tuple[str, str]]) -> tuple[_FileIdentity, str, str]:
+    # Inspect the same opened target whose bytes supply the hashes.
+    try:
+        stream = _open_model_file(path)
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        raise ModelFilesError(f"downloaded snapshot is missing or not a regular file: {item['path']}") from exc
+    with stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ModelFilesError(f"model payload must be a regular file: {item['path']}")
+        if item.get("size") is not None and info.st_size != item["size"]:
+            raise ModelFilesError(f"model file size mismatch: {item['path']}")
+        identity = _file_identity(info)
+        if identity not in hashes:
+            sha256 = hashlib.sha256()
+            git_sha1 = hashlib.sha1(f"blob {info.st_size}\0".encode())
+            remaining = info.st_size
+            while chunk := stream.read(min(4 * 1024 * 1024, remaining + 1)):
+                remaining -= len(chunk)
+                if remaining < 0:
+                    raise ModelFilesError(f"model file changed during verification: {item['path']}")
+                sha256.update(chunk)
+                git_sha1.update(chunk)
+            if remaining:
+                raise ModelFilesError(f"model file changed during verification: {item['path']}")
+            digests = sha256.hexdigest(), git_sha1.hexdigest()
+        else:
+            digests = hashes[identity]
+        if _file_identity(os.fstat(stream.fileno())) != identity:
+            raise ModelFilesError(f"model file changed during verification: {item['path']}")
+    hashes[identity] = digests
+    return identity, *digests
+
+
 def verify_download(target: str | Path, plan: dict) -> dict:
     """Record hashes only after every file verifies; failures leave the plan intact."""
     validate_plan(plan)
     root = Path(target)
-    hashes = {}
+    hashes: dict[_FileIdentity, tuple[str, str]] = {}
+    observations = []
     verified_files = []
     for item in plan["files"]:
         path = root / item["path"]
-        if not path.is_file():
-            raise ModelFilesError(f"downloaded snapshot is missing: {item['path']}")
-        stat = path.stat()
-        if item.get("size") is not None and stat.st_size != item["size"]:
-            raise ModelFilesError(f"model file size mismatch: {item['path']}")
-        key = (stat.st_dev, stat.st_ino)
-        if key not in hashes:
-            sha256 = hashlib.sha256()
-            git_sha1 = hashlib.sha1(f"blob {stat.st_size}\0".encode())
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
-                    sha256.update(chunk)
-                    git_sha1.update(chunk)
-            hashes[key] = (sha256.hexdigest(), git_sha1.hexdigest())
-        sha256_hex, git_hex = hashes[key]
+        identity, sha256_hex, git_hex = _hash_model_file(path, item, hashes)
         if item.get("sha256") and item["sha256"] != sha256_hex:
             raise ModelFilesError(f"stored model file SHA256 mismatch: {item['path']}")
         if item.get("lfs_sha256"):
@@ -152,7 +199,12 @@ def verify_download(target: str | Path, plan: dict) -> dict:
                 raise ModelFilesError(f"model file SHA256 mismatch: {item['path']}")
         elif item.get("blob_id") and git_hex != item["blob_id"]:
             raise ModelFilesError(f"model file Git blob mismatch: {item['path']}")
-        verified_files.append({**item, "size": stat.st_size, "sha256": sha256_hex})
+        observations.append((path, identity))
+        verified_files.append({**item, "size": identity[2], "sha256": sha256_hex})
+    # An earlier file may have changed while a later large payload was hashed.
+    # Recheck metadata only; stable hardlinks/symlinks still share one hash pass.
+    for path, identity in observations:
+        _require_file_identity(path, identity)
     verified = {**plan, "files": verified_files,
                 "selected_bytes": sum(item["size"] for item in verified_files), "verification": "sha256"}
     if "dependencies" in plan or "total_selected_bytes" in plan:

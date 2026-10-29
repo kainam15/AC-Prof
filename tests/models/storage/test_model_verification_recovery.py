@@ -1,7 +1,6 @@
 """Failed preparation must leave its input plan usable for an explicit retry."""
 import copy
 import hashlib
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,7 +38,7 @@ def test_failed_repository_verification_preserves_plan_and_allows_retry(tmp_path
     if failure != "missing":
         last.write_bytes(b"x" if failure == "size" else b"xx" if failure in {"sha256", "lfs", "blob"} else CONTENT)
     error = KeyboardInterrupt("verification cancelled") if failure == "cancel" else OSError("payload read failed")
-    open_path = Path.open
+    open_path = open
 
     def read(path, *args, **kwargs):
         if path == last and failure in {"read", "cancel"}:
@@ -50,7 +49,7 @@ def test_failed_repository_verification_preserves_plan_and_allows_retry(tmp_path
     match = {"missing": "missing", "size": "size mismatch", "sha256": "SHA256 mismatch",
              "lfs": "SHA256 mismatch", "blob": "Git blob mismatch", "read": "payload read failed",
              "cancel": "verification cancelled"}[failure]
-    with patch.object(Path, "open", read), pytest.raises(expected, match=match):
+    with patch("acprof.container.download_model.open", read, create=True), pytest.raises(expected, match=match):
         verify_download(tmp_path, plan)
     assert plan == before
     validate_plan(plan)
@@ -89,7 +88,7 @@ def test_failed_preparation_preserves_input_and_retries_without_partial_verifica
     task, plan, root, snapshots = preparation
     before = copy.deepcopy(plan)
     failure = error_type("preparation interrupted")
-    open_path = Path.open
+    open_path = open
 
     def snapshot(**kwargs):
         if stage == "dependency_download" and kwargs["repo_id"] == "example/base":
@@ -108,7 +107,8 @@ def test_failed_preparation_preserves_input_and_retries_without_partial_verifica
             raise failure
         return publish(*args, **kwargs)
 
-    with patch("huggingface_hub.snapshot_download", side_effect=snapshot), patch.object(Path, "open", read), \
+    with patch("huggingface_hub.snapshot_download", side_effect=snapshot), \
+            patch("acprof.container.download_model.open", read, create=True), \
             patch.object(model_store, "publish_view", side_effect=publish_view):
         with pytest.raises(error_type, match="preparation interrupted") as caught:
             model_store.prepare_model(task, plan, root)
