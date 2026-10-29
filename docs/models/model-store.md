@@ -31,6 +31,18 @@ Model Store 默认位于 `~/.cache/acprof/model-store`，可用 `--model-store` 
 
 entry 先在私有临时目录完整构建，再原子发布；发布前仅为 entry 顶层补足目录搜索（execute）权限，确保禁用 DAC override 的只读 Docker 验证容器也能访问快照，不开放目录列表。历史由临时目录以 `0700` 权限发布的 entry，在取得 Model Store 锁、验证固定清单后，于运行时挂载前修正顶层目录权限；不重下权重、不改模型文件权限，也不增加容器 Linux capabilities。
 
+容量查询只将 64 位十六进制 ID 目录中的已验证清单列为模型；`.preparing-*` 暂存内容仍计入占用，
+但不作为已发布模型读取。暂存清单尚未写完或进程退出留下完整暂存视图，都不会阻断容量查询和按目标清理；
+正式 entry 的损坏清单仍明确报错。
+
+显式重新准备遇到缺失清单时，会在 store lock 内取得该 entry 的排他 lease，重新校验权重并构建完整视图；
+活动消费者尚未释放 lease 时，在下载前报错。已有目录不能代替有效清单，也不会直接返回准备成功。
+替换时先将旧视图移至同层暂存目录，保持相对权重链接有效；新视图发布前失败会恢复旧目录。
+发布后的目录同步失败会报错并保留旧视图；进程突然退出留下的暂存视图也交由后续显式清理回收。
+新准备可以复用通过校验的缓存权重，运行、resume 和补采的缺失清单检查仍直接失败，不在线修复。
+此流程参考 [uv 的暂存目录发布与独立制品存储](https://github.com/astral-sh/uv/blob/main/crates/uv-cache/src/lib.rs)
+（MIT，持续维护）；沿用 AC-Prof 的目录身份、lease 和标准库实现，不引入新的缓存布局或依赖。
+
 下载清单 schema v1 增加可选的 `source`、`requested_revision`、`repository_context` 和 `download_provenance`；历史缺 source 按既有 HF 语义读取，不重写已有实验。`repository_context` schema v1 保存原始 Hub 元数据和完整仓库文件列表，不能用下载筛选后的文件或用户覆盖的任务字段代替。历史缺少完整上下文的计划仍可按固定身份读取，不伪造仓库元信息；读取缓存配置文件先检查大小上限及 SHA256。Hub `endpoint` 是传输信息，不作为模型身份。`download_provenance` 记录入口、最终 endpoint 类型、失败尝试与去除签名 query／凭据的 redirect chain，最多保存 256 次响应并标记截断。完整缓存保留原记录，不虚构当次网络流量。SDK 无法暴露的实际 CDN 或历史缓存原始地址保留 `unknown`；目前 ModelScope SDK 不提供等价的 redirect hook，因此其存储链不推断为 Hub 地址。细节见[结果协议](../profiling/metadata.md#static_metajson-字段)。
 
 主机不安装推理框架。`auto` 筛选使用固定 runtime lock 以及 `container/compat/transformers_model_types.json` 中 4.57.6/5.10.4 的 native model types，catalog 来自相应锁定 runtime 的公开 `CONFIG_MAPPING_NAMES`，保存源码位置与 SHA256；未知版本/布局保持完整快照。新增版本须重新提取并核验 catalog，不能借旧版本的支持表作推断。

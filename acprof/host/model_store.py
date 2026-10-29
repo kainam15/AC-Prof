@@ -42,6 +42,7 @@ from acprof.network_policy import (
 )
 
 ENTRY_METADATA_MAX_BYTES = 4 * 1024 * 1024
+_ENTRY_ID = re.compile(r"[a-f0-9]{64}")
 class ModelStoreMount:
     """One explicitly owned runtime mount lease.
 
@@ -200,7 +201,7 @@ def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[],
 
 def read_entry(key: str, root: Path | None = None) -> dict | None:
     root = root or store_root()
-    if not re.fullmatch(r"[a-f0-9]{64}", key):
+    if not _ENTRY_ID.fullmatch(key):
         raise ValueError("invalid Model Store entry ID")
     try:
         with ExitStack() as stack:
@@ -243,7 +244,7 @@ def _cached_repositories(model_id: str, revision: str | None, source: str):
         return
     candidates = []
     for entry in entries.iterdir():
-        if not re.fullmatch(r"[a-f0-9]{64}", entry.name):
+        if not _ENTRY_ID.fullmatch(entry.name):
             continue
         try:
             metadata = entry.lstat()
@@ -466,6 +467,8 @@ def disk_report(root: Path | None = None, *, cancel: Event | None = None) -> dic
     models = []
     for path in sorted((root / "entries").glob(f"*/{PLAN_FILENAME}")):
         _check_cancelled(cancel)
+        if not _ENTRY_ID.fullmatch(path.parent.name):
+            continue  # Staging files consume space but are not published model entries.
         try:
             plan = read_entry(path.parent.name, root)
             if plan is None:
@@ -508,6 +511,29 @@ def enforce_model_download_budgets(plan: dict) -> None:
         raise DownloadPolicyError(f"ACPROF_MODEL_MAX_DOWNLOAD: {exc}") from exc
 
 
+def _publish_entry(temporary: Path, destination: Path) -> None:
+    """Publish a complete view, retaining an incomplete predecessor until sync succeeds."""
+    previous = None
+    if destination.exists():
+        previous = Path(tempfile.mkdtemp(prefix=".preparing-", dir=destination.parent))
+        try:
+            destination.rename(previous)
+        except BaseException:
+            previous.rmdir()
+            raise
+    try:
+        temporary.rename(destination)
+    except BaseException:
+        if previous is not None:
+            previous.rename(destination)
+            artifact_io.sync_directory(destination.parent)
+        raise
+    # Keep the previous view available for explicit cleanup if durability is uncertain.
+    artifact_io.sync_directory(destination.parent)
+    if previous is not None:
+        shutil.rmtree(previous)
+
+
 def prepare_model(task, plan: dict, root: Path | None = None, *, planned_download_bytes: int | None = None) -> dict:
     from huggingface_hub import snapshot_download
 
@@ -515,7 +541,14 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
     root = root or store_root()
     key = entry_key(task)
     configure_hf_transport()
-    with store_lock(root):
+    with store_lock(root), ExitStack() as leases:
+        existing = read_entry(key, root)
+        if existing is None:
+            lease = leases.enter_context(_open_lock_file(root / (key + ".lease"), label="Model Store lease"))
+            try:
+                fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError("Model Store 清单缺失且存在活动 lease；停止消费者后才能重新准备") from exc
         require_space(plan, root)
         sources = model_sources(plan, root)
         sizes = [source.estimated_bytes for source in sources]
@@ -525,7 +558,6 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         enforce_model_download_budgets({"expected_download_bytes": needed})
         if planned_download_bytes is not None and needed > planned_download_bytes:
             raise DownloadPolicyError("Model Store 缓存自预检后已变化；尚未下载权重，请重新预检")
-        existing = read_entry(key, root)
         if existing:
             plan = existing
         targets = []
@@ -586,7 +618,7 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
         entries = root / "entries"
         entries.mkdir(exist_ok=True)
         destination = entries / key
-        if not destination.exists():
+        if existing is None:
             with tempfile.TemporaryDirectory(prefix=".preparing-", dir=entries) as directory:
                 temporary = Path(directory)
                 for repo, source in zip(repository_plans(plan), targets, strict=True):
@@ -607,9 +639,8 @@ def prepare_model(task, plan: dict, root: Path | None = None, *, planned_downloa
                 _make_entry_traversable(temporary)
                 # Persist every staged directory edge before publishing the tree root.
                 _sync_directory_tree(temporary)
-                # Rename preserves relative symlink depth; syncing entries makes publication durable.
-                temporary.rename(destination)
-                artifact_io.sync_directory(entries)
+                # Both views stay at the same depth so relative payload links remain valid.
+                _publish_entry(temporary, destination)
         (destination / "last-used").touch()
     print("[network-download] " + json.dumps({"category": "model",
         "verified_new_payload_bytes": sum(source.estimated_bytes for source in sources),

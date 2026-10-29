@@ -2,6 +2,9 @@ import hashlib
 import json
 import os
 import stat
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -101,6 +104,145 @@ class TestModelStore:
             second = model_store.prepare_model(self.task, self.plan, self.root)
         assert (first) == (second)
         assert (download.call_args.kwargs["local_files_only"])
+
+    def incomplete_entry(self):
+        record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        (entry / PLAN_FILENAME).unlink()
+        (entry / 'obsolete').write_bytes(b'previous view')
+        return record, entry
+
+    def test_preparation_rebuilds_an_unleased_entry_with_missing_plan(self):
+        original, entry = self.incomplete_entry()
+        snapshot = entry / 'hf/models--example--test/snapshots' / self.task.model_revision
+        (snapshot / 'config.json').unlink()
+        with patch('huggingface_hub.snapshot_download', side_effect=self.snapshot) as download:
+            repaired = model_store.prepare_model(self.task, self.plan, self.root)
+
+        assert repaired['entry_id'] == original['entry_id']
+        assert model_store.read_entry(repaired['entry_id'], self.root) == repaired['model_download']
+        assert (snapshot / 'config.json').read_bytes() == self.content
+        assert not (entry / 'obsolete').exists()
+        assert download.call_args.kwargs['local_files_only'] is True
+        assert not list(entry.parent.glob('.preparing-*'))
+        with model_store.acquire_mount({'model_store': repaired}, self.root) as mount:
+            assert mount.pass_fds
+
+    def test_preparation_cannot_rebuild_a_missing_plan_while_lease_is_active(self):
+        record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        before = entry.stat().st_ino
+        with model_store.acquire_mount({'model_store': record}, self.root):
+            (entry / PLAN_FILENAME).unlink()
+            with patch('huggingface_hub.snapshot_download', side_effect=self.snapshot) as download:
+                with pytest.raises(RuntimeError, match='lease'):
+                    model_store.prepare_model(self.task, self.plan, self.root)
+            download.assert_not_called()
+            assert entry.stat().st_ino == before
+            assert not (entry / PLAN_FILENAME).exists()
+        repaired = self.prepare()
+        assert model_store.read_entry(record['entry_id'], self.root) == repaired['model_download']
+
+    @pytest.mark.parametrize('error_type', [OSError, KeyboardInterrupt])
+    def test_rebuild_publication_failure_restores_incomplete_entry(self, monkeypatch, error_type):
+        _record, entry = self.incomplete_entry()
+        before = entry.stat().st_ino
+        rename = Path.rename
+
+        def fail_publication(path, target):
+            if Path(target) == entry and path.name.startswith('.preparing-') and (path / PLAN_FILENAME).exists():
+                raise error_type('publication interrupted')
+            return rename(path, target)
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(Path, 'rename', fail_publication)
+            with pytest.raises(error_type, match='publication interrupted'):
+                self.prepare()
+        assert entry.stat().st_ino == before
+        assert (entry / 'obsolete').read_bytes() == b'previous view'
+        assert not (entry / PLAN_FILENAME).exists()
+        assert not list(entry.parent.glob('.preparing-*'))
+        repaired = self.prepare()
+        assert model_store.read_entry(repaired['entry_id'], self.root) == repaired['model_download']
+
+    def test_rebuild_verification_failure_preserves_incomplete_entry(self):
+        _record, entry = self.incomplete_entry()
+        before = entry.stat().st_ino
+        snapshot = Path(self.snapshot())
+        (snapshot / 'config.json').write_bytes(b'xx')
+        with patch('huggingface_hub.snapshot_download', return_value=str(snapshot)):
+            with pytest.raises(ValueError, match='SHA256'):
+                model_store.prepare_model(self.task, self.plan, self.root)
+        assert entry.stat().st_ino == before
+        assert (entry / 'obsolete').read_bytes() == b'previous view'
+        assert not (entry / PLAN_FILENAME).exists()
+        assert not list(entry.parent.glob('.preparing-*'))
+
+    def test_rebuild_sync_failure_keeps_previous_view_for_recovery(self, monkeypatch):
+        record, entry = self.incomplete_entry()
+        sync = model_store.artifact_io.sync_directory
+
+        def fail_parent_sync(path):
+            if Path(path) == entry.parent:
+                raise OSError('publication sync failed')
+            return sync(path)
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(model_store.artifact_io, 'sync_directory', fail_parent_sync)
+            with pytest.raises(OSError, match='publication sync failed'):
+                self.prepare()
+        assert model_store.read_entry(record['entry_id'], self.root) is not None
+        previous = list(entry.parent.glob('.preparing-*'))
+        assert len(previous) == 1
+        assert (previous[0] / 'obsolete').read_bytes() == b'previous view'
+        repaired = self.prepare()
+        with model_store.acquire_mount({'model_store': repaired}, self.root):
+            assert model_store.prune_store(root=self.root, apply=True, target_bytes=0)['entries'] == [previous[0].name]
+        assert not previous[0].exists()
+
+    def test_rebuild_recovers_after_process_exit_between_directory_renames(self):
+        record, entry = self.incomplete_entry()
+        snapshot = self.snapshot()
+        script = textwrap.dedent('''
+            import json
+            import os
+            import sys
+            from pathlib import Path
+            from types import SimpleNamespace
+            from unittest.mock import patch
+            from acprof.container.model_files import PLAN_FILENAME
+            from acprof.host import model_store
+
+            root = Path(sys.argv[1])
+            task = SimpleNamespace(**json.loads(sys.argv[2]))
+            plan = json.loads(sys.argv[3])
+            destination = root / 'entries' / model_store.entry_key(task)
+            rename = Path.rename
+            def crash_before_publish(path, target):
+                if Path(target) == destination and (path / PLAN_FILENAME).exists():
+                    os._exit(23)
+                return rename(path, target)
+
+            with patch('huggingface_hub.snapshot_download', return_value=sys.argv[4]), \\
+                    patch.object(Path, 'rename', crash_before_publish):
+                model_store.prepare_model(task, plan, root)
+        ''')
+        process = subprocess.run([sys.executable, '-I', '-c', script, str(self.root),
+                                  json.dumps(vars(self.task)), json.dumps(self.plan), snapshot],
+                                 capture_output=True, text=True, timeout=15, check=False)
+        assert process.returncode == 23, process.stderr
+        assert not entry.exists()
+        staged = list(entry.parent.glob('.preparing-*'))
+        assert len(staged) == 2
+        assert sum((path / PLAN_FILENAME).exists() for path in staged) == 1
+        assert model_store.disk_report(self.root)['models'] == []
+
+        repaired = self.prepare()
+        assert model_store.read_entry(record['entry_id'], self.root) == repaired['model_download']
+        with model_store.acquire_mount({'model_store': repaired}, self.root):
+            result = model_store.prune_store(root=self.root, target_bytes=0, apply=True)
+            assert set(result['entries']) == {path.name for path in staged}
+            assert (Path(snapshot) / 'config.json').read_bytes() == self.content
 
     def test_cached_plan_reuse_does_not_require_a_writable_store_lock(self):
         self.task.pipeline_tag = "feature-extraction"

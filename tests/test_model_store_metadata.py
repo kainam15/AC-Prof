@@ -42,6 +42,35 @@ class TestModelStoreMetadata:
             assert (model_store.read_entry(self.key, self.root)) == (self.plan)
         lock.assert_not_called()
 
+    @pytest.mark.parametrize('staged_payload', [b'{}', None])
+    def test_inventory_and_target_prune_distinguish_staging_from_published_entries(self, staged_payload):
+        self.publish()
+        staged = self.root / 'entries/.preparing-interrupted'
+        staged.mkdir()
+        payload = self.payload if staged_payload is None else staged_payload
+        (staged / PLAN_FILENAME).write_bytes(payload)
+
+        report = model_store.disk_report(self.root)
+
+        assert report['total_bytes'] == len(self.payload) + len(payload)
+        assert [entry['entry_id'] for entry in report['models']] == [self.key]
+        expected = {'entries': ['.preparing-interrupted', self.key],
+                    'reclaimable_bytes': len(self.payload) + len(payload)}
+        assert model_store.prune_store(root=self.root, target_bytes=0) == expected
+        assert model_store.prune_store(root=self.root, target_bytes=0, apply=True) == expected
+        assert not self.path.exists()
+        assert not staged.exists()
+
+    def test_inventory_still_rejects_corrupt_published_metadata(self):
+        self.publish()
+        plan = json.loads(self.payload)
+        plan['model_revision'] = 'c' * 40
+        corrupt = json.dumps(plan).encode()
+        self.path.write_bytes(corrupt)
+        with pytest.raises(ValueError, match='hash mismatch'):
+            model_store.disk_report(self.root)
+        assert self.path.read_bytes() == corrupt
+
     def test_oversized_metadata_is_rejected_before_json_parsing(self):
         self.publish()
         self.path.write_bytes(self.payload + b' ' * (4 * 1024 * 1024 + 1 - len(self.payload)))
