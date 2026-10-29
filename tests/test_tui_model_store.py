@@ -2,6 +2,7 @@
 import asyncio
 import tempfile
 import threading
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
 
+from acprof.container.model_files import PLAN_FILENAME
 from acprof.experiment import RunConfig
 from acprof.host import model_store
 from acprof.tui.i18n import translate
@@ -329,43 +331,51 @@ async def test_invalid_capacity_is_visible_without_starting_cleanup(tmp_path):
 async def test_confirmed_cleanup_rechecks_capacity_after_another_cleanup(mode, language, tmp_path, monkeypatch):
     monkeypatch.delenv('ACPROF_MODEL_STORE_MAX', raising=False)
     store = ModelStoreFixture(tmp_path / 'store')
-    count = 3 if mode == 'partial-cleanup' else 2
+    count = 1 if mode == 'target-met' else 2
     blobs = [store.blob(str(index), 500_000) for index in range(1, count + 1)]
     entries = [store.entry(index, [blob]) for index, blob in enumerate(blobs, start=1)]
-    used = sum(path.stat().st_size for path in store.root.rglob('*') if path.is_file() and not path.is_symlink())
-    target = used - (count - 1) * 500_000 - 1
+    target = 500_000 + len((store.root / 'entries' / entries[-1] / PLAN_FILENAME).read_bytes())
     capacity = '' if mode == 'unbounded' else '0' if mode == 'zero' else str(target)
     app = AcprofTui(replace(RunConfig.smoke('example/test'), model_store_max=capacity),
                     settings_path=tmp_path / 'settings.json')
-    async with app.run_test(size=(80, 24)) as pilot:
-        screen = await open_store(app, pilot, store.root, language)
-        assert screen.preview['entries'] == entries
-        assert await pilot.click('#store-prune')
-        await pilot.pause()
-        assert isinstance(app.screen, ConfirmActionScreen)
-        if mode in {'target-met', 'partial-cleanup'}:
-            released = await asyncio.to_thread(
-                model_store.prune_store, root=store.root, apply=True, approved_entries={entries[0]},
-            )
-            assert released['entries'] == [entries[0]]
-            assert not blobs[0].exists()
-            assert all(blob.exists() for blob in blobs[1:])
-            current = sum(path.stat().st_size for path in store.root.rglob('*')
-                          if path.is_file() and not path.is_symlink())
-            assert (current <= target) is (mode == 'target-met')
-        assert await pilot.click('#confirm-yes')
-        await pilot.pause()
-        await app.workers.wait_for_complete()
-        await pilot.pause()
-        assert app.screen is screen
-        remaining = {path.name for path in (store.root / 'entries').iterdir() if path.is_dir()}
-        expected = {entries[-1]} if mode in {'target-met', 'partial-cleanup'} else set()
-        assert remaining == expected
-        for entry, blob in zip(entries, blobs, strict=True):
-            assert blob.exists() is (entry in expected)
-            if entry in expected:
-                assert blob.read_bytes() == b'x' * 500_000
-        assert screen.query_one('#store-prune', Button).disabled
-        assert await pilot.click('#store-close')
-        await pilot.pause()
-        assert not app.is_busy()
+    external = None
+    if mode in {'target-met', 'partial-cleanup'}:
+        external_blob = store.blob('leased', 500_000)
+        external = store.entry(99, [external_blob])
+        plan = model_store.read_entry(external, store.root)
+        manifest = {'model_store': {'entry_id': external, 'plan_sha256': plan['plan_sha256']}}
+    with model_store.acquire_mount(manifest, store.root) if external else nullcontext() as lease:
+        async with app.run_test(size=(80, 24)) as pilot:
+            screen = await open_store(app, pilot, store.root, language)
+            assert screen.preview['entries'] == entries
+            assert await pilot.click('#store-prune')
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmActionScreen)
+            if external:
+                # Another consumer releases a model that was protected during preview.
+                lease.close()
+                released = await asyncio.to_thread(
+                    model_store.prune_store, root=store.root, apply=True, approved_entries={external},
+                )
+                assert released['entries'] == [external]
+                assert not external_blob.exists()
+                assert all(blob.exists() for blob in blobs)
+                current = sum(path.stat().st_size for path in store.root.rglob('*')
+                              if path.is_file() and not path.is_symlink())
+                assert (current <= target) is (mode == 'target-met')
+            assert await pilot.click('#confirm-yes')
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.screen is screen
+            remaining = {path.name for path in (store.root / 'entries').iterdir() if path.is_dir()}
+            expected = {entries[-1]} if external else set()
+            assert remaining == expected
+            for entry, blob in zip(entries, blobs, strict=True):
+                assert blob.exists() is (entry in expected)
+                if entry in expected:
+                    assert blob.read_bytes() == b'x' * 500_000
+            assert screen.query_one('#store-prune', Button).disabled
+            assert await pilot.click('#store-close')
+            await pilot.pause()
+            assert not app.is_busy()

@@ -92,7 +92,7 @@ def test_frozen_source_preserves_historical_hf_options_and_records_modelscope(mo
 
 
 def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_path, monkeypatch):
-    from acprof.container.model_files import plan_download, seal_plan
+    from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
     from acprof.host import model_store
     from acprof.model_repository import modelscope_snapshot
     content = b"{}"
@@ -121,7 +121,9 @@ def test_modelscope_preparation_uses_separate_cache_and_verifies_artifact(tmp_pa
     assert record["model_download"]["files"][0]["sha256"] == digest
     assert record["model_download"]["download_provenance"]["final_endpoint_type"] == "unknown"
     assert not (tmp_path / "hf").exists()
-    assert model_store.prune_candidates(tmp_path)["reclaimable_bytes"] == len(content)
+    entry = tmp_path / 'entries' / record['entry_id']
+    metadata_bytes = len((entry / PLAN_FILENAME).read_bytes()) + len(task.model_revision.encode())
+    assert model_store.prune_candidates(tmp_path)['reclaimable_bytes'] == metadata_bytes + len(content)
 
 
 @pytest.mark.parametrize(("error", "reason"), [("NotExistError", "repository_unavailable"),

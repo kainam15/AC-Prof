@@ -696,7 +696,7 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
     root = root or store_root()
     keep = keep or set()
     target = parse_bytes(target_bytes)
-    candidates, entry_blobs = [], {}
+    candidates, entry_blobs, entry_bytes = [], {}, {}
     references: Counter[Path] = Counter()
     for path in (root / "entries").glob(f"*/{PLAN_FILENAME}"):
         _check_cancelled(cancel)
@@ -708,11 +708,15 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
         except BlockingIOError:
             leased = True
         links = set()
-        for link in (path.parent / "hf").rglob("*"):
+        size = 0
+        for item in path.parent.rglob("*"):
             _check_cancelled(cancel)
-            if link.is_symlink():
-                links.add(link.resolve())
+            if item.is_symlink():
+                links.add(item.resolve())
+            elif item.is_file():
+                size += item.stat().st_size
         entry_blobs[key] = links
+        entry_bytes[key] = size
         references.update(links)
         if not leased and key not in keep and (approved_entries is None or key in approved_entries):
             stamp = path.parent / "last-used"
@@ -735,6 +739,9 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
         if target is not None and used - reclaimed <= target:
             break
         selected.append(key)
+        # rmtree also removes plans, refs and other regular files in this entry.
+        # Use the same file-length accounting as disk_report when reaching the target.
+        reclaimed += entry_bytes[key]
         for blob in entry_blobs[key]:
             references[blob] -= 1
             if references[blob] == 0 and blob in blobs:

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from acprof.container.model_files import plan_download, seal_plan
+from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.host import model_store
 from acprof.network_policy import DownloadPolicyError
 
@@ -215,8 +215,10 @@ class TestModelStore:
             with pytest.raises(DownloadPolicyError):
                 self.prepare()
         record = self.prepare()
+        entry = self.root / 'entries' / record['entry_id']
+        metadata_bytes = len((entry / PLAN_FILENAME).read_bytes()) + len(self.task.model_revision.encode())
         result = model_store.prune_store(root=self.root)
-        assert (result["reclaimable_bytes"]) == (2)
+        assert result['reclaimable_bytes'] == metadata_bytes + 2
         assert ((self.root / "entries" / record["entry_id"]).exists())
         model_store.prune_store(root=self.root, apply=True)
         assert (model_store.read_entry(record["entry_id"], self.root)) is None

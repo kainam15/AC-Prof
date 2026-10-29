@@ -3,12 +3,75 @@ import errno
 import fcntl
 import os
 import threading
+from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from model_store_fixtures import ModelStoreFixture, locked_store
 
+from acprof.container.model_files import PLAN_FILENAME
 from acprof.host import model_store
+
+
+@pytest.mark.parametrize('shared', [False, True])
+@pytest.mark.parametrize('extra_required', [-1, 0, 1])
+def test_capacity_target_counts_entry_files_before_evicting_another_model(tmp_path, shared, extra_required):
+    store = ModelStoreFixture(tmp_path)
+    first_blob = store.blob('first', 10_000)
+    second_blob = first_blob if shared else store.blob('second', 10_000)
+    first, second = store.entry(1, [first_blob]), store.entry(2, [second_blob])
+    entry_sizes = {}
+    for key in (first, second):
+        entry = tmp_path / 'entries' / key
+        refs = entry / 'hf/models--example--test/refs'
+        refs.mkdir()
+        (refs / 'main').write_bytes(b'a' * 40)
+        entry_sizes[key] = len((entry / PLAN_FILENAME).read_bytes()) + 40
+    before = sum(entry_sizes.values()) + (10_000 if shared else 20_000)
+    first_freed = entry_sizes[first] + (0 if shared else 10_000)
+    target = before - first_freed - extra_required
+    expected = [first, second] if extra_required > 0 else [first]
+    expected_freed = before if extra_required > 0 else first_freed
+
+    preview = model_store.prune_store(root=tmp_path, target_bytes=target)
+    assert preview == {'entries': expected, 'reclaimable_bytes': expected_freed}
+    assert all((tmp_path / 'entries' / key).exists() for key in (first, second))
+    applied = model_store.prune_store(root=tmp_path, target_bytes=target, apply=True)
+    assert applied == preview
+    remaining = {path.name for path in (tmp_path / 'entries').iterdir()}
+    assert remaining == ({second} if extra_required <= 0 else set())
+    if remaining:
+        assert second_blob.read_bytes() == b'x' * 10_000
+    actual_remaining = sum(len(path.read_bytes()) for path in tmp_path.rglob('*')
+                           if not path.is_symlink() and path.is_file())
+    assert actual_remaining <= target
+    assert before - actual_remaining == applied['reclaimable_bytes']
+
+
+@pytest.mark.parametrize('protection', ['keep', 'lease', 'unapproved'])
+def test_capacity_accounting_excludes_protected_entry_files(tmp_path, protection):
+    store = ModelStoreFixture(tmp_path)
+    shared = store.blob('shared', 10_000)
+    first, protected = store.entry(1, [shared]), store.entry(2, [shared])
+    first_bytes = (tmp_path / 'entries' / first / PLAN_FILENAME).read_bytes()
+    protected_plan = tmp_path / 'entries' / protected / PLAN_FILENAME
+    protected_bytes = protected_plan.read_bytes()
+    options = {}
+    with ExitStack() as leases:
+        if protection == 'keep':
+            options['keep'] = {protected}
+        elif protection == 'unapproved':
+            options['approved_entries'] = {first}
+        else:
+            plan = model_store.read_entry(protected, tmp_path)
+            manifest = {'model_store': {'entry_id': protected, 'plan_sha256': plan['plan_sha256']}}
+            leases.enter_context(model_store.acquire_mount(manifest, tmp_path))
+        result = model_store.prune_store(root=tmp_path, apply=True, target_bytes=0, **options)
+    assert result == {'entries': [first], 'reclaimable_bytes': len(first_bytes)}
+    assert not (tmp_path / 'entries' / first).exists()
+    assert protected_plan.read_bytes() == protected_bytes
+    assert shared.read_bytes() == b'x' * 10_000
 
 
 class TestModelStoreGc:
@@ -18,24 +81,36 @@ class TestModelStoreGc:
         self.store = ModelStoreFixture(tmp_path)
 
     @pytest.mark.parametrize("entry_count", [8, 80])
-    def test_target_preview_has_fixed_candidate_scan_count_as_entries_grow(self, entry_count):
-        for index in range(1, entry_count + 1):
-            self.store.entry(index, [self.store.blob(str(index), 4096)])
-        with patch.object(model_store, "prune_candidates", wraps=model_store.prune_candidates) as scans:
+    def test_target_preview_has_fixed_candidate_scan_count_as_entries_grow(self, entry_count, monkeypatch):
+        entries = [self.store.entry(index, [self.store.blob(str(index), 4096)])
+                   for index in range(1, entry_count + 1)]
+        metadata = sum(len((self.root / 'entries' / key / PLAN_FILENAME).read_bytes()) for key in entries)
+        traversals = []
+        rglob = Path.rglob
+
+        def track_scan(path, *args, **kwargs):
+            traversals.append(path)
+            return rglob(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, 'rglob', track_scan)
+        with patch.object(model_store, 'disk_report', wraps=model_store.disk_report) as totals:
             result = model_store.prune_store(root=self.root, target_bytes=0)
         assert len(result["entries"]) == entry_count
-        assert result["reclaimable_bytes"] == entry_count * 4096
-        assert scans.call_count == 1
+        assert result["reclaimable_bytes"] == entry_count * 4096 + metadata
+        assert totals.call_count == 1
+        assert sorted(traversals) == sorted([self.root, *(self.root / 'entries' / key for key in entries)])
 
     def test_target_lru_frees_shared_blob_only_after_its_last_reference(self):
         shared = self.store.blob('shared', 100)
         first = self.store.entry(1, [shared, self.store.blob('first', 40)])
         second = self.store.entry(2, [shared, self.store.blob('second', 40)])
+        first_metadata = len((self.root / 'entries' / first / PLAN_FILENAME).read_bytes())
+        second_metadata = len((self.root / 'entries' / second / PLAN_FILENAME).read_bytes())
         used = model_store.disk_report(self.root)['total_bytes']
-        one = model_store.prune_store(root=self.root, target_bytes=used - 40)
-        assert (one) == ({'entries': [first], 'reclaimable_bytes': 40})
-        two = model_store.prune_store(root=self.root, target_bytes=used - 41)
-        assert (two) == ({'entries': [first, second], 'reclaimable_bytes': 180})
+        one = model_store.prune_store(root=self.root, target_bytes=used - first_metadata - 40)
+        assert one == {'entries': [first], 'reclaimable_bytes': first_metadata + 40}
+        two = model_store.prune_store(root=self.root, target_bytes=used - first_metadata - 41)
+        assert two == {'entries': [first, second], 'reclaimable_bytes': first_metadata + second_metadata + 180}
 
     def test_store_lock_rejects_symlink_lock_file(self):
         self.root.mkdir(parents=True, exist_ok=True)
@@ -92,8 +167,9 @@ class TestModelStoreGc:
         first = self.store.entry(1, [shared, old])
         approved = set(model_store.prune_store(root=self.root)['entries'])
         second = self.store.entry(2, [shared])
+        metadata = len((self.root / 'entries' / first / PLAN_FILENAME).read_bytes())
         result = model_store.prune_store(root=self.root, apply=True, approved_entries=approved)
-        assert (result) == ({'entries': [first], 'reclaimable_bytes': 40})
+        assert result == {'entries': [first], 'reclaimable_bytes': metadata + 40}
         assert ((self.root / 'entries' / second).exists())
         assert (shared.exists())
         assert not (old.exists())

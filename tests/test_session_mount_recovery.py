@@ -13,6 +13,7 @@ from unittest.mock import Mock
 import pytest
 from model_store_fixtures import ModelStoreFixture
 
+from acprof.container.model_files import PLAN_FILENAME
 from acprof.host import docker_runtime, model_store
 from acprof.host.container_lifecycle import ContainerCleanupError
 
@@ -197,7 +198,8 @@ def test_separate_gc_process_observes_retained_lease_until_release(store, monkey
     assert store.blob.exists()
     # Explicit release models a caller that has positively confirmed cleanup.
     reference().close()
-    assert child_gc() == {"entries": [store.key], "reclaimable_bytes": 100}
+    metadata_bytes = len((store.root / 'entries' / store.key / PLAN_FILENAME).read_bytes())
+    assert child_gc() == {"entries": [store.key], "reclaimable_bytes": metadata_bytes + 100}
     assert not store.blob.exists()
 
 
