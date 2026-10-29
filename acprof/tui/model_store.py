@@ -146,7 +146,8 @@ class ModelStoreScreen(ModalScreen):
     @work(thread=True, exclusive=True, group="model-store", exit_on_error=False)
     def apply_prune(self, approved):
         try:
-            prune_store(root=self.root, apply=True, approved_entries=approved, cancel=self._cancel,
+            prune_store(root=self.root, apply=True, target_bytes=self.target,
+                        approved_entries=approved, cancel=self._cancel,
                         on_wait=lambda: self._post(self._show_waiting))
         except ModelStoreCancelled:
             self._post(self._complete, translated_app(self.app).tr(message_id('ui.0245')))

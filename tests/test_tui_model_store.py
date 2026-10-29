@@ -1,4 +1,5 @@
 """Storage previews remain dismissible while another process owns the cache lock."""
+import asyncio
 import tempfile
 import threading
 from copy import deepcopy
@@ -7,13 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from model_store_fixtures import ModelStoreFixture, locked_store
 from rich.cells import cell_len
-from test_model_store_gc import locked_store
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 from tui_fixtures import AcprofTui
 
 from acprof.experiment import RunConfig
+from acprof.host import model_store
 from acprof.tui.i18n import translate
 from acprof.tui.model_store import ModelStoreScreen
 from acprof.tui.model_store_summary import model_store_summary
@@ -320,3 +322,50 @@ async def test_invalid_capacity_is_visible_without_starting_cleanup(tmp_path):
             assert await pilot.click('#store-close')
             await pilot.pause()
             assert not app.is_busy()
+
+
+@pytest.mark.parametrize('language', ['zh', 'en'])
+@pytest.mark.parametrize('mode', ['target-met', 'partial-cleanup', 'unbounded', 'zero'])
+async def test_confirmed_cleanup_rechecks_capacity_after_another_cleanup(mode, language, tmp_path, monkeypatch):
+    monkeypatch.delenv('ACPROF_MODEL_STORE_MAX', raising=False)
+    store = ModelStoreFixture(tmp_path / 'store')
+    count = 3 if mode == 'partial-cleanup' else 2
+    blobs = [store.blob(str(index), 500_000) for index in range(1, count + 1)]
+    entries = [store.entry(index, [blob]) for index, blob in enumerate(blobs, start=1)]
+    used = sum(path.stat().st_size for path in store.root.rglob('*') if path.is_file() and not path.is_symlink())
+    target = used - (count - 1) * 500_000 - 1
+    capacity = '' if mode == 'unbounded' else '0' if mode == 'zero' else str(target)
+    app = AcprofTui(replace(RunConfig.smoke('example/test'), model_store_max=capacity),
+                    settings_path=tmp_path / 'settings.json')
+    async with app.run_test(size=(80, 24)) as pilot:
+        screen = await open_store(app, pilot, store.root, language)
+        assert screen.preview['entries'] == entries
+        assert await pilot.click('#store-prune')
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmActionScreen)
+        if mode in {'target-met', 'partial-cleanup'}:
+            released = await asyncio.to_thread(
+                model_store.prune_store, root=store.root, apply=True, approved_entries={entries[0]},
+            )
+            assert released['entries'] == [entries[0]]
+            assert not blobs[0].exists()
+            assert all(blob.exists() for blob in blobs[1:])
+            current = sum(path.stat().st_size for path in store.root.rglob('*')
+                          if path.is_file() and not path.is_symlink())
+            assert (current <= target) is (mode == 'target-met')
+        assert await pilot.click('#confirm-yes')
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert app.screen is screen
+        remaining = {path.name for path in (store.root / 'entries').iterdir() if path.is_dir()}
+        expected = {entries[-1]} if mode in {'target-met', 'partial-cleanup'} else set()
+        assert remaining == expected
+        for entry, blob in zip(entries, blobs, strict=True):
+            assert blob.exists() is (entry in expected)
+            if entry in expected:
+                assert blob.read_bytes() == b'x' * 500_000
+        assert screen.query_one('#store-prune', Button).disabled
+        assert await pilot.click('#store-close')
+        await pilot.pause()
+        assert not app.is_busy()

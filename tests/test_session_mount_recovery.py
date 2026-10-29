@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from test_model_store_gc import TestModelStoreGc as _StoreFixture
+from model_store_fixtures import ModelStoreFixture
 
 from acprof.host import docker_runtime, model_store
 from acprof.host.container_lifecycle import ContainerCleanupError
@@ -21,8 +21,7 @@ from acprof.host.container_lifecycle import ContainerCleanupError
 def store(tmp_path, monkeypatch):
     retained = []
     monkeypatch.setattr(model_store, "_RETAINED_MOUNTS", retained)
-    fixture = _StoreFixture()
-    fixture.root = tmp_path
+    fixture = ModelStoreFixture(tmp_path)
     blob = fixture.blob("consumer-data", 100)
     key = fixture.entry(1, [blob])
     plan = model_store.read_entry(key, tmp_path)

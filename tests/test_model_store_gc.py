@@ -1,76 +1,26 @@
 """Model Store GC plans scale linearly and retain current ownership evidence."""
 import errno
 import fcntl
-import hashlib
-import json
 import os
-import subprocess
-import sys
 import threading
-from contextlib import contextmanager
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from model_store_fixtures import ModelStoreFixture, locked_store
 
-from acprof.container.model_files import PLAN_FILENAME, plan_download, seal_plan
 from acprof.host import model_store
-
-
-@contextmanager
-def locked_store(root):
-    process = subprocess.Popen([sys.executable, '-I', '-c',
-        "import fcntl,sys; stream=open(sys.argv[1], 'a'); fcntl.flock(stream, fcntl.LOCK_EX); "
-        "print('locked', flush=True); sys.stdin.read()", str(root / '.lock')],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        if process.stdout.readline().strip() != 'locked':
-            raise AssertionError('lock holder did not start')
-        yield process
-    finally:
-        if not process.stdin.closed:
-            process.stdin.close()
-        process.wait(timeout=5)
-        process.stdout.close()
-        process.stderr.close()
 
 
 class TestModelStoreGc:
     @pytest.fixture(autouse=True)
-    def _setup(self, request, tmp_path, monkeypatch):
-        self._request = request
-        directory = tmp_path
-        self.root = Path(str(directory))
-
-    def blob(self, name, size):
-        path = self.root / 'hf/models--example--test/blobs' / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b'x' * size)
-        return path
-
-    def entry(self, index, blobs):
-        key = f'{index:064x}'
-        path = self.root / 'entries' / key
-        snapshot = path / 'hf/models--example--test/snapshots' / ('a' * 40)
-        snapshot.mkdir(parents=True)
-        files = {}
-        for index, blob in enumerate(blobs):
-            name = f'file-{index}.bin'
-            (snapshot / name).symlink_to(os.path.relpath(blob, snapshot))
-            files[name] = {'size': blob.stat().st_size, 'sha256': hashlib.sha256(blob.read_bytes()).hexdigest()}
-        plan = plan_download(model_id='example/test', revision='a' * 40, family='nlp',
-            backend='transformers_pipeline', policy='full', files=files, read_json=lambda _: {})
-        plan['verification'] = 'sha256'
-        (path / PLAN_FILENAME).write_text(json.dumps(seal_plan(plan)))
-        stamp = path / 'last-used'
-        stamp.touch()
-        os.utime(stamp, (int(key, 16), int(key, 16)))
-        return key
+    def _setup(self, tmp_path):
+        self.root = tmp_path
+        self.store = ModelStoreFixture(tmp_path)
 
     @pytest.mark.parametrize("entry_count", [8, 80])
     def test_target_preview_has_fixed_candidate_scan_count_as_entries_grow(self, entry_count):
         for index in range(1, entry_count + 1):
-            self.entry(index, [self.blob(str(index), 4096)])
+            self.store.entry(index, [self.store.blob(str(index), 4096)])
         with patch.object(model_store, "prune_candidates", wraps=model_store.prune_candidates) as scans:
             result = model_store.prune_store(root=self.root, target_bytes=0)
         assert len(result["entries"]) == entry_count
@@ -78,9 +28,9 @@ class TestModelStoreGc:
         assert scans.call_count == 1
 
     def test_target_lru_frees_shared_blob_only_after_its_last_reference(self):
-        shared = self.blob('shared', 100)
-        first = self.entry(1, [shared, self.blob('first', 40)])
-        second = self.entry(2, [shared, self.blob('second', 40)])
+        shared = self.store.blob('shared', 100)
+        first = self.store.entry(1, [shared, self.store.blob('first', 40)])
+        second = self.store.entry(2, [shared, self.store.blob('second', 40)])
         used = model_store.disk_report(self.root)['total_bytes']
         one = model_store.prune_store(root=self.root, target_bytes=used - 40)
         assert (one) == ({'entries': [first], 'reclaimable_bytes': 40})
@@ -109,7 +59,7 @@ class TestModelStoreGc:
 
     @pytest.mark.parametrize("link_kind", ["symlink", "hardlink"])
     def test_prune_rejects_linked_lease_file(self, link_kind):
-        key = self.entry(1, [self.blob("live", 100)])
+        key = self.store.entry(1, [self.store.blob("live", 100)])
         target = self.root / "lease-target"
         target.write_text("sentinel")
         lease_path = self.root / f"{key}.lease"
@@ -125,8 +75,8 @@ class TestModelStoreGc:
         assert target.read_text() == "sentinel"
 
     def test_apply_rechecks_new_leases_and_preserves_the_callers_keep_set(self):
-        blob = self.blob('live', 100)
-        key = self.entry(1, [blob])
+        blob = self.store.blob('live', 100)
+        key = self.store.entry(1, [blob])
         approved = set(model_store.prune_store(root=self.root)['entries'])
         with (self.root / (key + '.lease')).open('a') as lease:
             fcntl.flock(lease, fcntl.LOCK_SH)
@@ -138,10 +88,10 @@ class TestModelStoreGc:
         assert ((self.root / 'entries' / key).exists())
 
     def test_apply_protects_new_entries_and_their_shared_weights(self):
-        shared, old = self.blob('shared', 100), self.blob('old', 40)
-        first = self.entry(1, [shared, old])
+        shared, old = self.store.blob('shared', 100), self.store.blob('old', 40)
+        first = self.store.entry(1, [shared, old])
         approved = set(model_store.prune_store(root=self.root)['entries'])
-        second = self.entry(2, [shared])
+        second = self.store.entry(2, [shared])
         result = model_store.prune_store(root=self.root, apply=True, approved_entries=approved)
         assert (result) == ({'entries': [first], 'reclaimable_bytes': 40})
         assert ((self.root / 'entries' / second).exists())
@@ -149,8 +99,8 @@ class TestModelStoreGc:
         assert not (old.exists())
 
     def test_prune_reclaims_abandoned_hf_incomplete_blobs(self):
-        partial = self.blob('deadbeef.12345678.incomplete', 37)
-        lock_file = self.blob('deadbeef.lock', 11)
+        partial = self.store.blob('deadbeef.12345678.incomplete', 37)
+        lock_file = self.store.blob('deadbeef.lock', 11)
         preview = model_store.prune_store(root=self.root)
         assert preview == {'entries': [], 'reclaimable_bytes': 37}
         assert partial.exists()
@@ -161,8 +111,8 @@ class TestModelStoreGc:
         assert lock_file.exists()
 
     def test_waiting_for_another_process_lock_is_cancelled_before_mutation(self):
-        blob = self.blob('pending', 100)
-        key = self.entry(1, [blob])
+        blob = self.store.blob('pending', 100)
+        key = self.store.entry(1, [blob])
         cancel, waiting = threading.Event(), threading.Event()
         errors = []
 
