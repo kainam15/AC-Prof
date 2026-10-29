@@ -73,6 +73,8 @@
 | `acprof/container/validation.py`、`acprof/workloads/contract.py` | 窗口外输出验证与实际请求工作量摘要 |
 
 下载准备由 `network_policy.py`、`hf_transport.py`、`host/network_preflight.py` 与 `host/model_store.py` 分工：来源/预算、Hub 请求约束、总量/磁盘预检、单份权重与只读挂载。`runtime_images.py` 先核验计划和预算，再准备依赖、Model Store 与只含清单的模型层；细节见[下载网络与 Model Store](../models/model-store.md#下载网络与-model-store)。
+Model Store 的清理路径遍历、目录描述符与相对删除集中在 `host/model_store_paths.py`；
+`host/model_store.py` 保留容量、LRU、共享权重引用及 lease 决策，文件系统操作不反向依赖这些业务策略。
 
 ## 入口与依赖方向
 

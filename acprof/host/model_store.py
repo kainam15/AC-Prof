@@ -32,6 +32,7 @@ from acprof.hf_transport import (
     observed_hf_provenance,
     observed_hf_sources,
 )
+from acprof.host.model_store_paths import StorePaths, store_paths
 from acprof.model_spec import task_model_spec
 from acprof.network_policy import (
     DownloadPolicyError,
@@ -95,8 +96,8 @@ def _check_cancelled(cancel: Event | None) -> None:
         raise ModelStoreCancelled("Model Store operation cancelled")
 
 
-def _open_lock_file(path: Path, *, label: str):
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+def _open_lock_file(path: Path, *, label: str, dir_fd: int | None = None):
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
@@ -170,10 +171,13 @@ def _make_entry_traversable(path: Path) -> None:
 
 
 @contextmanager
-def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[], None] | None = None):
+def store_lock(root: Path, *, cancel: Event | None = None, on_wait: Callable[[], None] | None = None,
+               dir_fd: int | None = None):
     _check_cancelled(cancel)
-    root.mkdir(parents=True, exist_ok=True)
-    with _open_lock_file(root / ".lock", label="Model Store") as stream:
+    if dir_fd is None:
+        root.mkdir(parents=True, exist_ok=True)
+    with _open_lock_file(root / ".lock" if dir_fd is None else Path('.lock'), label="Model Store",
+                         dir_fd=dir_fd) as stream:
         if cancel is None and on_wait is None:
             fcntl.flock(stream, fcntl.LOCK_EX)
         else:
@@ -693,43 +697,64 @@ def prune_candidates(root: Path | None = None, keep: set[str] | None = None, *,
                      target_bytes: str | int | None = None, approved_entries: set[str] | None = None,
                      cancel: Event | None = None) -> dict:
     """Scan entry/blob references once, then decrement references in LRU order."""
+    _check_cancelled(cancel)
     root = root or store_root()
-    keep = keep or set()
     target = parse_bytes(target_bytes)
+    if not root.exists():
+        return {"entries": [], "reclaimable_bytes": 0, "blobs": []}
+    with store_paths(root, lambda: _check_cancelled(cancel)) as paths:
+        result = _plan_prune(paths, keep or set(), target, approved_entries, cancel)
+        paths.check_root()
+        return result
+
+
+def _plan_prune(paths: StorePaths, keep: set[str], target: int | None,
+                approved_entries: set[str] | None, cancel: Event | None) -> dict:
+    root = paths.root
     candidates, entry_blobs, entry_bytes = [], {}, {}
     references: Counter[Path] = Counter()
-    for path in (root / "entries").glob(f"*/{PLAN_FILENAME}"):
-        _check_cancelled(cancel)
-        key = path.parent.name
+    for entry in paths.directories(Path('entries'), missing_ok=True):
+        try:
+            metadata = paths.file_stat(entry / PLAN_FILENAME)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError('Model Store metadata is a symlink or non-regular file')
+        key = entry.name
         leased = False
         try:
-            with _open_lock_file(root / (key + ".lease"), label="Model Store lease") as lock:
+            with _open_lock_file(Path(key + '.lease'), label="Model Store lease", dir_fd=paths.descriptor) as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             leased = True
         links = set()
         size = 0
-        for item in path.parent.rglob("*"):
-            _check_cancelled(cancel)
-            if item.is_symlink():
-                links.add(item.resolve())
-            elif item.is_file():
-                size += item.stat().st_size
+        for item, info in paths.walk(entry):
+            if stat.S_ISLNK(info.st_mode):
+                links.add((root / item).resolve())
+            elif stat.S_ISREG(info.st_mode):
+                size += info.st_size
         entry_blobs[key] = links
         entry_bytes[key] = size
         references.update(links)
         if not leased and key not in keep and (approved_entries is None or key in approved_entries):
-            stamp = path.parent / "last-used"
-            candidates.append((stamp.stat().st_mtime if stamp.exists() else 0, key))
+            try:
+                last_used = paths.file_stat(entry / 'last-used').st_mtime
+            except FileNotFoundError:
+                last_used = 0
+            candidates.append((last_used, key))
     blobs = {}
     from itertools import chain
-    for path in chain((root / "hf").glob("models--*/blobs/*"),
-                      (root / "modelscope").glob("models--*/snapshots/*/**/*")):
-        _check_cancelled(cancel)
+    hf_files = (item for repo in paths.directories(Path('hf'), 'models--*', missing_ok=True)
+                for item in paths.scan(repo / 'blobs', missing_ok=True))
+    ms_files = (item for repo in paths.directories(Path('modelscope'), 'models--*', missing_ok=True)
+                for snapshot in paths.directories(repo / 'snapshots', missing_ok=True) for item in paths.walk(snapshot))
+    for relative, info in chain(hf_files, ms_files):
         # Production GC scans run under store_lock, shared with prepare_model, so any
         # Hugging Face .incomplete blob visible here is residue from an interrupted download.
-        if path.is_file() and not path.is_symlink() and not path.name.endswith(".lock"):
-            blobs[path.resolve()] = (path, path.stat().st_size)
+        if stat.S_ISREG(info.st_mode) and not relative.name.endswith('.lock'):
+            path = root / relative
+            blobs[path] = (path, info.st_size)
     unused = {blob for blob in blobs if not references[blob]}
     reclaimed = sum(blobs[blob][1] for blob in unused)
     used = disk_report(root, cancel=cancel)["total_bytes"] if target is not None else 0
@@ -755,18 +780,27 @@ def prune_store(*, root: Path | None = None, apply: bool = False, keep: set[str]
                 target_bytes: str | int | None = None, approved_entries: set[str] | None = None,
                 cancel: Event | None = None, on_wait: Callable[[], None] | None = None) -> dict:
     root = root or store_root()
-    with store_lock(root, cancel=cancel, on_wait=on_wait):
+    _check_cancelled(cancel)
+    root.mkdir(parents=True, exist_ok=True)
+    with store_paths(root, lambda: _check_cancelled(cancel)) as paths, store_lock(
+            paths.root, cancel=cancel, on_wait=on_wait, dir_fd=paths.descriptor):
         # Preview is advisory. Every application rechecks leases and shared blobs
         # under the same lock used when publishing entries or acquiring leases.
-        result = prune_candidates(root, keep, target_bytes=target_bytes, approved_entries=approved_entries, cancel=cancel)
+        paths.check_root()
+        result = prune_candidates(paths.root, keep, target_bytes=target_bytes, approved_entries=approved_entries, cancel=cancel)
+        paths.check_root()
         _check_cancelled(cancel)
         if apply:
+            entries = [Path('entries') / key for key in result['entries']]
+            blobs = [path.relative_to(paths.root) for path in result['blobs']]
+            links = [path for path, info in paths.walk(Path('hf'), missing_ok=True) if stat.S_ISLNK(info.st_mode)]
+            paths.validate_deletions(entries, blobs)
+            _check_cancelled(cancel)
             # Once deletion begins, finish before releasing the lock/UI busy state.
-            for key in result["entries"]:
-                shutil.rmtree(root / "entries" / key)
-            for path in result["blobs"]:
-                path.unlink()
-            for path in (root / "hf").rglob("*"):
-                if path.is_symlink() and not path.exists():
-                    path.unlink()
+            for path in entries:
+                paths.remove_tree(path)
+            for path in blobs:
+                paths.unlink(path)
+            for path in links:
+                paths.unlink_if_broken(path)
         return {k: v for k, v in result.items() if k != "blobs"}

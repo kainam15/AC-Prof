@@ -3,6 +3,7 @@ import errno
 import fcntl
 import os
 import threading
+from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
@@ -85,20 +86,25 @@ class TestModelStoreGc:
         entries = [self.store.entry(index, [self.store.blob(str(index), 4096)])
                    for index in range(1, entry_count + 1)]
         metadata = sum(len((self.root / 'entries' / key / PLAN_FILENAME).read_bytes()) for key in entries)
-        traversals = []
-        rglob = Path.rglob
+        traversals = Counter()
+        scandir = os.scandir
+        expected = {str(path): 1 for path in (self.root / 'entries').rglob('*') if path.is_dir()}
+        expected[str(self.root / 'entries')] = 1
 
-        def track_scan(path, *args, **kwargs):
-            traversals.append(path)
-            return rglob(path, *args, **kwargs)
+        def track_scan(path):
+            if isinstance(path, int):
+                directory = Path(os.readlink(f'/proc/self/fd/{path}'))
+                if directory.is_relative_to(self.root / 'entries'):
+                    traversals[str(directory)] += 1
+            return scandir(path)
 
-        monkeypatch.setattr(Path, 'rglob', track_scan)
+        monkeypatch.setattr(os, 'scandir', track_scan)
         with patch.object(model_store, 'disk_report', wraps=model_store.disk_report) as totals:
             result = model_store.prune_store(root=self.root, target_bytes=0)
         assert len(result["entries"]) == entry_count
         assert result["reclaimable_bytes"] == entry_count * 4096 + metadata
         assert totals.call_count == 1
-        assert sorted(traversals) == sorted([self.root, *(self.root / 'entries' / key for key in entries)])
+        assert traversals == expected
 
     def test_target_lru_frees_shared_blob_only_after_its_last_reference(self):
         shared = self.store.blob('shared', 100)

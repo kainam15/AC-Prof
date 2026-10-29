@@ -67,6 +67,11 @@ lease 和共享 blob 引用；TUI 同时限定在用户确认的 entry 集合内
 TUI 执行时沿用预览的容量目标，按锁内的当前占用重新决定还需淘汰哪些批准条目；
 其他任务已经释放空间时，保留不再需要淘汰的模型。未设置目标仍清理所有批准且未使用的条目，
 显式 `0` 仍表示零容量目标；未引用文件继续按既有规则回收。
+清理时固定已打开的 Store 根目录，逐级检查 `entries`、HF 和 ModelScope 缓存的目录组件，
+拒绝其中的目录符号链接；配置的 Store 根路径本身仍允许是符号链接，普通权重文件链接继续支持。
+实际删除相对于已打开的父目录执行，防止检查后替换路径把删除重定向到 Store 外。
+在任何删除开始前复核整个删除计划的路径；扫描、取消和错误路径均关闭目录描述符。
+若其他程序在删除期间修改缓存而导致操作失败，会明确返回错误；已经完成的删除不回滚。
 等待锁和扫描可以协作取消，尚未开始删除时不改动权重；已开始删除则持锁完成收尾后释放界面任务状态。
 这些工作只在准备或显式存储管理期间执行，正式测量窗口不扫描缓存。
 
@@ -79,6 +84,9 @@ TUI 执行时沿用预览的容量目标，按锁内的当前占用重新决定�
 此设计参考 Hugging Face Hub 的 [缓存扫描与删除策略](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_cache_manager.py)
 （Apache-2.0，持续维护），借用先扫描、再生成共享文件删除计划的思路。AC-Prof 保留自己的
 固定计划视图和活动 lease，使用现有标准库实现引用计数与可取消锁等待，不新增缓存框架或依赖。
+目录边界借鉴 [CPython `shutil.rmtree` 的目录描述符实现](https://github.com/python/cpython/blob/3.12/Lib/shutil.py)
+及 [Issue #46010](https://github.com/python/cpython/issues/46010) 的符号链接删除问题（PSF License）；
+调用标准库公开的 `dir_fd` API，不复制删除器，也不增加正式测量窗口内的扫描。
 
 Python/CUDA runtime build 默认消费锁定的精确 wheel URL，`PYPI_MIRROR_INDEX` 不能改写已锁定的 URL。国内受限流量场景可显式设置 `ACPROF_PYPI_ARTIFACT_MIRROR=tencent`：仅在**下载传输层**将 `https://files.pythonhosted.org/packages/...` 映射为 `https://mirrors.cloud.tencent.com/pypi/packages/...`，锁文件中的官方 URL、版本及 SHA256 保持不变；整文件 SHA256 通过后才发布缓存。此传输层路由不同于修改 lock 或重新解析依赖。镜像请求强制直连、不使用进程 HTTP(S) 代理；镜像返回 HTTP、TLS、来源跳转或哈希错误则失败，**不自动退回可能消耗 VPN 流量的官方源**。完整的内容寻址缓存直接复用；来自旧来源的未完成 `.part` 明确放弃并从镜像重新下载，同一镜像的未完成传输继续支持 Range。选择第三方镜像需要信任其可用性；SHA256 可核对固定制品的字节内容。该选项本身不会修改 PyTorch 专用仓库、Debian snapshot、OCI 或 HF 权重来源。另有独立的 `ACPROF_PYTORCH_ARTIFACT_MIRROR=aliyun`（仅锁定的 `download-r2.pytorch.org/whl/`）及 `ACPROF_DEBIAN_ARTIFACT_MIRROR=tencent`（仅固定时间戳的 `snapshot.debian.org` 包），同样保留原锁 SHA256、缓存身份、Range 恢复与镜像失败即停止的约束；默认均关闭。OCI/HF 仍单独处理。
 `scripts/compile_locks.py --index-url <https-index> --variant cpu` 让固定 uv 重新从指定索引解析目标平台 artifacts；`--torch-index-url` 可显式指定相应 CUDA wheel 索引。默认保留 exact versions；同版本 artifact SHA256 改变会拒绝替换。生成 `.artifacts.json` 保存目标平台、来源与已知大小。不要在锁文件中批量替换 URL、版本或 SHA256；上述 `ACPROF_PYPI_ARTIFACT_MIRROR` 仅作受限范围、严格 SHA256 校验的传输路由。`--check --variant cpu --variant cu124 --variant cu128` 是离线锁校验，不能代替三个环境的实际构建/推理。
