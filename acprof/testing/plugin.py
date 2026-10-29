@@ -12,6 +12,13 @@ from acprof.testing.evidence import Evidence
 from acprof.testing.sharding import select_shard
 
 EVIDENCE = pytest.StashKey[Evidence]()
+TUI_TEST_ROOT = Path(__file__).resolve().parents[2] / "tests" / "tui"
+
+
+def is_tui_suite(path: Path) -> bool:
+    """Classify the feature-suite by path, including tests with pure TUI logic."""
+    return path.is_relative_to(TUI_TEST_ROOT)
+
 
 
 def pytest_addoption(parser):
@@ -32,7 +39,7 @@ def pytest_configure(config):
         config.addinivalue_line("python_files", pattern)
     # The wrapper also supports standalone fixture directories without pyproject.toml.
     registered = {marker.split(":", 1)[0].split("(", 1)[0] for marker in config.getini("markers")}
-    for name in ("unit", "wsl", "native_linux", "hardware", "integration", "runtime", "visual"):
+    for name in ("unit", "tui", "wsl", "native_linux", "hardware", "integration", "runtime", "visual"):
         if name not in registered:
             config.addinivalue_line("markers", f"{name}: AC-Prof test category")
     config.stash[EVIDENCE] = Evidence(config)
@@ -55,8 +62,10 @@ def pytest_ignore_collect(collection_path, config):
 def pytest_collection_modifyitems(config, items):
     environment = detect_environment()
     for item in items:
+        if is_tui_suite(item.path):
+            item.add_marker(pytest.mark.tui)
         if not any(item.get_closest_marker(name) for name in
-                   ("wsl", "native_linux", "hardware", "integration", "runtime", "visual")):
+                   ("tui", "wsl", "native_linux", "hardware", "integration", "runtime", "visual")):
             item.add_marker(pytest.mark.unit)
         if item.get_closest_marker("native_linux") and not environment.native:
             item.add_marker(pytest.mark.skip(reason="requires Native Linux validation"))

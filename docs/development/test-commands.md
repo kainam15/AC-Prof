@@ -62,8 +62,10 @@ uv run pytest tests/tui/widgets/test_tui_input.py
 `async def test_*`，测试与 async fixture 的 event loop 均为 function scope，
 Textual `run_test()` 通过 async context manager 完成退出；不要遗留后台 task。
 `--strict-markers` 拒绝未注册标记，`--import-mode=importlib` 允许领域目录中同名测试模块。
-`unit` 自动赋予无 integration/runtime/visual/platform/hardware 标记的测试；
-平台 skip 只作用于显式 `wsl`、`native_linux`，`hardware` 本身不跳过失败。
+`tui` 自动标记 `tests/tui/` 功能域的测试（包括纯 TUI 逻辑），与其它平台/运行时 marker 独立；
+`unit` 自动赋予无 tui/integration/runtime/visual/platform/hardware 标记的测试。
+`unit` 只表示不要求专项外部环境，不承诺绝不启动 UI 或恒定低耗时；
+跨功能域调用 TUI 的测试仍须按影响范围审查。平台 skip 只作用于显式 `wsl`、`native_linux`，`hardware` 本身不跳过失败。
 原有缺依赖或显式 opt-in skip 原因保留；CI runtime 使用 `--require-no-skips` 拒绝缺失验证。
 
 `scripts/check_test_framework.py` 在 pre-commit 与 CI 中禁止旧执行框架的导入，允许 mock；
@@ -71,6 +73,43 @@ Textual `run_test()` 通过 async context manager 完成退出；不要遗留后
 全局模块 patch、进程锁、TUI 和资源敏感场景。未来仅在完成 port、临时目录、全局 cache、
 Docker 名称与 host 状态审计后，对独立 unit 子集比较串行/并行结果；CI 沿用
 [确定性分片与完整性验收](ci.md#ci-与环境测试)，数量以 workflow 的 `HOST_TEST_SHARDS` 为准。
+
+### 本地测试反馈与安全分片
+
+先按受影响模块运行 `uv run pytest tests/<domain>/<subdomain>/test_file.py -q`。
+按 `unit` 快速反馈时不会执行 `tests/tui/` 的交互与纯逻辑测试；
+修改 TUI 或跨域界面流程时仍须执行对应测试文件及所需尺寸、语言、视觉回归。
+完整测试验收仍由 CI 的全部分片覆盖，不以快速筛选代替。
+
+```bash
+# 非 TUI 的隔离单元测试；仍可能包含跨域的 TUI 辅助测试
+uv run pytest -m unit -q
+# TUI 专题测试（独立串行）
+uv run pytest tests/tui -q
+# 从已有测试 JSON 报告找累计最慢的文件和参数化测试组，无需重跑
+uv run python scripts/report_test_durations.py internal-testing/<task>/full-tests.json --top 30
+# 本地受控并行：只开放已审查的 analysis、quality 单元测试域
+uv run python scripts/run_local_tests.py --scope fast --jobs 2 --path tests/analysis
+# 其余域、完整套件保持串行；输出写入 internal-testing/local-tests/
+uv run python scripts/run_local_tests.py --scope full --jobs 1
+```
+
+本地脚本复用 `scripts/run_tests.py` 和 CI 的 `aggregate_test_reports.py` 完整性校验，
+分片分别保存 `shard-N.log/json`，再输出 `summary.json`；
+任一失败、缺少分片、重复/遗漏测试、源码或依赖身份不一致均返回非零退出码。
+报告和临时目录只写入被忽略的 `internal-testing/local-tests/`，不会写入实验 `results/`。
+显式 `--jobs 2` 仅支持 `--scope fast --path tests/analysis...` 或 `tests/quality...`：
+每片有独立 pytest basetemp、缓存禁用、子进程组清理，并将内部数值线程上限设为 1。
+成功后清理临时 basetemp，失败时保留诊断文件；`--output` 只接受 `internal-testing/` 内的新路径。
+其它域包含共享状态、TUI 和资源敏感场景，未经隔离验证不开放本地并行。
+同一机器的多个 worktree 仍需人工协调总并发，正式采集窗口不能与测试并行。
+本地不安装 `pytest-xdist`，不改变 CI 的完整八分片协议。
+
+耗时报告复用已有 evidence 的每条用例 `duration_s`（setup/call/teardown 之和），
+聚合按文件与去除参数后缀的测试组排序；这是**累计用例耗时**，并非所有用例可以并行节省的实际墙钟时间。
+旧提交的报告可以找热点，但不能直接当作当前提交、当前负载的基线。
+TUI 参数组重构必须保留每个原语言/尺寸/视图或字段组合的断言，
+并用重新采集的执行记录验证，而不凭测试数量判断覆盖。
 
 静态门槛由 pre-commit 与 CI 共用：全仓库启用 Ruff `S110`，禁止新增无说明的
 `try/except/pass`。诊断回调自身失败的两个保留位置使用局部、带理由的豁免，原始失败和失败状态仍被记录。

@@ -34,6 +34,8 @@ uv run pytest --collect-only -q
 uv run pytest tests/models -q
 uv run pytest tests/tui/widgets/test_tui_input.py -q
 uv run pytest tests/visual -q
+uv run pytest -m unit -q              # 非 TUI 专题的单元测试
+uv run python scripts/run_local_tests.py --scope fast --jobs 2 --path tests/analysis
 ```
 
 运行策略、标记及 CI 分片规则见 [开发测试指南](../docs/development/test-commands.md)。

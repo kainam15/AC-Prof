@@ -4,8 +4,8 @@
 
 ## 验证范围
 
-WSL2 是开发与 PARTIAL 采集平台。pytest 注册 `unit`、`wsl`、`native_linux`、`hardware`
-markers；未标集成边界的测试归入 unit。WSL 默认执行 `uv run pytest -m "not native_linux"`，
+WSL2 是开发与 PARTIAL 采集平台。pytest 注册 `unit`、`tui`、`wsl`、`native_linux`、`hardware`
+markers；`tests/tui/` 归入 TUI 专题，未标记其它专项边界的测试归入 unit。WSL 默认执行 `uv run pytest -m "not native_linux"`，
 Native Linux 无需此平台筛选，具体测试范围按下表选择。仅显式平台集成测试按真实环境 skip，不因 WSL 跳过普通代码异常。
 模拟 sysfs/NVML 的单元测试仍需执行；hardware marker 本身不隐藏失败。
 环境检测、能力矩阵、历史 unknown、CSV 合并与比较隔离回归在 `test_environment_policy.py`、
